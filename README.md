@@ -303,10 +303,10 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ai prompt-eval [OPTIONS]` | Measure the deterministic suppression layer against recorded review verdicts. |
 |  | `devops ai test-gen [OPTIONS] <target_file>` | Synthesize isolated pytest unit test suites for functions or source files. |
 |  | `devops ai chaos-model [OPTIONS]` | Model dependency chaos engineering suite simulating provider faults and validating local failovers. |
-|  | `devops ai quiesce [OPTIONS]` | Centralized emergency quiesce cleanly suspending active agent loops and background tasks. |
-|  | `devops ai failover [OPTIONS]` | Emergency failover controller re-routing tasks to designated fallback endpoints. |
-|  | `devops ai resume [OPTIONS]` | Gracefully resume suspended constellation agent loops and task runners. |
-|  | `devops ai constellation [OPTIONS]` | Display constellation fleet status, active fallback routes, and suspended tasks. |
+|  | `devops ai quiesce [OPTIONS]` | Set the constellation quiesce flag with a reason; it stops nothing. |
+|  | `devops ai failover [OPTIONS]` | Record a fallback route in the constellation flag; `devops ai gateway failover` reroutes requests. |
+|  | `devops ai resume [OPTIONS]` | Clear the constellation quiesce or failover flag. |
+|  | `devops ai constellation [OPTIONS]` | Show the constellation flag: state, reason and recorded fallback route. |
 |  | `devops ai review [OPTIONS] COMMAND [ARGS]...` | AI-powered multi-persona code review system. |
 |  | `devops ai analyze [OPTIONS] COMMAND [ARGS]...` | Analyze codebase metadata and generate structural outlines. |
 |  | `devops ai rag [OPTIONS] COMMAND [ARGS]...` | Manage RAG vector embeddings, indexing, and semantic search (Qdrant). |
@@ -396,7 +396,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops telemetry connect [OPTIONS]` | Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there. |
 |  | `devops telemetry logfire [OPTIONS]` | Display Logfire structured observability bridge status and token metrics. |
 |  | `devops telemetry test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
-|  | `devops telemetry profile [OPTIONS] <command>` | Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans. |
+|  | `devops telemetry profile [OPTIONS] <command>` | Run a command, or name a trace, and show its span waterfall as Jaeger recorded it. |
 |  | `devops telemetry open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
 | **cloudflare** | `devops cloudflare status [OPTIONS]` | Verify Cloudflare API token authentication and inspect zone status. |
 |  | `devops cloudflare dns COMMAND [ARGS]...` | Cloudflare Zero Trust tunnels and DNS management. |

@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import logging
 import re
+import warnings
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,9 @@ def extract_security_tags(content: str) -> list[str]:
 def _extract_python_imports(content: str) -> list[str]:
     """Parse AST to extract imported module names from Python source."""
     try:
-        tree = ast.parse(content)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(content)
         imports: list[str] = []
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -112,7 +115,9 @@ def extract_declarations(content: str, language: str) -> list[str]:
 
     if lang_key.startswith("python") or lang_key == "py":
         try:
-            tree = ast.parse(content)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                tree = ast.parse(content)
             for node in ast.walk(tree):
                 if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
                     declarations.append(node.name)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_TRIVY, build_trivy_scan_cmd
@@ -12,10 +12,8 @@ from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_TRIVY_SCAN_TYPE,
     DEFAULT_TRIVY_SEVERITIES,
-    DEFAULT_TRIVY_TIMEOUT_SECONDS,
 )
-from devops_cli.dry_run.state import is_dry_run
-from devops_cli.security.base import BaseSecurityScanner
+from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +100,8 @@ class TrivyScanner(BaseSecurityScanner):
 
     name: str = "trivy"
     binary_name: str = BIN_TRIVY
+    gating: ClassVar[bool] = True
+    has_builtin_patterns: ClassVar[bool] = False
 
     def build_command(
         self,
@@ -137,38 +137,7 @@ def run_trivy_scan(
     target: Path = DEFAULT_CURRENT_PATH,
     scan_type: str = DEFAULT_TRIVY_SCAN_TYPE,
     severity: str = DEFAULT_TRIVY_SEVERITIES,
-) -> list[Finding]:
-    """Execute Trivy scanner subprocess and return parsed findings."""
-    from devops_cli.telemetry import trace_span
-
+) -> ScanOutcome:
+    """Execute Trivy scanner and return scan outcome."""
     scanner = TrivyScanner()
-    with trace_span(
-        "security.scan.trivy",
-        attributes={
-            "target": str(target),
-            "scan_type": scan_type,
-            "severity": severity,
-        },
-    ) as span_h:
-        if is_dry_run():
-            return scanner.dry_run_scan(target)
-
-        cmd = scanner.build_command(target, scan_type=scan_type, severity=severity)
-        findings: list[Finding] = []
-
-        try:
-            from devops_cli.core.process import run_json_subprocess
-
-            data = run_json_subprocess(
-                cmd,
-                cwd=target if target.is_dir() else target.parent,
-                timeout=DEFAULT_TRIVY_TIMEOUT_SECONDS,
-                default={},
-                check=False,
-            )
-            findings = scanner.parse_output(data, target)
-        except Exception as exc:
-            logger.debug(f"Trivy scan execution skipped or failed: {exc}")
-
-        span_h.set_attribute("findings_count", len(findings))
-        return findings
+    return scanner.scan(target, scan_type=scan_type, severity=severity)

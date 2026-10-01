@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -195,3 +196,88 @@ def test_run_gitleaks_scan_ignore_tests_windows_paths(tmp_path: Path) -> None:
         # With ignore_tests=False, both are kept
         res_all = run_gitleaks_scan(tmp_path, ignore_tests=False)
         assert len(res_all) == 2
+
+
+def test_gitleaks_native_word_boundary_and_placeholders(tmp_path: Path) -> None:
+    """Verify word boundaries prevent 'task-*.md' matches and placeholder secrets are filtered."""
+    from devops_cli.security.gitleaks import _is_placeholder_secret
+
+    # 1. Test placeholder secret filter
+    placeholders = [
+        "ghp_your_personal_access_token",
+        "sk-proj-placeholder_value_1234567890",
+        "dummy_secret_value_12345",
+        "api_key_insert_token_here_12345",
+        "<masked-secret>",
+    ]
+    actual_placeholders = tuple(_is_placeholder_secret(p) for p in placeholders)
+    assert actual_placeholders == (True, True, True, True, True)
+
+    # Real-looking token is not treated as a placeholder
+    real_candidate = "sk-proj-" + "aB3d" * 12
+    assert _is_placeholder_secret(real_candidate) is False
+
+    # 2. Test file with task markdown links and task filenames
+    task_file = tmp_path / "task-677-prepare-release-v0.2.23.md"
+    task_file.write_text(
+        "# Task 677: Prepare Release\n"
+        "Link: [task-677-prepare-release-v0.2.23.md](file:///workspaces/devops-cli/docs/agent/tasks/task-677-prepare-release-v0.2.23.md)\n"
+        "Placeholder: ghp_your_personal_access_token\n",
+        encoding="utf-8",
+    )
+    task_findings = _scan_file_native_secrets(task_file)
+    assert len(task_findings) == 0
+
+    # 3. Test genuine OpenAI key is detected
+    secret_file = tmp_path / "real_key.env"
+    secret_file.write_text(f"OPENAI_KEY={real_candidate}\n", encoding="utf-8")
+    secret_findings = _scan_file_native_secrets(secret_file)
+    assert (len(secret_findings), "OpenAI" in secret_findings[0].title) == (1, True)
+
+
+def test_run_gitleaks_scan_list_target_scans_every_file_without_binary(tmp_path: Path) -> None:
+    """Built-in patterns cover every file of a list target, not only the first."""
+    clean = tmp_path / "clean.py"
+    clean.write_text("def add(a: int, b: int) -> int:\n    return a + b\n", encoding="utf-8")
+    secret = tmp_path / "secret.env"
+    secret.write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n", encoding="utf-8")
+
+    with patch("devops_cli.security.base.check_binary", return_value=False):
+        outcome = run_gitleaks_scan([clean, secret])
+
+    assert outcome.status == "built-in patterns"
+    assert [f.location for f in outcome.findings] == [f"{secret}:1"]
+
+
+def test_run_gitleaks_scan_list_target_runs_binary_on_every_file(tmp_path: Path) -> None:
+    """Gitleaks takes one source per run, so a list target runs it once per file."""
+    first = tmp_path / "first.py"
+    first.write_text("x = 1\n", encoding="utf-8")
+    second = tmp_path / "second.env"
+    second.write_text("TOKEN=redacted\n", encoding="utf-8")
+    sources: list[str] = []
+
+    def fake_gitleaks(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        source = cmd[cmd.index("--source") + 1]
+        sources.append(source)
+        leaks = []
+        if source == str(second):
+            leaks = [
+                {
+                    "RuleID": "generic-api-key",
+                    "Description": "Generic API Key",
+                    "File": source,
+                    "StartLine": 1,
+                    "Match": "TOKEN",
+                }
+            ]
+        return subprocess.CompletedProcess(
+            cmd, 1 if leaks else 0, stdout=json.dumps(leaks), stderr=""
+        )
+
+    with patch("devops_cli.security.gitleaks.run_subprocess", side_effect=fake_gitleaks):
+        outcome = run_gitleaks_scan([first, second])
+
+    assert sources == [str(first), str(second)]
+    assert outcome.status == "ran"
+    assert [f.location for f in outcome.findings] == [f"{second}:1"]

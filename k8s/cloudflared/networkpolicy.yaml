@@ -40,7 +40,12 @@ spec:
           port: 7844
         - protocol: TCP
           port: 7844
-    # Allow forwarding traffic exclusively to Traefik in kube-system
+    # Allow forwarding traffic exclusively to Traefik in kube-system.
+    # NOTE: no `ports:` restriction here — this cluster's kube-router NetworkPolicy
+    # engine fails to enforce (as "allow") egress rules that combine a peer
+    # selector (`to:`) with a `ports:` restriction in the same rule, silently
+    # rejecting matching traffic. The `to:` selector alone still tightly scopes
+    # this rule to the Traefik pod specifically.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -48,8 +53,3 @@ spec:
           podSelector:
             matchLabels:
               app.kubernetes.io/name: traefik
-      ports:
-        - protocol: TCP
-          port: 80
-        - protocol: TCP
-          port: 443

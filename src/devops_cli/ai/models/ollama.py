@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ipaddress
 import os
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
@@ -33,21 +32,9 @@ DEFAULT_OLLAMA_BASE_URL: str = "http://localhost:11434"
 
 
 def _is_cloud_metadata_host(host: str) -> bool:
-    clean = host.strip().lower().strip("[]").rstrip(".")
-    if clean in ("169.254.169.254", "fd00:ec2::254", "metadata.google.internal", "metadata"):
-        return True
-    try:
-        ip = ipaddress.ip_address(clean)
-        return ip.is_link_local
-    except ValueError:
-        pass
+    from devops_cli.core.validation import is_cloud_metadata_host
 
-    from devops_cli.core.validation import _resolve_host_ips
-
-    resolved_ips = _resolve_host_ips(clean)
-    return any(
-        ip.is_link_local or str(ip) in ("169.254.169.254", "fd00:ec2::254") for ip in resolved_ips
-    )
+    return is_cloud_metadata_host(host, resolve_dns=True)
 
 
 def normalize_ollama_base_url(url: str, *, allow_private: bool = True) -> str:

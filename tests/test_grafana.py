@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -72,8 +73,107 @@ def test_grafana_dashboards_sync_success(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "Dashboard sync completed" in result.output
 
 
+class StubGrafana:
+    """A Grafana that answers each dashboard post by uid and records every request.
+
+    `provisioned` is the `meta.provisioned` a dashboard lookup returns; `None` fails the lookup.
+    """
+
+    def __init__(self, post_status: dict[str, int], provisioned: bool | None = False) -> None:
+        self.post_status = post_status
+        self.provisioned = provisioned
+        self.requests: list[tuple[str, str]] = []
+
+    def __call__(self, request: httpx2.Request) -> httpx2.Response:
+        if request.method == "GET":
+            uid = request.url.path.rsplit("/", 1)[-1]
+            self.requests.append(("GET", uid))
+            if self.provisioned is None:
+                return httpx2.Response(404, json={"message": "Dashboard not found"})
+            return httpx2.Response(
+                200, json={"dashboard": {"uid": uid}, "meta": {"provisioned": self.provisioned}}
+            )
+        uid = json.loads(request.content)["dashboard"]["uid"]
+        self.requests.append(("POST", uid))
+        status = self.post_status.get(uid, 200)
+        return httpx2.Response(status, json={"status": "success" if status == 200 else "error"})
+
+
+def _sync_against(
+    stub: StubGrafana, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[int, str]:
+    """Sync three dashboards, `a`, `b` and `c`, to the stub; return the exit code and output."""
+    for uid in ("a", "b", "c"):
+        (tmp_path / f"{uid}.json").write_text(
+            json.dumps({"uid": uid, "title": f"Dashboard {uid}", "panels": []}), encoding="utf-8"
+        )
+    real_client = httpx2.Client
+    monkeypatch.setattr("devops_cli.commands.grafana.load_settings", Settings)
+    monkeypatch.setattr(
+        "devops_cli.commands.grafana._client_args",
+        lambda settings: ("http://example.com", {"Content-Type": "application/json"}),
+    )
+    monkeypatch.setattr(
+        httpx2,
+        "Client",
+        lambda *args, **kwargs: real_client(transport=httpx2.MockTransport(stub)),
+    )
+    result = runner.invoke(grafana_app, ["dashboards", "sync", "--dir", str(tmp_path)])
+    return result.exit_code, result.output
+
+
+def test_sync_tries_every_dashboard_and_fails_when_one_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a 500 on one dashboard still posts the others, then exits 1 with the counts."""
+    stub = StubGrafana({"b": 500})
+
+    exit_code, output = _sync_against(stub, tmp_path, monkeypatch)
+
+    assert (exit_code, stub.requests, "2 synced, 0 skipped, 1 failed" in output) == (
+        1,
+        [("POST", "a"), ("POST", "b"), ("POST", "c")],
+        True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("provisioned", "exit_code", "counts"),
+    [
+        (True, 0, "2 synced, 1 skipped, 0 failed"),
+        (False, 1, "2 synced, 0 skipped, 1 failed"),
+        (None, 1, "2 synced, 0 skipped, 1 failed"),
+    ],
+    ids=["provisioned", "not-provisioned", "lookup-fails"],
+)
+def test_sync_skips_a_dashboard_grafana_holds_as_provisioned(
+    provisioned: bool | None,
+    exit_code: int,
+    counts: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a 400 on a provisioned dashboard counts as skipped, read from `meta.provisioned`.
+
+    The Grafana sidecar provisions the stack's dashboards, and Grafana refuses an API save
+    over a provisioned uid; a 400 on any other dashboard, or one whose lookup fails, is still a
+    failure.
+    """
+    stub = StubGrafana({"b": 400}, provisioned=provisioned)
+
+    result = _sync_against(stub, tmp_path, monkeypatch)
+
+    assert (result[0], stub.requests, counts in result[1], "b.json" in result[1]) == (
+        exit_code,
+        [("POST", "a"), ("POST", "b"), ("GET", "b"), ("POST", "c")],
+        True,
+        True,
+    )
+
+
 def test_grafana_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify grafana dashboards list, export, import, search, datasources, and alerts execution."""
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
     )
@@ -114,39 +214,39 @@ def test_grafana_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     mock_settings.grafana.url = "http://localhost:3000"
     mock_settings.ai.allow_private_network = True
 
-    def mock_get(*args: object, **kwargs: object) -> MagicMock:
-        resp = MagicMock()
-        resp.status_code = 200
-        url_str = ""
-        for a in args:
-            if isinstance(a, str) and ("http" in a or "/api/" in a):
-                url_str = a
-                break
-        if not url_str and "url" in kwargs:
-            url_str = str(kwargs["url"])
+    endpoint_map = {
+        "dashboards/uid": mock_dashboard_detail,
+        "search": mock_dashboards,
+        "datasources": mock_datasources,
+        "alert-rules": mock_alerts,
+    }
 
-        if "dashboards/uid" in url_str:
-            resp.json.return_value = mock_dashboard_detail
-        elif "search" in url_str:
-            resp.json.return_value = mock_dashboards
-        elif "datasources" in url_str:
-            resp.json.return_value = mock_datasources
-        elif "alert-rules" in url_str:
-            resp.json.return_value = mock_alerts
-        else:
-            resp.json.return_value = []
+    def mock_get(*args: object, **kwargs: object) -> MagicMock:
+        resp = MagicMock(status_code=200)
+        url_str = next(
+            (
+                str(a)
+                for a in (*args, kwargs.get("url", ""))
+                if "http" in str(a) or "/api/" in str(a)
+            ),
+            "",
+        )
+        resp.json.return_value = next(
+            (val for key, val in endpoint_map.items() if key in url_str), []
+        )
         return resp
 
     def mock_post(*args: object, **kwargs: object) -> MagicMock:
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.json.return_value = {"slug": "imported-dash", "status": "success"}
-        return resp
+        return MagicMock(
+            status_code=200, json=lambda: {"slug": "imported-dash", "status": "success"}
+        )
 
+    monkeypatch.chdir(tmp_path)
     sample_dash_file = tmp_path / "dash.json"
     sample_dash_file.write_text(
         json.dumps({"title": "Sample Dashboard", "panels": []}), encoding="utf-8"
     )
+    export_out = tmp_path / "test_exported.json"
 
     with (
         patch("devops_cli.commands.grafana.httpx2.Client.get", side_effect=mock_get),
@@ -154,27 +254,42 @@ def test_grafana_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         patch("devops_cli.commands.grafana.load_settings", return_value=mock_settings),
     ):
         res_list = runner.invoke(grafana_app, ["dashboards", "list"])
-        assert res_list.exit_code == 0
-        export_out = Path("test_exported.json")
-        try:
-            res_export = runner.invoke(
-                grafana_app,
-                ["dashboards", "export", "cluster-overview", "--output", str(export_out)],
-            )
-            assert res_export.exit_code == 0
-            assert export_out.exists()
-        finally:
-            if export_out.exists():
-                export_out.unlink()
-
+        res_export = runner.invoke(
+            grafana_app,
+            ["dashboards", "export", "cluster-overview", "--output", str(export_out)],
+        )
+        export_created = export_out.exists()
         res_import = runner.invoke(grafana_app, ["dashboards", "import", str(sample_dash_file)])
-        assert res_import.exit_code == 0
-
         res_search = runner.invoke(grafana_app, ["search", "--query", "cluster"])
-        assert res_search.exit_code == 0
-
         res_ds = runner.invoke(grafana_app, ["datasources"])
-        assert res_ds.exit_code == 0
-
         res_alerts = runner.invoke(grafana_app, ["alerts"])
-        assert res_alerts.exit_code == 0
+
+        assert (
+            res_list.exit_code,
+            res_export.exit_code,
+            export_created,
+            res_import.exit_code,
+            res_search.exit_code,
+            res_ds.exit_code,
+            res_alerts.exit_code,
+        ) == (0, 0, True, 0, 0, 0, 0)
+
+
+def test_grafana_client_args_masked_token_fallback() -> None:
+    from devops_cli.commands.grafana import _client_args
+
+    settings_masked = Settings()
+    settings_masked.grafana.url = "http://example.com:3000"
+    with (
+        patch("devops_cli.commands.grafana.get_grafana_token", return_value="******"),
+        patch(
+            "devops_cli.k8s.credentials.get_or_mint_grafana_auth",
+            return_value=("minted-token", None),
+        ) as mock_mint,
+    ):
+        base_url, headers = _client_args(settings_masked)
+        assert (
+            base_url,
+            headers.get("Authorization"),
+            mock_mint.called,
+        ) == ("http://example.com:3000", "Bearer minted-token", True)

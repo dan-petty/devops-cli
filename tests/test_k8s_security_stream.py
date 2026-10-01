@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
+from devops_cli.exceptions.k8s import KubernetesLoggingError
 from devops_cli.k8s.security_stream import (
     generate_simulated_alerts,
     matches_severity_filter,
@@ -153,18 +155,27 @@ def test_stream_security_events_live_kubectl(mock_run: MagicMock) -> None:
 
 
 @patch("devops_cli.k8s.security_stream.run_subprocess")
-def test_stream_security_events_kubectl_failure(mock_run: MagicMock) -> None:
-    from devops_cli.exceptions.k8s import KubernetesLoggingError
-
+def test_stream_security_events_kubectl_failure(
+    mock_run: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
     mock_run.return_value = MagicMock(
         returncode=1,
         stdout="",
-        stderr="Error from server (NotFound): daemonsets.apps 'falco' not found",
+        stderr="Authorization: Bearer super-secret-token",
     )
 
     req = SecurityStreamRequest(namespace="falco")
-    with pytest.raises(KubernetesLoggingError, match="Failed to stream security events from Falco"):
-        stream_security_events(req, dry_run=False)
+    with caplog.at_level(logging.DEBUG, logger="devops_cli.k8s.security_stream"):
+        with pytest.raises(
+            KubernetesLoggingError,
+            match="Failed to stream security events from Falco",
+        ) as exc_info:
+            stream_security_events(req, dry_run=False)
+
+    assert (
+        "super-secret-token" not in caplog.text,
+        "super-secret-token" not in str(exc_info.value),
+    ) == (True, True)
 
 
 @patch("devops_cli.k8s.security_stream.run_subprocess")

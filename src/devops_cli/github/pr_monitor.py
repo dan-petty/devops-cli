@@ -9,26 +9,16 @@ import time
 from collections.abc import Callable
 from typing import Any, cast
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.github.check_verdict import CheckBucket, classify_check_item
 from devops_cli.github.pr_threads import ReviewThread, list_pr_review_threads
 from devops_cli.github.rate_limiter import run_gh
 
 logger = logging.getLogger(__name__)
-
-# Terminal conclusions for CheckRun and StatusContext
-_PASSING_CONCLUSIONS = {"SUCCESS", "NEUTRAL", "SKIPPED"}
-_FAILING_CONCLUSIONS = {
-    "FAILURE",
-    "TIMED_OUT",
-    "ACTION_REQUIRED",
-    "CANCELLED",
-    "STALE",
-    "STARTUP_FAILURE",
-}
 
 
 class PRCheckRun(BaseModel):
@@ -39,22 +29,48 @@ class PRCheckRun(BaseModel):
     status: str = "COMPLETED"
     conclusion: str = "SUCCESS"
     url: str = ""
+    bucket: CheckBucket = CheckBucket.PASS
+
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_bucket_field(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if not data.get("bucket"):
+                raw_status = data.get("status")
+                raw_conclusion = data.get("conclusion")
+                st = (
+                    raw_status
+                    if raw_status is not None
+                    else ("COMPLETED" if raw_conclusion else "COMPLETED")
+                )
+                conc = (
+                    raw_conclusion
+                    if raw_conclusion is not None
+                    else ("SUCCESS" if raw_status is None else "")
+                )
+                item = classify_check_item(
+                    name=str(data.get("name") or "Check"),
+                    status=st,
+                    conclusion=conc,
+                )
+                data["bucket"] = item.bucket
+        return data
 
     @property
     def is_completed(self) -> bool:
-        return self.status.upper() == "COMPLETED"
+        return self.bucket != CheckBucket.PENDING
 
     @property
     def is_success(self) -> bool:
-        return self.is_completed and self.conclusion.upper() in _PASSING_CONCLUSIONS
+        return self.bucket in {CheckBucket.PASS, CheckBucket.SKIPPING}
 
     @property
     def is_failure(self) -> bool:
-        return self.is_completed and self.conclusion.upper() in _FAILING_CONCLUSIONS
+        return self.bucket in {CheckBucket.FAIL, CheckBucket.CANCEL, CheckBucket.UNREAD}
 
     @property
     def is_pending(self) -> bool:
-        return not self.is_completed
+        return self.bucket == CheckBucket.PENDING
 
 
 class CopilotReviewStatus(BaseModel):
@@ -205,41 +221,6 @@ def resolve_branch_pr_number(
     if rest_num is not None:
         return rest_num
     return _resolve_pr_via_gh_view(target_repo, target_branch)
-
-
-def _parse_check_run_node(node: dict[str, Any]) -> PRCheckRun:
-    """Parse a single CheckRun or StatusContext dictionary."""
-    typename = node.get("__typename", "CheckRun")
-    if typename == "StatusContext":
-        state = str(node.get("state", "SUCCESS")).upper()
-        status = "COMPLETED" if state in {"SUCCESS", "FAILURE", "ERROR"} else "IN_PROGRESS"
-        conclusion = (
-            "SUCCESS"
-            if state == "SUCCESS"
-            else ("FAILURE" if state in {"FAILURE", "ERROR"} else "")
-        )
-        return PRCheckRun(
-            name=str(node.get("context", "StatusContext")),
-            workflow="",
-            status=status,
-            conclusion=conclusion,
-            url=str(node.get("targetUrl", "")),
-        )
-
-    status = str(node.get("status", "COMPLETED")).upper()
-    conclusion = str(node.get("conclusion", "")).upper()
-    return PRCheckRun(
-        name=str(node.get("name", "Check")),
-        workflow=str(node.get("workflowName", "")),
-        status=status,
-        conclusion=conclusion,
-        url=str(node.get("detailsUrl", "")),
-    )
-
-
-def _parse_check_runs(raw_checks: list[dict[str, Any]]) -> list[PRCheckRun]:
-    """Parse statusCheckRollup nodes into PRCheckRun instances."""
-    return [_parse_check_run_node(item) for item in raw_checks if isinstance(item, dict)]
 
 
 def _safe_json_to_dicts(text: str) -> list[dict[str, Any]]:
@@ -410,37 +391,59 @@ def _detect_copilot_status(
     )
 
 
+def _extract_page_runs(page: Any) -> list[dict[str, Any]]:
+    """Extract check run dicts from a single API payload page."""
+    if isinstance(page, dict):
+        runs = page.get("check_runs")
+        if isinstance(runs, list):
+            return [r for r in runs if isinstance(r, dict)]
+        if "name" in page:
+            return [page]
+    return []
+
+
 def _fetch_commit_check_runs(owner: str, repo: str, head_sha: str) -> list[PRCheckRun]:
-    """Fetch GitHub Check Runs for commit SHA."""
+    """Fetch GitHub Check Runs for commit SHA via paginated slurped REST query."""
     check_cmd = [
         CONST_GH_CLI,
         "api",
         "--paginate",
-        f"repos/{owner}/{repo}/commits/{head_sha}/check-runs",
+        "--slurp",
+        f"repos/{owner}/{repo}/commits/{head_sha}/check-runs?per_page=100",
     ]
     check_proc = run_gh(check_cmd, check=False, quiet=True)
     if check_proc.returncode != 0 or not check_proc.stdout.strip():
         return []
     try:
         check_data = json.loads(check_proc.stdout)
-        runs = (
-            check_data.get("check_runs", [])
-            if isinstance(check_data, dict)
-            else (check_data if isinstance(check_data, list) else [])
-        )
-        return [
-            PRCheckRun(
-                name=str(c.get("name", "Check")),
-                workflow=str(c.get("app", {}).get("name", "")),
-                status=str(c.get("status", "completed")).upper(),
-                conclusion=str(c.get("conclusion") or "").upper(),
-                url=str(c.get("html_url", "")),
-            )
-            for c in runs
-            if isinstance(c, dict)
-        ]
     except json.JSONDecodeError:
         return []
+
+    pages = check_data if isinstance(check_data, list) else [check_data]
+    raw_runs = [r for page in pages for r in _extract_page_runs(page)]
+
+    results: list[PRCheckRun] = []
+    for c in raw_runs:
+        raw_status = str(c.get("status") or "completed")
+        raw_conclusion = str(c.get("conclusion") or "")
+        item = classify_check_item(
+            name=str(c.get("name") or "Check"),
+            status=raw_status,
+            conclusion=raw_conclusion,
+            workflow=str(c.get("app", {}).get("name") or ""),
+            link=str(c.get("html_url") or ""),
+        )
+        results.append(
+            PRCheckRun(
+                name=item.name,
+                workflow=item.workflow,
+                status=raw_status.upper(),
+                conclusion=raw_conclusion.upper(),
+                url=item.link,
+                bucket=item.bucket,
+            )
+        )
+    return results
 
 
 def _fetch_commit_status_contexts(owner: str, repo: str, head_sha: str) -> list[PRCheckRun]:
@@ -455,28 +458,31 @@ def _fetch_commit_status_contexts(owner: str, repo: str, head_sha: str) -> list[
         return []
     try:
         status_data = json.loads(status_proc.stdout)
-        results: list[PRCheckRun] = []
-        for s in status_data.get("statuses", []):
-            if isinstance(s, dict):
-                st = str(s.get("state", "")).lower()
-                status = "COMPLETED" if st in {"success", "failure", "error"} else "IN_PROGRESS"
-                conclusion = (
-                    "SUCCESS"
-                    if st == "success"
-                    else ("FAILURE" if st in {"failure", "error"} else "")
-                )
-                results.append(
-                    PRCheckRun(
-                        name=str(s.get("context", "Status")),
-                        workflow="Commit Status",
-                        status=status,
-                        conclusion=conclusion,
-                        url=str(s.get("target_url") or ""),
-                    )
-                )
-        return results
     except json.JSONDecodeError:
         return []
+
+    results: list[PRCheckRun] = []
+    for s in status_data.get("statuses", []):
+        if not isinstance(s, dict):
+            continue
+        st_state = str(s.get("state") or "")
+        item = classify_check_item(
+            name=str(s.get("context") or "Status"),
+            state=st_state,
+            workflow="Commit Status",
+            link=str(s.get("target_url") or ""),
+        )
+        results.append(
+            PRCheckRun(
+                name=item.name,
+                workflow=item.workflow,
+                status="COMPLETED" if item.bucket != CheckBucket.PENDING else "IN_PROGRESS",
+                conclusion=st_state.upper() if item.bucket != CheckBucket.PENDING else "",
+                url=item.link,
+                bucket=item.bucket,
+            )
+        )
+    return results
 
 
 def _fetch_rest_check_runs(owner: str, repo: str, head_sha: str) -> list[PRCheckRun]:
@@ -850,3 +856,8 @@ def monitor_pr(
             return _build_monitor_timeout_result(latest_status, pr_number, elapsed)
 
         time.sleep(min(float(valid_interval), time_left))
+
+
+def sort_prs_oldest_first(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sort pull requests in ascending order by PR number (FIFO / oldest first)."""
+    return sorted(prs, key=lambda p: int(p.get("number") or 0))

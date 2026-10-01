@@ -59,3 +59,24 @@ def test_cli_command_handler_typer_exit_and_generic_exception() -> None:
         return "ok"
 
     assert no_metrics_command() == "ok"
+
+
+def test_cli_command_handler_records_error_type_for_devops_cli_error() -> None:
+    """Decorator should pass error_type to _record_error_metrics when catching DevOpsCLIError."""
+    from unittest.mock import patch
+
+    with patch("devops_cli.core.command_decorator._record_error_metrics") as mock_record:
+
+        @cli_command_handler("metric_err_cmd", record_metrics=True)
+        def failing_command() -> None:
+            raise DevOpsCLIError("Domain failure", error_code="ERR_TEST", exit_code=1)
+
+        with pytest.raises(typer.Exit):
+            failing_command()
+
+        mock_record.assert_called_once_with(
+            "metric_err_cmd",
+            True,
+            error_code="ERR_TEST",
+            error_type="DevOpsCLIError",
+        )

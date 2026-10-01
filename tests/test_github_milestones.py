@@ -165,7 +165,8 @@ def test_validate_roadmap_path_helpers(tmp_path: Path) -> None:
         _is_safe_roadmap_path(Path("../ROADMAP.md")),
         _is_safe_roadmap_path(Path("docs/../ROADMAP.md")),
         _is_safe_roadmap_path(Path("docs/ROADMAP..md")),
-    ) == (True, True, True, False, False, False)
+        _is_safe_roadmap_path(Path("docs/../../ROADMAP.md")),
+    ) == (True, True, True, False, False, True, False)
 
     # Traversal raises GitHubOperationError
     with pytest.raises(GitHubOperationError, match="Path traversal detected"):

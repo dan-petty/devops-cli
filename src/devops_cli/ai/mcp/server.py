@@ -4,17 +4,29 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import subprocess
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastmcp import Context, FastMCP
+from fastmcp.exceptions import ToolError
+from fastmcp.exceptions import ValidationError as FastMCPValidationError
 from fastmcp.server.middleware import Middleware
+from pydantic import Field
+from pydantic import ValidationError as PydanticValidationError
 
+from devops_cli.ai.mcp.argument_contract import (
+    RejectedInputLogFilter,
+    argument_refusal,
+    pydantic_violations,
+    schema_violations,
+)
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_FALCO_SEVERITY_LEVELS,
+    CONST_FASTMCP_SERVER_LOGGER,
     CONST_MAX_SECURITY_STREAM_TAIL_LINES,
     CONST_MCP_EAGER_DOMAINS,
     CONST_MCP_LAZY_DOMAINS,
@@ -41,6 +53,10 @@ mcp = FastMCP(
         "Prometheus monitoring, Docker cleanup, and quality gates."
     ),
 )
+
+# A pull request or issue number. The tool schema publishes the bound. Strict, so pydantic too
+# refuses `true`, `"1"` and `1.0` rather than letting any become PR 1 (#862).
+PullOrIssueNumber = Annotated[int, Field(ge=1, strict=True)]
 
 
 def _run_mcp_cmd(
@@ -153,7 +169,7 @@ def review_branch(branch: str = "", base: str = "main", persona: str = "devsecop
 
 
 @mcp.tool()
-def review_pr(number: int, post: bool = False, persona: str = "devsecops") -> str:
+def review_pr(number: PullOrIssueNumber, post: bool = False, persona: str = "devsecops") -> str:
     """Fetch GitHub PR diff and review using specified persona; optionally post comment."""
     _validate_mcp_int_bound("number", number, min_val=1)
     _validate_mcp_arg("persona", persona)
@@ -166,6 +182,8 @@ def review_pr(number: int, post: bool = False, persona: str = "devsecops") -> st
 @mcp.tool()
 def review_findings(session_id: str = "", status: str = "") -> str:
     """Inspect structured review findings for a session by verification status."""
+    if session_id:
+        _validate_mcp_arg("session_id", session_id)
     cmd = ["uv", "run", "devops", "review", "findings"]
     if session_id:
         cmd.append(session_id)
@@ -227,12 +245,12 @@ def repos_status() -> str:
 
 
 @mcp.tool()
-def repos_sync(all_repos: bool = False) -> str:
+def repos_sync() -> str:
     """Fetch and pull tracking branches across workspace repositories."""
-    cmd = ["uv", "run", "devops", "repos", "sync"]
-    if all_repos:
-        cmd.append("--all")
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS * 2)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "repos", "sync"],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS * 2,
+    )
 
 
 @mcp.tool()
@@ -1111,14 +1129,15 @@ def config_audit_keys() -> str:
 
 
 @mcp.tool()
-def telemetry_profile(command: str = "") -> str:
-    """Display terminal waterfall latency breakdown of OpenTelemetry trace spans."""
+def telemetry_profile(command: str = "", trace_id: str = "") -> str:
+    """Run a command, or name a trace, and show its span waterfall as Jaeger recorded it."""
     cmd = ["uv", "run", "devops", "telemetry", "profile"]
     if command:
         _validate_mcp_arg("command", command)
-        cmd.extend(["--command", command])
-    else:
-        cmd.append("--last")
+        cmd.append(command)
+    if trace_id:
+        _validate_mcp_arg("trace_id", trace_id)
+        cmd.extend(["--trace-id", trace_id])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
@@ -1153,7 +1172,7 @@ def get_workspace_resource() -> str:
     """Return live workspace inventory and repository statuses."""
     return _run_mcp_resource(
         "resource://workspace/status",
-        ["uv", "run", "devops", "workspace", "list"],
+        ["uv", "run", "devops", "repos", "list"],
         timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
     )
 
@@ -1235,16 +1254,7 @@ def get_gh_views_resource() -> str:
 def get_argo_fleet_status_resource() -> str:
     """Return live ArgoCD multi-cluster fleet synchronization status across all managed clusters."""
     return _run_mcp_cmd(
-        [
-            "uv",
-            "run",
-            "devops",
-            "argo",
-            "cd",
-            "apps",
-            "list",
-            "--json",
-        ],
+        ["uv", "run", "devops", "argo", "cd", "apps", "list"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 
@@ -1604,7 +1614,7 @@ def gh_milestone_edit(
 
 @mcp.tool()
 def gh_project_sync(repo: str | None = None, dry_run: bool = True) -> str:
-    """Synchronize task items from task tracking into GitHub Projects v2 status."""
+    """Create or update the project board, add open issues, and reconcile Status, Priority and Milestone."""
     cmd = ["uv", "run", "devops", "gh", "project", "sync"]
     if dry_run:
         cmd.append("--dry-run")
@@ -1796,7 +1806,7 @@ def gh_project_reconcile(
     repo: str | None = None,
     dry_run: bool = False,
 ) -> str:
-    """Reconcile custom fields (Status, Priority, Category, Value, Effort) on GitHub Projects v2 items."""
+    """Reconcile Status, Priority and Milestone on GitHub Projects v2 items, listing each change and its source."""
     cmd = ["uv", "run", "devops", "gh", "project", "reconcile"]
     if project_number is not None:
         _validate_mcp_int_bound("project_number", project_number, min_val=1)
@@ -1851,7 +1861,7 @@ def scan_gitleaks(target: str = ".") -> str:
     """Scan git repository or directory for hardcoded secrets, tokens, and private keys."""
     _validate_mcp_arg("target", target)
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "scan", "gitleaks", target],
+        ["uv", "run", "devops", "scan", "secrets", target],
         timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     )
 
@@ -1862,7 +1872,7 @@ def scan_semgrep(target: str = ".", config: str = "auto") -> str:
     _validate_mcp_arg("target", target)
     _validate_mcp_arg("config", config)
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "scan", "semgrep", target, "--config", config],
+        ["uv", "run", "devops", "scan", "sast", target, "--config", config],
         timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     )
 
@@ -1872,7 +1882,7 @@ def scan_checkov(target: str = ".") -> str:
     """Scan Infrastructure-as-Code (Terraform, Helm, Kubernetes, Dockerfile) via Checkov."""
     _validate_mcp_arg("target", target)
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "scan", "checkov", target],
+        ["uv", "run", "devops", "scan", "iac", target],
         timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     )
 
@@ -1895,7 +1905,7 @@ def scan_complexity(
             target,
             "--max-complexity",
             str(max_complexity),
-            "--max-nesting-depth",
+            "--max-indent",
             str(max_nesting_depth),
         ],
         timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
@@ -1925,37 +1935,24 @@ def scan_sbom(target: str = ".", format: str = "cyclonedx") -> str:
 
 @mcp.tool()
 def k8s_chaos(
-    action: str = "validate",
     experiment: str = "pod-failure",
     namespace: str = "default",
+    dry_run: bool = True,
 ) -> str:
     """Inject or validate Kubernetes chaos engineering experiments and cluster resilience."""
-    _validate_mcp_arg("action", action)
     _validate_mcp_arg("experiment", experiment)
     _validate_mcp_arg("namespace", namespace)
-    return _run_mcp_cmd(
-        [
-            "uv",
-            "run",
-            "devops",
-            "k8s",
-            "chaos",
-            action,
-            "--experiment",
-            experiment,
-            "--namespace",
-            namespace,
-        ],
-        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
-    )
+    cmd = ["uv", "run", "devops", "k8s", "chaos", experiment, "--namespace", namespace]
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
-def k8s_audit(namespace: str = "default") -> str:
+def k8s_audit() -> str:
     """Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks."""
-    _validate_mcp_arg("namespace", namespace)
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "k8s", "audit", "--namespace", namespace],
+        ["uv", "run", "devops", "k8s", "audit"],
         timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
     )
 
@@ -2090,11 +2087,13 @@ def benchmark_embeddings(
             "uv",
             "run",
             "devops",
+            "ai",
             "benchmark",
-            "embeddings",
+            "--type",
+            "embedding",
             "--provider",
             provider,
-            "--model",
+            "--models",
             model,
             "--samples",
             str(samples),
@@ -2117,6 +2116,7 @@ def benchmark_suite(
         "uv",
         "run",
         "devops",
+        "ai",
         "benchmark",
         "--suite",
         "--models",
@@ -2130,26 +2130,6 @@ def benchmark_suite(
     if dry_run:
         cmd.append("--dry-run")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
-
-
-@mcp.tool()
-def ai_architecture(target: str = "src", max_depth: int = 4) -> str:
-    """Analyze architectural module boundaries, dependency graphs, and cyclic imports."""
-    _validate_mcp_arg("target", target)
-    _validate_mcp_int_bound("max_depth", max_depth, min_val=1)
-    return _run_mcp_cmd(
-        [
-            "uv",
-            "run",
-            "devops",
-            "analyze",
-            "architecture",
-            target,
-            "--max-depth",
-            str(max_depth),
-        ],
-        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
-    )
 
 
 @mcp.tool()
@@ -2173,7 +2153,7 @@ def pr_list(limit: int = 10, state: str = "open") -> str:
 
 
 @mcp.tool()
-def pr_checks(pr_number: int) -> str:
+def pr_checks(pr_number: PullOrIssueNumber) -> str:
     """Inspect detailed status of GitHub Actions CI checks for a pull request."""
     _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
     return _run_mcp_cmd(
@@ -2183,7 +2163,7 @@ def pr_checks(pr_number: int) -> str:
 
 
 @mcp.tool()
-def pr_threads_list(pr_number: int, unresolved_only: bool = True) -> str:
+def pr_threads_list(pr_number: PullOrIssueNumber, unresolved_only: bool = True) -> str:
     """List review discussion threads, file locations, and comments on a pull request."""
     _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
     cmd = ["uv", "run", "devops", "pr", "threads", "list", str(pr_number)]
@@ -2204,18 +2184,18 @@ def pr_thread_reply(thread_id: str, body: str) -> str:
 
 
 @mcp.tool()
-def pr_thread_resolve(thread_id: str) -> str:
+def pr_thread_resolve(thread_id: str, without_reply: bool = False) -> str:
     """Programmatically mark a pull request review discussion thread as resolved."""
     _validate_mcp_arg("thread_id", thread_id)
-    return _run_mcp_cmd(
-        ["uv", "run", "devops", "pr", "threads", "resolve", thread_id],
-        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
-    )
+    cmd = ["uv", "run", "devops", "pr", "threads", "resolve", thread_id]
+    if without_reply:
+        cmd.append("--without-reply")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
 def pr_monitor(
-    pr_number: int | None = None,
+    pr_number: PullOrIssueNumber | None = None,
     timeout: int = 300,
     interval: int = 60,
     settle_timeout: int = 60,
@@ -2245,7 +2225,7 @@ def pr_monitor(
 
 @mcp.tool()
 def pr_ready(
-    pr_number: int,
+    pr_number: PullOrIssueNumber,
     monitor: bool = False,
     force: bool = False,
     repo: str | None = None,
@@ -2268,7 +2248,7 @@ def pr_ready(
 
 @mcp.tool()
 def pr_check_readiness(
-    pr_number: int | None = None,
+    pr_number: PullOrIssueNumber | None = None,
     allow_blocked_state: bool = False,
     repo: str | None = None,
 ) -> str:
@@ -2286,7 +2266,7 @@ def pr_check_readiness(
 
 
 @mcp.tool()
-def pr_diff(pr_number: int, repo: str | None = None) -> str:
+def pr_diff(pr_number: PullOrIssueNumber, repo: str | None = None) -> str:
     """View the unified git diff for a pull request."""
     _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
     cmd = ["uv", "run", "devops", "pr", "diff", str(pr_number)]
@@ -2298,7 +2278,7 @@ def pr_diff(pr_number: int, repo: str | None = None) -> str:
 
 @mcp.tool()
 def pr_close(
-    pr_number: int,
+    pr_number: PullOrIssueNumber,
     comment: str | None = None,
     delete_branch: bool = False,
     repo: str | None = None,
@@ -2319,7 +2299,7 @@ def pr_close(
 
 @mcp.tool()
 def pr_update_branch(
-    pr_number: int,
+    pr_number: PullOrIssueNumber,
     repo: str | None = None,
     expected_head_sha: str | None = None,
     dry_run: bool = False,
@@ -2385,7 +2365,7 @@ def gh_run_view(
 
 @mcp.tool()
 def pr_edit(
-    pr_number: int,
+    pr_number: PullOrIssueNumber,
     title: str | None = None,
     body: str | None = None,
     base: str | None = None,
@@ -2415,7 +2395,7 @@ def pr_edit(
 
 @mcp.tool()
 def gh_issue_edit(
-    issue_number: int,
+    issue_number: PullOrIssueNumber,
     title: str | None = None,
     body: str | None = None,
     state: str | None = None,
@@ -2506,7 +2486,7 @@ def valkey_flush(all_databases: bool = False) -> str:
 
 @mcp.tool()
 def ai_harness_status() -> str:
-    """Inspect AI agent harness slot configuration, active models, skills, and sandbox state."""
+    """Inspect the AI agent harness slots as configured: provider, model, skills and tools."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "ai", "harness", "status"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
@@ -2563,7 +2543,7 @@ def ai_quiesce(
     reason: str = MESSAGES.ai.default_quiesce_reason,
     dry_run: bool = False,
 ) -> str:
-    """Centralized emergency quiesce cleanly suspending active agent loops and background tasks."""
+    """Set the constellation quiesce flag with a reason; it stops nothing."""
     _validate_mcp_arg("reason", reason)
     cmd = ["uv", "run", "devops", "ai", "quiesce", "--reason", reason]
     if dry_run:
@@ -2576,9 +2556,8 @@ def ai_failover(
     target_provider: str = DEFAULT_AI_FALLBACK_PROVIDER,
     target_model: str = DEFAULT_AI_FALLBACK_MODEL,
     dry_run: bool = False,
-    force: bool = False,
 ) -> str:
-    """Emergency failover controller re-routing tasks to designated fallback endpoints."""
+    """Record a fallback route in the constellation flag; ai_gateway_failover reroutes requests."""
     _validate_mcp_arg("target_provider", target_provider)
     _validate_mcp_arg("target_model", target_model)
     cmd = [
@@ -2594,8 +2573,6 @@ def ai_failover(
     ]
     if dry_run:
         cmd.append("--dry-run")
-    if force:
-        cmd.append("--force")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
@@ -2603,7 +2580,7 @@ def ai_failover(
 def ai_resume(
     dry_run: bool = False,
 ) -> str:
-    """Gracefully resume suspended constellation agent loops and task runners."""
+    """Clear the constellation quiesce or failover flag."""
     cmd = ["uv", "run", "devops", "ai", "resume"]
     if dry_run:
         cmd.append("--dry-run")
@@ -2612,7 +2589,7 @@ def ai_resume(
 
 @mcp.tool()
 def ai_constellation_status() -> str:
-    """Display constellation fleet status, active fallback routes, and suspended tasks."""
+    """Show the constellation flag: state, reason and recorded fallback route."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "ai", "constellation", "--format", "json"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
@@ -2778,31 +2755,6 @@ def ai_vllm_scale(
 
 
 @mcp.tool()
-def ai_lightllm_scale(
-    replicas: int = 1,
-    tensor_parallel_size: int = 1,
-) -> str:
-    """Inspect or configure LightLLM high-throughput serving parameters."""
-    cmd = [
-        "uv",
-        "run",
-        "devops",
-        "ai",
-        "gateway",
-        "scale",
-        "--backend",
-        "lightllm",
-        "--replicas",
-        str(replicas),
-        "--tensor-parallel-size",
-        str(tensor_parallel_size),
-        "--format",
-        "json",
-    ]
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
-
-
-@mcp.tool()
 def ai_backend_probe(
     backend: str,
     backend_url: str = "",
@@ -2885,7 +2837,7 @@ def get_indexed_libraries_resource() -> str:
 
 @mcp.resource("resource://ai/constellation")
 def get_ai_constellation_resource() -> str:
-    """Return live constellation quiesce and active fallback routing status."""
+    """Return the constellation flag: state, reason and recorded fallback route."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "ai", "constellation", "--format", "json"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
@@ -3037,6 +2989,33 @@ class DomainGateMiddleware(Middleware):
         return [tool for tool in tools if _is_advertised(tool.name)]
 
 
+class ArgumentContractMiddleware(Middleware):
+    """Refuse a call its tool's published schema does not allow, before the handler runs.
+
+    FastMCP validates arguments with pydantic in lax mode, so `{"number": true, "post": true}`
+    ran `review_pr` against PR 1 and commented on it. The SDK's strict check is no substitute:
+    it sees only listed tools, so withheld ones kept coercing, and it quotes the value. This
+    resolves the registered tool, listed or withheld, and refuses `1.0` for any integer,
+    though JSON Schema counts it as one. Pydantic still runs afterwards, and its refusal is
+    answered with the same envelope.
+    """
+
+    async def on_call_tool(self, context: Any, call_next: Any) -> Any:
+        tool = await mcp.get_tool(context.message.name)
+        if tool is None:
+            return await call_next(context)
+        violations = schema_violations(tool.parameters, context.message.arguments or {})
+        if violations:
+            raise ToolError(argument_refusal(tool.name, tool.parameters, violations))
+        try:
+            return await call_next(context)
+        except FastMCPValidationError as exc:
+            if not isinstance(exc.__cause__, PydanticValidationError):
+                raise
+            violations = pydantic_violations(tool.parameters, exc.__cause__)
+            raise ToolError(argument_refusal(tool.name, tool.parameters, violations)) from None
+
+
 def reset_hydrated_domains() -> None:
     """Forget every hydrated domain, restoring the eager-only listing."""
     _HYDRATED_DOMAINS.clear()
@@ -3082,3 +3061,5 @@ def hydrate_tool_domain(domain: str, ctx: Context | None = None) -> dict[str, An
 
 
 mcp.add_middleware(DomainGateMiddleware())
+mcp.add_middleware(ArgumentContractMiddleware())
+logging.getLogger(CONST_FASTMCP_SERVER_LOGGER).addFilter(RejectedInputLogFilter())

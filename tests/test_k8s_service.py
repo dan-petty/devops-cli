@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -105,7 +107,8 @@ def test_k8s_service_switch_context(tmp_path: Path) -> None:
     ):
         svc.switch_context("prod")
         updated_content = kubeconfig_file.read_text(encoding="utf-8")
-        assert ("current-context: prod" in updated_content,) == (True,)
+        mode = kubeconfig_file.stat().st_mode & 0o777
+        assert ("current-context: prod" in updated_content, mode) == (True, 0o600)
 
 
 def test_k8s_service_switch_context_not_found(tmp_path: Path) -> None:
@@ -198,6 +201,25 @@ def test_resource_informer_event_normalization() -> None:
         CONST_K8S_EVENT_ADDED,
         "agent-pod",
         "default",
+        "Running",
+    )
+
+
+def test_resource_informer_dict_normalization() -> None:
+    """Verify ResourceInformer normalizes raw dictionary event objects."""
+    mock_svc = MagicMock()
+    informer = ResourceInformer(resource_kind="Pod", namespace="default", service=mock_svc)
+    raw_dict = {
+        "metadata": {"name": "dict-pod", "namespace": "custom-ns"},
+        "status": {"phase": "Running"},
+    }
+    raw_event = {"type": CONST_K8S_EVENT_ADDED, "object": raw_dict}
+    event = informer._normalize_event(raw_event)
+
+    assert (event.event_type, event.name, event.namespace, event.status) == (
+        CONST_K8S_EVENT_ADDED,
+        "dict-pod",
+        "custom-ns",
         "Running",
     )
 
@@ -298,6 +320,76 @@ def test_k8s_service_read_pod_logs_follow() -> None:
             ["stream-1\n", "stream-2\n"],
             1,
         )
+
+
+class _QuietResponse:
+    """A followed log response: one line, then a read blocked until its socket is shut.
+
+    A container that stops writing leaves the read of its followed log blocked like this.
+    """
+
+    def __init__(self) -> None:
+        self.shut = threading.Event()
+        self.calls: list[str] = []
+
+    def stream(self) -> Iterator[bytes]:
+        yield b"first\n"
+        self.shut.wait(timeout=10)
+
+    def shutdown(self) -> None:
+        self.calls.append("shutdown")
+        self.shut.set()
+
+    def close(self) -> None:
+        self.calls.append("close")
+
+    def release_conn(self) -> None:
+        self.calls.append("release_conn")
+
+
+def test_closing_a_followed_log_ends_a_read_blocked_on_a_quiet_container() -> None:
+    """Stopping the reader of a quiet container left its connection open for good.
+
+    Closing shuts the socket for reading, which ends the blocked read from any thread;
+    the reader then closes the response and returns its connection.
+    """
+    svc = KubernetesService.get_instance()
+    response = _QuietResponse()
+    mock_core = MagicMock()
+    mock_core.read_namespaced_pod_log.return_value = response
+    with patch.object(svc, "load_config", return_value=True):
+        svc._core_v1 = mock_core
+        stream = svc.read_pod_logs("pod-1", follow=True)
+    lines: list[str] = []
+    reader = threading.Thread(target=lambda: lines.extend(stream), daemon=True)
+    reader.start()
+    stream.close()
+    reader.join(timeout=2)
+    assert (reader.is_alive(), lines, response.calls) == (
+        False,
+        ["first\n"],
+        ["shutdown", "close", "release_conn"],
+    )
+
+
+def test_closing_a_followed_log_that_already_ended_is_harmless() -> None:
+    """urllib3 refuses to shut a socket it has closed; there is nothing left to stop."""
+    svc = KubernetesService.get_instance()
+    response = MagicMock()
+    response.stream.return_value = [b"only\n"]
+    response.shutdown.side_effect = ValueError("Cannot shutdown socket")
+    mock_core = MagicMock()
+    mock_core.read_namespaced_pod_log.return_value = response
+    with patch.object(svc, "load_config", return_value=True):
+        svc._core_v1 = mock_core
+        stream = svc.read_pod_logs("pod-1", follow=True)
+    lines = list(stream)
+    stream.close()
+    assert (lines, response.close.call_count, response.release_conn.call_count) == (
+        ["only\n"],
+        1,
+        1,
+    )
 
 
 def test_k8s_service_read_pod_logs_failure() -> None:

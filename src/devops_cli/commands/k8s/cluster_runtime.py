@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from typing import Any
 
@@ -166,3 +167,32 @@ def _cluster_reachable(context: str | None = None) -> bool:
     if effective_context and effective_context.strip().lower() == "minikube":
         return _minikube_running()
     return False
+
+
+def _get_unready_nodes(context: str | None = None) -> list[str]:
+    """Return a list of node names that are in NotReady status."""
+    effective_context = resolve_effective_context(context)
+    k_ctx = ["--context", effective_context] if effective_context else []
+    try:
+        res = _run_cmd(
+            ["kubectl", "get", "nodes", "-o", "json"] + k_ctx,
+            check=False,
+            capture=True,
+            timeout=5,
+        )
+        if res.returncode != 0 or not res.stdout:
+            return []
+
+        data = json.loads(res.stdout)
+        unready: list[str] = []
+        for item in data.get("items", []):
+            name = item.get("metadata", {}).get("name", "unknown")
+            is_ready = any(
+                cond.get("type") == "Ready" and cond.get("status") == "True"
+                for cond in item.get("status", {}).get("conditions", [])
+            )
+            if not is_ready:
+                unready.append(name)
+        return unready
+    except subprocess.SubprocessError, OSError, json.JSONDecodeError, KeyError, TypeError:
+        return []

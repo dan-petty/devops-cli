@@ -163,6 +163,7 @@ def _rollout_status_table(state: ArgoRolloutState) -> TablePayload:
 
 def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
     from devops_cli.config.settings import get_argocd_token
+    from devops_cli.k8s.credentials import get_or_mint_argocd_token
 
     if not settings.argocd.url:
         print_error(
@@ -176,7 +177,7 @@ def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
         print_error(str(exc), prefix=False)
         raise typer.Exit(1)
     headers: dict[str, str] = {"Content-Type": "application/json"}
-    token = get_argocd_token(settings)
+    token = get_argocd_token(settings) or get_or_mint_argocd_token(settings)
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return settings.argocd.url.rstrip("/"), headers
@@ -212,7 +213,7 @@ def cd_apps_list(
                 )
                 resp.raise_for_status()
             data = resp.json()
-            items = data.get("items", []) if isinstance(data, dict) else []
+            items = (data.get("items") or []) if isinstance(data, dict) else []
         except Exception as exc:
             rows.append([f"[red]Error: {exc}[/red]", "—", "—", "—", "—"])
             return format_argo_apps_table(rows)

@@ -95,14 +95,16 @@ class AIMessages:
     harness_offload_title: str = "Sub-Agent Local Offload"
     default_quiesce_reason: str = "Operator requested emergency quiesce"
     quiesce_dry_run: str = "[DRY RUN] Quiesce simulated: {badge} | Reason: {reason}"
-    quiesce_executed: str = "Quiesce executed: {badge} | Suspended: {count} task(s)"
+    quiesce_executed: str = "Quiesce flag set: {badge} | Reason: {reason}"
     failover_dry_run: str = "[DRY RUN] Failover simulated: {badge} -> {target}"
-    failover_executed: str = "Failover engaged: {badge} -> {target} ({count} task(s))"
-    resume_dry_run: str = "[DRY RUN] Resume simulated: {badge} | Reactivated: {count} task(s)"
-    resume_executed: str = "Constellation resumed: {badge} | Reactivated: {count} task(s)"
+    failover_executed: str = (
+        "Fallback recorded: {badge} -> {target}; `devops ai gateway failover` reroutes requests"
+    )
+    resume_dry_run: str = "[DRY RUN] Flag not cleared: {badge}"
     constellation_title: str = "Agent Constellation Fleet"
-    constellation_tasks_title: str = "Agent Constellation Tasks"
-    invalid_drain_timeout: str = "Invalid --drain-timeout '{timeout}': must be non-negative (>= 0)."
+    constellation_flag_only: str = (
+        "[dim]This flag records intent only: no running task reads it.[/dim]"
+    )
 
 
 @dataclass(frozen=True)
@@ -306,6 +308,10 @@ class DocsMessages:
     check_failed: str = (
         "Documentation check failed. Run 'devops docs generate' to refresh documentation."
     )
+    argv_unresolved: str = "{location} {owner}: 'devops {command_line}': {problem}."
+    argv_unknown_command: str = "unknown command '{token}' under '{command_path}'"
+    argv_unknown_option: str = "unknown option '{token}' for '{command_path}'"
+    argv_unexpected_argument: str = "unexpected extra argument '{token}' for '{command_path}'"
     synced_readme: str = "✓ Synchronized Command Matrix table in {path}"
     unsupported_format: str = (
         "Unsupported documentation format: {format}. Supported: markdown, json"
@@ -691,6 +697,12 @@ class CIMessages:
         "aside, keeping any uncommitted work, and re-create it with `git worktree add` from "
         "the main checkout."
     )
+    gate_root_slow_mount: str = (
+        "{root} is on a {fstype} share of a host folder, where each file check takes hundreds "
+        "of times longer than on a Linux filesystem, so the tests run several times slower. "
+        "Clone the repository into the WSL filesystem or a container volume and reopen it there."
+    )
+    test_budget_exceeded: str = "Tests took {duration}, over the {budget} budget. Slowest tests:"
 
 
 @dataclass(frozen=True)
@@ -765,7 +777,13 @@ class GrafanaMessages:
     dir_not_found: str = "Dashboard directory '{path}' not found."
     no_json_files: str = "No dashboard JSON files found in '{path}'."
     synced_dashboard: str = "Synced dashboard: [bold]{title}[/bold] ({file})"
-    sync_completed: str = "Dashboard sync completed: {synced}/{total} synced successfully."
+    sync_skipped_provisioned: str = (
+        "Skipped dashboard: [bold]{title}[/bold] ({file}) is provisioned from a file, and "
+        "Grafana refuses API saves over it."
+    )
+    sync_completed: str = (
+        "Dashboard sync completed: {synced} synced, {skipped} skipped, {failed} failed."
+    )
     table_title_search: str = "Grafana Search: {query}"
     table_title_datasources: str = "Grafana Datasources"
     table_title_alerts: str = "Grafana Alert Rules"

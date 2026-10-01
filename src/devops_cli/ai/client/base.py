@@ -2,12 +2,30 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx2
 
 from devops_cli.ai.client.models import AIClientError
 from devops_cli.config.settings import AIConfig
+
+
+def _clean_http_error_body(raw_body: str) -> str:
+    """Extract clean error text from HTTP response bodies, stripping HTML markup and title tags."""
+    if not raw_body:
+        return ""
+    clean = raw_body.strip()
+    if any(tag in clean.lower() for tag in ("<html", "<!doctype", "<head", "<body", "<div")):
+        title_match = re.search(r"<title[^>]*>(.*?)</title>", clean, re.IGNORECASE)
+        if title_match:
+            title_text = title_match.group(1).strip()
+            if title_text:
+                return f"({title_text})"
+        stripped = re.sub(r"<[^>]+>", " ", clean).strip()
+        stripped = " ".join(stripped.split())
+        return f"({stripped[:120]})" if stripped else "(HTML error response)"
+    return clean[:256].replace("\n", " ")
 
 
 class BaseLLMProviderMixin:
@@ -45,7 +63,7 @@ class BaseLLMProviderMixin:
 
         cfg = getattr(self, "_config", None)
         retries = getattr(cfg, "max_retries", None) if cfg is not None else None
-        max_attempts = int(retries) if retries is not None and int(retries) > 0 else 3
+        max_attempts = int(retries) + 1 if retries is not None and int(retries) > 0 else 5
         try:
             wrapped = httpx2.HTTPTransport(limits=connection_limits(), http2=True)
             return create_retry_transport(max_attempts=max_attempts, wrapped=wrapped)
@@ -91,9 +109,10 @@ class BaseLLMProviderMixin:
             from devops_cli.security.sanitizer import mask_secrets
 
             resp = getattr(exc, "response", None)
-            raw_body = (resp.text[:256].strip().replace("\n", " ")) if resp is not None else ""
-            if raw_body:
-                detail = f": {mask_secrets(raw_body)}"
+            raw_body = resp.text if resp is not None else ""
+            cleaned = _clean_http_error_body(raw_body)
+            if cleaned:
+                detail = f": {mask_secrets(cleaned)}"
         except Exception:
             pass
         return AIClientError(f"Provider request failed with HTTP {status}{detail}")

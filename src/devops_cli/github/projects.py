@@ -6,7 +6,7 @@ import json
 import logging
 import re
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -129,7 +129,7 @@ def _determine_section_status(heading: str) -> str | None:
     """Map a task markdown section heading to a standardized project status.
 
     Task files carry no review state: a project card takes `In Review` from the pull request
-    that closes its issue (`infer_item_status`), never from the file.
+    that closes its issue (`plan_item_changes`), never from the file.
     """
     clean = heading.lower().replace("-", " ")
     if "completed" in clean or "done" in clean:
@@ -846,10 +846,11 @@ def _parse_project_items_json(stdout: str) -> dict[str, dict[str, str | None]]:
     return items_data
 
 
-def _fetch_project_items_data(
-    owner: str, project_number: int
-) -> dict[str, dict[str, str | None]] | None:
-    """Retrieve items and current custom field values from the project board."""
+def _fetch_project_items_data(owner: str, project_number: int) -> dict[str, dict[str, str | None]]:
+    """Retrieve items and current custom field values from the project board.
+
+    Raises when the board cannot be read, so a failed read never looks like an empty board.
+    """
     owner_arg = _resolve_project_owner_arg(owner)
     cmd = [
         CONST_GH_CLI,
@@ -880,29 +881,25 @@ def _fetch_project_items_data(
         proc = run_gh(fallback_cmd, check=False, quiet=True, use_cache=True, cache_ttl=60.0)
 
     if proc.returncode == 0:
-        if proc.stdout and proc.stdout.strip():
-            return _parse_project_items_json(proc.stdout)
-        return {}
+        return _parse_project_items_json(proc.stdout or "")
 
     err_output = f"{proc.stderr or ''} {proc.stdout or ''}".strip()
     check_github_rate_limit_error(err_output, operation="fetch_project_items")
-    logger.warning(
-        "Failed to retrieve project item custom fields for project #%d (exit %d): %s",
-        project_number,
-        proc.returncode,
-        err_output[:256],
+    raise GitHubOperationError(
+        f"Failed to read project #{project_number} items (exit {proc.returncode}): {err_output[:256]}",
+        operation="fetch_project_items",
+        details={"project_number": project_number},
     )
-    return None
 
 
-def _fetch_repository_issues(repo: str, state: str = "open") -> list[dict[str, Any]]:
-    """Retrieve candidate issues from the repository via GitHub API."""
+def _fetch_repository_list(repo: str, kind: str, state: str) -> list[dict[str, Any]]:
+    """Fetch every page of a repository's issues or pull requests, raising if GitHub can't be read."""
     res = run_gh(
         [
             CONST_GH_CLI,
             "api",
             "--paginate",
-            f"repos/{repo}/issues?state={state}&per_page=100",
+            f"repos/{repo}/{kind}?state={state}&per_page=100",
             "-H",
             "Accept: application/vnd.github+json",
         ],
@@ -911,9 +908,24 @@ def _fetch_repository_issues(repo: str, state: str = "open") -> list[dict[str, A
         use_cache=True,
         cache_ttl=DEFAULT_GH_CACHE_TTL_SECONDS,
     )
-    if res.returncode != 0 or not res.stdout:
-        return []
-    return parse_paginated_json(res.stdout)
+    if res.returncode != 0:
+        err_output = f"{res.stderr or ''} {res.stdout or ''}".strip()
+        check_github_rate_limit_error(err_output, operation=f"fetch_{kind}")
+        raise GitHubOperationError(
+            f"Failed to read {kind} for {repo} (exit {res.returncode}): {err_output[:256]}",
+            operation=f"fetch_{kind}",
+            details={"repo": repo, "state": state},
+        )
+    return parse_paginated_json(res.stdout or "")
+
+
+def _fetch_repository_issues(repo: str, state: str = "open") -> list[dict[str, Any]]:
+    """Retrieve candidate issues from the repository via GitHub API.
+
+    The issues endpoint also returns pull requests, without their merge state; those come
+    from the pulls endpoint instead, so each pull request is reconciled once.
+    """
+    return [it for it in _fetch_repository_list(repo, "issues", state) if "pull_request" not in it]
 
 
 def _add_project_item_with_fallback(
@@ -968,7 +980,7 @@ def sync_repository_issues_to_project(
 
     mutation_budget = budget or MutationBudget(limit=DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC)
     owner_arg = _resolve_project_owner_arg(owner)
-    existing_items = _fetch_project_items_data(owner, project_number) or {}
+    existing_items = _fetch_project_items_data(owner, project_number)
     existing_urls = set(existing_items.keys())
     issues = _fetch_repository_issues(repo, state=state)
     added = 0
@@ -985,147 +997,124 @@ def sync_repository_issues_to_project(
     return added
 
 
-def infer_item_priority(labels: list[Any]) -> str:
-    """Infer GitHub Projects Priority field from issue/PR taxonomy labels."""
-    names = [lbl.get("name", "") if isinstance(lbl, dict) else str(lbl) for lbl in labels]
-    for n in names:
-        n_lower = n.lower()
-        if "p0-critical" in n_lower:
-            return "P0-Critical"
-        if "p1-high" in n_lower:
-            return "P1-High"
-        if "p2-medium" in n_lower:
-            return "P2-Medium"
-        if "p3-low" in n_lower:
-            return "P3-Low"
-    return "P2-Medium"
+class FieldChange(BaseModel):
+    """One board field change that reconcile plans or makes, and what decided it."""
+
+    url: str
+    field: str
+    old: str | None
+    new: str
+    source: str
 
 
-_STATUS_LABEL_MAPPINGS: tuple[tuple[str, str], ...] = (
-    ("status/blocked", "Blocked"),
-    ("status/in-review", "In Review"),
-    ("status/in-progress", "In Progress"),
-    ("status/ready", "Ready"),
-    ("status/backlog", "Backlog"),
-)
+# Labels match exactly: `status/ready-to-merge` is not `status/ready`.
+_STATUS_LABELS: dict[str, str] = {
+    "status/backlog": "Backlog",
+    "status/ready": "Ready",
+    "status/in-progress": "In Progress",
+    "status/in-review": "In Review",
+    "status/blocked": "Blocked",
+}
+_PRIORITY_LABELS: dict[str, str] = {
+    "priority/p0-critical": "P0-Critical",
+    "priority/p1-high": "P1-High",
+    "priority/p2-medium": "P2-Medium",
+    "priority/p3-low": "P3-Low",
+}
+_DEFAULT_STATUS = "Backlog"
 
 
-def _match_status_from_labels(labels: list[Any]) -> str:
-    """Match project status from taxonomy labels."""
-    names = [lbl.get("name", "") if isinstance(lbl, dict) else str(lbl) for lbl in labels]
-    for n in names:
-        n_lower = n.lower()
-        for prefix, status in _STATUS_LABEL_MAPPINGS:
-            if prefix in n_lower:
-                return status
-    return "Ready"
+def _label_names(labels: list[Any]) -> list[str]:
+    """Return the lower-cased names of an item's labels."""
+    return [
+        str(lbl.get("name", "") if isinstance(lbl, dict) else lbl).lower() for lbl in labels or []
+    ]
 
 
-def infer_item_status(
-    state: str,
-    labels: list[Any],
-    is_pr: bool = False,
-    has_open_pr: bool = False,
-    is_draft: bool = False,
-) -> str:
-    """Infer GitHub Projects Status field from state, PR presence, draft status, and taxonomy labels."""
-    st_upper = state.upper()
-    if st_upper in ("CLOSED", "MERGED"):
-        return "Done"
-
-    # Open PRs and issues with active open PRs
+def _forced_status(item: Mapping[str, Any], has_open_pr: bool) -> tuple[str, str] | None:
+    """Return the status an item's state forces, with its source, or None."""
+    url = str(item.get("html_url") or item.get("url") or "")
+    is_pr = "/pull/" in url or "pull_request" in item
+    if str(item.get("state", "OPEN")).upper() in ("CLOSED", "MERGED"):
+        if not is_pr:
+            return "Done", "issue closed"
+        return "Done", "pull request merged" if item.get("merged_at") else "pull request closed"
     if is_pr:
-        return "In Progress" if is_draft else "In Review"
-
+        if item.get("draft"):
+            return "In Progress", "draft pull request"
+        return "In Review", "open pull request"
     if has_open_pr:
-        return "In Review"
-
-    return _match_status_from_labels(labels)
-
-
-TAXONOMY_CATEGORY_MAPPING: dict[str, tuple[str, str, str]] = {
-    "type/feature": ("Major Project", "High", "High"),
-    "type/security": ("Quick Win", "High", "Low"),
-    "type/bug": ("Quick Win", "High", "Low"),
-    "type/refactor": ("Foundation", "High", "Medium"),
-    "type/infra": ("Foundation", "High", "Medium"),
-    "type/test": ("Foundation", "Medium", "Medium"),
-    "type/docs": ("Fill-In", "Medium", "Low"),
-    "type/chore": ("Fill-In", "Low", "Low"),
-}
-
-PRIORITY_CATEGORY_MAPPING: dict[str, tuple[str, str, str]] = {
-    "P0-Critical": ("Quick Win", "High", "Low"),
-    "P1-High": ("Foundation", "High", "Medium"),
-    "P2-Medium": ("Fill-In", "Medium", "Medium"),
-    "P3-Low": ("Fill-In", "Low", "Low"),
-}
-
-
-def _match_taxonomy_labels(labels: list[Any], priority: str) -> tuple[str, str, str] | None:
-    """Classify Project Category, Value, Effort from issue/PR taxonomy labels."""
-    label_names = [lbl.get("name", "") if isinstance(lbl, dict) else str(lbl) for lbl in labels]
-    for name in label_names:
-        n_lower = name.lower()
-        for type_key, mapping in TAXONOMY_CATEGORY_MAPPING.items():
-            if type_key in n_lower:
-                if priority in ("P0-Critical", "P1-High") and "bug" in n_lower:
-                    return "Quick Win", "High", "Low"
-                return mapping
+        return "In Review", "linked open pull request"
     return None
 
 
-def infer_item_category_value_effort(
-    title: str, priority: str, labels: list[Any] | None = None
-) -> tuple[str, str, str]:
-    """Infer Category, Value, and Effort for GitHub Projects v2 custom fields."""
-    if labels:
-        matched = _match_taxonomy_labels(labels, priority)
-        if matched is not None:
-            return matched
+def _initial_status(labels: list[Any], status_options: Collection[str]) -> tuple[str, str]:
+    """Return the status for an item whose Status is unset, with its source."""
+    for name in _label_names(labels):
+        status = _STATUS_LABELS.get(name)
+        if status is not None and status in status_options:
+            return status, f"label {name}"
+    return _DEFAULT_STATUS, "default for an unset status"
 
-    if priority == "P0-Critical":
-        return "Quick Win", "High", "Low"
 
-    t = title.lower()
-    title_rules: list[tuple[tuple[str, ...], tuple[str, str, str]]] = [
-        (
-            ("tree-sitter", "ast graph", "observability", "loki", "daemon"),
-            ("Major Project", "High", "High"),
-        ),
-        (("fastmcp", "mcp", "prompt grounding", "contract"), ("Quick Win", "High", "Low")),
-        (
-            ("vector", "store", "tier", "valkey", "ingest", "cache"),
-            ("Foundation", "High", "Medium"),
-        ),
-        (("drift", "auditor", "usage", "docs", "chore"), ("Fill-In", "Medium", "Medium")),
-    ]
-    for keywords, mapping in title_rules:
-        if any(k in t for k in keywords):
-            return mapping
+def _declared_priority(labels: list[Any]) -> tuple[str, str] | None:
+    """Return the priority a priority label declares, with its source, or None."""
+    for name in _label_names(labels):
+        priority = _PRIORITY_LABELS.get(name)
+        if priority is not None:
+            return priority, f"label {name}"
+    return None
 
-    return PRIORITY_CATEGORY_MAPPING.get(priority, ("Fill-In", "Medium", "Medium"))
+
+def _milestone_title(item: Mapping[str, Any]) -> str | None:
+    """Return the title of an item's milestone, if it has one."""
+    milestone = item.get("milestone")
+    if isinstance(milestone, dict):
+        return str(milestone.get("title") or "") or None
+    return str(milestone) if milestone else None
+
+
+def plan_item_changes(
+    item: Mapping[str, Any],
+    current: Mapping[str, str | None],
+    *,
+    has_open_pr: bool = False,
+    status_options: Collection[str] = (),
+) -> list[FieldChange]:
+    """Plan one item's board field changes, each with the source that decided it.
+
+    The board owns Status: it is set only when unset, or when the item's state forces Done,
+    In Review or In Progress, so a person's triage is never reverted. Priority only fills an
+    unset field, from a priority label. Category, Value and Effort are never inferred: an
+    inferred value the board shows as decided is worse than an unset one.
+    """
+    labels = item.get("labels", [])
+    status = _forced_status(item, has_open_pr)
+    if status is None and not current.get("status"):
+        status = _initial_status(labels, status_options)
+    priority = None if current.get("priority") else _declared_priority(labels)
+    milestone = _milestone_title(item)
+
+    targets = (
+        ("Status", status),
+        ("Priority", priority),
+        ("Milestone", (milestone, "issue milestone") if milestone else None),
+    )
+    url = str(item.get("html_url") or item.get("url") or "")
+    changes: list[FieldChange] = []
+    for field_name, target in targets:
+        if target is None:
+            continue
+        new, source = target
+        old = current.get(field_name.lower()) or None
+        if old is None or old.strip().lower() != new.strip().lower():
+            changes.append(FieldChange(url=url, field=field_name, old=old, new=new, source=source))
+    return changes
 
 
 def _fetch_repository_prs(repo: str, state: str = "open") -> list[dict[str, Any]]:
     """Retrieve candidate PRs from the repository via GitHub API."""
-    res = run_gh(
-        [
-            CONST_GH_CLI,
-            "api",
-            "--paginate",
-            f"repos/{repo}/pulls?state={state}&per_page=100",
-            "-H",
-            "Accept: application/vnd.github+json",
-        ],
-        check=False,
-        quiet=True,
-        use_cache=True,
-        cache_ttl=DEFAULT_GH_CACHE_TTL_SECONDS,
-    )
-    if res.returncode != 0 or not res.stdout:
-        return []
-    return parse_paginated_json(res.stdout)
+    return _fetch_repository_list(repo, "pulls", state)
 
 
 def _edit_project_item_field(
@@ -1151,21 +1140,6 @@ def _edit_project_item_field(
     return proc.returncode == 0
 
 
-def _filter_differing_fields(
-    current_fields: Mapping[str, str | None] | None,
-    target_fields: list[tuple[str, str]],
-) -> list[tuple[str, str]]:
-    """Return only target fields whose values differ from current remote values."""
-    if current_fields is None:
-        return list(target_fields)
-    differing: list[tuple[str, str]] = []
-    for fname, fval in target_fields:
-        curr = current_fields.get(fname.lower())
-        if curr is None or curr.strip().lower() != fval.strip().lower():
-            differing.append((fname, fval))
-    return differing
-
-
 def _reconcile_single_item(
     owner: str,
     project_number: int,
@@ -1174,78 +1148,47 @@ def _reconcile_single_item(
     has_open_pr: bool = False,
     current_fields: Mapping[str, str | None] | None = None,
     budget: MutationBudget | None = None,
-) -> bool:
-    """Infer and apply custom fields to a project item only if values differ from remote state."""
-    url = item.get("html_url") or item.get("url") or ""
-    if not url:
-        return False
-    title = item.get("title", "")
-    state = str(item.get("state", "OPEN"))
-    labels = item.get("labels", [])
+    status_options: Collection[str] = (),
+) -> list[FieldChange]:
+    """Plan an item's field changes and, unless dry-running, apply them.
 
-    is_pr = "/pull/" in url or "pull_request" in item
-    is_draft = bool(item.get("draft", False))
-    priority = infer_item_priority(labels)
-    status = infer_item_status(
-        state, labels, is_pr=is_pr, has_open_pr=has_open_pr, is_draft=is_draft
+    Returns the planned changes in a dry run, and the changes actually applied otherwise.
+    """
+    if not (item.get("html_url") or item.get("url")):
+        return []
+    changes = plan_item_changes(
+        item,
+        current_fields or {},
+        has_open_pr=has_open_pr,
+        status_options=status_options,
     )
-    category, val, eff = infer_item_category_value_effort(title, priority, labels=labels)
-    milestone_obj = item.get("milestone")
-    milestone_val = (
-        milestone_obj.get("title")
-        if isinstance(milestone_obj, dict)
-        else (str(milestone_obj) if milestone_obj else None)
-    )
-
-    target_fields: list[tuple[str, str]] = [
-        ("Status", status),
-        ("Priority", priority),
-        ("Category", category),
-        ("Value", val),
-        ("Effort", eff),
-    ]
-    if milestone_val:
-        target_fields.append(("Milestone", str(milestone_val)))
-
-    fields_to_update = _filter_differing_fields(
-        current_fields=current_fields,
-        target_fields=target_fields,
-    )
-
-    if not fields_to_update:
-        return False
-
-    if dry_run:
-        return True
-
-    return _apply_field_updates(
-        owner, project_number, url, fields_to_update, current_fields, budget=budget
-    )
+    if dry_run or not changes:
+        return changes
+    return _apply_field_updates(owner, project_number, changes, current_fields, budget=budget)
 
 
 def _apply_field_updates(
     owner: str,
     project_number: int,
-    url: str,
-    fields_to_update: list[tuple[str, str]],
+    changes: list[FieldChange],
     current_fields: Mapping[str, str | None] | None,
     budget: MutationBudget | None = None,
-) -> bool:
-    """Apply field updates via gh project CLI, breaking early if quota exhausted."""
-    updated_any = False
-    for fname, fval in fields_to_update:
+) -> list[FieldChange]:
+    """Apply field changes via gh project CLI, stopping early if quota runs out."""
+    applied: list[FieldChange] = []
+    for change in changes:
         if (budget is not None and budget.is_exhausted) or _is_graphql_quota_exhausted():
             logger.warning(
                 "GraphQL quota critically low or reached mutation budget. Halting field update."
             )
             break
-        if _edit_project_item_field(owner, project_number, url, fname, fval):
-            updated_any = True
+        if _edit_project_item_field(owner, project_number, change.url, change.field, change.new):
+            applied.append(change)
             if budget is not None:
                 budget.record_mutation()
             if isinstance(current_fields, dict):
-                current_fields[fname.lower()] = fval
-    return updated_any
+                current_fields[change.field.lower()] = change.new
+    return applied
 
 
 def _extract_linked_issue_numbers(prs: list[dict[str, Any]]) -> set[int]:
@@ -1337,28 +1280,34 @@ def _reconcile_candidate_items(
     open_pr_issue_numbers: set[int],
     dry_run: bool,
     budget: MutationBudget | None = None,
-) -> int:
-    """Iterate over candidates and reconcile custom fields where values differ."""
-    reconciled_count = 0
+    status_options: Collection[str] = (),
+) -> list[FieldChange]:
+    """Reconcile each candidate's fields, returning every change planned or applied."""
+    changes: list[FieldChange] = []
     for it in candidates:
         if not _can_continue_reconciliation(dry_run, budget=budget):
             break
         url = it.get("html_url") or it.get("url") or ""
         if dry_run and url not in items_data:
             continue
-        it_num = int(it.get("number", 0))
-        current = items_data.get(url)
-        if _reconcile_single_item(
-            owner,
-            project_number,
-            it,
-            dry_run,
-            has_open_pr=(it_num in open_pr_issue_numbers),
-            current_fields=current,
-            budget=budget,
-        ):
-            reconciled_count += 1
-    return reconciled_count
+        changes.extend(
+            _reconcile_single_item(
+                owner,
+                project_number,
+                it,
+                dry_run,
+                has_open_pr=(int(it.get("number", 0)) in open_pr_issue_numbers),
+                current_fields=items_data.get(url),
+                budget=budget,
+                status_options=status_options,
+            )
+        )
+    return changes
+
+
+def _status_options(template: ProjectTemplate) -> list[str]:
+    """Return the Status options a project template declares."""
+    return [opt.name for fld in template.fields if fld.name == "Status" for opt in fld.options]
 
 
 def reconcile_project_custom_fields(
@@ -1368,40 +1317,34 @@ def reconcile_project_custom_fields(
     dry_run: bool = False,
     state: str = "open",
     budget: MutationBudget | None = None,
+    template: ProjectTemplate | None = None,
 ) -> dict[str, Any]:
-    """Reconcile custom field values (Status, Priority, Category, Value, Effort) on project items."""
+    """Reconcile Status, Priority and Milestone on project items, listing every change.
+
+    The result's ``changes`` holds each field change with its old and new value and the
+    source that decided it: the planned changes in a dry run, the applied ones otherwise.
+    """
+    result: dict[str, Any] = {
+        "project_number": project_number,
+        "owner": owner,
+        "repo": repo,
+        "items_evaluated": 0,
+        "items_reconciled": 0,
+        "dry_run": dry_run,
+        "changes": [],
+    }
     if _is_graphql_quota_exhausted():
         logger.warning(
             "GraphQL quota critically low or unknown. Skipping project custom field reconciliation."
         )
-        return {
-            "project_number": project_number,
-            "owner": owner,
-            "repo": repo,
-            "items_evaluated": 0,
-            "items_reconciled": 0,
-            "dry_run": dry_run,
-        }
+        return result
 
-    items_data = _fetch_project_items_data(owner, project_number)
-    if items_data is None and not dry_run:
-        logger.warning("Failed to fetch project data. Skipping mutations.")
-        return {
-            "project_number": project_number,
-            "owner": owner,
-            "repo": repo,
-            "items_evaluated": 0,
-            "items_reconciled": 0,
-            "dry_run": dry_run,
-        }
-
+    status_options = _status_options(template or load_project_template())
+    active_items = _fetch_project_items_data(owner, project_number)
     mutation_budget = budget or MutationBudget(limit=DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC)
     issues = _fetch_repository_issues(repo, state=state)
     prs = _fetch_repository_prs(repo, state=state)
     candidates = issues + prs
-
-    open_pr_issue_numbers = _extract_linked_issue_numbers(prs)
-    active_items = items_data or {}
 
     if not dry_run:
         _provision_missing_candidates(
@@ -1413,25 +1356,22 @@ def reconcile_project_custom_fields(
         if dry_run
         else candidates
     )
-
-    reconciled_count = _reconcile_candidate_items(
+    changes = _reconcile_candidate_items(
         owner,
         project_number,
         eval_candidates,
         active_items,
-        open_pr_issue_numbers,
+        _extract_linked_issue_numbers(prs),
         dry_run,
         budget=mutation_budget,
+        status_options=status_options,
     )
-
-    return {
-        "project_number": project_number,
-        "owner": owner,
-        "repo": repo,
-        "items_evaluated": len(eval_candidates),
-        "items_reconciled": reconciled_count,
-        "dry_run": dry_run,
-    }
+    result.update(
+        items_evaluated=len(eval_candidates),
+        items_reconciled=len({change.url for change in changes}),
+        changes=[change.model_dump() for change in changes],
+    )
+    return result
 
 
 def sync_remote_project(
@@ -1473,7 +1413,7 @@ def sync_remote_project(
     )
     if reconcile_fields:
         reconcile_project_custom_fields(
-            owner, repo, proj_num, dry_run=False, budget=mutation_budget
+            owner, repo, proj_num, dry_run=False, budget=mutation_budget, template=template
         )
 
     return ProjectSyncResult(

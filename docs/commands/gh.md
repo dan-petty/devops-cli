@@ -225,7 +225,7 @@ devops gh project status [OPTIONS]
 
 ### `devops gh project sync`
 
-**Sync task items from docs/agent/tasks directory into GitHub Projects status.**
+**Create or update the project board from its template, add open issues, and reconcile Status, Priority and Milestone; task files are not read.**
 
 ```bash
 devops gh project sync [OPTIONS]
@@ -239,11 +239,11 @@ devops gh project sync [OPTIONS]
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run`, `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
-| `--reconcile-fields`, `--no-reconcile-fields` | `boolean` | `True` | Automatically infer and update project custom fields from taxonomy labels and issue state. |
+| `--reconcile-fields`, `--no-reconcile-fields` | `boolean` | `True` | Also reconcile Status, Priority and Milestone from issue state and labels. |
 
 ### `devops gh project reconcile`
 
-**Reconcile custom fields (Status, Priority, Category, Value, Effort) on project items.**
+**Reconcile Status, Priority and Milestone on project items, listing each change and its source; the board owns Status.**
 
 ```bash
 devops gh project reconcile [OPTIONS]
@@ -998,8 +998,8 @@ devops gh pr check-readiness [OPTIONS] <number>
 | `--allow-draft` | `boolean` | - | Report a draft pull request as ready; GitHub still refuses to merge one. |
 | `--allow-pending-checks` | `boolean` | - | Treat checks that are still running as acceptable rather than blocking. |
 | `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
-| `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
-| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |
+| `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received a reply from someone other than the thread opener. |
+| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received a reply from someone other than the thread opener as addressed rather than blocking. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ### `devops gh pr update`
@@ -1074,7 +1074,7 @@ devops gh pr threads reply <thread_id> <body>
 **Programmatically mark one or more PR review discussion threads as resolved.**
 
 ```bash
-devops gh pr threads resolve <thread_ids>
+devops gh pr threads resolve [OPTIONS] <thread_ids>
 ```
 
 **Arguments:**
@@ -1082,6 +1082,12 @@ devops gh pr threads resolve <thread_ids>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<thread_ids>` | `string` | Yes | One or more review thread GraphQL IDs to resolve. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--without-reply`, `-w` | `boolean` | - | Force resolution of review threads even if they lack a reply from someone other than the thread opener. |
 
 #### `devops gh pr threads unresolve`
 
@@ -1115,7 +1121,7 @@ devops gh pr threads resolve-all [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received one or more in-thread replies. |
+| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---

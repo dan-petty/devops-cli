@@ -281,6 +281,28 @@ def test_install_argo_ecosystem_tools(tmp_path: Path) -> None:
     ) == (True, True, True)
 
 
+def test_resolve_argo_expected_checksum_fallback() -> None:
+    """Verify argo checksum resolver falls back to legacy sha file on download/validation error."""
+    from devops_cli.commands.install_tools import _resolve_argo_expected_checksum
+    from devops_cli.exceptions import ToolDownloadError
+
+    calls: list[str] = []
+
+    def mock_download(url: str) -> bytes:
+        calls.append(url)
+        if "checksums.txt" in url:
+            raise ToolDownloadError(url, "404 Not Found")
+        return b"abcdef1234567890  argo-linux-amd64.gz\n"
+
+    with patch("devops_cli.commands.install_tools._download", side_effect=mock_download):
+        sha = _resolve_argo_expected_checksum(
+            "http://example.com/checksums.txt",
+            "http://example.com/legacy.sha256",
+            "argo-linux-amd64.gz",
+        )
+    assert (sha, len(calls)) == ("abcdef1234567890", 2)
+
+
 def test_install_cluster_sanitizers(tmp_path: Path) -> None:
     """Verify trivy, kube-linter, popeye, pluto, and k9s installers."""
     bin_content = b"#!/bin/sh\necho test\n"

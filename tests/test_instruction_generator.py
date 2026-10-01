@@ -128,6 +128,9 @@ def test_generate_agents_md_contains_required_sections() -> None:
     assert "asyncio.Semaphore(5)" in content
     assert "Comprehensive Sanitization of Internal Systems & Homelab Data" in content
     assert "<storage-node>" in content
+    assert "Mandatory Third-Party Telemetry & Phone-Home Opt-Outs" in content
+    assert "Strict Opt-Out of Non-Functional Third-Party Telemetry" in content
+    assert "Confirmation Required for Functional Web Integrations" in content
 
     # Verify external/generic project AGENTS.md omits pre-1.0 alpha lifecycle block
     meta_generic = ProjectMetadata(
@@ -144,19 +147,22 @@ def test_generate_agents_md_contains_required_sections() -> None:
 def test_scaffold_agent_instructions(tmp_path: Path) -> None:
     """Verify scaffold_agent_instructions writes all default files."""
     written = scaffold_agent_instructions(tmp_path)
-    assert len(written) == 3
-
     agents_md = tmp_path / CONST_AGENTS_MD_FILENAME
     claude_md = tmp_path / CONST_CLAUDE_MD_FILENAME
     copilot_md = tmp_path / CONST_COPILOT_INSTRUCTIONS_PATH
 
-    assert agents_md.exists()
-    assert claude_md.exists()
-    assert copilot_md.exists()
+    assert (
+        len(written),
+        agents_md.exists(),
+        claude_md.exists(),
+        copilot_md.exists(),
+    ) == (3, True, True, True)
 
-    assert f"# {tmp_path.name}" in agents_md.read_text(encoding="utf-8")
-    assert "Claude Code" in claude_md.read_text(encoding="utf-8")
-    assert "GitHub Copilot" in copilot_md.read_text(encoding="utf-8")
+    assert (
+        f"# {tmp_path.name}" in agents_md.read_text(encoding="utf-8"),
+        "Claude Code" in claude_md.read_text(encoding="utf-8"),
+        "GitHub Copilot" in copilot_md.read_text(encoding="utf-8"),
+    ) == (True, True, True)
 
 
 def test_scaffold_agent_instructions_skip_existing_without_force(tmp_path: Path) -> None:
@@ -166,25 +172,33 @@ def test_scaffold_agent_instructions_skip_existing_without_force(tmp_path: Path)
 
     # Call without force
     written = scaffold_agent_instructions(tmp_path, force=False)
-    assert agents_md not in written
-    assert agents_md.read_text(encoding="utf-8") == "Custom instruction content"
+    assert (agents_md not in written, agents_md.read_text(encoding="utf-8")) == (
+        True,
+        "Custom instruction content",
+    )
 
     # Call with force
     written_force = scaffold_agent_instructions(tmp_path, force=True)
-    assert agents_md in written_force
-    assert "Canonical Source" in agents_md.read_text(encoding="utf-8")
+    assert (
+        agents_md in written_force,
+        "Canonical Source" in agents_md.read_text(encoding="utf-8"),
+    ) == (
+        True,
+        True,
+    )
 
 
 def test_devcontainer_init_scaffolds_agent_instructions(runner: CliRunner, tmp_path: Path) -> None:
     """Verify devops devcontainer init scaffolds AGENTS.md, CLAUDE.md, and copilot instructions."""
     result = runner.invoke(devcontainer_app, ["init", str(tmp_path), "--name", "init-test-proj"])
-    assert result.exit_code == 0
-
-    assert (tmp_path / ".devcontainer" / "devcontainer.json").exists()
-    assert (tmp_path / ".vscode" / "mcp.json").exists()
-    assert (tmp_path / "AGENTS.md").exists()
-    assert (tmp_path / "CLAUDE.md").exists()
-    assert (tmp_path / ".github" / "copilot-instructions.md").exists()
+    assert (
+        result.exit_code,
+        (tmp_path / ".devcontainer" / "devcontainer.json").exists(),
+        (tmp_path / ".vscode" / "mcp.json").exists(),
+        (tmp_path / "AGENTS.md").exists(),
+        (tmp_path / "CLAUDE.md").exists(),
+        (tmp_path / ".github" / "copilot-instructions.md").exists(),
+    ) == (0, True, True, True, True, True)
 
 
 def test_devcontainer_post_create_scaffolds_agent_instructions(
@@ -211,10 +225,12 @@ def test_devcontainer_post_create_scaffolds_agent_instructions(
         devcontainer_app,
         ["post-create", "--workspace", str(tmp_path)],
     )
-    assert res_live.exit_code == 0
-    assert (tmp_path / "AGENTS.md").exists()
-    assert (tmp_path / "CLAUDE.md").exists()
-    assert (tmp_path / ".github" / "copilot-instructions.md").exists()
+    assert (
+        res_live.exit_code,
+        (tmp_path / "AGENTS.md").exists(),
+        (tmp_path / "CLAUDE.md").exists(),
+        (tmp_path / ".github" / "copilot-instructions.md").exists(),
+    ) == (0, True, True, True)
 
 
 def test_ai_agents_command_scaffolds_instructions(runner: CliRunner, tmp_path: Path) -> None:
@@ -225,12 +241,13 @@ def test_ai_agents_command_scaffolds_instructions(runner: CliRunner, tmp_path: P
     )
 
     result = runner.invoke(ai_app, ["agents", "--repo", str(tmp_path), "--template"])
-    assert result.exit_code == 0
-
-    assert (tmp_path / "AGENTS.md").exists()
-    assert (tmp_path / "CLAUDE.md").exists()
-    assert (tmp_path / ".github" / "copilot-instructions.md").exists()
-    assert "Testing AI agents generation" in (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    assert (
+        result.exit_code,
+        (tmp_path / "AGENTS.md").exists(),
+        (tmp_path / "CLAUDE.md").exists(),
+        (tmp_path / ".github" / "copilot-instructions.md").exists(),
+        "Testing AI agents generation" in (tmp_path / "AGENTS.md").read_text(encoding="utf-8"),
+    ) == (0, True, True, True, True)
 
 
 def test_instruction_generator_devops_cli_and_force_modes(tmp_path: Path) -> None:

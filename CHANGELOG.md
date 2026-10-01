@@ -5,6 +5,119 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.24] - 2026-10-01
+
+### Added
+- **Stack Dashboards Chart Only What Their Exporters Serve (`k8s/monitoring/dashboards/`)**:
+  - The LLM gateway, OpenTelemetry collector and new Prometheus server dashboards query only series their exporters serve, checked in tests against captured exporter output, with no `or vector(0)` fallback, so a panel without data reads "No data" instead of zero. vLLM and the unverified Qdrant row are gone, and the collector's own telemetry is scraped through pod annotations (#693).
+- **devops-cli Dashboards Chart What the CLI Sends (`k8s/monitoring/dashboards/`, `devops grafana dashboards sync`)**:
+  - The devops-cli and AI spend dashboards chart command latency at p50, p95 and p99, error share by command, findings by severity, and reviews by target type, reading every counter through `rate()` or `increase()`. Panels say when a value is approximate, and grouped panels no longer draw an unlabelled zero series (#692).
+  - A kustomize `configMapGenerator` provisions six dashboards through the Grafana sidecar in place of the hand-copied ConfigMaps, and `dashboards sync` skips dashboards Grafana reports as provisioned (#692).
+- **SARIF Runs Reflect What Each Scanner Did (`devops scan report --sarif`)**:
+  - Only a scanner that ran gets a SARIF run, zero results included, with `invocations[].executionSuccessful` and its start and end times. A scanner that was unavailable, failed, not applicable or fell back to built-in patterns gets no run, only a notification on devops-cli's own invocation, so an upload never closes a tool's alerts for a scan that did not happen, and built-in pattern findings are attributed to devops-cli rather than to the real tool (#708).
+  - Non-gating findings, such as Dive's efficiency score, are emitted at `note` level as `problem.severity: recommendation`, without a `security-severity` (#708).
+  - Emitted documents are validated against the vendored OASIS SARIF 2.1.0 schema in tests (#708).
+- **Roadmap Planning Glossary & GitHub-Source ADR (`CONTEXT.md`, `docs/adr/`)**:
+  - Added `CONTEXT.md`, the glossary for release planning and the roadmap jobs, and `docs/adr/0001-github-is-the-roadmap-source.md`, which makes GitHub issues, milestones and the project board the roadmap's source of truth (#746).
+  - Scheduled the roadmap jobs in `docs/ROADMAP.md` (#739-#744, with #745 in the backlog), revised the #697 and #704 entries, and removed the superseded #418, #696 and #699 entries (#746).
+- **Roadmap Service Decisions, Machine-Account & Polling ADRs (`CONTEXT.md`, `docs/adr/`)**:
+  - Resolved the glossary's open boundaries (Item, Candidate, Blocked, Dependency, Stalled, Cut, Current release, Critical fix, Value, Effort, Reprioritization, Closure) and added Service, the homelab deployment that runs the roadmap jobs (#756).
+  - Added `docs/adr/0002-roadmap-jobs-act-as-a-machine-account.md` and `docs/adr/0003-polling-is-how-the-roadmap-sees-changes.md`, revised the #739-#743 roadmap entries, moved #741 to v0.2.26 beside #752 and #753, and added #754 and #755 to the backlog (#756).
+- **Architecture Review Planning (`CONTEXT.md`, `docs/ROADMAP.md`)**:
+  - Added the Code review glossary terms (Finding, Verdict, Review session, Known false positive) (#782).
+  - Planned the architecture review's ten deepening candidates and five defects as #767-#781: the gitleaks list-target regression as a v0.2.24 critical fix, the roadmap store in v0.2.25, the GitHub session in v0.2.26 and the rest in the backlog (#782).
+- **Dashboard Keeps Its Place Across Refreshes (`devops dashboard`, `devops tui`)**:
+  - A refresh keeps each table's highlighted row and its horizontal and vertical scroll, on every tab, instead of returning to the first row every five seconds. Rows carry stable keys, so repeated records stay separate rows and a record that vanishes leaves the cursor at its index (#684).
+  - The AI Review findings sub-tab shows the highlighted finding's full record in a detail pane beside the table, toggled with `i`, with model-written markup and control characters shown literally. Every finding of a session is listed, not just the first 50 (#684).
+- **Truthful Pod Status, Filters and a Pod Inspector (`devops dashboard`, `devops k8s pods`)**:
+  - STATUS and READY match `kubectl get pods` wherever pods are listed: the dashboard, `devops dashboard --summary`, `devops k8s pods` and `--watch`. The Kubernetes tab's banner names the context, the Ready nodes and the unhealthy pods, or the context and the real error when it cannot connect (#686).
+  - Namespace and text filters survive refreshes and keep the highlighted pod on screen. Logs follow a pod's default container, `c` cycles containers, a replaced log stream is closed, and `e` opens the pod's containers and recent events. The Minikube probe is gone (#686).
+- **Monitoring Stack on Grafana k8s-monitoring (`k8s/monitoring`, `devops k8s deploy-stack`)**:
+  - kube-prometheus-stack is replaced by Grafana's `k8s-monitoring` chart with Alloy collectors for metrics, pod logs and events, and Prometheus keeps metrics for 30 days (#734). Loki does not yet delete logs by age, because its compactor retention is off; #550 turns it on.
+  - The Prometheus server and Grafana run as their own charts again, cluster CPU metrics are restored, duplicate scrape jobs are off, and the Kubernetes views dashboards default to the homelab cluster (#738).
+  - Traefik serves ingress routes for the monitoring services, and the monitoring perimeter admits it (#734).
+  - The OpenTelemetry collector remote-writes devops-cli metrics to Alloy's Prometheus receiver at `/api/v1/metrics/write`, the only path it serves (#829).
+  - `devops k8s deploy-stack` applies the `prometheus` Service that Alloy writes to and Grafana queries, and the Services `devops k8s port-forward` targets. No chart creates them (#912).
+- **Multi-Node Ollama Profiles (`k8s/llm/profiles`)**:
+  - Ollama runs as per-VRAM-tier DaemonSets behind `ollama-<n>gib` Services, and the LLM gateway routes every model group to them (#734).
+
+### Changed
+- **MCP Tool `k8s_chaos` Previews by Default**:
+  - `experiment` is the positional argument, and a new `dry_run` parameter (default `true`) passes `--dry-run`, so the tool runs an experiment only when `dry_run` is false (#836).
+
+### Removed
+- **LightLLM Inference Backend (`devops_cli.ai`, `k8s/llm`)**:
+  - Fully removed the unused `ghcr.io/modeltc/lightllm` inference backend, including `k8s/llm/lightllm/` manifests, `CONST_AI_BACKEND_LIGHTLLM`, `GatewayRouter.scale_lightllm()`, the `devops-cli-ai_lightllm_scale` MCP tool, and all associated CLI, configuration, and test references.
+- **MCP Tools and Parameters With No Command Behind Them**:
+  - The `ai_architecture` tool, which called a nonexistent `devops analyze architecture`, and the parameters `repos_sync(all_repos)`, `k8s_audit(namespace)` and `k8s_chaos(action)`, which their commands never took (#836).
+- **Squid Forward Proxy (`k8s/squid`)**:
+  - The Squid egress proxy, its CA bundle and its exporter are removed (#734). An existing cluster keeps the namespace until it is deleted: `kubectl delete namespace squid`.
+- **vLLM Deployment Profiles (`k8s/llm/profiles`, LLM gateway)**:
+  - The vLLM DaemonSets, their `vllm-<n>gib` Services and the gateway's vLLM routes are removed in favour of the Ollama profiles (#734). An existing cluster keeps the model caches until they are deleted: `kubectl -n llm delete pvc vllm-model-cache vllm-single-model-cache`. The remaining vLLM references in code are #820.
+- **kube-prometheus-stack (`k8s/monitoring`)**:
+  - The kube-prometheus-stack release is replaced by k8s-monitoring (#734) and the separate Prometheus and Grafana charts (#738). Its Prometheus Operator CRDs stay installed: the `prometheus-operator-crds` release now owns them (#819), so do not delete them by hand. The alias Services that kept its names working are #818.
+
+### Fixed
+- **Branch Analysis Reads the Base Revision Again (`devops analyze branch`, `devops review`)**:
+  - `symbols_removed` lists the symbols a branch removed again, so a review's "cites a removed symbol" check works. Since f93231b (#738) the base file was read as a pathspec and came back empty. Enhanced branch analyses cached since then must be regenerated with `devops analyze branch --update-all` (#787).
+- **Kubernetes Monitoring Stack Integration & Dashboard Metrics (`k8s/monitoring`)**:
+  - Configured `kube-state-metrics` with `metricLabelsAllowlist` and extra collector `endpoints` to emit resource labels and endpoint info for Kubernetes Views dashboards (#825).
+  - Expanded Alloy cAdvisor and KSM `metricsTuning.includeMetrics` to capture container CFS throttling, OOM events, network errors, and pod container status metrics (#825).
+  - Permitted port 9153 (TCP) in monitoring NetworkPolicy egress, so the Prometheus server's `kubernetes-service-endpoints` job can scrape CoreDNS through the `kube-dns` Service's scrape annotations (#825).
+- **Gitleaks Scans Every File of a List Target (`devops_cli.security.gitleaks`)**:
+  - A list target, such as the files of a review, now runs Gitleaks once per file and merges the outcomes, keeping every finding and the worst status. Before, the binary scanned only the first file, and since #763 the built-in patterns did too (#781).
+- **Board-Owned Project Status and Truthful Reconciliation (`devops gh project reconcile`, `devops gh project sync`)**:
+  - The board owns Status: reconcile sets it only when unset, or when an item's state forces Done, In Review or In Progress, so manual triage is no longer reverted. Status labels match exactly, Priority only fills an unset field from its label, and Category, Value and Effort are no longer inferred (#703).
+  - `devops gh project reconcile` lists every field change with its old and new value and the source that decided it, and refuses to guess a board number when no board matches the template (#703).
+  - Failed reads of the board, issues or pull requests now raise instead of reading as empty, roadmap sync and release epics read every issue rather than the first 200 or 300, and each pull request is reconciled once (#703).
+- **Quality Gate Within Its Five-Minute Budget (`devops ci`, `tests/`)**:
+  - The secops dry-run tests enable dry-run mode instead of running trivy, kube-linter and pluto over the whole workspace until they time out (#748).
+  - The test network guard now fails external DNS lookups too; tests that validate egress against a resolving hostname declare the `public_dns` fixture (#748).
+  - `devops ci` warns when the workspace is on a 9p or drvfs share of a host folder, and lists pytest's slowest tests when the test step runs past the 5-minute budget (#748).
+- **Structured Replies Keep Their Answer Beside Bracketed Prose (`devops_cli.ai.response_repair`)**:
+  - A reply whose prose holds brackets, such as a markdown link or `items[0]`, keeps its fenced answer, so review personas keep their findings and agent replies validate against their schema (#786).
+  - A lone fenced block is read exactly from its opening fence, so a fence inside one of its strings cannot cut it short and a fenced `write_file` call keeps its content's final newline (#786).
+- **Harness, Constellation and Telemetry Profile Report Only What Ran (`devops ai harness`, `devops ai constellation`, `devops telemetry profile`)**:
+  - `ai harness status` shows the configured provider and model with every slot `configured`, instead of a hard-coded `claude-3-7-sonnet` with every slot `attached`. `ai harness run` and `offload` report the local search they ran and what it found, without templated model "Tier 1/Tier 3" text, token estimates, or the unused `--frontier-model`/`--local-model` options (#710).
+  - `ai quiesce`, `ai failover`, `ai resume` and `ai constellation` set, record and show a flag, and say so. Task registration, which nothing called, and the per-task counts, `--drain-timeout` and failover's `--force` are removed; `ai gateway failover` reroutes requests (#710).
+  - `telemetry profile <command>` reads the command's trace back from Jaeger, waiting until it stops growing, and exits non-zero without a command or trace, with telemetry export off, or when no spans reach Jaeger. The `sample.*` fallback spans and the unused `--last` are removed, and the MCP tool passes the command positionally (#710).
+- **The Workspace Tripwire Passes From a Linked Worktree (`tests/conftest.py`)**:
+  - `uv run devops ci` no longer fails from a linked worktree. The #749 tripwire required `.git/index`, which a linked worktree lacks, so it reported every file the gate regenerates as modified by tests; git now finds the index itself (#824).
+- **Deploy-Stack Installs the Prometheus Operator CRDs (`devops k8s deploy-stack`, `devops k8s teardown-stack`)**:
+  - The infra stack installs `prometheus-community/prometheus-operator-crds` before k8s-monitoring and dcgm-exporter, whose ServiceMonitors need its CRDs. Since #734 removed kube-prometheus-stack, a cluster without leftover CRDs got no Alloy, and so no cluster metrics, pod logs, or gateway and GPU metrics. Teardown leaves the CRDs in place, and they carry `helm.sh/resource-policy: keep` (#819).
+  - Adoption of pre-existing resources handles cluster-scoped ones such as leftover CRDs, annotates the release's namespace that Helm checks, and retries until every leftover is adopted or a retry fails unchanged (#819).
+- **The Finding Detail Pane Opens Each Finding at the Top at Once (`devops dashboard`)**:
+  - Highlighting another finding scrolls the detail pane to the top immediately instead of after the next screen refresh, which a slower machine had not always drawn; CI failed intermittently on it (#834).
+- **Tests Never Reach Port-Forwarded Services (`tests/conftest.py`)**:
+  - The test network guard refuses loopback connects to any port the test process is not listening on, and a port refuses again once its listener closes, so a workstation's port-forwards (OTLP collector, Valkey, Ollama, ArgoCD) are never reached by the suite; one run had made 5,716 such connects. The refusal is the `ConnectionRefusedError` clients already handle (#837).
+  - `EmbeddingsEngine` no longer skips its Valkey probe under pytest, and `test_popeye_dry_run` no longer runs the real popeye binary (#837).
+- **MCP Tools Call Commands That Exist (`devops mcp`, `devops docs check`)**:
+  - Twelve MCP entry points called commands or options the CLI does not have and failed on every call. They now call real commands: `benchmark_embeddings` and `benchmark_suite` run `devops ai benchmark`; `scan_gitleaks`, `scan_semgrep` and `scan_checkov` run `devops scan secrets`, `sast` and `iac`; `resource://workspace/status` runs `devops repos list`; `scan_complexity` passes `--max-indent`; `resource://argo/fleet/status` no longer passes `--json` (#836).
+  - `devops docs check` resolves every `uv run devops` argv in the MCP server against the real command tree without running it, and reports each defect at its server line (#836).
+- **MCP Tools Refuse Coerced Arguments Before They Run (`devops_cli.ai.mcp`)**:
+  - Tool arguments are validated against each tool's published schema before its handler runs, for listed and withheld tools alike. A boolean, string or integral float is refused where an integer is expected: `review_pr` with `{"number": true, "post": true}` had built `devops review pr 1 --post`. A refusal names each parameter once, with the expected type and the allowed parameters, and never echoes a value. Rejected inputs no longer reach FastMCP's warning log, and `jsonschema` is a runtime dependency (#862).
+- **Review Self-Improvement & Verification Feedback Loop (`devops_cli.ai.review`, `devops_cli.security`)**:
+  - Remediated session `20260928-160843` findings, eliminating native secret scanner false positives, tautological criteria auto-promotions, and cluster overlay networking hallucinations (#682).
+  - Anchored native fallback secret patterns with `\b` word boundaries and tightened OpenAI key pattern to `\bsk-(?:proj-)?[A-Za-z0-9]{32,128}\b`, preventing `task-*.md` markdown links from falsely triggering secret detection (#682).
+  - Implemented `CONST_SECRET_PLACEHOLDER_MARKERS` and `_is_placeholder_secret` to filter out documentation and illustrative placeholder tokens (#682).
+  - Implemented `_is_tautological_verification_command` in `review_environment.py` to prevent text-search (`git grep`, `grep`) and reflection commands (`__code__.co_varnames`, `hasattr`, `getattr`) from falsely promoting findings to verified status (#682).
+  - Broadened `HALLUCINATION-K8S-CLUSTER-OVERLAY-HTTP` in `common_hallucinations.json` and verification prompts to cover internal container-to-container and backend service HTTP communication (#682).
+  - Added `HALLUCINATION-OFFLINE-PRICING-URLSPLIT` and `HALLUCINATION-MITIGATION-LEDGER-INITIAL-EMPTY` to prevent false SSRF and absent-mitigation claims on offline pricing calculators and dynamic audit ledgers (#682).
+  - Added `_sanitize_api_key_header` in `gateway.py` to strip newlines and reject non-ASCII/CRLF injection characters (#682).
+  - Hardened URL scheme validation in `gateway_bench.py` before `urllib.request.urlopen` (#682).
+  - Enforced strict regex format `^[a-zA-Z0-9_\-\.]+$` on `run_id` in `run_store.py` rejecting `..` traversal (#682).
+  - Narrowed exception handlers in `install_tools.py` and guarded git directory pointer resolution in `tracer.py` against `(OSError, RuntimeError, ValueError)` (#682).
+  - Validated revisions and paths before the git invocations in `analyze.py` (#682).
+  - Added `_validate_mcp_arg("session_id", ...)` in MCP `review_findings` (#682).
+  - Updated `src/devops_cli/ai/tasks/verify_finding_system.md`, `src/devops_cli/ai/tasks/review.md`, and `src/devops_cli/ai/personas/devsecops/prompt.md` with explicit falsification rules against tautological criteria, documentation placeholders, and internal cluster networking (#682).
+  - Added Calibration Record for session `20260928-160843` to `docs/SELF_IMPROVEMENT.md` (#682).
+  - Exported refreshed feedback dataset with 1,219 findings via `devops review export-feedback` (#682).
+
+### Security
+- **`web_fetch` Vets Every Redirect Hop Before Sending It (`devops_cli.ai.common_tools`, `devops_cli.http.broker`)**:
+  - A redirect chain could reach a link-local or private address: only the first URL and the final response were checked. Now each hop goes through the HTTP broker's request hook before it is sent. Only http and https are allowed, the domain lists apply with case and trailing dots ignored, and the address must be public whatever `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK` says. Both broker clients follow at most 10 redirects (#860).
+  - Each fetch uses its own client, so no cookies carry over between fetches, and a request's egress policy can only add restrictions to the broker's own SSRF check (#860).
+
 ## [0.2.23] - 2026-09-28
 
 ### Added

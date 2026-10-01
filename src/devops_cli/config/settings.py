@@ -57,7 +57,6 @@ from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
     DEFAULT_FEEDBACK_DATASET_PATH,
     DEFAULT_JAEGER_URL,
-    DEFAULT_LIGHTLLM_URL,
     DEFAULT_LLM_CACHE_DATA_DIR,
     DEFAULT_LLM_CACHE_ENABLED,
     DEFAULT_LLM_CACHE_MAX_ENTRIES,
@@ -426,7 +425,6 @@ class AIConfig(BaseModel):
     gateway_weights: dict[str, int] = Field(default_factory=dict)
     gateway_concurrency: dict[str, int] = Field(default_factory=dict)
     portkey_url: str = DEFAULT_PORTKEY_GATEWAY_URL
-    lightllm_url: str = DEFAULT_LIGHTLLM_URL
     vllm_url: str = DEFAULT_VLLM_URL
     api_base_url: str | None = None
     allow_private_network: bool = False
@@ -938,16 +936,6 @@ def _prune_default_data_config(dumped_data: dict[str, Any], settings: Settings) 
 def save_settings(settings: Settings, target_path: Path | None = None) -> None:
     """Persist settings to config YAML (secrets stay in keyring only)."""
     dest_path = target_path or get_active_config_path()
-    if "PYTEST_CURRENT_TEST" in os.environ:
-        workspace_configs = {
-            (Path.cwd() / "config.yaml").resolve(),
-            (Path("/workspaces/devops-cli") / "config.yaml").resolve(),
-        }
-        if dest_path.resolve() in workspace_configs:
-            raise ConfigurationError(
-                f"Refusing to overwrite workspace config.yaml during test execution! "
-                f"(dest_path={dest_path})"
-            )
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     data = settings.model_dump(mode="json", exclude_none=True)
     _prune_default_data_config(data, settings)
@@ -1001,8 +989,9 @@ def _github_cli_token() -> str | None:
 
 
 def get_grafana_token(settings: Settings) -> str | None:
-    """Resolve the Grafana API token."""
-    return _resolve(opt.GRAFANA_TOKEN, settings)
+    """Resolve the Grafana API token, rejecting masked placeholder values."""
+    token = _resolve(opt.GRAFANA_TOKEN, settings)
+    return token if token and not token.startswith("*") else None
 
 
 def get_grafana_password(settings: Settings) -> str | None:

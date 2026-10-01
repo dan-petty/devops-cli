@@ -14,7 +14,7 @@ import hashlib
 import json
 import logging
 import os
-import random
+import re
 import shutil
 import subprocess
 import threading
@@ -29,6 +29,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 from aiolimiter import AsyncLimiter
 from ratelimit import limits, sleep_and_retry  # type: ignore[import-untyped]
+from tenacity import RetryCallState, Retrying, wait_random_exponential
 
 from devops_cli.config.constants import (
     CONST_CACHE_DIR_NAME,
@@ -38,13 +39,17 @@ from devops_cli.config.constants import (
     CONST_GH_NON_API_COMMANDS,
     CONST_GH_QUOTA_CACHE_FILENAME,
     CONST_GITHUB_RATE_LIMIT_PATTERNS,
+    CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
     DEFAULT_GH_CACHE_TTL_SECONDS,
     DEFAULT_GH_MAX_PAGINATED_PAGES,
+    DEFAULT_GH_MAX_RATE_LIMIT_WAIT,
     DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS,
     DEFAULT_GH_QUOTA_MAX_AGE_SECONDS,
+    DEFAULT_GH_SECONDARY_MAX_CAP,
+    DEFAULT_GH_SECONDARY_RATE_WAIT,
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubRateLimitError
@@ -292,10 +297,10 @@ def _load_disk_quota(path: Path) -> dict[str, QuotaState]:
     return valid_quotas
 
 
-def _load_disk_global_meta(path: Path) -> tuple[int, float]:
-    """Load global request count and last request timestamp from disk."""
+def _load_disk_global_meta(path: Path) -> tuple[int, float, int, float]:
+    """Load global request count, last request timestamp, total throttles, and wait seconds from disk."""
     if not path.is_file():
-        return 0, 0.0
+        return 0, 0.0, 0, 0.0
     try:
         content = path.read_text(encoding="utf-8")
         raw = json.loads(content)
@@ -304,10 +309,12 @@ def _load_disk_global_meta(path: Path) -> tuple[int, float]:
             if isinstance(g, dict):
                 total = int(g.get("total_requests", 0))
                 last_epoch = float(g.get("last_request_epoch", 0.0))
-                return max(0, total), max(0.0, last_epoch)
+                throttles = int(g.get("total_throttles", 0))
+                wait_sec = float(g.get("total_wait_seconds", 0.0))
+                return max(0, total), max(0.0, last_epoch), max(0, throttles), max(0.0, wait_sec)
     except (OSError, json.JSONDecodeError, ValueError, TypeError) as err:
         logger.warning("Failed to load global rate limit metadata from %s: %s", path, err)
-    return 0, 0.0
+    return 0, 0.0, 0, 0.0
 
 
 def _save_disk_quota(
@@ -315,6 +322,8 @@ def _save_disk_quota(
     path: Path,
     total_requests: int = 0,
     last_request_epoch: float = 0.0,
+    total_throttles: int = 0,
+    total_wait_seconds: float = 0.0,
 ) -> None:
     """Persist rate limit quota state and global request metrics to disk atomically."""
     try:
@@ -323,6 +332,8 @@ def _save_disk_quota(
             "_global": {
                 "total_requests": max(0, total_requests),
                 "last_request_epoch": max(0.0, last_request_epoch),
+                "total_throttles": max(0, total_throttles),
+                "total_wait_seconds": max(0.0, total_wait_seconds),
             }
         }
         for k, v in quotas.items():
@@ -551,6 +562,21 @@ def _parse_float_safe(value: str, default: float | None = None) -> float | None:
         return default
 
 
+def _parse_retry_after_safe(value: str, default: float | None = None) -> float | None:
+    """Parse string Retry-After value safely as float seconds or HTTP-date."""
+    seconds = _parse_float_safe(value)
+    if seconds is not None:
+        return seconds
+    try:
+        from email.utils import parsedate_to_datetime
+
+        dt = parsedate_to_datetime(value.strip())
+        delay = dt.timestamp() - time.time()
+        return max(0.0, delay)
+    except ValueError, TypeError:
+        return default
+
+
 def _parse_header_line(line: str) -> tuple[str, str] | None:
     """Split and normalize header name and value if present."""
     if ":" not in line:
@@ -567,6 +593,7 @@ def _process_header_metrics(output: str) -> dict[str, Any]:
         "x-ratelimit-limit": ("limit", _parse_int_safe),
         "x-ratelimit-used": ("used", _parse_int_safe),
         "x-ratelimit-reset": ("reset_epoch", _parse_float_safe),
+        "retry-after": ("retry_after", _parse_retry_after_safe),
     }
     for line in output.splitlines():
         parsed = _parse_header_line(line)
@@ -577,6 +604,21 @@ def _process_header_metrics(output: str) -> dict[str, Any]:
             field, parser_fn = parsers[hdr]
             metrics[field] = parser_fn(val)
     return metrics
+
+
+def extract_retry_after(message: str) -> float | None:
+    """Extract Retry-After duration in seconds from headers or error message."""
+    if not message:
+        return None
+    metrics = _process_header_metrics(message)
+    if metrics.get("retry_after") is not None:
+        return float(metrics["retry_after"])
+    match = re.search(r"retry[- ]after[:\s]+(\d+(?:\.\d+)?)", message, re.IGNORECASE)
+    if match:
+        val = _parse_float_safe(match.group(1))
+        if val is not None and val >= 0.0:
+            return val
+    return None
 
 
 def _extract_header_ratelimit(output: str, resource: str, limiter: GitHubRateLimiter) -> None:
@@ -601,6 +643,79 @@ def _parse_rate_limit_from_output(output: str, resource: str, limiter: GitHubRat
     _extract_header_ratelimit(output, resource, limiter)
 
 
+def _handle_retry_after_wait(
+    retry_after: float,
+    max_rate_limit_wait: float | None,
+    subcommand: str,
+) -> float:
+    """Validate and return server Retry-After delay unchanged without clamping."""
+    if max_rate_limit_wait is not None and retry_after > max_rate_limit_wait:
+        raise GitHubRateLimitError(
+            f"Required Retry-After wait of {retry_after:.1f}s exceeds max_rate_limit_wait of {max_rate_limit_wait:.1f}s",
+            subcommand=subcommand,
+            details={"wait": retry_after, "max_rate_limit_wait": max_rate_limit_wait},
+        )
+    return retry_after
+
+
+def _is_primary_exhausted(state: QuotaState | None) -> bool:
+    """Check if quota state indicates primary rate limit exhaustion (remaining == 0)."""
+    return (
+        state is not None
+        and state.remaining == 0
+        and state.reset_epoch is not None
+        and state.reset_epoch > 0.0
+    )
+
+
+def _calculate_primary_delay(
+    state: QuotaState | None,
+    max_rate_limit_wait: float | None,
+    subcommand: str,
+) -> float | None:
+    """Calculate wait until reset epoch for primary rate limits (remaining == 0)."""
+    if not _is_primary_exhausted(state) or state is None or state.reset_epoch is None:
+        return None
+    now = time.time()
+    if state.reset_epoch <= now:
+        return None
+    wait = float(state.reset_epoch - now)
+    if max_rate_limit_wait is not None and wait > max_rate_limit_wait:
+        reset_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(state.reset_epoch))
+        raise GitHubRateLimitError(
+            f"Required primary rate limit wait of {wait:.1f}s (reset at {reset_iso}) exceeds max_rate_limit_wait of {max_rate_limit_wait:.1f}s",
+            subcommand=subcommand,
+            details={
+                "wait": wait,
+                "reset_epoch": state.reset_epoch,
+                "max_rate_limit_wait": max_rate_limit_wait,
+            },
+        )
+    return wait
+
+
+def _calculate_secondary_delay(
+    attempt: int,
+    floor: float,
+    max_cap: float,
+    max_rate_limit_wait: float | None,
+    subcommand: str,
+) -> float:
+    """Calculate secondary rate limit delay using floor and tenacity wait_random_exponential."""
+    retry_state = RetryCallState(retry_object=Retrying(), fn=None, args=(), kwargs={})
+    retry_state.attempt_number = max(1, attempt)
+    wait_strategy = wait_random_exponential(multiplier=1.0, max=max_cap)
+    tenacity_wait = float(wait_strategy(retry_state))
+    delay = min(floor + tenacity_wait, max_cap)
+    if max_rate_limit_wait is not None and delay > max_rate_limit_wait:
+        raise GitHubRateLimitError(
+            f"Required secondary rate limit backoff of {delay:.1f}s exceeds max_rate_limit_wait of {max_rate_limit_wait:.1f}s",
+            subcommand=subcommand,
+            details={"wait": delay, "max_rate_limit_wait": max_rate_limit_wait},
+        )
+    return delay
+
+
 class GitHubRateLimiter:
     """GitHub rate limiter that institutes a mandatory pause on gh requests.
 
@@ -617,6 +732,9 @@ class GitHubRateLimiter:
         fallback_delay: float = 1.0,
         mutation_min_interval: float = DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS,
         quota_max_age: float = DEFAULT_GH_QUOTA_MAX_AGE_SECONDS,
+        secondary_rate_wait: float = DEFAULT_GH_SECONDARY_RATE_WAIT,
+        secondary_max_cap: float = DEFAULT_GH_SECONDARY_MAX_CAP,
+        max_rate_limit_wait: float | None = DEFAULT_GH_MAX_RATE_LIMIT_WAIT,
     ) -> None:
         if mutation_min_interval < 0.0:
             raise ValueError(
@@ -624,11 +742,20 @@ class GitHubRateLimiter:
             )
         if quota_max_age < 0.0:
             raise ValueError(f"quota_max_age must be non-negative, got {quota_max_age}")
+        if secondary_rate_wait < 0.0:
+            raise ValueError(f"secondary_rate_wait must be non-negative, got {secondary_rate_wait}")
+        if secondary_max_cap < 0.0:
+            raise ValueError(f"secondary_max_cap must be non-negative, got {secondary_max_cap}")
+        if max_rate_limit_wait is not None and max_rate_limit_wait < 0.0:
+            raise ValueError(f"max_rate_limit_wait must be non-negative, got {max_rate_limit_wait}")
         self.persist_path = persist_path
         self.min_interval = min_interval
         self.fallback_delay = fallback_delay
         self.mutation_min_interval = mutation_min_interval
         self.quota_max_age = quota_max_age
+        self.secondary_rate_wait = secondary_rate_wait
+        self.secondary_max_cap = secondary_max_cap
+        self.max_rate_limit_wait = max_rate_limit_wait
         self._lock = threading.RLock()
         self._cache: dict[str, _CacheEntry] = {}
         self._next_allowed_time: dict[str, float] = {}
@@ -638,6 +765,8 @@ class GitHubRateLimiter:
         self._total_requests: int = 0
         self._last_request_epoch: float = 0.0
         self._last_disk_prune_epoch: float = 0.0
+        self._total_throttles: int = 0
+        self._total_wait_seconds: float = 0.0
         self._quotas: dict[str, QuotaState] = {}
         if persist_path:
             self._sync_from_disk_locked()
@@ -655,9 +784,13 @@ class GitHubRateLimiter:
         if not self.persist_path:
             return
         disk_quotas = _load_disk_quota(self.persist_path)
-        disk_reqs, disk_last_req = _load_disk_global_meta(self.persist_path)
+        disk_reqs, disk_last_req, disk_throttles, disk_wait_sec = _load_disk_global_meta(
+            self.persist_path
+        )
         self._total_requests = max(self._total_requests, disk_reqs)
         self._last_request_epoch = max(self._last_request_epoch, disk_last_req)
+        self._total_throttles = max(self._total_throttles, disk_throttles)
+        self._total_wait_seconds = max(self._total_wait_seconds, disk_wait_sec)
         for subcmd, d_state in disk_quotas.items():
             if subcmd in self._quotas:
                 self._quotas[subcmd] = _merge_single_quota(d_state, self._quotas[subcmd])
@@ -672,7 +805,32 @@ class GitHubRateLimiter:
                 self.persist_path,
                 total_requests=self._total_requests,
                 last_request_epoch=self._last_request_epoch,
+                total_throttles=self._total_throttles,
+                total_wait_seconds=self._total_wait_seconds,
             )
+
+    def record_throttle(self, wait_seconds: float) -> None:
+        """Record rate-limit throttle event and sleep duration."""
+        with self._lock:
+            self._total_throttles += 1
+            self._total_wait_seconds += max(0.0, wait_seconds)
+            self._persist_to_disk_locked()
+
+    def get_total_throttles(self) -> int:
+        """Return total tracked rate limit throttle events across processes."""
+        with self._lock:
+            if self.persist_path:
+                with _disk_quota_lock(self.persist_path):
+                    self._sync_from_disk_locked()
+            return self._total_throttles
+
+    def get_total_wait_seconds(self) -> float:
+        """Return total accumulated backoff wait seconds across processes."""
+        with self._lock:
+            if self.persist_path:
+                with _disk_quota_lock(self.persist_path):
+                    self._sync_from_disk_locked()
+            return self._total_wait_seconds
 
     def get_global_request_count(self) -> int:
         """Return total tracked global requests across all processes."""
@@ -1010,21 +1168,38 @@ class GitHubRateLimiter:
         clean = message.lower()
         return any(pattern in clean for pattern in CONST_GITHUB_RATE_LIMIT_PATTERNS)
 
+    def is_secondary_rate_limit(self, message: str) -> bool:
+        """Detect whether an error output indicates a secondary rate limit."""
+        if not message:
+            return False
+        clean = message.lower()
+        return any(pattern in clean for pattern in CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS)
+
     def calculate_backoff_delay(
         self, message: str, attempt: int = 1, subcommand: str = "core"
     ) -> float:
-        """Calculate backoff delay for secondary rate limits or wait until reset."""
+        """Calculate backoff delay for primary, secondary, or Retry-After rate limits."""
         if not self.is_rate_limit_error(message):
             return 0.0
+
+        retry_after = extract_retry_after(message)
+        if retry_after is not None and retry_after > 0.0:
+            return _handle_retry_after_wait(retry_after, self.max_rate_limit_wait, subcommand)
+
         with self._lock:
             state = self._quotas.get(subcommand)
-            if state and state.reset_epoch is not None and state.reset_epoch > 0.0:
-                now = time.time()
-                if state.reset_epoch > now:
-                    return float(state.reset_epoch - now)
-        base_delay = 1.0 * (2 ** min(attempt, 4))
-        jitter = random.uniform(0.2, 1.0)
-        return float(base_delay + jitter)
+
+        primary_delay = _calculate_primary_delay(state, self.max_rate_limit_wait, subcommand)
+        if primary_delay is not None:
+            return primary_delay
+
+        return _calculate_secondary_delay(
+            attempt,
+            floor=self.secondary_rate_wait,
+            max_cap=self.secondary_max_cap,
+            max_rate_limit_wait=self.max_rate_limit_wait,
+            subcommand=subcommand,
+        )
 
     def get_cached(self, key: str) -> str | None:
         """Retrieve unexpired cached stdout string for an idempotent query."""
@@ -1510,6 +1685,8 @@ def _post_process_run(
         return
 
     _parse_rate_limit_from_output(proc.stdout, resource, limiter)
+    if proc.stderr:
+        _parse_rate_limit_from_output(proc.stderr, resource, limiter)
 
 
 def _handle_cached_or_paginated(
@@ -1621,6 +1798,7 @@ def _handle_attempt_backoff(
         target_resource,
         backoff,
     )
+    limiter.record_throttle(backoff)
     time.sleep(backoff)
     return True
 

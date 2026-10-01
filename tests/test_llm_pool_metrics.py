@@ -2,13 +2,13 @@
 
 Prometheus scraped no vLLM, gateway or GPU metric, so #545's imbalance was found by exec-ing
 `nvidia-smi` in each pod, and `llm-stack.json` queried `http_requests_total`, which nothing in
-the stack exposes.
+the stack exposes. That dashboard's queries are checked against captures of the exporters in
+`tests/test_stack_dashboards.py`.
 """
 
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -28,54 +28,20 @@ cli = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
 
 K8S = Path("k8s")
 
-# The series the exporters serve, as captured from each: vLLM v0.30.0's /metrics, LiteLLM
-# v1.102.1's Prometheus callback through prometheus_client (which adds `_total` to counters),
-# and the DCGM exporter's default counters.
-EXPOSED = {
-    "vllm:num_requests_running",
-    "vllm:num_requests_waiting",
-    "vllm:kv_cache_usage_perc",
-    "vllm:generation_tokens_total",
-    "vllm:prompt_tokens_total",
-    "vllm:time_to_first_token_seconds_bucket",
-    "vllm:request_queue_time_seconds_bucket",
-    "litellm_deployment_total_requests_total",
-    "litellm_deployment_failure_responses_total",
-    "litellm_llm_api_latency_metric_bucket",
-    "litellm_llm_api_latency_metric_sum",
-    "DCGM_FI_DEV_GPU_UTIL",
-    "DCGM_FI_DEV_FB_USED",
-    "DCGM_FI_DEV_POWER_USAGE",
-    "DCGM_FI_DEV_GPU_TEMP",
-}
-_EXPORTED_NAME = re.compile(r"\b(vllm:[a-z_]+|litellm_[a-z_]+|DCGM_FI_[A-Z_]+)")
-
 
 def _yaml_docs(path: Path) -> list[dict[str, Any]]:
     return [d for d in yaml.safe_load_all(path.read_text(encoding="utf-8")) if d]
 
 
-def test_the_llm_dashboard_queries_only_metrics_the_stack_exposes() -> None:
-    """Verify every LLM, gateway and GPU query names a series an exporter serves."""
-    dashboard = json.loads((K8S / "monitoring/dashboards/llm-stack.json").read_text("utf-8"))
-    exprs = [t["expr"] for p in dashboard["panels"] for t in p.get("targets", [])]
-    named = {name for expr in exprs for name in _EXPORTED_NAME.findall(expr)}
-
-    assert (
-        sorted(named - EXPOSED),
-        {"vllm", "litellm", "DCGM"} <= {re.split(r"[:_]", n)[0] for n in named},
-        any(re.search(r"(?<![a-z_])http_requests_total", e) for e in exprs),
-    ) == ([], True, False)
-
-
-def test_prometheus_scrapes_both_vllm_servers_and_the_gateway() -> None:
-    """Verify each monitor selects its services by their labels and scrapes a port they have."""
-    values = yaml.safe_load((K8S / "monitoring/prometheus-values.yaml").read_text("utf-8"))
-    spec = values["prometheus"]["prometheusSpec"]
-    monitors = {m["name"]: m for m in values["prometheus"]["additionalServiceMonitors"]}
-    all_services = list(_yaml_docs(K8S / "llm/profiles/services.yaml")) + list(
-        _yaml_docs(K8S / "llm/gateway/service.yaml")
-    )
+def test_monitoring_scrapes_the_gateway() -> None:
+    """Verify k8s-monitoring has prometheusOperatorObjects enabled and defines gateway ServiceMonitor."""
+    values = yaml.safe_load((K8S / "monitoring/k8s-monitoring-values.yaml").read_text("utf-8"))
+    poo = values["prometheusOperatorObjects"]
+    extra_objects = values.get("extraObjects", [])
+    monitors = {
+        m["metadata"]["name"]: m["spec"] for m in extra_objects if m.get("kind") == "ServiceMonitor"
+    }
+    all_services = list(_yaml_docs(K8S / "llm/gateway/service.yaml"))
 
     def scraped(monitor: dict[str, Any]) -> list[tuple[str, str]]:
         selector = monitor["selector"]
@@ -92,17 +58,12 @@ def test_prometheus_scrapes_both_vllm_servers_and_the_gateway() -> None:
             if endpoint["port"] in {p["name"] for p in svc["spec"]["ports"]}
         ]
 
-    vllm_scraped = scraped(monitors["vllm"])
     gateway_scraped = scraped(monitors["llm-gateway"])
 
     assert (
-        spec["serviceMonitorSelectorNilUsesHelmValues"],
-        any(name == "vllm-16gib" and path == "/metrics" for name, path in vllm_scraped),
-        any(name == "vllm-48gib" and path == "/metrics" for name, path in vllm_scraped),
+        poo["enabled"],
         gateway_scraped,
     ) == (
-        False,
-        True,
         True,
         [("llm-gateway", "/metrics/")],
     )
@@ -154,7 +115,7 @@ def test_the_gateway_serves_its_prometheus_metrics() -> None:
 
 def test_the_dcgm_exporter_runs_on_every_gpu_node_without_extra_privileges() -> None:
     """Verify the exporter is installed with the monitoring stack, scheduled onto GPU nodes with
-    the NVIDIA runtime, and holds no added capability."""
+    the NVIDIA runtime, and holds SYS_ADMIN capability required for datacenter GPUs."""
     values = yaml.safe_load((K8S / "monitoring/dcgm-exporter-values.yaml").read_text("utf-8"))
     release = next(r for r in _HELM_RELEASES_BY_STACK["infra"] if r["name"] == "dcgm-exporter")
     repo = release["chart"].split("/")[0]
@@ -163,12 +124,14 @@ def test_the_dcgm_exporter_runs_on_every_gpu_node_without_extra_privileges() -> 
         (values["runtimeClassName"], values["nodeSelector"]),
         {t["key"] for t in values["tolerations"]} >= {"nvidia.com/gpu"},
         values["securityContext"]["capabilities"].get("add", []),
+        values["rollingUpdate"]["maxUnavailable"],
         values["serviceMonitor"]["enabled"],
         (release["namespace"], Path(release["values"]).name, repo in _HELM_REPOS_BY_STACK["infra"]),
     ) == (
         ("nvidia", {"nvidia.com/gpu.present": "true"}),
         True,
-        [],
+        ["SYS_ADMIN"],
+        "50%",
         True,
         ("monitoring", "dcgm-exporter-values.yaml", True),
     )

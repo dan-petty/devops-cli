@@ -74,10 +74,12 @@ config:
       tls:
         insecure: true
 
-    # Prometheus remote write to in-cluster Prometheus (local dev uses internal HTTP service;
-    # for production zero-trust networking, configure https endpoint, TLS secrets, and basic_auth).
+    # Prometheus remote write to Alloy's prometheus.receive_http (k8s-monitoring's
+    # prometheusMetricsReceiver), which serves only POST /api/v1/metrics/write and answers 404
+    # on the Prometheus server's /api/v1/write. Local dev uses the internal HTTP Service; for
+    # production zero-trust networking, configure an https endpoint, TLS secrets, and basic_auth.
     prometheusremotewrite:
-      endpoint: http://kube-prometheus-kube-prome-prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+      endpoint: http://k8s-monitoring-alloy-metrics.monitoring.svc.cluster.local:9090/api/v1/metrics/write
       # devops-cli names its metrics as Prometheus does (`_total`, `_seconds`); added unit
       # suffixes turned `devops_cli_command_total` into `devops_cli_command_total_ratio`,
       # which no dashboard queries.
@@ -107,6 +109,13 @@ config:
 # Workstation export uses `devops k8s port-forward` or ingress routing.
 service:
   type: ClusterIP
+
+# The Prometheus server's kubernetes-pods job scrapes the collector's own telemetry on the
+# metrics port, directly rather than through Alloy, so the export failures it counts stay
+# visible when Alloy is what fails.
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8888"
 
 ports:
   metrics:

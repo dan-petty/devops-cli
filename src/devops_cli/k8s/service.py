@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import time
@@ -19,6 +20,36 @@ from devops_cli.k8s.context import resolve_context
 from devops_cli.security.sanitizer import mask_secrets
 
 logger = logging.getLogger(__name__)
+
+
+class PodLogStream:
+    """A followed pod log: its lines as they arrive, and `close` to stop reading them.
+
+    A followed read blocks until the container writes again, which for a quiet container
+    may be never. `close` may be called from any thread: it shuts the socket for reading,
+    which ends a blocked read at once, and the reader then closes the response and returns
+    its connection, as the client's own watch does.
+    """
+
+    def __init__(self, response: Any) -> None:
+        self._response = response
+
+    def __iter__(self) -> Iterator[str]:
+        try:
+            for chunk in self._response.stream():
+                yield chunk.decode("utf-8") if isinstance(chunk, bytes) else str(chunk)
+        finally:
+            self._response.close()
+            self._response.release_conn()
+
+    def close(self) -> None:
+        """Stop the read, from any thread.
+
+        urllib3 refuses to shut the socket once the stream has ended and the response is
+        closed, when there is nothing left to stop.
+        """
+        with contextlib.suppress(OSError, RuntimeError, ValueError):
+            self._response.shutdown()
 
 
 class KubernetesService:
@@ -162,9 +193,27 @@ class KubernetesService:
                 )
 
             data["current-context"] = name
-            temp_path = kubeconfig_path.with_suffix(".tmp")
-            temp_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-            temp_path.replace(kubeconfig_path)
+            import os
+            import tempfile
+
+            parent_dir = kubeconfig_path.parent
+            dumped_yaml = yaml.safe_dump(data, sort_keys=False)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                dir=parent_dir,
+                delete=False,
+                encoding="utf-8",
+                prefix=".kubeconfig-",
+                suffix=".tmp",
+            ) as tf:
+                os.chmod(tf.name, 0o600)
+                tf.write(dumped_yaml)
+                temp_file_path = Path(tf.name)
+            try:
+                temp_file_path.replace(kubeconfig_path)
+            except Exception:
+                temp_file_path.unlink(missing_ok=True)
+                raise
 
             self.reset_instance()
             self.load_config(context=name)
@@ -228,7 +277,7 @@ class KubernetesService:
         tail_lines: int = DEFAULT_LOG_TAIL_LINES,
         follow: bool = False,
         context: str | None = None,
-    ) -> str | Iterator[str]:
+    ) -> str | PodLogStream:
         """Read pod logs natively via CoreV1Api without spawning kubectl logs."""
         if not self.load_config(context=context):
             raise KubernetesContextError("Kubernetes client configuration is not available.")
@@ -246,12 +295,7 @@ class KubernetesService:
 
         try:
             resp = self._core_v1.read_namespaced_pod_log(**kwargs)
-            if follow:
-                return (
-                    line.decode("utf-8") if isinstance(line, bytes) else str(line)
-                    for line in resp.stream()
-                )
-            return str(resp)
+            return PodLogStream(resp) if follow else str(resp)
         except Exception as exc:
             raise KubernetesContextError(
                 f"Failed to read pod logs for '{pod}': {mask_secrets(str(exc))}"

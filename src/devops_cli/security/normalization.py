@@ -133,6 +133,7 @@ class NormalizedFinding:
     description: str = ""
     fix: str = ""
     references: tuple[str, ...] = ()
+    gating: bool = True
 
     @property
     def rank(self) -> int:
@@ -168,7 +169,12 @@ class NormalizedFinding:
         return (self.path, self.line, _canonical_message(self.message))
 
 
-def normalize_finding(finding: Finding, tool: str, base: Path | None = None) -> NormalizedFinding:
+def normalize_finding(
+    finding: Finding,
+    tool: str,
+    base: Path | None = None,
+    gating: bool = True,
+) -> NormalizedFinding:
     """Convert a scanner `Finding` into the normalized taxonomy."""
     raw_path, line, symbol = split_location(finding.location)
     return NormalizedFinding(
@@ -182,6 +188,7 @@ def normalize_finding(finding: Finding, tool: str, base: Path | None = None) -> 
         description=finding.description,
         fix=finding.fix,
         references=tuple(finding.references),
+        gating=gating,
     )
 
 
@@ -189,11 +196,15 @@ def normalize_results(
     results: dict[str, list[Finding]], base: Path | None = None
 ) -> list[NormalizedFinding]:
     """Normalize a registry scan result mapping into a flat list."""
-    return [
-        normalize_finding(finding, tool, base)
-        for tool, findings in results.items()
-        for finding in findings
-    ]
+    from devops_cli.security.registry import global_scanner_registry
+
+    normalized: list[NormalizedFinding] = []
+    for tool, findings in results.items():
+        scanner = global_scanner_registry.get(tool)
+        gating = getattr(scanner, "gating", True)
+        for finding in findings:
+            normalized.append(normalize_finding(finding, tool, base, gating=gating))
+    return normalized
 
 
 def deduplicate(findings: list[NormalizedFinding]) -> list[NormalizedFinding]:
@@ -333,6 +344,7 @@ def as_dict(normalized: NormalizedFinding) -> dict[str, Any]:
         "fingerprint": normalized.fingerprint,
         "fix": normalized.fix,
         "references": list(normalized.references),
+        "gating": normalized.gating,
     }
 
 

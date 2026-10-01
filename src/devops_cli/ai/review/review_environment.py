@@ -6,6 +6,7 @@ import ast
 import os
 import shlex
 import signal
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,7 @@ from devops_cli.config.constants import (
     CONST_DISALLOWED_SHELL_TOKENS,
     CONST_FORBIDDEN_PYTHON_CRITERIA_MODULES,
     CONST_REVIEW_CONVENTIONS_FILE,
+    CONST_TAUTOLOGICAL_CRITERIA_SUBSTRINGS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS,
@@ -163,7 +165,9 @@ def _is_safe_ast_node(node: ast.AST) -> bool:
 
 def _check_python_script(script: str) -> str | None:
     try:
-        tree = ast.parse(script)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(script)
     except SyntaxError as exc:
         return f"SyntaxError in python script: {exc}"
     for node in ast.walk(tree):
@@ -259,11 +263,18 @@ def execute_criterion_command(
             error=f"bubblewrap binary {sb.bwrap_binary} is not available on host system",
         )
 
+    exec_args = list(args)
+    if exec_args[0] in {"python", "python3"} and "-W" not in exec_args:
+        exec_args[1:1] = ["-W", "ignore::SyntaxWarning"]
+
+    src_dir = cwd / "src"
+    py_path = f"{src_dir}:{cwd}" if src_dir.is_dir() else str(cwd)
     res = sb.execute(
-        args=args,
+        args=exec_args,
         cwd=cwd,
         timeout=timeout,
         max_output_bytes=max_output_bytes,
+        env={"PYTHONPATH": py_path},
     )
     return CriterionExecutionResult(
         command=command,
@@ -276,6 +287,14 @@ def execute_criterion_command(
         passed=res.passed,
         error=res.error,
     )
+
+
+def _is_tautological_verification_command(command: str) -> bool:
+    """Return True if command merely checks file text or symbol existence without demonstrating a defect."""
+    clean = command.strip().lower()
+    if clean.startswith(("git grep", "grep")) or "grep " in clean:
+        return True
+    return any(kw in clean for kw in CONST_TAUTOLOGICAL_CRITERIA_SUBSTRINGS)
 
 
 def _evaluate_criteria_verdict(
@@ -311,6 +330,14 @@ def _evaluate_criteria_verdict(
             f"Invalidation criterion verified: {matched_inv[0]}",
         )
     if all_ran and ver_passed > 0:
+        passing_cmds = [r.command for r in exec_results if r.command in cmd_set and r.passed]
+        if all(_is_tautological_verification_command(c) for c in passing_cmds):
+            return (
+                "UNVERIFIED",
+                None,
+                min(score, 0.5),
+                "Tautological criteria confirmed location/syntax only",
+            )
         return "VERIFIED", "criteria", score, None
     return "UNVERIFIED", None, score, None
 

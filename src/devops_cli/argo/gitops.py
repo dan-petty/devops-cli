@@ -25,9 +25,11 @@ from typing import TYPE_CHECKING, Literal
 from devops_cli.config import load_settings
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import get_argocd_token
+from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.http.validation import validate_service_url
+from devops_cli.k8s.credentials import get_or_mint_argocd_token
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
 from devops_cli.security.sanitizer import mask_secrets, mask_uri_credentials
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
@@ -209,9 +211,56 @@ def save_persisted_manifest_state(
         logger.warning("Failed to save manifest cache %s: %s", cache_file, err)
 
 
+def _resolve_valid_drift_paths(paths: Sequence[Path | str]) -> list[str]:
+    """Validate and resolve candidate paths for Git drift inspection."""
+    resolved_paths: list[str] = []
+    for p in paths:
+        try:
+            validate_no_path_traversal(p, label="Manifest drift path")
+            rp = Path(p).resolve()
+            if rp.exists():
+                resolved_paths.append(str(rp))
+        except Exception:
+            continue
+    return resolved_paths
+
+
+def _parse_drift_event(line: str, now: float) -> GitOpsDriftEvent | None:
+    """Parse a single porcelain status line into a GitOpsDriftEvent."""
+    if len(line) < 4:
+        return None
+    status_code = line[:2].strip()
+    rel_path = line[3:].strip().strip('"')
+    try:
+        validate_no_path_traversal(rel_path, label="Drift relative path")
+        fpath = Path(rel_path).resolve()
+    except Exception:
+        return None
+
+    if not is_manifest_file(fpath):
+        return None
+
+    if "D" in status_code:
+        ctype = "deleted"
+        fhash = ""
+    elif "??" in status_code or "A" in status_code:
+        ctype = "created"
+        fhash = compute_file_hash(fpath) if fpath.exists() else ""
+    else:
+        ctype = "modified"
+        fhash = compute_file_hash(fpath) if fpath.exists() else ""
+
+    return GitOpsDriftEvent(
+        path=str(fpath),
+        change_type=ctype,
+        timestamp=now,
+        file_hash=fhash,
+    )
+
+
 def inspect_git_manifest_drift(paths: Sequence[Path | str]) -> list[GitOpsDriftEvent]:
     """Inspect working tree for uncommitted or modified manifests using git status."""
-    resolved_paths = [str(Path(p).resolve()) for p in paths if Path(p).exists()]
+    resolved_paths = _resolve_valid_drift_paths(paths)
     if not resolved_paths:
         return []
     try:
@@ -219,33 +268,12 @@ def inspect_git_manifest_drift(paths: Sequence[Path | str]) -> list[GitOpsDriftE
         res = run_subprocess(cmd, check=False, capture_output=True, timeout=5.0)
         if res.returncode != 0:
             return []
-        events: list[GitOpsDriftEvent] = []
         now = time.time()
+        events: list[GitOpsDriftEvent] = []
         for line in res.stdout.strip().splitlines():
-            if len(line) < 4:
-                continue
-            status_code = line[:2].strip()
-            rel_path = line[3:].strip().strip('"')
-            fpath = Path(rel_path).resolve()
-            if not is_manifest_file(fpath):
-                continue
-            if "D" in status_code:
-                ctype = "deleted"
-                fhash = ""
-            elif "??" in status_code or "A" in status_code:
-                ctype = "created"
-                fhash = compute_file_hash(fpath) if fpath.exists() else ""
-            else:
-                ctype = "modified"
-                fhash = compute_file_hash(fpath) if fpath.exists() else ""
-            events.append(
-                GitOpsDriftEvent(
-                    path=str(fpath),
-                    change_type=ctype,
-                    timestamp=now,
-                    file_hash=fhash,
-                )
-            )
+            ev = _parse_drift_event(line, now)
+            if ev is not None:
+                events.append(ev)
         return events
     except (subprocess.SubprocessError, OSError, ValueError, RuntimeError) as err:
         logger.warning("Failed to inspect git manifest drift: %s", err)
@@ -334,7 +362,7 @@ def trigger_argocd_sync(
             url, headers, payload = _build_sync_request_params(
                 app_name, base, sync_mode, prune, force
             )
-            token = get_argocd_token(settings)
+            token = get_argocd_token(settings) or get_or_mint_argocd_token(settings)
             if token and not token.startswith("*"):
                 headers["Authorization"] = f"Bearer {token}"
 

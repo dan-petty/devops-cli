@@ -272,12 +272,16 @@ def test_fetch_issues_rest_filtering_and_limits() -> None:
 
 
 def test_fetch_issues_rest_errors_and_invalid_json() -> None:
-    """Verify _fetch_issues_rest returns empty list on subprocess error or bad JSON."""
+    """A failed read raises; output holding no issues reads as none."""
+    from devops_cli.exceptions.git import GitHubOperationError
     from devops_cli.github.issues import _fetch_issues_rest
 
     mock_fail = MagicMock(returncode=1, stdout="", stderr="Error")
-    with patch("devops_cli.github.issues.run_gh", return_value=mock_fail):
-        assert _fetch_issues_rest("dan-petty/devops-cli") == []
+    with (
+        patch("devops_cli.github.issues.run_gh", return_value=mock_fail),
+        pytest.raises(GitHubOperationError),
+    ):
+        _fetch_issues_rest("dan-petty/devops-cli")
 
     mock_bad_json = MagicMock(returncode=0, stdout="not-json", stderr="")
     with patch("devops_cli.github.issues.run_gh", return_value=mock_bad_json):

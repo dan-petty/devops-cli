@@ -74,19 +74,32 @@ class TestPrCommands:
             assert "owner/repo" in args
 
     def test_pr_checks(self, runner: CliRunner) -> None:
+        mock_checks = json.dumps(
+            [
+                {
+                    "name": "CI Quality Gate",
+                    "state": "SUCCESS",
+                    "bucket": "pass",
+                    "workflow": "CI",
+                    "link": "https://example.com/runs/1",
+                }
+            ]
+        )
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
                 "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout="Checks passed", stderr=""),
+                return_value=MagicMock(returncode=0, stdout=mock_checks, stderr=""),
             ) as mock_run,
         ):
             result = runner.invoke(app, ["checks", "13"])
-            assert result.exit_code == 0
-            mock_run.assert_called_once()
             args = mock_run.call_args[0][0]
-            assert "checks" in args
-            assert "13" in args
+            assert (
+                result.exit_code,
+                mock_run.call_count,
+                "checks" in args,
+                "13" in args,
+            ) == (0, 1, True, True)
 
     def test_edit_pr(self, runner: CliRunner) -> None:
         with (
@@ -183,15 +196,82 @@ class TestPrCommands:
             assert "C_reply_1" in res.output
 
     def test_threads_resolve_success(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_threads import ReviewComment, ReviewThread, ThreadResolutionResult
+
+        mock_thread = ReviewThread(
+            id="PRRT_1",
+            comments=[
+                ReviewComment(id="c1", author="reviewer", body="Fix this"),
+                ReviewComment(id="c2", author="developer", body="Addressed in commit abc"),
+            ],
+        )
+        with (
+            patch(
+                "devops_cli.github.pr_threads.get_pr_review_thread",
+                return_value=mock_thread,
+            ),
+            patch(
+                "devops_cli.github.pr_threads.resolve_pr_review_thread",
+                return_value=ThreadResolutionResult(thread_id="PRRT_1", is_resolved=True),
+            ),
+        ):
+            res = runner.invoke(app, ["threads", "resolve", "PRRT_1"])
+            assert (res.exit_code, "Thread PRRT_1 marked as resolved" in res.output) == (0, True)
+
+    def test_threads_resolve_refuses_without_reply(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_threads import ReviewComment, ReviewThread
+
+        # Probe case: follow-up by the same author does not count as a valid reply
+        probe_thread = ReviewThread(
+            id="PRRT_PROBE",
+            comments=[
+                ReviewComment(id="c1", author="reviewer", body="Fix this"),
+                ReviewComment(id="c2", author="reviewer", body="Still not fixed."),
+            ],
+        )
+        with patch(
+            "devops_cli.github.pr_threads.get_pr_review_thread",
+            return_value=probe_thread,
+        ):
+            res = runner.invoke(app, ["threads", "resolve", "PRRT_PROBE"])
+            assert (
+                res.exit_code,
+                "has no reply from someone other than the thread opener" in res.output,
+                "--without-reply" in res.output,
+            ) == (1, True, True)
+
+    def test_threads_resolve_override_without_reply(self, runner: CliRunner) -> None:
         from devops_cli.github.pr_threads import ThreadResolutionResult
 
         with patch(
             "devops_cli.github.pr_threads.resolve_pr_review_thread",
             return_value=ThreadResolutionResult(thread_id="PRRT_1", is_resolved=True),
         ):
-            res = runner.invoke(app, ["threads", "resolve", "PRRT_1"])
-            assert res.exit_code == 0
-            assert "Thread PRRT_1 marked as resolved" in res.output
+            res = runner.invoke(app, ["threads", "resolve", "PRRT_1", "--without-reply"])
+            assert (res.exit_code, "Thread PRRT_1 marked as resolved" in res.output) == (0, True)
+
+    def test_threads_resolve_override_short_flag(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_threads import ThreadResolutionResult
+
+        with patch(
+            "devops_cli.github.pr_threads.resolve_pr_review_thread",
+            return_value=ThreadResolutionResult(thread_id="PRRT_1", is_resolved=True),
+        ):
+            res = runner.invoke(app, ["threads", "resolve", "PRRT_1", "-w"])
+            assert (res.exit_code, "Thread PRRT_1 marked as resolved" in res.output) == (0, True)
+
+    def test_threads_resolve_fetch_error(self, runner: CliRunner) -> None:
+        from devops_cli.exceptions.git import GitHubOperationError
+
+        with patch(
+            "devops_cli.github.pr_threads.get_pr_review_thread",
+            side_effect=GitHubOperationError("GraphQL query failed"),
+        ):
+            res = runner.invoke(app, ["threads", "resolve", "PRRT_FAIL"])
+            assert (
+                res.exit_code,
+                "Failed to fetch review thread PRRT_FAIL" in res.output,
+            ) == (1, True)
 
     def test_threads_unresolve_success(self, runner: CliRunner) -> None:
         from devops_cli.github.pr_threads import ThreadResolutionResult
@@ -645,6 +725,28 @@ class TestPrCommands:
             assert result.exit_code == 0
             assert "ready for review" in result.output.lower()
 
+    def test_pr_ready_check_fetch_failure_handles_gracefully(self, runner: CliRunner) -> None:
+        """devops pr ready exits 1 with diagnostic message if check verdicts fetch raises error."""
+        mock_preflight = json.dumps({"number": 179, "draft": True, "head": {"sha": "sha123"}})
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_gh",
+                return_value=MagicMock(returncode=0, stdout=mock_preflight, stderr=""),
+            ),
+            patch(
+                "devops_cli.github.check_verdict.fetch_pr_check_verdicts",
+                side_effect=RuntimeError("API endpoint unavailable"),
+            ),
+        ):
+            result = runner.invoke(app, ["ready", "179"])
+            assert (
+                result.exit_code,
+                "Failed fetching PR #179 check verdicts: API endpoint unavailable" in result.output,
+                "Pass --force to override" in result.output,
+            ) == (1, True, True)
+
     def test_pr_diff_success(self, runner: CliRunner) -> None:
         """devops pr diff outputs unified diff."""
         mock_diff = "diff --git a/file.py b/file.py\n+new line"
@@ -750,9 +852,11 @@ class TestPrCommands:
             ),
         ):
             res = runner.invoke(app, ["checks", "184"])
-            assert res.exit_code == 0
-            assert "Validation" in res.output
-            assert "Analyze" in res.output
+            assert (
+                res.exit_code,
+                "Validation" in res.output,
+                "Analyze" in res.output,
+            ) == (1, True, True)
 
     def test_pr_edit_fallback(self, runner: CliRunner) -> None:
         """devops pr edit falls back to REST PATCH when gh pr edit fails."""
@@ -1067,6 +1171,46 @@ class TestPrCommands:
             assert res.exit_code == 1
             assert "unreplied review discussion thread" in res.output
 
+    def test_check_readiness_allow_replied_threads_probe_case_fails(
+        self, runner: CliRunner
+    ) -> None:
+        """devops pr check-readiness treats threads with only opener follow-ups as unreplied blockers."""
+        mock_pr = json.dumps(
+            {
+                "draft": False,
+                "mergeable": True,
+                "mergeable_state": "clean",
+                "base": {"ref": "release/v0.2.17"},
+            }
+        )
+        mock_probe_thread = MagicMock(
+            id="T_PROBE",
+            is_resolved=False,
+            path="src/main.py",
+            line=10,
+            comments=[
+                MagicMock(author="copilot", body="Fix this issue"),
+                MagicMock(author="copilot", body="Still not fixed."),
+            ],
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_gh",
+                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
+            ),
+            patch(
+                "devops_cli.github.pr_threads.list_pr_review_threads",
+                return_value=[mock_probe_thread],
+            ),
+        ):
+            res = runner.invoke(app, ["check-readiness", "187", "--allow-replied-threads"])
+            assert (
+                res.exit_code,
+                "unreplied review discussion thread" in res.output,
+            ) == (1, True)
+
     def test_check_readiness_fails_on_a_draft_without_any_flag(self, runner: CliRunner) -> None:
         """A draft cannot be merged, so it blocks by default rather than on request.
 
@@ -1164,6 +1308,38 @@ class TestPrCommands:
             res = runner.invoke(app, ["check-readiness", "187", "--allow-blocked-state"])
             assert res.exit_code == 0
             assert "satisfies merge readiness" in res.output
+
+    def test_check_readiness_fails_closed_under_unstable_when_check_runs_fails(
+        self, runner: CliRunner
+    ) -> None:
+        """devops pr check-readiness fails closed under unstable mergeable_state when check-runs fails."""
+        mock_pr = json.dumps(
+            {
+                "draft": False,
+                "mergeable": True,
+                "mergeable_state": "unstable",
+                "base": {"ref": "release/v0.2.17"},
+                "head": {"sha": "abcdef1234567890abcdef1234567890abcdef12"},
+            }
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_gh",
+                side_effect=[
+                    MagicMock(returncode=0, stdout=mock_pr, stderr=""),
+                    MagicMock(returncode=1, stdout="", stderr="HTTP 500: Server Error"),
+                ],
+            ),
+            patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
+        ):
+            res = runner.invoke(app, ["check-readiness", "187"])
+            assert (
+                res.exit_code,
+                "check verification failed closed" in res.output,
+                "satisfies merge readiness" not in res.output,
+            ) == (1, True, True)
 
     def test_pr_diff_mask_secrets(self, runner: CliRunner) -> None:
         """devops pr diff masks secret tokens in output."""

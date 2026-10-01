@@ -42,7 +42,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 8,
         "x": 0,
         "y": 1
       },
@@ -86,72 +86,14 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 10
           },
-          "unit": "short"
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 1
-      },
-      "id": 3,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "title": "vLLM Requests Running and Waiting",
-      "type": "timeseries",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (job) (vllm:num_requests_running)",
-          "legendFormat": "{{job}} running",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (job) (vllm:num_requests_waiting)",
-          "legendFormat": "{{job}} waiting",
-          "refId": "B"
-        }
-      ],
-      "description": "Requests each vLLM server is generating, and those queued for KV-cache space."
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "fillOpacity": 10
-          },
           "unit": "reqps"
         }
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 9
+        "w": 8,
+        "x": 8,
+        "y": 1
       },
       "id": 4,
       "options": {
@@ -197,9 +139,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 9
+        "w": 8,
+        "x": 16,
+        "y": 1
       },
       "id": 5,
       "options": {
@@ -234,7 +176,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 17
+        "y": 9
       },
       "panels": []
     },
@@ -260,7 +202,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 18
+        "y": 10
       },
       "id": 7,
       "options": {
@@ -308,7 +250,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 18
+        "y": 10
       },
       "id": 8,
       "options": {
@@ -320,7 +262,7 @@
           "mode": "multi"
         }
       },
-      "title": "vLLM Time to First Token and Queue Time p95",
+      "title": "Time to First Token p95 per Deployment",
       "type": "timeseries",
       "targets": [
         {
@@ -328,31 +270,23 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, job) (rate(vllm:time_to_first_token_seconds_bucket[5m])))",
-          "legendFormat": "{{job}} first token",
+          "expr": "histogram_quantile(0.95, sum by (le, api_base) (rate(litellm_llm_api_time_to_first_token_metric_bucket[5m]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total)))",
+          "legendFormat": "{{api_base}}",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_quantile(0.95, sum by (le, job) (rate(vllm:request_queue_time_seconds_bucket[5m])))",
-          "legendFormat": "{{job}} queued",
-          "refId": "B"
         }
-      ]
+      ],
+      "description": "Seconds from a streamed request reaching a deployment to its first token, as the gateway measured it. Only streamed requests record it."
     },
     {
-      "id": 9,
+      "id": 20,
       "type": "row",
-      "title": "vLLM Engines",
+      "title": "Routing and Failover",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 26
+        "y": 18
       },
       "panels": []
     },
@@ -371,16 +305,16 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 10
           },
-          "unit": "percentunit"
+          "unit": "reqps"
         }
       },
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 27
+        "y": 19
       },
-      "id": 10,
+      "id": 21,
       "options": {
         "legend": {
           "displayMode": "list",
@@ -390,7 +324,7 @@
           "mode": "multi"
         }
       },
-      "title": "KV Cache Usage",
+      "title": "Requests per Virtual Model",
       "type": "timeseries",
       "targets": [
         {
@@ -398,11 +332,110 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (job) (vllm:kv_cache_usage_perc)",
-          "legendFormat": "{{job}}",
+          "expr": "sum by (requested_model) (rate(litellm_proxy_total_requests_metric_total[5m]))",
+          "legendFormat": "{{requested_model}}",
           "refId": "A"
         }
-      ]
+      ],
+      "description": "Requests clients made to each model name, before routing picked a deployment."
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 19
+      },
+      "id": 22,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "Responses by Status Code",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (status_code) (rate(litellm_proxy_total_requests_metric_total[5m]))",
+          "legendFormat": "{{status_code}}",
+          "refId": "A"
+        }
+      ],
+      "description": "The HTTP status the gateway returned to clients."
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          },
+          "unit": "suffix: tok/s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 27
+      },
+      "id": 23,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "Output Tokens per Second per Model",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (model) (rate(litellm_output_tokens_metric_total[5m]))",
+          "legendFormat": "{{model}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Completion tokens the backends generated, by the model that served them."
     },
     {
       "datasource": {
@@ -428,7 +461,7 @@
         "x": 12,
         "y": 27
       },
-      "id": 11,
+      "id": 24,
       "options": {
         "legend": {
           "displayMode": "list",
@@ -438,7 +471,7 @@
           "mode": "multi"
         }
       },
-      "title": "Token Throughput",
+      "title": "Cooldowns per Deployment per 5 Minutes",
       "type": "timeseries",
       "targets": [
         {
@@ -446,8 +479,57 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (job) (rate(vllm:generation_tokens_total[5m]))",
-          "legendFormat": "{{job}} generated/s",
+          "expr": "sum by (api_base, exception_status) (increase(litellm_deployment_cooled_down_total[5m]))",
+          "legendFormat": "{{api_base}} ({{exception_status}})",
+          "refId": "A"
+        }
+      ],
+      "description": "Times in each 5-minute window the router took a deployment out of rotation after repeated failures (allowed_fails 3, cooldown_time 30 s), by the status that caused it. Empty until the first cooldown."
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "id": 25,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "Fallbacks per Model Pair per 5 Minutes",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (requested_model, fallback_model) (increase(litellm_deployment_successful_fallbacks_total[5m]))",
+          "legendFormat": "{{requested_model}} -> {{fallback_model}} succeeded",
           "refId": "A"
         },
         {
@@ -455,11 +537,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (job) (rate(vllm:prompt_tokens_total[5m]))",
-          "legendFormat": "{{job}} prompt/s",
+          "expr": "sum by (requested_model, fallback_model) (increase(litellm_deployment_failed_fallbacks_total[5m]))",
+          "legendFormat": "{{requested_model}} -> {{fallback_model}} failed",
           "refId": "B"
         }
-      ]
+      ],
+      "description": "Requests in each 5-minute window that failed on their model and were retried on its fallback, and whether the fallback answered. Empty until the first fallback."
     },
     {
       "id": 12,
@@ -470,7 +553,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 35
+        "y": 43
       },
       "panels": []
     },
@@ -496,7 +579,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 36
+        "y": 44
       },
       "id": 13,
       "options": {
@@ -516,8 +599,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "avg by (Hostname, gpu, modelName) (DCGM_FI_DEV_GPU_UTIL)",
-          "legendFormat": "{{Hostname}} GPU {{gpu}} ({{modelName}})",
+          "expr": "avg by (hostname, gpu, modelName) (DCGM_FI_DEV_GPU_UTIL)",
+          "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}})",
           "refId": "A"
         }
       ]
@@ -544,7 +627,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 36
+        "y": 44
       },
       "id": 14,
       "options": {
@@ -564,8 +647,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (Hostname, gpu, modelName) (DCGM_FI_DEV_FB_USED)",
-          "legendFormat": "{{Hostname}} GPU {{gpu}} ({{modelName}})",
+          "expr": "max by (hostname, gpu, modelName) (DCGM_FI_DEV_FB_USED)",
+          "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}})",
           "refId": "A"
         }
       ]
@@ -592,7 +675,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 44
+        "y": 52
       },
       "id": 15,
       "options": {
@@ -612,8 +695,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (Hostname, gpu, modelName) (DCGM_FI_DEV_POWER_USAGE)",
-          "legendFormat": "{{Hostname}} GPU {{gpu}} ({{modelName}})",
+          "expr": "max by (hostname, gpu, modelName) (DCGM_FI_DEV_POWER_USAGE)",
+          "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}})",
           "refId": "A"
         }
       ]
@@ -640,7 +723,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 44
+        "y": 52
       },
       "id": 16,
       "options": {
@@ -660,109 +743,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (Hostname, gpu, modelName) (DCGM_FI_DEV_GPU_TEMP)",
-          "legendFormat": "{{Hostname}} GPU {{gpu}} ({{modelName}})",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "id": 17,
-      "type": "row",
-      "title": "Qdrant Vector Database",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 52
-      },
-      "panels": []
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "drawStyle": "line"
-          },
-          "unit": "reqps"
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 53
-      },
-      "id": 18,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "title": "Qdrant REST API Operations",
-      "type": "timeseries",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(rate(app_http_requests_total{job=\"qdrant\"}[1m])) by (method, status) or vector(0)",
-          "legendFormat": "{{method}} {{status}}",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "drawStyle": "line"
-          },
-          "unit": "short"
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 53
-      },
-      "id": 19,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "title": "Qdrant Indexed Vectors & Points",
-      "type": "timeseries",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(collections_total{job=\"qdrant\"}) or vector(0)",
-          "legendFormat": "Collections Count",
+          "expr": "max by (hostname, gpu, modelName) (DCGM_FI_DEV_GPU_TEMP)",
+          "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}})",
           "refId": "A"
         }
       ]
@@ -774,10 +756,8 @@
   "tags": [
     "llm",
     "ai",
-    "vllm",
     "litellm",
     "gpu",
-    "qdrant",
     "devops-cli"
   ],
   "time": {
@@ -793,7 +773,7 @@
     ]
   },
   "timezone": "browser",
-  "title": "LLM & Vector Stack",
+  "title": "LLM Gateway & GPUs",
   "uid": "devops-llm-stack",
-  "version": 2
+  "version": 3
 }

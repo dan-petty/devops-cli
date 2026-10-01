@@ -94,6 +94,75 @@ CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
 CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
     CONST_MCP_EAGER_DOMAINS | CONST_MCP_LAZY_DOMAINS | {"github", "secrets", "benchmarks"}
 )
+# The module whose tools and resources shell out to `devops`, and the argv head that marks
+# such a call. `devops docs check` resolves every list that starts with it.
+CONST_MCP_SERVER_MODULE = "devops_cli.ai.mcp.server"
+CONST_DEVOPS_ARGV_PREFIX: Final[tuple[str, ...]] = ("uv", "run", "devops")
+# The list methods that add tokens to an argv the MCP server builds up in a variable.
+CONST_ARGV_EXTENDING_METHODS: Final[frozenset[str]] = frozenset({"append", "extend"})
+# The class of mistake a refused MCP tool argument is reported as, so a model can correct the
+# call in one turn (#862).
+CONST_ARGUMENT_HALLUCINATED: Final[str] = "HALLUCINATED_PARAM"
+CONST_ARGUMENT_MISSING: Final[str] = "MISSING_PARAM"
+CONST_ARGUMENT_TYPE_MISMATCH: Final[str] = "TYPE_MISMATCH"
+CONST_ARGUMENT_INVALID_CHOICE: Final[str] = "INVALID_CHOICE"
+CONST_ARGUMENT_OUT_OF_RANGE: Final[str] = "OUT_OF_RANGE"
+CONST_ARGUMENT_CONSTRAINT_VIOLATION: Final[str] = "CONSTRAINT_VIOLATION"
+# The JSON Schema keyword that refused an argument, by the class of mistake it signals. It
+# covers every keyword the current tool registry publishes, which a test holds it to; a
+# keyword outside it is still a refusal, reported as a constraint violation.
+CONST_JSON_SCHEMA_VIOLATION_KINDS: Final[dict[str, str]] = {
+    "additionalProperties": CONST_ARGUMENT_HALLUCINATED,
+    "required": CONST_ARGUMENT_MISSING,
+    "type": CONST_ARGUMENT_TYPE_MISMATCH,
+    "anyOf": CONST_ARGUMENT_TYPE_MISMATCH,
+    "oneOf": CONST_ARGUMENT_TYPE_MISMATCH,
+    "enum": CONST_ARGUMENT_INVALID_CHOICE,
+    "const": CONST_ARGUMENT_INVALID_CHOICE,
+    "minimum": CONST_ARGUMENT_OUT_OF_RANGE,
+    "maximum": CONST_ARGUMENT_OUT_OF_RANGE,
+    "exclusiveMinimum": CONST_ARGUMENT_OUT_OF_RANGE,
+    "exclusiveMaximum": CONST_ARGUMENT_OUT_OF_RANGE,
+    "minLength": CONST_ARGUMENT_OUT_OF_RANGE,
+    "maxLength": CONST_ARGUMENT_OUT_OF_RANGE,
+    "minItems": CONST_ARGUMENT_OUT_OF_RANGE,
+    "maxItems": CONST_ARGUMENT_OUT_OF_RANGE,
+}
+# The pydantic error type that refused an argument the published schema allowed, such as a
+# strict PR number's `1.0` were the schema check bypassed. Its type errors cover the six JSON
+# value types.
+CONST_PYDANTIC_VIOLATION_KINDS: Final[dict[str, str]] = {
+    "unexpected_keyword_argument": CONST_ARGUMENT_HALLUCINATED,
+    "missing_argument": CONST_ARGUMENT_MISSING,
+    "dict_type": CONST_ARGUMENT_TYPE_MISMATCH,
+    "list_type": CONST_ARGUMENT_TYPE_MISMATCH,
+    "string_type": CONST_ARGUMENT_TYPE_MISMATCH,
+    "int_type": CONST_ARGUMENT_TYPE_MISMATCH,
+    "float_type": CONST_ARGUMENT_TYPE_MISMATCH,
+    "bool_type": CONST_ARGUMENT_TYPE_MISMATCH,
+    "none_required": CONST_ARGUMENT_TYPE_MISMATCH,
+}
+# How each bound a JSON Schema can publish reads after the type it bounds: "integer >= 1".
+CONST_JSON_SCHEMA_BOUND_PHRASES: Final[dict[str, str]] = {
+    "minimum": ">= {}",
+    "maximum": "<= {}",
+    "exclusiveMinimum": "> {}",
+    "exclusiveMaximum": "< {}",
+    "minLength": "of length >= {}",
+    "maxLength": "of length <= {}",
+    "minItems": "of size >= {}",
+    "maxItems": "of size <= {}",
+}
+# An undeclared parameter's name is the caller's own text, so a refusal echoes only a masked
+# prefix of it this long.
+CONST_MCP_UNDECLARED_PARAMETER_ECHO_LENGTH: Final[int] = 64
+# FastMCP logs a refused call's pydantic errors here, and each error carries the rejected value,
+# which the log keeps as this placeholder instead.
+CONST_FASTMCP_SERVER_LOGGER: Final[str] = "fastmcp.server.server"
+CONST_REDACTED_LOG_VALUE: Final[str] = "<redacted>"
+# Root commands whose module app takes the command's own name as its first argument:
+# `devops lint` runs the `lint` subcommand of `devops_cli.commands.ci`.
+CONST_CLI_ROOT_LEVEL_COMMANDS: Final[frozenset[str]] = frozenset({"format", "lint"})
 CONST_SYSTEM_TEMP_DIRS: tuple[Path, ...] = (Path("/tmp"), Path("/var/tmp"))  # nosec B108
 CONST_FORBIDDEN_SYSTEM_DIRS: tuple[Path, ...] = (
     Path("/etc"),
@@ -115,6 +184,13 @@ CONST_CI_CACHE_FILENAME = "ci_cache.json"
 # Click context meta key the `devops ci` group sets when a subcommand only prints its help,
 # so the gate does not announce the root it would check.
 CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_shows_help"
+# The gate runs before every push, so its test step must stay inside this budget; past it, the
+# gate names the slowest tests from a pytest durations report of this many entries.
+CONST_CI_TEST_BUDGET_SECONDS: Final[float] = 300.0
+CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
+# Host-folder shares (WSL's drvfs over 9p) answer each file check hundreds of times slower than
+# a Linux filesystem, which multiplies the gate's time for a workspace checked out on them.
+CONST_SLOW_WORKSPACE_FSTYPES: Final[frozenset[str]] = frozenset({"9p", "drvfs"})
 CONST_LLM_CACHE_DIR_NAME = "llm"
 CONST_BENCHMARKS_DIR_NAME = "benchmarks"
 CONST_AUDIT_LOG_NAME = "audit.jsonl"
@@ -126,6 +202,21 @@ CONST_SAMPLES_DIR_NAME = "samples"
 CONST_RUNS_DIR_NAME = "runs"
 CONST_INDEX_CACHE_FILENAME = "index_cache.json"
 CONST_HALLUCINATIONS_FILE_NAME = "common_hallucinations.json"
+# Test-only paths and environment variables that must be strictly isolated outside the project root
+CONST_FORBIDDEN_PROJECT_TEST_PATHS: Final[tuple[str, ...]] = (
+    "test_config.yaml",
+    "test_data",
+    "test_llm_cache",
+    "gh-config",
+    ".data/test_llm_cache",
+    ".data/test_data",
+)
+CONST_ISOLATED_TEST_ENV_KEYS: Final[tuple[str, ...]] = (
+    "DEVOPS_CLI_CONFIG",
+    "DEVOPS_CLI_DATA_DIR",
+    "GH_CONFIG_DIR",
+    "XDG_RUNTIME_DIR",
+)
 
 # ── Memory & Byte Sizing Constants ────────────────────────────────────────────
 CONST_FP32_BYTES_PER_ELEMENT: int = 4
@@ -231,6 +322,15 @@ CONST_GITHUB_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
     "too many requests",
     "http 429",
     "wait a few minutes before you try again",
+    "retry-after",
+    "retry after",
+)
+CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
+    "secondary rate limit",
+    "abuse-rate-limit",
+    "wait a few minutes before you try again",
+    "please retry your request again later",
+    "exceeded a secondary rate limit",
 )
 
 CONST_URL_OLLAMA_LOCALHOST = "http://localhost:11434"
@@ -373,6 +473,8 @@ CONST_STATUS_MITIGATED = "MITIGATED"
 CONST_STATUS_SUCCESS = "SUCCESS"
 
 CONST_GIT_MAIN_BRANCH = "main"
+CONST_SAFE_GIT_REF_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9_\-/.^~@]+$")
+CONST_SAFE_GIT_RELPATH_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9_\-/.@+]+$")
 CONST_DEFAULT_LINE_NUMBER = 1
 CONST_MARKDOWN_HEADING_LEVEL = 3
 
@@ -434,15 +536,24 @@ CONST_GH_NON_API_COMMANDS: Final[frozenset[str]] = frozenset(
         "--help",
     }
 )
-CONST_GH_FAILING_CHECK_CONCLUSIONS: Final[frozenset[str]] = frozenset(
+CONST_GH_CHECK_BUCKET_PASS: Final[str] = "pass"
+CONST_GH_CHECK_BUCKET_FAIL: Final[str] = "fail"
+CONST_GH_CHECK_BUCKET_PENDING: Final[str] = "pending"
+CONST_GH_CHECK_BUCKET_SKIPPING: Final[str] = "skipping"
+CONST_GH_CHECK_BUCKET_CANCEL: Final[str] = "cancel"
+CONST_GH_CHECK_BUCKET_UNREAD: Final[str] = "unread"
+
+CONST_GH_CHECK_BUCKETS: Final[frozenset[str]] = frozenset(
     {
-        "failure",
-        "timed_out",
-        "cancelled",
-        "action_required",
-        "startup_failure",
+        CONST_GH_CHECK_BUCKET_PASS,
+        CONST_GH_CHECK_BUCKET_FAIL,
+        CONST_GH_CHECK_BUCKET_PENDING,
+        CONST_GH_CHECK_BUCKET_SKIPPING,
+        CONST_GH_CHECK_BUCKET_CANCEL,
+        CONST_GH_CHECK_BUCKET_UNREAD,
     }
 )
+
 CONST_PR_API_STATE_MAP: Final[dict[str, str]] = {
     "all": "all",
     "closed": "closed",
@@ -533,6 +644,9 @@ CONST_RUNS_INDEX_SERVICE = "valkey-runs"
 CONST_RUNS_INDEX_SECRET = "valkey-runs-auth"
 
 # ── Network Reference & Egress Security Invariants ────────────────────────────
+# httpx2 request extension carrying a caller's egress policy, a callable the HTTP broker's request
+# hook calls with each hop's URL before that hop is sent
+CONST_HTTP_EGRESS_POLICY_EXTENSION: Final[str] = "egress_policy"
 # RFC 2606 Reserved Top-Level Domains for testing & documentation
 CONST_RFC2606_RESERVED_TLDS: frozenset[str] = frozenset(
     {
@@ -877,6 +991,30 @@ CONST_FORBIDDEN_PYTHON_CRITERIA_MODULES: Final[frozenset[str]] = frozenset(
         "telnetlib",
         "urllib",
     }
+)
+
+# Substrings indicating that a criteria command is tautological (testing symbol existence or reflection only).
+CONST_TAUTOLOGICAL_CRITERIA_SUBSTRINGS: Final[tuple[str, ...]] = (
+    "co_varnames",
+    "__code__",
+    "hasattr(",
+    "getattr(",
+    "isinstance(",
+    "type(",
+    "syntax error",
+    "no syntax errors",
+    "successfully",
+    "method exists",
+    "function exists",
+    "class exists",
+    "symbol exists",
+    "validates input",
+    "exists and validates",
+    "is defined",
+    "defined successfully",
+    "imported successfully",
+    "import successfully",
+    "imports successfully",
 )
 
 # ── Review Schemas & Deterministic Verification Constants ─────────────────────
@@ -1242,8 +1380,21 @@ CONST_SECRET_PROVIDER_SETTINGS: Final[str] = "settings"
 CONST_SECRET_PROVIDER_TOOL: Final[str] = "tool"
 
 # Upper bound on retained credential access records, preventing unbounded growth in
-# long-running sessions. The trail records provider and outcome only, never values.
 CONST_SECRET_AUDIT_MAX_ENTRIES: Final[int] = 1000
+
+# Illustrative placeholder markers and documentation tokens ignored by native secret scanner.
+CONST_SECRET_PLACEHOLDER_MARKERS: Final[tuple[str, ...]] = (
+    "your_",
+    "placeholder",
+    "dummy",
+    "token_here",
+    "key_here",
+    "insert_",
+    "change_me",
+    "changeme",
+    "masked",
+    "xxx",
+)
 
 # Vault API paths. Fixed by the Vault HTTP API, so this set is closed and exhaustive.
 CONST_VAULT_API_PREFIX: Final[str] = "/v1"
@@ -1288,6 +1439,23 @@ CONST_PROMQL_QUOTE_CHARS: Final[frozenset[str]] = frozenset({'"', "'", "`"})
 # Duration units defined by the PromQL time-duration grammar. Closed and exhaustive per
 # the Prometheus query language specification.
 CONST_PROMQL_DURATION_UNITS: Final[frozenset[str]] = frozenset({"ms", "s", "m", "h", "d", "w", "y"})
+
+# Keywords that open a parenthesised list of label names: aggregation modifiers and
+# vector-matching modifiers. Closed and exhaustive per the PromQL grammar.
+CONST_PROMQL_GROUPING_KEYWORDS: Final[frozenset[str]] = frozenset(
+    {"by", "without", "on", "ignoring", "group_left", "group_right"}
+)
+
+# The modifiers that may follow an aggregation operator's name, as in `sum by (job) (x)`.
+CONST_PROMQL_AGGREGATION_MODIFIERS: Final[frozenset[str]] = frozenset({"by", "without"})
+
+# Every word the PromQL lexer reads as a keyword or a number rather than a metric name:
+# the grouping keywords, the set and arithmetic operators spelled as words, the `bool` and
+# `offset` modifiers, and the `Inf` and `NaN` number literals. Matched case-insensitively,
+# as the lexer does.
+CONST_PROMQL_KEYWORDS: Final[frozenset[str]] = CONST_PROMQL_GROUPING_KEYWORDS | frozenset(
+    {"and", "or", "unless", "atan2", "bool", "offset", "inf", "nan"}
+)
 
 # ── Tiered Cache Namespacing & Tiers ─────────────────────────────────────────
 # Root prefix for every cache key this project writes, so a shared Valkey instance can
@@ -1520,6 +1688,38 @@ CONST_THREAT_INTEL_CACHE_PREFIX: Final[str] = "valkey:threat_intel:domain"
 # RAG embedding distributed caching
 CONST_VALKEY_EMBEDDING_PREFIX: Final[str] = "valkey:rag:embedding"
 
+# Canonical embedding dimensions for widely used embedding models to ensure deterministic fallback synchronization
+CONST_KNOWN_EMBEDDING_DIMENSIONS: Final[dict[str, int]] = {
+    "bge-m3": 1024,
+    "bge-large": 1024,
+    "bge-base": 768,
+    "bge-small": 384,
+    "nomic-embed-text": 768,
+    "text-embedding-3-small": 1536,
+    "text-embedding-3-large": 3072,
+    "text-embedding-ada-002": 1536,
+    "all-minilm": 384,
+    "qwen3-embedding": 768,
+    "embeddinggemma": 768,
+}
+
+# Helm releases that deploy DaemonSets across all cluster nodes
+CONST_HELM_DAEMONSET_RELEASES: Final[frozenset[str]] = frozenset(
+    {"k8s-monitoring", "dcgm-exporter", "fluent-bit"}
+)
+
+# Helm releases teardown-stack leaves installed: deleting a CRD deletes every object of its kind
+# in the cluster, so uninstalling the Prometheus Operator CRDs would delete every ServiceMonitor
+CONST_HELM_TEARDOWN_RETAINED_RELEASES: Final[frozenset[str]] = frozenset(
+    {"prometheus-operator-crds"}
+)
+
+# A resource Helm refuses to adopt, as its resourceString prints it: `<Kind> "<name>" in namespace
+# "<namespace>"`, where the namespace is empty for a cluster-scoped resource such as a CRD
+CONST_HELM_OWNERSHIP_CONFLICT_RE: Final[re.Pattern[str]] = re.compile(
+    r'([A-Za-z0-9_-]+)\s+"([^"]+)"\s+in namespace\s+"([^"]*)"'
+)
+
 # GitHub CLI rate limiter mutation verbs and HTTP methods
 CONST_GH_MUTATION_VERBS: Final[frozenset[str]] = frozenset(
     {
@@ -1585,15 +1785,17 @@ CONST_AI_GATEWAY_PROVIDER_LITELLM: Final[str] = "litellm"
 CONST_AI_GATEWAY_PROVIDER_PORTKEY: Final[str] = "portkey"
 CONST_AI_GATEWAY_DEFAULT_PORT: Final[int] = 4000
 CONST_AI_PORTKEY_DEFAULT_PORT: Final[int] = 8787
-CONST_AI_LIGHTLLM_DEFAULT_PORT: Final[int] = 8000
-CONST_AI_BACKEND_LIGHTLLM: Final[str] = "lightllm"
-CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama", "vllm", "lightllm")
+CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama", "vllm")
 CONST_AI_PROMPT_CACHE_TTL_5M: Final[str] = "5m"
 CONST_AI_PROMPT_CACHE_TTL_1H: Final[str] = "1h"
 CONST_AI_PROMPT_CACHE_TTLS: Final[tuple[str, ...]] = ("5m", "1h")
-CONST_AI_CASCADE_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey", "lightllm", "ollama")
+CONST_AI_CASCADE_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey", "ollama")
 CONST_AI_DEFAULT_CACHE_MARKER_KIND: Final[str] = "cache-point"
 CONST_AI_ALLOW_PRIVATE_NETWORK_ENV: Final[str] = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
+CONST_CLOUD_METADATA_HOSTS: Final[frozenset[str]] = frozenset(
+    {"169.254.169.254", "fd00:ec2::254", "metadata.google.internal", "metadata"}
+)
+CONST_CLOUD_METADATA_IPS: Final[frozenset[str]] = frozenset({"169.254.169.254", "fd00:ec2::254"})
 
 # ── AI Model Capability Tier Gates & AIMD Constants ───────────────────────────
 CONST_MIN_REASONING_MODEL_TIER_B: Final[int] = 30
@@ -1836,6 +2038,53 @@ CONST_K8S_INFORMER_EVENTS: Final[tuple[str, ...]] = (
     CONST_K8S_EVENT_ERROR,
 )
 
+# ── Kubernetes Pod Status ────────────────────────────────────────────────────
+# The STATUS kubectl prints for a pod, ported from its `printPod`: the pod's reason or
+# phase, unless an init or app container's waiting or terminated reason says more. Every
+# value here is one the Kubernetes API itself defines.
+CONST_K8S_POD_RUNNING: Final[str] = "Running"
+CONST_K8S_POD_COMPLETED: Final[str] = "Completed"
+CONST_K8S_POD_NOT_READY: Final[str] = "NotReady"
+CONST_K8S_POD_TERMINATING: Final[str] = "Terminating"
+CONST_K8S_POD_UNKNOWN: Final[str] = "Unknown"
+CONST_K8S_POD_INITIALIZING: Final[str] = "PodInitializing"
+CONST_K8S_POD_REASON_NODE_LOST: Final[str] = "NodeLost"
+CONST_K8S_POD_REASON_SCHEDULING_GATED: Final[str] = "SchedulingGated"
+# Phases a pod never leaves: deleting one does not make it Terminating.
+CONST_K8S_POD_TERMINAL_PHASES: Final[frozenset[str]] = frozenset({"Succeeded", "Failed"})
+CONST_K8S_INIT_STATUS_PREFIX: Final[str] = "Init:"
+CONST_K8S_SIGNAL_STATUS_PREFIX: Final[str] = "Signal:"
+CONST_K8S_EXIT_CODE_STATUS_PREFIX: Final[str] = "ExitCode:"
+# Pod and node condition types, and the status a condition holds when it is met.
+CONST_K8S_CONDITION_READY: Final[str] = "Ready"
+CONST_K8S_CONDITION_INITIALIZED: Final[str] = "Initialized"
+CONST_K8S_CONDITION_SCHEDULED: Final[str] = "PodScheduled"
+CONST_K8S_CONDITION_TRUE: Final[str] = "True"
+# An init container with this restart policy is a sidecar that keeps running beside the
+# app containers, so it counts toward READY.
+CONST_K8S_RESTART_POLICY_ALWAYS: Final[str] = "Always"
+# The statuses a pod can show without needing attention. Any other status is unhealthy,
+# and so is a Running pod whose READY count is short.
+CONST_K8S_HEALTHY_POD_STATUSES: Final[frozenset[str]] = frozenset(
+    {CONST_K8S_POD_RUNNING, CONST_K8S_POD_COMPLETED}
+)
+# A container's current state, named as `kubectl describe pod` names it.
+CONST_K8S_CONTAINER_RUNNING: Final[str] = "Running"
+CONST_K8S_CONTAINER_WAITING: Final[str] = "Waiting"
+CONST_K8S_CONTAINER_TERMINATED: Final[str] = "Terminated"
+# The container `kubectl logs` and `kubectl exec` pick when none is named.
+CONST_K8S_DEFAULT_CONTAINER_ANNOTATION: Final[str] = "kubectl.kubernetes.io/default-container"
+# Matches a pod's events as `kubectl describe pod` does: by uid as well as name, so a
+# StatefulSet pod recreated under the same name does not show its predecessor's events.
+CONST_K8S_POD_EVENT_FIELD_SELECTOR: Final[str] = (
+    "involvedObject.kind=Pod,involvedObject.name={name},involvedObject.uid={uid}"
+)
+# Set by the kubelet in every pod, and read by the client's in-cluster loader: outside a
+# pod there is no service account to connect with.
+CONST_K8S_SERVICE_HOST_ENV: Final[str] = "KUBERNETES_SERVICE_HOST"
+# What the dashboard banner names when it connects with the pod's service account.
+CONST_K8S_IN_CLUSTER_CONTEXT: Final[str] = "in-cluster"
+
 # ── Dashboard TUI Domains ────────────────────────────────────────────────────
 # Each domain is one tab of the workstation dashboard, refreshed by its own worker.
 CONST_DASHBOARD_DOMAIN_K8S: Final[str] = "k8s"
@@ -1884,6 +2133,50 @@ CONST_DOCKER_RESOURCE_LABELS: Final[dict[str, str]] = {
 # Tab holding the streamed log pane. Not a data domain: it has no provider and is filled
 # by selecting a pod rather than by the refresh cycle.
 CONST_LOGS_TAB_ID: Final[str] = "tab-logs"
+# The dashboard's top-level tabs, told apart from the tabs nested inside a panel.
+CONST_DASHBOARD_TABS_ID: Final[str] = "dashboard-tabs"
+# The widget a tab focuses when it becomes active, so its keys work without pressing Tab.
+# A tab not listed here focuses the first widget in it that can take focus.
+CONST_DASHBOARD_TAB_FOCUS: Final[dict[str, str]] = {
+    f"tab-{CONST_DASHBOARD_DOMAIN_K8S}": f"#{CONST_DASHBOARD_DOMAIN_K8S}-table",
+    CONST_LOGS_TAB_ID: "#log-pane",
+}
+
+# ── Dashboard Finding Detail ─────────────────────────────────────────────────
+# The AI Review pane beside the findings table: these short fields as `label: value`
+# lines, in this order, then each long field as a titled section. Every other finding
+# field is left out on purpose: `recommendation` is the persona's merge verdict, not
+# advice about the finding, `thinking` is the model's scratchpad, and the rest are
+# verification bookkeeping.
+CONST_FINDING_DETAIL_HEADER_FIELDS: Final[tuple[tuple[str, str], ...]] = (
+    ("title", "Title"),
+    ("severity", "Severity"),
+    ("status", "Status"),
+    ("persona_title", "Persona"),
+    ("category", "Category"),
+    ("confidence_score", "Confidence"),
+    ("location", "Location"),
+    ("citation_line", "Citation line"),
+    ("verified_by", "Verified by"),
+)
+CONST_FINDING_DETAIL_SECTION_FIELDS: Final[tuple[tuple[str, str], ...]] = (
+    ("description", "Description"),
+    ("observed_value", "Observed value"),
+    ("expected_value", "Expected value"),
+    ("fix", "Fix"),
+    ("references", "References"),
+    ("verification_note", "Verification note"),
+    ("invalidation_reason", "Invalidation reason"),
+    ("mitigating_mechanism", "Mitigating mechanism"),
+)
+# A field read in place of a blank one: an untitled persona is named by its key, as
+# `review findings --details` names it.
+CONST_FINDING_DETAIL_FIELD_FALLBACKS: Final[dict[str, str]] = {"persona_title": "persona"}
+# Finding text is model output, so every Unicode control character (general category Cc)
+# is written as a visible escape before it reaches the terminal, except line breaks and
+# tabs, which lay the text out.
+CONST_UNICODE_CONTROL_CATEGORY: Final[str] = "Cc"
+CONST_FINDING_DETAIL_KEPT_CONTROLS: Final[frozenset[str]] = frozenset({"\n", "\t"})
 
 # ── W3C Trace Context ────────────────────────────────────────────────────────
 # https://www.w3.org/TR/trace-context/
@@ -2095,9 +2388,9 @@ CONST_GITIGNORE_PATTERN_STYLE: Final[str] = "gitignore"
 # `deleteProjectV2Workflow` -- there is no mutation that enables or configures one -- so
 # these are reported as a gap against the live board rather than applied.
 CONST_PROJECT_WORKFLOW_EXPECTATIONS: Final[dict[str, str]] = {
-    "Item added to project": "Set Status to Todo",
+    "Item added to project": "Set Status to Backlog",
     "Item closed": "Set Status to Done",
-    "Item reopened": "Set Status to Todo",
+    "Item reopened": "Set Status to Backlog",
     "Pull request linked to issue": "Set Status to In Progress",
     "Pull request merged": "Set Status to Done",
     "Auto-close issue": "Close the issue when its linked pull request merges",
@@ -2154,9 +2447,7 @@ CONST_MAX_SCHEMA_REFLECTION_ERRORS: Final[int] = 5
 CONST_MAX_INPUT_VALUE_REPR_LENGTH: Final[int] = 60
 
 # ── LLM Gateway Dynamic Hardware Routing Constants ────────────────────────────
-CONST_CONTINUOUS_BATCHING_ENGINES: Final[frozenset[str]] = frozenset(
-    {"vllm", "lightllm", "sglang", "tgi"}
-)
+CONST_CONTINUOUS_BATCHING_ENGINES: Final[frozenset[str]] = frozenset({"vllm", "sglang", "tgi"})
 CONST_ENGINE_MULTIPLIER_CONTINUOUS_BATCHING: Final[float] = 3.0
 CONST_ENGINE_MULTIPLIER_SERIAL: Final[float] = 1.0
 CONST_DEFAULT_CONTINUOUS_CONCURRENCY: Final[int] = 64
@@ -2170,6 +2461,7 @@ CONST_HOST_SANDBOX_DEFAULT_ENV: tuple[tuple[str, str], ...] = (
     ("LC_ALL", "C.UTF-8"),
     ("TMPDIR", "/tmp"),  # nosec B108
     ("PYTHONDONTWRITEBYTECODE", "1"),
+    ("PYTHONWARNINGS", "ignore::SyntaxWarning"),
 )
 CONST_HOST_SANDBOX_SYSTEM_SYMLINKS: tuple[str, ...] = ("/bin", "/lib", "/lib64", "/sbin")
 CONST_HOST_SANDBOX_SYSTEM_DIRS: tuple[str, ...] = ("/usr",)
@@ -2196,4 +2488,25 @@ CONST_CODE_EXEMPTION_RECEIVERS: Final[frozenset[str]] = frozenset(
         "ctx",
         "session",
     }
+)
+
+# ── HTTP Retryable Status Codes ──────────────────────────────────────────────
+# Transient HTTP status codes indicating retryable server, gateway, or rate limit conditions.
+CONST_RETRYABLE_HTTP_STATUS_CODES: Final[tuple[int, ...]] = (
+    408,  # Request Timeout
+    429,  # Too Many Requests
+    500,  # Internal Server Error
+    502,  # Bad Gateway
+    503,  # Service Unavailable
+    504,  # Gateway Timeout
+    520,  # Web Server Returned an Unknown Error (Cloudflare)
+    521,  # Web Server Is Down (Cloudflare)
+    522,  # Connection Timed Out (Cloudflare)
+    523,  # Origin Is Unreachable (Cloudflare)
+    524,  # A Timeout Occurred (Cloudflare)
+    525,  # SSL Handshake Failed (Cloudflare)
+    526,  # Invalid SSL Certificate (Cloudflare)
+    527,  # Railgun Error (Cloudflare)
+    529,  # Site Is Overloaded (Anthropic / OpenAI)
+    530,  # Site Is Frozen / Origin DNS Error (Cloudflare)
 )

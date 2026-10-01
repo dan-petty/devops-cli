@@ -64,7 +64,6 @@ def test_task_switching_provider_does_not_inherit_global_api_base_url() -> None:
     [
         ("litellm:devops-coder", ("devops-coder", GATEWAY_URL)),
         ("portkey:devops-coder", ("devops-coder", "http://portkey.example.com:8787/v1")),
-        ("lightllm:devops-coder", ("devops-coder", "http://lightllm.example.com:8000/v1")),
     ],
 )
 def test_bridge_gateway_prefixes_use_their_configured_urls(
@@ -76,7 +75,6 @@ def test_bridge_gateway_prefixes_use_their_configured_urls(
             api_base_url=OPENAI_URL,
             gateway_url=GATEWAY_URL,
             portkey_url="http://portkey.example.com:8787/v1",
-            lightllm_url="http://lightllm.example.com:8000/v1",
         )
     )
 

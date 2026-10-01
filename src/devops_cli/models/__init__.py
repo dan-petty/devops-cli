@@ -162,6 +162,7 @@ from devops_cli.models.vulnerability import (
     DependencySpec,
     NetworkReference,
     NetworkReputationRecord,
+    PackageLookupResult,
     VulnerabilityRecord,
 )
 from devops_cli.models.workspace import (
@@ -247,6 +248,7 @@ __all__ = [
     "NetworkReputationRecord",
     "PackageIntelRequest",
     "PackageIntelResult",
+    "PackageLookupResult",
     "PeerGrade",
     "PodInfo",
     "PolicyRuleViolation",

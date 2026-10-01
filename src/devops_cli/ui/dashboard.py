@@ -16,6 +16,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import ModalScreen
+from textual.widget import Widget
 from textual.widgets import (
     Button,
     DataTable,
@@ -33,16 +34,20 @@ from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_LABELS,
     CONST_DASHBOARD_DOMAINS,
+    CONST_DASHBOARD_TAB_FOCUS,
+    CONST_DASHBOARD_TABS_ID,
     CONST_LOGS_TAB_ID,
 )
 from devops_cli.config.defaults import (
     DEFAULT_DASHBOARD_REFRESH_SECONDS,
     DEFAULT_DASHBOARD_STALE_SECONDS,
 )
+from devops_cli.models.k8s import PodInfo
 from devops_cli.ui.data_providers import fetch_review_status
+from devops_cli.ui.projections import log_title, next_container
 from devops_cli.ui.refresh import DOMAIN_FETCHERS, pod_log_source, refresh_domain
 from devops_cli.ui.state import DashboardState, DomainSnapshot
-from devops_cli.ui.widgets import DockerPanel, DomainPanel, LogPane, ReviewPanel
+from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, LogPane, ReviewPanel
 
 
 def _tab_id(domain: str) -> str:
@@ -50,18 +55,37 @@ def _tab_id(domain: str) -> str:
     return f"tab-{domain}"
 
 
-def _panel_for(domain: str) -> DomainPanel | DockerPanel | ReviewPanel:
+_PANELS: dict[str, type[DockerPanel | ReviewPanel | K8sPanel]] = {
+    CONST_DASHBOARD_DOMAIN_DOCKER: DockerPanel,
+    CONST_DASHBOARD_DOMAIN_AI: ReviewPanel,
+    CONST_DASHBOARD_DOMAIN_K8S: K8sPanel,
+}
+
+
+def _panel_for(domain: str) -> DomainPanel | DockerPanel | ReviewPanel | K8sPanel:
     """Build the panel a domain renders into.
 
     Most domains are a banner over one table. Docker and AI Review carry several views of
-    one snapshot, so they compose nested tabs instead; choosing here keeps `compose` flat.
+    one snapshot, so they compose nested tabs instead, and Kubernetes adds its filters;
+    choosing here keeps `compose` flat.
     """
-    stale_after = DEFAULT_DASHBOARD_STALE_SECONDS
-    if domain == CONST_DASHBOARD_DOMAIN_DOCKER:
-        return DockerPanel(domain, stale_after=stale_after)
-    if domain == CONST_DASHBOARD_DOMAIN_AI:
-        return ReviewPanel(domain, stale_after=stale_after)
-    return DomainPanel(domain, stale_after=stale_after)
+    panel = _PANELS.get(domain, DomainPanel)
+    return panel(domain, stale_after=DEFAULT_DASHBOARD_STALE_SECONDS)
+
+
+class DashboardTabs(TabbedContent):
+    """The top-level tabs, switched by the operator and never by a late focus event.
+
+    Textual activates the tab holding a widget when that widget takes focus. A focus
+    still in flight for the tab just left, such as the pod table's at startup, lands
+    after the next tab is shown and switched the dashboard straight back to the old one.
+    """
+
+    def on_tab_pane_focused(self, event: TabPane.Focused) -> None:
+        """Ignore focus that lands in a tab no longer shown."""
+        if not event.tab_pane.display:
+            event.stop()
+            event.prevent_default()
 
 
 class HelpScreen(ModalScreen[None]):
@@ -106,6 +130,10 @@ class HelpScreen(ModalScreen[None]):
             f"  1-{len(CONST_DASHBOARD_DOMAINS)} : Switch Tabs\n"
             f"        {tab_hints}\n"
             "  l   : Streamed pod logs\n"
+            "  /   : Filter pods by namespace, name or status (Kubernetes)\n"
+            "  e   : Inspect the highlighted pod's containers and events (Kubernetes)\n"
+            "  esc : Clear the pod filter, or close a dialog\n"
+            "  i   : Toggle finding detail (AI Review)\n"
             "  r   : Refresh active data sources\n"
             "  ctrl+p : Command palette\n"
             "  ?   : Open this help dialog\n"
@@ -113,7 +141,8 @@ class HelpScreen(ModalScreen[None]):
             "In the log pane:\n\n"
             "  up/down   : Scroll one line\n"
             "  pgup/pgdn : Scroll one page\n"
-            "  end       : Resume following the stream\n\n"
+            "  end       : Resume following the stream\n"
+            "  c         : Stream the pod's next container\n\n"
             "Tip: select a pod on the Kubernetes tab to tail its logs.\n"
             "Refreshes run in the background; the interface stays responsive while\n"
             "a slow or unreachable subsystem is still being queried."
@@ -177,10 +206,12 @@ class DashboardApp(App[None]):
         # None means "the newest completed session"; set by picking one from the session
         # list, and reset whenever the review domain is refreshed without a selection.
         self._review_session: str | None = None
+        # The pod and container the log pane is tailing, so `c` can move to the next one.
+        self._tailing: tuple[PodInfo, str] | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        with TabbedContent(initial=self._initial_tab):
+        with DashboardTabs(initial=self._initial_tab, id=CONST_DASHBOARD_TABS_ID):
             for index, domain in enumerate(CONST_DASHBOARD_DOMAINS, start=1):
                 label = CONST_DASHBOARD_DOMAIN_LABELS[domain]
                 with TabPane(f"{label} ({index})", id=_tab_id(domain)):
@@ -196,7 +227,22 @@ class DashboardApp(App[None]):
 
     def action_switch_tab(self, tab_id: str) -> None:
         """Switch the active TabPane by id."""
-        self.query_one(TabbedContent).active = tab_id
+        self.query_one(f"#{CONST_DASHBOARD_TABS_ID}", TabbedContent).active = tab_id
+
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        """Focus the newly active tab, so its keys work without pressing Tab first.
+
+        Without this, focus stays where it was: at startup on the tab strip, where the pod
+        table's keys do nothing, and after a switch on a widget the tab now hides, whose
+        keys would act unseen. Focus is set at once, on the dashboard's own screen even
+        under a dialog, and only for a tab that is still the active one.
+        """
+        tabs, pane = event.tabbed_content, event.pane
+        if tabs.id != CONST_DASHBOARD_TABS_ID or tabs.active != pane.id:
+            return
+        selector = CONST_DASHBOARD_TAB_FOCUS.get(pane.id or "")
+        target = pane.query_one(selector) if selector else _first_focusable(pane)
+        pane.screen.set_focus(target)
 
     def action_show_help(self) -> None:
         """Display the help dialog modal."""
@@ -249,6 +295,7 @@ class DashboardApp(App[None]):
             *self.query(f"#panel-{snapshot.domain}").results(DomainPanel),
             *self.query(f"#panel-{snapshot.domain}").results(DockerPanel),
             *self.query(f"#panel-{snapshot.domain}").results(ReviewPanel),
+            *self.query(f"#panel-{snapshot.domain}").results(K8sPanel),
         ]
         for panel in panels:
             try:
@@ -267,14 +314,33 @@ class DashboardApp(App[None]):
             return
         if event.data_table.id != f"{CONST_DASHBOARD_DOMAIN_K8S}-table":
             return
-        row = event.data_table.get_row(event.row_key)
-        namespace, pod = str(row[0]), str(row[1])
-        if not pod:
+        pod = self.query_one(K8sPanel).pod_for(event.row_key.value)
+        if pod is None:
             return
-        pane = self.query_one("#log-pane", LogPane)
-        pane.title = f"{namespace}/{pod}"
-        pane.start_stream(pod_log_source(pod, namespace))
+        self._tail(pod, pod.default_container)
         self.action_switch_tab(CONST_LOGS_TAB_ID)
+
+    def _tail(self, pod: PodInfo, container: str) -> None:
+        """Stream one container's logs into the log pane, in place of any stream before.
+
+        A pod with more than one container needs one named: the API server refuses the
+        request otherwise.
+        """
+        self._tailing = (pod, container)
+        pane = self.query_one("#log-pane", LogPane)
+        pane.title = log_title(pod, container)
+        pane.start_stream(pod_log_source(pod.name, pod.namespace, container or None))
+
+    def action_next_container(self) -> None:
+        """Restart the log stream on the tailed pod's next container, init ones included."""
+        if self._tailing is not None:
+            pod, container = self._tailing
+            self._tail(pod, next_container(pod, container))
+
+
+def _first_focusable(pane: Widget) -> Widget | None:
+    """Return the first widget in a pane that can take focus, if any."""
+    return next((widget for widget in pane.query("*") if widget.focusable), None)
 
 
 __all__ = ["DashboardApp", "HelpScreen"]

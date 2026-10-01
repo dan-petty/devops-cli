@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
+import warnings
 from typing import Any
 
 from devops_cli.ai.ast.models import CodeSpan, PolyglotFileMap, PolyglotSymbol, SymbolKind
@@ -59,7 +60,9 @@ def _parse_py_class_members(cls_node: ast.ClassDef) -> list[PolyglotSymbol]:
 
 def _parse_python_symbols(code: str) -> list[PolyglotSymbol]:
     try:
-        tree = ast.parse(code)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(code)
     except Exception:
         return []
 

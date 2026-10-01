@@ -66,7 +66,6 @@ DEFAULT_AI_FALLBACK_PROVIDER = "ollama"
 DEFAULT_AI_FALLBACK_MODEL = "qwen2.5-coder:7b"
 DEFAULT_AI_REFERENCE_MODEL: str = "gpt-4o"
 DEFAULT_AI_HARDWARE_COST_USD: float = 0.0
-DEFAULT_CONSTELLATION_DRAIN_TIMEOUT: float = 5.0
 DEFAULT_AI_REASONING_EFFORT: str | None = None
 DEFAULT_AI_TEMPERATURE: float = 0.1
 DEFAULT_AI_TOP_P: float = 0.95
@@ -79,14 +78,15 @@ DEFAULT_OLLAMA_SLOT_POLL_INTERVAL_SECONDS: float = 2.0
 DEFAULT_AI_MAX_RESPONSE_BYTES: int = 50 * 1024 * 1024  # 50 MiB limit
 DEFAULT_AI_PREWARM_KEEP_ALIVE: str = "1h"
 DEFAULT_AI_EVICT_KEEP_ALIVE: int = 0
-DEFAULT_AI_MAX_RETRIES: int = 2
+DEFAULT_AI_MAX_RETRIES: int = 4
+DEFAULT_REVIEW_RETRY_ATTEMPTS: int = 6
+DEFAULT_REVIEW_RETRY_MIN_BACKOFF: float = 2.0
+DEFAULT_REVIEW_RETRY_MAX_BACKOFF: float = 60.0
 DEFAULT_AI_GATEWAY_PROVIDER: str = "litellm"
 DEFAULT_AI_GATEWAY_URL: str = "http://localhost:4000/v1"
 DEFAULT_AI_GATEWAY_CLUSTER_URL: str = "http://llm-gateway.llm.svc.cluster.local:4000/v1"
 DEFAULT_PORTKEY_GATEWAY_URL: str = "http://localhost:8787/v1"
 DEFAULT_PORTKEY_GATEWAY_CLUSTER_URL: str = "http://portkey.llm.svc.cluster.local:8787/v1"
-DEFAULT_LIGHTLLM_URL: str = "http://localhost:8000/v1"
-DEFAULT_LIGHTLLM_CLUSTER_URL: str = "http://lightllm.llm.svc.cluster.local:8000/v1"
 DEFAULT_VLLM_URL: str = "http://localhost:8000/v1"
 DEFAULT_VLLM_CLUSTER_URL: str = "http://vllm-48gib.llm.svc.cluster.local:8000/v1"
 DEFAULT_VLLM_MODEL: str = "QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ"
@@ -291,7 +291,9 @@ DEFAULT_REVIEW_WINDOW_SIZE_FACTOR: float = 0.8
 DEFAULT_REVIEW_OVERLAP_FACTOR: float = 0.1
 DEFAULT_SUBPROCESS_TIMEOUT_SECONDS: float = 1800.0  # 30 minutes (kubectl, helm, minikube, git, gh)
 DEFAULT_HTTP_TIMEOUT_SECONDS: float = 3600.0  # 1 hour (API requests & downloads)
+DEFAULT_HTTP_MAX_REDIRECTS: int = 10  # hops the HTTP broker follows; httpx2 allows 20
 DEFAULT_DNS_TIMEOUT_SECONDS: float = 15.0  # 15 seconds (socket DNS resolution)
+DEFAULT_STACK_AUTH_TIMEOUT_SECONDS: float = 5.0  # 5 seconds bounded timeout for stack token minting
 
 # ── Server & OpenAPI Defaults ──────────────────────────────────────────────────
 DEFAULT_SERVER_TITLE: str = "DevOps CLI REST & OpenAPI Service"
@@ -436,6 +438,9 @@ DEFAULT_K8S_NAMESPACE: str = "default"
 DEFAULT_OBSERVABILITY_NAMESPACE: str = "observability"
 DEFAULT_K8S_STACK: str = "infra"
 DEFAULT_K8S_ALL_STACK: str = "all"
+# Helm names one conflicting resource per failed attempt, so adopting the ten CRDs of
+# prometheus-operator-crds that an earlier chart left unowned takes ten retries
+DEFAULT_HELM_RECOVERY_MAX_RETRIES: int = 20
 DEFAULT_K8S_TLS_SECRET_NAME: str = "homelab-tls"
 DEFAULT_CERT_COMMON_NAME: str = "homelab.local"
 DEFAULT_K8S_LOGS_TAIL: int = 100
@@ -479,6 +484,9 @@ DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS: float = 1.0
 # How often an interactive user is told, per endpoint, that telemetry exports fail.
 DEFAULT_OTEL_WARNING_INTERVAL_SECONDS: int = 86400
 DEFAULT_TELEMETRY_TEST_NAME: str = "devops-cli.manual_test"
+# `telemetry profile` polls Jaeger until a trace stops growing, for at most this long.
+DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS: float = 10.0
+DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS: float = 0.5
 
 # ── AI Formatting & XML Prompt Serialization Defaults ────────────────────────
 DEFAULT_XML_INDENT: str = "  "
@@ -709,6 +717,9 @@ DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC: int = 25
 DEFAULT_GH_QUOTA_MAX_AGE_SECONDS: float = 300.0
 DEFAULT_GH_MAX_PAGINATED_PAGES: int = 100
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0
+DEFAULT_GH_SECONDARY_RATE_WAIT: float = 60.0
+DEFAULT_GH_SECONDARY_MAX_CAP: float = 300.0
+DEFAULT_GH_MAX_RATE_LIMIT_WAIT: float | None = None
 DEFAULT_VAULT_SECRET_PATH: str = "secret/devops"
 DEFAULT_SECRET_SOURCE: str = "keyring"
 
@@ -770,6 +781,10 @@ DEFAULT_DASHBOARD_STALE_SECONDS: float = 30.0
 # a terminal can usefully repaint; every line is still retained, only the drawing is
 # coalesced, which is what keeps the UI thread free under load.
 DEFAULT_LOG_REDRAW_INTERVAL_SECONDS: float = 0.05
+# Most recent events the pod inspector lists for one pod.
+DEFAULT_K8S_POD_EVENT_LIMIT: int = 20
+# Pods `devops dashboard --summary` lists, unhealthy ones first; it counts the rest.
+DEFAULT_DASHBOARD_SUMMARY_POD_ROWS: int = 10
 
 # ── Telemetry Span Buffer ───────────────────────────────────────────────────
 # Completed spans retained in memory for the waterfall view and offline inspection.

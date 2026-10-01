@@ -61,7 +61,7 @@ from devops_cli.github.projects import (
     sync_remote_project,
     sync_remote_project_views,
 )
-from devops_cli.github.rate_limiter import run_gh
+from devops_cli.github.rate_limiter import get_github_rate_limiter, run_gh
 from devops_cli.github.roadmap_sync import sync_roadmap_to_issues
 from devops_cli.github.secrets import (
     list_repository_secrets,
@@ -579,6 +579,25 @@ def sync_project(
         print_info(f"Local tasks parsed: {len(items)} items ({summary}).")
 
 
+def _resolve_project_number(owner: str, target_repo: str, project_number: int | None) -> int:
+    """Return the board number given, or the template board's, never a guessed one."""
+    if project_number:
+        return project_number
+    from devops_cli.github.projects import find_remote_project, load_project_template
+
+    template = load_project_template()
+    matched = find_remote_project(owner, template.name, repo=target_repo)
+    if not matched and template.short_name:
+        matched = find_remote_project(owner, template.short_name, repo=target_repo)
+    if not matched or not matched.get("number"):
+        print_error(
+            f"No project board named '{template.name}' found for {owner}; "
+            "pass --project-number to choose one."
+        )
+        raise typer.Exit(1)
+    return int(matched["number"])
+
+
 @project_app.command("reconcile", help=HELP.gh.project_reconcile)
 def reconcile_project_cmd(
     project_number: Annotated[
@@ -595,24 +614,13 @@ def reconcile_project_cmd(
         typer.Option("--dry-run", help="Preview field reconciliation without mutations"),
     ] = False,
 ) -> None:
-    """Reconcile custom fields (Status, Priority, Category, Value, Effort, Milestone) on project items."""
-    from devops_cli.github.projects import (
-        find_remote_project,
-        load_project_template,
-        reconcile_project_custom_fields,
-    )
+    """Reconcile Status, Priority and Milestone on project items, listing every change and its source."""
+    from devops_cli.github.projects import reconcile_project_custom_fields
 
     target_repo = repo or _resolve_repo()
     owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
-    proj_num = project_number
-    if not proj_num:
-        template = load_project_template()
-        matched = find_remote_project(owner, template.name, repo=target_repo)
-        if not matched and template.short_name:
-            matched = find_remote_project(owner, template.short_name, repo=target_repo)
-        proj_num = int(matched.get("number", 2)) if matched else 2
+    proj_num = _resolve_project_number(owner, target_repo, project_number)
 
-    mode_text = "[yellow][DRY RUN][/yellow] " if dry_run else ""
     try:
         res = reconcile_project_custom_fields(
             owner=owner,
@@ -621,13 +629,31 @@ def reconcile_project_cmd(
             dry_run=dry_run,
             state=state,
         )
-        print_success(
-            f"{mode_text}Reconciled project #{proj_num} custom fields: "
-            f"{res['items_reconciled']}/{res['items_evaluated']} items updated."
-        )
     except Exception as exc:
         print_error(f"Failed to reconcile project #{proj_num}: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
+
+    changes = res.get("changes", [])
+    if changes:
+        print_table(
+            f"Project #{proj_num} Field Changes",
+            ["Item", "Field", "Old", "New", "Source"],
+            [
+                [
+                    "#" + str(c["url"]).rstrip("/").rsplit("/", 1)[-1],
+                    c["field"],
+                    c["old"] or "(unset)",
+                    c["new"],
+                    c["source"],
+                ]
+                for c in changes
+            ],
+        )
+    verb = "[yellow][DRY RUN][/yellow] Would change" if dry_run else "Changed"
+    print_success(
+        f"{verb} {res['items_reconciled']} of {res['items_evaluated']} items on project "
+        f"#{proj_num} ({len(changes)} field changes)."
+    )
 
 
 @project_app.command("link", help=HELP.gh.project_link)
@@ -661,21 +687,11 @@ def list_project_workflows(
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
 ) -> None:
     """List built-in project workflows, enabled statuses, and configuration links."""
-    from devops_cli.github.projects import (
-        find_remote_project,
-        load_project_template,
-    )
     from devops_cli.output import write_stream
 
     target_repo = repo or _resolve_repo()
     owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
-    proj_num = project_number
-    if not proj_num:
-        template = load_project_template()
-        matched = find_remote_project(owner, template.name, repo=target_repo)
-        if not matched and template.short_name:
-            matched = find_remote_project(owner, template.short_name, repo=target_repo)
-        proj_num = int(matched.get("number", 2)) if matched else 2
+    proj_num = _resolve_project_number(owner, target_repo, project_number)
 
     workflows = get_project_workflows(proj_num, owner, repo=target_repo)
     if json_output:
@@ -1319,6 +1335,10 @@ def issues_sync_roadmap_cmd(
         ["Already Tracked", str(result.already_tracked)],
         ["Issues Created", str(result.created_count)],
         ["Task Files Created", str(len(result.task_files_created))],
+        [
+            "Scope Fell Back to scope/cli",
+            f"{result.scope_fallbacks} of {result.eligible_uncompleted}",
+        ],
     ]
     mode_str = " (Dry-Run)" if dry_run else ""
     print_table(f"Roadmap Issues Synchronization{mode_str} ({target_repo})", columns, rows)
@@ -1661,7 +1681,13 @@ def rate_limit_cmd(
 
     data = _parse_rate_limit_payload(res.stdout)
 
+    limiter = get_github_rate_limiter()
+    throttles = limiter.get_total_throttles()
+    wait_sec = limiter.get_total_wait_seconds()
+
     if output_format == "json":
+        data["total_throttles"] = throttles
+        data["total_wait_seconds"] = round(wait_sec, 2)
         from devops_cli.output import write_stream
 
         write_stream(json.dumps(data, indent=2) + "\n")
@@ -1671,6 +1697,9 @@ def rate_limit_cmd(
         title="GitHub API Rate Limits & Quotas",
         columns=["Resource", "Limit", "Used", "Remaining", "Reset"],
         rows=_format_rate_limit_rows(data["resources"]),
+    )
+    print_info(
+        f"Rate Limiter Activity: {throttles} throttle(s), {wait_sec:.1f}s total backoff wait"
     )
 
 

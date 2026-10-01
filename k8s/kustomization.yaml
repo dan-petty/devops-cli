@@ -3,5 +3,9 @@ kind: Kustomization
 
 resources:
   - namespaces.yaml
+  - cloudflared
   - registry
-  - squid
+  # No chart creates these Services: Alloy writes to and Grafana queries `prometheus`, and
+  # `devops k8s port-forward` targets the kube-prometheus names (#912, #818).
+  - monitoring/service-aliases.yaml
+  - monitoring/dashboards

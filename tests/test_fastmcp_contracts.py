@@ -99,7 +99,6 @@ def test_fastmcp_tools_registration() -> None:
         "ai_repomap",
         "ai_diagram",
         "ai_test_gen",
-        "ai_architecture",
         "ai_harness_status",
         "ai_subagent_offload",
         "ai_chaos_model",
@@ -537,6 +536,52 @@ def test_fastmcp_pr_check_readiness_tool() -> None:
         )
 
 
+def test_fastmcp_pr_thread_resolve_tool() -> None:
+    """Verify pr_thread_resolve FastMCP execution contract with without_reply option."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import pr_thread_resolve
+    from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
+        mock_cmd.return_value = "Thread resolved"
+
+        # Test default without_reply=False
+        res_default = pr_thread_resolve(thread_id="PRRT_1")
+        cmd_default = [
+            "uv",
+            "run",
+            "devops",
+            "pr",
+            "threads",
+            "resolve",
+            "PRRT_1",
+        ]
+        assert (res_default, mock_cmd.call_args[0][0], mock_cmd.call_args[1]["timeout"]) == (
+            "Thread resolved",
+            cmd_default,
+            DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        )
+
+        # Test without_reply=True
+        res_override = pr_thread_resolve(thread_id="PRRT_2", without_reply=True)
+        cmd_override = [
+            "uv",
+            "run",
+            "devops",
+            "pr",
+            "threads",
+            "resolve",
+            "PRRT_2",
+            "--without-reply",
+        ]
+        assert (res_override, mock_cmd.call_args[0][0], mock_cmd.call_args[1]["timeout"]) == (
+            "Thread resolved",
+            cmd_override,
+            DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        )
+
+
 def test_fastmcp_pr_ready_tool() -> None:
     """Verify pr_ready FastMCP execution contract."""
     from unittest.mock import patch
@@ -837,3 +882,416 @@ def test_hydrate_tool_domain_notifies_session() -> None:
 
     res = mcp_server.hydrate_tool_domain("ssh", ctx=mock_ctx)
     assert (res["hydrated"], mock_session.send_tool_list_changed.called) == (True, True)
+
+
+# =============================================================================
+# Argument contract: a call is checked against its tool's published schema
+# =============================================================================
+
+# Values of the wrong JSON type that pydantic's lax mode converted, by the type the parameter
+# declares. `true`, `"1"` and `1.0` all became PR 1, so `review_pr` with `post` commented on it.
+# JSON Schema counts `1.0` as an integer, so the sweep holds the check to the stricter reading.
+_COERCED_VALUES: dict[str, tuple[object, ...]] = {
+    "integer": (True, "1", 1.0),
+    "number": (True, "1.5"),
+    "boolean": ("true",),
+}
+_SAMPLE_JSON_TYPES: dict[type, str] = {bool: "boolean", str: "string", float: "number"}
+# Keywords a published schema may carry: those a refusal is classified and described by, and
+# those that only give structure or a default.
+_STRUCTURAL_SCHEMA_KEYWORDS = frozenset(
+    {"properties", "items", "default", "title", "description", "additionalProperties"}
+)
+_NUMERIC_BOUND_KEYWORDS = ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum")
+_SECRET_SENTINEL = "API_KEY=sentinel-4b1d"
+
+
+@pytest.fixture
+def handler_runner():
+    """Stand in for the command runner, failing loudly if any handler gets far enough to run."""
+    from unittest.mock import patch
+
+    with patch(
+        "devops_cli.ai.mcp.server._run_mcp_cmd", side_effect=AssertionError("a handler ran")
+    ) as runner:
+        yield runner
+
+
+@pytest.fixture
+def fastmcp_log(caplog):
+    """Capture FastMCP's server log, which FastMCP configures not to propagate to the root."""
+    import logging
+
+    server_logger = logging.getLogger("fastmcp.server.server")
+    server_logger.addHandler(caplog.handler)
+    yield caplog
+    server_logger.removeHandler(caplog.handler)
+
+
+async def _call(tool: str, arguments: dict[str, object]) -> tuple[bool, str]:
+    """Call a tool the way an MCP client does, returning whether it failed and its reply."""
+    from fastmcp import Client
+
+    from devops_cli.ai.mcp.server import mcp
+
+    async with Client(mcp) as client:
+        result = await client.call_tool(tool, arguments, raise_on_error=False)
+    return result.is_error, "\n".join(getattr(block, "text", "") for block in result.content)
+
+
+async def _published_schemas() -> dict[str, dict]:
+    """Every registered tool's input schema as a client receives it, with all domains hydrated."""
+    from fastmcp import Client
+
+    from devops_cli.ai.mcp import server as mcp_server
+    from devops_cli.config.constants import CONST_MCP_LAZY_DOMAINS
+
+    for domain in CONST_MCP_LAZY_DOMAINS:
+        mcp_server.hydrate_tool_domain(domain)
+    async with Client(mcp_server.mcp) as client:
+        tools = await client.list_tools()
+    return {tool.name: tool.inputSchema for tool in tools}
+
+
+def _branches(schema: dict) -> list[dict]:
+    """The alternatives a property accepts: its `anyOf` branches, or the property itself."""
+    return schema.get("anyOf", [schema])
+
+
+def _coerced_values(schema: dict) -> list[object]:
+    """Wrong-typed values for a property, skipping any of a JSON type it also accepts."""
+    accepted = {branch.get("type") for branch in _branches(schema)}
+    return [
+        value
+        for declared in sorted(accepted & set(_COERCED_VALUES))
+        for value in _COERCED_VALUES[declared]
+        if _SAMPLE_JSON_TYPES[type(value)] not in accepted
+    ]
+
+
+def _is_numeric_bounded(schema: dict) -> bool:
+    """Report whether a property publishes a numeric bound on any branch."""
+    return any(
+        keyword in branch for branch in _branches(schema) for keyword in _NUMERIC_BOUND_KEYWORDS
+    )
+
+
+def _schema_keywords(schema: dict) -> set[str]:
+    """Every keyword a schema uses, in itself and in each property, item, branch or definition."""
+    nested = [
+        *schema.get("properties", {}).values(),
+        *schema.get("anyOf", []),
+        *schema.get("oneOf", []),
+        *schema.get("allOf", []),
+        *schema.get("$defs", {}).values(),
+        *([schema["items"]] if isinstance(schema.get("items"), dict) else []),
+    ]
+    return set(schema).union(*map(_schema_keywords, nested))
+
+
+@pytest.mark.parametrize(
+    ("tool", "arguments"),
+    [
+        ("review_pr", {"number": True, "post": True}),
+        ("review_pr", {"number": "1"}),
+        ("review_pr", {"number": 1.0}),
+        ("review_pr", {"number": 1, "post": "true"}),
+        ("sandbox_stop", {"timeout": True}),
+        ("sandbox_stop", {"timeout": "10"}),
+        ("sandbox_stop", {"timeout": 10.0}),
+        ("sandbox_stop", {"all_instances": "true"}),
+        ("ai_vllm_scale", {"replicas": 2.0}),
+    ],
+)
+async def test_a_coerced_argument_is_refused_before_the_handler_runs(
+    tool, arguments, handler_runner
+) -> None:
+    """`review_pr` given `{"number": true, "post": true}` built `devops review pr 1 --post`.
+
+    Pydantic's lax mode turned `true`, `"1"` and `1.0` into PR 1, so a malformed or
+    hallucinated call reviewed PR 1 and commented on it. `sandbox_stop` is withheld from the
+    listing, which is all the SDK's own strict check ever looks at, so it must refuse too.
+    An integral float on an integer that is not a PR number, such as `sandbox_stop`'s
+    `timeout` or the advertised `ai_vllm_scale`'s `replicas`, ran its handler the same way.
+    """
+    is_error, _ = await _call(tool, arguments)
+    assert (is_error, handler_runner.call_count) == (True, 0)
+
+
+@pytest.mark.parametrize(
+    ("tool", "arguments", "parameter", "kind"),
+    [
+        ("review_pr", {}, "number", "MISSING_PARAM"),
+        ("review_pr", {"number": 0}, "number", "OUT_OF_RANGE"),
+        ("pr_monitor", {"pr_number": 0}, "pr_number", "OUT_OF_RANGE"),
+        ("review_pr", {"number": 7, "verbose": True}, "verbose", "HALLUCINATED_PARAM"),
+        ("review_pr", {"number": "7"}, "number", "TYPE_MISMATCH"),
+        ("review_pr", {"number": 7.0}, "number", "TYPE_MISMATCH"),
+        ("ci_run", {"check": "everything"}, "check", "INVALID_CHOICE"),
+    ],
+)
+async def test_each_violation_is_numbered_with_its_parameter_and_kind(
+    tool, arguments, parameter, kind, handler_runner
+) -> None:
+    """The envelope says which parameter broke which rule, one numbered entry each."""
+    _, reply = await _call(tool, arguments)
+    assert f"1. Parameter: `{parameter}`\n   Kind: {kind}\n" in reply
+
+
+async def test_a_parameter_that_breaks_two_keywords_is_listed_once(handler_runner) -> None:
+    """`5` for `ci_run`'s `check` fails its `enum` and its `type`.
+
+    Each failed keyword became an entry with the same expected value and fix, doubling the
+    count and taking a second of the five places a violation on another parameter needs.
+    """
+    _, reply = await _call("ci_run", {"check": 5})
+    assert (
+        "1 argument violation(s)" in reply,
+        "1. Parameter: `check`" in reply,
+        "2. Parameter" in reply,
+    ) == (True, True, False)
+
+
+async def test_a_refusal_names_the_parameter_its_type_and_the_allowed_parameters(
+    handler_runner,
+) -> None:
+    """A model corrects the call in one turn only when told what to send instead.
+
+    Pydantic's own text stopped at the first breach, quoted the value and listed nothing
+    the call could have sent.
+    """
+    _, reply = await _call("review_pr", {"number": "4242", "verbose": True})
+    assert (
+        "Parameter: `number`" in reply,
+        "Expected: integer >= 1" in reply,
+        "Parameter: `verbose`" in reply,
+        "Allowed parameters: `number`, `persona`, `post`" in reply,
+        "Re-issue the call" in reply,
+        "4242" in reply,
+    ) == (True, True, True, True, True, False)
+
+
+async def test_a_withheld_tool_refuses_with_the_same_envelope(handler_runner) -> None:
+    """Calling a withheld tool still works, so it must be refused the same way."""
+    _, reply = await _call("sandbox_stop", {"timeout": "10"})
+    assert (
+        "Parameter: `timeout`" in reply,
+        "Expected: integer" in reply,
+        "Allowed parameters: `all_instances`, `instance_id`, `timeout`" in reply,
+    ) == (True, True, True)
+
+
+async def test_a_strict_refusal_is_rendered_like_a_schema_refusal(
+    handler_runner, fastmcp_log
+) -> None:
+    """The strict PR-number alias still refuses `1.0` when the schema check lets it through.
+
+    Pydantic reports that refusal, and FastMCP logs pydantic's errors with the input in each.
+    The reply goes through the same envelope, and neither it nor the log holds the value.
+    """
+    from unittest.mock import patch
+
+    with patch("devops_cli.ai.mcp.server.schema_violations", return_value=[]):
+        is_error, reply = await _call("review_pr", {"number": 4242.0})
+    assert (
+        is_error,
+        "Kind: TYPE_MISMATCH" in reply,
+        "Allowed parameters:" in reply,
+        "4242" in reply,
+        "Invalid arguments for tool" in fastmcp_log.text,
+        "4242" in fastmcp_log.text,
+        handler_runner.call_count,
+    ) == (True, True, True, False, True, False, 0)
+
+
+async def test_a_refused_secret_never_reaches_the_reply(handler_runner) -> None:
+    """An invalid `vault_set` returned the secret it was given in its error text."""
+    _, reply = await _call("vault_set", {"path": "secret/app", "key_values": _SECRET_SENTINEL})
+    assert ("Parameter: `key_values`" in reply, "sentinel-4b1d" in reply) == (True, False)
+
+
+async def test_an_undeclared_parameter_name_is_masked_and_bounded(handler_runner) -> None:
+    """An undeclared name is the caller's text, so it is masked and cut before it is echoed."""
+    token = "ghp_A1b2C3d4E5f6G7h8I9j0"
+    _, reply = await _call("review_pr", {"number": 7, token: 1, "x" * 500: 1})
+    assert ("Kind: HALLUCINATED_PARAM" in reply, token in reply, "x" * 65 in reply) == (
+        True,
+        False,
+        False,
+    )
+
+
+def test_no_rejected_input_reaches_a_log_record(fastmcp_log, handler_runner) -> None:
+    """FastMCP logs pydantic's error list for a refused call, and each entry holds the input.
+
+    A malformed `vault_set` wrote its `key_values` to the log. This calls past the middleware,
+    as FastMCP itself does once middleware has run, so pydantic refuses and FastMCP logs.
+    """
+    import asyncio
+
+    from fastmcp.exceptions import ValidationError as FastMCPValidationError
+
+    from devops_cli.ai.mcp.server import mcp
+
+    arguments = {"path": "secret/app", "key_values": _SECRET_SENTINEL}
+    with pytest.raises(FastMCPValidationError):
+        asyncio.run(mcp.call_tool("vault_set", arguments, run_middleware=False))
+    assert (
+        "Invalid arguments for tool" in fastmcp_log.text,
+        "sentinel-4b1d" in fastmcp_log.text,
+    ) == (True, False)
+
+
+async def test_an_unknown_tool_is_left_to_fastmcp(handler_runner) -> None:
+    """The contract checks registered tools; an unknown name keeps FastMCP's own answer."""
+    is_error, reply = await _call("no_such_tool", {})
+    assert (is_error, "Unknown tool" in reply) == (True, True)
+
+
+async def test_a_validation_error_without_a_pydantic_cause_is_not_rewritten() -> None:
+    """Only pydantic's argument errors become an envelope; anything else passes through."""
+    from types import SimpleNamespace
+
+    from fastmcp.exceptions import ValidationError as FastMCPValidationError
+
+    from devops_cli.ai.mcp.server import ArgumentContractMiddleware
+
+    async def call_next(_context: object) -> object:
+        raise FastMCPValidationError("not an argument error")
+
+    context = SimpleNamespace(message=SimpleNamespace(name="review_pr", arguments={"number": 7}))
+    with pytest.raises(FastMCPValidationError, match="not an argument error"):
+        await ArgumentContractMiddleware().on_call_tool(context, call_next)
+
+
+async def test_every_published_schema_forbids_undeclared_parameters() -> None:
+    """`additionalProperties: false` is what makes a hallucinated parameter a refusal.
+
+    It held only through FastMCP's defaults, with nothing asserting it.
+    """
+    from devops_cli.ai.mcp.server import mcp
+
+    schemas = await _published_schemas()
+    registered = await mcp._list_tools()
+    open_schemas = sorted(
+        name for name, schema in schemas.items() if schema.get("additionalProperties") is not False
+    )
+    assert (len(schemas), open_schemas) == (len(registered), [])
+
+
+def test_strict_input_validation_stays_off() -> None:
+    """The published-schema middleware is the one argument check.
+
+    The SDK's strict check sees only listed tools, quotes the rejected value instead of
+    naming the field, and answers before any middleware, so turning it on would leave
+    withheld tools coercing and pre-empt the prescriptive envelope on listed ones.
+    """
+    from devops_cli.ai.mcp.server import mcp
+
+    assert mcp.strict_input_validation is False
+
+
+async def test_the_validator_refuses_every_coerced_value_without_running_a_handler(
+    record_property, handler_runner
+) -> None:
+    """Every integer, number and boolean parameter of every tool refuses a coerced value.
+
+    The sweep calls the validator alone, never a handler. How many numeric parameters
+    publish a bound is reported, not enforced: bounds per argument class are follow-up work.
+    """
+    from devops_cli.ai.mcp.argument_contract import schema_violations
+
+    schemas = await _published_schemas()
+    swept = [
+        (tool, name, value)
+        for tool, schema in schemas.items()
+        for name, prop in schema["properties"].items()
+        for value in _coerced_values(prop)
+    ]
+    unrefused = [
+        (tool, name, value)
+        for tool, name, value in swept
+        if (name, "TYPE_MISMATCH")
+        not in {(v.parameter, v.kind) for v in schema_violations(schemas[tool], {name: value})}
+    ]
+    numeric = [
+        prop
+        for schema in schemas.values()
+        for prop in schema["properties"].values()
+        if {"integer", "number"} & {branch.get("type") for branch in _branches(prop)}
+    ]
+    record_property(
+        "numeric_parameters_with_a_published_bound",
+        f"{sum(map(_is_numeric_bounded, numeric))}/{len(numeric)}",
+    )
+    assert (len(swept) > len(schemas) / 2, unrefused, handler_runner.call_count) == (True, [], 0)
+
+
+async def test_pr_and_issue_numbers_publish_a_positive_bound() -> None:
+    """Every PR and issue number takes the strict alias, whose `ge=1` the schema publishes."""
+    schemas = await _published_schemas()
+    numbers = {
+        (tool, name): prop
+        for tool, schema in schemas.items()
+        for name, prop in schema["properties"].items()
+        if name in {"number", "pr_number", "issue_number"}
+    }
+    unbounded = sorted(
+        key
+        for key, prop in numbers.items()
+        if not any(
+            branch.get("type") == "integer" and branch.get("minimum") == 1
+            for branch in _branches(prop)
+        )
+    )
+    assert (len(numbers), unbounded) == (11, [])
+
+
+async def test_every_published_keyword_is_one_a_refusal_can_describe() -> None:
+    """A refusal reads well only for keywords the kind and bound tables know.
+
+    A `pattern` or `multipleOf` failure is a value of the right type, and the refusal would
+    name only that type, telling the caller nothing it can fix. A newly published keyword
+    fails here first, so its kind and description are added before it can be refused.
+    """
+    from devops_cli.config.constants import (
+        CONST_JSON_SCHEMA_BOUND_PHRASES,
+        CONST_JSON_SCHEMA_VIOLATION_KINDS,
+    )
+
+    schemas = await _published_schemas()
+    published = set().union(*map(_schema_keywords, schemas.values()))
+    described = {
+        *CONST_JSON_SCHEMA_VIOLATION_KINDS,
+        *CONST_JSON_SCHEMA_BOUND_PHRASES,
+        *_STRUCTURAL_SCHEMA_KEYWORDS,
+    }
+    assert (sorted(published - described), {"type", "anyOf", "minimum"} <= published) == (
+        [],
+        True,
+    )
+
+
+def test_describe_schema_states_what_a_property_accepts() -> None:
+    """Expected types are read from the schema's keywords, never from a rejected value."""
+    from devops_cli.ai.mcp.argument_contract import describe_schema
+
+    assert [
+        describe_schema({"type": "integer", "minimum": 1}),
+        describe_schema({"type": "integer", "minimum": 1, "maximum": 10}),
+        describe_schema(
+            {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]}
+        ),
+        describe_schema({"enum": ["json", "text"]}),
+        describe_schema({"const": "json", "type": "string"}),
+        describe_schema({"type": ["string", "null"]}),
+        describe_schema({}),
+    ] == [
+        "integer >= 1",
+        "integer >= 1 and <= 10",
+        "array of string or null",
+        'one of "json", "text"',
+        'exactly "json"',
+        "string or null",
+        "any JSON value",
+    ]

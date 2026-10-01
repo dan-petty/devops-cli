@@ -12,6 +12,7 @@ from devops_cli.commands.k8s import app
 from devops_cli.k8s.chaos import execute_chaos_experiment
 from devops_cli.k8s.diff import diff_helm_release
 from devops_cli.k8s.logs import stream_multi_pod_logs
+from tests.k8s_fakes import healthy_pod
 
 runner = CliRunner()
 
@@ -102,16 +103,7 @@ def test_k8s_pods_table_builder() -> None:
     assert format_timestamp_age(now_iso) != "—"
     assert format_timestamp_age("invalid-timestamp") == "—"
 
-    mock_pod = MagicMock()
-    mock_pod.metadata.namespace = "default"
-    mock_pod.metadata.name = "web-123"
-    mock_pod.metadata.creation_timestamp = datetime.datetime.now(datetime.UTC)
-    mock_pod.status.phase = "Running"
-    mock_pod.spec.containers = [MagicMock()]
-    mock_status = MagicMock()
-    mock_status.ready = True
-    mock_status.restart_count = 0
-    mock_pod.status.container_statuses = [mock_status]
+    mock_pod = healthy_pod("web-123")
 
     mock_v1 = MagicMock()
     mock_v1.list_namespaced_pod.return_value = MagicMock(items=[mock_pod])

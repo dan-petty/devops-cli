@@ -11,7 +11,13 @@ from devops_cli.commands.k8s import app as k8s_app
 from devops_cli.k8s.credentials import (
     fetch_argocd_password,
     fetch_grafana_password,
+    get_or_mint_argocd_token,
+    get_or_mint_grafana_auth,
+    mint_argocd_token,
+    mint_grafana_token,
     sync_k8s_credentials,
+    verify_argocd_token,
+    verify_grafana_token,
 )
 
 runner = CliRunner()
@@ -67,11 +73,212 @@ def test_sync_k8s_credentials_summary(mock_grafana: MagicMock, mock_argocd: Magi
 
     res = sync_k8s_credentials(stack="infra")
 
-    assert res.get("argocd") is True
-    assert res.get("grafana") is True
+    assert (res.get("argocd"), res.get("grafana")) == (True, True)
 
 
 def test_cli_k8s_sync_secrets_dry_run() -> None:
     res = runner.invoke(k8s_app, ["sync-secrets", "--dry-run"])
-    assert res.exit_code == 0
-    assert "sync_secrets" in res.output or "argocd" in res.output
+    assert (res.exit_code, "sync_secrets" in res.output or "argocd" in res.output) == (0, True)
+
+
+@patch("devops_cli.k8s.credentials._keyring_set")
+@patch("httpx2.Client.post")
+def test_mint_argocd_token_success(mock_post: MagicMock, mock_keyring: MagicMock) -> None:
+    mock_post.return_value = MagicMock(status_code=200, json=lambda: {"token": "argo-jwt-123"})
+    token = mint_argocd_token("http://example.com:8080", "admin-pass", save_to_keyring=True)
+    assert (token, mock_keyring.called) == ("argo-jwt-123", True)
+    mock_keyring.assert_called_with("argocd_token", "argo-jwt-123")
+
+
+@patch("httpx2.Client.post")
+def test_mint_argocd_token_failure(mock_post: MagicMock) -> None:
+    mock_post.return_value = MagicMock(status_code=401, json=lambda: {})
+    token_401 = mint_argocd_token("http://example.com:8080", "bad-pass")
+    token_empty = mint_argocd_token("", "pass")
+    assert (token_401, token_empty) == (None, None)
+
+
+@patch("devops_cli.k8s.credentials._keyring_set")
+@patch("httpx2.Client.post")
+def test_mint_grafana_token_sa_success(mock_post: MagicMock, mock_keyring: MagicMock) -> None:
+    def fake_post(url: str, **kwargs: object) -> MagicMock:
+        if url.endswith("/api/serviceaccounts"):
+            return MagicMock(status_code=201, json=lambda: {"id": 10})
+        if "/tokens" in url:
+            return MagicMock(status_code=200, json=lambda: {"key": "glsa-token-xyz"})
+        return MagicMock(status_code=404, json=lambda: {})
+
+    mock_post.side_effect = fake_post
+    token = mint_grafana_token("http://example.com:3000", "admin-pass", save_to_keyring=True)
+    assert (token, mock_keyring.called) == ("glsa-token-xyz", True)
+    mock_keyring.assert_called_with("grafana_token", "glsa-token-xyz")
+
+
+@patch("devops_cli.k8s.credentials._keyring_set")
+@patch("httpx2.Client.post")
+def test_mint_grafana_token_sa_failure(mock_post: MagicMock, mock_keyring: MagicMock) -> None:
+    mock_post.return_value = MagicMock(status_code=404, json=lambda: {})
+    token = mint_grafana_token("http://example.com:3000", "admin-pass", save_to_keyring=True)
+    assert (token, mock_keyring.called) == (None, False)
+
+
+@patch("devops_cli.k8s.credentials._keyring_set")
+@patch("httpx2.Client.delete")
+@patch("httpx2.Client.get")
+@patch("httpx2.Client.post")
+def test_mint_grafana_token_revokes_prior_tokens(
+    mock_post: MagicMock,
+    mock_get: MagicMock,
+    mock_delete: MagicMock,
+    mock_keyring: MagicMock,
+) -> None:
+    def fake_post(url: str, **kwargs: object) -> MagicMock:
+        if url.endswith("/api/serviceaccounts"):
+            return MagicMock(status_code=201, json=lambda: {"id": 10})
+        if "/tokens" in url:
+            return MagicMock(status_code=200, json=lambda: {"key": "glsa-new-token"})
+        return MagicMock(status_code=404, json=lambda: {})
+
+    mock_post.side_effect = fake_post
+    mock_get.return_value = MagicMock(
+        status_code=200,
+        json=lambda: [{"id": 1, "name": "devops-cli-old-1"}, {"id": 2, "name": "devops-cli-old-2"}],
+    )
+    mock_delete.return_value = MagicMock(status_code=200)
+
+    token = mint_grafana_token("http://example.com:3000", "admin-pass", save_to_keyring=True)
+    assert (token, mock_delete.call_count, mock_keyring.called) == ("glsa-new-token", 2, True)
+
+
+@patch("devops_cli.k8s.credentials._keyring_set", side_effect=Exception("Keyring locked"))
+@patch("httpx2.Client.post")
+def test_mint_tokens_keyring_failure(mock_post: MagicMock, _mock_keyring: MagicMock) -> None:
+    def fake_post(url: str, **kwargs: object) -> MagicMock:
+        if url.endswith("/api/v1/session"):
+            return MagicMock(status_code=200, json=lambda: {"token": "argo-tok"})
+        if url.endswith("/api/serviceaccounts"):
+            return MagicMock(status_code=201, json=lambda: {"id": 10})
+        if "/tokens" in url:
+            return MagicMock(status_code=200, json=lambda: {"key": "graf-tok"})
+        return MagicMock(status_code=404, json=lambda: {})
+
+    mock_post.side_effect = fake_post
+    argo_tok = mint_argocd_token("http://example.com:8080", "admin-pass", save_to_keyring=True)
+    graf_tok = mint_grafana_token("http://example.com:3000", "admin-pass", save_to_keyring=True)
+    assert (argo_tok, graf_tok) == (None, None)
+
+
+def test_get_or_mint_argocd_token() -> None:
+    from devops_cli.config.settings import Settings
+
+    settings_with_tok = Settings()
+    with patch("devops_cli.config.settings.get_argocd_token", return_value="existing-tok"):
+        res = get_or_mint_argocd_token(settings_with_tok)
+        assert res == "existing-tok"
+
+    settings_with_pw = Settings()
+    settings_with_pw.argocd.url = "http://example.com:8080"
+    with (
+        patch("devops_cli.config.settings.get_argocd_token", return_value=None),
+        patch("devops_cli.config.settings.get_argocd_password", return_value="argo-pw"),
+        patch(
+            "devops_cli.k8s.credentials.mint_argocd_token", return_value="minted-tok"
+        ) as mock_mint,
+    ):
+        res = get_or_mint_argocd_token(settings_with_pw)
+        assert (res, mock_mint.called) == ("minted-tok", True)
+
+
+def test_get_or_mint_grafana_auth() -> None:
+    from devops_cli.config.settings import Settings
+
+    settings = Settings()
+    with patch("devops_cli.config.settings.get_grafana_token", return_value="graf-tok"):
+        tok, basic = get_or_mint_grafana_auth(settings)
+        assert (tok, basic) == ("graf-tok", None)
+
+    settings.grafana.url = "http://example.com:3000"
+    with (
+        patch("devops_cli.config.settings.get_grafana_token", return_value=None),
+        patch("devops_cli.config.settings.get_grafana_password", return_value="admin-pw"),
+        patch("devops_cli.k8s.credentials.mint_grafana_token", return_value="minted-graf-tok"),
+    ):
+        tok, basic = get_or_mint_grafana_auth(settings)
+        assert (tok, basic) == ("minted-graf-tok", None)
+
+    with (
+        patch("devops_cli.config.settings.get_grafana_token", return_value=None),
+        patch("devops_cli.config.settings.get_grafana_password", return_value="admin-pw"),
+        patch("devops_cli.k8s.credentials.mint_grafana_token", return_value=None),
+    ):
+        tok, basic = get_or_mint_grafana_auth(settings)
+        expected_b64 = base64.b64encode(b"admin:admin-pw").decode("utf-8")
+        assert (tok, basic) == (None, f"Basic {expected_b64}")
+
+
+@patch("devops_cli.k8s.credentials.fetch_argocd_password", return_value="argo-pw")
+@patch("devops_cli.k8s.credentials.fetch_grafana_password", return_value="graf-pw")
+@patch("devops_cli.k8s.credentials.mint_argocd_token", return_value="argo-tok")
+@patch("devops_cli.k8s.credentials.mint_grafana_token", return_value="graf-tok")
+def test_sync_k8s_credentials_with_tokens(
+    _mock_gtok: MagicMock,
+    _mock_atok: MagicMock,
+    _mock_gpw: MagicMock,
+    _mock_apw: MagicMock,
+) -> None:
+    res = sync_k8s_credentials(
+        stack="infra",
+        argocd_url="http://example.com:8080",
+        grafana_url="http://example.com:3000",
+    )
+    assert (
+        res.get("argocd"),
+        res.get("argocd_token"),
+        res.get("grafana"),
+        res.get("grafana_token"),
+    ) == (True, True, True, True)
+
+
+@patch("httpx2.Client.get")
+def test_verify_tokens(mock_get: MagicMock) -> None:
+    mock_get.return_value = MagicMock(status_code=200)
+    argo_ok = verify_argocd_token("http://example.com:8080", "valid-argo-tok")
+    graf_ok = verify_grafana_token("http://example.com:3000", "valid-graf-tok")
+
+    mock_get.return_value = MagicMock(status_code=401)
+    argo_fail = verify_argocd_token("http://example.com:8080", "invalid-argo-tok")
+    graf_fail = verify_grafana_token("http://example.com:3000", "invalid-graf-tok")
+
+    assert (argo_ok, graf_ok, argo_fail, graf_fail) == (True, True, False, False)
+
+
+@patch("devops_cli.k8s.credentials.fetch_argocd_password", return_value="argo-pw")
+@patch("devops_cli.k8s.credentials.fetch_grafana_password", return_value="graf-pw")
+@patch("devops_cli.k8s.credentials._resolve_existing_token")
+@patch("devops_cli.k8s.credentials.verify_argocd_token", return_value=True)
+@patch("devops_cli.k8s.credentials.verify_grafana_token", return_value=True)
+@patch("devops_cli.k8s.credentials.mint_argocd_token")
+@patch("devops_cli.k8s.credentials.mint_grafana_token")
+def test_sync_k8s_credentials_reuses_existing_tokens(
+    mock_mint_graf: MagicMock,
+    mock_mint_argo: MagicMock,
+    _mock_vg: MagicMock,
+    _mock_va: MagicMock,
+    mock_resolve: MagicMock,
+    _mock_gpw: MagicMock,
+    _mock_apw: MagicMock,
+) -> None:
+    mock_resolve.side_effect = lambda svc: f"existing-{svc}-tok"
+    res = sync_k8s_credentials(
+        stack="infra",
+        argocd_url="http://example.com:8080",
+        grafana_url="http://example.com:3000",
+    )
+    assert (
+        res.get("argocd"),
+        res.get("argocd_token"),
+        res.get("grafana"),
+        res.get("grafana_token"),
+        mock_mint_argo.called,
+        mock_mint_graf.called,
+    ) == (True, True, True, True, False, False)

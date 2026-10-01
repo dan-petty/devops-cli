@@ -60,7 +60,7 @@ class LiveResourceWatcher:
                 with Live(
                     self.render_fn(),
                     console=self.console,
-                    refresh_per_second=max(1, int(1.0 / self.interval_seconds)),
+                    refresh_per_second=min(30, max(1, int(1.0 / max(0.01, self.interval_seconds)))),
                     auto_refresh=False,
                 ) as live:
                     iterations = self._run_loop(live, max_iterations)

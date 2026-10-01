@@ -53,19 +53,30 @@
     "GIT_CONFIG_VALUE_2": "",
     "GIT_CONFIG_KEY_3": "credential.https://gist.github.com.helper",
     "GIT_CONFIG_VALUE_3": "!gh auth git-credential",
-    "UV_MALWARE_CHECK": "1"
+    "UV_MALWARE_CHECK": "1",
+    "DO_NOT_TRACK": "1",
+    "HF_HUB_DISABLE_TELEMETRY": "1",
+    "SCARF_NO_ANALYTICS": "true",
+    "NEXT_TELEMETRY_DISABLED": "1",
+    "CHECKPOINT_DISABLE": "1",
+    "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+    "ANONYMIZED_TELEMETRY": "false",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_TELEMETRY": "1",
+    "GOTELEMETRY": "off",
+    "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+    "npm_config_update_notifier": "false",
+    "DOCKER_CLI_HINTS": "false",
+    "MINIKUBE_WANTUPDATENOTIFICATION": "false",
+    "MINIKUBE_WANTREPORTERRORPROMPT": "false"
   },
+  {% if minikube %}
   "forwardPorts": [
     8080,
     8030,
     8090,
     16686,
-    3000,
     6333,
-    6379,
-    9090,
-    4317,
-    4318,
     11434,
     9418
   ],
@@ -90,26 +101,6 @@
       "label": "Qdrant Vector DB",
       "onAutoForward": "notify"
     },
-    "6379": {
-      "label": "Valkey Cache",
-      "onAutoForward": "ignore"
-    },
-    "3000": {
-      "label": "Grafana Fallback",
-      "onAutoForward": "ignore"
-    },
-    "9090": {
-      "label": "Prometheus Fallback",
-      "onAutoForward": "ignore"
-    },
-    "4317": {
-      "label": "OpenTelemetry gRPC",
-      "onAutoForward": "ignore"
-    },
-    "4318": {
-      "label": "OpenTelemetry HTTP",
-      "onAutoForward": "ignore"
-    },
     "11434": {
       "label": "Ollama LLM Engine",
       "onAutoForward": "ignore"
@@ -119,6 +110,17 @@
       "onAutoForward": "ignore"
     }
   },
+  {% else %}
+  "forwardPorts": [
+    9418
+  ],
+  "portsAttributes": {
+    "9418": {
+      "label": "Git Daemon",
+      "onAutoForward": "ignore"
+    }
+  },
+  {% endif %}
   "postCreateCommand": "devops devcontainer post-create",
   "postStartCommand": "devops devcontainer post-start",
   "customizations": {
@@ -135,6 +137,9 @@
         "anthropic.claude-code"
       ],
       "settings": {
+        "telemetry.telemetryLevel": "off",
+        "redhat.telemetry.enabled": false,
+        "workbench.enableExperiments": false,
         "editor.formatOnSave": true,
         "editor.tabSize": 2,
         "editor.insertSpaces": true,
@@ -164,6 +169,9 @@
         "anthropic.claude-code"
       ],
       "settings": {
+        "telemetry.telemetryLevel": "off",
+        "redhat.telemetry.enabled": false,
+        "workbench.enableExperiments": false,
         "editor.formatOnSave": true,
         "editor.tabSize": 2,
         "editor.insertSpaces": true,

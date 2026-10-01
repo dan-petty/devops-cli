@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
+import warnings
 from collections.abc import Sequence
 
 _IMPORT_LINE_REGEX = re.compile(
@@ -46,7 +47,9 @@ def extract_imports_from_source(code: str) -> list[tuple[str, str | None]]:
         return []
 
     try:
-        tree = ast.parse(code)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(code)
         imports: list[tuple[str, str | None]] = []
         for node in ast.walk(tree):
             imports.extend(_extract_from_ast_node(node))

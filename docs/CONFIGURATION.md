@@ -83,11 +83,10 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 | `gateway_weights` | `dict` | `{}` | - | - |
 | `gateway_concurrency` | `dict` | `{}` | - | - |
 | `portkey_url` | `str` | `http://localhost:8787/v1` | - | - |
-| `lightllm_url` | `str` | `http://localhost:8000/v1` | - | - |
 | `vllm_url` | `str` | `http://localhost:8000/v1` | - | - |
 | `api_base_url` | `Union` | - | `DEVOPS_CLI_AI_API_BASE_URL` | - |
 | `allow_private_network` | `bool` | `False` | `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK` | - |
-| `max_retries` | `int` | `2` | `DEVOPS_CLI_AI_MAX_RETRIES` | - |
+| `max_retries` | `int` | `4` | `DEVOPS_CLI_AI_MAX_RETRIES` | - |
 | `timeout` | `Union` | - | - | - |
 | `tasks` | `AITasksConfig` | `chat=AITaskOverride(provider=None, model=None, reasoning_effort=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) metadata=AITaskOverride(provider=None, model=None, reasoning_effort=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) analysis=AITaskOverride(provider=None, model=None, reasoning_effort=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) verification=AITaskOverride(provider=None, model=None, reasoning_effort=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) compose=AITaskOverride(provider=None, model=None, reasoning_effort=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) embedding=AITaskOverride(provider=None, model='qwen3-embedding:0.6b', reasoning_effort=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None)` | - | - |
 | `rag` | `AIRAGConfig` | `enabled=True top_k=5 score_threshold=0.35 chunk_size=2400 chunk_overlap=240` | - | - |

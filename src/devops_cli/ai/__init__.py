@@ -10,8 +10,9 @@ def __getattr__(name: str) -> Any:
         import importlib
 
         return importlib.import_module(f"devops_cli.ai.{name}")
-    except ModuleNotFoundError:
-        pass
+    except ModuleNotFoundError as exc:
+        if exc.name != f"devops_cli.ai.{name}":
+            raise
 
     if name in {
         "AIClientError",

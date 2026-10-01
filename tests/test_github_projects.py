@@ -863,41 +863,6 @@ def test_paginated_project_fetch_helpers() -> None:
         assert prs[1]["number"] == 4
 
 
-def test_filter_differing_fields() -> None:
-    """_filter_differing_fields excludes fields that already match remote values."""
-    from devops_cli.github.projects import _filter_differing_fields
-
-    targets = [
-        ("Status", "Done"),
-        ("Priority", "P1-High"),
-        ("Category", "Foundation"),
-        ("Value", "High"),
-        ("Effort", "Medium"),
-    ]
-    # If no current_fields provided, all targets returned
-    assert _filter_differing_fields(None, targets) == targets
-
-    # If all match (case-insensitive), returns empty list
-    current_matching = {
-        "status": "Done",
-        "priority": "p1-high",
-        "category": "Foundation",
-        "value": "High",
-        "effort": "Medium",
-    }
-    assert _filter_differing_fields(current_matching, targets) == []
-
-    # If only Status differs, returns only Status
-    current_status_drift = {
-        "status": "In Progress",
-        "priority": "P1-High",
-        "category": "Foundation",
-        "value": "High",
-        "effort": "Medium",
-    }
-    assert _filter_differing_fields(current_status_drift, targets) == [("Status", "Done")]
-
-
 def test_reconcile_single_item_skips_matching_fields() -> None:
     """_reconcile_single_item makes zero edit calls if fields already match remote state."""
     from unittest.mock import patch
@@ -921,15 +886,15 @@ def test_reconcile_single_item_skips_matching_fields() -> None:
         reconciled = _reconcile_single_item(
             "owner", 2, item, dry_run=False, current_fields=current_matching
         )
-        assert reconciled is False
+        assert reconciled == []
         mock_edit.assert_not_called()
 
 
 def test_reconcile_single_item_edits_only_drifted_fields() -> None:
-    """_reconcile_single_item only invokes _edit_project_item_field for drifted fields."""
+    """_reconcile_single_item edits only fields that need it; a set Priority stands."""
     from unittest.mock import patch
 
-    from devops_cli.github.projects import _reconcile_single_item
+    from devops_cli.github.projects import FieldChange, _reconcile_single_item
 
     item = {
         "html_url": "https://example.com/owner/repo/issues/10",
@@ -937,9 +902,9 @@ def test_reconcile_single_item_edits_only_drifted_fields() -> None:
         "state": "CLOSED",
         "labels": [{"name": "priority/p1-high"}, {"name": "type/feature"}],
     }
-    # Priority is P2-Medium remotely, but label says P1-High
+    # The issue closed, so Status is forced to Done; the board's P2 priority is a person's call.
     current_with_drift = {
-        "status": "Done",
+        "status": "In Progress",
         "priority": "P2-Medium",
         "category": "Major Project",
         "value": "High",
@@ -954,12 +919,19 @@ def test_reconcile_single_item_edits_only_drifted_fields() -> None:
         reconciled = _reconcile_single_item(
             "owner", 2, item, dry_run=False, current_fields=current_with_drift
         )
-        assert reconciled is True
-        assert mock_edit.call_count == 1
-        call_args = mock_edit.call_args[0]
-        assert call_args[3] == "Priority"
-        assert call_args[4] == "P1-High"
-        assert current_with_drift["priority"] == "P1-High"
+        assert (reconciled, mock_edit.call_args[0][3:], current_with_drift["status"]) == (
+            [
+                FieldChange(
+                    url="https://example.com/owner/repo/issues/10",
+                    field="Status",
+                    old="In Progress",
+                    new="Done",
+                    source="issue closed",
+                )
+            ],
+            ("Status", "Done"),
+            "Done",
+        )
 
 
 def test_extract_item_fields_case_insensitive() -> None:
@@ -1043,11 +1015,16 @@ def test_apply_field_updates_respects_mutation_budget() -> None:
     """_apply_field_updates stops editing fields once mutation budget is exhausted."""
     from unittest.mock import patch
 
-    from devops_cli.github.projects import MutationBudget, _apply_field_updates
+    from devops_cli.github.projects import FieldChange, MutationBudget, _apply_field_updates
 
     budget = MutationBudget(limit=2)
-    fields = [("Status", "Done"), ("Priority", "P1-High"), ("Category", "Quick Win")]
-    current = {"status": "Todo", "priority": "P2-Medium", "category": "Foundation"}
+    url = "https://example.com/1"
+    changes = [
+        FieldChange(url=url, field="Status", old="Backlog", new="Done", source="issue closed"),
+        FieldChange(url=url, field="Priority", old=None, new="P1-High", source="label"),
+        FieldChange(url=url, field="Milestone", old=None, new="v1", source="issue milestone"),
+    ]
+    current = {"status": "Backlog", "priority": None, "milestone": None}
 
     with (
         patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
@@ -1055,11 +1032,9 @@ def test_apply_field_updates_respects_mutation_budget() -> None:
             "devops_cli.github.projects._edit_project_item_field", return_value=True
         ) as mock_edit,
     ):
-        updated = _apply_field_updates(
-            "owner", 1, "https://example.com/1", fields, current, budget=budget
-        )
-        assert (updated, mock_edit.call_count, budget.total_mutations, budget.is_exhausted) == (
-            True,
+        applied = _apply_field_updates("owner", 1, changes, current, budget=budget)
+        assert (applied, mock_edit.call_count, budget.total_mutations, budget.is_exhausted) == (
+            changes[:2],
             2,
             2,
             True,
@@ -1111,4 +1086,4 @@ def test_provision_and_reconcile_share_mutation_budget() -> None:
         reconciled = _reconcile_candidate_items(
             "owner", 1, candidates, items_data, set(), dry_run=False, budget=budget
         )
-        assert (reconciled, mock_edit.call_count) == (0, 0)
+        assert (reconciled, mock_edit.call_count) == ([], 0)

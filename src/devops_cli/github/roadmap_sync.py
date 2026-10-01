@@ -51,6 +51,7 @@ class RoadmapItem(BaseModel):
     title: str
     priority: str = "priority/p1-high"
     scope: str = "scope/cli"
+    scope_is_fallback: bool = False
     labels: list[str] = Field(default_factory=list)
     context: str = ""
     sub_bullets: list[str] = Field(default_factory=list)
@@ -74,6 +75,8 @@ class RoadmapSyncResult(BaseModel):
     dry_run: bool = False
     created_issues: list[dict[str, Any]] = Field(default_factory=list)
     task_files_created: list[str] = Field(default_factory=list)
+    # Eligible items whose scope no keyword decided, so they fell back to scope/cli.
+    scope_fallbacks: int = 0
 
 
 def _extract_priority(item_header: str) -> str:
@@ -87,14 +90,19 @@ def _extract_priority(item_header: str) -> str:
     return CONST_ROADMAP_PRIORITY_LABELS[match["level"]] if match else "priority/p1-high"
 
 
-def _derive_scope(title: str) -> str:
-    """Derive standard scope taxonomy label from item title."""
+def _matched_scope(title: str) -> str | None:
+    """Return the scope label a keyword in the item title decides, or None."""
     lower = title.lower()
     words = set(re.findall(r"\b[a-z0-9_-]+\b", lower))
     for scope, keywords in CONST_ROADMAP_SCOPE_KEYWORDS.items():
         if words & keywords:
             return scope
-    return "scope/cli"
+    return None
+
+
+def _derive_scope(title: str) -> str:
+    """Derive standard scope taxonomy label from item title, falling back to scope/cli."""
+    return _matched_scope(title) or "scope/cli"
 
 
 def _extract_existing_issue_number(title: str) -> int | None:
@@ -128,7 +136,8 @@ def _parse_single_roadmap_item(
 
     clean_title = _clean_item_title(raw_title)
     priority = _extract_priority(item_header)
-    scope = _derive_scope(clean_title)
+    matched_scope = _matched_scope(clean_title)
+    scope = matched_scope or "scope/cli"
     issue_num = _extract_existing_issue_number(item_header)
 
     labels = ["type/feature", scope, priority]
@@ -151,6 +160,7 @@ def _parse_single_roadmap_item(
         title=clean_title,
         priority=priority,
         scope=scope,
+        scope_is_fallback=matched_scope is None,
         labels=labels,
         context=context,
         sub_bullets=sub_bullets,
@@ -419,19 +429,14 @@ def sync_roadmap_to_issues(
     if milestone_filter:
         uncompleted = [i for i in uncompleted if i.milestone == milestone_filter]
 
-    try:
-        existing_issues = get_repository_issues(repo, state="all", limit=200)
-    except Exception as exc:
-        logger.warning(
-            "Failed to retrieve existing GitHub issues for deduplication (treating as empty): %s",
-            exc,
-        )
-        existing_issues = []
+    # A failed read raises: treating it as "no issues" would file every item again.
+    existing_issues = get_repository_issues(repo, state="all", limit=None)
 
     result = RoadmapSyncResult(
         total_roadmap_items=len(all_items),
         eligible_uncompleted=len(uncompleted),
         dry_run=dry_run,
+        scope_fallbacks=sum(1 for item in uncompleted if item.scope_is_fallback),
     )
 
     for item in uncompleted:
@@ -535,11 +540,7 @@ def reconcile_issue_milestones_from_roadmap(
 ) -> IssueMilestoneReconcileResult:
     """Reconcile repository issue milestones and local task files to match docs/ROADMAP.md declarations."""
     all_items = extract_roadmap_items(roadmap_path)
-    try:
-        existing_issues = get_repository_issues(repo, state="all", limit=200)
-    except Exception as exc:
-        logger.warning("Failed to retrieve existing GitHub issues: %s", exc)
-        existing_issues = []
+    existing_issues = get_repository_issues(repo, state="all", limit=None)
 
     result = IssueMilestoneReconcileResult(
         total_roadmap_items=len(all_items),

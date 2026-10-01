@@ -70,8 +70,7 @@ class OptionHelp:
     fallback_provider: str = "Fallback AI provider to route execution to upon fault."
     fallback_model: str = "Fallback AI model to route execution to upon fault."
     prompt: str = "Prompt text or workload payload to evaluate."
-    quiesce_reason: str = "Reason for constellation quiesce or emergency failover."
-    drain_timeout: str = "Drain timeout in seconds to wait for in-flight tasks to complete."
+    quiesce_reason: str = "Reason recorded with the constellation quiesce flag."
     concurrency: str = "Maximum number of concurrent review workers."
     parallel: str = "Execute multi-file review stages concurrently using async worker pool."
 
@@ -170,16 +169,13 @@ class AICommandHelp:
     target_file: str = "Target source file to synthesize unit tests for."
     harness: str = "Manage agent harness slots, sub-agent local offloading, and tiered synthesis."
     chaos_model: str = "Model dependency chaos engineering suite simulating provider faults and validating local failovers."
-    quiesce: str = (
-        "Centralized emergency quiesce cleanly suspending active agent loops and background tasks."
-    )
+    quiesce: str = "Set the constellation quiesce flag with a reason; it stops nothing."
     failover: str = (
-        "Emergency failover controller re-routing tasks to designated fallback endpoints."
+        "Record a fallback route in the constellation flag; `devops ai gateway failover` "
+        "reroutes requests."
     )
-    resume: str = "Gracefully resume suspended constellation agent loops and task runners."
-    constellation: str = (
-        "Display constellation fleet status, active fallback routes, and suspended tasks."
-    )
+    resume: str = "Clear the constellation quiesce or failover flag."
+    constellation: str = "Show the constellation flag: state, reason and recorded fallback route."
     ingest: str = "Ingest library API contracts, type stubs, and documentation."
     ingest_library: str = (
         "Introspect an installed Python package and extract its public API contract."
@@ -239,8 +235,6 @@ class AIHarnessCommandHelp:
     repo: str = "Path to repository or source directory."
     symbol: str = "Symbol name (class or function) to inspect or search."
     pattern: str = "File glob pattern to scout."
-    frontier_model: str = "Frontier model identifier for architecture and verification."
-    local_model: str = "Local model identifier for sub-agent offloading."
 
 
 @dataclass(frozen=True)
@@ -694,18 +688,17 @@ class PRCommandHelp:
         "Resolve all or replied review discussion threads for a pull request."
     )
     threads_only_replied: str = (
-        "Only resolve threads that have received one or more in-thread replies."
+        "Only resolve threads that have received a reply from someone other than the thread opener."
     )
+    threads_without_reply: str = "Force resolution of review threads even if they lack a reply from someone other than the thread opener."
     readiness_allow_draft: str = (
         "Report a draft pull request as ready; GitHub still refuses to merge one."
     )
     readiness_allow_pending_checks: str = (
         "Treat checks that are still running as acceptable rather than blocking."
     )
-    check_readiness_auto_resolve: str = (
-        "Automatically resolve review discussion threads that have received replies."
-    )
-    allow_replied_threads: str = "Treat review discussion threads that have received replies as addressed rather than blocking."
+    check_readiness_auto_resolve: str = "Automatically resolve review discussion threads that have received a reply from someone other than the thread opener."
+    allow_replied_threads: str = "Treat review discussion threads that have received a reply from someone other than the thread opener as addressed rather than blocking."
     thread_id: str = "Review thread GraphQL ID (e.g. PRRT_...)."
     thread_ids: str = "One or more review thread GraphQL IDs to resolve."
     unresolved_only: str = "Filter to display only unresolved review discussion threads."
@@ -762,13 +755,15 @@ class GHCommandHelp:
     project_list: str = "List available GitHub Projects v2 boards for user or organization."
     project_status: str = "Inspect project template structure and configured views."
     project_sync: str = (
-        "Sync task items from docs/agent/tasks directory into GitHub Projects status."
+        "Create or update the project board from its template, add open issues, and reconcile "
+        "Status, Priority and Milestone; task files are not read."
     )
     project_reconcile: str = (
-        "Reconcile custom fields (Status, Priority, Category, Value, Effort) on project items."
+        "Reconcile Status, Priority and Milestone on project items, listing each change and "
+        "its source; the board owns Status."
     )
     reconcile_fields: str = (
-        "Automatically infer and update project custom fields from taxonomy labels and issue state."
+        "Also reconcile Status, Priority and Milestone from issue state and labels."
     )
     project_link: str = "Link a GitHub Project v2 board to the repository."
     project_audit: str = "Audit project board items and fields against local tasks and template."
@@ -1032,8 +1027,7 @@ class TelemetryCommandHelp:
     command_to_profile: str = (
         "CLI command string to profile and render waterfall for (e.g. 'devops k8s contexts')."
     )
-    trace_id: str = "Specific trace ID to visualize from in-memory span buffer."
-    last: str = "Render waterfall for the most recently executed command trace."
+    trace_id: str = "Trace ID to read from Jaeger and show, instead of running a command."
     logfire: str = "Display Logfire structured observability bridge status and token metrics."
     test_logfire: str = "Emit test span via Logfire bridge."
 

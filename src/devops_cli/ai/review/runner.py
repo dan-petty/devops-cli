@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import secrets
 import time
 from collections import Counter
 from collections.abc import Callable, Sequence
@@ -88,8 +89,10 @@ from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
 
+_RNG = secrets.SystemRandom()
+
 _MAX_DIFF_CHARS = DEFAULT_REVIEW_MAX_DIFF_CHARS
-_MAX_SEGMENT_RETRIES = 2
+_MAX_SEGMENT_RETRIES = 4
 _DEFAULT_CONTEXT_LINES = 2
 
 _PAGINATED_REVIEW_PROTOCOL = load_task_prompt("paginated_review_protocol.md")
@@ -877,6 +880,8 @@ def _execute_review_segment_attempt(
             fail_backend = f" [{fail_info}]" if fail_info else analysis_suffix
             _log_segment_error(file_label, seg_elapsed, fail_backend, attempt)
             if attempt <= _MAX_SEGMENT_RETRIES:
+                backoff = min(1.0 * (2 ** (attempt - 1)) + _RNG.uniform(0.2, 0.8), 30.0)
+                time.sleep(backoff)
                 continue
             break
 
@@ -889,6 +894,8 @@ def _execute_review_segment_attempt(
         if not result_text.strip():
             _log_segment_empty(file_label, seg_elapsed, req_backend_str, attempt)
             if attempt <= _MAX_SEGMENT_RETRIES:
+                backoff = min(1.0 * attempt + _RNG.uniform(0.1, 0.5), 10.0)
+                time.sleep(backoff)
                 continue
         else:
             retry_note = f" (attempt {attempt})" if attempt > 1 else ""
@@ -2072,7 +2079,7 @@ def _run_orchestrator_review(
 
     with review_stage("report"):
         payload_data, report_md = orchestrator.generate_consolidated_report(
-            payloads, stage_flags=stage_flags
+            payloads, stage_flags=stage_flags, personas=active_p
         )
     p_def = PERSONAS[persona or Persona.DEVSECOPS]
     raw_findings = payload_data.get("findings", []) if isinstance(payload_data, dict) else []

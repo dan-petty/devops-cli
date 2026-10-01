@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 from pathlib import Path
+from typing import Any
 
 import pytest
 import typer
@@ -22,10 +23,17 @@ from devops_cli.core.validation import (
 
 
 def test_is_non_public_ip() -> None:
-    assert is_non_public_ip(ipaddress.ip_address("127.0.0.1")) is True
-    assert is_non_public_ip(ipaddress.ip_address("10.0.0.1")) is True
-    assert is_non_public_ip(ipaddress.ip_address("192.168.1.1")) is True
-    assert is_non_public_ip(ipaddress.ip_address("8.8.8.8")) is False
+    assert (
+        is_non_public_ip(ipaddress.ip_address("127.0.0.1")),
+        is_non_public_ip(ipaddress.ip_address("10.0.0.1")),
+        is_non_public_ip(ipaddress.ip_address("192.168.1.1")),
+        is_non_public_ip(ipaddress.ip_address("8.8.8.8")),
+        is_non_public_ip(ipaddress.ip_address("::1")),
+        is_non_public_ip(ipaddress.ip_address("fd00::1")),
+        is_non_public_ip(ipaddress.ip_address("2606:4700::1")),
+        is_non_public_ip(ipaddress.ip_network("192.168.1.0/24")),
+        is_non_public_ip(ipaddress.ip_network("2606:4700::/32")),
+    ) == (True, True, True, False, True, True, False, True, False)
 
 
 def test_validate_url_valid() -> None:
@@ -288,3 +296,183 @@ def test_network_guard_blocks_external_socket_calls() -> None:
             sock.connect(("192.0.2.1", 80))
     finally:
         sock.close()
+
+
+def test_network_guard_blocks_external_dns_lookups() -> None:
+    """Verify that tests cannot resolve external hostnames, while loopback names still resolve."""
+    import socket
+
+    with pytest.raises(socket.gaierror, match="External DNS lookup blocked during test execution"):
+        socket.getaddrinfo("api.osv.dev", 443)
+    assert socket.getaddrinfo("localhost", 80)
+    assert socket.getaddrinfo("127.0.0.1", 80)
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "localhost"])
+def test_network_guard_refuses_loopback_services_the_test_did_not_start(host: str) -> None:
+    """A loopback port the test process does not listen on refuses, even when a service answers.
+
+    The service listens through the C socket type, as a port-forward in another process does: the
+    kernel accepts connections on a port the guard never saw a test open.
+    """
+    import _socket
+    import errno
+    import socket
+
+    with socket.socket() as service, socket.socket() as client, socket.socket() as probe:
+        service.bind(("127.0.0.1", 0))
+        _socket.socket.listen(service)
+        address = (host, service.getsockname()[1])
+        with pytest.raises(ConnectionRefusedError) as refused:
+            client.connect(address)
+        assert (refused.value.errno, probe.connect_ex(address)) == (
+            errno.ECONNREFUSED,
+            errno.ECONNREFUSED,
+        )
+
+
+def test_network_guard_refuses_a_port_once_the_test_closes_its_server() -> None:
+    """A port is the test's only while its listener is open; whoever holds it next is refused.
+
+    The service shares the port through SO_REUSEPORT and listens through the C socket type, so it
+    still answers there after the test closes its server, as a port-forward that binds the freed
+    port in another process would.
+    """
+    import _socket
+    import errno
+    import socket
+
+    with (
+        socket.socket() as server,
+        socket.socket() as service,
+        socket.socket() as client,
+        socket.socket() as probe,
+    ):
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        service.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        service.bind(server.getsockname())
+        _socket.socket.listen(service)
+        server.close()
+        address = service.getsockname()
+        with pytest.raises(ConnectionRefusedError):
+            client.connect(address)
+        assert probe.connect_ex(address) == errno.ECONNREFUSED
+
+
+def test_network_guard_lets_a_test_reach_a_server_it_started() -> None:
+    """A server the test starts in-process stays reachable over loopback."""
+    import socket
+
+    with socket.socket() as server, socket.socket() as client, socket.socket() as probe:
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        address = server.getsockname()
+        client.connect(address)
+        assert (client.getpeername(), probe.connect_ex(address)) == (address, 0)
+
+
+def test_is_cloud_metadata_host_superset() -> None:
+    """Verify is_cloud_metadata_host matches ollama superset (bare metadata, trailing dots, IPv6, ULA)."""
+    from devops_cli.core.validation import is_cloud_metadata_host
+
+    assert (
+        is_cloud_metadata_host("169.254.169.254"),
+        is_cloud_metadata_host("169.254.1.1"),
+        is_cloud_metadata_host("fd00:ec2::254"),
+        is_cloud_metadata_host("[fd00:ec2::254]"),
+        is_cloud_metadata_host("metadata.google.internal"),
+        is_cloud_metadata_host("metadata.google.internal."),
+        is_cloud_metadata_host("metadata"),
+        is_cloud_metadata_host("metadata."),
+        is_cloud_metadata_host("fe80::1"),
+        is_cloud_metadata_host("example.com", resolve_dns=False),
+        is_cloud_metadata_host("8.8.8.8"),
+        is_cloud_metadata_host("127.0.0.1"),
+        is_cloud_metadata_host(ipaddress.ip_address("169.254.169.254")),
+        is_cloud_metadata_host(ipaddress.ip_address("fd00:ec2::254")),
+        is_cloud_metadata_host(ipaddress.ip_network("169.254.0.0/16")),
+    ) == (
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        False,
+        False,
+        False,
+        True,
+        True,
+        True,
+    )
+
+
+def _is_target_blocked(func: Any, arg: str, err_cls: type[Exception], **kwargs: Any) -> bool:
+    """Helper to check if calling func(arg) raises err_cls."""
+    try:
+        func(arg, **kwargs)
+        return False
+    except err_cls:
+        return True
+
+
+def test_widened_metadata_denials_core_and_probe() -> None:
+    """Verify core validation and sandbox probe deny unified metadata superset."""
+    from devops_cli.core.validation import is_loopback_or_private_host, validate_url
+    from devops_cli.exceptions import SSRFBlockedError
+    from devops_cli.sandbox.probe import _resolve_safe_socket_addr
+
+    assert (
+        is_loopback_or_private_host("metadata", resolve_dns=False),
+        is_loopback_or_private_host("metadata.", resolve_dns=False),
+        is_loopback_or_private_host("fd00:ec2::254", resolve_dns=False),
+        is_loopback_or_private_host("[fd00:ec2::254]", resolve_dns=False),
+    ) == (True, True, True, True)
+
+    targets = ("http://metadata/v1", "http://metadata./v1", "http://[fd00:ec2::254]/v1")
+    blocked_count = sum(
+        1
+        for t in targets
+        if _is_target_blocked(validate_url, t, SSRFBlockedError, allow_private=True)
+    )
+    assert blocked_count == len(targets)
+
+    assert (
+        _resolve_safe_socket_addr("metadata", 80)[0],
+        _resolve_safe_socket_addr("metadata.", 80)[0],
+        _resolve_safe_socket_addr("fd00:ec2::254", 80)[0],
+    ) == (True, True, True)
+
+
+def test_widened_metadata_denials_models_telemetry_ollama() -> None:
+    """Verify sandbox models, telemetry waterfall, and ollama deny unified metadata superset."""
+    from urllib.parse import urlparse
+
+    from devops_cli.ai.models.ollama import _is_cloud_metadata_host as ollama_is_metadata
+    from devops_cli.sandbox.models import _resolve_local_host, _validate_local_whitelist_item
+    from devops_cli.telemetry.waterfall import _resolve_safe_jaeger_target
+
+    endpoints = ("http://metadata:8080", "http://metadata.:8080", "http://[fd00:ec2::254]:8080")
+    items_blocked = sum(
+        1 for ep in endpoints if _is_target_blocked(_validate_local_whitelist_item, ep, ValueError)
+    )
+    hosts = ("metadata", "metadata.", "fd00:ec2::254")
+    hosts_blocked = sum(1 for h in hosts if _is_target_blocked(_resolve_local_host, h, ValueError))
+    assert (items_blocked, hosts_blocked) == (len(endpoints), len(hosts))
+
+    assert (
+        _resolve_safe_jaeger_target(urlparse("http://metadata:14268"))[0],
+        _resolve_safe_jaeger_target(urlparse("http://metadata.:14268"))[0],
+        _resolve_safe_jaeger_target(urlparse("http://[fd00:ec2::254]:14268"))[0],
+    ) == (True, True, True)
+
+    assert (
+        ollama_is_metadata("metadata"),
+        ollama_is_metadata("metadata."),
+        ollama_is_metadata("fd00:ec2::254"),
+    ) == (True, True, True)

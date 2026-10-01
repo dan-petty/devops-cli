@@ -125,15 +125,39 @@ def test_is_forbidden_system_path() -> None:
     assert is_forbidden_system_path("relative/path/to/file.txt") is False
 
 
+def test_safe_resolve_subpath_null_byte(tmp_path: Path) -> None:
+    """Verify embedded NUL bytes raise error_cls instead of leaking ValueError."""
+
+    class CustomError(SecurityError):
+        pass
+
+    with pytest.raises(SecurityError, match="null byte"):
+        safe_resolve_subpath(tmp_path, "a\x00b")
+
+    with pytest.raises(CustomError, match="null byte"):
+        safe_resolve_subpath(tmp_path, "prefix/\x00/suffix", error_cls=CustomError)
+
+
 def test_validate_no_path_traversal() -> None:
-    """Verify traversal rejection for strings and paths."""
+    """Verify traversal rejection for strings and paths while permitting benign dot names."""
     from devops_cli.core.paths import validate_no_path_traversal
 
     class CustomTraversalError(Exception):
         pass
 
-    assert validate_no_path_traversal("safe/sub/path.txt") == Path("safe/sub/path.txt")
-    assert validate_no_path_traversal(Path("safe/path.json")) == Path("safe/path.json")
+    assert (
+        validate_no_path_traversal("safe/sub/path.txt"),
+        validate_no_path_traversal(Path("safe/path.json")),
+        validate_no_path_traversal("notes..txt"),
+        validate_no_path_traversal("v1..2.diff"),
+        validate_no_path_traversal("a..b/c"),
+    ) == (
+        Path("safe/sub/path.txt"),
+        Path("safe/path.json"),
+        Path("notes..txt"),
+        Path("v1..2.diff"),
+        Path("a..b/c"),
+    )
 
     with pytest.raises(SecurityError, match="traversal"):
         validate_no_path_traversal("../secret.txt")
@@ -147,6 +171,10 @@ def test_validate_no_path_traversal() -> None:
     with pytest.raises(SecurityError, match="traversal"):
         validate_no_path_traversal("%2e%2e/encoded")
 
+    # Embedded NUL byte raises error_cls
+    with pytest.raises(SecurityError, match="null byte"):
+        validate_no_path_traversal("safe/path\x00name.txt")
+
 
 def test_validate_path_parameter() -> None:
     """Verify tool parameter inspection against path traversal and escapes."""
@@ -155,9 +183,12 @@ def test_validate_path_parameter() -> None:
     # Non-path parameter is ignored
     validate_path_parameter("user_name", "../not-a-path-param")
 
-    # Safe path parameter
+    # Safe path parameter (including benign multi-dot names)
     validate_path_parameter("file_path", "src/devops_cli/main.py")
     validate_path_parameter("dest_dir", Path("build/output"))
+    validate_path_parameter("file_path", "notes..txt")
+    validate_path_parameter("file_path", "v1..2.diff")
+    validate_path_parameter("file_path", "a..b/c")
 
     # Traversal in path param
     with pytest.raises(SecurityError, match="traversal"):
@@ -166,6 +197,16 @@ def test_validate_path_parameter() -> None:
     with pytest.raises(SecurityError, match="traversal"):
         validate_path_parameter("dest", "sub/%2e%2e/escape")
 
+    # NUL byte in path param raises SecurityError
+    with pytest.raises(SecurityError, match="null byte"):
+        validate_path_parameter("file_path", "src/module\x00name.py")
+
     # Absolute path blocked when allow_absolute=False
     with pytest.raises(SecurityError, match=r"(?i)absolute path"):
         validate_path_parameter("output_file", "/etc/passwd", allow_absolute=False)
+
+    with pytest.raises(SecurityError, match=r"(?i)absolute path"):
+        validate_path_parameter("file_path", "~/.ssh/id_rsa", allow_absolute=False)
+
+    with pytest.raises(SecurityError, match=r"(?i)absolute path"):
+        validate_path_parameter("file_path", "file:///etc/passwd", allow_absolute=False)

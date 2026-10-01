@@ -7,6 +7,7 @@ import hashlib
 import logging
 import mimetypes
 import re
+import warnings
 from pathlib import Path
 
 from devops_cli.ai.analyze.scanner import detect_language
@@ -309,7 +310,9 @@ class SemanticChunker:
             return []
 
         try:
-            tree = ast.parse(content)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                tree = ast.parse(content)
         except SyntaxError:
             return self._chunk_line_window(
                 content, file_path, language="python", project_name=project_name

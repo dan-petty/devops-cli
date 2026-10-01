@@ -54,67 +54,27 @@
     "GIT_CONFIG_KEY_3": "credential.https://gist.github.com.helper",
     "GIT_CONFIG_VALUE_3": "!gh auth git-credential",
     "UV_MALWARE_CHECK": "1",
-    "UV_CACHE_DIR": "${containerWorkspaceFolder}/.uv"
+    "UV_CACHE_DIR": "${containerWorkspaceFolder}/.uv",
+    "DO_NOT_TRACK": "1",
+    "HF_HUB_DISABLE_TELEMETRY": "1",
+    "SCARF_NO_ANALYTICS": "true",
+    "NEXT_TELEMETRY_DISABLED": "1",
+    "CHECKPOINT_DISABLE": "1",
+    "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+    "ANONYMIZED_TELEMETRY": "false",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_TELEMETRY": "1",
+    "GOTELEMETRY": "off",
+    "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+    "npm_config_update_notifier": "false",
+    "DOCKER_CLI_HINTS": "false",
+    "MINIKUBE_WANTUPDATENOTIFICATION": "false",
+    "MINIKUBE_WANTREPORTERRORPROMPT": "false"
   },
   "forwardPorts": [
-    8080,
-    8030,
-    8090,
-    16686,
-    3000,
-    6333,
-    6379,
-    9090,
-    4317,
-    4318,
-    11434,
     9418
   ],
   "portsAttributes": {
-    "8080": {
-      "label": "ArgoCD Web UI",
-      "onAutoForward": "notify"
-    },
-    "8030": {
-      "label": "Grafana Dashboard",
-      "onAutoForward": "notify"
-    },
-    "8090": {
-      "label": "Prometheus Metrics",
-      "onAutoForward": "notify"
-    },
-    "16686": {
-      "label": "Jaeger Query UI",
-      "onAutoForward": "notify"
-    },
-    "6333": {
-      "label": "Qdrant Vector DB",
-      "onAutoForward": "notify"
-    },
-    "6379": {
-      "label": "Valkey Cache",
-      "onAutoForward": "ignore"
-    },
-    "3000": {
-      "label": "Grafana Fallback",
-      "onAutoForward": "ignore"
-    },
-    "9090": {
-      "label": "Prometheus Fallback",
-      "onAutoForward": "ignore"
-    },
-    "4317": {
-      "label": "OpenTelemetry gRPC",
-      "onAutoForward": "ignore"
-    },
-    "4318": {
-      "label": "OpenTelemetry HTTP",
-      "onAutoForward": "ignore"
-    },
-    "11434": {
-      "label": "Ollama LLM Engine",
-      "onAutoForward": "ignore"
-    },
     "9418": {
       "label": "Git Daemon",
       "onAutoForward": "ignore"
@@ -137,9 +97,17 @@
         "google.google-antigravity",
         "github.vscode-github-actions",
         "ms-vscode.makefile-tools",
-        "golang.Go"
+        "golang.Go",
+        "DavidAnson.vscode-markdownlint",
+        "rust-lang.rust-analyzer",
+        "firefox-devtools.vscode-firefox-debug",
+        "kilocode.Kilo-Code",
+        "saoudrizwan.claude-dev"
       ],
       "settings": {
+        "telemetry.telemetryLevel": "off",
+        "redhat.telemetry.enabled": false,
+        "workbench.enableExperiments": false,
         "editor.formatOnSave": true,
         "editor.tabSize": 2,
         "editor.insertSpaces": true,
@@ -153,7 +121,22 @@
         "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff"
-        }
+        },
+        "[markdown]": {
+          "editor.defaultFormatter": "DavidAnson.vscode-markdownlint"
+        },
+        "markdownlint.config": {
+          "default": true,
+          "MD013": false,
+          "MD024": false,
+          "MD033": false
+        },
+        "[rust]": {
+          "editor.defaultFormatter": "rust-lang.rust-analyzer"
+        },
+        "rust-analyzer.check.command": "clippy",
+        "ollama.endpoint": "http://vllm-16gib.llm.svc.cluster.local:8000",
+        "ollama.model": "gpt-oss:20b"
       }
     },
     "antigravity": {
@@ -169,6 +152,9 @@
         "anthropic.claude-code"
       ],
       "settings": {
+        "telemetry.telemetryLevel": "off",
+        "redhat.telemetry.enabled": false,
+        "workbench.enableExperiments": false,
         "editor.formatOnSave": true,
         "editor.tabSize": 2,
         "editor.insertSpaces": true,

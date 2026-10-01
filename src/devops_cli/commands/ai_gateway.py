@@ -72,8 +72,7 @@ def _render_routes_table(routes: list[GatewayRoute]) -> None:
 
 def _render_scale_table(outcome: dict[str, Any]) -> None:
     """Render scale parameters for inference backend."""
-    b_name = "LightLLM" if outcome.get("backend") == "lightllm" else "vLLM"
-    print_section(f"{b_name} Inference Scaling Configuration")
+    print_section("vLLM Inference Scaling Configuration")
     rows = [
         ["Model", str(outcome.get("model", ""))],
         ["Replicas", str(outcome.get("replicas", 1))],
@@ -87,7 +86,7 @@ def _render_scale_table(outcome: dict[str, Any]) -> None:
     print_table(
         columns=["Property", "Configured Value"],
         rows=rows,
-        title=f"{b_name} Scale Parameters",
+        title="vLLM Scale Parameters",
     )
 
 
@@ -212,10 +211,6 @@ def failover_cmd(
 
 @app.command("scale")
 def scale_cmd(
-    backend: Annotated[
-        str,
-        typer.Option("--backend", "-b", help="Inference backend to scale: vllm or lightllm."),
-    ] = "vllm",
     replicas: Annotated[
         int | None,
         typer.Option("--replicas", "-r", help="Replica count for backend deployment."),
@@ -238,16 +233,12 @@ def scale_cmd(
         typer.Option("--format", "-f", help="Output format: table or json."),
     ] = "table",
 ) -> None:
-    """Inspect or scale inference backend (vLLM, LightLLM) serving configurations."""
+    """Inspect or scale vLLM inference backend serving configuration."""
     settings = load_settings()
     router = GatewayRouter(settings.ai)
-    clean_backend = backend.lower()
-    if clean_backend == "lightllm":
-        outcome = router.scale_lightllm(replicas=replicas, apply=apply)
-    else:
-        outcome = router.scale_vllm(
-            replicas=replicas, tensor_parallel_size=tensor_parallel_size, apply=apply
-        )
+    outcome = router.scale_vllm(
+        replicas=replicas, tensor_parallel_size=tensor_parallel_size, apply=apply
+    )
 
     resolved = normalize_format(output_format)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
@@ -261,7 +252,7 @@ def scale_cmd(
 def probe_backend_cmd(
     backend: Annotated[
         str,
-        typer.Argument(help="Backend to probe: vllm, lightllm, or ollama."),
+        typer.Argument(help="Backend to probe: vllm or ollama."),
     ],
     backend_url: Annotated[
         str | None,

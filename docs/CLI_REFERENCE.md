@@ -1524,7 +1524,12 @@ devops grafana dashboards import [OPTIONS] <file>
 
 #### `devops grafana dashboards sync`
 
-**Sync all bundled/local dashboards to Grafana.**
+**Sync every dashboard JSON file in a directory to Grafana.**
+
+Sync every dashboard JSON file in a directory to Grafana.
+
+Tries every file, then exits 1 if any failed. A dashboard Grafana holds as provisioned,
+such as one the dashboard sidecar loads from a ConfigMap, is skipped rather than failed.
 
 ```bash
 devops grafana dashboards sync [OPTIONS]
@@ -1542,8 +1547,9 @@ devops grafana dashboards sync [OPTIONS]
 
 Statically check dashboard JSON for layout, query, and binding defects.
 
-Catches overlapping panels, duplicate ids, unbound datasources, and malformed PromQL
-before a dashboard reaches Grafana, where the only symptom is a blank or wrong panel.
+Catches overlapping panels, duplicate ids, unbound datasources, malformed PromQL, and a
+uid two dashboards share before a dashboard reaches Grafana, where the only symptom is a
+blank, wrong, or overwritten dashboard.
 
 ```bash
 devops grafana dashboards lint [OPTIONS] <path>
@@ -3179,7 +3185,7 @@ devops ai chaos-model [OPTIONS]
 
 ### `devops ai quiesce`
 
-**Centralized emergency quiesce cleanly suspending active agent loops and background tasks.**
+**Set the constellation quiesce flag with a reason; it stops nothing.**
 
 ```bash
 devops ai quiesce [OPTIONS]
@@ -3189,14 +3195,13 @@ devops ai quiesce [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--reason`, `-r` | `string` | `Operator requested emergency quiesce` | Reason for constellation quiesce or emergency failover. |
-| `--drain-timeout` | `float` | `5.0` | Drain timeout in seconds to wait for in-flight tasks to complete. |
+| `--reason`, `-r` | `string` | `Operator requested emergency quiesce` | Reason recorded with the constellation quiesce flag. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai failover`
 
-**Emergency failover controller re-routing tasks to designated fallback endpoints.**
+**Record a fallback route in the constellation flag; `devops ai gateway failover` reroutes requests.**
 
 ```bash
 devops ai failover [OPTIONS]
@@ -3210,11 +3215,10 @@ devops ai failover [OPTIONS]
 | `--target-model` | `string` | `qwen2.5-coder:7b` | Fallback AI model to route execution to upon fault. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--force` | `boolean` | - | Bypass model capability tier minimum checks during failover. |
 
 ### `devops ai resume`
 
-**Gracefully resume suspended constellation agent loops and task runners.**
+**Clear the constellation quiesce or failover flag.**
 
 ```bash
 devops ai resume [OPTIONS]
@@ -3229,7 +3233,7 @@ devops ai resume [OPTIONS]
 
 ### `devops ai constellation`
 
-**Display constellation fleet status, active fallback routes, and suspended tasks.**
+**Show the constellation flag: state, reason and recorded fallback route.**
 
 ```bash
 devops ai constellation [OPTIONS]
@@ -4008,7 +4012,7 @@ devops ai harness COMMAND [ARGS]...
 
 #### `devops ai harness status`
 
-**Display active harness slot configuration, models, and sandboxing status.**
+**Display the harness slots as configured; nothing here checks a model is reachable.**
 
 ```bash
 devops ai harness status [OPTIONS]
@@ -4040,7 +4044,7 @@ devops ai harness offload [OPTIONS]
 
 #### `devops ai harness run`
 
-**Execute tiered synthesis: Big decides, small types, big checks.**
+**Run the sub-agent's local AST or glob search for a task and report what it found.**
 
 ```bash
 devops ai harness run [OPTIONS] <task>
@@ -4058,8 +4062,6 @@ devops ai harness run [OPTIONS] <task>
 |---|---|---|---|
 | `--repo`, `-r` | `path` | `.` | Path to repository or source directory. |
 | `--symbol`, `-s` | `string` | - | Symbol name (class or function) to inspect or search. |
-| `--frontier-model` | `string` | `claude-3-7-sonnet` | Frontier model identifier for architecture and verification. |
-| `--local-model` | `string` | `qwen2.5-coder:7b` | Local model identifier for sub-agent offloading. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -4267,7 +4269,7 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 
 #### `devops ai gateway scale`
 
-**Inspect or scale inference backend (vLLM, LightLLM) serving configurations.**
+**Inspect or scale vLLM inference backend serving configuration.**
 
 ```bash
 devops ai gateway scale [OPTIONS]
@@ -4277,7 +4279,6 @@ devops ai gateway scale [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--backend`, `-b` | `string` | `vllm` | Inference backend to scale: vllm or lightllm. |
 | `--replicas`, `-r` | `integer` | - | Replica count for backend deployment. |
 | `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree for vLLM (e.g. 2). |
 | `--apply`, `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
@@ -4295,7 +4296,7 @@ devops ai gateway probe-backend [OPTIONS] <backend>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<backend>` | `string` | Yes | Backend to probe: vllm, lightllm, or ollama. |
+| `<backend>` | `string` | Yes | Backend to probe: vllm or ollama. |
 
 **Options:**
 
@@ -5780,8 +5781,8 @@ devops pr check-readiness [OPTIONS] <number>
 | `--allow-draft` | `boolean` | - | Report a draft pull request as ready; GitHub still refuses to merge one. |
 | `--allow-pending-checks` | `boolean` | - | Treat checks that are still running as acceptable rather than blocking. |
 | `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
-| `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
-| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |
+| `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received a reply from someone other than the thread opener. |
+| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received a reply from someone other than the thread opener as addressed rather than blocking. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ### `devops pr update`
@@ -5856,7 +5857,7 @@ devops pr threads reply <thread_id> <body>
 **Programmatically mark one or more PR review discussion threads as resolved.**
 
 ```bash
-devops pr threads resolve <thread_ids>
+devops pr threads resolve [OPTIONS] <thread_ids>
 ```
 
 **Arguments:**
@@ -5864,6 +5865,12 @@ devops pr threads resolve <thread_ids>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<thread_ids>` | `string` | Yes | One or more review thread GraphQL IDs to resolve. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--without-reply`, `-w` | `boolean` | - | Force resolution of review threads even if they lack a reply from someone other than the thread opener. |
 
 #### `devops pr threads unresolve`
 
@@ -5897,7 +5904,7 @@ devops pr threads resolve-all [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received one or more in-thread replies. |
+| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---
@@ -6119,7 +6126,7 @@ devops gh project status [OPTIONS]
 
 #### `devops gh project sync`
 
-**Sync task items from docs/agent/tasks directory into GitHub Projects status.**
+**Create or update the project board from its template, add open issues, and reconcile Status, Priority and Milestone; task files are not read.**
 
 ```bash
 devops gh project sync [OPTIONS]
@@ -6133,11 +6140,11 @@ devops gh project sync [OPTIONS]
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run`, `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
-| `--reconcile-fields`, `--no-reconcile-fields` | `boolean` | `True` | Automatically infer and update project custom fields from taxonomy labels and issue state. |
+| `--reconcile-fields`, `--no-reconcile-fields` | `boolean` | `True` | Also reconcile Status, Priority and Milestone from issue state and labels. |
 
 #### `devops gh project reconcile`
 
-**Reconcile custom fields (Status, Priority, Category, Value, Effort) on project items.**
+**Reconcile Status, Priority and Milestone on project items, listing each change and its source; the board owns Status.**
 
 ```bash
 devops gh project reconcile [OPTIONS]
@@ -6878,8 +6885,8 @@ devops gh pr check-readiness [OPTIONS] <number>
 | `--allow-draft` | `boolean` | - | Report a draft pull request as ready; GitHub still refuses to merge one. |
 | `--allow-pending-checks` | `boolean` | - | Treat checks that are still running as acceptable rather than blocking. |
 | `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
-| `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
-| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |
+| `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received a reply from someone other than the thread opener. |
+| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received a reply from someone other than the thread opener as addressed rather than blocking. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 #### `devops gh pr update`
@@ -6954,7 +6961,7 @@ devops gh pr threads reply <thread_id> <body>
 **Programmatically mark one or more PR review discussion threads as resolved.**
 
 ```bash
-devops gh pr threads resolve <thread_ids>
+devops gh pr threads resolve [OPTIONS] <thread_ids>
 ```
 
 **Arguments:**
@@ -6962,6 +6969,12 @@ devops gh pr threads resolve <thread_ids>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<thread_ids>` | `string` | Yes | One or more review thread GraphQL IDs to resolve. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--without-reply`, `-w` | `boolean` | - | Force resolution of review threads even if they lack a reply from someone other than the thread opener. |
 
 ##### `devops gh pr threads unresolve`
 
@@ -6995,7 +7008,7 @@ devops gh pr threads resolve-all [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received one or more in-thread replies. |
+| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---
@@ -7492,7 +7505,7 @@ devops telemetry test [OPTIONS]
 
 ### `devops telemetry profile`
 
-**Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans.**
+**Run a command, or name a trace, and show its span waterfall as Jaeger recorded it.**
 
 ```bash
 devops telemetry profile [OPTIONS] <command>
@@ -7508,8 +7521,7 @@ devops telemetry profile [OPTIONS] <command>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--trace-id`, `-t` | `string` | - | Specific trace ID to visualize from in-memory span buffer. |
-| `--last`, `-l` | `boolean` | - | Render waterfall for the most recently executed command trace. |
+| `--trace-id`, `-t` | `string` | - | Trace ID to read from Jaeger and show, instead of running a command. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

@@ -11,9 +11,14 @@ enough to be obviously correct.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import json
+import textwrap
+import unicodedata
+from collections import Counter
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
+from devops_cli.ai.review_schema import format_clean_text_field
 from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_AI,
     CONST_DASHBOARD_DOMAIN_DOCKER,
@@ -27,7 +32,15 @@ from devops_cli.config.constants import (
     CONST_DOCKER_RESOURCE_NETWORKS,
     CONST_DOCKER_RESOURCE_REGISTRIES,
     CONST_DOCKER_RESOURCE_VOLUMES,
+    CONST_FINDING_DETAIL_FIELD_FALLBACKS,
+    CONST_FINDING_DETAIL_HEADER_FIELDS,
+    CONST_FINDING_DETAIL_KEPT_CONTROLS,
+    CONST_FINDING_DETAIL_SECTION_FIELDS,
+    CONST_K8S_CONTAINER_TERMINATED,
+    CONST_UNICODE_CONTROL_CATEGORY,
 )
+from devops_cli.models.k8s import ContainerInfo, PodEventInfo, PodInfo
+from devops_cli.output import escape_text, format_timestamp_age
 from devops_cli.ui.data_providers import (
     DockerSummary,
     K8sSummary,
@@ -42,6 +55,17 @@ CONST_STATUS_DOT_WARN = "[yellow]●[/yellow]"
 CONST_STATUS_DOT_ERROR = "[red]●[/red]"
 
 CONST_AI_TITLE_MAX_CHARS = 45
+
+CONST_FINDING_DETAIL_EMPTY = "No finding selected."
+
+# Rows of pods that need attention are drawn in this colour.
+CONST_K8S_UNHEALTHY_STYLE = "red"
+# The namespace selector's first option, and the value it stands for: no namespace is
+# ever named by the empty string.
+CONST_K8S_ALL_NAMESPACES_LABEL = "All namespaces"
+CONST_K8S_ALL_NAMESPACES = ""
+# Shown in an inspector cell that has nothing to show.
+CONST_INSPECTOR_EMPTY_CELL = "—"
 
 DOMAIN_COLUMNS: dict[str, tuple[str, ...]] = {
     CONST_DASHBOARD_DOMAIN_K8S: ("Namespace", "Pod Name", "Status", "Ready", "Restarts"),
@@ -76,11 +100,32 @@ def _records(records: list[dict[str, str]], keys: tuple[str, ...]) -> list[tuple
 # =============================================================================
 
 
+def _k8s_nodes(summary: K8sSummary) -> str:
+    """Render node readiness, or why the nodes could not be listed."""
+    if summary.nodes_error:
+        return f"nodes: unavailable ({escape_text(summary.nodes_error)})"
+    return f"{summary.nodes_ready}/{summary.nodes_total} nodes Ready"
+
+
 def k8s_banner(summary: K8sSummary) -> str:
-    """Render the Kubernetes connection banner."""
-    state = "Connected" if summary.connected else "Disconnected"
-    minikube = " | Minikube: Active" if summary.minikube_active else ""
-    return f"{_dot(summary.connected)} Kubernetes: {state}{minikube}"
+    """Render the Kubernetes banner: the context, node readiness and pod health.
+
+    A disconnected cluster names the context it tried and why it failed. The cluster's
+    own text is escaped, since the banner is rendered as markup.
+    """
+    context = f" | context {escape_text(summary.context)}" if summary.context else ""
+    if not summary.connected:
+        reason = f" — {escape_text(summary.error_message)}" if summary.error_message else ""
+        return f"{_dot(False)} Kubernetes: Disconnected{context}{reason}"
+    return (
+        f"{_dot(True)} Kubernetes: Connected{context} | {_k8s_nodes(summary)} | "
+        f"{len(summary.pods)} pods, {summary.unhealthy_pods} unhealthy"
+    )
+
+
+def k8s_filter_banner(banner: str, shown: int, total: int) -> str:
+    """Add to a banner how many of the pods a filter leaves listed."""
+    return f"{banner} | showing {shown} of {total}"
 
 
 def docker_banner(summary: DockerSummary) -> str:
@@ -192,9 +237,18 @@ def stale_banner(domain: str, banner: str, age_seconds: float) -> str:
 # =============================================================================
 
 
+def k8s_pod_row(pod: PodInfo) -> tuple[str, ...]:
+    """Project one pod into a table row, coloured when the pod needs attention."""
+    cells = (pod.namespace, pod.name, pod.status, pod.ready_containers, str(pod.restart_count))
+    if not pod.unhealthy:
+        return cells
+    style = CONST_K8S_UNHEALTHY_STYLE
+    return tuple(f"[{style}]{escape_text(cell)}[/{style}]" for cell in cells)
+
+
 def k8s_rows(summary: K8sSummary) -> list[tuple[str, ...]]:
     """Project pods into table rows."""
-    return _records(summary.pods, ("namespace", "name", "status", "ready", "restarts"))
+    return [k8s_pod_row(pod) for pod in summary.pods]
 
 
 def docker_rows(summary: DockerSummary) -> list[tuple[str, ...]]:
@@ -258,6 +312,296 @@ def valkey_rows(summary: ValkeySummary) -> list[tuple[str, ...]]:
 
 
 # =============================================================================
+# Row identities
+# =============================================================================
+#
+# One identity per row, in row order, naming the record the row shows. A refresh redraws
+# every table, and the identity is how the redraw finds the row the operator was on.
+
+
+def k8s_identities(summary: K8sSummary) -> list[tuple[str, ...]]:
+    """Identify pods by namespace and name: a name is unique only within its namespace."""
+    return [(pod.namespace, pod.name) for pod in summary.pods]
+
+
+def docker_identities(summary: DockerSummary) -> list[tuple[str, ...]]:
+    """Identify containers by id."""
+    return _records(summary.containers, ("id",))
+
+
+def telemetry_identities(summary: TelemetrySummary) -> list[tuple[str, ...]]:
+    """Identify instruments by kind and name: a counter and a gauge may share a name."""
+    return [(kind, name) for name, kind, _value in telemetry_rows(summary)]
+
+
+def ai_identities(summary: ReviewSummary) -> list[tuple[str, ...]]:
+    """Identify findings by persona, location and full title.
+
+    Findings carry no id in practice, and the row shows neither the persona nor more than
+    the start of the title, so the identity is built from the record.
+    """
+    return _records(summary.findings, ("persona", "location", "title"))
+
+
+def images_identities(summary: DockerSummary) -> list[tuple[str, ...]]:
+    """Identify images by id."""
+    return _records(summary.images, ("id",))
+
+
+def networks_identities(summary: DockerSummary) -> list[tuple[str, ...]]:
+    """Identify networks by id."""
+    return _records(summary.networks, ("id",))
+
+
+def volumes_identities(summary: DockerSummary) -> list[tuple[str, ...]]:
+    """Identify volumes by name, which Docker keeps unique."""
+    return _records(summary.volumes, ("name",))
+
+
+def registries_identities(summary: DockerSummary) -> list[tuple[str, ...]]:
+    """Identify registries by name."""
+    return _records(summary.registries, ("name",))
+
+
+def valkey_identities(summary: ValkeySummary) -> list[tuple[str, ...]]:
+    """Identify cache properties by their name."""
+    return [(name,) for name, _value in valkey_rows(summary)]
+
+
+def row_keys(identities: Iterable[tuple[str, ...]]) -> list[str]:
+    """Turn row identities into table row keys, unique even when identities repeat.
+
+    Each identity is numbered by how often it has already occurred, so two containers
+    sharing the empty-id fallback are two rows rather than a `DuplicateKey` that blanks the
+    whole panel. Textual keys rows by string, so the result is encoded as JSON.
+    """
+    seen: Counter[tuple[str, ...]] = Counter()
+    keys: list[str] = []
+    for identity in identities:
+        keys.append(json.dumps([*identity, seen[identity]]))
+        seen[identity] += 1
+    return keys
+
+
+# =============================================================================
+# Pod filters, logs and inspection
+# =============================================================================
+
+
+def pod_matches(pod: PodInfo, namespace: str, text: str) -> bool:
+    """Report whether a pod is in the namespace, all when empty, and matches the text.
+
+    The text matches the namespace, name or status, ignoring case, so it also serves as
+    the status filter: `crash` finds every pod in CrashLoopBackOff.
+    """
+    needle = text.strip().casefold()
+    in_namespace = namespace == CONST_K8S_ALL_NAMESPACES or pod.namespace == namespace
+    return in_namespace and any(
+        needle in field.casefold() for field in (pod.namespace, pod.name, pod.status)
+    )
+
+
+def filter_pods(records: Mapping[str, PodInfo], namespace: str, text: str) -> dict[str, PodInfo]:
+    """Keep the keyed pods the namespace selector and the text filter leave listed."""
+    return {key: pod for key, pod in records.items() if pod_matches(pod, namespace, text)}
+
+
+def namespace_choices(pods: Iterable[PodInfo], selected: str) -> tuple[str, ...]:
+    """List the namespaces to choose from: every one with pods, and the one chosen.
+
+    The chosen one stays even when its pods are gone, so a namespace whose pods are being
+    recreated keeps its filter instead of quietly falling back to every namespace.
+    """
+    names = {pod.namespace for pod in pods} | {selected}
+    return tuple(sorted(names - {CONST_K8S_ALL_NAMESPACES}))
+
+
+def pod_container_names(pod: PodInfo) -> list[str]:
+    """Name a pod's containers in the order `c` steps through them: app, then init."""
+    return [container.name for container in (*pod.containers, *pod.init_containers)]
+
+
+def next_container(pod: PodInfo, current: str) -> str:
+    """Return the container after the current one, wrapping round to the first."""
+    names = pod_container_names(pod)
+    if current not in names:
+        return names[0] if names else current
+    return names[(names.index(current) + 1) % len(names)]
+
+
+def log_title(pod: PodInfo, container: str) -> str:
+    """Title the log pane with the pod, the container and its place among them."""
+    names = pod_container_names(pod)
+    if container not in names:
+        return f"{pod.namespace}/{pod.name}"
+    place = f"{names.index(container) + 1} of {len(names)} containers"
+    return f"{pod.namespace}/{pod.name} [{container}] ({place})"
+
+
+def _state_cell(container: ContainerInfo) -> str:
+    """Render a container's state with the reason it gives."""
+    if not container.state:
+        return CONST_INSPECTOR_EMPTY_CELL
+    return f"{container.state}: {container.reason}" if container.reason else container.state
+
+
+def _last_termination_cell(container: ContainerInfo) -> str:
+    """Render why the container's previous run ended, with its exit code."""
+    if container.last_exit_code is None:
+        return container.last_termination_reason or CONST_INSPECTOR_EMPTY_CELL
+    reason = container.last_termination_reason or CONST_K8S_CONTAINER_TERMINATED
+    return f"{reason} (exit {container.last_exit_code})"
+
+
+def _container_row(container: ContainerInfo, suffix: str = "") -> tuple[str, ...]:
+    """Project one container into an inspector row."""
+    cells = (
+        f"{container.name}{suffix}",
+        container.image,
+        "yes" if container.ready else "no",
+        str(container.restarts),
+        _state_cell(container),
+        _last_termination_cell(container),
+    )
+    return tuple(escape_text(cell) for cell in cells)
+
+
+POD_CONTAINER_COLUMNS: tuple[str, ...] = (
+    "Container",
+    "Image",
+    "Ready",
+    "Restarts",
+    "State",
+    "Last termination",
+)
+
+
+def pod_container_rows(pod: PodInfo) -> list[tuple[str, ...]]:
+    """Project a pod's containers into inspector rows, its init containers marked."""
+    return [
+        *(_container_row(container) for container in pod.containers),
+        *(_container_row(container, " (init)") for container in pod.init_containers),
+    ]
+
+
+POD_EVENT_COLUMNS: tuple[str, ...] = ("Type", "Reason", "Age", "Count", "Message")
+
+
+def _event_age(event: PodEventInfo) -> str:
+    """Render how long ago an event last occurred."""
+    if event.last_seen is None:
+        return CONST_INSPECTOR_EMPTY_CELL
+    return format_timestamp_age(event.last_seen.isoformat())
+
+
+def pod_event_rows(events: Iterable[PodEventInfo]) -> list[tuple[str, ...]]:
+    """Project pod events into inspector rows. The text is the cluster's, so it is escaped."""
+    return [
+        (
+            escape_text(event.type),
+            escape_text(event.reason),
+            _event_age(event),
+            str(event.count),
+            escape_text(event.message),
+        )
+        for event in events
+    ]
+
+
+# =============================================================================
+# Finding detail
+# =============================================================================
+
+
+def _confidence(score: Any) -> str:
+    """Render a confidence score to two decimals, as `review findings` does."""
+    try:
+        return f"{float(score):.2f}"
+    except TypeError, ValueError:
+        return str(score)
+
+
+def _one_per_line(values: Any) -> str:
+    """Render a list one item per line."""
+    return "\n".join(map(str, values)) if isinstance(values, list) else str(values)
+
+
+_DETAIL_FORMATTERS: dict[str, Callable[[Any], str]] = {
+    "confidence_score": _confidence,
+    "description": format_clean_text_field,
+    "fix": format_clean_text_field,
+    "references": _one_per_line,
+}
+
+
+def _escape_controls(text: str) -> str:
+    """Write control characters as visible escapes, keeping line breaks and tabs.
+
+    Textual strips only a handful of control characters, so a raw ESC in model-written
+    text would otherwise reach the terminal as the start of an escape sequence.
+    """
+    return "".join(
+        char.encode("unicode_escape").decode("ascii")
+        if unicodedata.category(char) == CONST_UNICODE_CONTROL_CATEGORY
+        and char not in CONST_FINDING_DETAIL_KEPT_CONTROLS
+        else char
+        for char in text
+    )
+
+
+def _trim(text: str) -> str:
+    """Drop the blank lines around a value and its trailing whitespace.
+
+    The first line keeps its indentation: stripping it alone would set quoted code's first
+    line left of the lines below it.
+    """
+    body = text.rstrip()
+    start = body.rfind("\n", 0, len(body) - len(body.lstrip())) + 1
+    return body[start:]
+
+
+def _detail_value(record: dict[str, Any], field: str) -> str:
+    """Render one field of a finding, or an empty string when it holds nothing.
+
+    Only None, a blank string and an empty list count as nothing: a confidence of 0.0 or a
+    citation on line 0 is a value. Indentation every line of a text shares is removed
+    first, so quoted code starts at the margin with its own structure intact.
+    """
+    value = record.get(field)
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        value = textwrap.dedent(value)
+    return _trim(_escape_controls(_DETAIL_FORMATTERS.get(field, str)(value)))
+
+
+def _detail_field(record: dict[str, Any], field: str) -> str:
+    """Render a field, reading its fallback when the field itself is blank."""
+    fallback = CONST_FINDING_DETAIL_FIELD_FALLBACKS.get(field)
+    text = _detail_value(record, field)
+    return text or (_detail_value(record, fallback) if fallback else "")
+
+
+def finding_detail(record: dict[str, Any]) -> str:
+    """Render a finding's full record as plain labelled text for the detail pane.
+
+    The text is model output quoting repository content, so it is returned as-is for a
+    widget with markup off, with control characters already escaped.
+    """
+    header = "\n".join(
+        f"{label}: {text}"
+        for field, label in CONST_FINDING_DETAIL_HEADER_FIELDS
+        if (text := _detail_field(record, field))
+    )
+    sections = [
+        f"{label}:\n{text}"
+        for field, label in CONST_FINDING_DETAIL_SECTION_FIELDS
+        if (text := _detail_field(record, field))
+    ]
+    return "\n\n".join(block for block in (header, *sections) if block)
+
+
+# =============================================================================
 # Snapshot rendering
 # =============================================================================
 
@@ -277,6 +621,14 @@ _ROWS: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
     CONST_DASHBOARD_DOMAIN_VALKEY: valkey_rows,
 }
 
+_IDENTITIES: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
+    CONST_DASHBOARD_DOMAIN_K8S: k8s_identities,
+    CONST_DASHBOARD_DOMAIN_DOCKER: docker_identities,
+    CONST_DASHBOARD_DOMAIN_TELEMETRY: telemetry_identities,
+    CONST_DASHBOARD_DOMAIN_AI: ai_identities,
+    CONST_DASHBOARD_DOMAIN_VALKEY: valkey_identities,
+}
+
 
 DOCKER_RESOURCE_COLUMNS: dict[str, tuple[str, ...]] = {
     CONST_DOCKER_RESOURCE_CONTAINERS: ("Container ID", "Name", "Image", "Status"),
@@ -294,6 +646,14 @@ DOCKER_RESOURCE_ROWS: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
     CONST_DOCKER_RESOURCE_REGISTRIES: registries_rows,
 }
 
+DOCKER_RESOURCE_IDENTITIES: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
+    CONST_DOCKER_RESOURCE_CONTAINERS: docker_identities,
+    CONST_DOCKER_RESOURCE_IMAGES: images_identities,
+    CONST_DOCKER_RESOURCE_NETWORKS: networks_identities,
+    CONST_DOCKER_RESOURCE_VOLUMES: volumes_identities,
+    CONST_DOCKER_RESOURCE_REGISTRIES: registries_identities,
+}
+
 DOCKER_RESOURCE_COUNTS: dict[str, Callable[[Any], int]] = {
     CONST_DOCKER_RESOURCE_CONTAINERS: lambda summary: len(summary.containers),
     CONST_DOCKER_RESOURCE_IMAGES: lambda summary: len(summary.images),
@@ -308,6 +668,13 @@ def docker_resource_rows(resource: str, snapshot: Any) -> list[tuple[str, ...]]:
     if snapshot.data is None:
         return []
     return DOCKER_RESOURCE_ROWS[resource](snapshot.data)
+
+
+def docker_resource_keys(resource: str, snapshot: Any) -> list[str]:
+    """Key each row of one Docker resource view, in row order."""
+    if snapshot.data is None:
+        return []
+    return row_keys(DOCKER_RESOURCE_IDENTITIES[resource](snapshot.data))
 
 
 def docker_resource_label(resource: str, snapshot: Any) -> str:
@@ -339,6 +706,13 @@ def review_session_rows(snapshot: Any) -> list[tuple[str, ...]]:
     ]
 
 
+def review_session_keys(snapshot: Any) -> list[str]:
+    """Key each review session row by its name."""
+    if snapshot.data is None:
+        return []
+    return row_keys((info.name,) for info in snapshot.data.sessions)
+
+
 def render_banner(snapshot: DomainSnapshot, *, stale_after: float | None = None) -> str:
     """Render the banner line for a domain snapshot.
 
@@ -367,6 +741,24 @@ def render_rows(snapshot: DomainSnapshot) -> list[tuple[str, ...]]:
     return _ROWS[snapshot.domain](snapshot.data)
 
 
+def render_keys(snapshot: DomainSnapshot) -> list[str]:
+    """Key each row `render_rows` projects from the same snapshot, in the same order."""
+    if snapshot.data is None:
+        return []
+    return row_keys(_IDENTITIES[snapshot.domain](snapshot.data))
+
+
+def finding_records(snapshot: DomainSnapshot, keys: list[str]) -> dict[str, dict[str, Any]]:
+    """Map each findings table row key to the finding record that row shows.
+
+    The keys are the ones the table was drawn with, from `render_keys(snapshot)`, so the
+    map and the table cannot disagree about which key names which finding.
+    """
+    if snapshot.data is None:
+        return {}
+    return dict(zip(keys, snapshot.data.findings, strict=True))
+
+
 def render_domain(
     snapshot: DomainSnapshot, *, stale_after: float | None = None
 ) -> tuple[str, list[tuple[str, ...]]]:
@@ -375,35 +767,66 @@ def render_domain(
 
 
 __all__ = [
+    "CONST_FINDING_DETAIL_EMPTY",
+    "CONST_K8S_ALL_NAMESPACES",
+    "CONST_K8S_ALL_NAMESPACES_LABEL",
     "DOCKER_RESOURCE_COLUMNS",
+    "DOCKER_RESOURCE_IDENTITIES",
     "DOCKER_RESOURCE_ROWS",
     "DOMAIN_COLUMNS",
+    "POD_CONTAINER_COLUMNS",
+    "POD_EVENT_COLUMNS",
     "REVIEW_SESSION_COLUMNS",
     "ai_banner",
+    "ai_identities",
     "ai_rows",
     "docker_banner",
+    "docker_identities",
+    "docker_resource_keys",
     "docker_resource_label",
     "docker_resource_rows",
     "docker_rows",
     "error_banner",
+    "filter_pods",
+    "finding_detail",
+    "finding_records",
     "images_banner",
+    "images_identities",
     "images_rows",
     "k8s_banner",
+    "k8s_filter_banner",
+    "k8s_identities",
+    "k8s_pod_row",
     "k8s_rows",
     "loading_banner",
+    "log_title",
+    "namespace_choices",
     "networks_banner",
+    "networks_identities",
     "networks_rows",
+    "next_container",
+    "pod_container_names",
+    "pod_container_rows",
+    "pod_event_rows",
+    "pod_matches",
     "registries_banner",
+    "registries_identities",
     "registries_rows",
     "render_banner",
     "render_domain",
+    "render_keys",
     "render_rows",
+    "review_session_keys",
     "review_session_rows",
+    "row_keys",
     "stale_banner",
     "telemetry_banner",
+    "telemetry_identities",
     "telemetry_rows",
     "valkey_banner",
+    "valkey_identities",
     "valkey_rows",
     "volumes_banner",
+    "volumes_identities",
     "volumes_rows",
 ]

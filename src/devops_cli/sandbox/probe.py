@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import re
 import socket
@@ -51,23 +50,17 @@ def _resolve_safe_socket_addr(
 ) -> tuple[bool, tuple[int, int, int, str, tuple[Any, ...]] | None]:
     """Resolve host and verify no resolved IP is link-local or cloud metadata.
     Returns (is_blocked, vetted_addrinfo)."""
-    clean = host.strip("[]").rstrip(".").lower()
-    if clean in ("169.254.169.254", "metadata.google.internal") or clean.startswith("169.254."):
+    from devops_cli.core.validation import is_cloud_metadata_host
+
+    if is_cloud_metadata_host(host, resolve_dns=False):
         return True, None
-    try:
-        ip = ipaddress.ip_address(clean)
-        if ip.is_link_local or str(ip).startswith("169.254."):
-            return True, None
-    except ValueError:
-        pass
+    clean = host.strip("[]").rstrip(".").lower()
     try:
         addr_info = socket.getaddrinfo(clean, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
         for _, _, _, _, sockaddr in addr_info:
             ip_str = sockaddr[0] if isinstance(sockaddr[0], str) else ""
-            if ip_str:
-                parsed_ip = ipaddress.ip_address(ip_str)
-                if parsed_ip.is_link_local or ip_str.startswith("169.254."):
-                    return True, None
+            if ip_str and is_cloud_metadata_host(ip_str, resolve_dns=False):
+                return True, None
         if addr_info:
             return False, addr_info[0]
     except socket.gaierror, OSError, ValueError:

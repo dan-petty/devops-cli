@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import errno
+import ipaddress
 import os
 import subprocess
-from collections.abc import Callable, Iterator
+import threading
+import weakref
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from tests.web_fakes import StubWeb
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -54,50 +61,163 @@ def register_test_mock_provider():
     register_provider("mock", MockProvider)
 
 
+def _is_loopback(host: str) -> bool:
+    """Report whether a connect or lookup names the loopback interface."""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_ip_literal(host: str) -> bool:
+    """Report whether a host is an IP address, which resolves without a DNS query."""
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
+def _refuses_connect(address: Any, owned_ports: set[int]) -> bool:
+    """Report whether the network guard refuses a connect; raise for a host that is not loopback."""
+    if not (isinstance(address, tuple) and len(address) >= 2):
+        return False
+    host = str(address[0])
+    if not _is_loopback(host):
+        raise RuntimeError(
+            f"External network call blocked during test execution: attempt to connect to {host}:{address[1]}. "
+            "All external APIs and endpoints must be mocked in tests."
+        )
+    return address[1] not in owned_ports
+
+
 @pytest.fixture(autouse=True, scope="session")
-def prevent_external_network_calls():
-    """Guarantee that tests never hit external APIs or endpoints."""
-    import ipaddress
+def prevent_external_network_calls() -> None:
+    """Guarantee that tests never hit external APIs or endpoints, nor live services on loopback.
+
+    A loopback connect reaches only a port this test process listens on, and only while that
+    listener is open. Any other loopback port refuses, as if nothing listened there, so a
+    `kubectl port-forward` or a daemon on the workstation is never reached and every machine takes
+    CI's offline path. Once a test closes its server, the port refuses again, so whatever binds it
+    next, such as another xdist worker or a port-forward, is not reached either. The refusal is the
+    `ConnectionRefusedError` that clients already handle: a `RuntimeError` would escape them and
+    send the test down a path no user reaches. Non-loopback connects raise `RuntimeError`.
+
+    The guard patches this process only. A subprocess a test spawns is not guarded, and a server
+    a test starts in a subprocess is refused like any other port this process does not own.
+    """
     import socket
 
     orig_connect = socket.socket.connect
     orig_connect_ex = socket.socket.connect_ex
+    orig_listen = socket.socket.listen
+    orig_getaddrinfo = socket.getaddrinfo
+    listeners: weakref.WeakKeyDictionary[socket.socket, int] = weakref.WeakKeyDictionary()
+    listeners_lock = threading.RLock()
 
-    def _is_loopback(host: str) -> bool:
-        if host == "localhost":
-            return True
-        try:
-            return ipaddress.ip_address(host).is_loopback
-        except ValueError:
-            return False
+    # A blocked connect still pays for a real DNS query first, and the extractor resolves every
+    # domain-like token it scans: each lookup costs a round trip per xdist worker. Fail external
+    # names the way an unresolvable one does, so callers take their existing gaierror path at once.
+    def guarded_getaddrinfo(host, *args, **kwargs):
+        name = host.decode() if isinstance(host, bytes) else str(host)
+        if host is None or _is_loopback(name) or _is_ip_literal(name):
+            return orig_getaddrinfo(host, *args, **kwargs)
+        raise socket.gaierror(
+            socket.EAI_NONAME,
+            f"External DNS lookup blocked during test execution: {name}. "
+            "All external APIs and endpoints must be mocked in tests.",
+        )
+
+    def guarded_listen(self, *args):
+        orig_listen(self, *args)
+        name = self.getsockname()
+        if isinstance(name, tuple):
+            with listeners_lock:
+                listeners[self] = name[1]
+
+    # A listener's port is owned while the socket is open. A closed one reports fileno -1, and one
+    # that was collected has already left the weak mapping.
+    def owned_ports() -> set[int]:
+        with listeners_lock:
+            return {port for sock, port in listeners.items() if sock.fileno() != -1}
 
     def guarded_connect(self, address):
-        if isinstance(address, tuple) and len(address) >= 2:
-            host = str(address[0])
-            if _is_loopback(host):
-                return orig_connect(self, address)
-            raise RuntimeError(
-                f"External network call blocked during test execution: attempt to connect to {host}:{address[1]}. "
-                "All external APIs and endpoints must be mocked in tests."
-            )
+        if _refuses_connect(address, owned_ports()):
+            raise ConnectionRefusedError(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED))
         return orig_connect(self, address)
 
     def guarded_connect_ex(self, address):
-        if isinstance(address, tuple) and len(address) >= 2:
-            host = str(address[0])
-            if _is_loopback(host):
-                return orig_connect_ex(self, address)
-            raise RuntimeError(
-                f"External network call blocked during test execution: attempt to connect to {host}:{address[1]}. "
-                "All external APIs and endpoints must be mocked in tests."
-            )
+        if _refuses_connect(address, owned_ports()):
+            return errno.ECONNREFUSED
         return orig_connect_ex(self, address)
 
-    with (
-        patch.object(socket.socket, "connect", guarded_connect),
-        patch.object(socket.socket, "connect_ex", guarded_connect_ex),
-    ):
-        yield
+    # Installed for the rest of the process, not undone at teardown: an export a test queued on a
+    # worker thread, or one `atexit` flushes, still runs after the last fixture is torn down.
+    socket.socket.connect = guarded_connect
+    socket.socket.connect_ex = guarded_connect_ex
+    socket.socket.listen = guarded_listen
+    socket.getaddrinfo = guarded_getaddrinfo
+
+
+@pytest.fixture
+def public_dns(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Resolve every external hostname to one public address, for tests that validate egress.
+
+    The session guard fails external lookups, so a test whose code checks that a URL resolves
+    to a public address declares this fixture instead of depending on real DNS.
+    """
+    import socket
+
+    address = "93.184.215.14"
+    guarded = socket.getaddrinfo
+
+    def resolve(host, port, *args, **kwargs):
+        try:
+            return guarded(host, port, *args, **kwargs)
+        except socket.gaierror:
+            number = int(port) if isinstance(port, int) or str(port or "").isdigit() else 0
+            return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, number))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    return address
+
+
+@pytest.fixture
+def stub_web(monkeypatch: pytest.MonkeyPatch, public_dns: str) -> Iterator[StubWeb]:
+    """Answer every httpx2 client from canned pages, so a fetch never leaves the process.
+
+    Clients keep the broker's own redirect limit and request hooks; only their transport is the
+    stub's. They stay classes, so code that subclasses them or checks isinstance still works.
+    External names resolve to a public address, as `public_dns` does.
+    """
+    import httpx2
+
+    from devops_cli.http import broker
+    from tests.web_fakes import StubWeb
+
+    web = StubWeb()
+    transport = httpx2.MockTransport(web.handle)
+
+    class StubClient(httpx2.Client):
+        """An httpx2.Client whose transport is always the stub's."""
+
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**{**kwargs, "transport": transport})
+
+    class StubAsyncClient(httpx2.AsyncClient):
+        """An httpx2.AsyncClient whose transport is always the stub's."""
+
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**{**kwargs, "transport": transport})
+
+    monkeypatch.setattr(httpx2, "Client", StubClient)
+    monkeypatch.setattr(httpx2, "AsyncClient", StubAsyncClient)
+    stub_broker = broker.HttpClientBroker()
+    monkeypatch.setattr(broker, "DEFAULT_HTTP_BROKER", stub_broker)
+    yield web
+    stub_broker.close()
 
 
 # Rich reads COLUMNS once, when a console is built, and `devops_cli.output.console` caches one per
@@ -146,12 +266,16 @@ def isolate_llm_response_cache(tmp_path: Path):
 
 
 @pytest.fixture(autouse=True)
-def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """Ensure tests run against an isolated temporary .data/ directory to protect user reviews."""
+    from devops_cli.config.settings import reset_settings_cache
+
+    reset_settings_cache()
     test_data_dir = (tmp_path / ".data").resolve()
     test_data_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(test_data_dir))
     yield test_data_dir
+    reset_settings_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -168,74 +292,58 @@ def isolate_gh_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture(autouse=True)
-def protect_workspace_config():
-    """Ensure workspace config.yaml is never modified during test execution."""
-    workspace_config = (Path(__file__).parent.parent / "config.yaml").resolve()
-    try:
-        initial_stat = workspace_config.stat() if workspace_config.exists() else None
-    except OSError:
-        initial_stat = None
-    initial_content = workspace_config.read_bytes() if initial_stat is not None else None
-    yield
-    if initial_content is None:
-        if workspace_config.exists():
-            workspace_config.unlink(missing_ok=True)
-            pytest.fail(f"Test created unauthorized workspace config at {workspace_config}!")
-    elif not workspace_config.exists():
-        workspace_config.write_bytes(initial_content)
-        pytest.fail(f"Test deleted workspace config at {workspace_config}!")
-    else:
-        try:
-            curr_stat = workspace_config.stat()
-            curr_mtime = getattr(curr_stat, "st_mtime_ns", None)
-            init_mtime = getattr(initial_stat, "st_mtime_ns", None)
-            curr_size = getattr(curr_stat, "st_size", None)
-            init_size = getattr(initial_stat, "st_size", None)
-            if (
-                curr_mtime is not None
-                and init_mtime is not None
-                and curr_mtime == init_mtime
-                and curr_size == init_size
-            ):
-                return
-        except OSError:
-            pass
-        current_content = workspace_config.read_bytes()
-        if current_content != initial_content:
-            workspace_config.write_bytes(initial_content)
-            pytest.fail(f"Test mutated workspace config at {workspace_config}!")
-
-
-@pytest.fixture(autouse=True)
-def isolate_devops_cli_config(tmp_path_factory: pytest.TempPathFactory):
-    """Ensure tests do not load or mutate local workspace config.yaml or ~/.config."""
+def isolate_devops_cli_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """Ensure every test gets its own temporary config through DEVOPS_CLI_CONFIG."""
     from devops_cli.config.settings import reset_settings_cache
     from devops_cli.telemetry.tracer import reset_tracer
 
-    # Parsed configuration is held process-wide, so a test starts from disk rather than
-    # from whatever the previous test happened to leave behind.
     reset_settings_cache()
     reset_tracer()
-    config_dir = tmp_path_factory.mktemp("isolated_test_config")
-    dummy_config = config_dir / "config.yaml"
-    dummy_config.write_text(
-        "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\nai:\n  allow_private_network: true\n  rag:\n    enabled: false\n",
+    test_config_dir = (tmp_path / ".test_config").resolve()
+    test_config_dir.mkdir(parents=True, exist_ok=True)
+    test_config = test_config_dir / "config.yaml"
+    test_config.write_text(
+        "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\n"
+        "ai:\n  allow_private_network: true\n  rag:\n    enabled: false\n",
         encoding="utf-8",
     )
-    with (
-        patch.dict(
-            os.environ,
-            {
-                "DEVOPS_CLI_CONFIG": str(dummy_config),
-                "DEVOPS_OTEL_ENDPOINT": "http://localhost:4318",
-                "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK": "true",
-            },
-        ),
-        patch("devops_cli.config.settings.CONFIG_PATH", dummy_config),
-    ):
-        yield dummy_config
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(test_config))
+    monkeypatch.setenv("DEVOPS_OTEL_ENDPOINT", "http://localhost:4318")
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
+    with patch("devops_cli.config.settings.CONFIG_PATH", test_config):
+        yield test_config
     reset_settings_cache()
     reset_tracer()
+
+
+def _check_test_paths_isolated(
+    test_paths: Sequence[Path | str],
+    repo_root: Path,
+) -> list[str]:
+    """Verify that all configured test paths are strictly outside the project directory."""
+    violations: list[str] = []
+    resolved_root = repo_root.resolve()
+    for p in test_paths:
+        resolved_p = Path(p).resolve()
+        if resolved_p.is_relative_to(resolved_root):
+            violations.append(f"Test path {resolved_p} is inside project directory {resolved_root}")
+    return violations
+
+
+@pytest.fixture(autouse=True)
+def verify_test_paths_isolated() -> None:
+    """Ensure all test environment paths are strictly outside the project repository."""
+    from devops_cli.config.constants import CONST_ISOLATED_TEST_ENV_KEYS
+
+    repo_root = Path(__file__).resolve().parent.parent.resolve()
+    test_paths: list[Path] = []
+    for env_key in CONST_ISOLATED_TEST_ENV_KEYS:
+        val = os.environ.get(env_key)
+        if val:
+            test_paths.append(Path(val))
+    violations = _check_test_paths_isolated(test_paths, repo_root)
+    if violations:
+        raise AssertionError("; ".join(violations))
 
 
 @pytest.fixture
@@ -336,3 +444,154 @@ def reset_docker_engine_singleton():
     DockerEngineService.reset_instance()
     yield
     DockerEngineService.reset_instance()
+
+
+# =============================================================================
+# Workspace Isolation Tripwire (Issue #749)
+# =============================================================================
+
+
+def _is_xdist_worker(config: pytest.Config) -> bool:
+    """Report whether the pytest process is an xdist worker rather than the controller."""
+    return getattr(config, "workerinput", None) is not None
+
+
+def _get_git_tracked_files(repo_root: Path) -> list[str]:
+    """Return relative paths of all git-tracked files in the repository."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-files"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    except Exception:
+        return []
+
+
+def _snapshot_tracked_files(
+    repo_root: Path, tracked_files: list[str]
+) -> dict[str, tuple[int, int]]:
+    """Capture mtime and size for all tracked files."""
+    stamps: dict[str, tuple[int, int]] = {}
+    for rel_path in tracked_files:
+        full_path = repo_root / rel_path
+        try:
+            st = full_path.stat()
+            stamps[rel_path] = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            pass
+    return stamps
+
+
+def _check_config_diff(repo_root: Path, initial_bytes: bytes | None) -> str | None:
+    """Detect changes to workspace config.yaml."""
+    cfg = repo_root / "config.yaml"
+    curr = cfg.read_bytes() if cfg.exists() else None
+    if initial_bytes is None and curr is not None:
+        return "config.yaml (created by tests)"
+    if initial_bytes is not None and curr is None:
+        return "config.yaml (deleted by tests)"
+    if initial_bytes != curr:
+        return "config.yaml (content modified by tests)"
+    return None
+
+
+def _is_git_file_modified(repo_root: Path, rel_path: str) -> bool:
+    """Check if a tracked file has uncommitted changes relative to the git index.
+
+    git finds the index itself, also in a linked worktree, where `.git` is a file; a git error
+    exits non-zero and counts as a change.
+    """
+    try:
+        res = subprocess.run(
+            ["git", "-C", str(repo_root), "diff", "--quiet", "--", rel_path],
+            check=False,
+            capture_output=True,
+        )
+        return res.returncode != 0
+    except Exception:
+        return True
+
+
+def _check_tracked_diff(repo_root: Path, snapshot: dict[str, tuple[int, int]]) -> list[str]:
+    """Detect modifications or deletions in git-tracked files."""
+    diffs: list[str] = []
+    for rel_path, (init_mtime, init_size) in snapshot.items():
+        full = repo_root / rel_path
+        if not full.exists():
+            diffs.append(f"{rel_path} (deleted by tests)")
+            continue
+        try:
+            st = full.stat()
+            if (st.st_mtime_ns, st.st_size) != (init_mtime, init_size):
+                if _is_git_file_modified(repo_root, rel_path):
+                    diffs.append(f"{rel_path} (modified by tests)")
+        except OSError:
+            pass
+    return diffs
+
+
+def _check_forbidden_test_paths(repo_root: Path) -> list[str]:
+    """Detect explicit test-only paths created in the project repository."""
+    from devops_cli.config.constants import CONST_FORBIDDEN_PROJECT_TEST_PATHS
+
+    diffs: list[str] = []
+    for rel in CONST_FORBIDDEN_PROJECT_TEST_PATHS:
+        target = repo_root / rel
+        if target.exists():
+            diffs.append(f"{rel} (test path found in project directory)")
+    return diffs
+
+
+def _evaluate_workspace_tripwire(snapshot: dict[str, Any]) -> list[str]:
+    """Evaluate all workspace isolation tripwire checks against initial session snapshot."""
+    repo_root = snapshot["repo_root"]
+    failures: list[str] = []
+    cfg_diff = _check_config_diff(repo_root, snapshot.get("config_state"))
+    if cfg_diff is not None:
+        failures.append(cfg_diff)
+    failures.extend(_check_tracked_diff(repo_root, snapshot.get("tracked_snapshot", {})))
+    failures.extend(_check_forbidden_test_paths(repo_root))
+    return failures
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """Snapshot workspace config and tracked files on xdist controller."""
+    if _is_xdist_worker(session.config):
+        return
+    repo_root = Path(__file__).resolve().parent.parent
+    tracked = _get_git_tracked_files(repo_root)
+    cfg_path = repo_root / "config.yaml"
+    session.config._tripwire_snapshot = {  # type: ignore[attr-defined]
+        "repo_root": repo_root,
+        "config_state": cfg_path.read_bytes() if cfg_path.exists() else None,
+        "tracked_snapshot": _snapshot_tracked_files(repo_root, tracked),
+    }
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int | pytest.ExitCode) -> None:
+    """Verify no tests wrote to workspace config, tracked files, or left test paths."""
+    if _is_xdist_worker(session.config):
+        return
+    snapshot = getattr(session.config, "_tripwire_snapshot", None)
+    if snapshot is None:
+        return
+    failures = _evaluate_workspace_tripwire(snapshot)
+    if failures:
+        session.config._tripwire_failures = failures  # type: ignore[attr-defined]
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+def pytest_terminal_summary(terminalreporter: Any, exitstatus: Any, config: pytest.Config) -> None:
+    """Print prominent error section if test isolation tripwire detected leaks."""
+    if _is_xdist_worker(config):
+        return
+    failures = getattr(config, "_tripwire_failures", [])
+    if failures:
+        terminalreporter.section(
+            "TRIPWIRE FAILURE: Workspace mutated during test run", red=True, bold=True
+        )
+        for f in failures:
+            terminalreporter.write_line(f"  - {f}", red=True)

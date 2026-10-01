@@ -1073,6 +1073,78 @@ def test_a_cached_gate_verdict_names_the_worktree(
     ) == ([nested.resolve()], True, [])
 
 
+def test_the_gate_warns_from_a_workspace_on_a_slow_host_share(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify the gate names a 9p host-share workspace as the reason its checks run slowly."""
+    _, nested = nested_worktree
+    monkeypatch.setattr("devops_cli.ci.diagnostics.slow_mount_fstype", lambda _root: "9p")
+
+    seen = _gate_from_the_cache(nested, monkeypatch)
+
+    assert seen["warnings"] == [
+        MESSAGES.ci.gate_root_slow_mount.format(root=nested.resolve(), fstype="9p")
+    ]
+
+
+def _budget_output(duration: float, monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
+    """Run the budget check over a test step of `duration` seconds; the messages it printed."""
+    seen: dict[str, list[str]] = {"warnings": [], "muted": []}
+    monkeypatch.setattr(
+        ci_module, "print_warning", lambda msg, **_kw: seen["warnings"].append(msg), raising=False
+    )
+    monkeypatch.setattr(
+        ci_module, "print_muted", lambda msg, **_kw: seen["muted"].append(msg), raising=False
+    )
+    report = (
+        "=== slowest 10 durations ===\n"
+        "120.22s call     tests/test_secops.py::test_trivy_dry_run\n"
+        "\n"
+        "=== 6250 passed ===\n"
+    )
+    ci_module._warn_when_over_budget(
+        [
+            CheckResult(name="lint", display_title="lint", passed=True, duration_seconds=900.0),
+            CheckResult(
+                name="test",
+                display_title="tests",
+                passed=True,
+                duration_seconds=duration,
+                stdout=report,
+            ),
+        ]
+    )
+    return seen
+
+
+def test_a_test_step_over_budget_names_the_slowest_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify a test step over the budget warns and lists pytest's slowest tests."""
+    from devops_cli.config.constants import CONST_CI_TEST_BUDGET_SECONDS
+    from devops_cli.output import format_duration
+
+    seen = _budget_output(CONST_CI_TEST_BUDGET_SECONDS + 1, monkeypatch)
+
+    assert seen == {
+        "warnings": [
+            MESSAGES.ci.test_budget_exceeded.format(
+                duration=format_duration(CONST_CI_TEST_BUDGET_SECONDS + 1),
+                budget=format_duration(CONST_CI_TEST_BUDGET_SECONDS),
+            )
+        ],
+        "muted": ["  120.22s call     tests/test_secops.py::test_trivy_dry_run"],
+    }
+
+
+def test_a_test_step_within_budget_is_quiet(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify a test step inside the budget prints nothing, whatever other checks took."""
+    from devops_cli.config.constants import CONST_CI_TEST_BUDGET_SECONDS
+
+    assert _budget_output(CONST_CI_TEST_BUDGET_SECONDS, monkeypatch) == {
+        "warnings": [],
+        "muted": [],
+    }
+
+
 def _stale_warning(worktree: Path) -> str:
     """The warning the gate gives for a stale worktree, its repair command shell-quoted."""
     root = worktree.resolve()

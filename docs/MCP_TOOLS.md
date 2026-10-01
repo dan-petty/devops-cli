@@ -6,28 +6,26 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 
 | Tool Name | Description |
 |---|---|
-| [`ai_architecture`](#ai-architecture) | Analyze architectural module boundaries, dependency graphs, and cyclic imports. |
 | [`ai_ast_graph`](#ai-ast-graph) | Synthesize whole-repository code symbol and reference graph across polyglot languages. |
 | [`ai_ast_parse`](#ai-ast-parse) | Parse a polyglot source file (Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell, Markdown) into syntax symbols or execute S-expression query. |
 | [`ai_backend_probe`](#ai-backend-probe) | Directly probe health, latency, and registered models of an inference backend. |
 | [`ai_chaos_model`](#ai-chaos-model) | Execute model dependency chaos fault injection and verify automated fallback recovery. |
-| [`ai_constellation_status`](#ai-constellation-status) | Display constellation fleet status, active fallback routes, and suspended tasks. |
+| [`ai_constellation_status`](#ai-constellation-status) | Show the constellation flag: state, reason and recorded fallback route. |
 | [`ai_diagram`](#ai-diagram) | Generate visual Mermaid architecture or threat modeling diagram. |
-| [`ai_failover`](#ai-failover) | Emergency failover controller re-routing tasks to designated fallback endpoints. |
+| [`ai_failover`](#ai-failover) | Record a fallback route in the constellation flag; ai_gateway_failover reroutes requests. |
 | [`ai_gateway_failover`](#ai-gateway-failover) | Trigger or test circuit-breaker failover of a virtual model to secondary backends. |
 | [`ai_gateway_routes`](#ai-gateway-routes) | List registered virtual models and target backend inference instances. |
 | [`ai_gateway_status`](#ai-gateway-status) | Probe LLM Gateway health, latency, and circuit breaker metrics. |
-| [`ai_harness_status`](#ai-harness-status) | Inspect AI agent harness slot configuration, active models, skills, and sandbox state. |
+| [`ai_harness_status`](#ai-harness-status) | Inspect the AI agent harness slots as configured: provider, model, skills and tools. |
 | [`ai_ingest_library`](#ai-ingest-library) | Introspect an installed Python package and extract its public API contract into .data/libraries/. |
 | [`ai_inspect_symbol`](#ai-inspect-symbol) | Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts. |
-| [`ai_lightllm_scale`](#ai-lightllm-scale) | Inspect or configure LightLLM high-throughput serving parameters. |
 | [`ai_pack_context`](#ai-pack-context) | Pack and prune source code context to fit token budget while preserving signatures and types. |
 | [`ai_prewarm_models`](#ai-prewarm-models) | Prewarm local LLM models into GPU VRAM or proactively evict them across candidate cluster nodes. |
 | [`ai_query_library`](#ai-query-library) | Search library contracts and documentation via semantic search or exact symbol lookup. |
-| [`ai_quiesce`](#ai-quiesce) | Centralized emergency quiesce cleanly suspending active agent loops and background tasks. |
+| [`ai_quiesce`](#ai-quiesce) | Set the constellation quiesce flag with a reason; it stops nothing. |
 | [`ai_read`](#ai-read) | Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window). |
 | [`ai_repomap`](#ai-repomap) | Generate a compact whole-repository AST symbol map for AI context. |
-| [`ai_resume`](#ai-resume) | Gracefully resume suspended constellation agent loops and task runners. |
+| [`ai_resume`](#ai-resume) | Clear the constellation quiesce or failover flag. |
 | [`ai_spend_report`](#ai-spend-report) | Report approximate AI spend per backend service, model, or provider over time. |
 | [`ai_subagent_offload`](#ai-subagent-offload) | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
 | [`ai_test_gen`](#ai-test-gen) | Synthesize isolated pytest unit test suite for a target Python file. |
@@ -65,9 +63,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_pages_verify`](#gh-pages-verify) | Verify local repository readiness for GitHub Pages publishing. |
 | [`gh_project_audit`](#gh-project-audit) | Audit project board health and alignment against standardized template. |
 | [`gh_project_list`](#gh-project-list) | List available GitHub Projects v2 boards for user or organization. |
-| [`gh_project_reconcile`](#gh-project-reconcile) | Reconcile custom fields (Status, Priority, Category, Value, Effort) on GitHub Projects v2 items. |
+| [`gh_project_reconcile`](#gh-project-reconcile) | Reconcile Status, Priority and Milestone on GitHub Projects v2 items, listing each change and its source. |
 | [`gh_project_status`](#gh-project-status) | Inspect GitHub Projects v2 template configuration, fields, and view definitions. |
-| [`gh_project_sync`](#gh-project-sync) | Synchronize task items from task tracking into GitHub Projects v2 status. |
+| [`gh_project_sync`](#gh-project-sync) | Create or update the project board, add open issues, and reconcile Status, Priority and Milestone. |
 | [`gh_rate_limit`](#gh-rate-limit) | Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 | [`gh_run_view`](#gh-run-view) | View details and diagnostic failure logs of a specific GitHub Actions workflow run. |
 | [`gh_runs_list`](#gh-runs-list) | List recent GitHub Actions CI/CD workflow runs. |
@@ -145,7 +143,7 @@ Pass the domain name alone, for example `k8s`. |
 | [`ssh_audit`](#ssh-audit) | Audit SSH key expiration dates and key file permissions. |
 | [`ssh_status`](#ssh-status) | Inspect age and rotation status of managed SSH keys in ~/.ssh. |
 | [`telemetry_logfire_status`](#telemetry-logfire-status) | Check Logfire structured observability bridge status, token configuration, and recorded metrics. |
-| [`telemetry_profile`](#telemetry-profile) | Display terminal waterfall latency breakdown of OpenTelemetry trace spans. |
+| [`telemetry_profile`](#telemetry-profile) | Run a command, or name a trace, and show its span waterfall as Jaeger recorded it. |
 | [`telemetry_status`](#telemetry-status) | Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings. |
 | [`telemetry_test_span`](#telemetry-test-span) | Emit a test OpenTelemetry trace span and metric to verify collector pipeline health. |
 | [`tf_apply`](#tf-apply) | Apply OpenTofu / Terraform Infrastructure-as-Code changes. |
@@ -170,17 +168,6 @@ Pass the domain name alone, for example `k8s`. |
 | [`workspace_list`](#workspace-list) | Show the active VS Code workspace file and configured repository directories. |
 
 ---
-
-### `ai_architecture`
-
-Analyze architectural module boundaries, dependency graphs, and cyclic imports.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `target` | `string` | No | `src` | - |
-| `max_depth` | `integer` | No | `4` | - |
 
 ### `ai_ast_graph`
 
@@ -229,7 +216,7 @@ Execute model dependency chaos fault injection and verify automated fallback rec
 
 ### `ai_constellation_status`
 
-Display constellation fleet status, active fallback routes, and suspended tasks.
+Show the constellation flag: state, reason and recorded fallback route.
 
 *No parameters required.*
 
@@ -246,7 +233,7 @@ Generate visual Mermaid architecture or threat modeling diagram.
 
 ### `ai_failover`
 
-Emergency failover controller re-routing tasks to designated fallback endpoints.
+Record a fallback route in the constellation flag; ai_gateway_failover reroutes requests.
 
 **Parameters:**
 
@@ -255,7 +242,6 @@ Emergency failover controller re-routing tasks to designated fallback endpoints.
 | `target_provider` | `string` | No | `ollama` | - |
 | `target_model` | `string` | No | `qwen2.5-coder:7b` | - |
 | `dry_run` | `boolean` | No | `False` | - |
-| `force` | `boolean` | No | `False` | - |
 
 ### `ai_gateway_failover`
 
@@ -293,7 +279,7 @@ Probe LLM Gateway health, latency, and circuit breaker metrics.
 
 ### `ai_harness_status`
 
-Inspect AI agent harness slot configuration, active models, skills, and sandbox state.
+Inspect the AI agent harness slots as configured: provider, model, skills and tools.
 
 *No parameters required.*
 
@@ -318,17 +304,6 @@ Inspect exact symbol signature, parameter types, return type, and docstrings fro
 |---|---|---|---|---|
 | `symbol` | `string` | Yes | - | - |
 | `package` | `string` | No | `` | - |
-
-### `ai_lightllm_scale`
-
-Inspect or configure LightLLM high-throughput serving parameters.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `replicas` | `integer` | No | `1` | - |
-| `tensor_parallel_size` | `integer` | No | `1` | - |
 
 ### `ai_pack_context`
 
@@ -372,7 +347,7 @@ Search library contracts and documentation via semantic search or exact symbol l
 
 ### `ai_quiesce`
 
-Centralized emergency quiesce cleanly suspending active agent loops and background tasks.
+Set the constellation quiesce flag with a reason; it stops nothing.
 
 **Parameters:**
 
@@ -408,7 +383,7 @@ Generate a compact whole-repository AST symbol map for AI context.
 
 ### `ai_resume`
 
-Gracefully resume suspended constellation agent loops and task runners.
+Clear the constellation quiesce or failover flag.
 
 **Parameters:**
 
@@ -835,7 +810,7 @@ List available GitHub Projects v2 boards for user or organization.
 
 ### `gh_project_reconcile`
 
-Reconcile custom fields (Status, Priority, Category, Value, Effort) on GitHub Projects v2 items.
+Reconcile Status, Priority and Milestone on GitHub Projects v2 items, listing each change and its source.
 
 **Parameters:**
 
@@ -853,7 +828,7 @@ Inspect GitHub Projects v2 template configuration, fields, and view definitions.
 
 ### `gh_project_sync`
 
-Synchronize task items from task tracking into GitHub Projects v2 status.
+Create or update the project board, add open issues, and reconcile Status, Priority and Milestone.
 
 **Parameters:**
 
@@ -965,11 +940,7 @@ Pass the domain name alone, for example `k8s`.
 
 Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks.
 
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `namespace` | `string` | No | `default` | - |
+*No parameters required.*
 
 ### `k8s_bootstrap`
 
@@ -989,9 +960,9 @@ Inject or validate Kubernetes chaos engineering experiments and cluster resilien
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `action` | `string` | No | `validate` | - |
 | `experiment` | `string` | No | `pod-failure` | - |
 | `namespace` | `string` | No | `default` | - |
+| `dry_run` | `boolean` | No | `True` | - |
 
 ### `k8s_create_tls_secret`
 
@@ -1250,6 +1221,7 @@ Programmatically mark a pull request review discussion thread as resolved.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `thread_id` | `string` | Yes | - | - |
+| `without_reply` | `boolean` | No | `False` | - |
 
 ### `pr_threads_list`
 
@@ -1358,11 +1330,7 @@ Display uncommitted changes and branch drift across workspace repositories.
 
 Fetch and pull tracking branches across workspace repositories.
 
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `all_repos` | `boolean` | No | `False` | - |
+*No parameters required.*
 
 ### `review_branch`
 
@@ -1641,13 +1609,14 @@ Check Logfire structured observability bridge status, token configuration, and r
 
 ### `telemetry_profile`
 
-Display terminal waterfall latency breakdown of OpenTelemetry trace spans.
+Run a command, or name a trace, and show its span waterfall as Jaeger recorded it.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `command` | `string` | No | `` | - |
+| `trace_id` | `string` | No | `` | - |
 
 ### `telemetry_status`
 

@@ -174,7 +174,7 @@ def test_k8s_deploy_stack_all_dry_run() -> None:
         result = runner.invoke(app, ["deploy-stack", "--stack", "all"])
         assert result.exit_code == 0
         assert "argocd" in result.output
-        assert "kube-prometheus" in result.output
+        assert "k8s-monitoring" in result.output
         assert "ollama" in result.output
         assert "valkey.yaml" in result.output
     finally:
@@ -241,6 +241,239 @@ def test_adopt_helm_resource_if_conflict(mock_run: MagicMock) -> None:
     res = _adopt_helm_resource_if_conflict(err, "ollama", "llm", context="local-k3s")
     assert res is True
     assert mock_run.call_count == 2
+
+
+_OPERATOR_CRDS = tuple(
+    f"{plural}.monitoring.coreos.com"
+    for plural in (
+        "alertmanagerconfigs",
+        "alertmanagers",
+        "podmonitors",
+        "probes",
+        "prometheusagents",
+        "prometheuses",
+        "prometheusrules",
+        "scrapeconfigs",
+        "servicemonitors",
+        "thanosrulers",
+    )
+)
+
+
+def _ownership_conflict(kind: str, name: str, namespace: str) -> str:
+    """Helm's refusal to adopt a resource it does not own, as pkg/action/validate.go words it."""
+    return (
+        f'Error: unable to continue with install: {kind} "{name}" in namespace "{namespace}" '
+        "exists and cannot be imported into the current release: invalid ownership metadata; "
+        'label validation error: missing key "app.kubernetes.io/managed-by": must be set to "Helm"'
+    )
+
+
+def _renders_service_monitor(values: object) -> bool:
+    """Whether chart values add a ServiceMonitor object or turn on a chart's own monitor."""
+    if isinstance(values, list):
+        return any(_renders_service_monitor(item) for item in values)
+    if not isinstance(values, dict):
+        return False
+    own_monitor = values.get("serviceMonitor")
+    return (
+        values.get("kind") == "ServiceMonitor"
+        or (isinstance(own_monitor, dict) and own_monitor.get("enabled") is True)
+        or any(_renders_service_monitor(item) for item in values.values())
+    )
+
+
+def test_prometheus_operator_crds_install_before_every_service_monitor() -> None:
+    """The CRD release installs first, ahead of every release whose values render a ServiceMonitor.
+
+    k8s-monitoring 4.x and dcgm-exporter ship no ServiceMonitor CRD, so on a cluster without it
+    Helm refused both releases and the infra stack came up without Alloy (#819).
+    """
+    from devops_cli.commands.k8s.stack_lifecycle import (
+        _HELM_RELEASES_BY_STACK,
+        _HELM_REPOS_BY_STACK,
+    )
+
+    crds = _HELM_RELEASES_BY_STACK["infra"][0]
+    monitor_releases = [
+        (stack, release["name"])
+        for stack, releases in _HELM_RELEASES_BY_STACK.items()
+        for release in releases
+        if _renders_service_monitor(yaml.safe_load(Path(release["values"]).read_text("utf-8")))
+    ]
+
+    assert (
+        (crds["name"], crds["chart"], crds["namespace"]),
+        crds["chart"].split("/")[0] in _HELM_REPOS_BY_STACK["infra"],
+        monitor_releases,
+    ) == (
+        ("prometheus-operator-crds", "prometheus-community/prometheus-operator-crds", "monitoring"),
+        True,
+        [("infra", "k8s-monitoring"), ("infra", "dcgm-exporter")],
+    )
+
+
+@pytest.mark.parametrize(
+    ("conflict", "release", "target"),
+    [
+        # A leftover CRD is cluster-scoped: Helm prints an empty namespace and kubectl gets no -n.
+        (
+            ("CustomResourceDefinition", "servicemonitors.monitoring.coreos.com", ""),
+            ("prometheus-operator-crds", "monitoring"),
+            ["customresourcedefinition", "servicemonitors.monitoring.coreos.com"],
+        ),
+        # k8s-monitoring's gateway monitor sits in llm, outside the release's own namespace.
+        (
+            ("ServiceMonitor", "llm-gateway", "llm"),
+            ("k8s-monitoring", "monitoring"),
+            ["servicemonitor", "llm-gateway", "-n", "llm"],
+        ),
+    ],
+)
+def test_adopt_helm_resource_addresses_cluster_scoped_and_namespaced_conflicts(
+    conflict: tuple[str, str, str], release: tuple[str, str], target: list[str]
+) -> None:
+    """Adoption annotates and labels the resource Helm named, passing -n only for a namespaced
+    one, and records the release's namespace, which Helm checks the annotation against (#819)."""
+    from devops_cli.commands.k8s.stack_lifecycle import _adopt_helm_resource_if_conflict
+
+    release_name, release_namespace = release
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_run:
+        adopted = _adopt_helm_resource_if_conflict(
+            _ownership_conflict(*conflict), release_name, release_namespace, context="local-k3s"
+        )
+
+    assert (adopted, [c.args[0] for c in mock_run.call_args_list]) == (
+        True,
+        [
+            [
+                "kubectl",
+                "annotate",
+                *target,
+                f"meta.helm.sh/release-name={release_name}",
+                f"meta.helm.sh/release-namespace={release_namespace}",
+                "--overwrite",
+                "--context",
+                "local-k3s",
+            ],
+            [
+                "kubectl",
+                "label",
+                *target,
+                "app.kubernetes.io/managed-by=Helm",
+                "--overwrite",
+                "--context",
+                "local-k3s",
+            ],
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("helm_errors", "expected"),
+    [
+        # Helm names one leftover CRD per attempt; the release installs once all ten are adopted.
+        (
+            [_ownership_conflict("CustomResourceDefinition", crd, "") for crd in _OPERATOR_CRDS],
+            (0, 11, list(_OPERATOR_CRDS)),
+        ),
+        # An adoption that does not clear the conflict fails the same way twice, ending retries.
+        (
+            [_ownership_conflict("CustomResourceDefinition", _OPERATOR_CRDS[8], "")] * 30,
+            (1, 2, [_OPERATOR_CRDS[8]]),
+        ),
+    ],
+)
+def test_helm_retries_adopt_each_leftover_crd_until_the_release_installs(
+    helm_errors: list[str], expected: tuple[int, int, list[str]]
+) -> None:
+    """Every leftover CRD is adopted in one deploy, and a conflict adoption cannot clear stops
+    the retries instead of repeating Helm (#819)."""
+    from devops_cli.commands.k8s.stack_lifecycle import (
+        _HELM_RELEASES_BY_STACK,
+        _run_helm_with_adoption_retries,
+    )
+
+    release = _HELM_RELEASES_BY_STACK["infra"][0]
+    helm_cmd = ["helm", "upgrade", "--install", release["name"], release["chart"]]
+    pending_errors = iter(helm_errors)
+
+    def fake_run(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        if cmd != helm_cmd:
+            return _mock_proc(0)
+        error = next(pending_errors, None)
+        return _mock_proc(1, stderr=error) if error else _mock_proc(0)
+
+    with patch(
+        "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd", side_effect=fake_run
+    ) as mock_run:
+        result = _run_helm_with_adoption_retries(helm_cmd, release, None)
+
+    calls = [c.args[0] for c in mock_run.call_args_list]
+    assert (
+        result.returncode,
+        calls.count(helm_cmd),
+        [cmd[3] for cmd in calls if cmd[:2] == ["kubectl", "annotate"]],
+    ) == expected
+
+
+def test_teardown_stack_keeps_the_prometheus_operator_crds() -> None:
+    """teardown-stack uninstalls every other infra release but never the CRD release, whose
+    uninstall would delete every ServiceMonitor in the cluster; the CRDs also carry Helm's keep
+    policy against an uninstall by hand (#819)."""
+    from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
+
+    infra_names = [r["name"] for r in _HELM_RELEASES_BY_STACK["infra"]]
+    crd_values = yaml.safe_load(
+        Path("k8s/monitoring/prometheus-operator-crds-values.yaml").read_text("utf-8")
+    )
+    with (
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle.runtime._cluster_reachable",
+            return_value=True,
+        ),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd",
+            return_value=_mock_proc(0),
+        ) as mock_run,
+    ):
+        result = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
+
+    uninstalled = [
+        c.args[0][2] for c in mock_run.call_args_list if c.args[0][:2] == ["helm", "uninstall"]
+    ]
+    assert (
+        result.exit_code,
+        "prometheus-operator-crds" in infra_names,
+        uninstalled,
+        crd_values["crds"]["annotations"],
+    ) == (
+        0,
+        True,
+        [name for name in reversed(infra_names) if name != "prometheus-operator-crds"],
+        {"helm.sh/resource-policy": "keep"},
+    )
+
+
+@patch("devops_cli.commands.k8s._run_cmd")
+def test_recover_stuck_helm_release_if_pending(mock_run: MagicMock) -> None:
+    """_recover_stuck_helm_release_if_pending deletes lock secret when release is stuck in pending state."""
+    from devops_cli.commands.k8s import _recover_stuck_helm_release_if_pending
+
+    err_unrelated = "Error: timed out waiting for condition"
+    res_unrelated = _recover_stuck_helm_release_if_pending(err_unrelated, "argocd", "argocd")
+
+    err_lock = "Error: UPGRADE FAILED: another operation (install/upgrade/rollback) is in progress"
+    mock_run.side_effect = [
+        MagicMock(
+            returncode=0, stdout=json.dumps({"version": 50, "info": {"status": "pending-upgrade"}})
+        ),
+        MagicMock(returncode=0, stdout="secret deleted"),
+    ]
+    res_lock = _recover_stuck_helm_release_if_pending(
+        err_lock, "argocd", "argocd", context="local-k3s"
+    )
+    assert (res_unrelated, res_lock, mock_run.call_count) == (False, True, 2)
 
 
 def test_k8s_apply_and_logs() -> None:
@@ -825,10 +1058,10 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     """Verify workload resource limits, relaxed memory constraints, and resilient probes."""
     repo_root = Path(__file__).resolve().parent.parent
 
-    # 1. Ollama Deployment: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup, readiness and liveness probes
+    # 1. Ollama DaemonSet: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup, readiness and liveness probes
     ollama_path = repo_root / "k8s" / "llm" / "profiles" / "ollama-profiles.yaml"
     ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
-    dep = next(d for d in ollama_docs if d and d.get("kind") == "Deployment")
+    dep = next(d for d in ollama_docs if d and d.get("kind") in ("Deployment", "DaemonSet"))
     container = dep["spec"]["template"]["spec"]["containers"][0]
     resources = container.get("resources", {})
     startup = container["startupProbe"]
@@ -949,20 +1182,30 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert fb_values["resources"]["limits"]["cpu"] == "500m"
     assert fb_values["resources"]["limits"]["memory"] == "1024Mi"
 
-    # 11. Prometheus stack values: elevated requests and limits to eliminate OOM kills
-    prom_values = yaml.safe_load(
-        (repo_root / "k8s" / "monitoring" / "prometheus-values.yaml").read_text(encoding="utf-8")
+    # 11. K8s monitoring stack values: elevated requests and limits to eliminate OOM kills
+    k8s_mon_values = yaml.safe_load(
+        (repo_root / "k8s" / "monitoring" / "k8s-monitoring-values.yaml").read_text(
+            encoding="utf-8"
+        )
     )
+    ksm_res = k8s_mon_values["telemetryServices"]["kube-state-metrics"]["resources"]
+    node_res = k8s_mon_values["telemetryServices"]["node-exporter"]["resources"]
+    alloy_metrics_res = k8s_mon_values["collectors"]["alloy-metrics"]["alloy"]["resources"]
     assert (
-        prom_values["prometheus"]["prometheusSpec"]["resources"]["requests"]["memory"] == "1024Mi"
+        ksm_res["requests"]["memory"],
+        ksm_res["limits"]["memory"],
+        node_res["requests"]["memory"],
+        node_res["limits"]["memory"],
+        alloy_metrics_res["requests"]["memory"],
+        alloy_metrics_res["limits"]["memory"],
+    ) == (
+        "64Mi",
+        "256Mi",
+        "64Mi",
+        "256Mi",
+        "256Mi",
+        "1024Mi",
     )
-    assert prom_values["prometheus"]["prometheusSpec"]["resources"]["limits"]["memory"] == "4096Mi"
-    assert prom_values["grafana"]["resources"]["requests"]["memory"] == "768Mi"
-    assert prom_values["grafana"]["resources"]["limits"]["memory"] == "2048Mi"
-    assert prom_values["nodeExporter"]["resources"]["requests"]["memory"] == "64Mi"
-    assert prom_values["nodeExporter"]["resources"]["limits"]["memory"] == "256Mi"
-    assert prom_values["kubeStateMetrics"]["resources"]["requests"]["memory"] == "64Mi"
-    assert prom_values["kubeStateMetrics"]["resources"]["limits"]["memory"] == "256Mi"
 
     # 12. GPU Feature Discovery DaemonSet: Burstable QoS requests and limits
     gfd_docs = list(
@@ -974,7 +1217,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     )
     gfd_ds = next(d for d in gfd_docs if d and d.get("kind") == "DaemonSet")
     gfd_container = gfd_ds["spec"]["template"]["spec"]["containers"][0]
-    assert gfd_container["image"] == "nvcr.io/nvidia/gpu-feature-discovery:v0.16.2"
+    assert gfd_container["image"] == "nvcr.io/nvidia/gpu-feature-discovery:v0.20.1"
     gfd_res = gfd_container["resources"]
     assert gfd_res["requests"]["cpu"] == "50m"
     assert gfd_res["requests"]["memory"] == "64Mi"

@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import time
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
 from devops_cli.config.constants import CONST_OTEL_COLLECTOR_NAMESPACE, CONST_OTEL_COLLECTOR_SERVICE
-from devops_cli.config.defaults import DEFAULT_TELEMETRY_TEST_NAME
+from devops_cli.config.defaults import (
+    DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS,
+    DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS,
+    DEFAULT_TELEMETRY_TEST_NAME,
+)
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
@@ -33,6 +37,7 @@ from devops_cli.telemetry.tracer import (
 from devops_cli.telemetry.waterfall import (
     flatten_waterfall_tree as _flatten_tree_for_display,
 )
+from devops_cli.telemetry.waterfall import query_jaeger_trace
 from devops_cli.telemetry.waterfall import (
     render_waterfall_bar as _render_waterfall_bar,
 )
@@ -286,6 +291,51 @@ def telemetry_test_cmd(
 # =============================================================================
 
 
+def _jaeger_url() -> str:
+    """Return the configured Jaeger Query URL."""
+    jaeger_cfg = getattr(load_settings(), "jaeger", None)
+    return str(getattr(jaeger_cfg, "url", "") or "http://localhost:16686")
+
+
+def _run_profiled_command(command: str, tracer: OTelTelemetryClient) -> str:
+    """Run a command inside a profile span and return the trace it ran under.
+
+    `run_subprocess` hands the child that trace through TRACEPARENT. The child gets the
+    caller's full environment, as if run directly, so its own telemetry settings reach it.
+    """
+    import shlex
+
+    from devops_cli.core.process import run_subprocess
+
+    cmd_args = shlex.split(command)
+    with trace_span("telemetry.profile", attributes={"command.line": command}) as span_h:
+        trace_id = tracer.current_trace_id or ""
+        print_info(f"Profiling command: [bold]{command}[/bold] (Trace: {trace_id})", prefix=False)
+        start_time = time.perf_counter()
+        proc = run_subprocess(cmd_args, capture_output=False, quiet=True, isolate_env=False)
+        span_h.set_attribute("cli.exit_code", proc.returncode)
+        span_h.set_attribute("cli.elapsed_ms", (time.perf_counter() - start_time) * 1000)
+    tracer.flush()
+    return trace_id
+
+
+def _read_trace_from_jaeger(trace_id: str, jaeger_url: str) -> list[dict[str, Any]]:
+    """Poll Jaeger until the trace stops growing, within a fixed bound.
+
+    Spans reach the collector asynchronously, so one read can catch a trace half-exported.
+    """
+    deadline = time.monotonic() + DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS
+    spans: list[dict[str, Any]] = []
+    while True:
+        fetched = query_jaeger_trace(trace_id, jaeger_url=jaeger_url)
+        if fetched and len(fetched) == len(spans):
+            return fetched
+        spans = fetched or spans
+        if time.monotonic() >= deadline:
+            return spans
+        time.sleep(DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS)
+
+
 @app.command("profile")
 def telemetry_profile_cmd(
     command: Annotated[
@@ -296,10 +346,6 @@ def telemetry_profile_cmd(
         str | None,
         typer.Option("--trace-id", "-t", help=HELP.telemetry.trace_id),
     ] = None,
-    last: Annotated[
-        bool,
-        typer.Option("--last", "-l", help=HELP.telemetry.last),
-    ] = False,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -309,14 +355,14 @@ def telemetry_profile_cmd(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans."""
+    """Run a command, or name a trace, and show its span waterfall as Jaeger recorded it."""
     if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops telemetry profile",
             action="profile_trace_waterfall",
             details={
                 "command": command,
-                "trace_id": trace_id or "latest",
+                "trace_id": trace_id,
                 "profile_mode": "dry_run",
                 "status": "PROFILED_DRY_RUN",
             },
@@ -324,56 +370,36 @@ def telemetry_profile_cmd(
         return
 
     import json
-    import os
-    import secrets
-    import shlex
 
-    from devops_cli.core.process import run_subprocess
-    from devops_cli.output import print_warning, write_stdout
-    from devops_cli.telemetry.tracer import (
-        build_span_waterfall_tree,
-        get_trace_spans,
-    )
+    from devops_cli.output import write_stdout
+    from devops_cli.telemetry.tracer import build_span_waterfall_tree
 
-    executed_trace_id = trace_id
+    if not command and not trace_id:
+        print_error("Pass a command to profile, or --trace-id to show a trace already in Jaeger.")
+        raise typer.Exit(2)
 
+    tracer = get_tracer()
     if command:
-        executed_trace_id = secrets.token_hex(16)
-        print_info(
-            f"Profiling command: [bold]{command}[/bold] (Trace: {executed_trace_id[:8]}...)",
-            prefix=False,
+        if not tracer.enabled:
+            print_error(
+                "Telemetry export is off, so the command's spans would never reach a collector. "
+                "Enable it (DEVOPS_TELEMETRY_ENABLED=true) and run the collector."
+            )
+            raise typer.Exit(1)
+        trace_id = _run_profiled_command(command, tracer)
+
+    jaeger_url = _jaeger_url()
+    spans = _read_trace_from_jaeger(str(trace_id), jaeger_url)
+    if not spans:
+        print_error(
+            f"No spans for trace {trace_id} reached Jaeger at {jaeger_url} within "
+            f"{DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS:.0f}s; check the collector and Jaeger "
+            "are running."
         )
-        cmd_args = shlex.split(command)
-        sub_env = dict(os.environ)
-        sub_env["DEVOPS_CLI_TRACE_ID"] = executed_trace_id
-        sub_env["TRACEPARENT"] = f"00-{executed_trace_id}-{secrets.token_hex(8)}-01"
-
-        with trace_span(
-            f"cli.{cmd_args[0] if cmd_args else 'command'}",
-            attributes={"command.line": command},
-        ) as span_h:
-            start_time = time.perf_counter()
-            proc = run_subprocess(cmd_args, env=sub_env, capture_output=False, quiet=True)
-            elapsed_ms = (time.perf_counter() - start_time) * 1000
-            span_h.set_attribute("cli.exit_code", proc.returncode)
-            span_h.set_attribute("cli.elapsed_ms", elapsed_ms)
-
-    spans = get_trace_spans(executed_trace_id)
-    if not spans and not command and not trace_id:
-        with trace_span("telemetry.sample_profile", attributes={"service.name": "devops-cli"}):
-            time.sleep(0.015)
-            with trace_span("sample.database_lookup", attributes={"db.system": "sqlite"}):
-                time.sleep(0.008)
-            with trace_span("sample.ai_inference", attributes={"ai.model": "qwen2.5-coder"}):
-                time.sleep(0.022)
-        spans = get_trace_spans(None)
+        raise typer.Exit(1)
 
     tree = build_span_waterfall_tree(spans)
-    if not tree:
-        print_warning("No telemetry spans recorded for the specified trace.", prefix=False)
-        return
-
-    total_trace_id = spans[0].get("traceId", "unknown") if spans else "unknown"
+    total_trace_id = str(trace_id)
     min_start = min(int(s.get("startTimeUnixNano", 0)) for s in spans)
     max_end = max(int(s.get("endTimeUnixNano", 0)) for s in spans)
     total_dur_ms = max(0.0, (max_end - min_start) / 1e6)
@@ -430,10 +456,5 @@ def telemetry_profile_cmd(
 @app.command("open-ui")
 def telemetry_open_ui_cmd() -> None:
     """Print and show the Jaeger Query UI endpoint for inspecting traces."""
-    settings = load_settings()
-    jaeger_cfg = getattr(settings, "jaeger", None)
-    jaeger_url = (
-        jaeger_cfg.url if jaeger_cfg and hasattr(jaeger_cfg, "url") else "http://localhost:16686"
-    )
-    print_info(f"[bold]Jaeger Tracing UI:[/bold] {format_link(jaeger_url)}", prefix=False)
+    print_info(f"[bold]Jaeger Tracing UI:[/bold] {format_link(_jaeger_url())}", prefix=False)
     print_info(MESSAGES.telemetry.port_forward_tip, prefix=False)

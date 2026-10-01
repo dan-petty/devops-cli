@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
+from http import HTTPStatus
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import quote
 
 import httpx2
 import typer
@@ -21,9 +24,17 @@ from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.http.validation import validate_service_url
 from devops_cli.lang import ERRORS, HELP, MESSAGES
-from devops_cli.models.grafana import GrafanaAlertRule, GrafanaDashboard, GrafanaDatasource
+from devops_cli.models.grafana import (
+    DashboardLintReport,
+    DashboardSyncOutcome,
+    GrafanaAlertRule,
+    GrafanaDashboard,
+    GrafanaDashboardDetail,
+    GrafanaDatasource,
+)
 from devops_cli.output import (
     print_error,
+    print_info,
     print_success,
     print_table,
     print_warning,
@@ -43,6 +54,8 @@ app.add_typer(dashboards_app, name="dashboards")
 
 def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
     """Return (base_url, headers) for Grafana API requests."""
+    from devops_cli.k8s.credentials import get_or_mint_grafana_auth
+
     if not settings.grafana.url:
         print_error(
             MESSAGES.grafana.url_not_configured,
@@ -58,8 +71,16 @@ def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
         raise typer.Exit(1)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     token = get_grafana_token(settings)
-    if token:
+    if token and not token.startswith("*"):
         headers["Authorization"] = f"Bearer {token}"
+    else:
+        from devops_cli.k8s.credentials import get_or_mint_grafana_auth
+
+        minted_token, basic_auth = get_or_mint_grafana_auth(settings)
+        if minted_token:
+            headers["Authorization"] = f"Bearer {minted_token}"
+        elif basic_auth:
+            headers["Authorization"] = basic_auth
     return settings.grafana.url.rstrip("/"), headers
 
 
@@ -120,6 +141,13 @@ def dashboards_export(
         )
         raise typer.Exit(1)
     if output is not None:
+        try:
+            from devops_cli.core.paths import validate_no_path_traversal
+
+            validate_no_path_traversal(output, label="Dashboard export output path")
+        except Exception:
+            print_error(ERRORS.grafana.invalid_output_path, prefix=False)
+            raise typer.Exit(1)
         resolved = output.resolve()
         if not resolved.is_relative_to(Path.cwd().resolve()):
             print_error(ERRORS.grafana.invalid_output_path, prefix=False)
@@ -206,6 +234,69 @@ def dashboards_import(
 # =============================================================================
 
 
+def _is_provisioned(
+    http_client: httpx2.Client, base: str, headers: dict[str, str], uid: str
+) -> bool:
+    """Report whether Grafana holds a dashboard as provisioned, so an API save cannot replace it.
+
+    Read from `meta.provisioned` rather than the refusal's wording. A failed lookup counts as
+    not provisioned, so the refused save is reported as the failure it was.
+    """
+    if not uid:
+        return False
+    try:
+        response = http_client.get(
+            f"{base}/api/dashboards/uid/{quote(uid, safe='')}",
+            headers=headers,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        return GrafanaDashboardDetail.model_validate(response.json()).meta.provisioned
+    except httpx2.HTTPError, ValueError:
+        return False
+
+
+def _post_dashboard(
+    http_client: httpx2.Client, base: str, headers: dict[str, str], dash_file: Path
+) -> DashboardSyncOutcome:
+    """Post one dashboard file; Grafana refusing a provisioned dashboard is a skip."""
+    raw = json.loads(dash_file.read_text(encoding="utf-8"))
+    dashboard = raw.get("dashboard", raw)
+    title = dashboard.get("title", dash_file.stem)
+    response = http_client.post(
+        f"{base}/api/dashboards/db",
+        headers=headers,
+        json={"dashboard": dashboard, "overwrite": True},
+        timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
+    )
+    try:
+        response.raise_for_status()
+    except httpx2.HTTPStatusError as exc:
+        uid = str(dashboard.get("uid") or "")
+        if exc.response.status_code != HTTPStatus.BAD_REQUEST or not _is_provisioned(
+            http_client, base, headers, uid
+        ):
+            raise
+        print_warning(
+            MESSAGES.grafana.sync_skipped_provisioned.format(title=title, file=dash_file.name),
+            prefix=False,
+        )
+        return DashboardSyncOutcome.SKIPPED
+    print_success(MESSAGES.grafana.synced_dashboard.format(title=title, file=dash_file.name))
+    return DashboardSyncOutcome.SYNCED
+
+
+def _sync_dashboard_file(
+    http_client: httpx2.Client, base: str, headers: dict[str, str], dash_file: Path
+) -> DashboardSyncOutcome:
+    """Sync one dashboard file, reporting a failure without stopping the run."""
+    try:
+        return _post_dashboard(http_client, base, headers, dash_file)
+    except Exception as exc:
+        print_error(ERRORS.grafana.sync_failed.format(file=dash_file.name, exc=exc), prefix=False)
+        return DashboardSyncOutcome.FAILED
+
+
 @dashboards_app.command("sync")
 def dashboards_sync(
     dir_path: Annotated[
@@ -213,7 +304,11 @@ def dashboards_sync(
         typer.Option("--dir", "-d", help=HELP.grafana.dashboards_dir),
     ] = None,
 ) -> None:
-    """Sync all bundled/local dashboards to Grafana."""
+    """Sync every dashboard JSON file in a directory to Grafana.
+
+    Tries every file, then exits 1 if any failed. A dashboard Grafana holds as provisioned,
+    such as one the dashboard sidecar loads from a ConfigMap, is skipped rather than failed.
+    """
     search_dir = dir_path or DEFAULT_GRAFANA_DASHBOARDS_DIR
     if not search_dir.exists():
         print_warning(MESSAGES.grafana.dir_not_found.format(path=search_dir), prefix=False)
@@ -236,32 +331,20 @@ def dashboards_sync(
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    success_count = 0
     with httpx2.Client() as http_client:
-        for dash_file in json_files:
-            try:
-                raw = json.loads(dash_file.read_text(encoding="utf-8"))
-                dashboard = raw.get("dashboard", raw)
-                title = dashboard.get("title", dash_file.stem)
-                response = http_client.post(
-                    f"{base}/api/dashboards/db",
-                    headers=headers,
-                    json={"dashboard": dashboard, "overwrite": True},
-                    timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-                )
-                response.raise_for_status()
-                print_success(
-                    MESSAGES.grafana.synced_dashboard.format(title=title, file=dash_file.name)
-                )
-                success_count += 1
-            except Exception as exc:
-                print_error(
-                    ERRORS.grafana.sync_failed.format(file=dash_file.name, exc=exc), prefix=False
-                )
+        outcomes = Counter(
+            _sync_dashboard_file(http_client, base, headers, dash_file) for dash_file in json_files
+        )
 
-    print_success(
-        MESSAGES.grafana.sync_completed.format(synced=success_count, total=len(json_files))
+    summary = MESSAGES.grafana.sync_completed.format(
+        synced=outcomes[DashboardSyncOutcome.SYNCED],
+        skipped=outcomes[DashboardSyncOutcome.SKIPPED],
+        failed=outcomes[DashboardSyncOutcome.FAILED],
     )
+    if outcomes[DashboardSyncOutcome.FAILED]:
+        print_error(summary, prefix=False)
+        raise typer.Exit(1)
+    print_success(summary)
 
 
 # =============================================================================
@@ -288,6 +371,28 @@ def _lint_rows(reports: list[Any]) -> list[list[str]]:
     ]
 
 
+def _print_lint_results(reports: list[DashboardLintReport]) -> None:
+    """Render lint issues as a table, then the summary line."""
+    error_count = sum(len(r.errors) for r in reports)
+    warning_count = sum(len(r.warnings) for r in reports)
+
+    if error_count or warning_count:
+        print_table(
+            title=MESSAGES.grafana.table_title_lint,
+            columns=[("Dashboard", "cyan"), "Severity", "Panel", "Issue"],
+            rows=_lint_rows(reports),
+        )
+
+    print_info(
+        MESSAGES.grafana.lint_summary.format(
+            dashboards=len(reports),
+            panels=sum(r.panel_count for r in reports),
+            errors=error_count,
+            warnings=warning_count,
+        )
+    )
+
+
 @dashboards_app.command("lint")
 def dashboards_lint(
     path: Annotated[
@@ -297,11 +402,12 @@ def dashboards_lint(
 ) -> None:
     """Statically check dashboard JSON for layout, query, and binding defects.
 
-    Catches overlapping panels, duplicate ids, unbound datasources, and malformed PromQL
-    before a dashboard reaches Grafana, where the only symptom is a blank or wrong panel.
+    Catches overlapping panels, duplicate ids, unbound datasources, malformed PromQL, and a
+    uid two dashboards share before a dashboard reaches Grafana, where the only symptom is a
+    blank, wrong, or overwritten dashboard.
     """
-    from devops_cli.grafana import lint_dashboard_file
-    from devops_cli.output import format_json, print_info, write_stdout
+    from devops_cli.grafana import lint_dashboard_files
+    from devops_cli.output import format_json, write_stdout
 
     target = path.resolve()
     if is_dry_run():
@@ -324,31 +430,13 @@ def dashboards_lint(
         print_warning(MESSAGES.grafana.no_dashboards_found.format(path=path))
         return
 
-    reports = [lint_dashboard_file(f) for f in files]
+    reports = lint_dashboard_files(files)
 
     if json_output:
         write_stdout(format_json([r.model_dump() for r in reports]) + "\n")
-        return
-
-    error_count = sum(len(r.errors) for r in reports)
-    warning_count = sum(len(r.warnings) for r in reports)
-
-    if error_count or warning_count:
-        print_table(
-            title=MESSAGES.grafana.table_title_lint,
-            columns=[("Dashboard", "cyan"), "Severity", "Panel", "Issue"],
-            rows=_lint_rows(reports),
-        )
-
-    print_info(
-        MESSAGES.grafana.lint_summary.format(
-            dashboards=len(reports),
-            panels=sum(r.panel_count for r in reports),
-            errors=error_count,
-            warnings=warning_count,
-        )
-    )
-    if error_count:
+    else:
+        _print_lint_results(reports)
+    if any(r.errors for r in reports):
         raise typer.Exit(1)
 
 

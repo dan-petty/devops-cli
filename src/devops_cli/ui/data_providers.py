@@ -10,8 +10,15 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from devops_cli.config.constants import CONST_TELEMETRY_PANEL_MAX_SERIES
+from devops_cli.config.constants import (
+    CONST_K8S_IN_CLUSTER_CONTEXT,
+    CONST_K8S_POD_EVENT_FIELD_SELECTOR,
+    CONST_K8S_SERVICE_HOST_ENV,
+    CONST_TELEMETRY_PANEL_MAX_SERIES,
+)
 from devops_cli.config.defaults import (
+    DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS,
+    DEFAULT_K8S_POD_EVENT_LIMIT,
     DEFAULT_TELEMETRY_QUERY_TIMEOUT_SECONDS,
     DEFAULT_VALKEY_HOST,
     DEFAULT_VALKEY_PANEL_TIMEOUT_SECONDS,
@@ -22,6 +29,8 @@ from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_tra
 from devops_cli.core.repo import resolve_data_path
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.k8s.service_http import describe_endpoint
+from devops_cli.models.k8s import PodEventInfo, PodInfo, node_is_ready
+from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.valkey.client import ValkeyClient
 
@@ -36,10 +45,21 @@ class K8sSummary(BaseModel):
     """Kubernetes cluster and pods summary."""
 
     connected: bool = False
-    minikube_active: bool = False
-    pods: list[dict[str, str]] = Field(default_factory=list)
-    services: list[dict[str, str]] = Field(default_factory=list)
+    # The kubeconfig context the dashboard connects with, named so the banner says which
+    # cluster it is showing; empty when none could be determined.
+    context: str = ""
+    pods: list[PodInfo] = Field(default_factory=list)
+    nodes_ready: int = 0
+    nodes_total: int = 0
+    # Why the node list failed. Listing nodes needs a cluster-scoped permission that
+    # listing pods does not, so pods still render without it.
+    nodes_error: str = ""
     error_message: str = ""
+
+    @property
+    def unhealthy_pods(self) -> int:
+        """Count pods whose status or READY count needs attention."""
+        return sum(pod.unhealthy for pod in self.pods)
 
 
 class DockerSummary(BaseModel):
@@ -129,25 +149,69 @@ def _get_k8s_client() -> Any:
     The dashboard must show the cluster the workstation is configured for. Loading the
     kubeconfig without a context silently follows `kubectl config current-context`, so the
     panel would report on a different cluster than every other command.
+
+    A pod's service account is used only inside a pod and only when no kubeconfig context
+    can be named. Falling back whenever the kubeconfig failed replaced its error, such as a
+    context missing from the file, with the fallback's own, and inside a pod connected to
+    a cluster other than the one the banner named.
     """
     from kubernetes import client, config  # type: ignore[import-untyped]
 
     from devops_cli.k8s.context import resolve_context
 
-    try:
-        config.load_kube_config(context=resolve_context())
-    except Exception as exc:
-        logger.debug("Falling back to incluster k8s config: %s", exc)
+    if _in_a_pod() and not _kubeconfig_context():
         config.load_incluster_config()
+    else:
+        config.load_kube_config(context=resolve_context())
     return client.CoreV1Api()
 
 
-def is_minikube_running() -> bool:
-    """Determine if local Minikube cluster is active."""
-    from devops_cli.core.process import run_subprocess
+def _in_a_pod() -> bool:
+    """Whether this process runs in a Kubernetes pod, which has a service account."""
+    return bool(os.environ.get(CONST_K8S_SERVICE_HOST_ENV))
 
-    res = run_subprocess(["minikube", "status", "--format={{.Host}}"], check=False, quiet=True)
-    return res.returncode == 0 and "Running" in res.stdout
+
+def _kubeconfig_context() -> str:
+    """Name the kubeconfig context to connect with: the configured one, else kubectl's.
+
+    Empty when neither exists, as for a pod with no kubeconfig.
+    """
+    from kubernetes import config
+
+    from devops_cli.k8s.context import resolve_context
+
+    configured = resolve_context()
+    if configured:
+        return configured
+    try:
+        _contexts, current = config.list_kube_config_contexts()
+    except Exception as exc:
+        logger.debug("No current kubeconfig context to name: %s", exc)
+        return ""
+    return str(current.get("name") or "")
+
+
+def _k8s_context_name() -> str:
+    """Name the context `_get_k8s_client` connects with, or the pod's service account.
+
+    Read from the kubeconfig rather than from the client, so a cluster that cannot be
+    reached is still named in the banner that says so.
+    """
+    context = _kubeconfig_context()
+    return context or (CONST_K8S_IN_CLUSTER_CONTEXT if _in_a_pod() else "")
+
+
+def describe_api_error(exc: Exception) -> str:
+    """Describe a failed cluster call in one line, with any credential in it masked.
+
+    An API error's text runs to its response headers and body, so it is named by status
+    and reason instead, as in `403 Forbidden`.
+    """
+    status, reason = getattr(exc, "status", None), getattr(exc, "reason", None)
+    if status and reason:
+        return f"{status} {reason}"
+    first_line = next(iter(str(exc).splitlines()), "")
+    return mask_secrets(f"{type(exc).__name__}: {first_line}")[:256]
 
 
 def _get_docker_client() -> Any:
@@ -162,37 +226,53 @@ def _get_docker_client() -> Any:
 # =============================================================================
 
 
-def _format_pod_record(pod: Any) -> dict[str, str]:
-    """Format single Kubernetes pod into a record dictionary."""
-    name = getattr(pod.metadata, "name", "unknown")
-    ns = getattr(pod.metadata, "namespace", "default")
-    phase = getattr(pod.status, "phase", "Unknown")
-    statuses = getattr(pod.status, "container_statuses", []) or []
-    ready_count = sum(1 for c in statuses if getattr(c, "ready", False))
-    total_count = len(statuses)
-    restarts = sum(getattr(c, "restart_count", 0) for c in statuses)
-    return {
-        "name": name,
-        "namespace": ns,
-        "status": phase,
-        "ready": f"{ready_count}/{total_count}" if total_count else "0/0",
-        "restarts": str(restarts),
-    }
+def _node_readiness(core: Any) -> dict[str, Any]:
+    """Count the nodes that are Ready, or say why the nodes could not be listed."""
+    try:
+        nodes = core.list_node(_request_timeout=DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS).items
+    except Exception as exc:
+        return {"nodes_error": describe_api_error(exc)}
+    return {"nodes_ready": sum(map(node_is_ready, nodes)), "nodes_total": len(nodes)}
 
 
 def fetch_k8s_status() -> K8sSummary:
-    """Retrieve Kubernetes pods and Minikube status defensively."""
+    """Retrieve every pod, with the status kubectl prints, and how many nodes are Ready.
+
+    Both calls carry a client-side timeout: a server-side one does not bound a connection
+    to a server that never answers, and this runs on every refresh.
+    """
+    context = _k8s_context_name()
     try:
-        k8s = _get_k8s_client()
-        pod_list = k8s.list_pod_for_all_namespaces(timeout_seconds=3).items
-        pods = [_format_pod_record(p) for p in pod_list]
-        return K8sSummary(
-            connected=True,
-            minikube_active=is_minikube_running(),
-            pods=pods,
-        )
+        core = _get_k8s_client()
+        pods = core.list_pod_for_all_namespaces(
+            _request_timeout=DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS
+        ).items
+        records = [PodInfo.from_pod(pod) for pod in pods]
     except Exception as exc:
-        return K8sSummary(connected=False, error_message=str(exc))
+        return K8sSummary(context=context, error_message=describe_api_error(exc))
+    return K8sSummary(connected=True, context=context, pods=records, **_node_readiness(core))
+
+
+def _newest_first(event: PodEventInfo) -> float:
+    """Sort key placing the most recent event first and undated ones last."""
+    return -event.last_seen.timestamp() if event.last_seen is not None else float("inf")
+
+
+def fetch_pod_events(namespace: str, name: str, uid: str) -> list[PodEventInfo]:
+    """Return a pod's most recent events, newest first.
+
+    Matched by kind, name and uid, as `kubectl describe pod` matches them, so a pod
+    recreated under the same name does not show its predecessor's events. Raises on a
+    failed call, for the caller to report.
+    """
+    core = _get_k8s_client()
+    events = core.list_namespaced_event(
+        namespace,
+        field_selector=CONST_K8S_POD_EVENT_FIELD_SELECTOR.format(name=name, uid=uid),
+        _request_timeout=DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS,
+    ).items
+    records = sorted(map(PodEventInfo.from_event, events), key=_newest_first)
+    return records[:DEFAULT_K8S_POD_EVENT_LIMIT]
 
 
 def _format_container_record(container: Any) -> dict[str, str]:
@@ -545,7 +625,7 @@ def fetch_review_status(session: str | None = None) -> ReviewSummary:
             verified_count=verified_count,
             unverified_count=unverified_count,
             severity_distribution=severities,
-            findings=raw_findings[:50],
+            findings=raw_findings,
         )
     except Exception as exc:
         logger.warning("Failed to parse review summary from %s: %s", session_dir, exc)

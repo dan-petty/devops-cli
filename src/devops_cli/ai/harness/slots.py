@@ -20,6 +20,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from devops_cli.ai.capability import TaskComplexity
 from devops_cli.ai.harness.skills import ParsedSkill, normalize_skill_name
 from devops_cli.ai.repomap import SymbolNode, parse_file_symbols
+from devops_cli.config.defaults import DEFAULT_AI_FALLBACK_MODEL, DEFAULT_AI_FALLBACK_PROVIDER
+from devops_cli.config.settings import AIConfig, load_settings
 from devops_cli.core.repo import is_ignored_by_git
 from devops_cli.exceptions.ai import HarnessValidationError
 
@@ -30,6 +32,8 @@ class SlotState(StrEnum):
     """Lifecycle state of an individual harness slot."""
 
     EMPTY = "empty"
+    # Set from configuration; nothing has checked the model or tool is reachable.
+    CONFIGURED = "configured"
     ATTACHED = "attached"
     ACTIVE = "active"
     FAILED = "failed"
@@ -136,10 +140,6 @@ class ModelSlot(BaseSlot):
             raise HarnessValidationError(
                 f"ModelSlot '{self.name}' must be local (ollama) for sovereign offloading, got {self.provider}:{self.model_name}"
             )
-
-    def estimate_tokens(self, text: str) -> int:
-        """Estimate token consumption for a text prompt (~4 characters per token)."""
-        return max(1, len(text) // 4) if text else 0
 
 
 class SkillSlot(BaseSlot):
@@ -307,7 +307,6 @@ class SubAgentResult(BaseModel):
     status: str = "success"
     output: str = ""
     data: dict[str, Any] = Field(default_factory=dict)
-    tokens_used: int = 0
     duration_seconds: float = 0.0
     error: str | None = None
 
@@ -319,7 +318,6 @@ class SubAgentResult(BaseModel):
             "status": self.status,
             "output": self.output,
             "data": self.data,
-            "tokens_used": self.tokens_used,
             "duration_seconds": self.duration_seconds,
             "error": self.error,
         }
@@ -446,7 +444,6 @@ class SubAgentSlot(BaseSlot):
                     f"- {m['kind']} {m['name']}{m['signature']} ({m['file']}:{m['line_number']})"
                 )
             output_text = "\n".join(output_lines)
-            tokens = self.model_slot.estimate_tokens(output_text)
             elapsed = time.perf_counter() - start_time
 
             return SubAgentResult(
@@ -455,7 +452,6 @@ class SubAgentSlot(BaseSlot):
                 status="success",
                 output=output_text,
                 data={"symbol": symbol_name, "matches": matches, "files_scanned": len(py_files)},
-                tokens_used=tokens,
                 duration_seconds=round(elapsed, 4),
             )
         except Exception as exc:
@@ -506,7 +502,6 @@ class SubAgentSlot(BaseSlot):
             output_text = f"Scouted {len(matched_files)} files matching '{pattern}':\n" + "\n".join(
                 f"- {f}" for f in matched_files
             )
-            tokens = self.model_slot.estimate_tokens(output_text)
             elapsed = time.perf_counter() - start_time
 
             return SubAgentResult(
@@ -515,7 +510,6 @@ class SubAgentSlot(BaseSlot):
                 status="success",
                 output=output_text,
                 data={"pattern": pattern, "files": matched_files, "files_scanned": files_scanned},
-                tokens_used=tokens,
                 duration_seconds=round(elapsed, 4),
             )
         except Exception as exc:
@@ -567,7 +561,6 @@ class SubAgentSlot(BaseSlot):
                     )
 
             output_text = f"Cataloged {len(catalog)} symbols across {len(py_files)} files."
-            tokens = self.model_slot.estimate_tokens(output_text) + (len(catalog) * 8)
             elapsed = time.perf_counter() - start_time
 
             return SubAgentResult(
@@ -576,7 +569,6 @@ class SubAgentSlot(BaseSlot):
                 status="success",
                 output=output_text,
                 data={"symbols": catalog, "file_count": len(py_files)},
-                tokens_used=tokens,
                 duration_seconds=round(elapsed, 4),
             )
         except Exception as exc:
@@ -607,12 +599,12 @@ def _extract_subagent_metrics(sub_results: list[SubAgentResult]) -> tuple[int, i
 
 
 class TieredExecutionResult(BaseModel):
-    """Aggregate result from the 'Big decides, small types, big checks' protocol."""
+    """What a harness run searched for and found; no model is called."""
 
     task: str
-    decision_plan: str
+    search: str
     subagent_results: list[SubAgentResult] = Field(default_factory=list)
-    verification_report: str = ""
+    summary: str = ""
     status: str = "completed"
     files_scanned: int = 0
     matches: int = 0
@@ -622,9 +614,9 @@ class TieredExecutionResult(BaseModel):
         return {
             "task": self.task,
             "status": self.status,
-            "decision_plan": self.decision_plan,
+            "search": self.search,
             "subagent_results": [r.to_dict() for r in self.subagent_results],
-            "verification_report": self.verification_report,
+            "summary": self.summary,
             "files_scanned": self.files_scanned,
             "matches": self.matches,
         }
@@ -642,17 +634,12 @@ def _evaluate_tiered_status(sub_results: list[SubAgentResult]) -> str:
     return "failed"
 
 
-def _format_verification_report(
-    model_name: str,
-    task: str,
-    status: str,
-    sub_results: list[SubAgentResult],
-) -> str:
-    """Build accurate verification report summarizing findings and execution status."""
+def _summarize_search(task: str, status: str, sub_results: list[SubAgentResult]) -> str:
+    """Summarize what the searches found, or why they failed."""
     if status == "failed":
         errors = [r.error or r.output for r in sub_results if r.error or r.output]
         detail = f": {'; '.join(errors)}" if errors else "."
-        return f"Tier 3 (Frontier - {model_name}): Sub-agent execution failed for task '{task}'{detail}"
+        return f"Search failed for task '{task}'{detail}"
 
     matched_symbols = sum(len(r.data.get("matches", [])) for r in sub_results)
     cataloged_symbols = sum(len(r.data.get("symbols", [])) for r in sub_results)
@@ -665,12 +652,19 @@ def _format_verification_report(
     if scouted_files > 0:
         finding_clauses.append(f"{scouted_files} matched file(s)")
 
-    findings_text = " and ".join(finding_clauses) if finding_clauses else "0 discovered entities"
-    prefix = "Partially verified" if status == "partial" else "Verified"
-    return (
-        f"Tier 3 (Frontier - {model_name}): {prefix} {findings_text} "
-        f"and synthesized response for task '{task}' against architectural invariants."
-    )
+    findings_text = " and ".join(finding_clauses) if finding_clauses else "nothing"
+    prefix = "Some searches failed; found" if status == "partial" else "Found"
+    return f"{prefix} {findings_text} for task '{task}'."
+
+
+def _describe_search(symbol_query: str | None, file_pattern: str | None) -> str:
+    """Describe the searches a run performs."""
+    searches: list[str] = []
+    if symbol_query:
+        searches.append(f"AST search for symbol '{symbol_query}'")
+    if file_pattern:
+        searches.append(f"glob search for '{file_pattern}'")
+    return "; ".join(searches) or "symbol catalog of every Python file"
 
 
 class AgentHarness(BaseModel):
@@ -693,43 +687,44 @@ class AgentHarness(BaseModel):
         }
 
     @classmethod
-    def create_default(
-        cls,
-        frontier_model: str = "claude-3-7-sonnet",
-        local_model: str = "qwen2.5-coder:7b",
-    ) -> AgentHarness:
-        """Construct standard harness with frontier reasoning and local offloader."""
+    def from_config(cls, ai: AIConfig | None = None) -> AgentHarness:
+        """Build the harness from configuration, with every slot marked configured, not checked.
+
+        The model slot holds the configured provider and model. The sub-agent runs local AST
+        and glob searches and calls no model; its model slot holds the local fallback model.
+        """
+        ai = ai or load_settings().ai
         m_slot = ModelSlot(
             name="frontier_model",
             slot_type=SlotType.MODEL,
-            provider="claude",
-            model_name=frontier_model,
+            provider=ai.provider,
+            model_name=ai.model,
             tier=TaskComplexity.FRONTIER,
-            is_local=False,
-            state=SlotState.ATTACHED,
+            is_local=ai.provider == "ollama",
+            state=SlotState.CONFIGURED,
         )
-        sk_slot = SkillSlot(name="skills", slot_type=SlotType.SKILL, state=SlotState.ATTACHED)
-        t_slot = ToolSlot(name="tools", slot_type=SlotType.TOOL, state=SlotState.ATTACHED)
+        sk_slot = SkillSlot(name="skills", slot_type=SlotType.SKILL, state=SlotState.CONFIGURED)
+        t_slot = ToolSlot(name="tools", slot_type=SlotType.TOOL, state=SlotState.CONFIGURED)
 
         sub_model = ModelSlot(
             name="subagent_model",
             slot_type=SlotType.MODEL,
-            provider="ollama",
-            model_name=local_model,
+            provider=DEFAULT_AI_FALLBACK_PROVIDER,
+            model_name=DEFAULT_AI_FALLBACK_MODEL,
             tier=TaskComplexity.LOW,
             is_local=True,
-            state=SlotState.ATTACHED,
+            state=SlotState.CONFIGURED,
         )
         sub_tools = ToolSlot(
             name="subagent_tools",
             slot_type=SlotType.TOOL,
             read_only=True,
-            state=SlotState.ATTACHED,
+            state=SlotState.CONFIGURED,
         )
         sub_skills = SkillSlot(
             name="subagent_skills",
             slot_type=SlotType.SKILL,
-            state=SlotState.ATTACHED,
+            state=SlotState.CONFIGURED,
         )
         sub_slot = SubAgentSlot(
             name="subagent_slot",
@@ -739,7 +734,7 @@ class AgentHarness(BaseModel):
             model_slot=sub_model,
             tool_slot=sub_tools,
             skill_slot=sub_skills,
-            state=SlotState.ATTACHED,
+            state=SlotState.CONFIGURED,
         )
 
         return cls(
@@ -766,50 +761,25 @@ class AgentHarness(BaseModel):
         symbol_query: str | None = None,
         file_pattern: str | None = None,
     ) -> TieredExecutionResult:
-        """Execute task across 3 tiers ('Big decides, small types, big checks')."""
-        # Tier 1: Big decides — plan formation
-        decision_plan = (
-            f"Tier 1 (Frontier - {self.model_slot.model_name}): Decomposed task '{task}'. "
-            f"Delegating exploration to local sub-agent slot for symbol '{symbol_query or '*'}'."
-        )
-        frontier_tokens = self.model_slot.estimate_tokens(decision_plan)
+        """Run the sub-agent's local searches for a task and report what they found.
 
-        # Tier 2: Small types — local offload
+        No model is called: the result names the searches run and their match counts.
+        """
         sub_results: list[SubAgentResult] = []
-        offloaded_tokens = 0
-
         if symbol_query:
-            ast_res = self.subagent_slot.offload_ast_search(repo_path, symbol_query)
-            sub_results.append(ast_res)
-            offloaded_tokens += ast_res.tokens_used
-
+            sub_results.append(self.subagent_slot.offload_ast_search(repo_path, symbol_query))
         if file_pattern:
-            scout_res = self.subagent_slot.offload_file_scout(repo_path, file_pattern)
-            sub_results.append(scout_res)
-            offloaded_tokens += scout_res.tokens_used
-
+            sub_results.append(self.subagent_slot.offload_file_scout(repo_path, file_pattern))
         if not symbol_query and not file_pattern:
-            cat_res = self.subagent_slot.offload_symbol_catalog(repo_path)
-            sub_results.append(cat_res)
-            offloaded_tokens += cat_res.tokens_used
+            sub_results.append(self.subagent_slot.offload_symbol_catalog(repo_path))
 
-        # Tier 3: Big checks — synthesis and validation
         status = _evaluate_tiered_status(sub_results)
-        verification_report = _format_verification_report(
-            model_name=self.model_slot.model_name,
-            task=task,
-            status=status,
-            sub_results=sub_results,
-        )
-        frontier_tokens += self.model_slot.estimate_tokens(verification_report)
-
         files_scanned, matches = _extract_subagent_metrics(sub_results)
-
         return TieredExecutionResult(
             task=task,
-            decision_plan=decision_plan,
+            search=_describe_search(symbol_query, file_pattern),
             subagent_results=sub_results,
-            verification_report=verification_report,
+            summary=_summarize_search(task, status, sub_results),
             status=status,
             files_scanned=files_scanned,
             matches=matches,

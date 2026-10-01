@@ -282,14 +282,14 @@ def test_resolve_all_pr_review_threads_only_replied() -> None:
         id="PRRT_1",
         is_resolved=False,
         comments=[
-            ReviewComment(id="c1", body="Issue"),
-            ReviewComment(id="c2", body="Fixed in commit abc"),
+            ReviewComment(id="c1", author="reviewer", body="Issue"),
+            ReviewComment(id="c2", author="dev", body="Fixed in commit abc"),
         ],
     )
     t2 = ReviewThread(
         id="PRRT_2",
         is_resolved=False,
-        comments=[ReviewComment(id="c3", body="Unaddressed issue")],
+        comments=[ReviewComment(id="c3", author="reviewer", body="Unaddressed issue")],
     )
 
     with (
@@ -300,9 +300,7 @@ def test_resolve_all_pr_review_threads_only_replied() -> None:
         ) as mock_resolve,
     ):
         results = resolve_all_pr_review_threads("dan-petty", "devops-cli", 200, only_replied=True)
-        assert len(results) == 1
-        assert results[0].thread_id == "PRRT_1"
-        assert results[0].is_resolved is True
+        assert (len(results), results[0].thread_id, results[0].is_resolved) == (1, "PRRT_1", True)
         mock_resolve.assert_called_once_with("PRRT_1")
 
 
@@ -318,12 +316,15 @@ def test_resolve_all_pr_review_threads_all() -> None:
     t1 = ReviewThread(
         id="PRRT_1",
         is_resolved=False,
-        comments=[ReviewComment(id="c1", body="Comment 1"), ReviewComment(id="c2", body="Reply")],
+        comments=[
+            ReviewComment(id="c1", author="reviewer", body="Comment 1"),
+            ReviewComment(id="c2", author="dev", body="Reply"),
+        ],
     )
     t2 = ReviewThread(
         id="PRRT_2",
         is_resolved=False,
-        comments=[ReviewComment(id="c3", body="Comment 2")],
+        comments=[ReviewComment(id="c3", author="reviewer", body="Comment 2")],
     )
 
     def side_effect(tid: str) -> ThreadResolutionResult:
@@ -336,8 +337,7 @@ def test_resolve_all_pr_review_threads_all() -> None:
         ) as mock_resolve,
     ):
         results = resolve_all_pr_review_threads("dan-petty", "devops-cli", 200, only_replied=False)
-        assert len(results) == 2
-        assert mock_resolve.call_count == 2
+        assert (len(results), mock_resolve.call_count) == (2, 2)
 
 
 def test_resolve_all_pr_review_threads_handles_individual_errors() -> None:
@@ -352,12 +352,18 @@ def test_resolve_all_pr_review_threads_handles_individual_errors() -> None:
     t1 = ReviewThread(
         id="PRRT_1",
         is_resolved=False,
-        comments=[ReviewComment(id="c1", body="Comment 1"), ReviewComment(id="c2", body="Reply")],
+        comments=[
+            ReviewComment(id="c1", author="reviewer", body="Comment 1"),
+            ReviewComment(id="c2", author="dev", body="Reply"),
+        ],
     )
     t2 = ReviewThread(
         id="PRRT_2",
         is_resolved=False,
-        comments=[ReviewComment(id="c3", body="Comment 2"), ReviewComment(id="c4", body="Reply")],
+        comments=[
+            ReviewComment(id="c3", author="reviewer", body="Comment 2"),
+            ReviewComment(id="c4", author="dev", body="Reply"),
+        ],
     )
 
     def side_effect(tid: str) -> ThreadResolutionResult:
@@ -370,13 +376,15 @@ def test_resolve_all_pr_review_threads_handles_individual_errors() -> None:
         patch("devops_cli.github.pr_threads.resolve_pr_review_thread", side_effect=side_effect),
     ):
         results = resolve_all_pr_review_threads("dan-petty", "devops-cli", 200, only_replied=True)
-        assert len(results) == 2
-        assert results[0].thread_id == "PRRT_1"
-        assert results[0].success is False
-        assert results[0].is_resolved is False
-        assert results[1].thread_id == "PRRT_2"
-        assert results[1].success is True
-        assert results[1].is_resolved is True
+        assert (
+            len(results),
+            results[0].thread_id,
+            results[0].success,
+            results[0].is_resolved,
+            results[1].thread_id,
+            results[1].success,
+            results[1].is_resolved,
+        ) == (2, "PRRT_1", False, False, "PRRT_2", True, True)
 
 
 def test_resolve_all_pr_review_threads_empty() -> None:
@@ -386,3 +394,161 @@ def test_resolve_all_pr_review_threads_empty() -> None:
     with patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]):
         results = resolve_all_pr_review_threads("dan-petty", "devops-cli", 200)
         assert results == []
+
+
+def test_has_non_opener_reply_predicates() -> None:
+    """Verify has_non_opener_reply correctly distinguishes opener follow-ups from true replies."""
+    from devops_cli.github.pr_threads import ReviewComment, ReviewThread, has_non_opener_reply
+
+    empty_thread = ReviewThread(id="t0", comments=[])
+    single_comment = ReviewThread(
+        id="t1",
+        comments=[ReviewComment(id="c1", author="reviewer", body="Fix this")],
+    )
+    # Probe case: reviewer's own follow-up comment
+    probe_case = ReviewThread(
+        id="t2",
+        comments=[
+            ReviewComment(id="c1", author="reviewer", body="Fix this"),
+            ReviewComment(id="c2", author="reviewer", body="Still not fixed."),
+        ],
+    )
+    case_insensitive_probe = ReviewThread(
+        id="t3",
+        comments=[
+            ReviewComment(id="c1", author="Reviewer", body="Fix this"),
+            ReviewComment(id="c2", author=" reviewer ", body="Still not fixed."),
+        ],
+    )
+    three_same_author = ReviewThread(
+        id="t4",
+        comments=[
+            ReviewComment(id="c1", author="copilot", body="Comment 1"),
+            ReviewComment(id="c2", author="copilot", body="Comment 2"),
+            ReviewComment(id="c3", author="copilot", body="Comment 3"),
+        ],
+    )
+    valid_reply = ReviewThread(
+        id="t5",
+        comments=[
+            ReviewComment(id="c1", author="reviewer", body="Fix this"),
+            ReviewComment(id="c2", author="developer", body="Addressed in commit abc"),
+        ],
+    )
+    follow_up_then_reply = ReviewThread(
+        id="t6",
+        comments=[
+            ReviewComment(id="c1", author="reviewer", body="Fix this"),
+            ReviewComment(id="c2", author="reviewer", body="Ping"),
+            ReviewComment(id="c3", author="developer", body="Addressed now"),
+        ],
+    )
+
+    predicates = (
+        has_non_opener_reply(empty_thread),
+        has_non_opener_reply(single_comment),
+        has_non_opener_reply(probe_case),
+        has_non_opener_reply(case_insensitive_probe),
+        has_non_opener_reply(three_same_author),
+        has_non_opener_reply(valid_reply),
+        has_non_opener_reply(follow_up_then_reply),
+    )
+    assert predicates == (False, False, False, False, False, True, True)
+
+
+def test_resolve_all_pr_review_threads_probe_case_skipped() -> None:
+    """Verify resolve_all_pr_review_threads skips threads where reviewer only replied to self."""
+    from devops_cli.github.pr_threads import (
+        ReviewComment,
+        ReviewThread,
+        ThreadResolutionResult,
+        resolve_all_pr_review_threads,
+    )
+
+    probe_thread = ReviewThread(
+        id="PRRT_PROBE",
+        is_resolved=False,
+        comments=[
+            ReviewComment(id="c1", author="codeql", body="Security alert"),
+            ReviewComment(id="c2", author="codeql", body="Still not fixed."),
+        ],
+    )
+    valid_thread = ReviewThread(
+        id="PRRT_VALID",
+        is_resolved=False,
+        comments=[
+            ReviewComment(id="c3", author="reviewer", body="Issue found"),
+            ReviewComment(id="c4", author="author", body="Resolved in fix commit"),
+        ],
+    )
+
+    with (
+        patch(
+            "devops_cli.github.pr_threads.list_pr_review_threads",
+            return_value=[probe_thread, valid_thread],
+        ),
+        patch(
+            "devops_cli.github.pr_threads.resolve_pr_review_thread",
+            return_value=ThreadResolutionResult(
+                thread_id="PRRT_VALID", is_resolved=True, success=True
+            ),
+        ) as mock_resolve,
+    ):
+        results = resolve_all_pr_review_threads("owner", "repo", 42, only_replied=True)
+        assert (len(results), results[0].thread_id) == (1, "PRRT_VALID")
+        mock_resolve.assert_called_once_with("PRRT_VALID")
+
+
+def test_get_pr_review_thread_success() -> None:
+    """Verify get_pr_review_thread parses GraphQL node into ReviewThread."""
+    from devops_cli.github.pr_threads import get_pr_review_thread
+
+    resp = {
+        "data": {
+            "node": {
+                "id": "PRRT_node_1",
+                "isResolved": False,
+                "path": "src/cli.py",
+                "line": 42,
+                "comments": {
+                    "nodes": [
+                        {
+                            "id": "PRRC_1",
+                            "body": "Check bounds",
+                            "author": {"login": "reviewer"},
+                            "createdAt": "2026-09-01T00:00:00Z",
+                        },
+                        {
+                            "id": "PRRC_2",
+                            "body": "Fixed in 99beef",
+                            "author": {"login": "dev"},
+                            "createdAt": "2026-09-01T01:00:00Z",
+                        },
+                    ]
+                },
+            }
+        }
+    }
+    mock_proc = MagicMock(returncode=0, stdout=json.dumps(resp))
+    with patch("devops_cli.github.pr_threads.run_gh", return_value=mock_proc):
+        thread = get_pr_review_thread("PRRT_node_1")
+        assert (
+            thread.id,
+            thread.is_resolved,
+            thread.path,
+            thread.line,
+            len(thread.comments),
+            thread.comments[0].author,
+            thread.comments[1].author,
+        ) == ("PRRT_node_1", False, "src/cli.py", 42, 2, "reviewer", "dev")
+
+
+def test_get_pr_review_thread_not_found() -> None:
+    """Verify get_pr_review_thread raises GitHubOperationError when node is missing."""
+    from devops_cli.github.pr_threads import get_pr_review_thread
+
+    resp = {"data": {"node": None}}
+    mock_proc = MagicMock(returncode=0, stdout=json.dumps(resp))
+    with patch("devops_cli.github.pr_threads.run_gh", return_value=mock_proc):
+        with pytest.raises(GitHubOperationError, match="Review thread PRRT_missing not found"):
+            get_pr_review_thread("PRRT_missing")

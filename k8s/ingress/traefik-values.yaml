@@ -2,6 +2,10 @@
 # Configures Traefik as an internal ClusterIP ingress controller so external traffic
 # enters solely through the authenticated Cloudflare Tunnel.
 
+additionalArguments:
+  - "--global.sendanonymoususage=false"
+  - "--global.checknewversion=false"
+
 service:
   spec:
     type: ClusterIP
@@ -10,6 +14,18 @@ ports:
   web:
     forwardedHeaders:
       insecure: true
+  metrics:
+    port: 9100
+    expose:
+      default: false
+    exposedPort: 9100
+
+api:
+  dashboard: true
+
+metrics:
+  prometheus:
+    entryPoint: metrics
 
 securityContext:
   runAsNonRoot: true

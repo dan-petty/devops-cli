@@ -248,12 +248,13 @@ def test_rate_limiter_backoff_calculation() -> None:
 
     delay_1 = limiter.calculate_backoff_delay(err_secondary, attempt=1)
     delay_2 = limiter.calculate_backoff_delay(err_secondary, attempt=2)
-    assert 0.5 <= delay_1 <= 3.0
-    assert delay_2 > delay_1
-
     non_rate_err = "Error: repository not found"
-    assert limiter.is_rate_limit_error(non_rate_err) is False
-    assert limiter.calculate_backoff_delay(non_rate_err, attempt=1) == 0.0
+    assert (
+        60.0 <= delay_1 <= 61.0,
+        60.0 <= delay_2 <= 62.0,
+        limiter.is_rate_limit_error(non_rate_err),
+        limiter.calculate_backoff_delay(non_rate_err, attempt=1),
+    ) == (True, True, False, 0.0)
 
 
 def test_rate_limiter_ephemeral_cache() -> None:
@@ -1036,3 +1037,93 @@ def test_rate_limiter_init_prunes_expired_disk_cache(tmp_path: Path) -> None:
         True,
         False,
     )
+
+
+def test_server_retry_after_returned_unchanged() -> None:
+    """Verify server Retry-After delay is returned unchanged without local cap clamping."""
+    limiter = GitHubRateLimiter(secondary_max_cap=300.0)
+    msg_header = "HTTP 429: Too Many Requests\nRetry-After: 450\n"
+    msg_text = "HTTP 403: You have exceeded a secondary rate limit. Please retry after 120 seconds."
+    delay_header = limiter.calculate_backoff_delay(msg_header, attempt=1)
+    delay_text = limiter.calculate_backoff_delay(msg_text, attempt=1)
+    assert (delay_header, delay_text) == (450.0, 120.0)
+
+
+def test_local_cap_bounds_client_growth_on_secondary_rate_limit() -> None:
+    """Verify local cap bounds only the client's own growth on secondary rate limits."""
+    limiter_default = GitHubRateLimiter()
+    limiter_custom = GitHubRateLimiter(secondary_rate_wait=60.0, secondary_max_cap=75.0)
+    err = "HTTP 403: You have exceeded a secondary rate limit."
+    delay_high_attempt = limiter_default.calculate_backoff_delay(err, attempt=20)
+    delay_custom_cap = limiter_custom.calculate_backoff_delay(err, attempt=10)
+    assert (
+        60.0 <= delay_high_attempt <= 300.0,
+        60.0 <= delay_custom_cap <= 75.0,
+    ) == (True, True)
+
+
+def test_quota_remaining_positive_does_not_sleep_until_primary_reset() -> None:
+    """Verify non-exhausted quota (remaining > 0) does not wait until primary reset epoch."""
+    limiter = GitHubRateLimiter()
+    now = time.time()
+    limiter.update_quota("core", remaining=4999, limit=5000, reset_epoch=now + 3000.0)
+    err = "HTTP 403: You have exceeded a secondary rate limit."
+    delay = limiter.calculate_backoff_delay(err, attempt=1, subcommand="core")
+    assert (delay < 3000.0, 60.0 <= delay <= 61.0) == (True, True)
+
+
+def test_max_rate_limit_wait_raises_github_rate_limit_error() -> None:
+    """Verify max_rate_limit_wait raises GitHubRateLimitError when required wait exceeds cap."""
+    limiter = GitHubRateLimiter(max_rate_limit_wait=50.0)
+    err_sec = "HTTP 403: You have exceeded a secondary rate limit."
+    err_retry = "HTTP 429: Too Many Requests\nRetry-After: 90\n"
+
+    with pytest.raises(GitHubRateLimitError, match="exceeds max_rate_limit_wait") as exc_sec:
+        limiter.calculate_backoff_delay(err_sec, attempt=1)
+
+    with pytest.raises(GitHubRateLimitError, match="exceeds max_rate_limit_wait") as exc_retry:
+        limiter.calculate_backoff_delay(err_retry, attempt=1)
+
+    now = time.time()
+    limiter.update_quota("core", remaining=0, limit=5000, reset_epoch=now + 180.0)
+    with pytest.raises(GitHubRateLimitError, match="Required primary rate limit wait") as exc_prim:
+        limiter.calculate_backoff_delay("rate limit exceeded", attempt=1, subcommand="core")
+
+    assert (
+        "secondary" in str(exc_sec.value).lower(),
+        "retry-after" in str(exc_retry.value).lower(),
+        "primary" in str(exc_prim.value).lower(),
+    ) == (True, True, True)
+
+
+def test_rate_limiter_throttle_persistence_across_instances(tmp_path: Path) -> None:
+    """Verify throttle counts and backoff sleep duration persist to disk and sync across instances."""
+    quota_file = tmp_path / "gh_quota.json"
+    limiter1 = GitHubRateLimiter(persist_path=quota_file)
+    limiter1.record_throttle(45.5)
+    limiter1.record_throttle(62.0)
+
+    limiter2 = GitHubRateLimiter(persist_path=quota_file)
+    assert (
+        limiter1.get_total_throttles(),
+        limiter1.get_total_wait_seconds(),
+        limiter2.get_total_throttles(),
+        limiter2.get_total_wait_seconds(),
+    ) == (2, 107.5, 2, 107.5)
+
+
+def test_is_secondary_rate_limit() -> None:
+    """Verify is_secondary_rate_limit identifies secondary patterns accurately."""
+    limiter = GitHubRateLimiter()
+    sec_1 = (
+        "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
+    )
+    sec_2 = "abuse-rate-limit triggered"
+    prim = "API rate limit exceeded for user ID 12345"
+    normal = "repository not found"
+    assert (
+        limiter.is_secondary_rate_limit(sec_1),
+        limiter.is_secondary_rate_limit(sec_2),
+        limiter.is_secondary_rate_limit(prim),
+        limiter.is_secondary_rate_limit(normal),
+    ) == (True, True, False, False)

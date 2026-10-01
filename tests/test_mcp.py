@@ -276,7 +276,6 @@ class TestAllMcpToolsDirectly:
             release_status,
             repos_list,
             repos_status,
-            repos_sync,
             scan_uv_audit,
             security_intel_network,
             security_intel_package,
@@ -303,7 +302,6 @@ class TestAllMcpToolsDirectly:
         ):
             assert repos_list() == "mock_output"
             assert repos_status() == "mock_output"
-            assert repos_sync(all_repos=True) == "mock_output"
             assert ssh_status() == "mock_output"
             assert ssh_audit() == "mock_output"
             assert k8s_pods(namespace="default") == "mock_output"
@@ -348,14 +346,10 @@ class TestAllMcpToolsDirectly:
 def test_expanded_mcp_tools_and_prompts_execution() -> None:
     """Verify execution of newly added security, k8s, vault, benchmark, and git governance MCP tools."""
     from devops_cli.ai.mcp.server import (
-        ai_architecture,
         ai_harness_status,
         ai_subagent_offload,
-        benchmark_embeddings,
         branches_list,
         code_review_prompt,
-        k8s_audit,
-        k8s_chaos,
         k8s_diff_helm,
         k8s_lint,
         k8s_validate,
@@ -363,11 +357,7 @@ def test_expanded_mcp_tools_and_prompts_execution() -> None:
         pr_list,
         pr_monitor,
         scan_aibom,
-        scan_checkov,
-        scan_complexity,
-        scan_gitleaks,
         scan_sbom,
-        scan_semgrep,
         scan_trivy,
         security_audit_prompt,
         vault_set,
@@ -377,16 +367,10 @@ def test_expanded_mcp_tools_and_prompts_execution() -> None:
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="mock_output"):
         # Security scanners
         assert scan_trivy(".") == "mock_output"
-        assert scan_gitleaks(".") == "mock_output"
-        assert scan_semgrep(".") == "mock_output"
-        assert scan_checkov(".") == "mock_output"
-        assert scan_complexity("src") == "mock_output"
         assert scan_aibom(".") == "mock_output"
         assert scan_sbom(".") == "mock_output"
 
         # Kubernetes operations
-        assert k8s_chaos("validate", "pod-failure") == "mock_output"
-        assert k8s_audit("default") == "mock_output"
         assert k8s_lint(".") == "mock_output"
         assert k8s_validate(".") == "mock_output"
         assert k8s_diff_helm("argocd", "argo/argo-cd") == "mock_output"
@@ -395,9 +379,7 @@ def test_expanded_mcp_tools_and_prompts_execution() -> None:
         assert vault_set("secret/data/app", ["FOO=bar"]) == "mock_output"
         assert vault_sync("secret/data/app") == "mock_output"
 
-        # AI & Benchmark
-        assert benchmark_embeddings(provider="ollama", model="bge-m3") == "mock_output"
-        assert ai_architecture(target="src") == "mock_output"
+        # AI
         assert ai_harness_status() == "mock_output"
         assert ai_subagent_offload(repo="src", symbol="Foo") == "mock_output"
         with pytest.raises(ValidationError, match="Cannot specify both 'symbol' and 'pattern'"):
@@ -418,6 +400,101 @@ def test_expanded_mcp_tools_and_prompts_execution() -> None:
     sec_p = security_audit_prompt(target="src")
     assert "security audit" in sec_p.lower()
     assert "src" in sec_p
+
+
+def test_repointed_mcp_entry_points_pass_real_command_lines() -> None:
+    """Verify the tools and resources that called missing commands or options now pass the
+    argv of the real command, with only options it declares."""
+    from devops_cli.ai.mcp.server import (
+        benchmark_embeddings,
+        benchmark_suite,
+        get_argo_fleet_status_resource,
+        get_workspace_resource,
+        k8s_audit,
+        k8s_chaos,
+        repos_sync,
+        scan_checkov,
+        scan_complexity,
+        scan_gitleaks,
+        scan_semgrep,
+    )
+
+    calls = {
+        "repos_sync": repos_sync,
+        "scan_gitleaks": lambda: scan_gitleaks("."),
+        "scan_semgrep": lambda: scan_semgrep("."),
+        "scan_checkov": lambda: scan_checkov("."),
+        "scan_complexity": lambda: scan_complexity("src"),
+        "k8s_chaos": k8s_chaos,
+        "k8s_chaos_live": lambda: k8s_chaos("pod-kill", "llm", dry_run=False),
+        "k8s_audit": k8s_audit,
+        "benchmark_embeddings": lambda: benchmark_embeddings(provider="ollama", model="bge-m3"),
+        "benchmark_suite": lambda: benchmark_suite(models="m1,m2", dataset="feedback.jsonl"),
+        "resource://workspace/status": get_workspace_resource,
+        "resource://argo/fleet/status": get_argo_fleet_status_resource,
+    }
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="output") as runner:
+        argv = {name: (call(), runner.call_args.args[0][3:])[1] for name, call in calls.items()}
+
+    assert argv == {
+        "repos_sync": ["repos", "sync"],
+        "scan_gitleaks": ["scan", "secrets", "."],
+        "scan_semgrep": ["scan", "sast", ".", "--config", "auto"],
+        "scan_checkov": ["scan", "iac", "."],
+        "scan_complexity": [
+            "scan",
+            "complexity",
+            "src",
+            "--max-complexity",
+            "10",
+            "--max-indent",
+            "5",
+        ],
+        "k8s_chaos": ["k8s", "chaos", "pod-failure", "--namespace", "default", "--dry-run"],
+        "k8s_chaos_live": ["k8s", "chaos", "pod-kill", "--namespace", "llm"],
+        "k8s_audit": ["k8s", "audit"],
+        "benchmark_embeddings": [
+            "ai",
+            "benchmark",
+            "--type",
+            "embedding",
+            "--provider",
+            "ollama",
+            "--models",
+            "bge-m3",
+            "--samples",
+            "10",
+        ],
+        "benchmark_suite": [
+            "ai",
+            "benchmark",
+            "--suite",
+            "--models",
+            "m1,m2",
+            "--provider",
+            "ollama",
+            "--dataset",
+            "feedback.jsonl",
+            "--dry-run",
+        ],
+        "resource://workspace/status": ["repos", "list"],
+        "resource://argo/fleet/status": ["argo", "cd", "apps", "list"],
+    }
+
+
+def test_ai_architecture_tool_is_removed() -> None:
+    """Verify the tool that ran the never-existing `devops analyze architecture` is gone,
+    with no shim left behind."""
+    import devops_cli.ai.mcp as mcp_package
+    from devops_cli.ai.mcp import server
+
+    tool_names = {tool.name for tool in asyncio.run(mcp._list_tools())}
+
+    assert (
+        "ai_architecture" in tool_names,
+        hasattr(server, "ai_architecture"),
+        "ai_architecture" in mcp_package.__all__,
+    ) == (False, False, False)
 
 
 def test_mcp_helpers_and_error_branches() -> None:
@@ -472,7 +549,6 @@ def test_mcp_integer_bounds_validation() -> None:
     """Verify integer bounds validation rejecting non-positive or negative values."""
     from devops_cli.ai.mcp.server import (
         _validate_mcp_int_bound,
-        ai_architecture,
         pr_checks,
         pr_list,
         pr_monitor,
@@ -516,9 +592,6 @@ def test_mcp_integer_bounds_validation() -> None:
 
     with pytest.raises(ValidationError, match="limit"):
         pr_list(limit=0)
-
-    with pytest.raises(ValidationError, match="max_depth"):
-        ai_architecture(target="src", max_depth=0)
 
 
 class TestValkeyMcpTools:

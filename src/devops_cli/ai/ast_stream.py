@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import io
 import tokenize
+import warnings
 from collections.abc import Iterator
 from enum import StrEnum
 from pathlib import Path
@@ -143,7 +144,9 @@ def stream_ast_symbols(source: str | Path) -> Iterator[ASTSymbol]:
     else:
         source_code = source
     try:
-        tree = ast.parse(source_code)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(source_code)
     except SyntaxError:
         return
 

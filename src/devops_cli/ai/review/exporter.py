@@ -133,7 +133,9 @@ def export_invalidated_feedback(
         import tempfile
 
         allowed_roots.append(Path(tempfile.gettempdir()).resolve())
-        if not any(resolved_out.is_relative_to(root) for root in allowed_roots):
+        if not any(
+            resolved_out.is_relative_to(root) and resolved_out != root for root in allowed_roots
+        ):
             raise SecurityError(f"Output path escapes allowed workspace directory: {output_file}")
         out_path = resolved_out
 

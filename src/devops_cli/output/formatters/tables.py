@@ -456,6 +456,23 @@ def format_benchmark_server_table(report: Any) -> TablePayload | None:
     )
 
 
+def _k8s_pod_row(pod: Any) -> list[str]:
+    """Render one pod with the STATUS and READY kubectl prints, coloured by health."""
+    from devops_cli.models.k8s import PodInfo
+
+    info = PodInfo.from_pod(pod)
+    created = getattr(getattr(pod, "metadata", None), "creation_timestamp", None)
+    colour = "red" if info.unhealthy else "green"
+    return [
+        info.namespace,
+        info.name or "—",
+        f"[{colour}]{escape_text(info.status)}[/{colour}]",
+        info.ready_containers,
+        str(info.restart_count),
+        format_timestamp_age(created.isoformat() if created else ""),
+    ]
+
+
 def format_k8s_pods_table(pods: Sequence[Any]) -> TablePayload:
     """Build a structured TablePayload for Kubernetes pod status."""
 
@@ -467,39 +484,10 @@ def format_k8s_pods_table(pods: Sequence[Any]) -> TablePayload:
         TableColumn(header="Restarts", justify="right"),
         TableColumn(header="Age", justify="right"),
     ]
-    rows: list[list[str]] = []
-    for item in pods:
-        if isinstance(item, (list, tuple)):
-            rows.append([str(x) for x in item])
-            continue
-        metadata = getattr(item, "metadata", None)
-        status = getattr(item, "status", None)
-        spec = getattr(item, "spec", None)
-        pod_ns = (getattr(metadata, "namespace", None) if metadata else None) or "default"
-        pod_name = (getattr(metadata, "name", None) if metadata else None) or "—"
-        phase = (getattr(status, "phase", None) if status else None) or "Unknown"
-        created_at = (
-            metadata.creation_timestamp.isoformat()
-            if metadata and getattr(metadata, "creation_timestamp", None)
-            else ""
-        )
-        containers = (getattr(spec, "containers", None) if spec else None) or []
-        c_statuses = (getattr(status, "container_statuses", None) if status else None) or []
-        ready_containers = sum(1 for cs in c_statuses if getattr(cs, "ready", False))
-        restarts = sum(getattr(cs, "restart_count", 0) for cs in c_statuses)
-        status_color = (
-            "green" if phase == "Running" else ("yellow" if phase == "Pending" else "red")
-        )
-        rows.append(
-            [
-                pod_ns,
-                pod_name,
-                f"[{status_color}]{phase}[/{status_color}]",
-                f"{ready_containers}/{len(containers)}",
-                str(restarts),
-                format_timestamp_age(created_at),
-            ]
-        )
+    rows = [
+        [str(x) for x in item] if isinstance(item, (list, tuple)) else _k8s_pod_row(item)
+        for item in pods
+    ]
     return TablePayload(
         title=MESSAGES.k8s.table_title_pods,
         columns=columns,
@@ -549,6 +537,7 @@ def format_k8s_contexts_table(contexts: Sequence[Any], active_name: str = "") ->
 def format_k8s_nodes_table(nodes: Sequence[Any]) -> TablePayload:
     """Build a structured TablePayload for Kubernetes cluster nodes."""
     from devops_cli.config.constants import CONST_K8S_NODE_ROLE_LABEL_PREFIX
+    from devops_cli.models.k8s import node_is_ready
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Name", style="cyan"),
@@ -564,15 +553,6 @@ def format_k8s_nodes_table(nodes: Sequence[Any]) -> TablePayload:
         metadata = getattr(node, "metadata", None)
         node_status = getattr(node, "status", None)
         name = getattr(metadata, "name", "—") if metadata else "—"
-        conditions = getattr(node_status, "conditions", []) if node_status else []
-        ready = next(
-            (
-                getattr(c, "status", "Unknown")
-                for c in (conditions or [])
-                if getattr(c, "type", None) == "Ready"
-            ),
-            "Unknown",
-        )
         labels = getattr(metadata, "labels", {}) if metadata else {}
         roles = (
             ", ".join(
@@ -586,7 +566,7 @@ def format_k8s_nodes_table(nodes: Sequence[Any]) -> TablePayload:
         version = getattr(node_info, "kubelet_version", "Unknown") if node_info else "Unknown"
         status_str = (
             f"[green]{MESSAGES.k8s.node_ready}[/green]"
-            if ready == "True"
+            if node_is_ready(node)
             else f"[red]{MESSAGES.k8s.node_not_ready}[/red]"
         )
         rows.append([name, status_str, roles, version])

@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -367,7 +368,7 @@ def get_run(
     run_id: str, mechanism: Mechanism | None = None, root: Path | None = None
 ) -> RunRecord | None:
     """Find a run by exact ID or prefix, searching local files then the shared index."""
-    if not run_id or any(c in run_id for c in ("/", "\\", "..")):
+    if not run_id or not re.match(r"^[a-zA-Z0-9_\-\.]+$", run_id) or ".." in run_id:
         return None
     base = root or runs_dir()
     pattern = f"{mechanism.value}/{run_id}*.json" if mechanism else f"*/{run_id}*.json"

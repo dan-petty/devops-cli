@@ -40,13 +40,14 @@ def _execute_cluster_sync(
 
     settings = load_settings()
     from devops_cli.config.settings import get_argocd_token
+    from devops_cli.k8s.credentials import get_or_mint_argocd_token
 
     if not settings.argocd.url:
         raise ConfigurationError("ArgoCD URL is not configured in settings", key="argocd.url")
 
     validate_service_url(settings.argocd.url, "ArgoCD", allow=settings.ai.allow_private_network)
     headers: dict[str, str] = {"Content-Type": "application/json"}
-    token = get_argocd_token(settings)
+    token = get_argocd_token(settings) or get_or_mint_argocd_token(settings)
     if token and not token.startswith("*"):
         headers["Authorization"] = f"Bearer {token}"
 
