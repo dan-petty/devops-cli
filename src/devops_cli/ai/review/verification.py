@@ -646,7 +646,7 @@ def _check_scanned_clean_dependency(
     ]
     if not named or any(
         getattr(dep, "vulnerabilities", None)
-        or str(getattr(dep, "severity", "CLEAN")).upper() != "CLEAN"
+        or str(getattr(dep, "severity", "UNCHECKED")).upper() != "CLEAN"
         for dep in named
     ):
         return None

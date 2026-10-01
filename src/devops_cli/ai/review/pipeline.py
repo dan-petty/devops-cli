@@ -109,6 +109,7 @@ from devops_cli.models.vulnerability import (
     DependencySpec,
     NetworkReference,
     NetworkReputationRecord,
+    PackageLookupResult,
     VulnerabilityRecord,
 )
 from devops_cli.output import (
@@ -1040,8 +1041,10 @@ _DEP_SEV_STYLES: dict[str, tuple[str, str]] = {
     "MEDIUM": ("[yellow]MEDIUM[/yellow]", "[yellow]{status}[/yellow]"),
     "LOW": ("[cyan]LOW[/cyan]", "[cyan]{status}[/cyan]"),
     "CLEAN": ("[green]CLEAN[/green]", "[green]{status}[/green]"),
+    "UNCHECKED": ("[dim]UNCHECKED[/dim]", "[dim]{status}[/dim]"),
+    "NOT_QUERIED": ("[dim]NOT QUERIED[/dim]", "[dim]{status}[/dim]"),
 }
-_DEFAULT_DEP_SEV_STYLE: tuple[str, str] = ("[dim]NOT QUERIED[/dim]", "[dim]{status}[/dim]")
+_DEFAULT_DEP_SEV_STYLE: tuple[str, str] = ("[dim]UNCHECKED[/dim]", "[dim]{status}[/dim]")
 
 
 def _format_dependency_table_row(d: DependencySpec) -> list[str]:
@@ -1676,11 +1679,11 @@ class ReviewPipelineOrchestrator:
         unique_deps: set[tuple[str, str, str]],
         unique_nets: set[tuple[str, str]],
     ) -> tuple[
-        dict[tuple[str, str, str], list[VulnerabilityRecord]],
+        dict[tuple[str, str, str], PackageLookupResult],
         dict[str, NetworkReputationRecord],
     ]:
         """Pre-fetch vulnerability records from OSV and threat intel from Shodan/Cloudflare."""
-        dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]] = {}
+        dep_cache: dict[tuple[str, str, str], PackageLookupResult] = {}
         net_cache: dict[str, NetworkReputationRecord] = {}
 
         from devops_cli.dry_run.state import is_dry_run
@@ -1766,30 +1769,39 @@ class ReviewPipelineOrchestrator:
         self,
         fpath: str,
         file_deps: list[DependencySpec],
-        dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]],
+        dep_cache: dict[tuple[str, str, str], Any],
     ) -> list[SavedFinding]:
         """Audit dependencies against vulnerability cache and return any vulnerability findings."""
         findings: list[SavedFinding] = []
         for dep in file_deps:
             d_key = (dep.name, dep.version_range, dep.ecosystem)
             if d_key in dep_cache:
-                dep.queried = True
-                vulns = dep_cache[d_key]
-                if vulns:
-                    dep.vulnerabilities = vulns
-                    highest_sev = max(
-                        (v.severity.upper() for v in vulns),
-                        key=lambda s: _SEV_ORDER.get(s, 0),
-                        default="MEDIUM",
-                    )
-                    dep.severity = highest_sev
-                    dep.security_status = f"⚠️ {len(vulns)} Known Vuln(s) [{highest_sev}]"
+                entry = dep_cache[d_key]
+                is_pkg_res = isinstance(entry, PackageLookupResult)
+                lookup_status = entry.status if is_pkg_res else "ok"
+                vulns = entry.vulnerabilities if is_pkg_res else entry
+                if lookup_status == "ok":
+                    dep.queried = True
+                    if vulns:
+                        dep.vulnerabilities = vulns
+                        highest_sev = max(
+                            (v.severity.upper() for v in vulns),
+                            key=lambda s: _SEV_ORDER.get(s, 0),
+                            default="MEDIUM",
+                        )
+                        dep.severity = highest_sev
+                        dep.security_status = f"⚠️ {len(vulns)} Known Vuln(s) [{highest_sev}]"
+                    else:
+                        dep.severity = "CLEAN"
+                        dep.security_status = "✓ Clean"
                 else:
-                    dep.severity = "CLEAN"
-                    dep.security_status = "✓ Clean"
+                    dep.queried = False
+                    dep.severity = "UNCHECKED"
+                    dep.security_status = "Lookup Failed"
+                    vulns = []
             else:
                 dep.queried = False
-                dep.severity = "NOT_QUERIED"
+                dep.severity = "UNCHECKED"
                 dep.security_status = "Not Queried"
                 vulns = []
 
@@ -1824,7 +1836,7 @@ class ReviewPipelineOrchestrator:
         metadata_by_path: dict[str, FileAnalysisMeta],
         static_findings_by_file: dict[str, list[SavedFinding]],
         raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
-        dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]],
+        dep_cache: dict[tuple[str, str, str], PackageLookupResult],
         net_cache: dict[str, NetworkReputationRecord],
     ) -> FileReviewPayload:
         """Construct, validate, and write a single file review tracking JSON payload."""
@@ -1860,7 +1872,7 @@ class ReviewPipelineOrchestrator:
         metadata_by_path: dict[str, FileAnalysisMeta],
         static_findings_by_file: dict[str, list[SavedFinding]],
         raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
-        dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]],
+        dep_cache: dict[tuple[str, str, str], PackageLookupResult],
         net_cache: dict[str, NetworkReputationRecord],
     ) -> FileReviewPayload | None:
         """Safely build and persist single file payload with error logging."""
@@ -1887,7 +1899,7 @@ class ReviewPipelineOrchestrator:
         metadata_by_path: dict[str, FileAnalysisMeta],
         static_findings_by_file: dict[str, list[SavedFinding]],
         raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
-        dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]],
+        dep_cache: dict[tuple[str, str, str], PackageLookupResult],
         net_cache: dict[str, NetworkReputationRecord],
     ) -> list[FileReviewPayload]:
         """Assemble FileReviewPayload models and persist tracking JSON files."""
@@ -2848,8 +2860,8 @@ class ReviewPipelineOrchestrator:
         )
         for dep in all_deps:
             sev_upper = (dep.severity or "").upper()
-            if sev_upper in ("NOT_QUERIED", "NOT QUERIED"):
-                sev_badge = "NOT QUERIED"
+            if sev_upper in ("UNCHECKED", "NOT_QUERIED", "NOT QUERIED"):
+                sev_badge = "UNCHECKED"
             elif sev_upper not in ("CLEAN", "NONE", "INFO"):
                 sev_badge = f"**{dep.severity}**"
             else:
@@ -3274,7 +3286,7 @@ class ReviewPipelineOrchestrator:
             1
             for dep in all_deps
             if (dep.severity or "").upper()
-            not in ("CLEAN", "NONE", "INFO", "NOT_QUERIED", "NOT QUERIED")
+            not in ("CLEAN", "NONE", "INFO", "NOT_QUERIED", "NOT QUERIED", "UNCHECKED")
         )
         queried_count = sum(
             1
@@ -3284,10 +3296,12 @@ class ReviewPipelineOrchestrator:
         )
         if vuln_count:
             vuln_note = f" ([red]{vuln_count} vulnerable[/red])"
-        elif queried_count:
+        elif queried_count and queried_count == len(all_deps):
             vuln_note = " ([green]clean[/green])"
+        elif queried_count:
+            vuln_note = f" ([green]{queried_count} clean[/green], [dim]{len(all_deps) - queried_count} unchecked[/dim])"
         else:
-            vuln_note = " ([dim]not queried[/dim])"
+            vuln_note = " ([dim]unchecked[/dim])"
         return f"{len(all_deps)} audited{vuln_note}"
 
     def _format_network_summary(self, all_nets: list[NetworkReference]) -> str:

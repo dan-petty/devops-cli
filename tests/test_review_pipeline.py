@@ -850,6 +850,7 @@ def test_review_pipeline_dependency_and_network_auditing() -> None:
         DependencySpec,
         NetworkReference,
         NetworkReputationRecord,
+        PackageLookupResult,
         VulnerabilityRecord,
     )
 
@@ -871,6 +872,7 @@ def test_review_pipeline_dependency_and_network_auditing() -> None:
     # 2. Audit dependencies
     dep_clean = DependencySpec(name="pydantic", version_range="2.11.0", ecosystem="PyPI")
     dep_vuln = DependencySpec(name="requests", version_range="2.20.0", ecosystem="PyPI")
+    dep_failed = DependencySpec(name="urllib3", version_range="1.26.0", ecosystem="PyPI")
     vuln_rec = VulnerabilityRecord(
         id="CVE-2023-1234",
         summary="Vuln in requests",
@@ -878,24 +880,44 @@ def test_review_pipeline_dependency_and_network_auditing() -> None:
         fixed_version="2.31.0",
     )
     dep_cache = {
-        ("requests", "2.20.0", "PyPI"): [vuln_rec],
-        ("pydantic", "2.11.0", "PyPI"): [],
+        ("requests", "2.20.0", "PyPI"): PackageLookupResult(
+            status="ok", vulnerabilities=[vuln_rec]
+        ),
+        ("pydantic", "2.11.0", "PyPI"): PackageLookupResult(status="ok", vulnerabilities=[]),
+        ("urllib3", "1.26.0", "PyPI"): PackageLookupResult(status="failed", vulnerabilities=[]),
     }
     dep_unqueried = DependencySpec(name="flask", version_range="*", ecosystem="PyPI")
 
     findings = orchestrator._audit_file_dependencies(
-        "src/app.py", [dep_clean, dep_vuln, dep_unqueried], dep_cache
+        "src/app.py", [dep_clean, dep_vuln, dep_failed, dep_unqueried], dep_cache
     )
     assert (
         dep_clean.severity,
         dep_clean.queried,
         dep_vuln.severity,
         dep_vuln.queried,
+        dep_failed.severity,
+        dep_failed.queried,
+        dep_failed.security_status,
         dep_unqueried.severity,
         dep_unqueried.queried,
+        dep_unqueried.security_status,
         len(findings),
         "CVE-2023-1234" in findings[0].title,
-    ) == ("CLEAN", True, "CRITICAL", True, "NOT_QUERIED", False, 1, True)
+    ) == (
+        "CLEAN",
+        True,
+        "CRITICAL",
+        True,
+        "UNCHECKED",
+        False,
+        "Lookup Failed",
+        "UNCHECKED",
+        False,
+        "Not Queried",
+        1,
+        True,
+    )
 
     # 3. Audit network references
     net_clean = NetworkReference(target="127.0.0.1", reference_type="ipv4", is_local=True)
