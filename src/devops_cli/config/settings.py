@@ -1001,8 +1001,9 @@ def _github_cli_token() -> str | None:
 
 
 def get_grafana_token(settings: Settings) -> str | None:
-    """Resolve the Grafana API token."""
-    return _resolve(opt.GRAFANA_TOKEN, settings)
+    """Resolve the Grafana API token, rejecting masked placeholder values."""
+    token = _resolve(opt.GRAFANA_TOKEN, settings)
+    return token if token and not token.startswith("*") else None
 
 
 def get_grafana_password(settings: Settings) -> str | None:
