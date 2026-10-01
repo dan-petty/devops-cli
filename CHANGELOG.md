@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.24] - 2026-10-01
 
 ### Added
 - **Stack Dashboards Chart Only What Their Exporters Serve (`k8s/monitoring/dashboards/`)**:
@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Truthful Pod Status, Filters and a Pod Inspector (`devops dashboard`, `devops k8s pods`)**:
   - STATUS and READY match `kubectl get pods` wherever pods are listed: the dashboard, `devops dashboard --summary`, `devops k8s pods` and `--watch`. The Kubernetes tab's banner names the context, the Ready nodes and the unhealthy pods, or the context and the real error when it cannot connect (#686).
   - Namespace and text filters survive refreshes and keep the highlighted pod on screen. Logs follow a pod's default container, `c` cycles containers, a replaced log stream is closed, and `e` opens the pod's containers and recent events. The Minikube probe is gone (#686).
+- **Monitoring Stack on Grafana k8s-monitoring (`k8s/monitoring`, `devops k8s deploy-stack`)**:
+  - kube-prometheus-stack is replaced by Grafana's `k8s-monitoring` chart with Alloy collectors for metrics, pod logs and events, and Prometheus metrics and Loki logs keep 30 days (#734).
+  - The Prometheus server and Grafana run as their own charts again, cluster CPU metrics are restored, duplicate scrape jobs are off, and the Kubernetes views dashboards default to the homelab cluster (#738).
+  - Traefik serves ingress routes for the monitoring services, and the monitoring perimeter admits it (#734).
+- **Multi-Node Ollama Profiles (`k8s/llm/profiles`)**:
+  - Ollama runs as per-VRAM-tier DaemonSets behind `ollama-<n>gib` Services, and the LLM gateway routes every model group to them (#734).
 
 ### Changed
 - **MCP Tool `k8s_chaos` Previews by Default**:
@@ -39,9 +45,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - **LightLLM Inference Backend (`devops_cli.ai`, `k8s/llm`)**:
-  - Fully removed the unused `ghcr.io/modeltc/lightllm` inference backend, including `k8s/llm/lightllm/` manifests, `CONST_AI_BACKEND_LIGHTLLM`, `GatewayRouter.scale_lightllm()`, the `devops-cli-ai_lightllm_scale` MCP tool, and all associated CLI, configuration, and test references. The `devops ai gateway scale` command now exclusively targets the vLLM backend.
+  - Fully removed the unused `ghcr.io/modeltc/lightllm` inference backend, including `k8s/llm/lightllm/` manifests, `CONST_AI_BACKEND_LIGHTLLM`, `GatewayRouter.scale_lightllm()`, the `devops-cli-ai_lightllm_scale` MCP tool, and all associated CLI, configuration, and test references.
 - **MCP Tools and Parameters With No Command Behind Them**:
   - The `ai_architecture` tool, which called a nonexistent `devops analyze architecture`, and the parameters `repos_sync(all_repos)`, `k8s_audit(namespace)` and `k8s_chaos(action)`, which their commands never took (#836).
+- **Squid Forward Proxy (`k8s/squid`)**:
+  - The Squid egress proxy, its CA bundle and its exporter are removed (#734). An existing cluster keeps the namespace until it is deleted: `kubectl delete namespace squid`.
+- **vLLM Deployment Profiles (`k8s/llm/profiles`, LLM gateway)**:
+  - The vLLM DaemonSets, their `vllm-<n>gib` Services and the gateway's vLLM routes are removed in favour of the Ollama profiles (#734). An existing cluster keeps the model caches until they are deleted: `kubectl -n llm delete pvc vllm-model-cache vllm-single-model-cache`. The remaining vLLM references in code are #820.
+- **kube-prometheus-stack (`k8s/monitoring`)**:
+  - The kube-prometheus-stack release is replaced by k8s-monitoring (#734) and the separate Prometheus and Grafana charts (#738). Its Prometheus Operator CRDs stay installed: the `prometheus-operator-crds` release now owns them (#819), so do not delete them by hand. The alias Services that kept its names working are #818.
 
 ### Fixed
 - **Branch Analysis Reads the Base Revision Again (`devops analyze branch`, `devops review`)**:
@@ -82,15 +94,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `devops docs check` resolves every `uv run devops` argv in the MCP server against the real command tree without running it, and reports each defect at its server line (#836).
 - **MCP Tools Refuse Coerced Arguments Before They Run (`devops_cli.ai.mcp`)**:
   - Tool arguments are validated against each tool's published schema before its handler runs, for listed and withheld tools alike. A boolean, string or integral float is refused where an integer is expected: `review_pr` with `{"number": true, "post": true}` had built `devops review pr 1 --post`. A refusal names each parameter once, with the expected type and the allowed parameters, and never echoes a value. Rejected inputs no longer reach FastMCP's warning log, and `jsonschema` is a runtime dependency (#862).
-
-### Security
-- **`web_fetch` Vets Every Redirect Hop Before Sending It (`devops_cli.ai.common_tools`, `devops_cli.http.broker`)**:
-  - A redirect chain could reach a link-local or private address: only the first URL and the final response were checked. Now each hop goes through the HTTP broker's request hook before it is sent. Only http and https are allowed, the domain lists apply with case and trailing dots ignored, and the address must be public whatever `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK` says. Both broker clients follow at most 10 redirects (#860).
-  - Each fetch uses its own client, so no cookies carry over between fetches, and a request's egress policy can only add restrictions to the broker's own SSRF check (#860).
-
-## [0.2.24] - 2026-09-28
-
-### Fixed & Hardened
 - **Review Self-Improvement & Verification Feedback Loop (`devops_cli.ai.review`, `devops_cli.security`)**:
   - Remediated session `20260928-160843` findings, eliminating native secret scanner false positives, tautological criteria auto-promotions, and cluster overlay networking hallucinations (#682).
   - Anchored native fallback secret patterns with `\b` word boundaries and tightened OpenAI key pattern to `\bsk-(?:proj-)?[A-Za-z0-9]{32,128}\b`, preventing `task-*.md` markdown links from falsely triggering secret detection (#682).
@@ -102,11 +105,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Hardened URL scheme validation in `gateway_bench.py` before `urllib.request.urlopen` (#682).
   - Enforced strict regex format `^[a-zA-Z0-9_\-\.]+$` on `run_id` in `run_store.py` rejecting `..` traversal (#682).
   - Narrowed exception handlers in `install_tools.py` and guarded git directory pointer resolution in `tracer.py` against `(OSError, RuntimeError, ValueError)` (#682).
-  - Hardened git invocations in `analyze.py` with `--` argument separator and revision/path regex validation (#682).
+  - Validated revisions and paths before the git invocations in `analyze.py` (#682).
   - Added `_validate_mcp_arg("session_id", ...)` in MCP `review_findings` (#682).
   - Updated `src/devops_cli/ai/tasks/verify_finding_system.md`, `src/devops_cli/ai/tasks/review.md`, and `src/devops_cli/ai/personas/devsecops/prompt.md` with explicit falsification rules against tautological criteria, documentation placeholders, and internal cluster networking (#682).
   - Added Calibration Record for session `20260928-160843` to `docs/SELF_IMPROVEMENT.md` (#682).
   - Exported refreshed feedback dataset with 1,219 findings via `devops review export-feedback` (#682).
+
+### Security
+- **`web_fetch` Vets Every Redirect Hop Before Sending It (`devops_cli.ai.common_tools`, `devops_cli.http.broker`)**:
+  - A redirect chain could reach a link-local or private address: only the first URL and the final response were checked. Now each hop goes through the HTTP broker's request hook before it is sent. Only http and https are allowed, the domain lists apply with case and trailing dots ignored, and the address must be public whatever `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK` says. Both broker clients follow at most 10 redirects (#860).
+  - Each fetch uses its own client, so no cookies carry over between fetches, and a request's egress policy can only add restrictions to the broker's own SSRF check (#860).
 
 ## [0.2.23] - 2026-09-28
 
