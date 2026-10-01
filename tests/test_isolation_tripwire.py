@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -114,6 +115,26 @@ def test_check_tracked_diff_detects_mutations(tmp_path: Path) -> None:
         "tracked1.py (modified by tests)",
         "tracked2.py (deleted by tests)",
     ]
+
+
+def test_check_tracked_diff_compares_content_in_a_linked_worktree(
+    nested_worktree: tuple[Path, Path],
+) -> None:
+    """In a linked worktree, where `.git` is a file, a tracked file rewritten unchanged is not
+    a mutation and an edited one is. `devops ci` regenerates the docs while the tests run, so
+    requiring `.git/index` failed the gate from every worktree."""
+    _, worktree = nested_worktree
+    touched, edited = worktree / ".gitignore", worktree / "pyproject.toml"
+    snapshot = _snapshot_tracked_files(worktree, [".gitignore", "pyproject.toml"])
+
+    stamp = touched.stat()
+    os.utime(touched, ns=(stamp.st_atime_ns, stamp.st_mtime_ns + 1_000_000_000))
+    edited.write_text(edited.read_text(encoding="utf-8") + "# edited\n", encoding="utf-8")
+
+    assert ((worktree / ".git").is_file(), _check_tracked_diff(worktree, snapshot)) == (
+        True,
+        ["pyproject.toml (modified by tests)"],
+    )
 
 
 def test_check_forbidden_test_paths_detects_test_artifacts(tmp_path: Path) -> None:

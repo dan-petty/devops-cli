@@ -44,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ai harness status` shows the configured provider and model with every slot `configured`, instead of a hard-coded `claude-3-7-sonnet` with every slot `attached`. `ai harness run` and `offload` report the local search they ran and what it found, without templated model "Tier 1/Tier 3" text, token estimates, or the unused `--frontier-model`/`--local-model` options (#710).
   - `ai quiesce`, `ai failover`, `ai resume` and `ai constellation` set, record and show a flag, and say so. Task registration, which nothing called, and the per-task counts, `--drain-timeout` and failover's `--force` are removed; `ai gateway failover` reroutes requests (#710).
   - `telemetry profile <command>` reads the command's trace back from Jaeger, waiting until it stops growing, and exits non-zero without a command or trace, with telemetry export off, or when no spans reach Jaeger. The `sample.*` fallback spans and the unused `--last` are removed, and the MCP tool passes the command positionally (#710).
+- **The Workspace Tripwire Passes From a Linked Worktree (`tests/conftest.py`)**:
+  - `uv run devops ci` no longer fails from a linked worktree. The #749 tripwire required `.git/index`, which a linked worktree lacks, so it reported every file the gate regenerates as modified by tests; git now finds the index itself (#824).
 
 ## [0.2.24] - 2026-09-28
 

@@ -804,6 +804,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: An architecture review on 2026-10-01 found ten deepening candidates and five defects in the hot spots since v0.2.23 and the GitHub modules the roadmap jobs build on.
   - *Deliverable*: Items #767-#781; `CONTEXT.md` Code review terms (Finding, Verdict, Review session, Known false positive); entries for #781, #768 and #767; backlog rows for the rest; #768 added to the dependencies of #739, #740, #742, #743 and #752, and #767 to #741.
   - *Constraint*: Merges into `release/v0.2.24`. v0.2.25 holds 12 open items afterwards.
+- [x] **The Workspace Tripwire Passes From a Linked Worktree (P0 - Critical, Issue #824)**:
+  - *Context & Rationale*: e8eaf4a (#749) made `_is_git_file_modified` (`tests/conftest.py`) report a change whenever `.git/index` was missing. A linked worktree's `.git` is a file, so every file `devops ci` regenerates during pytest was reported as modified, and the gate failed from every worktree.
+  - *Deliverable*: git finds the index itself; a test in a linked worktree checks that a file with only a new mtime is not reported and an edited one is.
+  - *Constraint*: Critical fix: a P0 regression whose introducing commit is cited, so it joins the current release.
 
 ### Multi-IDE MCP Scaffolding, Context Budgeting & Invariant Pinning (v0.2.25 - Scheduled)
 - [ ] **Pipeline Stage Context Budgeting & Invariant Pinning (P0 - Critical)**:
