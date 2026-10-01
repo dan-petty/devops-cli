@@ -10,7 +10,7 @@ query that would be rejected at the command line is rejected here too.
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -176,8 +176,38 @@ def lint_dashboard_file(path: Path) -> DashboardLintReport:
     return report
 
 
+def _check_shared_uids(reports: list[DashboardLintReport]) -> None:
+    """Report dashboards in one set that share a uid, each naming the other files.
+
+    Grafana stores one dashboard per uid, so whichever file reaches it last overwrites the
+    others without any warning.
+    """
+    by_uid: defaultdict[str, list[DashboardLintReport]] = defaultdict(list)
+    for report in reports:
+        by_uid[report.dashboard_uid.strip()].append(report)
+    shared = [group for uid, group in by_uid.items() if uid and len(group) > 1]
+    for group in shared:
+        for report in group:
+            others = ", ".join(other.source_file for other in group if other is not report)
+            report.issues.append(
+                _issue(
+                    "error",
+                    f"Dashboard uid {report.dashboard_uid!r} is also used by {others}; "
+                    "Grafana keeps only one",
+                )
+            )
+
+
+def lint_dashboard_files(paths: list[Path]) -> list[DashboardLintReport]:
+    """Lint each dashboard file, then check the set for uids two files share."""
+    reports = [lint_dashboard_file(path) for path in paths]
+    _check_shared_uids(reports)
+    return reports
+
+
 __all__ = [
     "lint_dashboard",
     "lint_dashboard_file",
+    "lint_dashboard_files",
     "load_dashboard",
 ]

@@ -140,6 +140,25 @@ devops k8s configure-urls --stack infra
 devops k8s configure-urls --stack llm
 ```
 
+## Grafana Dashboards
+
+Dashboards live in `monitoring/dashboards/`. Its `kustomization.yaml` generates three ConfigMaps labelled `grafana_dashboard: "1"`, and the Grafana dashboard sidecar (`monitoring/grafana-values.yaml`) loads every ConfigMap with that label:
+
+| ConfigMap | Dashboards |
+| :--- | :--- |
+| `grafana-k8s-global-dashboards` | `k8s-views-global.json`, `k8s-views-pods.json` |
+| `grafana-k8s-node-dashboards` | `k8s-views-nodes.json`, `k8s-views-namespaces.json` |
+| `grafana-devops-cli-dashboards` | `devops-cli.json`, `ai-spend.json` |
+
+`devops k8s deploy-stack` applies them through the root kustomization, in the same run that creates the `monitoring` namespace, and `teardown-stack` removes them. Grafana holds these six dashboards as provisioned and refuses to save over them, so change the JSON file and deploy again. To provision another dashboard, add it to a generator entry; each ConfigMap must stay under the 262,144 bytes kubectl's last-applied annotation allows.
+
+`llm-stack.json` and `otel-collector.json` are not provisioned. They reach Grafana through its API:
+```bash
+devops grafana dashboards lint k8s/monitoring/dashboards  # also catches a uid two files share
+devops grafana dashboards sync                            # posts every file in the directory
+```
+`sync` exits 1 if any dashboard failed. It reports the provisioned dashboards as skipped, not failed.
+
 ## Teardown
 
 ```bash
@@ -233,7 +252,7 @@ Expose homelab Kubernetes services securely to the internet without public ports
 
 ```
 k8s/
-├── kustomization.yaml        # Root kustomize: applies namespaces, cloudflared, ingress
+├── kustomization.yaml        # Root kustomize: applies namespaces, cloudflared, registry, Grafana dashboard ConfigMaps
 ├── namespaces.yaml           # Namespace definitions (argocd, monitoring, otel, llm, cloudflared)
 ├── cloudflared/
 │   ├── kustomization.yaml    # Kustomize overlay for Cloudflare Tunnel
@@ -249,11 +268,23 @@ k8s/
 │   ├── namespace.yaml        # argocd namespace
 │   └── values.yaml           # Helm values for argo/argo-cd
 ├── monitoring/
-│   ├── kustomization.yaml    # Kustomize overlay for monitoring
+│   ├── kustomization.yaml    # Kustomize overlay for monitoring: namespace, NetworkPolicy, Service aliases, dashboards
 │   ├── namespace.yaml        # monitoring namespace
+│   ├── networkpolicy.yaml    # Default perimeter for the monitoring namespace
+│   ├── service-aliases.yaml  # Alias Services for Prometheus and Grafana
 │   ├── dcgm-exporter-values.yaml # Helm values for nvidia/dcgm-exporter (GPU metrics)
+│   ├── grafana-values.yaml   # Helm values for grafana/grafana (datasources, dashboard sidecar)
 │   ├── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, and gateway monitors)
-│   └── prometheus-operator-crds-values.yaml # Helm values for prometheus-community/prometheus-operator-crds (ServiceMonitor and other monitoring.coreos.com CRDs)
+│   ├── prometheus-operator-crds-values.yaml # Helm values for prometheus-community/prometheus-operator-crds (ServiceMonitor and other monitoring.coreos.com CRDs)
+│   ├── prometheus-values.yaml # Helm values for prometheus-community/prometheus (server only)
+│   └── dashboards/
+│       ├── kustomization.yaml # configMapGenerator: sidecar-labelled ConfigMaps for six dashboards
+│       ├── k8s-views-global.json, k8s-views-pods.json # ConfigMap grafana-k8s-global-dashboards
+│       ├── k8s-views-nodes.json, k8s-views-namespaces.json # ConfigMap grafana-k8s-node-dashboards
+│       ├── devops-cli.json   # devops-cli commands, reviews, RAG and spend (grafana-devops-cli-dashboards)
+│       ├── ai-spend.json     # AI spend and LLM usage (grafana-devops-cli-dashboards)
+│       ├── llm-stack.json    # LLM stack; not provisioned, reaches Grafana through sync
+│       └── otel-collector.json # Collector and traces; not provisioned, reaches Grafana through sync
 ├── otel/
 │   ├── kustomization.yaml    # Kustomize overlay for OpenTelemetry
 │   ├── namespace.yaml        # otel namespace
@@ -266,8 +297,6 @@ k8s/
 │   ├── values-ollama.yaml    # Helm values for ollama/ollama
 │   ├── values-open-webui.yaml# Helm values for open-webui/open-webui
 │   ├── values-qdrant.yaml    # Helm values for qdrant/qdrant
-│   ├── gateway/              # LiteLLM gateway: Deployment, routing ConfigMap, NodePort Service, NetworkPolicy
-│   ├── vllm/                 # Dual-GPU vLLM (TP=2): Deployment, PVC, Service, NetworkPolicy
-│   └── vllm-single/          # Single-GPU vLLM: Deployment, PVC, Service, NetworkPolicy
+│   └── gateway/              # LiteLLM gateway: Deployment, routing ConfigMap, NodePort Service, NetworkPolicy
 └── README.md                 # This file
 ```

@@ -1524,7 +1524,12 @@ devops grafana dashboards import [OPTIONS] <file>
 
 #### `devops grafana dashboards sync`
 
-**Sync all bundled/local dashboards to Grafana.**
+**Sync every dashboard JSON file in a directory to Grafana.**
+
+Sync every dashboard JSON file in a directory to Grafana.
+
+Tries every file, then exits 1 if any failed. A dashboard Grafana holds as provisioned,
+such as one the dashboard sidecar loads from a ConfigMap, is skipped rather than failed.
 
 ```bash
 devops grafana dashboards sync [OPTIONS]
@@ -1542,8 +1547,9 @@ devops grafana dashboards sync [OPTIONS]
 
 Statically check dashboard JSON for layout, query, and binding defects.
 
-Catches overlapping panels, duplicate ids, unbound datasources, and malformed PromQL
-before a dashboard reaches Grafana, where the only symptom is a blank or wrong panel.
+Catches overlapping panels, duplicate ids, unbound datasources, malformed PromQL, and a
+uid two dashboards share before a dashboard reaches Grafana, where the only symptom is a
+blank, wrong, or overwritten dashboard.
 
 ```bash
 devops grafana dashboards lint [OPTIONS] <path>

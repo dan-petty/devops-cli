@@ -18,7 +18,7 @@
         "y": 0
       },
       "id": 1,
-      "title": "AI Lifetime Spend & Fleet Overview",
+      "title": "AI Spend in Range & Fleet Overview",
       "type": "row"
     },
     {
@@ -26,6 +26,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "LLM spend over the dashboard's time range. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -60,7 +61,7 @@
       "id": 2,
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
@@ -71,7 +72,7 @@
           "values": false
         }
       },
-      "title": "Total Lifetime Spend",
+      "title": "Spend in Range",
       "type": "stat",
       "targets": [
         {
@@ -79,7 +80,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(devops_cli_ai_spend_usd_total) or vector(0)",
+          "expr": "sum(increase(devops_cli_ai_spend_usd_total[$__range])) or vector(0)",
+          "instant": true,
           "legendFormat": "Spend USD",
           "refId": "A"
         }
@@ -90,6 +92,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "LLM calls over the dashboard's time range. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -118,7 +121,7 @@
           "values": false
         }
       },
-      "title": "Total AI Requests",
+      "title": "AI Requests in Range",
       "type": "stat",
       "targets": [
         {
@@ -126,7 +129,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(devops_cli_ai_requests_total) or vector(0)",
+          "expr": "sum(increase(devops_cli_ai_requests_total[$__range])) or vector(0)",
+          "instant": true,
           "legendFormat": "Requests",
           "refId": "A"
         }
@@ -137,6 +141,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "Prompt and completion tokens over the dashboard's time range. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -165,7 +170,7 @@
           "values": false
         }
       },
-      "title": "Total Tokens Processed",
+      "title": "Tokens Processed in Range",
       "type": "stat",
       "targets": [
         {
@@ -173,7 +178,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(devops_cli_ai_tokens_total) or vector(0)",
+          "expr": "sum(increase(devops_cli_ai_tokens_total[$__range])) or vector(0)",
+          "instant": true,
           "legendFormat": "Total Tokens",
           "refId": "A"
         }
@@ -184,6 +190,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "Backends that answered an uncached request in the last 15 minutes. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -288,6 +295,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "LLM spend per hour, by backend, server and provider. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -313,7 +321,7 @@
           "placement": "bottom"
         }
       },
-      "title": "Cumulative Spend by Backend Server",
+      "title": "Spend per Hour by Backend Server",
       "type": "timeseries",
       "targets": [
         {
@@ -321,7 +329,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (server, backend, provider) (devops_cli_ai_spend_usd_total) or vector(0)",
+          "expr": "sum by (server, backend, provider) (increase(devops_cli_ai_spend_usd_total[1h]))",
           "legendFormat": "{{backend}} via {{server}} ({{provider}})",
           "refId": "A"
         }
@@ -378,7 +386,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_tokens_total[5m])) by (type) or vector(0)",
+          "expr": "sum by (type) (rate(devops_cli_ai_tokens_total[5m]))",
           "legendFormat": "{{type}} tokens/sec",
           "refId": "A"
         }
@@ -423,7 +431,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_requests_total[5m])) by (model, provider) or vector(0)",
+          "expr": "sum by (model, provider) (rate(devops_cli_ai_requests_total[5m]))",
           "legendFormat": "{{model}} ({{provider}})",
           "refId": "A"
         }

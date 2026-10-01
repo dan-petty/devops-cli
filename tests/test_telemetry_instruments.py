@@ -21,10 +21,26 @@ from devops_cli.ai.review.runner import _record_review_metrics
 from devops_cli.ai.review_schema import Finding, ReviewResult
 from devops_cli.ai.spend.ledger import SpendLedger, track_request_spend
 from devops_cli.telemetry import tracer as tracer_module
-from devops_cli.telemetry.instruments import INSTRUMENTS, backend_name
+from devops_cli.telemetry.instruments import INSTRUMENTS, InstrumentKind, backend_name
 from devops_cli.telemetry.tracer import OTelTelemetryClient
 
-DASHBOARDS = Path("k8s/monitoring/dashboards")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
+SERIES_NAME = re.compile(r"devops_cli_[a-z0-9_]+")
+SENT_SERIES = {series for instrument in INSTRUMENTS for series in instrument.series}
+# A quantile past a histogram's top bucket comes out as that bucket's bound.
+QUANTILE_CAPS = {
+    f"{instrument.name}_bucket": f"{instrument.bounds[-1]:g} {instrument.unit}"
+    for instrument in INSTRUMENTS
+    if instrument.kind is InstrumentKind.HISTOGRAM
+}
+# `by (labels) (rate(selector[window]))` or `increase(...)`: the labels one series is summed by.
+GROUPED_SERIES = re.compile(r"\bby\s*\(([^)]*)\)\s*\(\s*(?:rate|increase)\(\s*([^\s\[]+)\s*\[")
+# `histogram_quantile(q, sum by (...) (increase(series[window])))`: one quantile of one series.
+QUANTILE_OF = re.compile(
+    r"histogram_quantile\(\s*([0-9.]+)\s*,\s*sum\s+by\s*\([^)]*\)\s*\(\s*increase\(\s*([a-z0-9_]+)"
+)
+INNERMOST_PARENTHESES = re.compile(r"\([^()]*\)")
 
 
 def _queries(dashboard: Path) -> list[str]:
@@ -44,18 +60,170 @@ def _queries(dashboard: Path) -> list[str]:
     return found
 
 
-@pytest.mark.parametrize("dashboard", ["devops-cli.json", "ai-spend.json"])
-def test_every_dashboard_query_names_a_metric_devops_cli_sends(dashboard: str) -> None:
-    """Verify each query reads a counter or histogram series devops-cli sends over OTLP."""
-    sent = {series for instrument in INSTRUMENTS for series in instrument.series}
-    queries = _queries(DASHBOARDS / dashboard)
+def _devops_cli_dashboards() -> list[Path]:
+    """The shipped dashboards with a query on a devops-cli metric."""
+    return [
+        dashboard
+        for dashboard in sorted(DASHBOARDS.glob("*.json"))
+        if any(SERIES_NAME.search(query) for query in _queries(dashboard))
+    ]
 
-    unsent = {
-        name for query in queries for name in re.findall(r"devops_cli_[a-z0-9_]+", query)
-    } - sent
-    unnamed = [q for q in queries if not re.search(r"devops_cli_[a-z0-9_]+", q)]
+
+def _panels(dashboard: Path) -> list[dict[str, Any]]:
+    """A dashboard's visualisation panels, without its rows."""
+    panels = json.loads(dashboard.read_text(encoding="utf-8"))["panels"]
+    return [panel for panel in panels if panel.get("type") != "row"]
+
+
+def _panel_queries(panel: dict[str, Any]) -> str:
+    return " ".join(target.get("expr", "") for target in panel.get("targets", []))
+
+
+def _all_queries() -> list[str]:
+    """Every query in the devops-cli dashboards."""
+    return [query for dashboard in _devops_cli_dashboards() for query in _queries(dashboard)]
+
+
+def _outermost(query: str) -> str:
+    """A query with each parenthesised part collapsed, leaving its outermost operators."""
+    collapsed = INNERMOST_PARENTHESES.sub("<>", query)
+    return query if collapsed == query else _outermost(collapsed)
+
+
+def test_the_devops_cli_dashboards_are_found_by_their_queries() -> None:
+    """Verify the glob the query checks run over finds both devops-cli dashboards."""
+    names = {dashboard.name for dashboard in _devops_cli_dashboards()}
+    assert {"devops-cli.json", "ai-spend.json"} <= names
+
+
+@pytest.mark.parametrize("dashboard", _devops_cli_dashboards(), ids=lambda path: path.name)
+def test_every_dashboard_query_names_a_metric_devops_cli_sends(dashboard: Path) -> None:
+    """Verify each query reads a counter or histogram series devops-cli sends over OTLP."""
+    queries = _queries(dashboard)
+
+    unsent = {name for query in queries for name in SERIES_NAME.findall(query)} - SENT_SERIES
+    unnamed = [q for q in queries if not SERIES_NAME.search(q)]
 
     assert (len(queries) > 0, sorted(unsent), unnamed) == (True, [], [])
+
+
+@pytest.mark.parametrize("dashboard", _devops_cli_dashboards(), ids=lambda path: path.name)
+def test_every_series_is_read_through_rate_or_increase(dashboard: Path) -> None:
+    """Verify each series is the first argument of `rate(` or `increase(`.
+
+    A raw counter shows the count since the collector last reset the series, which happens
+    whenever it sits idle for an hour, so a raw sum is neither a lifetime total nor a rate.
+    """
+    raw = [
+        (query, match.group(0))
+        for query in _queries(dashboard)
+        for match in SERIES_NAME.finditer(query)
+        if not re.search(r"\b(?:rate|increase)\(\s*$", query[: match.start()])
+    ]
+    assert raw == []
+
+
+def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sends() -> None:
+    """Verify each series sent but never charted is summed by the label asked for.
+
+    The grouping must apply to that series, not to another in the same query, and the latency
+    panels chart command p50, p95 and p99, and review and RAG p50 and p95.
+    """
+    wanted = {
+        ("devops_cli_command_duration_seconds_bucket", "command"),
+        ('devops_cli_command_total{status="error"}', "command"),
+        ("devops_cli_review_duration_seconds_count", "target_type"),
+        ("devops_cli_review_duration_seconds_bucket", "target_type"),
+        ("devops_cli_findings_total", "severity"),
+        ("devops_cli_rag_query_duration_ms_bucket", "le"),
+    }
+    queries = _all_queries()
+    grouped = {
+        (series, label.strip())
+        for query in queries
+        for labels, series in GROUPED_SERIES.findall(query)
+        for label in labels.split(",")
+    }
+    found = [match for query in queries for match in QUANTILE_OF.findall(query)]
+    quantiles = {series: {float(q) for q, other in found if other == series} for _, series in found}
+
+    assert (sorted(wanted - grouped), quantiles) == (
+        [],
+        {
+            "devops_cli_command_duration_seconds_bucket": {0.5, 0.95, 0.99},
+            "devops_cli_review_duration_seconds_bucket": {0.5, 0.95},
+            "devops_cli_rag_query_duration_ms_bucket": {0.5, 0.95},
+        },
+    )
+
+
+def test_a_command_group_without_errors_charts_a_zero_error_share() -> None:
+    """Verify a command group with runs and no error series shows 0, not a missing line.
+
+    Dividing two grouped sums keeps only the groups present on both sides, so a group that
+    sent no error series dropped out; the numerator falls back to its runs times zero.
+    """
+    (query,) = [
+        _panel_queries(panel)
+        for panel in _panels(DASHBOARDS / "devops-cli.json")
+        if panel["title"] == "Command Error Share"
+    ]
+    numerator, _, runs = query.rpartition(" / ")
+
+    assert (
+        numerator.startswith("("),
+        numerator.endswith(f" or {runs} * 0)"),
+        'status="error"' in numerator,
+    ) == (True, True, True)
+
+
+def test_a_grouped_query_adds_no_unlabelled_zero_series() -> None:
+    """Verify `or vector(0)` follows only an ungrouped result.
+
+    `vector(0)` has no labels, so it matches no labelled series and `or` always adds it: a
+    grouped panel drew a constant zero with an empty legend beside its real series.
+    """
+    assert [
+        query
+        for query in _all_queries()
+        if "or vector(0)" in query and re.search(r"\bby\b", _outermost(query))
+    ] == []
+
+
+def _skew(queries: str) -> str:
+    """How the samples `increase()` drops skew a panel's values.
+
+    A count only loses them, while a share or a quantile can move either way.
+    """
+    either_way = "histogram_quantile(" in queries or " / " in queries
+    return "come out high or low" if either_way else "come out low"
+
+
+def _missing_limits(panel: dict[str, Any]) -> list[str]:
+    """The limits a panel's description should state and does not."""
+    queries = _panel_queries(panel)
+    required = [cap for bucket, cap in QUANTILE_CAPS.items() if bucket in queries]
+    if "increase(" in queries:
+        required += ["approximate", "two samples", "#792", _skew(queries)]
+    if "devops_cli_findings_total" in queries:
+        required.append("#791")
+    description = panel.get("description", "").lower()
+    return [phrase for phrase in required if phrase.lower() not in description]
+
+
+@pytest.mark.parametrize("dashboard", _devops_cli_dashboards(), ids=lambda path: path.name)
+def test_every_panel_counting_with_increase_states_its_limits(dashboard: Path) -> None:
+    """Verify each panel built on `increase()` says how far its values can be off.
+
+    `increase()` needs two samples of a series inside its window and deltas can arrive out of
+    order (#792), so a count comes out low and a share or quantile high or low; finding panels
+    miss `--no-reporting` runs (#791); and a quantile past the top bucket comes out as that
+    bucket's bound.
+    """
+    panels = _panels(dashboard)
+    assert {panel["title"]: _missing_limits(panel) for panel in panels} == {
+        panel["title"]: [] for panel in panels
+    }
 
 
 class Captured:
@@ -200,7 +368,9 @@ def test_a_review_sends_its_duration_and_findings_by_persona_severity_and_status
 
 def test_the_collector_adds_up_deltas_before_prometheus() -> None:
     """Verify the metrics pipeline turns deltas into running totals before remote write."""
-    values = yaml.safe_load(Path("k8s/otel/values.yaml").read_text(encoding="utf-8"))
+    values = yaml.safe_load(
+        (REPO_ROOT / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
+    )
     config = values["config"]
     processors = config["service"]["pipelines"]["metrics"]["processors"]
 

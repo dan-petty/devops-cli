@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -70,6 +71,104 @@ def test_grafana_dashboards_sync_success(monkeypatch: pytest.MonkeyPatch) -> Non
     result = runner.invoke(grafana_app, ["dashboards", "sync"])
     assert result.exit_code == 0
     assert "Dashboard sync completed" in result.output
+
+
+class StubGrafana:
+    """A Grafana that answers each dashboard post by uid and records every request.
+
+    `provisioned` is the `meta.provisioned` a dashboard lookup returns; `None` fails the lookup.
+    """
+
+    def __init__(self, post_status: dict[str, int], provisioned: bool | None = False) -> None:
+        self.post_status = post_status
+        self.provisioned = provisioned
+        self.requests: list[tuple[str, str]] = []
+
+    def __call__(self, request: httpx2.Request) -> httpx2.Response:
+        if request.method == "GET":
+            uid = request.url.path.rsplit("/", 1)[-1]
+            self.requests.append(("GET", uid))
+            if self.provisioned is None:
+                return httpx2.Response(404, json={"message": "Dashboard not found"})
+            return httpx2.Response(
+                200, json={"dashboard": {"uid": uid}, "meta": {"provisioned": self.provisioned}}
+            )
+        uid = json.loads(request.content)["dashboard"]["uid"]
+        self.requests.append(("POST", uid))
+        status = self.post_status.get(uid, 200)
+        return httpx2.Response(status, json={"status": "success" if status == 200 else "error"})
+
+
+def _sync_against(
+    stub: StubGrafana, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[int, str]:
+    """Sync three dashboards, `a`, `b` and `c`, to the stub; return the exit code and output."""
+    for uid in ("a", "b", "c"):
+        (tmp_path / f"{uid}.json").write_text(
+            json.dumps({"uid": uid, "title": f"Dashboard {uid}", "panels": []}), encoding="utf-8"
+        )
+    real_client = httpx2.Client
+    monkeypatch.setattr("devops_cli.commands.grafana.load_settings", Settings)
+    monkeypatch.setattr(
+        "devops_cli.commands.grafana._client_args",
+        lambda settings: ("http://example.com", {"Content-Type": "application/json"}),
+    )
+    monkeypatch.setattr(
+        httpx2,
+        "Client",
+        lambda *args, **kwargs: real_client(transport=httpx2.MockTransport(stub)),
+    )
+    result = runner.invoke(grafana_app, ["dashboards", "sync", "--dir", str(tmp_path)])
+    return result.exit_code, result.output
+
+
+def test_sync_tries_every_dashboard_and_fails_when_one_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a 500 on one dashboard still posts the others, then exits 1 with the counts."""
+    stub = StubGrafana({"b": 500})
+
+    exit_code, output = _sync_against(stub, tmp_path, monkeypatch)
+
+    assert (exit_code, stub.requests, "2 synced, 0 skipped, 1 failed" in output) == (
+        1,
+        [("POST", "a"), ("POST", "b"), ("POST", "c")],
+        True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("provisioned", "exit_code", "counts"),
+    [
+        (True, 0, "2 synced, 1 skipped, 0 failed"),
+        (False, 1, "2 synced, 0 skipped, 1 failed"),
+        (None, 1, "2 synced, 0 skipped, 1 failed"),
+    ],
+    ids=["provisioned", "not-provisioned", "lookup-fails"],
+)
+def test_sync_skips_a_dashboard_grafana_holds_as_provisioned(
+    provisioned: bool | None,
+    exit_code: int,
+    counts: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a 400 on a provisioned dashboard counts as skipped, read from `meta.provisioned`.
+
+    The Grafana sidecar provisions the stack's dashboards, and Grafana refuses an API save
+    over a provisioned uid; a 400 on any other dashboard, or one whose lookup fails, is still a
+    failure.
+    """
+    stub = StubGrafana({"b": 400}, provisioned=provisioned)
+
+    result = _sync_against(stub, tmp_path, monkeypatch)
+
+    assert (result[0], stub.requests, counts in result[1], "b.json" in result[1]) == (
+        exit_code,
+        [("POST", "a"), ("POST", "b"), ("GET", "b"), ("POST", "c")],
+        True,
+        True,
+    )
 
 
 def test_grafana_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
