@@ -1100,6 +1100,30 @@ def test_a_dependency_the_scan_flagged_still_reports() -> None:
     assert _check_scanned_clean_dependency(finding, flagged) is None
 
 
+def test_an_unchecked_or_failed_lookup_dependency_does_not_invalidate_finding() -> None:
+    """An unchecked or failed lookup dependency must not invalidate a CVE finding."""
+    from devops_cli.ai.review.verification import _check_scanned_clean_dependency
+    from devops_cli.models.vulnerability import DependencySpec
+
+    finding = Finding(
+        severity="HIGH",
+        location="pyproject.toml:33",
+        title="Vulnerable fastapi pin CVE-2024-24762",
+        description="fastapi carries a known advisory.",
+    )
+    # 1. Default UNCHECKED severity
+    unqueried = [DependencySpec(name="fastapi")]
+    res1 = _check_scanned_clean_dependency(finding, unqueried)
+
+    # 2. Explicit UNCHECKED from failed lookup
+    failed_lookup = [
+        DependencySpec(name="fastapi", severity="UNCHECKED", security_status="Lookup Failed")
+    ]
+    res2 = _check_scanned_clean_dependency(finding, failed_lookup)
+
+    assert (res1, res2) == (None, None)
+
+
 # =============================================================================
 # Verifier prompt rule coverage
 # =============================================================================
