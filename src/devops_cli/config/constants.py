@@ -1998,6 +1998,42 @@ CONST_DOCKER_RESOURCE_LABELS: Final[dict[str, str]] = {
 # by selecting a pod rather than by the refresh cycle.
 CONST_LOGS_TAB_ID: Final[str] = "tab-logs"
 
+# ── Dashboard Finding Detail ─────────────────────────────────────────────────
+# The AI Review pane beside the findings table: these short fields as `label: value`
+# lines, in this order, then each long field as a titled section. Every other finding
+# field is left out on purpose: `recommendation` is the persona's merge verdict, not
+# advice about the finding, `thinking` is the model's scratchpad, and the rest are
+# verification bookkeeping.
+CONST_FINDING_DETAIL_HEADER_FIELDS: Final[tuple[tuple[str, str], ...]] = (
+    ("title", "Title"),
+    ("severity", "Severity"),
+    ("status", "Status"),
+    ("persona_title", "Persona"),
+    ("category", "Category"),
+    ("confidence_score", "Confidence"),
+    ("location", "Location"),
+    ("citation_line", "Citation line"),
+    ("verified_by", "Verified by"),
+)
+CONST_FINDING_DETAIL_SECTION_FIELDS: Final[tuple[tuple[str, str], ...]] = (
+    ("description", "Description"),
+    ("observed_value", "Observed value"),
+    ("expected_value", "Expected value"),
+    ("fix", "Fix"),
+    ("references", "References"),
+    ("verification_note", "Verification note"),
+    ("invalidation_reason", "Invalidation reason"),
+    ("mitigating_mechanism", "Mitigating mechanism"),
+)
+# A field read in place of a blank one: an untitled persona is named by its key, as
+# `review findings --details` names it.
+CONST_FINDING_DETAIL_FIELD_FALLBACKS: Final[dict[str, str]] = {"persona_title": "persona"}
+# Finding text is model output, so every Unicode control character (general category Cc)
+# is written as a visible escape before it reaches the terminal, except line breaks and
+# tabs, which lay the text out.
+CONST_UNICODE_CONTROL_CATEGORY: Final[str] = "Cc"
+CONST_FINDING_DETAIL_KEPT_CONTROLS: Final[frozenset[str]] = frozenset({"\n", "\t"})
+
 # ── W3C Trace Context ────────────────────────────────────────────────────────
 # https://www.w3.org/TR/trace-context/
 CONST_TRACEPARENT_VERSION: Final[str] = "00"
