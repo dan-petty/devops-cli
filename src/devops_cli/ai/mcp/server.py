@@ -4,17 +4,29 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import subprocess
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastmcp import Context, FastMCP
+from fastmcp.exceptions import ToolError
+from fastmcp.exceptions import ValidationError as FastMCPValidationError
 from fastmcp.server.middleware import Middleware
+from pydantic import Field
+from pydantic import ValidationError as PydanticValidationError
 
+from devops_cli.ai.mcp.argument_contract import (
+    RejectedInputLogFilter,
+    argument_refusal,
+    pydantic_violations,
+    schema_violations,
+)
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_FALCO_SEVERITY_LEVELS,
+    CONST_FASTMCP_SERVER_LOGGER,
     CONST_MAX_SECURITY_STREAM_TAIL_LINES,
     CONST_MCP_EAGER_DOMAINS,
     CONST_MCP_LAZY_DOMAINS,
@@ -41,6 +53,10 @@ mcp = FastMCP(
         "Prometheus monitoring, Docker cleanup, and quality gates."
     ),
 )
+
+# A pull request or issue number. The tool schema publishes the bound. Strict, so pydantic too
+# refuses `true`, `"1"` and `1.0` rather than letting any become PR 1 (#862).
+PullOrIssueNumber = Annotated[int, Field(ge=1, strict=True)]
 
 
 def _run_mcp_cmd(
@@ -153,7 +169,7 @@ def review_branch(branch: str = "", base: str = "main", persona: str = "devsecop
 
 
 @mcp.tool()
-def review_pr(number: int, post: bool = False, persona: str = "devsecops") -> str:
+def review_pr(number: PullOrIssueNumber, post: bool = False, persona: str = "devsecops") -> str:
     """Fetch GitHub PR diff and review using specified persona; optionally post comment."""
     _validate_mcp_int_bound("number", number, min_val=1)
     _validate_mcp_arg("persona", persona)
@@ -2137,7 +2153,7 @@ def pr_list(limit: int = 10, state: str = "open") -> str:
 
 
 @mcp.tool()
-def pr_checks(pr_number: int) -> str:
+def pr_checks(pr_number: PullOrIssueNumber) -> str:
     """Inspect detailed status of GitHub Actions CI checks for a pull request."""
     _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
     return _run_mcp_cmd(
@@ -2147,7 +2163,7 @@ def pr_checks(pr_number: int) -> str:
 
 
 @mcp.tool()
-def pr_threads_list(pr_number: int, unresolved_only: bool = True) -> str:
+def pr_threads_list(pr_number: PullOrIssueNumber, unresolved_only: bool = True) -> str:
     """List review discussion threads, file locations, and comments on a pull request."""
     _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
     cmd = ["uv", "run", "devops", "pr", "threads", "list", str(pr_number)]
@@ -2179,7 +2195,7 @@ def pr_thread_resolve(thread_id: str, without_reply: bool = False) -> str:
 
 @mcp.tool()
 def pr_monitor(
-    pr_number: int | None = None,
+    pr_number: PullOrIssueNumber | None = None,
     timeout: int = 300,
     interval: int = 60,
     settle_timeout: int = 60,
@@ -2209,7 +2225,7 @@ def pr_monitor(
 
 @mcp.tool()
 def pr_ready(
-    pr_number: int,
+    pr_number: PullOrIssueNumber,
     monitor: bool = False,
     force: bool = False,
     repo: str | None = None,
@@ -2232,7 +2248,7 @@ def pr_ready(
 
 @mcp.tool()
 def pr_check_readiness(
-    pr_number: int | None = None,
+    pr_number: PullOrIssueNumber | None = None,
     allow_blocked_state: bool = False,
     repo: str | None = None,
 ) -> str:
@@ -2250,7 +2266,7 @@ def pr_check_readiness(
 
 
 @mcp.tool()
-def pr_diff(pr_number: int, repo: str | None = None) -> str:
+def pr_diff(pr_number: PullOrIssueNumber, repo: str | None = None) -> str:
     """View the unified git diff for a pull request."""
     _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
     cmd = ["uv", "run", "devops", "pr", "diff", str(pr_number)]
@@ -2262,7 +2278,7 @@ def pr_diff(pr_number: int, repo: str | None = None) -> str:
 
 @mcp.tool()
 def pr_close(
-    pr_number: int,
+    pr_number: PullOrIssueNumber,
     comment: str | None = None,
     delete_branch: bool = False,
     repo: str | None = None,
@@ -2283,7 +2299,7 @@ def pr_close(
 
 @mcp.tool()
 def pr_update_branch(
-    pr_number: int,
+    pr_number: PullOrIssueNumber,
     repo: str | None = None,
     expected_head_sha: str | None = None,
     dry_run: bool = False,
@@ -2349,7 +2365,7 @@ def gh_run_view(
 
 @mcp.tool()
 def pr_edit(
-    pr_number: int,
+    pr_number: PullOrIssueNumber,
     title: str | None = None,
     body: str | None = None,
     base: str | None = None,
@@ -2379,7 +2395,7 @@ def pr_edit(
 
 @mcp.tool()
 def gh_issue_edit(
-    issue_number: int,
+    issue_number: PullOrIssueNumber,
     title: str | None = None,
     body: str | None = None,
     state: str | None = None,
@@ -2973,6 +2989,33 @@ class DomainGateMiddleware(Middleware):
         return [tool for tool in tools if _is_advertised(tool.name)]
 
 
+class ArgumentContractMiddleware(Middleware):
+    """Refuse a call its tool's published schema does not allow, before the handler runs.
+
+    FastMCP validates arguments with pydantic in lax mode, so `{"number": true, "post": true}`
+    ran `review_pr` against PR 1 and commented on it. The SDK's strict check is no substitute:
+    it sees only listed tools, so withheld ones kept coercing, and it quotes the value. This
+    resolves the registered tool, listed or withheld, and refuses `1.0` for any integer,
+    though JSON Schema counts it as one. Pydantic still runs afterwards, and its refusal is
+    answered with the same envelope.
+    """
+
+    async def on_call_tool(self, context: Any, call_next: Any) -> Any:
+        tool = await mcp.get_tool(context.message.name)
+        if tool is None:
+            return await call_next(context)
+        violations = schema_violations(tool.parameters, context.message.arguments or {})
+        if violations:
+            raise ToolError(argument_refusal(tool.name, tool.parameters, violations))
+        try:
+            return await call_next(context)
+        except FastMCPValidationError as exc:
+            if not isinstance(exc.__cause__, PydanticValidationError):
+                raise
+            violations = pydantic_violations(tool.parameters, exc.__cause__)
+            raise ToolError(argument_refusal(tool.name, tool.parameters, violations)) from None
+
+
 def reset_hydrated_domains() -> None:
     """Forget every hydrated domain, restoring the eager-only listing."""
     _HYDRATED_DOMAINS.clear()
@@ -3018,3 +3061,5 @@ def hydrate_tool_domain(domain: str, ctx: Context | None = None) -> dict[str, An
 
 
 mcp.add_middleware(DomainGateMiddleware())
+mcp.add_middleware(ArgumentContractMiddleware())
+logging.getLogger(CONST_FASTMCP_SERVER_LOGGER).addFilter(RejectedInputLogFilter())

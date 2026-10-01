@@ -13,6 +13,8 @@ from devops_cli.ai.client.models import LLMResponse
 from devops_cli.ai.client.unified import LLMClient
 from devops_cli.ai.response_repair import fix_llm_response
 from devops_cli.ai.schema_reflection import (
+    ArgumentRefusal,
+    ArgumentViolation,
     SchemaReflectionReport,
     SchemaViolation,
     build_schema_reflection_message,
@@ -153,6 +155,40 @@ def test_format_reflection_prompt_and_summary() -> None:
         "... and 3 additional schema violation(s)." in prompt,
         "8 schema error(s):" in summary,
     ) == (True, True, True, True, True)
+
+
+def test_argument_refusal_numbers_violations_and_caps_the_list() -> None:
+    """A refused call lists five numbered violations, counts the rest and sorts what it takes."""
+    violations = [
+        ArgumentViolation.of(f"extra_{index}", "HALLUCINATED_PARAM", "one of the allowed")
+        for index in range(7)
+    ]
+    envelope = ArgumentRefusal(
+        callee="review_pr", violations=violations, allowed_parameters=["post", "number"]
+    ).format_envelope()
+    assert (
+        "Refused `review_pr` before it ran: 7 argument violation(s)." in envelope,
+        "5. Parameter: `extra_4`\n   Kind: HALLUCINATED_PARAM" in envelope,
+        "Fix: Remove `extra_4`; it is not a parameter of this call." in envelope,
+        "6. Parameter" in envelope,
+        "... and 2 more." in envelope,
+        "Allowed parameters: `number`, `post`." in envelope,
+        envelope.endswith("Re-issue the call with every violation corrected."),
+    ) == (True, True, True, False, True, True, True)
+
+
+def test_argument_fixes_follow_the_kind() -> None:
+    """A missing argument is added, and any other kind is fixed by sending the expected value."""
+    missing = ArgumentViolation.of("number", "MISSING_PARAM", "integer >= 1")
+    mismatch = ArgumentViolation.of("number", "TYPE_MISMATCH", "integer >= 1")
+    envelope = ArgumentRefusal(
+        callee="gh_rate_limit", violations=[], allowed_parameters=[]
+    ).format_envelope()
+    assert (missing.fix, mismatch.fix, "Allowed parameters: none." in envelope) == (
+        "Add `number` as integer >= 1.",
+        "Send `number` as integer >= 1.",
+        True,
+    )
 
 
 def test_build_schema_reflection_message() -> None:

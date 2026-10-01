@@ -1,7 +1,8 @@
 """Lossless structured error reflection engine for Pydantic schema validation retries.
 
 Preserves up to 5 field paths with type violations, input representations, and
-prescriptive fix hints, enabling single-turn model self-correction.
+prescriptive fix hints, enabling single-turn model self-correction. The same numbered form
+answers a refused call: `ArgumentRefusal` renders it from violations that carry no value.
 """
 
 from __future__ import annotations
@@ -12,12 +13,16 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError
 
 from devops_cli.config.constants import (
+    CONST_ARGUMENT_HALLUCINATED,
+    CONST_ARGUMENT_MISSING,
     CONST_MAX_INPUT_VALUE_REPR_LENGTH,
     CONST_MAX_SCHEMA_REFLECTION_ERRORS,
 )
 from devops_cli.models.ai import ChatMessage
 
 __all__ = [
+    "ArgumentRefusal",
+    "ArgumentViolation",
     "SchemaReflectionReport",
     "SchemaViolation",
     "build_schema_reflection_message",
@@ -83,6 +88,63 @@ class SchemaReflectionReport(BaseModel):
         if self.remaining_count > 0:
             summary += f"; ... and {self.remaining_count} more"
         return summary
+
+
+# What to do about a refused argument, by its kind; every other kind is fixed by sending the
+# expected value.
+_ARGUMENT_FIXES: dict[str, str] = {
+    CONST_ARGUMENT_HALLUCINATED: "Remove `{parameter}`; it is not a parameter of this call.",
+    CONST_ARGUMENT_MISSING: "Add `{parameter}` as {expected}.",
+}
+_DEFAULT_ARGUMENT_FIX = "Send `{parameter}` as {expected}."
+
+
+class ArgumentViolation(BaseModel):
+    """One refused argument, described from its schema so the refusal never quotes the value."""
+
+    parameter: str = Field(description="Path of the refused argument, or an undeclared name")
+    kind: str = Field(description="Class of mistake, such as HALLUCINATED_PARAM or TYPE_MISMATCH")
+    expected: str = Field(description="What the schema accepts at that path")
+    fix: str = Field(description="Prescriptive correction that needs no knowledge of the value")
+
+    @classmethod
+    def of(cls, parameter: str, kind: str, expected: str) -> ArgumentViolation:
+        """Build a violation whose fix follows from its kind."""
+        fix = _ARGUMENT_FIXES.get(kind, _DEFAULT_ARGUMENT_FIX)
+        return cls(
+            parameter=parameter,
+            kind=kind,
+            expected=expected,
+            fix=fix.format(parameter=parameter, expected=expected),
+        )
+
+
+class ArgumentRefusal(BaseModel):
+    """A call refused before it ran: its violations and the parameters the callee declares."""
+
+    callee: str = Field(description="Name of the refused tool or function")
+    violations: list[ArgumentViolation] = Field(description="Every violation found, in order")
+    allowed_parameters: list[str] = Field(description="Parameters the callee declares")
+
+    def format_envelope(self, max_errors: int = CONST_MAX_SCHEMA_REFLECTION_ERRORS) -> str:
+        """Render the numbered envelope a model re-issues the call from."""
+        shown = self.violations[:max_errors]
+        lines = [
+            f"Refused `{self.callee}` before it ran: {len(self.violations)} argument violation(s)."
+        ]
+        for index, violation in enumerate(shown, start=1):
+            lines += [
+                f"{index}. Parameter: `{violation.parameter}`",
+                f"   Kind: {violation.kind}",
+                f"   Expected: {violation.expected}",
+                f"   Fix: {violation.fix}",
+            ]
+        if len(self.violations) > len(shown):
+            lines.append(f"... and {len(self.violations) - len(shown)} more.")
+        allowed = ", ".join(f"`{name}`" for name in sorted(self.allowed_parameters)) or "none"
+        lines.append(f"Allowed parameters: {allowed}.")
+        lines.append("Re-issue the call with every violation corrected.")
+        return "\n".join(lines)
 
 
 def format_field_path(loc: Sequence[int | str] | tuple[int | str, ...]) -> str:
