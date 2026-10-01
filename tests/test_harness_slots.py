@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -25,6 +26,7 @@ from devops_cli.ai.harness.slots import (
     mark_tool_read_only,
 )
 from devops_cli.commands.ai import app as ai_app
+from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.ai import HarnessValidationError
 
 
@@ -116,7 +118,7 @@ def test_base_slot_lifecycle() -> None:
 
 
 def test_model_slot_lifecycle_and_swapping() -> None:
-    """Verify ModelSlot initialization, token estimation, swapping, and local check."""
+    """Verify ModelSlot initialization, swapping, and local check."""
     slot = ModelSlot(
         name="frontier_model",
         slot_type=SlotType.MODEL,
@@ -130,10 +132,6 @@ def test_model_slot_lifecycle_and_swapping() -> None:
     assert slot.provider == "claude"
     assert slot.model_name == "claude-3-7-sonnet"
     assert not slot.is_local
-
-    # Token estimation
-    tokens = slot.estimate_tokens("A quick brown fox jumps over the lazy dog.")
-    assert tokens > 0
 
     # Ensure local fails on cloud model
     with pytest.raises(HarnessValidationError, match="must be local"):
@@ -266,11 +264,10 @@ def test_subagent_slot_ast_offloading(sample_repo_path: Path) -> None:
     assert (
         res.status,
         "DataProcessor" in res.output,
-        res.tokens_used > 0,
         len(res.data.get("matches", [])),
         match["name"],
         match["kind"],
-    ) == ("success", True, True, 1, "DataProcessor", "class")
+    ) == ("success", True, 1, "DataProcessor", "class")
 
     # Search for compute_metrics function
     fn_res = slot.offload_ast_search(sample_repo_path, "compute_metrics")
@@ -316,7 +313,7 @@ def test_tiered_execution_result_metrics() -> None:
     """Verify TieredExecutionResult tracks files_scanned and matches metrics."""
     result = TieredExecutionResult(
         task="Test task",
-        decision_plan="Plan",
+        search="AST search for symbol 'X'",
         status="completed",
         files_scanned=12,
         matches=4,
@@ -326,23 +323,27 @@ def test_tiered_execution_result_metrics() -> None:
     assert (data["files_scanned"], data["matches"]) == (12, 4)
 
 
-def test_agent_harness_create_default() -> None:
-    """Verify AgentHarness default constructor sets up all 4 slots."""
-    harness = AgentHarness.create_default(
-        frontier_model="claude-3-7-sonnet",
-        local_model="qwen2.5-coder:7b",
-    )
-    assert harness.validate_invariants() is True
-    assert harness.model_slot.model_name == "claude-3-7-sonnet"
-    assert harness.model_slot.is_local is False
-    assert harness.subagent_slot.model_slot.model_name == "qwen2.5-coder:7b"
-    assert harness.subagent_slot.model_slot.is_local is True
-    assert harness.subagent_slot.tool_slot.read_only is True
+def test_agent_harness_from_config_holds_the_configured_model() -> None:
+    """The harness reports the configured provider and model, marked configured, not attached."""
+    harness = AgentHarness.from_config(AIConfig(provider="openai", model="gpt-4.1"))
+    states = {
+        harness.model_slot.state,
+        harness.skill_slot.state,
+        harness.tool_slot.state,
+        harness.subagent_slot.state,
+    }
+    assert (
+        harness.model_slot.provider,
+        harness.model_slot.model_name,
+        harness.model_slot.is_local,
+        states,
+        harness.subagent_slot.tool_slot.read_only,
+    ) == ("openai", "gpt-4.1", False, {SlotState.CONFIGURED}, True)
 
 
 def test_tiered_synthesis_protocol_execution(sample_repo_path: Path) -> None:
     """Verify AgentHarness execute_tiered follows the 3-tier synthesis protocol."""
-    harness = AgentHarness.create_default()
+    harness = AgentHarness.from_config()
 
     task_description = "Locate DataProcessor and verify processing logic"
     result: TieredExecutionResult = harness.execute_tiered(
@@ -353,17 +354,17 @@ def test_tiered_synthesis_protocol_execution(sample_repo_path: Path) -> None:
 
     assert result.status == "completed"
     assert result.task == task_description
-    assert "DataProcessor" in result.decision_plan
+    assert result.search == "AST search for symbol 'DataProcessor'"
     assert len(result.subagent_results) >= 1
     assert isinstance(result.subagent_results[0], SubAgentResult)
     assert result.subagent_results[0].status == "success"
-    assert "DataProcessor" in result.verification_report
+    assert "1 discovered symbol(s)" in result.summary
     assert (result.files_scanned > 0, result.matches > 0) == (True, True)
 
 
 def test_harness_failure_isolation(tmp_path: Path) -> None:
     """Verify that sub-agent query errors do not crash the harness and report failed status."""
-    harness = AgentHarness.create_default()
+    harness = AgentHarness.from_config()
 
     # Query in an empty non-existent directory
     bogus_dir = tmp_path / "non_existent_folder"
@@ -375,32 +376,32 @@ def test_harness_failure_isolation(tmp_path: Path) -> None:
     # The harness should gracefully complete with status failed and an informative report
     assert result.status == "failed"
     assert len(result.subagent_results) >= 1
-    assert "Sub-agent execution failed" in result.verification_report
+    assert "Search failed" in result.summary
 
 
 def test_tiered_synthesis_file_scout_report(sample_repo_path: Path) -> None:
     """Verify tiered execution correctly reports matched files for scout runs."""
-    harness = AgentHarness.create_default()
+    harness = AgentHarness.from_config()
     result = harness.execute_tiered(
         task="Find python files",
         repo_path=sample_repo_path,
         file_pattern="*.py",
     )
     assert result.status == "completed"
-    assert "matched file(s)" in result.verification_report
-    assert "0 discovered symbol(s)" not in result.verification_report
+    assert "matched file(s)" in result.summary
+    assert "0 discovered symbol(s)" not in result.summary
 
 
 def test_tiered_synthesis_symbol_catalog_report(sample_repo_path: Path) -> None:
     """Verify tiered execution correctly reports cataloged symbols when no query or pattern is given."""
-    harness = AgentHarness.create_default()
+    harness = AgentHarness.from_config()
     result = harness.execute_tiered(
         task="Catalog repo symbols",
         repo_path=sample_repo_path,
     )
     assert result.status == "completed"
-    assert "discovered symbol(s)" in result.verification_report
-    assert "0 discovered symbol(s)" not in result.verification_report
+    assert "discovered symbol(s)" in result.summary
+    assert "0 discovered symbol(s)" not in result.summary
 
 
 def test_tiered_synthesis_partial_status() -> None:
@@ -411,29 +412,23 @@ def test_tiered_synthesis_partial_status() -> None:
         role="explorer",
         status="success",
         data={"matches": [{"name": "Foo", "kind": "class", "signature": "()", "file": "a.py"}]},
-        tokens_used=10,
     )
     failed_res = SubAgentResult(
         subagent_id="scout_2",
         role="explorer",
         status="failed",
         error="ConnectionTimeout",
-        tokens_used=0,
     )
 
-    from devops_cli.ai.harness.slots import _evaluate_tiered_status, _format_verification_report
+    from devops_cli.ai.harness.slots import _evaluate_tiered_status, _summarize_search
 
     status = _evaluate_tiered_status([success_res, failed_res])
     assert status == "partial"
 
-    report = _format_verification_report(
-        model_name="test-model",
-        task="Test partial task",
-        status=status,
-        sub_results=[success_res, failed_res],
+    report = _summarize_search("Test partial task", status, [success_res, failed_res])
+    assert (
+        report == "Some searches failed; found 1 discovered symbol(s) for task 'Test partial task'."
     )
-    assert "Partially verified" in report
-    assert "1 discovered symbol(s)" in report
 
 
 def test_cli_ai_harness_status(runner: CliRunner) -> None:
@@ -445,6 +440,21 @@ def test_cli_ai_harness_status(runner: CliRunner) -> None:
     assert "SkillSlot" in result.stdout
     assert "ToolSlot" in result.stdout
     assert "SubAgentSlot" in result.stdout
+
+
+def test_cli_ai_harness_status_reads_the_configured_model(runner: CliRunner) -> None:
+    """Changing the configured model changes what status shows; no slot claims attached."""
+    settings = MagicMock(ai=AIConfig(provider="openai", model="gpt-4.1"))
+    with patch("devops_cli.ai.harness.slots.load_settings", return_value=settings):
+        result = runner.invoke(ai_app, ["harness", "status"])
+    assert (
+        result.exit_code,
+        "openai" in result.stdout,
+        "gpt-4.1" in result.stdout,
+        "configured" in result.stdout,
+        "attached" in result.stdout,
+        "claude" in result.stdout,
+    ) == (0, True, True, True, False, False)
 
 
 def test_cli_ai_harness_offload(runner: CliRunner, sample_repo_path: Path) -> None:
@@ -549,13 +559,13 @@ def test_cli_ai_harness_run_command(runner: CliRunner, sample_repo_path: Path) -
     )
     assert (
         result.exit_code == 0,
-        "Tiered Synthesis Execution" in result.stdout,
-        "Tier 1 (Big Decides)" in result.stdout,
-        "Tier 2 (Small Types)" in result.stdout,
-        "Tier 3 (Big Checks)" in result.stdout,
+        "Harness Run" in result.stdout,
+        "AST search for symbol" in result.stdout,
         "Files Scanned" in result.stdout,
         "Matches" in result.stdout,
-    ) == (True, True, True, True, True, True, True)
+        "Tier" in result.stdout,
+        "claude" in result.stdout,
+    ) == (True, True, True, True, True, False, False)
 
 
 def test_cli_ai_harness_run_dry_run_and_json(runner: CliRunner, sample_repo_path: Path) -> None:
@@ -593,5 +603,5 @@ def test_cli_ai_harness_run_dry_run_and_json(runner: CliRunner, sample_repo_path
         ],
     )
     assert res_json.exit_code == 0
-    assert '"decision_plan"' in res_json.stdout
-    assert '"verification_report"' in res_json.stdout
+    assert '"search"' in res_json.stdout
+    assert '"summary"' in res_json.stdout

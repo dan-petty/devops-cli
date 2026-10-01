@@ -23,7 +23,7 @@ def _build_status_rows(harness: Any) -> list[list[str]]:
         [
             "ModelSlot",
             harness.model_slot.state.value,
-            f"Model: {harness.model_slot.model_name} (Local: {harness.model_slot.is_local})",
+            f"Provider: {harness.model_slot.provider} | Model: {harness.model_slot.model_name}",
         ],
         [
             "SkillSlot",
@@ -38,10 +38,7 @@ def _build_status_rows(harness: Any) -> list[list[str]]:
         [
             "SubAgentSlot",
             harness.subagent_slot.state.value,
-            (
-                f"Model: {harness.subagent_slot.model_slot.model_name} | "
-                f"Read-Only: {harness.subagent_slot.tool_slot.read_only}"
-            ),
+            "Local AST, glob and symbol-catalog search (calls no model)",
         ],
     ]
 
@@ -53,11 +50,11 @@ def harness_status(
         typer.Option("--format", "-f", help=HELP.options.format_type),
     ] = DEFAULT_TABLE_FORMAT,
 ) -> None:
-    """Display active harness slot configuration, models, and sandboxing status."""
+    """Display the harness slots as configured; nothing here checks a model is reachable."""
     from devops_cli.ai.harness.slots import AgentHarness
     from devops_cli.output import format_json, print_table, write_stdout
 
-    harness = AgentHarness.create_default()
+    harness = AgentHarness.from_config()
 
     if output_format == "json":
         write_stdout(format_json(harness.to_dict()) + "\n")
@@ -112,7 +109,6 @@ def _render_offload_result(
         ["Status", result.status],
         ["Files Scanned", str(files_scanned)],
         ["Matches", str(matches)],
-        ["Tokens Used", str(result.tokens_used)],
         ["Output Summary", result.output],
     ]
 
@@ -163,7 +159,7 @@ def harness_offload(
         )
         return
 
-    harness = AgentHarness.create_default()
+    harness = AgentHarness.from_config()
     subagent = harness.subagent_slot
 
     if symbol:
@@ -190,14 +186,6 @@ def harness_run(
         str | None,
         typer.Option("--symbol", "-s", help=HELP.ai_harness.symbol),
     ] = None,
-    frontier_model: Annotated[
-        str,
-        typer.Option("--frontier-model", help=HELP.ai_harness.frontier_model),
-    ] = "claude-3-7-sonnet",
-    local_model: Annotated[
-        str,
-        typer.Option("--local-model", help=HELP.ai_harness.local_model),
-    ] = "qwen2.5-coder:7b",
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),
@@ -207,7 +195,7 @@ def harness_run(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Execute tiered synthesis: Big decides, small types, big checks."""
+    """Run the sub-agent's local AST or glob search for a task and report what it found."""
     from devops_cli.ai.harness.slots import AgentHarness
     from devops_cli.dry_run import is_dry_run, render_dry_run_result
     from devops_cli.output import format_json, print_table, write_stdout
@@ -220,16 +208,11 @@ def harness_run(
                 "task": task,
                 "repo": str(repo),
                 "symbol": symbol,
-                "frontier_model": frontier_model,
-                "local_model": local_model,
             },
         )
         return
 
-    harness = AgentHarness.create_default(
-        frontier_model=frontier_model,
-        local_model=local_model,
-    )
+    harness = AgentHarness.from_config()
     result = harness.execute_tiered(task=task, repo_path=repo, symbol_query=symbol)
 
     if output_format == "json":
@@ -238,16 +221,15 @@ def harness_run(
 
     rows = [
         ["Task", result.task],
+        ["Search", result.search],
         ["Status", result.status],
-        ["Tier 1 (Big Decides)", result.decision_plan],
-        ["Tier 2 (Small Types)", f"{len(result.subagent_results)} offloaded task(s) executed"],
-        ["Tier 3 (Big Checks)", result.verification_report],
         ["Files Scanned", str(result.files_scanned)],
         ["Matches", str(result.matches)],
+        ["Summary", result.summary],
     ]
 
     print_table(
-        title="Tiered Synthesis Execution",
+        title="Harness Run",
         columns=[("Phase / Output", "cyan"), ("Result", "bold green")],
         rows=rows,
         box_style=None,

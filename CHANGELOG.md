@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A reply whose prose holds brackets, such as a markdown link or `items[0]`, keeps its fenced answer, so review personas keep their findings and agent replies validate against their schema (#786).
   - A lone fenced block is read exactly from its opening fence, so a fence inside one of its strings cannot cut it short and a fenced `write_file` call keeps its content's final newline (#786).
 
+- **The Agent Harness Reports Only What Ran (`devops ai harness`)**:
+  - `ai harness status` shows the configured provider and model with every slot `configured`, instead of a hard-coded `claude-3-7-sonnet` with every slot `attached`. `ai harness run` and `offload` report the local search they ran and what it found, without templated model "Tier 1/Tier 3" text, token estimates, or the unused `--frontier-model`/`--local-model` options (#710).
 ## [0.2.24] - 2026-09-28
 
 ### Fixed & Hardened

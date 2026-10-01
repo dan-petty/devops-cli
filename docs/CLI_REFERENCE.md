@@ -4008,7 +4008,7 @@ devops ai harness COMMAND [ARGS]...
 
 #### `devops ai harness status`
 
-**Display active harness slot configuration, models, and sandboxing status.**
+**Display the harness slots as configured; nothing here checks a model is reachable.**
 
 ```bash
 devops ai harness status [OPTIONS]
@@ -4040,7 +4040,7 @@ devops ai harness offload [OPTIONS]
 
 #### `devops ai harness run`
 
-**Execute tiered synthesis: Big decides, small types, big checks.**
+**Run the sub-agent's local AST or glob search for a task and report what it found.**
 
 ```bash
 devops ai harness run [OPTIONS] <task>
@@ -4058,8 +4058,6 @@ devops ai harness run [OPTIONS] <task>
 |---|---|---|---|
 | `--repo`, `-r` | `path` | `.` | Path to repository or source directory. |
 | `--symbol`, `-s` | `string` | - | Symbol name (class or function) to inspect or search. |
-| `--frontier-model` | `string` | `claude-3-7-sonnet` | Frontier model identifier for architecture and verification. |
-| `--local-model` | `string` | `qwen2.5-coder:7b` | Local model identifier for sub-agent offloading. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

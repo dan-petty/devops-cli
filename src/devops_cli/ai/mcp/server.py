@@ -2508,7 +2508,7 @@ def valkey_flush(all_databases: bool = False) -> str:
 
 @mcp.tool()
 def ai_harness_status() -> str:
-    """Inspect AI agent harness slot configuration, active models, skills, and sandbox state."""
+    """Inspect the AI agent harness slots as configured: provider, model, skills and tools."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "ai", "harness", "status"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,

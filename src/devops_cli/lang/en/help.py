@@ -239,8 +239,6 @@ class AIHarnessCommandHelp:
     repo: str = "Path to repository or source directory."
     symbol: str = "Symbol name (class or function) to inspect or search."
     pattern: str = "File glob pattern to scout."
-    frontier_model: str = "Frontier model identifier for architecture and verification."
-    local_model: str = "Local model identifier for sub-agent offloading."
 
 
 @dataclass(frozen=True)

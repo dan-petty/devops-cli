@@ -1,7 +1,7 @@
 # Task 710: Harness, Constellation and Telemetry Profile Report Only What Actually Ran
 
 **Issue**: [#710](https://github.com/dan-petty/devops-cli/issues/710)
-**Status**: Backlog
+**Status**: In Progress
 **Milestone**: `v0.2.24`
 **Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/telemetry`, `priority/p0-critical`
@@ -20,3 +20,9 @@
 - Unit and integration test coverage with structural tuple equality assertions.
 - Maintain cyclomatic complexity $M \le 10$ and nesting depth $\le 5$.
 - 100% passing across Gated CI validation suite (`uv run devops ci`).
+
+## 2. Delivery in Three Parts
+
+- [x] **Part 1, harness**: `AgentHarness.from_config` builds the harness from the configured AI provider and model, every slot `configured` rather than an unchecked `attached`, and `ai harness status` shows them. `execute_tiered` runs the sub-agent's local searches and reports the search it ran (`search`), the files and matches, and a `summary`, naming no model; the templated Tier 1 "Decomposed" and Tier 3 "Verified … against architectural invariants" text, the `len(text) // 4` token estimates and `tokens_used`, and `harness run`'s `--frontier-model`/`--local-model` options are removed. `ai_harness_status` no longer claims to report sandbox state. Verified by `tests/test_harness_slots.py`, including a CLI test that changes the configured model and asserts `status` follows it (it showed `claude` and `attached` before).
+- [ ] **Part 2, constellation**: delete task registration and per-task fields; quiesce, failover and resume set and clear a flag only.
+- [ ] **Part 3, telemetry profile**: `profile <command>` reads the command's trace back from Jaeger with a bounded poll, exits non-zero without a collector or a trace or command, and loses the `sample.*` fallback and `--last`; the MCP tool passes the command positionally.
