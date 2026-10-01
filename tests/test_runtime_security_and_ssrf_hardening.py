@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -18,6 +17,7 @@ from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.k8s.chaos_runner import ChaosExperiment, ChaosFaultRunner
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.security.vault_broker import parse_vault_uri
+from tests.web_fakes import StubWeb
 
 # ── 1. DiskMediaStore Traversal & Hash Validation ─────────────────────────────
 
@@ -70,24 +70,14 @@ def test_parse_vault_uri_rejects_percent_encoded_traversal() -> None:
 # ── 3. Web Fetch Tool Case-Insensitive Domains & SSRF ─────────────────────────
 
 
-@pytest.mark.usefixtures("public_dns")
-def test_web_fetch_tool_case_insensitive_domains() -> None:
+def test_web_fetch_tool_case_insensitive_domains(stub_web: StubWeb) -> None:
     """Verify that web_fetch_tool performs case-insensitive domain matching."""
     tool = web_fetch_tool(allowed_domains=["example.com"], blocked_domains=["evil.com"])
+    stub_web.page("https://example.com/page", "<html><body><h1>Hello</h1></body></html>")
 
     # Uppercase domain should match allowed_domains
-    with patch("devops_cli.ai.common_tools.new_http_client") as mock_client_factory:
-        mock_client = MagicMock()
-        mock_resp = MagicMock()
-        mock_resp.url = MagicMock(host="EXAMPLE.COM", hostname="EXAMPLE.COM")
-        mock_resp.content = b"<html><body><h1>Hello</h1></body></html>"
-        mock_resp.text = "<html><body><h1>Hello</h1></body></html>"
-        mock_resp.status_code = 200
-        mock_client.get.return_value = mock_resp
-        mock_client_factory.return_value = mock_client
-
-        res = tool.execute(url="https://EXAMPLE.COM/page")
-        assert "# Hello" in res
+    res = tool.execute(url="https://EXAMPLE.COM/page")
+    assert "# Hello" in res
 
     # Uppercase blocked domain should be blocked
     with pytest.raises(ValueError, match="blocked_domains"):

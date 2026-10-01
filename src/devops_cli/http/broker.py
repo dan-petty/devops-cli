@@ -11,7 +11,8 @@ try:
 except ImportError:
     import httpx  # type: ignore[no-redef]
 
-from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
+from devops_cli.config.constants import CONST_HTTP_EGRESS_POLICY_EXTENSION
+from devops_cli.config.defaults import DEFAULT_HTTP_MAX_REDIRECTS, DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.http.validation import validate_service_url
 from devops_cli.telemetry.context import inject_traceparent_headers
 
@@ -50,22 +51,37 @@ class HttpClientBroker:
         return inject_traceparent_headers(base_headers)
 
     def _validate_request(self, request: httpx.Request) -> None:
-        """Validate request and redirect URLs against SSRF policies."""
+        """Veto the request and each redirect hop against SSRF policies before it is sent.
+
+        A request carrying its own egress policy is held to that policy first, then to the
+        broker's own check, so a policy can narrow what the broker admits but never widen it.
+        """
+        if policy := request.extensions.get(CONST_HTTP_EGRESS_POLICY_EXTENSION):
+            policy(str(request.url))
         allow = request.extensions.get("allow_private_network")
         if allow is None:
             allow = self.allow_private_networks
         validate_service_url(str(request.url), purpose="http", allow=bool(allow))
 
+    def new_client(self) -> httpx.Client:
+        """Return a synchronous client of its own, which the caller closes.
+
+        It follows the broker's redirect limit and vetoes each hop as the shared client does, but
+        shares no connection pool or cookie jar with it.
+        """
+        return httpx.Client(
+            timeout=self.timeout,
+            http2=self.enable_http2,
+            follow_redirects=True,
+            max_redirects=DEFAULT_HTTP_MAX_REDIRECTS,
+            event_hooks={"request": [self._validate_request]},
+        )
+
     def get_client(self) -> httpx.Client:
         """Return thread-safe shared synchronous HTTP client."""
         with self._lock:
             if self._sync_client is None or self._sync_client.is_closed:
-                self._sync_client = httpx.Client(
-                    timeout=self.timeout,
-                    http2=self.enable_http2,
-                    follow_redirects=True,
-                    event_hooks={"request": [self._validate_request]},
-                )
+                self._sync_client = self.new_client()
             return self._sync_client
 
     async def _async_validate_request(self, request: httpx.Request) -> None:
@@ -80,6 +96,7 @@ class HttpClientBroker:
                     timeout=self.timeout,
                     http2=self.enable_http2,
                     follow_redirects=True,
+                    max_redirects=DEFAULT_HTTP_MAX_REDIRECTS,
                     event_hooks={"request": [self._async_validate_request]},
                 )
             return self._async_client

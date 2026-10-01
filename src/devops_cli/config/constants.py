@@ -584,6 +584,9 @@ CONST_RUNS_INDEX_SERVICE = "valkey-runs"
 CONST_RUNS_INDEX_SECRET = "valkey-runs-auth"
 
 # ── Network Reference & Egress Security Invariants ────────────────────────────
+# httpx2 request extension carrying a caller's egress policy, a callable the HTTP broker's request
+# hook calls with each hop's URL before that hop is sent
+CONST_HTTP_EGRESS_POLICY_EXTENSION: Final[str] = "egress_policy"
 # RFC 2606 Reserved Top-Level Domains for testing & documentation
 CONST_RFC2606_RESERVED_TLDS: frozenset[str] = frozenset(
     {

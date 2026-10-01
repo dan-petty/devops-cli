@@ -81,6 +81,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Twelve MCP entry points called commands or options the CLI does not have and failed on every call. They now call real commands: `benchmark_embeddings` and `benchmark_suite` run `devops ai benchmark`; `scan_gitleaks`, `scan_semgrep` and `scan_checkov` run `devops scan secrets`, `sast` and `iac`; `resource://workspace/status` runs `devops repos list`; `scan_complexity` passes `--max-indent`; `resource://argo/fleet/status` no longer passes `--json` (#836).
   - `devops docs check` resolves every `uv run devops` argv in the MCP server against the real command tree without running it, and reports each defect at its server line (#836).
 
+### Security
+- **`web_fetch` Vets Every Redirect Hop Before Sending It (`devops_cli.ai.common_tools`, `devops_cli.http.broker`)**:
+  - A redirect chain could reach a link-local or private address: only the first URL and the final response were checked. Now each hop goes through the HTTP broker's request hook before it is sent. Only http and https are allowed, the domain lists apply with case and trailing dots ignored, and the address must be public whatever `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK` says. Both broker clients follow at most 10 redirects (#860).
+  - Each fetch uses its own client, so no cookies carry over between fetches, and a request's egress policy can only add restrictions to the broker's own SSRF check (#860).
+
 ## [0.2.24] - 2026-09-28
 
 ### Fixed & Hardened
