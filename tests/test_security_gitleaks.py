@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -232,3 +233,51 @@ def test_gitleaks_native_word_boundary_and_placeholders(tmp_path: Path) -> None:
     secret_file.write_text(f"OPENAI_KEY={real_candidate}\n", encoding="utf-8")
     secret_findings = _scan_file_native_secrets(secret_file)
     assert (len(secret_findings), "OpenAI" in secret_findings[0].title) == (1, True)
+
+
+def test_run_gitleaks_scan_list_target_scans_every_file_without_binary(tmp_path: Path) -> None:
+    """Built-in patterns cover every file of a list target, not only the first."""
+    clean = tmp_path / "clean.py"
+    clean.write_text("def add(a: int, b: int) -> int:\n    return a + b\n", encoding="utf-8")
+    secret = tmp_path / "secret.env"
+    secret.write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n", encoding="utf-8")
+
+    with patch("devops_cli.security.base.check_binary", return_value=False):
+        outcome = run_gitleaks_scan([clean, secret])
+
+    assert outcome.status == "built-in patterns"
+    assert [f.location for f in outcome.findings] == [f"{secret}:1"]
+
+
+def test_run_gitleaks_scan_list_target_runs_binary_on_every_file(tmp_path: Path) -> None:
+    """Gitleaks takes one source per run, so a list target runs it once per file."""
+    first = tmp_path / "first.py"
+    first.write_text("x = 1\n", encoding="utf-8")
+    second = tmp_path / "second.env"
+    second.write_text("TOKEN=redacted\n", encoding="utf-8")
+    sources: list[str] = []
+
+    def fake_gitleaks(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        source = cmd[cmd.index("--source") + 1]
+        sources.append(source)
+        leaks = []
+        if source == str(second):
+            leaks = [
+                {
+                    "RuleID": "generic-api-key",
+                    "Description": "Generic API Key",
+                    "File": source,
+                    "StartLine": 1,
+                    "Match": "TOKEN",
+                }
+            ]
+        return subprocess.CompletedProcess(
+            cmd, 1 if leaks else 0, stdout=json.dumps(leaks), stderr=""
+        )
+
+    with patch("devops_cli.security.gitleaks.run_subprocess", side_effect=fake_gitleaks):
+        outcome = run_gitleaks_scan([first, second])
+
+    assert sources == [str(first), str(second)]
+    assert outcome.status == "ran"
+    assert [f.location for f in outcome.findings] == [f"{second}:1"]
