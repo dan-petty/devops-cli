@@ -44,8 +44,14 @@ _TOOL_EXTRACT_PAGE_SIZE = DEFAULT_TOOL_EXTRACT_PAGE_SIZE
 _TOOL_EXTRACT_OVERLAP = DEFAULT_TOOL_EXTRACT_OVERLAP
 
 
-# A ```json or bare ``` fence; a fence naming another language holds code, not the answer.
-_JSON_FENCE = re.compile(r"```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```", re.IGNORECASE)
+# A ```json or bare ``` fence opening a line of its own and closed by a ``` line of its own; a
+# fence naming another language holds code, not the answer.
+_JSON_FENCE = re.compile(
+    r"^[ \t]*```(?:json)?[ \t]*\r?\n(.*?)^[ \t]*```[ \t]*\r?$",
+    re.IGNORECASE | re.MULTILINE | re.DOTALL,
+)
+# `strict=False` admits the raw newlines a model leaves inside a JSON string.
+_LENIENT_JSON = json.JSONDecoder(strict=False)
 
 
 def _clean_repair_text(text: str, max_length: int | None = None) -> str | None:
@@ -56,31 +62,67 @@ def _clean_repair_text(text: str, max_length: int | None = None) -> str | None:
     return cleaned if cleaned else None
 
 
-def _find_fenced_json(cleaned: str) -> Any:
-    for block in _JSON_FENCE.findall(cleaned):
-        data = _repair_loads(block.strip())
-        if isinstance(data, dict | list) and data:
-            return data
-    return None
+def _is_structured(value: Any) -> bool:
+    """An object or a list of objects: the shapes a structured answer takes."""
+    if isinstance(value, list):
+        return all(isinstance(item, dict) for item in value)
+    return isinstance(value, dict)
+
+
+def _fenced_value(cleaned: str, block: re.Match[str]) -> Any:
+    """The JSON value a fenced block opens with, or None when it holds none.
+
+    The value is decoded to its own end, not to the fence that closed the block: a string
+    holding a fence of its own on a line by itself would otherwise cut the block short.
+    """
+    body = block.group(1)
+    start = block.start(1) + len(body) - len(body.lstrip())
+    try:
+        return _LENIENT_JSON.raw_decode(cleaned, start)[0]
+    except ValueError, RecursionError:
+        return None
+
+
+def _fenced_json(cleaned: str) -> list[Any]:
+    """The non-empty objects and lists of objects the reply's fenced blocks hold."""
+    values = (_fenced_value(cleaned, block) for block in _JSON_FENCE.finditer(cleaned))
+    return [value for value in values if value and _is_structured(value)]
+
+
+def _lone_answer(values: Any) -> Any:
+    """The one object or list of objects among the values json-repair read, or None.
+
+    json-repair reads each bracketed run of prose as a value of its own and returns them with
+    the answer as one list. A string among them means a bracket left open swallowed the rest
+    of the reply instead, and none of it is taken.
+    """
+    if not (isinstance(values, list) and all(isinstance(value, dict | list) for value in values)):
+        return None
+    answers = [value for value in values if _is_structured(value)]
+    return answers[0] if len(answers) == 1 else None
 
 
 def repair_json_string(text: str, *, max_length: int | None = None) -> Any:
-    """Extract and repair valid or partially-malformed JSON from text using json-repair."""
+    """Extract and repair valid or partially-malformed JSON from text using json-repair.
+
+    A lone fenced block holding an object or a list of objects is the answer, read exactly.
+    Otherwise the whole reply is repaired. json-repair reads bracketed prose, such as a
+    markdown link or `items[0]`, as values beside the answer, so a list of such values
+    yields its one object or list of objects.
+    """
     cleaned = _clean_repair_text(text, max_length)
     if cleaned is None:
         return None
-
-    # 1. Parse the whole cleaned text first.
-    data = _repair_loads(cleaned)
-    if isinstance(data, dict | list) and data:
-        return data
-
-    # 2. Fall back to fenced JSON blocks only when whole text yields no dict or list.
-    fenced = _find_fenced_json(cleaned)
-    if fenced is not None:
-        return fenced
-
-    return data if data not in ("", None) else None
+    fenced = _fenced_json(cleaned)
+    if len(fenced) == 1:
+        return fenced[0]
+    whole = _repair_loads(cleaned)
+    if _is_structured(whole):
+        return whole
+    answer = _lone_answer(whole)
+    if answer is not None:
+        return answer
+    return whole if whole not in ("", None) else None
 
 
 def _strip_reasoning(text: str) -> str:

@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The secops dry-run tests enable dry-run mode instead of running trivy, kube-linter and pluto over the whole workspace until they time out (#748).
   - The test network guard now fails external DNS lookups too; tests that validate egress against a resolving hostname declare the `public_dns` fixture (#748).
   - `devops ci` warns when the workspace is on a 9p or drvfs share of a host folder, and lists pytest's slowest tests when the test step runs past the 5-minute budget (#748).
+- **Structured Replies Keep Their Answer Beside Bracketed Prose (`devops_cli.ai.response_repair`)**:
+  - A reply whose prose holds brackets, such as a markdown link or `items[0]`, keeps its fenced answer, so review personas keep their findings and agent replies validate against their schema (#786).
+  - A lone fenced block is read exactly from its opening fence, so a fence inside one of its strings cannot cut it short and a fenced `write_file` call keeps its content's final newline (#786).
 
 ## [0.2.24] - 2026-09-28
 
