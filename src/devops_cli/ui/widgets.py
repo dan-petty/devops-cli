@@ -358,7 +358,10 @@ class ReviewPanel(Vertical):
         shown = (self._session_name, row_key)
         if shown != self._shown:
             self._shown = shown
-            self.query_one("#finding-detail-pane", VerticalScroll).scroll_home(animate=False)
+            # At once: Textual otherwise defers the scroll until after the next screen refresh,
+            # and the top needs no layout of the new text.
+            pane = self.query_one("#finding-detail-pane", VerticalScroll)
+            pane.scroll_home(animate=False, immediate=True)
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Follow the findings cursor; the session picker's cursor is not a finding."""
