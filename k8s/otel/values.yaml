@@ -74,10 +74,12 @@ config:
       tls:
         insecure: true
 
-    # Prometheus remote write to in-cluster monitoring stack (local dev uses internal HTTP service;
-    # for production zero-trust networking, configure https endpoint, TLS secrets, and basic_auth).
+    # Prometheus remote write to Alloy's prometheus.receive_http (k8s-monitoring's
+    # prometheusMetricsReceiver), which serves only POST /api/v1/metrics/write and answers 404
+    # on the Prometheus server's /api/v1/write. Local dev uses the internal HTTP Service; for
+    # production zero-trust networking, configure an https endpoint, TLS secrets, and basic_auth.
     prometheusremotewrite:
-      endpoint: http://k8s-monitoring-alloy-metrics.monitoring.svc.cluster.local:9090/api/v1/write
+      endpoint: http://k8s-monitoring-alloy-metrics.monitoring.svc.cluster.local:9090/api/v1/metrics/write
       # devops-cli names its metrics as Prometheus does (`_total`, `_seconds`); added unit
       # suffixes turned `devops_cli_command_total` into `devops_cli_command_total_ratio`,
       # which no dashboard queries.

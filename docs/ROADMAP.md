@@ -805,6 +805,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: f93231b (#738) changed the base-revision read in `commands/analyze.py` to `git show -- <rev>:<path>`, which git takes as a pathspec, so the base file was always empty: every head symbol counted as added, `symbols_removed` was always empty, and review's "cites a removed symbol" check never fired.
   - *Deliverable*: The base file is read again, and a test against a real repository under `tmp_path` removes a symbol and finds it in `symbols_removed`. Enhanced branch analyses cached since f93231b need `devops analyze branch --update-all`.
   - *Constraint*: Critical fix: a P0 regression whose introducing commit is cited, so it joins the current release.
+- [x] **The Collector Remote-Writes devops-cli Metrics to the Path Alloy Serves (P0 - Critical, Issue #829)**:
+  - *Context & Rationale*: fdd4d0f (#734) pointed the OpenTelemetry collector's remote write at Alloy's `prometheus.receive_http` but kept the Prometheus server's `/api/v1/write` path. Alloy answers that path with 404, so the collector dropped every devops-cli metric and the devops-cli dashboards stayed empty.
+  - *Deliverable*: The exporter posts to `/api/v1/metrics/write`, and a values test holds the endpoint to the receiver's host, port and path.
+  - *Constraint*: Critical fix: a P0 regression whose introducing commit is cited, admitted by the owner after the cut. The homelab collector must be redeployed from the release branch.
 
 ### Multi-IDE MCP Scaffolding, Context Budgeting & Invariant Pinning (v0.2.25 - Scheduled)
 - [ ] **Pipeline Stage Context Budgeting & Invariant Pinning (P0 - Critical)**:

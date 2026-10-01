@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -128,6 +129,24 @@ def test_otel_collector_is_scraped_once_through_its_pod_annotations() -> None:
         annotations.get("prometheus.io/port"),
         data.get("serviceMonitor", {}).get("enabled", False),
     ) == ("true", "8888", False)
+
+
+def test_otel_collector_remote_writes_to_the_path_alloy_serves() -> None:
+    """Alloy's prometheus.receive_http serves only POST /api/v1/metrics/write, on the receiver
+    feature's port (9090 in k8s-monitoring 4.5.2). It answers 404 on /api/v1/write, and the
+    collector drops every devops-cli point as a permanent error (#829)."""
+    with open(K8S_DIR / "otel" / "values.yaml", encoding="utf-8") as f:
+        otel = yaml.safe_load(f)
+    with open(K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml", encoding="utf-8") as f:
+        receiver = yaml.safe_load(f)["prometheusMetricsReceiver"]
+
+    endpoint = urlsplit(otel["config"]["exporters"]["prometheusremotewrite"]["endpoint"])
+    assert (receiver.get("enabled"), endpoint.hostname, endpoint.port, endpoint.path) == (
+        True,
+        f"k8s-monitoring-{receiver['collector']}.monitoring.svc.cluster.local",
+        receiver.get("port", 9090),
+        "/api/v1/metrics/write",
+    )
 
 
 def test_dcgm_exporter_values_timeout_and_capabilities() -> None:
