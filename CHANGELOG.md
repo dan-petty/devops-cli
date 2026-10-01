@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **SARIF Runs Reflect What Each Scanner Did (`devops scan report --sarif`)**:
+  - Only a scanner that ran gets a SARIF run, zero results included, with `invocations[].executionSuccessful` and its start and end times. A scanner that was unavailable, failed, not applicable or fell back to built-in patterns gets no run, only a notification on devops-cli's own invocation, so an upload never closes a tool's alerts for a scan that did not happen, and built-in pattern findings are attributed to devops-cli rather than to the real tool (#708).
+  - Non-gating findings, such as Dive's efficiency score, are emitted at `note` level as `problem.severity: recommendation`, without a `security-severity` (#708).
+  - Emitted documents are validated against the vendored OASIS SARIF 2.1.0 schema in tests (#708).
 - **Roadmap Planning Glossary & GitHub-Source ADR (`CONTEXT.md`, `docs/adr/`)**:
   - Added `CONTEXT.md`, the glossary for release planning and the roadmap jobs, and `docs/adr/0001-github-is-the-roadmap-source.md`, which makes GitHub issues, milestones and the project board the roadmap's source of truth (#746).
   - Scheduled the roadmap jobs in `docs/ROADMAP.md` (#739-#744, with #745 in the backlog), revised the #697 and #704 entries, and removed the superseded #418, #696 and #699 entries (#746).
