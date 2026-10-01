@@ -117,3 +117,21 @@ _Avoid_: completion, wrap-up
 **Service**:
 The long-running devops-cli deployment that runs the roadmap jobs when they are due, as found by webhook or by polling.
 _Avoid_: runner, bot, daemon, worker
+
+## Code review
+
+**Finding**:
+A reviewer's claim that something in the code is wrong, with where it is and the evidence for it.
+_Avoid_: issue, alert, problem
+
+**Verdict**:
+The decision on a finding: verified (real), invalidated (a false positive) or mitigated (fixed).
+_Avoid_: status, resolution
+
+**Review session**:
+One review run: what was reviewed, every finding it raised and their verdicts.
+_Avoid_: review run, report
+
+**Known false positive**:
+A kind of finding reviewers keep raising wrongly, recorded once with how to recognize and disprove it.
+_Avoid_: common hallucination, hallucination entry
