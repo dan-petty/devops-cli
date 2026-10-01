@@ -37,7 +37,13 @@ kube-state-metrics:
 prometheus-pushgateway:
   enabled: false
 
+# The stack dashboards read the server's self-scrape (prometheus-server.json) and the
+# collector, scraped by the kubernetes-pods job through its pod annotations
+# (otel-collector.json). Both are on by chart default; they are set here because
+# deploy-stack installs the chart without pinning the version that supplies that default.
 scrapeConfigs:
+  prometheus:
+    enabled: true
   kubernetes-nodes:
     enabled: false
   kubernetes-nodes-cadvisor:
@@ -48,6 +54,7 @@ scrapeConfigs:
         target_label: cluster
         replacement: homelab-k3s
   kubernetes-pods:
+    enabled: true
     post_relabel_configs: |
       - action: replace
         target_label: cluster

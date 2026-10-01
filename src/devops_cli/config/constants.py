@@ -1368,6 +1368,23 @@ CONST_PROMQL_QUOTE_CHARS: Final[frozenset[str]] = frozenset({'"', "'", "`"})
 # the Prometheus query language specification.
 CONST_PROMQL_DURATION_UNITS: Final[frozenset[str]] = frozenset({"ms", "s", "m", "h", "d", "w", "y"})
 
+# Keywords that open a parenthesised list of label names: aggregation modifiers and
+# vector-matching modifiers. Closed and exhaustive per the PromQL grammar.
+CONST_PROMQL_GROUPING_KEYWORDS: Final[frozenset[str]] = frozenset(
+    {"by", "without", "on", "ignoring", "group_left", "group_right"}
+)
+
+# The modifiers that may follow an aggregation operator's name, as in `sum by (job) (x)`.
+CONST_PROMQL_AGGREGATION_MODIFIERS: Final[frozenset[str]] = frozenset({"by", "without"})
+
+# Every word the PromQL lexer reads as a keyword or a number rather than a metric name:
+# the grouping keywords, the set and arithmetic operators spelled as words, the `bool` and
+# `offset` modifiers, and the `Inf` and `NaN` number literals. Matched case-insensitively,
+# as the lexer does.
+CONST_PROMQL_KEYWORDS: Final[frozenset[str]] = CONST_PROMQL_GROUPING_KEYWORDS | frozenset(
+    {"and", "or", "unless", "atan2", "bool", "offset", "inf", "nan"}
+)
+
 # ── Tiered Cache Namespacing & Tiers ─────────────────────────────────────────
 # Root prefix for every cache key this project writes, so a shared Valkey instance can
 # be swept per-project and keys never collide with another tenant's.

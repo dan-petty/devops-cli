@@ -18,7 +18,12 @@ from devops_cli.prometheus.analysis import (
     extract_series_values,
     forecast,
 )
-from devops_cli.prometheus.promql import validate_promql
+from devops_cli.prometheus.promql import (
+    falls_back_to_constant,
+    grouping_labels,
+    selectors,
+    validate_promql,
+)
 
 runner = CliRunner()
 
@@ -355,3 +360,132 @@ def test_cli_analyze_supports_dry_run() -> None:
     result = runner.invoke(prometheus_app, ["analyze", "up"], env={"DEVOPS_CLI_DRY_RUN": "true"})
     assert result.exit_code == 0
     assert "analyze_metric_series" in result.output
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. Series selectors and grouping labels
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _selected(expression: str) -> list[tuple[str | None, set[str]]]:
+    """Each selector as its metric and the label names its matchers use."""
+    return [(found.metric, set(found.labels)) for found in selectors(expression)]
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected_selectors", "expected_grouping"),
+    [
+        ("sum(rate(requests_total[5m]))", [("requests_total", set())], set()),
+        (
+            'sum by (job) (rate(requests_total{code="200"}[5m]))',
+            [("requests_total", {"code"})],
+            {"job"},
+        ),
+        (
+            "sum(rate(requests_total[5m])) by (job, instance)",
+            [("requests_total", set())],
+            {"job", "instance"},
+        ),
+        ("count without (instance) (up)", [("up", set())], {"instance"}),
+        (
+            "rate(latency_sum[2m]) * on (model_id) group_left (api_base)"
+            " group by (model_id, api_base) (deployment_requests_total)",
+            [("latency_sum", set()), ("deployment_requests_total", set())],
+            {"model_id", "api_base"},
+        ),
+        (
+            'a / ignoring (code) group_right b{code=~"5.."}',
+            [("a", set()), ("b", {"code"})],
+            {"code"},
+        ),
+        (
+            "histogram_quantile(0.95, sum by (le, api_base) (rate(ttft_bucket[5m])))",
+            [("ttft_bucket", set())],
+            {"le", "api_base"},
+        ),
+        ('rate(requests_total{job="api"}[5m] offset 1h)', [("requests_total", {"job"})], set()),
+        ("requests_total offset -5m", [("requests_total", set())], set()),
+        (
+            'http_requests_total{path=~"/v1/{a,b}/(x|y)", method!="GET"}',
+            [("http_requests_total", {"path", "method"})],
+            set(),
+        ),
+        (
+            '{__name__="node_load1", instance="host:9100"}',
+            [("node_load1", {"instance"})],
+            set(),
+        ),
+        ('{__name__=~"node_.+"}', [(None, set())], set()),
+        ("vector(0)", [], set()),
+        ("requests_total or vector(0)", [("requests_total", set())], set()),
+        (
+            "errors_total > bool 0 and on (job) up unless absent(up)",
+            [("errors_total", set()), ("up", set()), ("up", set())],
+            {"job"},
+        ),
+        ("rate(x_total[$__rate_interval]) * $scale", [("x_total", set())], set()),
+        ("max_over_time(rate(x_total[5m])[1h:5m] @ end())", [("x_total", set())], set()),
+        ('label_replace(up, "host", "$1", "instance", "(.*):.*")', [("up", set())], set()),
+        ("1e3 * Inf - NaN + 0x1F", [], set()),
+        ('{"utf8.metric", job="api"}', [("utf8.metric", {"job"})], set()),
+        ('{job="api", "utf8.metric"}', [("utf8.metric", {"job"})], set()),
+        (
+            'x{"utf8.label"="v"} * on ("utf8.label") y',
+            [("x", {"utf8.label"}), ("y", set())],
+            {"utf8.label"},
+        ),
+        ('x{path="/a#b"}', [("x", {"path"})], set()),
+        ('x{$label="a", job="api"}', [("x", {"job"})], set()),
+        ("sum by (job) (x) # by (instance) of y\n + z", [("x", set()), ("z", set())], {"job"}),
+    ],
+)
+def test_selectors_and_grouping_labels_are_read_from_the_expression(
+    expression: str,
+    expected_selectors: list[tuple[str | None, set[str]]],
+    expected_grouping: set[str],
+) -> None:
+    """Every series selector is found with its matcher labels, and every grouping list is read."""
+    assert (_selected(expression), set(grouping_labels(expression))) == (
+        expected_selectors,
+        expected_grouping,
+    )
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("x or vector(0)", True),
+        ("x OR vector(0)", True),
+        ("x or on () vector(0)", True),
+        ("x or ignoring (job) (vector(1))", True),
+        ("x or 0 * up", True),
+        ("x or y", False),
+        ("x or on (job) y * 0", False),
+        ("vector(0)", False),
+        ("x and vector(1)", False),
+        ('label_replace(x, "a", "or vector(0)", "b", "")', False),
+        ("x # or vector(0)", False),
+    ],
+)
+def test_an_or_falls_back_to_a_constant_when_its_right_operand_opens_with_one(
+    expression: str, expected: bool
+) -> None:
+    """`or vector(...)` and `or <number> ...` are found in any case and after `on`/`ignoring`."""
+    assert falls_back_to_constant(expression) is expected
+
+
+def test_function_names_keywords_labels_and_durations_are_never_metrics() -> None:
+    """Only the selected series come back as metrics, however much syntax surrounds them."""
+    expression = (
+        'histogram_quantile(0.95, sum by (le, job) (rate(a_bucket{handler=~"/x{1}"}[5m] offset 1w)))'
+        " > bool on (job) group_left (instance) max without (pod) (avg_over_time(b[1h30m]))"
+        " or sum(increase(c_total[6h])) unless count(d) and topk(5, e) or vector(0)"
+    )
+
+    assert {found.metric for found in selectors(expression)} == {
+        "a_bucket",
+        "b",
+        "c_total",
+        "d",
+        "e",
+    }
