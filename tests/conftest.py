@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -191,12 +191,16 @@ def isolate_llm_response_cache(tmp_path: Path):
 
 
 @pytest.fixture(autouse=True)
-def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """Ensure tests run against an isolated temporary .data/ directory to protect user reviews."""
+    from devops_cli.config.settings import reset_settings_cache
+
+    reset_settings_cache()
     test_data_dir = (tmp_path / ".data").resolve()
     test_data_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(test_data_dir))
     yield test_data_dir
+    reset_settings_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -213,74 +217,58 @@ def isolate_gh_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture(autouse=True)
-def protect_workspace_config():
-    """Ensure workspace config.yaml is never modified during test execution."""
-    workspace_config = (Path(__file__).parent.parent / "config.yaml").resolve()
-    try:
-        initial_stat = workspace_config.stat() if workspace_config.exists() else None
-    except OSError:
-        initial_stat = None
-    initial_content = workspace_config.read_bytes() if initial_stat is not None else None
-    yield
-    if initial_content is None:
-        if workspace_config.exists():
-            workspace_config.unlink(missing_ok=True)
-            pytest.fail(f"Test created unauthorized workspace config at {workspace_config}!")
-    elif not workspace_config.exists():
-        workspace_config.write_bytes(initial_content)
-        pytest.fail(f"Test deleted workspace config at {workspace_config}!")
-    else:
-        try:
-            curr_stat = workspace_config.stat()
-            curr_mtime = getattr(curr_stat, "st_mtime_ns", None)
-            init_mtime = getattr(initial_stat, "st_mtime_ns", None)
-            curr_size = getattr(curr_stat, "st_size", None)
-            init_size = getattr(initial_stat, "st_size", None)
-            if (
-                curr_mtime is not None
-                and init_mtime is not None
-                and curr_mtime == init_mtime
-                and curr_size == init_size
-            ):
-                return
-        except OSError:
-            pass
-        current_content = workspace_config.read_bytes()
-        if current_content != initial_content:
-            workspace_config.write_bytes(initial_content)
-            pytest.fail(f"Test mutated workspace config at {workspace_config}!")
-
-
-@pytest.fixture(autouse=True)
-def isolate_devops_cli_config(tmp_path_factory: pytest.TempPathFactory):
-    """Ensure tests do not load or mutate local workspace config.yaml or ~/.config."""
+def isolate_devops_cli_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """Ensure every test gets its own temporary config through DEVOPS_CLI_CONFIG."""
     from devops_cli.config.settings import reset_settings_cache
     from devops_cli.telemetry.tracer import reset_tracer
 
-    # Parsed configuration is held process-wide, so a test starts from disk rather than
-    # from whatever the previous test happened to leave behind.
     reset_settings_cache()
     reset_tracer()
-    config_dir = tmp_path_factory.mktemp("isolated_test_config")
-    dummy_config = config_dir / "config.yaml"
-    dummy_config.write_text(
-        "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\nai:\n  allow_private_network: true\n  rag:\n    enabled: false\n",
+    test_config_dir = (tmp_path / ".test_config").resolve()
+    test_config_dir.mkdir(parents=True, exist_ok=True)
+    test_config = test_config_dir / "config.yaml"
+    test_config.write_text(
+        "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\n"
+        "ai:\n  allow_private_network: true\n  rag:\n    enabled: false\n",
         encoding="utf-8",
     )
-    with (
-        patch.dict(
-            os.environ,
-            {
-                "DEVOPS_CLI_CONFIG": str(dummy_config),
-                "DEVOPS_OTEL_ENDPOINT": "http://localhost:4318",
-                "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK": "true",
-            },
-        ),
-        patch("devops_cli.config.settings.CONFIG_PATH", dummy_config),
-    ):
-        yield dummy_config
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(test_config))
+    monkeypatch.setenv("DEVOPS_OTEL_ENDPOINT", "http://localhost:4318")
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
+    with patch("devops_cli.config.settings.CONFIG_PATH", test_config):
+        yield test_config
     reset_settings_cache()
     reset_tracer()
+
+
+def _check_test_paths_isolated(
+    test_paths: Sequence[Path | str],
+    repo_root: Path,
+) -> list[str]:
+    """Verify that all configured test paths are strictly outside the project directory."""
+    violations: list[str] = []
+    resolved_root = repo_root.resolve()
+    for p in test_paths:
+        resolved_p = Path(p).resolve()
+        if resolved_p.is_relative_to(resolved_root):
+            violations.append(f"Test path {resolved_p} is inside project directory {resolved_root}")
+    return violations
+
+
+@pytest.fixture(autouse=True)
+def verify_test_paths_isolated() -> None:
+    """Ensure all test environment paths are strictly outside the project repository."""
+    from devops_cli.config.constants import CONST_ISOLATED_TEST_ENV_KEYS
+
+    repo_root = Path(__file__).resolve().parent.parent.resolve()
+    test_paths: list[Path] = []
+    for env_key in CONST_ISOLATED_TEST_ENV_KEYS:
+        val = os.environ.get(env_key)
+        if val:
+            test_paths.append(Path(val))
+    violations = _check_test_paths_isolated(test_paths, repo_root)
+    if violations:
+        raise AssertionError("; ".join(violations))
 
 
 @pytest.fixture
@@ -381,3 +369,155 @@ def reset_docker_engine_singleton():
     DockerEngineService.reset_instance()
     yield
     DockerEngineService.reset_instance()
+
+
+# =============================================================================
+# Workspace Isolation Tripwire (Issue #749)
+# =============================================================================
+
+
+def _is_xdist_worker(config: pytest.Config) -> bool:
+    """Report whether the pytest process is an xdist worker rather than the controller."""
+    return getattr(config, "workerinput", None) is not None
+
+
+def _get_git_tracked_files(repo_root: Path) -> list[str]:
+    """Return relative paths of all git-tracked files in the repository."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-files"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    except Exception:
+        return []
+
+
+def _snapshot_tracked_files(
+    repo_root: Path, tracked_files: list[str]
+) -> dict[str, tuple[int, int]]:
+    """Capture mtime and size for all tracked files."""
+    stamps: dict[str, tuple[int, int]] = {}
+    for rel_path in tracked_files:
+        full_path = repo_root / rel_path
+        try:
+            st = full_path.stat()
+            stamps[rel_path] = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            pass
+    return stamps
+
+
+def _check_config_diff(repo_root: Path, initial_bytes: bytes | None) -> str | None:
+    """Detect changes to workspace config.yaml."""
+    cfg = repo_root / "config.yaml"
+    curr = cfg.read_bytes() if cfg.exists() else None
+    if initial_bytes is None and curr is not None:
+        return "config.yaml (created by tests)"
+    if initial_bytes is not None and curr is None:
+        return "config.yaml (deleted by tests)"
+    if initial_bytes != curr:
+        return "config.yaml (content modified by tests)"
+    return None
+
+
+def _is_git_file_modified(repo_root: Path, rel_path: str) -> bool:
+    """Check if a tracked file has uncommitted changes relative to the git index."""
+    git_index = repo_root / ".git" / "index"
+    if not git_index.exists():
+        return True
+    try:
+        res = subprocess.run(
+            ["git", "-C", str(repo_root), "diff", "--quiet", "--", rel_path],
+            check=False,
+            capture_output=True,
+        )
+        return res.returncode != 0
+    except Exception:
+        return True
+
+
+def _check_tracked_diff(repo_root: Path, snapshot: dict[str, tuple[int, int]]) -> list[str]:
+    """Detect modifications or deletions in git-tracked files and presence of index.lock."""
+    diffs: list[str] = []
+    if (repo_root / ".git" / "index.lock").exists():
+        diffs.append(".git/index.lock (left behind by tests)")
+    for rel_path, (init_mtime, init_size) in snapshot.items():
+        full = repo_root / rel_path
+        if not full.exists():
+            diffs.append(f"{rel_path} (deleted by tests)")
+            continue
+        try:
+            st = full.stat()
+            if (st.st_mtime_ns, st.st_size) != (init_mtime, init_size):
+                if _is_git_file_modified(repo_root, rel_path):
+                    diffs.append(f"{rel_path} (modified by tests)")
+        except OSError:
+            pass
+    return diffs
+
+
+def _check_forbidden_test_paths(repo_root: Path) -> list[str]:
+    """Detect explicit test-only paths created in the project repository."""
+    from devops_cli.config.constants import CONST_FORBIDDEN_PROJECT_TEST_PATHS
+
+    diffs: list[str] = []
+    for rel in CONST_FORBIDDEN_PROJECT_TEST_PATHS:
+        target = repo_root / rel
+        if target.exists():
+            diffs.append(f"{rel} (test path found in project directory)")
+    return diffs
+
+
+def _evaluate_workspace_tripwire(snapshot: dict[str, Any]) -> list[str]:
+    """Evaluate all workspace isolation tripwire checks against initial session snapshot."""
+    repo_root = snapshot["repo_root"]
+    failures: list[str] = []
+    cfg_diff = _check_config_diff(repo_root, snapshot.get("config_state"))
+    if cfg_diff is not None:
+        failures.append(cfg_diff)
+    failures.extend(_check_tracked_diff(repo_root, snapshot.get("tracked_snapshot", {})))
+    failures.extend(_check_forbidden_test_paths(repo_root))
+    return failures
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """Snapshot workspace config and tracked files on xdist controller."""
+    if _is_xdist_worker(session.config):
+        return
+    repo_root = Path(__file__).resolve().parent.parent
+    tracked = _get_git_tracked_files(repo_root)
+    cfg_path = repo_root / "config.yaml"
+    session.config._tripwire_snapshot = {  # type: ignore[attr-defined]
+        "repo_root": repo_root,
+        "config_state": cfg_path.read_bytes() if cfg_path.exists() else None,
+        "tracked_snapshot": _snapshot_tracked_files(repo_root, tracked),
+    }
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int | pytest.ExitCode) -> None:
+    """Verify no tests wrote to workspace config, tracked files, or left test paths."""
+    if _is_xdist_worker(session.config):
+        return
+    snapshot = getattr(session.config, "_tripwire_snapshot", None)
+    if snapshot is None:
+        return
+    failures = _evaluate_workspace_tripwire(snapshot)
+    if failures:
+        session.config._tripwire_failures = failures  # type: ignore[attr-defined]
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+def pytest_terminal_summary(terminalreporter: Any, exitstatus: Any, config: pytest.Config) -> None:
+    """Print prominent error section if test isolation tripwire detected leaks."""
+    if _is_xdist_worker(config):
+        return
+    failures = getattr(config, "_tripwire_failures", [])
+    if failures:
+        terminalreporter.section(
+            "TRIPWIRE FAILURE: Workspace mutated during test run", red=True, bold=True
+        )
+        for f in failures:
+            terminalreporter.write_line(f"  - {f}", red=True)
