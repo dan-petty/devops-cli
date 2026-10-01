@@ -21,17 +21,6 @@ class QuiesceState(StrEnum):
     RESUMED = "resumed"
 
 
-class AgentTaskType(StrEnum):
-    """Classification of background agent tasks and loops."""
-
-    REVIEW_LOOP = "review_loop"
-    CRON_JOB = "cron_job"
-    FILE_WATCHER = "file_watcher"
-    SLOT_WORKER = "slot_worker"
-    SUBAGENT = "subagent"
-    BENCHMARK = "benchmark"
-
-
 def _utc_now_iso() -> str:
     """Return current UTC timestamp formatted as ISO 8601 string."""
     return datetime.now(UTC).isoformat()
@@ -42,26 +31,11 @@ def _generate_snapshot_id() -> str:
     return f"snap-{uuid.uuid4().hex[:8]}"
 
 
-class SuspendedTask(BaseModel):
-    """Model tracking state and routing for a suspended constellation task."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    task_id: str
-    task_type: AgentTaskType
-    name: str
-    original_provider: str
-    original_model: str
-    fallback_provider: str | None = None
-    fallback_model: str | None = None
-    status: str = "suspended"
-    state_payload: dict[str, Any] = Field(default_factory=dict)
-    suspended_at: str | None = None
-    resumed_at: str | None = None
-
-
 class QuiesceSnapshot(BaseModel):
-    """Persisted snapshot capturing constellation state during provider outages."""
+    """The persisted constellation flag: its state, why it was set, and any recorded fallback.
+
+    It records an operator's intent; no running task reads it.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -69,7 +43,6 @@ class QuiesceSnapshot(BaseModel):
     state: QuiesceState = QuiesceState.QUIESCED
     reason: str = MESSAGES.ai.default_quiesce_reason
     quiesced_at: str = Field(default_factory=_utc_now_iso)
-    tasks: list[SuspendedTask] = Field(default_factory=list)
     active_fallback: tuple[str, str] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -80,7 +53,6 @@ class QuiesceResult(BaseModel):
     success: bool
     state: QuiesceState
     reason: str
-    suspended_count: int
     snapshot_path: str
     message: str
     dry_run: bool = False
@@ -93,7 +65,6 @@ class FailoverResult(BaseModel):
     state: QuiesceState
     target_provider: str
     target_model: str
-    rerouted_count: int
     snapshot_path: str
     message: str
     dry_run: bool = False
@@ -104,20 +75,17 @@ class ResumeResult(BaseModel):
 
     success: bool
     state: QuiesceState
-    resumed_count: int
     snapshot_path: str
     message: str
     dry_run: bool = False
 
 
 class ConstellationStatus(BaseModel):
-    """System status report for constellation quiesce and active fallback routing."""
+    """The constellation flag as last set: state, reason and recorded fallback route."""
 
     state: QuiesceState = QuiesceState.IDLE
     is_quiesced: bool = False
     reason: str = ""
     quiesced_at: str | None = None
-    suspended_task_count: int = 0
-    tasks: list[SuspendedTask] = Field(default_factory=list)
     active_fallback: tuple[str, str] | None = None
     snapshot_path: str = ""

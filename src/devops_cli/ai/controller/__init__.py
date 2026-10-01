@@ -1,21 +1,18 @@
-"""Agent constellation quiesce and emergency failover controller."""
+"""Agent constellation flag: quiesce, record a fallback route, and clear."""
 
 from __future__ import annotations
 
 from devops_cli.ai.controller.manager import ConstellationManager
 from devops_cli.ai.controller.models import (
-    AgentTaskType,
     ConstellationStatus,
     FailoverResult,
     QuiesceResult,
     QuiesceSnapshot,
     QuiesceState,
     ResumeResult,
-    SuspendedTask,
 )
 
 __all__ = [
-    "AgentTaskType",
     "ConstellationManager",
     "ConstellationStatus",
     "FailoverResult",
@@ -23,5 +20,4 @@ __all__ = [
     "QuiesceSnapshot",
     "QuiesceState",
     "ResumeResult",
-    "SuspendedTask",
 ]

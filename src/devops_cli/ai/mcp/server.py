@@ -1113,14 +1113,15 @@ def config_audit_keys() -> str:
 
 
 @mcp.tool()
-def telemetry_profile(command: str = "") -> str:
-    """Display terminal waterfall latency breakdown of OpenTelemetry trace spans."""
+def telemetry_profile(command: str = "", trace_id: str = "") -> str:
+    """Run a command, or name a trace, and show its span waterfall as Jaeger recorded it."""
     cmd = ["uv", "run", "devops", "telemetry", "profile"]
     if command:
         _validate_mcp_arg("command", command)
-        cmd.extend(["--command", command])
-    else:
-        cmd.append("--last")
+        cmd.append(command)
+    if trace_id:
+        _validate_mcp_arg("trace_id", trace_id)
+        cmd.extend(["--trace-id", trace_id])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
@@ -2508,7 +2509,7 @@ def valkey_flush(all_databases: bool = False) -> str:
 
 @mcp.tool()
 def ai_harness_status() -> str:
-    """Inspect AI agent harness slot configuration, active models, skills, and sandbox state."""
+    """Inspect the AI agent harness slots as configured: provider, model, skills and tools."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "ai", "harness", "status"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
@@ -2565,7 +2566,7 @@ def ai_quiesce(
     reason: str = MESSAGES.ai.default_quiesce_reason,
     dry_run: bool = False,
 ) -> str:
-    """Centralized emergency quiesce cleanly suspending active agent loops and background tasks."""
+    """Set the constellation quiesce flag with a reason; it stops nothing."""
     _validate_mcp_arg("reason", reason)
     cmd = ["uv", "run", "devops", "ai", "quiesce", "--reason", reason]
     if dry_run:
@@ -2578,9 +2579,8 @@ def ai_failover(
     target_provider: str = DEFAULT_AI_FALLBACK_PROVIDER,
     target_model: str = DEFAULT_AI_FALLBACK_MODEL,
     dry_run: bool = False,
-    force: bool = False,
 ) -> str:
-    """Emergency failover controller re-routing tasks to designated fallback endpoints."""
+    """Record a fallback route in the constellation flag; ai_gateway_failover reroutes requests."""
     _validate_mcp_arg("target_provider", target_provider)
     _validate_mcp_arg("target_model", target_model)
     cmd = [
@@ -2596,8 +2596,6 @@ def ai_failover(
     ]
     if dry_run:
         cmd.append("--dry-run")
-    if force:
-        cmd.append("--force")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
@@ -2605,7 +2603,7 @@ def ai_failover(
 def ai_resume(
     dry_run: bool = False,
 ) -> str:
-    """Gracefully resume suspended constellation agent loops and task runners."""
+    """Clear the constellation quiesce or failover flag."""
     cmd = ["uv", "run", "devops", "ai", "resume"]
     if dry_run:
         cmd.append("--dry-run")
@@ -2614,7 +2612,7 @@ def ai_resume(
 
 @mcp.tool()
 def ai_constellation_status() -> str:
-    """Display constellation fleet status, active fallback routes, and suspended tasks."""
+    """Show the constellation flag: state, reason and recorded fallback route."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "ai", "constellation", "--format", "json"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
@@ -2862,7 +2860,7 @@ def get_indexed_libraries_resource() -> str:
 
 @mcp.resource("resource://ai/constellation")
 def get_ai_constellation_resource() -> str:
-    """Return live constellation quiesce and active fallback routing status."""
+    """Return the constellation flag: state, reason and recorded fallback route."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "ai", "constellation", "--format", "json"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,

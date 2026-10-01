@@ -66,7 +66,6 @@ DEFAULT_AI_FALLBACK_PROVIDER = "ollama"
 DEFAULT_AI_FALLBACK_MODEL = "qwen2.5-coder:7b"
 DEFAULT_AI_REFERENCE_MODEL: str = "gpt-4o"
 DEFAULT_AI_HARDWARE_COST_USD: float = 0.0
-DEFAULT_CONSTELLATION_DRAIN_TIMEOUT: float = 5.0
 DEFAULT_AI_REASONING_EFFORT: str | None = None
 DEFAULT_AI_TEMPERATURE: float = 0.1
 DEFAULT_AI_TOP_P: float = 0.95
@@ -481,6 +480,9 @@ DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS: float = 1.0
 # How often an interactive user is told, per endpoint, that telemetry exports fail.
 DEFAULT_OTEL_WARNING_INTERVAL_SECONDS: int = 86400
 DEFAULT_TELEMETRY_TEST_NAME: str = "devops-cli.manual_test"
+# `telemetry profile` polls Jaeger until a trace stops growing, for at most this long.
+DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS: float = 10.0
+DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS: float = 0.5
 
 # ── AI Formatting & XML Prompt Serialization Defaults ────────────────────────
 DEFAULT_XML_INDENT: str = "  "

@@ -1267,6 +1267,12 @@ class OTelTelemetryClient:
         except Exception as exc:
             logger.debug("Failed submitting OTel payload to executor: %s", exc)
 
+    def flush(self, timeout: float = DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS) -> None:
+        """Wait, up to ``timeout`` seconds, for exports already queued to finish."""
+        pending = [f for f in list(self._pending) if not f.done()]
+        if pending:
+            wait_futures(pending, timeout=timeout)
+
     def shutdown(self, timeout_millis: int = DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS) -> None:
         """Cleanly close background executor, gRPC exporter, and pooled HTTP transport with bounded drain timeout.
 
@@ -1274,9 +1280,7 @@ class OTelTelemetryClient:
         command queues its spans at the very end, and cancelling them lost its root span. The
         wait happens before taking the client lock, which the exports need.
         """
-        pending = [f for f in list(self._pending) if not f.done()]
-        if pending:
-            wait_futures(pending, timeout=DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS)
+        self.flush()
         with self._client_lock:
             if self._executor is not None:
                 try:

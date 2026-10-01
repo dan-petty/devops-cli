@@ -408,7 +408,7 @@ devops ai chaos-model [OPTIONS]
 
 ## `devops ai quiesce`
 
-**Centralized emergency quiesce cleanly suspending active agent loops and background tasks.**
+**Set the constellation quiesce flag with a reason; it stops nothing.**
 
 ```bash
 devops ai quiesce [OPTIONS]
@@ -418,8 +418,7 @@ devops ai quiesce [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--reason`, `-r` | `string` | `Operator requested emergency quiesce` | Reason for constellation quiesce or emergency failover. |
-| `--drain-timeout` | `float` | `5.0` | Drain timeout in seconds to wait for in-flight tasks to complete. |
+| `--reason`, `-r` | `string` | `Operator requested emergency quiesce` | Reason recorded with the constellation quiesce flag. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -427,7 +426,7 @@ devops ai quiesce [OPTIONS]
 
 ## `devops ai failover`
 
-**Emergency failover controller re-routing tasks to designated fallback endpoints.**
+**Record a fallback route in the constellation flag; `devops ai gateway failover` reroutes requests.**
 
 ```bash
 devops ai failover [OPTIONS]
@@ -441,13 +440,12 @@ devops ai failover [OPTIONS]
 | `--target-model` | `string` | `qwen2.5-coder:7b` | Fallback AI model to route execution to upon fault. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--force` | `boolean` | - | Bypass model capability tier minimum checks during failover. |
 
 ---
 
 ## `devops ai resume`
 
-**Gracefully resume suspended constellation agent loops and task runners.**
+**Clear the constellation quiesce or failover flag.**
 
 ```bash
 devops ai resume [OPTIONS]
@@ -464,7 +462,7 @@ devops ai resume [OPTIONS]
 
 ## `devops ai constellation`
 
-**Display constellation fleet status, active fallback routes, and suspended tasks.**
+**Show the constellation flag: state, reason and recorded fallback route.**
 
 ```bash
 devops ai constellation [OPTIONS]
@@ -1255,7 +1253,7 @@ devops ai harness COMMAND [ARGS]...
 
 ### `devops ai harness status`
 
-**Display active harness slot configuration, models, and sandboxing status.**
+**Display the harness slots as configured; nothing here checks a model is reachable.**
 
 ```bash
 devops ai harness status [OPTIONS]
@@ -1287,7 +1285,7 @@ devops ai harness offload [OPTIONS]
 
 ### `devops ai harness run`
 
-**Execute tiered synthesis: Big decides, small types, big checks.**
+**Run the sub-agent's local AST or glob search for a task and report what it found.**
 
 ```bash
 devops ai harness run [OPTIONS] <task>
@@ -1305,8 +1303,6 @@ devops ai harness run [OPTIONS] <task>
 |---|---|---|---|
 | `--repo`, `-r` | `path` | `.` | Path to repository or source directory. |
 | `--symbol`, `-s` | `string` | - | Symbol name (class or function) to inspect or search. |
-| `--frontier-model` | `string` | `claude-3-7-sonnet` | Frontier model identifier for architecture and verification. |
-| `--local-model` | `string` | `qwen2.5-coder:7b` | Local model identifier for sub-agent offloading. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

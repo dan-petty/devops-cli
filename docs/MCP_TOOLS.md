@@ -11,22 +11,22 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_ast_parse`](#ai-ast-parse) | Parse a polyglot source file (Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell, Markdown) into syntax symbols or execute S-expression query. |
 | [`ai_backend_probe`](#ai-backend-probe) | Directly probe health, latency, and registered models of an inference backend. |
 | [`ai_chaos_model`](#ai-chaos-model) | Execute model dependency chaos fault injection and verify automated fallback recovery. |
-| [`ai_constellation_status`](#ai-constellation-status) | Display constellation fleet status, active fallback routes, and suspended tasks. |
+| [`ai_constellation_status`](#ai-constellation-status) | Show the constellation flag: state, reason and recorded fallback route. |
 | [`ai_diagram`](#ai-diagram) | Generate visual Mermaid architecture or threat modeling diagram. |
-| [`ai_failover`](#ai-failover) | Emergency failover controller re-routing tasks to designated fallback endpoints. |
+| [`ai_failover`](#ai-failover) | Record a fallback route in the constellation flag; ai_gateway_failover reroutes requests. |
 | [`ai_gateway_failover`](#ai-gateway-failover) | Trigger or test circuit-breaker failover of a virtual model to secondary backends. |
 | [`ai_gateway_routes`](#ai-gateway-routes) | List registered virtual models and target backend inference instances. |
 | [`ai_gateway_status`](#ai-gateway-status) | Probe LLM Gateway health, latency, and circuit breaker metrics. |
-| [`ai_harness_status`](#ai-harness-status) | Inspect AI agent harness slot configuration, active models, skills, and sandbox state. |
+| [`ai_harness_status`](#ai-harness-status) | Inspect the AI agent harness slots as configured: provider, model, skills and tools. |
 | [`ai_ingest_library`](#ai-ingest-library) | Introspect an installed Python package and extract its public API contract into .data/libraries/. |
 | [`ai_inspect_symbol`](#ai-inspect-symbol) | Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts. |
 | [`ai_pack_context`](#ai-pack-context) | Pack and prune source code context to fit token budget while preserving signatures and types. |
 | [`ai_prewarm_models`](#ai-prewarm-models) | Prewarm local LLM models into GPU VRAM or proactively evict them across candidate cluster nodes. |
 | [`ai_query_library`](#ai-query-library) | Search library contracts and documentation via semantic search or exact symbol lookup. |
-| [`ai_quiesce`](#ai-quiesce) | Centralized emergency quiesce cleanly suspending active agent loops and background tasks. |
+| [`ai_quiesce`](#ai-quiesce) | Set the constellation quiesce flag with a reason; it stops nothing. |
 | [`ai_read`](#ai-read) | Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window). |
 | [`ai_repomap`](#ai-repomap) | Generate a compact whole-repository AST symbol map for AI context. |
-| [`ai_resume`](#ai-resume) | Gracefully resume suspended constellation agent loops and task runners. |
+| [`ai_resume`](#ai-resume) | Clear the constellation quiesce or failover flag. |
 | [`ai_spend_report`](#ai-spend-report) | Report approximate AI spend per backend service, model, or provider over time. |
 | [`ai_subagent_offload`](#ai-subagent-offload) | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
 | [`ai_test_gen`](#ai-test-gen) | Synthesize isolated pytest unit test suite for a target Python file. |
@@ -144,7 +144,7 @@ Pass the domain name alone, for example `k8s`. |
 | [`ssh_audit`](#ssh-audit) | Audit SSH key expiration dates and key file permissions. |
 | [`ssh_status`](#ssh-status) | Inspect age and rotation status of managed SSH keys in ~/.ssh. |
 | [`telemetry_logfire_status`](#telemetry-logfire-status) | Check Logfire structured observability bridge status, token configuration, and recorded metrics. |
-| [`telemetry_profile`](#telemetry-profile) | Display terminal waterfall latency breakdown of OpenTelemetry trace spans. |
+| [`telemetry_profile`](#telemetry-profile) | Run a command, or name a trace, and show its span waterfall as Jaeger recorded it. |
 | [`telemetry_status`](#telemetry-status) | Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings. |
 | [`telemetry_test_span`](#telemetry-test-span) | Emit a test OpenTelemetry trace span and metric to verify collector pipeline health. |
 | [`tf_apply`](#tf-apply) | Apply OpenTofu / Terraform Infrastructure-as-Code changes. |
@@ -228,7 +228,7 @@ Execute model dependency chaos fault injection and verify automated fallback rec
 
 ### `ai_constellation_status`
 
-Display constellation fleet status, active fallback routes, and suspended tasks.
+Show the constellation flag: state, reason and recorded fallback route.
 
 *No parameters required.*
 
@@ -245,7 +245,7 @@ Generate visual Mermaid architecture or threat modeling diagram.
 
 ### `ai_failover`
 
-Emergency failover controller re-routing tasks to designated fallback endpoints.
+Record a fallback route in the constellation flag; ai_gateway_failover reroutes requests.
 
 **Parameters:**
 
@@ -254,7 +254,6 @@ Emergency failover controller re-routing tasks to designated fallback endpoints.
 | `target_provider` | `string` | No | `ollama` | - |
 | `target_model` | `string` | No | `qwen2.5-coder:7b` | - |
 | `dry_run` | `boolean` | No | `False` | - |
-| `force` | `boolean` | No | `False` | - |
 
 ### `ai_gateway_failover`
 
@@ -292,7 +291,7 @@ Probe LLM Gateway health, latency, and circuit breaker metrics.
 
 ### `ai_harness_status`
 
-Inspect AI agent harness slot configuration, active models, skills, and sandbox state.
+Inspect the AI agent harness slots as configured: provider, model, skills and tools.
 
 *No parameters required.*
 
@@ -360,7 +359,7 @@ Search library contracts and documentation via semantic search or exact symbol l
 
 ### `ai_quiesce`
 
-Centralized emergency quiesce cleanly suspending active agent loops and background tasks.
+Set the constellation quiesce flag with a reason; it stops nothing.
 
 **Parameters:**
 
@@ -396,7 +395,7 @@ Generate a compact whole-repository AST symbol map for AI context.
 
 ### `ai_resume`
 
-Gracefully resume suspended constellation agent loops and task runners.
+Clear the constellation quiesce or failover flag.
 
 **Parameters:**
 
@@ -1630,13 +1629,14 @@ Check Logfire structured observability bridge status, token configuration, and r
 
 ### `telemetry_profile`
 
-Display terminal waterfall latency breakdown of OpenTelemetry trace spans.
+Run a command, or name a trace, and show its span waterfall as Jaeger recorded it.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `command` | `string` | No | `` | - |
+| `trace_id` | `string` | No | `` | - |
 
 ### `telemetry_status`
 
