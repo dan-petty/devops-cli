@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -683,3 +684,49 @@ def test_apply_symbol_delta_to_meta(tmp_path: Path) -> None:
         len(updated.symbols_removed),
         len(updated.symbols_retained),
     ) == (True, 0, 0)
+
+
+@pytest.fixture
+def symbol_removal_repo(tmp_path: Path, git: Callable[..., None]) -> Path:
+    """A real repository whose `main` defines two functions and whose `feature` branch
+    removes one of them and adds another."""
+    git(tmp_path, "init", "--quiet", "-b", "main")
+    (tmp_path / "mod.py").write_text("def kept(): pass\ndef gone(): pass\n", encoding="utf-8")
+    git(tmp_path, "add", "mod.py")
+    git(tmp_path, "commit", "--quiet", "-m", "base")
+    git(tmp_path, "switch", "--quiet", "-c", "feature")
+    (tmp_path / "mod.py").write_text("def kept(): pass\ndef added(): pass\n", encoding="utf-8")
+    git(tmp_path, "commit", "--quiet", "-am", "remove gone")
+    return tmp_path
+
+
+def test_fetch_git_file_content_reads_the_base_revision(symbol_removal_repo: Path) -> None:
+    """The file is read at the base revision, not taken for a pathspec (#787)."""
+    from devops_cli.commands.analyze import _fetch_git_file_content
+
+    content = _fetch_git_file_content(symbol_removal_repo, "main", "mod.py")
+
+    assert content == "def kept(): pass\ndef gone(): pass\n"
+
+
+def test_apply_symbol_delta_reports_a_symbol_removed_since_the_base(
+    symbol_removal_repo: Path,
+) -> None:
+    """A symbol the branch removes lands in symbols_removed, and a kept one is not added (#787)."""
+    from devops_cli.commands.analyze import _apply_symbol_delta_to_meta
+
+    head = (symbol_removal_repo / "mod.py").read_text(encoding="utf-8")
+    updated = _apply_symbol_delta_to_meta(
+        meta=FileAnalysisMeta(path="mod.py"),
+        repo=symbol_removal_repo,
+        base="main",
+        rel_path="mod.py",
+        head_content=head,
+        change_type="modified",
+    )
+
+    assert (updated.symbols_removed, updated.symbols_added, updated.symbols_retained) == (
+        ["gone"],
+        ["added"],
+        ["kept"],
+    )
