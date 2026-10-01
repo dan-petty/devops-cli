@@ -808,6 +808,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: e8eaf4a (#749) made `_is_git_file_modified` (`tests/conftest.py`) report a change whenever `.git/index` was missing. A linked worktree's `.git` is a file, so every file `devops ci` regenerates during pytest was reported as modified, and the gate failed from every worktree.
   - *Deliverable*: git finds the index itself; a test in a linked worktree checks that a file with only a new mtime is not reported and an edited one is.
   - *Constraint*: Critical fix: a P0 regression whose introducing commit is cited, so it joins the current release.
+- [x] **Deploy-Stack Installs the Prometheus Operator CRDs Its ServiceMonitors Need (P0 - Critical, Issue #819)**:
+  - *Context & Rationale*: fdd4d0f (#734) replaced kube-prometheus-stack with k8s-monitoring 4.x and the standalone Prometheus chart, neither of which ships the `monitoring.coreos.com` CRDs. k8s-monitoring's `extraObjects` and dcgm-exporter still render ServiceMonitors, so on a cluster without leftover CRDs both releases failed and `deploy-stack --stack infra` installed no Alloy. The homelab's leftover CRDs hid it, and `_adopt_helm_resource_if_conflict` could not adopt them because they are cluster-scoped.
+  - *Deliverable*: `prometheus-operator-crds` is the first infra release and teardown keeps it; adoption handles `in namespace ""` without `-n`, annotates the release's namespace, and retries once per leftover CRD until a retry fails unchanged. Unit tests cover the order, both adoption shapes, the retries and teardown.
+  - *Constraint*: Critical fix: a P0 regression whose introducing commit is cited, so it joins the current release. The live runs on a scratch cluster and the homelab are left to a person.
 
 ### Multi-IDE MCP Scaffolding, Context Budgeting & Invariant Pinning (v0.2.25 - Scheduled)
 - [ ] **Pipeline Stage Context Budgeting & Invariant Pinning (P0 - Critical)**:

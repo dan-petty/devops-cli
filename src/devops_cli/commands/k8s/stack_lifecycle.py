@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import secrets
 from collections.abc import Sequence
 from pathlib import Path
@@ -15,8 +14,13 @@ import typer
 import devops_cli.commands.k8s.cluster_runtime as runtime
 import devops_cli.commands.k8s.networking as net
 from devops_cli.commands.k8s.cluster_runtime import run_subprocess as run_subprocess
-from devops_cli.config.constants import CONST_HELM_DAEMONSET_RELEASES
+from devops_cli.config.constants import (
+    CONST_HELM_DAEMONSET_RELEASES,
+    CONST_HELM_OWNERSHIP_CONFLICT_RE,
+    CONST_HELM_TEARDOWN_RETAINED_RELEASES,
+)
 from devops_cli.config.defaults import (
+    DEFAULT_HELM_RECOVERY_MAX_RETRIES,
     DEFAULT_K8S_DIR,
     DEFAULT_K8S_STACK,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -58,6 +62,14 @@ _HELM_REPOS: dict[str, str] = {
 
 _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
     "infra": [
+        # First: k8s-monitoring's extraObjects and dcgm-exporter render ServiceMonitors, and no
+        # other chart ships their CRD (k8s-monitoring 4.x dropped it).
+        {
+            "name": "prometheus-operator-crds",
+            "chart": "prometheus-community/prometheus-operator-crds",
+            "namespace": "monitoring",
+            "values": str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-operator-crds-values.yaml"),
+        },
         {
             "name": "argocd",
             "chart": "argo/argo-cd",
@@ -192,14 +204,19 @@ def _recover_stuck_helm_release_if_pending(
 def _adopt_helm_resource_if_conflict(
     error_output: str, release_name: str, namespace: str, context: str | None = None
 ) -> bool:
-    """If Helm failed due to pre-existing unmanaged resources, annotate and label them to adopt."""
+    """If Helm failed due to pre-existing unmanaged resources, annotate and label them to adopt.
+
+    Helm names a cluster-scoped resource, such as a CRD, `in namespace ""`, so it is addressed
+    without `-n`. Helm checks the release-namespace annotation against the release's namespace,
+    which a namespaced resource need not share.
+    """
     if (
         "invalid ownership metadata" not in error_output
         and "cannot be imported" not in error_output
     ):
         return False
 
-    matches = re.findall(r'([A-Za-z0-9_-]+)\s+"([^"]+)"\s+in namespace\s+"([^"]+)"', error_output)
+    matches = CONST_HELM_OWNERSHIP_CONFLICT_RE.findall(error_output)
     if not matches:
         return False
 
@@ -207,6 +224,7 @@ def _adopt_helm_resource_if_conflict(
     adopted_any = False
     for kind_raw, name, ns in matches:
         kind = kind_raw.lower()
+        ns_args = ["-n", ns] if ns else []
         adopt_msg = f"Adopting pre-existing {kind}/{name} for release '{release_name}'..."
         print_warning(adopt_msg)
         runtime._run_cmd(
@@ -215,10 +233,9 @@ def _adopt_helm_resource_if_conflict(
                 "annotate",
                 kind,
                 name,
-                "-n",
-                ns,
+                *ns_args,
                 f"meta.helm.sh/release-name={release_name}",
-                f"meta.helm.sh/release-namespace={ns}",
+                f"meta.helm.sh/release-namespace={namespace}",
                 "--overwrite",
             ]
             + ctx_args,
@@ -230,8 +247,7 @@ def _adopt_helm_resource_if_conflict(
                 "label",
                 kind,
                 name,
-                "-n",
-                ns,
+                *ns_args,
                 "app.kubernetes.io/managed-by=Helm",
                 "--overwrite",
             ]
@@ -540,12 +556,18 @@ def _run_helm_with_adoption_retries(
     release: dict[str, str],
     effective_context: str | None,
 ) -> Any:
-    """Execute Helm upgrade command retrying up to 5 times on adoptable resource conflicts or stuck pending locks."""
+    """Run Helm upgrade, retrying after recovering a stuck pending lock or adopting a resource.
+
+    Helm names one conflicting resource per failed attempt, so each retry adopts the next one. A
+    retry that fails exactly like the attempt before it made no progress and ends the retries.
+    """
     result = runtime._run_cmd(helm_cmd, check=False, capture=True)
-    for _ in range(5):
-        if result.returncode == 0:
-            break
+    previous_error: str | None = None
+    for _ in range(DEFAULT_HELM_RECOVERY_MAX_RETRIES):
         err_msg = (result.stderr or "") + " " + (result.stdout or "")
+        if result.returncode == 0 or err_msg == previous_error:
+            break
+        previous_error = err_msg
         pending_recovered = _recover_stuck_helm_release_if_pending(
             err_msg,
             release["name"],
@@ -850,7 +872,11 @@ def teardown_stack(
     all_uninstalls: list[dict[str, str]] = []
     all_manifest_deletes: list[str] = []
     for s_name in reversed(selected_stacks):
-        all_uninstalls.extend(reversed(_HELM_RELEASES_BY_STACK.get(s_name, [])))
+        all_uninstalls.extend(
+            release
+            for release in reversed(_HELM_RELEASES_BY_STACK.get(s_name, []))
+            if release["name"] not in CONST_HELM_TEARDOWN_RETAINED_RELEASES
+        )
         all_manifest_deletes.extend([str(p) for p in reversed(_MANIFESTS_BY_STACK.get(s_name, []))])
 
     if is_dry_run():

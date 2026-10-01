@@ -153,6 +153,8 @@ devops k8s teardown-stack --stack llm
 devops k8s teardown-stack --stack all
 ```
 
+Teardown leaves the `prometheus-operator-crds` release's CRDs in the cluster. Deleting a CRD deletes every object of its kind, such as every ServiceMonitor, so remove them by hand only when nothing in the cluster uses them.
+
 ## Cloudflare Wildcard Tunnel & Ingress Routing
 
 Expose homelab Kubernetes services securely to the internet without public ports, dynamic DNS, or firewall holes using a wildcard Cloudflare Tunnel paired with an in-cluster ingress controller (Traefik or Ingress-Nginx).
@@ -250,7 +252,8 @@ k8s/
 │   ├── kustomization.yaml    # Kustomize overlay for monitoring
 │   ├── namespace.yaml        # monitoring namespace
 │   ├── dcgm-exporter-values.yaml # Helm values for nvidia/dcgm-exporter (GPU metrics)
-│   └── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, and gateway monitors)
+│   ├── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, and gateway monitors)
+│   └── prometheus-operator-crds-values.yaml # Helm values for prometheus-community/prometheus-operator-crds (ServiceMonitor and other monitoring.coreos.com CRDs)
 ├── otel/
 │   ├── kustomization.yaml    # Kustomize overlay for OpenTelemetry
 │   ├── namespace.yaml        # otel namespace
