@@ -353,7 +353,7 @@ def test_cli_gh_issues_reconcile_roadmap() -> None:
 
 
 def test_project_custom_field_milestone_reconciliation() -> None:
-    """_reconcile_single_item detects when Project item Milestone field differs from target."""
+    """_reconcile_single_item plans a Milestone change when the board's copy differs."""
     item = {
         "url": "https://github.com/example/repo/issues/1",
         "title": "Test Issue",
@@ -362,21 +362,21 @@ def test_project_custom_field_milestone_reconciliation() -> None:
         "milestone": {"title": "v0.2.21"},
     }
     current_fields: dict[str, str | None] = {
-        "Status": "Backlog",
-        "Priority": "P1 - High",
-        "Category": "CLI",
-        "Value": "High",
-        "Effort": "Medium",
-        "Milestone": "v0.2.20",
+        "status": "Backlog",
+        "priority": "P1-High",
+        "category": "CLI",
+        "value": "High",
+        "effort": "Medium",
+        "milestone": "v0.2.20",
     }
-    should_update = _reconcile_single_item(
+    changes = _reconcile_single_item(
         owner="example",
         project_number=2,
         item=item,
         dry_run=True,
         current_fields=current_fields,
     )
-    assert should_update is True
+    assert [(c.field, c.old, c.new) for c in changes] == [("Milestone", "v0.2.20", "v0.2.21")]
 
 
 def test_fastmcp_gh_tools() -> None:

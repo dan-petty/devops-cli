@@ -309,11 +309,8 @@ def sync_all_release_epics(
     version_filter: str | None = None,
 ) -> ReleaseEpicSyncResult:
     """Synchronize release tracking epics for roadmap milestones."""
-    try:
-        issues = get_repository_issues(repo, state="all", limit=300)
-    except Exception as exc:
-        logger.warning("Failed to fetch repository issues: %s", exc)
-        issues = []
+    # A failed read raises: treating it as "no issues" would create every epic again.
+    issues = get_repository_issues(repo, state="all", limit=None)
 
     specs = build_release_epic_specs(roadmap_path, issues)
     if version_filter:

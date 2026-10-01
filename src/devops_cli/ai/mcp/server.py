@@ -1606,7 +1606,7 @@ def gh_milestone_edit(
 
 @mcp.tool()
 def gh_project_sync(repo: str | None = None, dry_run: bool = True) -> str:
-    """Synchronize task items from task tracking into GitHub Projects v2 status."""
+    """Create or update the project board, add open issues, and reconcile Status, Priority and Milestone."""
     cmd = ["uv", "run", "devops", "gh", "project", "sync"]
     if dry_run:
         cmd.append("--dry-run")
@@ -1798,7 +1798,7 @@ def gh_project_reconcile(
     repo: str | None = None,
     dry_run: bool = False,
 ) -> str:
-    """Reconcile custom fields (Status, Priority, Category, Value, Effort) on GitHub Projects v2 items."""
+    """Reconcile Status, Priority and Milestone on GitHub Projects v2 items, listing each change and its source."""
     cmd = ["uv", "run", "devops", "gh", "project", "reconcile"]
     if project_number is not None:
         _validate_mcp_int_bound("project_number", project_number, min_val=1)

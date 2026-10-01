@@ -10,7 +10,7 @@ Historically, a monolithic `docs/agent/task.md` file was used for task tracking 
 2. **Decommissioned Monolithic Index**: Centralized task visualization, roadmap tracking, and sprint management are managed natively through GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and GitHub Issues views (`https://github.com/dan-petty/devops-cli/issues/views`). No central index markdown file is maintained.
 3. **Commit Context Rule**: Updates to task tracking files **MUST ONLY** occur in the commit that delivers the feature or fix, written as the file should read once merged (`**Status**: Done`). Standalone task-tracking commits, including follow-ups that only add a pull request number, are strictly prohibited.
 4. **Issue-Only Linking**: A task file links its GitHub issue and nothing else. The issue links the pull request that closes it (`Closes #<issue>`), and GitHub shows that pull request on the issue. Task files never carry a pull request number or a review state: the number is unknown until the pull request exists, so recording it takes a second commit that re-runs every check.
-5. **Automated Project Synchronization**: `devops gh project sync` (and FastMCP `gh_project_sync`) natively inspects `docs/agent/tasks/` and synchronizes all task cards into GitHub Projects v2.
+5. **Project Synchronization**: `devops gh project sync` (and FastMCP `gh_project_sync`) creates or updates the board from `.github/project-template.json`, adds the repository's open issues, and reconciles Status, Priority and Milestone from GitHub. It does not read task files: the board owns Status, and task files are the implementation record.
 
 ---
 
@@ -65,7 +65,7 @@ A task file records one of four statuses. `tests/test_agent_task_files.py` enfor
 - **In Progress (WIP)**: Active work item currently being authored. If an early PR is opened to share work, it must be a Draft Pull Request (`--draft`).
 - **Done**: Written by the delivering pull request, which merges with the work and closes the issue.
 
-Review is not a task-file status. A GitHub Projects v2 card shows **In Review** while the pull request that closes its issue is open and ready for review; `devops gh project sync` derives it from GitHub (`infer_item_status`).
+Review is not a task-file status. A GitHub Projects v2 card shows **In Review** while the pull request that closes its issue is open and ready for review; `devops gh project sync` derives it from GitHub (`plan_item_changes`).
 
 ---
 

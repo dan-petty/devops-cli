@@ -761,13 +761,15 @@ class GHCommandHelp:
     project_list: str = "List available GitHub Projects v2 boards for user or organization."
     project_status: str = "Inspect project template structure and configured views."
     project_sync: str = (
-        "Sync task items from docs/agent/tasks directory into GitHub Projects status."
+        "Create or update the project board from its template, add open issues, and reconcile "
+        "Status, Priority and Milestone; task files are not read."
     )
     project_reconcile: str = (
-        "Reconcile custom fields (Status, Priority, Category, Value, Effort) on project items."
+        "Reconcile Status, Priority and Milestone on project items, listing each change and "
+        "its source; the board owns Status."
     )
     reconcile_fields: str = (
-        "Automatically infer and update project custom fields from taxonomy labels and issue state."
+        "Also reconcile Status, Priority and Milestone from issue state and labels."
     )
     project_link: str = "Link a GitHub Project v2 board to the repository."
     project_audit: str = "Audit project board items and fields against local tasks and template."
