@@ -5,8 +5,8 @@
 # Names carry no content hash, so a re-apply updates each ConfigMap in place rather than leaving
 # the old one behind for the sidecar to load twice. Each ConfigMap stays under kubectl's
 # 262,144-byte last-applied annotation, which is why the Kubernetes views are split in two.
-# llm-stack.json (#693) and otel-collector.json (#551) are not provisioned; they reach Grafana
-# through `devops grafana dashboards sync`.
+# The stack dashboards llm-stack.json, otel-collector.json and prometheus-server.json (#693) are
+# not provisioned; they reach Grafana through `devops grafana dashboards sync`.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

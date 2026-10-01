@@ -1,0 +1,143 @@
+# Metric families the deployed LiteLLM gateway serves (#693): names, types and label names,
+# never label values. tests/test_stack_dashboards.py checks llm-stack.json against them.
+#
+# `families` lists every family exactly as its `# TYPE` line printed it, with its type and
+# the label names its samples carried. A family without `labels` printed its `# TYPE` line
+# but no sample, so its labels could not be read from the capture.
+# `from_source` gives the labels of the families the dashboard uses that print no sample
+# until their first event, read from the exporter's source at the deployed version.
+exporter: LiteLLM gateway Prometheus callback
+image: ghcr.io/berriai/litellm:v1.103.0
+captured: "2026-10-01"
+taken_from: >-
+  The llm-gateway Service's /metrics/ on the homelab cluster, read in the plain text format
+  (version 0.0.4) through the Kubernetes API service proxy.
+scraped_by: >-
+  The llm-gateway ServiceMonitor (k8s/monitoring/k8s-monitoring-values.yaml), read by Alloy
+  (k8s-monitoring 4.5.2), which remote-writes to the Prometheus server.
+target_labels: [cluster, container, endpoint, instance, job, k8s_cluster_name, namespace, pod, service]
+families:
+  litellm_active_users: {type: gauge, labels: []}
+  litellm_api_key_budget_remaining_hours_metric: {type: gauge}
+  litellm_api_key_max_budget_metric: {type: gauge}
+  litellm_api_key_rate_limit_allowed_metric: {type: gauge}
+  litellm_api_key_rate_limit_used_metric: {type: gauge}
+  litellm_cache_hits_metric_total: {type: counter}
+  litellm_cache_misses_metric_created: {type: gauge, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, team, team_alias, user]}
+  litellm_cache_misses_metric_total: {type: counter, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, team, team_alias, user]}
+  litellm_cached_tokens_metric_total: {type: counter}
+  litellm_callback_logging_failures_metric_total: {type: counter}
+  litellm_check_batch_cost_errors_total: {type: counter}
+  litellm_check_batch_cost_jobs_polled: {type: gauge, labels: []}
+  litellm_check_batch_cost_jobs_processed_total: {type: counter}
+  litellm_check_batch_cost_last_run_timestamp: {type: gauge, labels: []}
+  litellm_customer_budget_remaining_hours_metric: {type: gauge}
+  litellm_customer_max_budget_metric: {type: gauge}
+  litellm_deployment_cooled_down_total: {type: counter}
+  litellm_deployment_failed_fallbacks_total: {type: counter}
+  litellm_deployment_failure_responses_total: {type: counter}
+  litellm_deployment_latency_per_output_token: {type: histogram, labels: [api_base, api_key_alias, api_provider, hashed_api_key, litellm_model_name, model_id, org_alias, org_id, team, team_alias]}
+  litellm_deployment_latency_per_output_token_created: {type: gauge, labels: [api_base, api_key_alias, api_provider, hashed_api_key, litellm_model_name, model_id, org_alias, org_id, team, team_alias]}
+  litellm_deployment_rpm_limit: {type: gauge}
+  litellm_deployment_state: {type: gauge, labels: [api_base, api_provider, litellm_model_name, model_id]}
+  litellm_deployment_success_responses_created: {type: gauge, labels: [api_base, api_key_alias, api_provider, client_ip, hashed_api_key, litellm_model_name, model_id, requested_model, team, team_alias, user_agent]}
+  litellm_deployment_success_responses_total: {type: counter, labels: [api_base, api_key_alias, api_provider, client_ip, hashed_api_key, litellm_model_name, model_id, requested_model, team, team_alias, user_agent]}
+  litellm_deployment_successful_fallbacks_total: {type: counter}
+  litellm_deployment_total_requests_created: {type: gauge, labels: [api_base, api_key_alias, api_provider, client_ip, hashed_api_key, litellm_model_name, model_id, requested_model, team, team_alias, user_agent]}
+  litellm_deployment_total_requests_total: {type: counter, labels: [api_base, api_key_alias, api_provider, client_ip, hashed_api_key, litellm_model_name, model_id, requested_model, team, team_alias, user_agent]}
+  litellm_deployment_tpm_limit: {type: gauge}
+  litellm_guardrail_errors_total: {type: counter}
+  litellm_guardrail_latency_seconds: {type: histogram}
+  litellm_guardrail_requests_total: {type: counter}
+  litellm_images_generated_metric_total: {type: counter}
+  litellm_in_flight_requests: {type: gauge, labels: []}
+  litellm_input_audio_tokens_metric_total: {type: counter}
+  litellm_input_cache_creation_tokens_metric_total: {type: counter}
+  litellm_input_cached_tokens_metric_total: {type: counter}
+  litellm_input_tokens_metric_created: {type: gauge, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, team, team_alias, user, user_email]}
+  litellm_input_tokens_metric_total: {type: counter, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, team, team_alias, user, user_email]}
+  litellm_llm_api_failed_requests_metric_total: {type: counter}
+  litellm_llm_api_latency_metric: {type: histogram, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, service_tier, team, team_alias, user]}
+  litellm_llm_api_latency_metric_created: {type: gauge, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, service_tier, team, team_alias, user]}
+  litellm_llm_api_time_to_first_token_metric: {type: histogram, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, service_tier, team, team_alias, user]}
+  litellm_llm_api_time_to_first_token_metric_created: {type: gauge, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, service_tier, team, team_alias, user]}
+  litellm_managed_batch_created_total: {type: counter}
+  litellm_managed_batch_duration_seconds: {type: histogram}
+  litellm_managed_file_created_total: {type: counter}
+  litellm_managed_file_deleted_total: {type: counter}
+  litellm_managed_file_size_bytes: {type: gauge}
+  litellm_mcp_tool_call_spend_metric_total: {type: counter}
+  litellm_mcp_tool_calls_total: {type: counter}
+  litellm_org_budget_remaining_hours_metric: {type: gauge}
+  litellm_org_max_budget_metric: {type: gauge}
+  litellm_output_audio_tokens_metric_total: {type: counter}
+  litellm_output_reasoning_tokens_metric_created: {type: gauge, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, requested_model, team, team_alias, user, user_email]}
+  litellm_output_reasoning_tokens_metric_total: {type: counter, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, requested_model, team, team_alias, user, user_email]}
+  litellm_output_tokens_metric_created: {type: gauge, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, team, team_alias, user, user_email]}
+  litellm_output_tokens_metric_total: {type: counter, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, team, team_alias, user, user_email]}
+  litellm_overhead_latency_metric: {type: histogram, labels: [api_base, api_key_alias, api_provider, hashed_api_key, litellm_model_name, model_group, model_id]}
+  litellm_overhead_latency_metric_created: {type: gauge, labels: [api_base, api_key_alias, api_provider, hashed_api_key, litellm_model_name, model_group, model_id]}
+  litellm_overhead_with_guardrails_latency_metric: {type: histogram, labels: [api_base, api_key_alias, api_provider, hashed_api_key, litellm_model_name, model_group, model_id]}
+  litellm_overhead_with_guardrails_latency_metric_created: {type: gauge, labels: [api_base, api_key_alias, api_provider, hashed_api_key, litellm_model_name, model_group, model_id]}
+  litellm_provider_cache_creation_input_tokens_metric_total: {type: counter}
+  litellm_provider_cache_read_input_tokens_metric_total: {type: counter}
+  litellm_provider_remaining_budget_metric: {type: gauge}
+  litellm_proxy_failed_requests_metric_total: {type: counter}
+  litellm_proxy_total_requests_metric_created: {type: gauge, labels: [api_key_alias, api_provider, client_ip, end_user, hashed_api_key, model_id, org_alias, org_id, requested_model, route, status_code, team, team_alias, user, user_agent, user_email]}
+  litellm_proxy_total_requests_metric_total: {type: counter, labels: [api_key_alias, api_provider, client_ip, end_user, hashed_api_key, model_id, org_alias, org_id, requested_model, route, status_code, team, team_alias, user, user_agent, user_email]}
+  litellm_remaining_api_key_budget_metric: {type: gauge, labels: [api_key_alias, hashed_api_key]}
+  litellm_remaining_api_key_requests_for_model: {type: gauge, labels: [api_key_alias, hashed_api_key, model, model_id]}
+  litellm_remaining_api_key_tokens_for_model: {type: gauge, labels: [api_key_alias, hashed_api_key, model, model_id]}
+  litellm_remaining_customer_budget_metric: {type: gauge}
+  litellm_remaining_org_budget_metric: {type: gauge}
+  litellm_remaining_requests_metric: {type: gauge}
+  litellm_remaining_team_budget_metric: {type: gauge}
+  litellm_remaining_tokens_metric: {type: gauge}
+  litellm_remaining_user_budget_metric: {type: gauge, labels: [user]}
+  litellm_request_queue_time_seconds: {type: histogram, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, team, team_alias, user]}
+  litellm_request_queue_time_seconds_created: {type: gauge, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, team, team_alias, user]}
+  litellm_request_total_latency_metric: {type: histogram, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, service_tier, team, team_alias, user]}
+  litellm_request_total_latency_metric_created: {type: gauge, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, service_tier, team, team_alias, user]}
+  litellm_requests_metric_created: {type: gauge, labels: [api_key_alias, api_provider, client_ip, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, team, team_alias, user, user_agent, user_email]}
+  litellm_requests_metric_total: {type: counter, labels: [api_key_alias, api_provider, client_ip, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, team, team_alias, user, user_agent, user_email]}
+  litellm_spend_metric_created: {type: gauge, labels: [api_key_alias, api_provider, client_ip, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, service_tier, team, team_alias, user, user_agent, user_email]}
+  litellm_spend_metric_total: {type: counter, labels: [api_key_alias, api_provider, client_ip, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, service_tier, team, team_alias, user, user_agent, user_email]}
+  litellm_team_budget_remaining_hours_metric: {type: gauge}
+  litellm_team_max_budget_metric: {type: gauge}
+  litellm_team_members_metric: {type: gauge}
+  litellm_team_rate_limit_allowed_metric: {type: gauge}
+  litellm_team_rate_limit_used_metric: {type: gauge}
+  litellm_teams_count: {type: gauge, labels: []}
+  litellm_total_tokens_metric_created: {type: gauge, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, team, team_alias, user, user_email]}
+  litellm_total_tokens_metric_total: {type: counter, labels: [api_key_alias, api_provider, end_user, hashed_api_key, model, model_id, org_alias, org_id, requested_model, team, team_alias, user, user_email]}
+  litellm_total_users: {type: gauge, labels: []}
+  litellm_user_budget_remaining_hours_metric: {type: gauge}
+  litellm_user_max_budget_metric: {type: gauge}
+  litellm_video_duration_seconds_metric_total: {type: counter}
+  process_cpu_seconds_total: {type: counter, labels: []}
+  process_max_fds: {type: gauge, labels: []}
+  process_open_fds: {type: gauge, labels: []}
+  process_resident_memory_bytes: {type: gauge, labels: []}
+  process_start_time_seconds: {type: gauge, labels: []}
+  process_virtual_memory_bytes: {type: gauge, labels: []}
+  python_gc_collections_total: {type: counter, labels: [generation]}
+  python_gc_objects_collected_total: {type: counter, labels: [generation]}
+  python_gc_objects_uncollectable_total: {type: counter, labels: [generation]}
+  python_info: {type: gauge, labels: [implementation, major, minor, patchlevel, version]}
+from_source:
+  litellm_deployment_cooled_down_total:
+    type: counter
+    labels: [api_base, api_provider, exception_status, litellm_model_name, model_id]
+    source: https://github.com/BerriAI/litellm/blob/v1.103.0/litellm/types/integrations/prometheus.py#L665-L671
+  litellm_deployment_failed_fallbacks_total:
+    type: counter
+    labels: [api_key_alias, exception_class, exception_status, fallback_model, hashed_api_key, model_id, requested_model, team, team_alias]
+    source: https://github.com/BerriAI/litellm/blob/v1.103.0/litellm/types/integrations/prometheus.py#L673-L685
+  litellm_deployment_failure_responses_total:
+    type: counter
+    labels: [api_base, api_key_alias, api_provider, client_ip, exception_class, exception_status, hashed_api_key, litellm_model_name, model_id, requested_model, team, team_alias, user_agent]
+    source: https://github.com/BerriAI/litellm/blob/v1.103.0/litellm/types/integrations/prometheus.py#L762-L776
+  litellm_deployment_successful_fallbacks_total:
+    type: counter
+    labels: [api_key_alias, exception_class, exception_status, fallback_model, hashed_api_key, model_id, requested_model, team, team_alias]
+    source: https://github.com/BerriAI/litellm/blob/v1.103.0/litellm/types/integrations/prometheus.py#L673-L683

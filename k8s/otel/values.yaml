@@ -108,6 +108,13 @@ config:
 service:
   type: ClusterIP
 
+# The Prometheus server's kubernetes-pods job scrapes the collector's own telemetry on the
+# metrics port, directly rather than through Alloy, so the export failures it counts stay
+# visible when Alloy is what fails.
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8888"
+
 ports:
   metrics:
     enabled: true

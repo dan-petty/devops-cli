@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Stack Dashboards Chart Only What Their Exporters Serve (`k8s/monitoring/dashboards/`)**:
+  - The LLM gateway, OpenTelemetry collector and new Prometheus server dashboards query only series their exporters serve, checked in tests against captured exporter output, with no `or vector(0)` fallback, so a panel without data reads "No data" instead of zero. vLLM and the unverified Qdrant row are gone, and the collector's own telemetry is scraped through pod annotations (#693).
 - **devops-cli Dashboards Chart What the CLI Sends (`k8s/monitoring/dashboards/`, `devops grafana dashboards sync`)**:
   - The devops-cli and AI spend dashboards chart command latency at p50, p95 and p99, error share by command, findings by severity, and reviews by target type, reading every counter through `rate()` or `increase()`. Panels say when a value is approximate, and grouped panels no longer draw an unlabelled zero series (#692).
   - A kustomize `configMapGenerator` provisions six dashboards through the Grafana sidecar in place of the hand-copied ConfigMaps, and `dashboards sync` skips dashboards Grafana reports as provisioned (#692).

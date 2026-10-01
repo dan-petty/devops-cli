@@ -26,9 +26,11 @@ PROVISIONED = {
     "grafana-k8s-node-dashboards": ["k8s-views-nodes.json", "k8s-views-namespaces.json"],
     "grafana-devops-cli-dashboards": ["devops-cli.json", "ai-spend.json"],
 }
-# Reachable through `devops grafana dashboards sync` only: llm-stack charts a removed vLLM
-# deployment (#693) and otel-collector needs collector self-metrics nothing scrapes (#551).
-SYNC_ONLY = {"llm-stack.json", "otel-collector.json"}
+# Reachable through `devops grafana dashboards sync` only: the stack dashboards, which chart the
+# LiteLLM gateway and DCGM (llm-stack), the collector's own telemetry (otel-collector) and the
+# Prometheus server (prometheus-server), checked against their exporters in
+# tests/test_stack_dashboards.py (#693).
+SYNC_ONLY = {"llm-stack.json", "otel-collector.json", "prometheus-server.json"}
 SIDECAR_LABELS = {
     "grafana_dashboard": "1",
     "app.kubernetes.io/name": "grafana",
