@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Roadmap Service Decisions, Machine-Account & Polling ADRs (`CONTEXT.md`, `docs/adr/`)**:
   - Resolved the glossary's open boundaries (Item, Candidate, Blocked, Dependency, Stalled, Cut, Current release, Critical fix, Value, Effort, Reprioritization, Closure) and added Service, the homelab deployment that runs the roadmap jobs (#756).
   - Added `docs/adr/0002-roadmap-jobs-act-as-a-machine-account.md` and `docs/adr/0003-polling-is-how-the-roadmap-sees-changes.md`, revised the #739-#743 roadmap entries, moved #741 to v0.2.26 beside #752 and #753, and added #754 and #755 to the backlog (#756).
+- **Architecture Review Planning (`CONTEXT.md`, `docs/ROADMAP.md`)**:
+  - Added the Code review glossary terms (Finding, Verdict, Review session, Known false positive) (#782).
+  - Planned the architecture review's ten deepening candidates and five defects as #767-#781: the gitleaks list-target regression as a v0.2.24 critical fix, the roadmap store in v0.2.25, the GitHub session in v0.2.26 and the rest in the backlog (#782).
 
 ### Removed
 - **LightLLM Inference Backend (`devops_cli.ai`, `k8s/llm`)**:
