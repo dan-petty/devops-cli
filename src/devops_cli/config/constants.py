@@ -133,6 +133,21 @@ CONST_SAMPLES_DIR_NAME = "samples"
 CONST_RUNS_DIR_NAME = "runs"
 CONST_INDEX_CACHE_FILENAME = "index_cache.json"
 CONST_HALLUCINATIONS_FILE_NAME = "common_hallucinations.json"
+# Test-only paths and environment variables that must be strictly isolated outside the project root
+CONST_FORBIDDEN_PROJECT_TEST_PATHS: Final[tuple[str, ...]] = (
+    "test_config.yaml",
+    "test_data",
+    "test_llm_cache",
+    "gh-config",
+    ".data/test_llm_cache",
+    ".data/test_data",
+)
+CONST_ISOLATED_TEST_ENV_KEYS: Final[tuple[str, ...]] = (
+    "DEVOPS_CLI_CONFIG",
+    "DEVOPS_CLI_DATA_DIR",
+    "GH_CONFIG_DIR",
+    "XDG_RUNTIME_DIR",
+)
 
 # ── Memory & Byte Sizing Constants ────────────────────────────────────────────
 CONST_FP32_BYTES_PER_ELEMENT: int = 4
