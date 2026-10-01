@@ -1,188 +1,69 @@
-# kube-prometheus-stack Helm values — minimal dev-mode for minikube.
-# Chart: prometheus-community/kube-prometheus-stack
+# Prometheus Server Helm values
+# Chart: prometheus-community/prometheus
 # Repo:  https://prometheus-community.github.io/helm-charts
-#
-# Bundles: Prometheus, Alertmanager, Grafana, node-exporter, kube-state-metrics.
 
-# ── Prometheus ────────────────────────────────────────────────────────────────
-prometheus:
-  prometheusSpec:
-    # Short retention for local dev — keeps storage minimal
-    retention: 2h
-    retentionSize: 512MB
+server:
+  retention: 30d
 
-    resources:
-      requests:
-        cpu: 250m
-        memory: 1024Mi
-      limits:
-        memory: 4096Mi
-
-    # Enable remote write receiver so OTEL Collector can push metrics
-    enableRemoteWriteReceiver: true
-
-    # Select every ServiceMonitor and PodMonitor, not only this release's: the DCGM exporter
-    # chart (dcgm-exporter-values.yaml) brings its own.
-    serviceMonitorSelectorNilUsesHelmValues: false
-    podMonitorSelectorNilUsesHelmValues: false
-
-    additionalScrapeConfigs:
-      - job_name: qdrant
-        static_configs:
-          - targets: ["qdrant.llm.svc.cluster.local:6333"]
-      - job_name: otel-collector
-        static_configs:
-          - targets: ["otel-collector-opentelemetry-collector.otel.svc.cluster.local:8888"]
-
-  # The LLM stack's own metrics (#546): each vLLM server's load, queue, KV cache and latency, and
-  # the gateway's requests, failures and latency per deployment, which covers the Ollama nodes,
-  # since Ollama exports no metrics. The job label is the service name.
-  additionalServiceMonitors:
-    - name: vllm
-      namespaceSelector:
-        matchNames: [llm]
-      selector:
-        matchLabels:
-          llm.devops.io/provider: vllm
-      endpoints:
-        - port: http
-          path: /metrics
-          interval: 15s
-    - name: llm-gateway
-      namespaceSelector:
-        matchNames: [llm]
-      selector:
-        matchLabels:
-          app.kubernetes.io/name: llm-gateway
-      endpoints:
-        # LiteLLM serves its Prometheus callback's metrics here, without the master key.
-        - port: http
-          path: /metrics/
-          interval: 15s
-
-  service:
-    # Local minikube: NodePort allows direct access from workstation host.
-    # Production: Use ClusterIP with Ingress / OAuth proxy.
-    type: NodePort
-
-# ── Alertmanager — disabled for local dev ─────────────────────────────────────
-alertmanager:
-  enabled: false
-
-# ── Grafana ───────────────────────────────────────────────────────────────────
-grafana:
-  # Provide admin password via Kubernetes Secret or Helm --set-string in production
-  # e.g., adminPasswordFromSecret: grafana-admin-secret
-  adminPassword: ""
-
-  service:
-    # Local minikube: NodePort allows direct browser access.
-    # Production: Use ClusterIP with an Ingress Controller and TLS.
-    type: NodePort
+  extraArgs:
+    web.enable-remote-write-receiver: ""
 
   resources:
     requests:
-      cpu: 150m
-      memory: 768Mi
+      cpu: 250m
+      memory: 512Mi
     limits:
       cpu: 1000m
       memory: 2048Mi
 
-  additionalDataSources:
-    - name: Jaeger
-      uid: jaeger
-      type: jaeger
-      access: proxy
-      url: http://jaeger.otel.svc.cluster.local:16686
-      isDefault: false
-      jsonData:
-        tracesToLogs:
-          datasourceUid: loki
-          tags: ['job', 'instance', 'pod', 'namespace']
-          filterByTraceID: true
-          filterBySpanID: true
-        nodeGraph:
-          enabled: true
-    - name: Loki
-      uid: loki
-      type: loki
-      access: proxy
-      url: http://loki.logging.svc.cluster.local:3100
-      isDefault: false
-      jsonData:
-        maxLines: 1000
-        derivedFields:
-          - datasourceUid: jaeger
-            matcherRegex: "(?:trace_id|traceId|traceID)[\"':=\\s]+([0-9a-fA-F]{16,32})"
-            name: TraceID
-            url: "$${__value.raw}"
+  persistentVolume:
+    enabled: true
+    storageClass: local-path
+    size: 20Gi
 
-  readinessProbe:
-    httpGet:
-      path: /api/health
-      port: 3000
-    initialDelaySeconds: 10
-    timeoutSeconds: 5
-    periodSeconds: 10
-    failureThreshold: 5
+  service:
+    servicePort: 9090
 
-  livenessProbe:
-    httpGet:
-      path: /api/health
-      port: 3000
-    initialDelaySeconds: 60
-    timeoutSeconds: 10
-    periodSeconds: 10
-    failureThreshold: 10
-
-  # Auto-provision Prometheus as default datasource
-  sidecar:
-    dashboards:
-      enabled: true
-    datasources:
-      enabled: true
-
-  # Pre-loaded dashboards for Kubernetes monitoring
-  dashboardProviders:
-    dashboardproviders.yaml:
-      apiVersion: 1
-      providers:
-        - name: default
-          orgId: 1
-          folder: ""
-          type: file
-          disableDeletion: false
-          editable: true
-          options:
-            path: /var/lib/grafana/dashboards/default
-
-# ── Node Exporter — minimal for local dev ─────────────────────────────────────
-nodeExporter:
-  enabled: true
-  resources:
-    requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
-      cpu: 200m
-      memory: 256Mi
+# Disable sub-charts already deployed by k8s-monitoring
+alertmanager:
+  enabled: false
 
 prometheus-node-exporter:
-  tolerations:
-    - key: node-role.kubernetes.io/control-plane
-      operator: Exists
-      effect: NoSchedule
-    - key: node-role.kubernetes.io/master
-      operator: Exists
-      effect: NoSchedule
+  enabled: false
 
-# ── kube-state-metrics ────────────────────────────────────────────────────────
-kubeStateMetrics:
-  enabled: true
-  resources:
-    requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
-      cpu: 200m
-      memory: 256Mi
+kube-state-metrics:
+  enabled: false
+
+prometheus-pushgateway:
+  enabled: false
+
+scrapeConfigs:
+  kubernetes-nodes:
+    enabled: false
+  kubernetes-nodes-cadvisor:
+    enabled: false
+  kubernetes-api-servers:
+    post_relabel_configs: |
+      - action: replace
+        target_label: cluster
+        replacement: homelab-k3s
+  kubernetes-pods:
+    post_relabel_configs: |
+      - action: replace
+        target_label: cluster
+        replacement: homelab-k3s
+  kubernetes-pods-slow:
+    post_relabel_configs: |
+      - action: replace
+        target_label: cluster
+        replacement: homelab-k3s
+  kubernetes-service-endpoints:
+    post_relabel_configs: |
+      - action: replace
+        target_label: cluster
+        replacement: homelab-k3s
+  kubernetes-service-endpoints-slow:
+    post_relabel_configs: |
+      - action: replace
+        target_label: cluster
+        replacement: homelab-k3s

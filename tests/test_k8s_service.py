@@ -105,7 +105,8 @@ def test_k8s_service_switch_context(tmp_path: Path) -> None:
     ):
         svc.switch_context("prod")
         updated_content = kubeconfig_file.read_text(encoding="utf-8")
-        assert ("current-context: prod" in updated_content,) == (True,)
+        mode = kubeconfig_file.stat().st_mode & 0o777
+        assert ("current-context: prod" in updated_content, mode) == (True, 0o600)
 
 
 def test_k8s_service_switch_context_not_found(tmp_path: Path) -> None:
@@ -198,6 +199,25 @@ def test_resource_informer_event_normalization() -> None:
         CONST_K8S_EVENT_ADDED,
         "agent-pod",
         "default",
+        "Running",
+    )
+
+
+def test_resource_informer_dict_normalization() -> None:
+    """Verify ResourceInformer normalizes raw dictionary event objects."""
+    mock_svc = MagicMock()
+    informer = ResourceInformer(resource_kind="Pod", namespace="default", service=mock_svc)
+    raw_dict = {
+        "metadata": {"name": "dict-pod", "namespace": "custom-ns"},
+        "status": {"phase": "Running"},
+    }
+    raw_event = {"type": CONST_K8S_EVENT_ADDED, "object": raw_dict}
+    event = informer._normalize_event(raw_event)
+
+    assert (event.event_type, event.name, event.namespace, event.status) == (
+        CONST_K8S_EVENT_ADDED,
+        "dict-pod",
+        "custom-ns",
         "Running",
     )
 

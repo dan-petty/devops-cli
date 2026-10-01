@@ -6,7 +6,7 @@ image:
   repository: ghcr.io/open-webui/open-webui
   # Local minikube: Uses floating "main" tag for fast prototyping.
   # Production: Pin to an explicit immutable semver release tag or sha256 digest (e.g. v0.5.0).
-  tag: "v0.11.3"
+  tag: "v0.11.4"
 
 ollama:
   enabled: false
@@ -47,9 +47,9 @@ extraEnvVars:
   # - devops-coder (qwen2.5-coder-14b-instruct AWQ on vllm-16gib)
   # - devops-reasoning (qwen3-coder:30b on vllm-48gib)
   # - devops-review (qwen3-coder:30b load-balanced across vllm-48gib & ollama-32gib)
-  # - devops-flagship (cogito-v2:70b on vllm-64gib / ollama-48gib)
+  # - devops-flagship (deepseek-r1:70b on vllm-64gib / ollama-48gib)
   - name: MODEL_FILTER_LIST
-    value: "devops-chat;devops-coder;devops-reasoning;devops-review;devops-flagship;qwen3-coder:30b;cogito-v2:70b;qwen2.5-coder:7b;gemma4:31b"
+    value: "devops-chat;devops-coder;devops-reasoning;devops-review;devops-flagship;qwen3-coder:30b;deepseek-r1:70b;qwen2.5-coder:7b;gemma4:31b"
   - name: WEBUI_AUTH
     value: "true"
   - name: WEBUI_SECRET_KEY_FILE

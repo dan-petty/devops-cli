@@ -25,17 +25,25 @@ def test_builtin_catalog_contains_pep758_and_essential_entries() -> None:
     entries = load_common_hallucinations(include_builtin=True)
     ids = {e.id for e in entries}
 
-    assert "HALLUCINATION-PEP758-EXCEPT" in ids
-    assert "HALLUCINATION-MASKED-SECRET" in ids
-    assert "HALLUCINATION-TEST-MOCK-CRED" in ids
-    assert "HALLUCINATION-HTTPX2-DEPENDENCY" in ids
-    assert "HALLUCINATION-PYDANTIC-MUTABLE-DEFAULT" in ids
-    assert "HALLUCINATION-DOC-ANTI-PATTERN" in ids
+    expected_ids = {
+        "HALLUCINATION-PEP758-EXCEPT",
+        "HALLUCINATION-MASKED-SECRET",
+        "HALLUCINATION-TEST-MOCK-CRED",
+        "HALLUCINATION-HTTPX2-DEPENDENCY",
+        "HALLUCINATION-PYDANTIC-MUTABLE-DEFAULT",
+        "HALLUCINATION-DOC-ANTI-PATTERN",
+        "HALLUCINATION-GRAPHQL-JSON-DUMPS",
+        "HALLUCINATION-EXAMPLE-COM-WEBHOOK",
+        "HALLUCINATION-PROMETHEUS-TELEMETRY-METRIC",
+    }
+    assert (expected_ids.issubset(ids),) == (True,)
 
     pep758 = next(e for e in entries if e.id == "HALLUCINATION-PEP758-EXCEPT")
-    assert pep758.category == HallucinationCategory.SYNTAX_GRAMMAR
-    assert "PEP 758" in pep758.resolution
-    assert any("except" in kw for kw in pep758.pattern_keywords)
+    assert (
+        pep758.category,
+        "PEP 758" in pep758.resolution,
+        any("except" in kw for kw in pep758.pattern_keywords),
+    ) == (HallucinationCategory.SYNTAX_GRAMMAR, True, True)
 
 
 def test_save_and_load_common_hallucinations(tmp_path: Path) -> None:

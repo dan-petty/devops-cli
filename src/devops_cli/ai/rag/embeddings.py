@@ -36,6 +36,7 @@ from devops_cli.config.constants import (
     CONST_AIMD_SUCCESS_THRESHOLD,
     CONST_ERROR_CODE_EMBEDDINGS,
     CONST_EXIT_FAILURE,
+    CONST_KNOWN_EMBEDDING_DIMENSIONS,
     CONST_VALKEY_EMBEDDING_PREFIX,
 )
 from devops_cli.config.defaults import (
@@ -230,6 +231,14 @@ class EmbeddingsEngine:
 
         self.ai_config = base_config.for_task("embedding")
         self.api_key = api_key
+        if self.api_key is None and self.ai_config.provider.lower() in (
+            "openai",
+            "copilot",
+            CONST_AI_GATEWAY_PROVIDER,
+        ):
+            from devops_cli.config.settings import get_keyring_secret
+
+            self.api_key = os.environ.get("OPENAI_API_KEY") or get_keyring_secret("ai_api_key")
         task_timeout = (
             getattr(getattr(base_config.tasks, "embedding", None), "timeout", None)
             or self.ai_config.timeout
@@ -415,6 +424,11 @@ class EmbeddingsEngine:
         if resolved is not None:
             self._record_dimension(resolved)
             return resolved
+        model_clean = self.model.lower().split(":")[0].strip()
+        for known_name, known_dim in CONST_KNOWN_EMBEDDING_DIMENSIONS.items():
+            if known_name in model_clean:
+                self._record_dimension(known_dim)
+                return known_dim
         return DEFAULT_DRY_RUN_EMBEDDING_DIMENSION
 
     def _record_dimension(self, dim: int) -> None:
@@ -436,7 +450,7 @@ class EmbeddingsEngine:
         """Dynamically probe active provider to determine the model's actual embedding dimension."""
         provider = self.ai_config.provider.lower()
         api_base = self.ai_config.api_base_url or ""
-        if provider in ("openai", "copilot"):
+        if provider in ("openai", "copilot", CONST_AI_GATEWAY_PROVIDER):
             return self._probe_openai_dimension()
         if (
             provider == "ollama"
@@ -473,9 +487,14 @@ class EmbeddingsEngine:
 
     def _probe_openai_dimension(self) -> int | None:
         """Probe OpenAI-compatible endpoint for actual embedding vector dimension."""
-        base_url = (self.ai_config.api_base_url or "https://api.openai.com/v1").rstrip("/")
+        base_url = self._openai_compatible_base_url().rstrip("/")
+        is_gateway = self.ai_config.provider.lower() == CONST_AI_GATEWAY_PROVIDER
         try:
-            validate_service_url(base_url, "OpenAI", allow=self.ai_config.allow_private_network)
+            validate_service_url(
+                base_url,
+                "LLM gateway" if is_gateway else "OpenAI",
+                allow=self.ai_config.allow_private_network,
+            )
             headers: dict[str, str] = {"Content-Type": "application/json"}
             if self.api_key:
                 headers["Authorization"] = f"Bearer {self.api_key}"
@@ -773,7 +792,7 @@ class EmbeddingsEngine:
             f"{base_url}/embeddings" if base_url.endswith("/v1") else f"{base_url}/v1/embeddings"
         )
         try:
-            client_timeout = httpx2.Timeout(self.timeout, connect=1.0)
+            client_timeout = httpx2.Timeout(max(self.timeout, 30.0), connect=2.0)
             with httpx2.Client(timeout=client_timeout) as client:
                 res = client.post(endpoint, headers=headers, json=payload)
                 if res.status_code != 200:

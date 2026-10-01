@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import logging
-import shutil
+import shutil  # noqa: F401
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS
-from devops_cli.core.process import run_subprocess
-from devops_cli.core.serialization import extract_json_block
-from devops_cli.security.base import BaseSecurityScanner
+from devops_cli.core.process import run_subprocess  # noqa: F401
+from devops_cli.dry_run.state import is_dry_run  # noqa: F401
+from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -138,6 +138,8 @@ class TflintScanner(BaseSecurityScanner):
 
     name: str = "tflint"
     binary_name: str = "tflint"
+    gating: ClassVar[bool] = True
+    has_builtin_patterns: ClassVar[bool] = True
 
     def build_command(
         self,
@@ -166,28 +168,7 @@ def run_tflint_scan(
     target_dir: Path,
     config_file: Path | None = None,
     timeout: float = DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
-) -> list[Finding]:
-    """Execute TFLint static analysis on target_dir and return normalized findings."""
+) -> ScanOutcome:
+    """Execute TFLint static analysis on target_dir and return scan outcome."""
     scanner = TflintScanner()
-    tflint_bin = shutil.which("tflint")
-    if not tflint_bin:
-        logger.debug("TFLint binary not found; running fallback inspection.")
-        return scanner.fallback_scan(target_dir)
-
-    cmd = scanner.build_command(target_dir, config_file=config_file)
-    try:
-        cwd_dir = target_dir if target_dir.is_dir() else target_dir.parent
-        proc = run_subprocess(
-            cmd,
-            cwd=cwd_dir,
-            timeout=timeout,
-            check=False,
-        )
-        if not proc.stdout.strip():
-            return []
-
-        data = extract_json_block(proc.stdout)
-        return scanner.parse_output(data, target_dir)
-    except Exception as exc:
-        logger.debug("TFLint error: %s", exc)
-        return scanner.fallback_scan(target_dir)
+    return scanner.scan(target_dir, timeout=timeout, config_file=config_file)

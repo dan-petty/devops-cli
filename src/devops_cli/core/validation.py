@@ -16,6 +16,8 @@ import typer
 
 from devops_cli.config.constants import (
     CONST_AI_ALLOW_PRIVATE_NETWORK_ENV,
+    CONST_CLOUD_METADATA_HOSTS,
+    CONST_CLOUD_METADATA_IPS,
     CONST_K8S_LABEL_RE,
     CONST_K8S_SUBDOMAIN_RE,
 )
@@ -36,13 +38,81 @@ _ALLOW_PRIVATE_NETWORK_ENV = CONST_AI_ALLOW_PRIVATE_NETWORK_ENV
 
 PathKind = Literal["any", "dir", "file", "key"]
 
-_LOOPBACK_AND_LOCAL_HOSTS: frozenset[str] = frozenset(
-    {"localhost", "127.0.0.1", "::1", "169.254.169.254"}
+_LOOPBACK_AND_LOCAL_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1"}).union(
+    CONST_CLOUD_METADATA_HOSTS
 )
 
 
-def is_non_public_ip(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Return True if the IP address is private, loopback, link-local, or non-global."""
+def is_cloud_metadata_host(
+    host_or_ip: (
+        str
+        | ipaddress.IPv4Address
+        | ipaddress.IPv6Address
+        | ipaddress.IPv4Network
+        | ipaddress.IPv6Network
+    ),
+    *,
+    resolve_dns: bool = True,
+) -> bool:
+    """Return True if host, IP, or network matches cloud metadata or link-local endpoints.
+
+    Evaluates against the superset of cloud metadata endpoints (169.254.169.254, fd00:ec2::254,
+    metadata.google.internal, bare metadata, trailing dot variants) and link-local ranges.
+    """
+    if isinstance(
+        host_or_ip,
+        (
+            ipaddress.IPv4Address,
+            ipaddress.IPv6Address,
+            ipaddress.IPv4Network,
+            ipaddress.IPv6Network,
+        ),
+    ):
+        ip_str = str(
+            host_or_ip.network_address
+            if isinstance(host_or_ip, (ipaddress.IPv4Network, ipaddress.IPv6Network))
+            else host_or_ip
+        )
+        return (
+            host_or_ip.is_link_local
+            or ip_str in CONST_CLOUD_METADATA_IPS
+            or ip_str.startswith("169.254.")
+        )
+
+    clean = str(host_or_ip).strip().lower().strip("[]").rstrip(".")
+    if not clean:
+        return False
+    if clean in CONST_CLOUD_METADATA_HOSTS or clean.startswith("169.254."):
+        return True
+    try:
+        ip_net = ipaddress.ip_network(clean, strict=False)
+        return (
+            ip_net.is_link_local
+            or str(ip_net.network_address) in CONST_CLOUD_METADATA_IPS
+            or str(ip_net.network_address).startswith("169.254.")
+        )
+    except ValueError:
+        pass
+
+    if not resolve_dns:
+        return False
+
+    resolved_ips = _resolve_host_ips(clean)
+    return any(
+        ip.is_link_local or str(ip) in CONST_CLOUD_METADATA_IPS or str(ip).startswith("169.254.")
+        for ip in resolved_ips
+    )
+
+
+def is_non_public_ip(
+    addr: (
+        ipaddress.IPv4Address
+        | ipaddress.IPv6Address
+        | ipaddress.IPv4Network
+        | ipaddress.IPv6Network
+    ),
+) -> bool:
+    """Return True if the IP address or network is private, loopback, link-local, or non-global."""
     return not addr.is_global
 
 
@@ -80,10 +150,12 @@ def _resolve_host_ips(
 
 def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) -> bool:
     """Return True if host or IP string resolves to loopback, link-local, private, or non-global space."""
-    clean = host_or_ip.strip().lower().strip("[]")
+    clean = host_or_ip.strip().lower().strip("[]").rstrip(".")
     if not clean:
         return True
     if clean in _LOOPBACK_AND_LOCAL_HOSTS or clean.endswith(".local"):
+        return True
+    if is_cloud_metadata_host(clean, resolve_dns=False):
         return True
     try:
         addr = ipaddress.ip_address(clean)
@@ -95,7 +167,12 @@ def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) ->
         return False
 
     resolved = _resolve_host_ips(clean)
-    return bool(resolved and any(is_non_public_ip(ip) for ip in resolved))
+    return bool(
+        resolved
+        and any(
+            is_non_public_ip(ip) or is_cloud_metadata_host(ip, resolve_dns=False) for ip in resolved
+        )
+    )
 
 
 def validate_url_egress(
@@ -225,10 +302,7 @@ def validate_url(
     permitted_private = allow_private or allow_env
 
     if parsed.hostname:
-        raw_host = parsed.hostname.strip("[]").lower()
-        if raw_host in ("169.254.169.254", "metadata.google.internal") or raw_host.startswith(
-            "169.254."
-        ):
+        if is_cloud_metadata_host(parsed.hostname, resolve_dns=False):
             raise SSRFBlockedError(
                 clean_url,
                 reason=f"Access to link-local or cloud metadata services ({parsed.hostname}) is prohibited.",

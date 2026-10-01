@@ -118,10 +118,24 @@ def close_shared_clients() -> None:
         _ASYNC_CLIENTS.clear()
 
 
+async def aclose_shared_clients() -> None:
+    """Close every shared async client asynchronously, releasing sockets cleanly."""
+    with _LOCK:
+        clients = list(_ASYNC_CLIENTS.values())
+        _ASYNC_CLIENTS.clear()
+    for client in clients:
+        try:
+            if not client.is_closed:
+                await client.aclose()
+        except Exception as exc:
+            logger.debug("Failed closing shared async HTTP client: %s", exc)
+
+
 atexit.register(close_shared_clients)
 
 
 __all__ = [
+    "aclose_shared_clients",
     "close_shared_clients",
     "connection_limits",
     "get_shared_async_client",

@@ -69,6 +69,7 @@ def test_x_search_tool_native_export() -> None:
 
 
 @patch("devops_cli.ai.common_tools.new_http_client")
+@pytest.mark.usefixtures("public_dns")
 def test_web_fetch_tool_structure(mock_http_client: MagicMock) -> None:
     mock_resp = MagicMock()
     mock_resp.content = (

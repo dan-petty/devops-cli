@@ -24,6 +24,7 @@ import re
 import statistics
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import Callable
@@ -55,8 +56,16 @@ def _server_root(api_base: str) -> str:
     return base.removesuffix("/v1")
 
 
+def _validate_http_url(url: str) -> None:
+    """Validate that url is a well-formed http or https endpoint."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError(f"Invalid HTTP URL scheme or destination: {url!r}")
+
+
 def _get_text(url: str, timeout: float) -> tuple[int, str]:
     try:
+        _validate_http_url(url)
         with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310  # nosec B310
             return response.status, response.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
@@ -84,6 +93,7 @@ def engine_info(api_base: str, get: Get = _get_text, timeout: float = 10.0) -> d
 
 def _post_json(url: str, body: dict[str, Any], timeout: float) -> dict[str, Any]:
     # The URL is a backend api_base from the gateway's own configuration, always http(s).
+    _validate_http_url(url)
     request = urllib.request.Request(  # noqa: S310
         url, json.dumps(body).encode(), {"Content-Type": "application/json"}
     )

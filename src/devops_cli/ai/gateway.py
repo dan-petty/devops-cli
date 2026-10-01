@@ -21,9 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from devops_cli.ai.capability import validate_failover_capability
 from devops_cli.ai.client.models import credentials_error
 from devops_cli.config.constants import (
-    CONST_AI_BACKEND_LIGHTLLM,
     CONST_AI_BACKENDS,
-    CONST_AI_GATEWAY_PROVIDER_LITELLM,
     CONST_AI_GATEWAY_PROVIDER_PORTKEY,
     CONST_AI_GATEWAY_PROVIDERS,
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
@@ -73,33 +71,6 @@ DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
     },
 )
 
-DEFAULT_PORTKEY_ROUTES: Final[tuple[dict[str, str], ...]] = (
-    {
-        "virtual_model": "devops-chat",
-        "target_model": "qwen2.5-coder:7b",
-        "backend_type": "ollama",
-        "backend_url": DEFAULT_OLLAMA_CLUSTER_URL,
-    },
-    {
-        "virtual_model": "devops-coder",
-        "target_model": "qwen2.5-coder:14b",
-        "backend_type": "lightllm",
-        "backend_url": "http://lightllm.llm.svc.cluster.local:8000/v1",
-    },
-    {
-        "virtual_model": "devops-reasoning",
-        "target_model": DEFAULT_VLLM_SERVED_MODEL_NAME,
-        "backend_type": "vllm",
-        "backend_url": DEFAULT_VLLM_CLUSTER_URL,
-    },
-    {
-        "virtual_model": "devops-embedding",
-        "target_model": "bge-m3",
-        "backend_type": "ollama",
-        "backend_url": DEFAULT_OLLAMA_CLUSTER_URL,
-    },
-)
-
 MODEL_FAILOVER_PAIRS: Final[dict[str, str]] = {
     "devops-reasoning": "devops-coder",
     "devops-coder": "devops-chat",
@@ -134,16 +105,9 @@ class GatewayStatus(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
-def _build_default_routes(
-    provider: str = CONST_AI_GATEWAY_PROVIDER_LITELLM,
-) -> list[GatewayRoute]:
-    """Construct default virtual model routes based on provider specification."""
-    routes_tuple = (
-        DEFAULT_PORTKEY_ROUTES
-        if provider == CONST_AI_GATEWAY_PROVIDER_PORTKEY
-        else DEFAULT_GATEWAY_ROUTES
-    )
-    return [GatewayRoute(**route) for route in routes_tuple]
+def _build_default_routes() -> list[GatewayRoute]:
+    """Construct default virtual model routes."""
+    return [GatewayRoute(**route) for route in DEFAULT_GATEWAY_ROUTES]
 
 
 def _count_backends(routes: list[GatewayRoute]) -> dict[str, int]:
@@ -267,9 +231,19 @@ def _parse_remote_model_items(data: list[dict[str, Any]], clean_url: str) -> lis
     return routes
 
 
+def _sanitize_api_key_header(api_key: str | None) -> dict[str, str]:
+    """Sanitize API key header against CRLF injection and invalid characters."""
+    if not api_key or not isinstance(api_key, str):
+        return {}
+    clean = api_key.strip()
+    if any(c in clean for c in ("\r", "\n")) or not clean.isascii():
+        return {}
+    return {"Authorization": f"Bearer {clean}"}
+
+
 def _query_model_info(gateway_url: str, allow_private: bool, api_key: str | None) -> Any:
     """GET the gateway's /model/info (falling back to /models); None when unreachable."""
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    headers = _sanitize_api_key_header(api_key)
     try:
         validate_url_egress(gateway_url, purpose="AI gateway", allow_private=allow_private)
         with httpx2.Client(timeout=2.0) as client:
@@ -368,9 +342,7 @@ class GatewayRouter:
         self.state_file = Path(state_file) if state_file else _resolve_state_file()
         cb_active, loaded_routes = _load_gateway_state(self.state_file)
         self._circuit_breaker_active: bool = cb_active
-        self._active_routes: list[GatewayRoute] = loaded_routes or _build_default_routes(
-            self.provider
-        )
+        self._active_routes: list[GatewayRoute] = loaded_routes or _build_default_routes()
 
     @property
     def gateway_url(self) -> str:
@@ -540,56 +512,13 @@ class GatewayRouter:
                 "details": details,
             }
 
-    def scale_lightllm(
-        self,
-        replicas: int | None = None,
-        tensor_parallel_size: int | None = None,
-        max_model_len: int | None = None,
-        apply: bool = False,
-        namespace: str = "llm",
-    ) -> dict[str, Any]:
-        """Inspect or scale LightLLM high-throughput serving parameters."""
-        effective_replicas = replicas if replicas is not None else 1
-        effective_tp = tensor_parallel_size if tensor_parallel_size is not None else 1
-        effective_max_len = max_model_len if max_model_len is not None else 8192
-        vram_per_replica = effective_tp * 24
-        total_vram_gb = effective_replicas * vram_per_replica
-
-        with trace_span(
-            "ai.gateway.scale_lightllm",
-            {
-                "replicas": effective_replicas,
-                "tensor_parallel_size": effective_tp,
-                "apply": apply,
-            },
-        ):
-            record_metric("ai.gateway.lightllm_replicas", effective_replicas)
-            if replicas is not None and apply:
-                status, details = _execute_kubectl_scale("lightllm", effective_replicas, namespace)
-            else:
-                status = "inspected" if replicas is None else "simulated"
-                details = {}
-
-            return {
-                "backend": "lightllm",
-                "model": "casperhansen/llama-3.3-70b-instruct-awq",
-                "served_model_name": "llama-3.3-70b-instruct",
-                "replicas": effective_replicas,
-                "tensor_parallel_size": effective_tp,
-                "max_model_len": effective_max_len,
-                "vram_per_replica_gb": vram_per_replica,
-                "total_vram_gb": total_vram_gb,
-                "status": status,
-                "details": details,
-            }
-
     def probe_backend(
         self,
         backend_type: str,
         backend_url: str | None = None,
         timeout: float = DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
     ) -> dict[str, Any]:
-        """Probe an individual inference backend (vllm, lightllm, ollama) directly."""
+        """Probe an individual inference backend (vllm, ollama) directly."""
         clean_type = backend_type.lower()
         if clean_type not in CONST_AI_BACKENDS:
             raise ValidationError(
@@ -643,8 +572,6 @@ def _resolve_backend_url(config: AIConfig, clean_type: str, backend_url: str | N
     """Resolve backend target URL from override or AIConfig defaults."""
     if backend_url:
         return backend_url
-    if clean_type == CONST_AI_BACKEND_LIGHTLLM:
-        return config.lightllm_url
     if clean_type == "ollama":
         return config.get_ollama_urls[0]
     return config.vllm_url

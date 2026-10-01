@@ -74,6 +74,7 @@ def test_grafana_dashboards_sync_success(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_grafana_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify grafana dashboards list, export, import, search, datasources, and alerts execution."""
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
     )

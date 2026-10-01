@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -22,6 +23,9 @@ from devops_cli.sandbox.models import (
     SandboxDeployConfig,
     SandboxNetworkConfig,
     SandboxNetworkMode,
+    _extract_host_or_ip,
+    _resolve_local_host,
+    _resolve_public_host,
 )
 
 runner = CliRunner()
@@ -123,6 +127,7 @@ def test_sandbox_network_config_sandbox_namespace_mode() -> None:
     assert has_dns, "Sandbox namespace policy must allow CoreDNS egress on port 53"
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_sandbox_network_config_public_whitelist_validation_and_policy() -> None:
     """Verify public whitelist validates domain names, rejects private/metadata IPs, and generates egress policy."""
     # Valid public domains and IPs
@@ -244,6 +249,7 @@ def test_workload_sandbox_config_integration(tmp_path: Path) -> None:
     assert dry["network_config"]["mode"] == "isolated"
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_cli_sandbox_network_policy_command() -> None:
     """Verify `devops sandbox network-policy` CLI command generates valid Kubernetes YAML."""
     res = runner.invoke(
@@ -410,3 +416,122 @@ def test_sandbox_engine_whitelist_fail_closed_without_proxy(tmp_path: Path) -> N
     )
     with pytest.raises(SandboxValidationError, match="cannot enforce egress whitelist boundaries"):
         engine._build_create_kwargs(deploy_cfg, tmp_path, [])
+
+
+def test_extract_host_or_ip_ipv6() -> None:
+    """Verify _extract_host_or_ip correctly parses bare, bracketed, URL, and CIDR IPv6 endpoints."""
+    assert (
+        _extract_host_or_ip("http://localhost:11434"),
+        _extract_host_or_ip("http://[2001:db8::1]:8080"),
+        _extract_host_or_ip("[2001:db8::1]:8080"),
+        _extract_host_or_ip("[2001:db8::1]"),
+        _extract_host_or_ip("2606:4700::1"),
+        _extract_host_or_ip("fd00:ec2::254"),
+        _extract_host_or_ip("2606:4700::/48"),
+        _extract_host_or_ip("192.168.1.1:8080"),
+        _extract_host_or_ip("example.com:8080"),
+        _extract_host_or_ip("example.com/path"),
+        _extract_host_or_ip(""),
+    ) == (
+        "localhost",
+        "2001:db8::1",
+        "2001:db8::1",
+        "2001:db8::1",
+        "2606:4700::1",
+        "fd00:ec2::254",
+        "2606:4700::/48",
+        "192.168.1.1",
+        "example.com",
+        "example.com",
+        "",
+    )
+
+
+def test_resolve_public_host_ipv6_emits_full_prefix() -> None:
+    """Verify _resolve_public_host emits /128 for IPv6 and /32 for IPv4 instead of truncating prefixes."""
+    assert (
+        _resolve_public_host("2606:4700::1"),
+        _resolve_public_host("2606:4700::/48"),
+        _resolve_public_host("93.184.216.34"),
+    ) == (
+        ["2606:4700::1/128"],
+        ["2606:4700::/48"],
+        ["93.184.216.34/32"],
+    )
+
+    # DNS resolution with A and AAAA records
+    mock_addrs = [
+        (2, 1, 6, "", ("93.184.216.34", 0)),
+        (10, 1, 6, "", ("2606:4700::1", 0, 0, 0)),
+    ]
+    with patch("socket.getaddrinfo", return_value=mock_addrs):
+        resolved = _resolve_public_host("example.com")
+        assert resolved == ["2606:4700::1/128", "93.184.216.34/32"]
+
+    # Non-public IPv6 must be rejected
+    with pytest.raises(ValueError, match="non-public network"):
+        _resolve_public_host("fd00::1")
+    with pytest.raises(ValueError, match="non-public network"):
+        _resolve_public_host("::1")
+
+
+def test_resolve_local_host_ipv6_emits_full_prefix() -> None:
+    """Verify _resolve_local_host emits /128 for private IPv6 and /32 for IPv4."""
+    assert (
+        _resolve_local_host("::1"),
+        _resolve_local_host("fd00::1"),
+        _resolve_local_host("fd00::/8"),
+        _resolve_local_host("192.168.1.50"),
+    ) == (
+        ["::1/128"],
+        ["fd00::1/128"],
+        ["fd00::/8"],
+        ["192.168.1.50/32"],
+    )
+
+    # Link-local IPv6 and metadata forbidden
+    with pytest.raises(ValueError, match="forbidden"):
+        _resolve_local_host("fe80::1")
+    with pytest.raises(ValueError, match="forbidden"):
+        _resolve_local_host("169.254.169.254")
+
+    # Public IPv6 forbidden in local whitelist
+    with pytest.raises(ValueError, match="must be a private or loopback"):
+        _resolve_local_host("2606:4700::1")
+
+
+def test_sandbox_network_config_ipv6_whitelists() -> None:
+    """Verify NetworkPolicy generates correct IPv6 /128 ipBlock CIDRs for public and local modes."""
+    public_cfg = SandboxNetworkConfig(
+        mode=SandboxNetworkMode.PUBLIC_WHITELIST,
+        public_whitelist=["2606:4700::1", "93.184.216.34"],
+    )
+    public_policy = public_cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
+    public_blocks = [
+        t["ipBlock"]["cidr"]
+        for rule in public_policy["spec"]["egress"]
+        for t in rule.get("to", [])
+        if "ipBlock" in t
+    ]
+    assert (
+        "2606:4700::1/128" in public_blocks,
+        "93.184.216.34/32" in public_blocks,
+        "2606:4700::1/32" not in public_blocks,
+    ) == (True, True, True)
+
+    local_cfg = SandboxNetworkConfig(
+        mode=SandboxNetworkMode.LOCAL_WHITELIST,
+        local_whitelist=["http://[fd00::1]:8080", "192.168.1.50"],
+    )
+    local_policy = local_cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
+    local_blocks = [
+        t["ipBlock"]["cidr"]
+        for rule in local_policy["spec"]["egress"]
+        for t in rule.get("to", [])
+        if "ipBlock" in t
+    ]
+    assert (
+        "fd00::1/128" in local_blocks,
+        "192.168.1.50/32" in local_blocks,
+        "fd00::1/32" not in local_blocks,
+    ) == (True, True, True)

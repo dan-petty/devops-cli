@@ -168,6 +168,71 @@ def test_repos_clone_org_skips_archived_repos(tmp_path: Path) -> None:
     mock_reload.assert_called_once_with(settings.workspace.file)
 
 
+def test_repos_clone_org_skips_path_traversal_repo(tmp_path: Path) -> None:
+    """Verify clone-org skips repositories with path traversal attempts."""
+    bad_repo = MagicMock()
+    bad_repo.name = "../escape"
+    bad_repo.full_name = "example/escape"
+    bad_repo.archived = False
+
+    with (
+        patch("devops_cli.commands.repos.load_settings") as mock_load,
+        patch("devops_cli.commands.repos.get_github_token", return_value="token"),
+        patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
+        patch("devops_cli.commands.repos.sync_from_repos"),
+        patch("devops_cli.commands.repos._reload_workspace"),
+        patch("devops_cli.github.client.GitHubClient") as mock_client_cls,
+    ):
+        settings = MagicMock()
+        settings.github.default_org = "example-org"
+        settings.repos.base_dir = tmp_path / "repos"
+        settings.workspace.file = tmp_path / ".code-workspace"
+        mock_load.return_value = settings
+
+        mock_client = MagicMock()
+        mock_client.get_org_repos.return_value = [bad_repo]
+        mock_client_cls.return_value = mock_client
+
+        result = runner.invoke(app, ["repos", "clone-org"])
+
+    assert (result.exit_code, mock_clone_repo.called) == (0, False)
+
+
+def test_repos_clone_org_rejects_path_traversal_org(tmp_path: Path) -> None:
+    """Verify clone-org aborts when organization name attempts path traversal."""
+    with (
+        patch("devops_cli.commands.repos.load_settings") as mock_load,
+        patch("devops_cli.commands.repos.get_github_token", return_value="token"),
+        patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
+        patch("devops_cli.github.client.GitHubClient") as mock_client_cls,
+    ):
+        settings = MagicMock()
+        settings.github.default_org = "example-org"
+        settings.repos.base_dir = tmp_path / "repos"
+        settings.workspace.file = tmp_path / ".code-workspace"
+        mock_load.return_value = settings
+
+        result = runner.invoke(app, ["repos", "clone-org", "../escaped-org"])
+
+    assert (result.exit_code, mock_clone_repo.called, mock_client_cls.called) == (1, False, False)
+
+
+def test_repos_clone_rejects_path_traversal_destination(tmp_path: Path) -> None:
+    """Verify clone aborts when URL components attempt path traversal."""
+    with (
+        patch("devops_cli.commands.repos.load_settings") as mock_load,
+        patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
+    ):
+        settings = MagicMock()
+        settings.repos.base_dir = tmp_path / "repos"
+        settings.workspace.file = tmp_path / ".code-workspace"
+        mock_load.return_value = settings
+
+        result = runner.invoke(app, ["repos", "clone", "git@example.com:../../escaped/repo.git"])
+
+    assert (result.exit_code, mock_clone_repo.called) == (1, False)
+
+
 def test_repos_clone_passes_github_urls_to_clone_repo(tmp_path: Path) -> None:
     with (
         patch("devops_cli.commands.repos.load_settings") as mock_load,

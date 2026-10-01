@@ -12,6 +12,7 @@ import gc
 import importlib
 import inspect
 import os
+import re
 import socket
 import time
 import tracemalloc
@@ -260,15 +261,16 @@ async def _exercise_http_pool(iterations: int) -> None:
         await send({"type": "http.response.body", "body": b"OK"})
 
     broker = HttpClientBroker(allow_private_networks=True)
-    client = await broker.get_async_client()
-    client._transport = httpx.ASGITransport(app=cast(Any, _dummy_app))
+    try:
+        client = await broker.get_async_client()
+        client._transport = httpx.ASGITransport(app=cast(Any, _dummy_app))
 
-    for _ in range(iterations):
-        resp = await broker.arequest("GET", "http://localhost:8080/health")
-        _ = resp.status_code
-
-    await broker.aclose()
-    broker.close()
+        for _ in range(iterations):
+            resp = await broker.arequest("GET", "http://localhost:8080/health")
+            _ = resp.status_code
+    finally:
+        await broker.aclose()
+        broker.close()
 
 
 def profile_http_pool_workload(
@@ -338,6 +340,12 @@ def run_memory_profiler(
 
     if ":" in target:
         mod_name, func_name = target.split(":", 1)
+        if not (
+            re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$", mod_name)
+            and re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", func_name)
+        ):
+            msg = f"Invalid target identifier '{target}': must be valid python module and function name"
+            raise MemoryProfilerError(msg, details={"target": target})
         try:
             mod = importlib.import_module(mod_name)
             fn = getattr(mod, func_name)

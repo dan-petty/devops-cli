@@ -174,7 +174,7 @@ def test_k8s_deploy_stack_all_dry_run() -> None:
         result = runner.invoke(app, ["deploy-stack", "--stack", "all"])
         assert result.exit_code == 0
         assert "argocd" in result.output
-        assert "kube-prometheus" in result.output
+        assert "k8s-monitoring" in result.output
         assert "ollama" in result.output
         assert "valkey.yaml" in result.output
     finally:
@@ -241,6 +241,27 @@ def test_adopt_helm_resource_if_conflict(mock_run: MagicMock) -> None:
     res = _adopt_helm_resource_if_conflict(err, "ollama", "llm", context="local-k3s")
     assert res is True
     assert mock_run.call_count == 2
+
+
+@patch("devops_cli.commands.k8s._run_cmd")
+def test_recover_stuck_helm_release_if_pending(mock_run: MagicMock) -> None:
+    """_recover_stuck_helm_release_if_pending deletes lock secret when release is stuck in pending state."""
+    from devops_cli.commands.k8s import _recover_stuck_helm_release_if_pending
+
+    err_unrelated = "Error: timed out waiting for condition"
+    res_unrelated = _recover_stuck_helm_release_if_pending(err_unrelated, "argocd", "argocd")
+
+    err_lock = "Error: UPGRADE FAILED: another operation (install/upgrade/rollback) is in progress"
+    mock_run.side_effect = [
+        MagicMock(
+            returncode=0, stdout=json.dumps({"version": 50, "info": {"status": "pending-upgrade"}})
+        ),
+        MagicMock(returncode=0, stdout="secret deleted"),
+    ]
+    res_lock = _recover_stuck_helm_release_if_pending(
+        err_lock, "argocd", "argocd", context="local-k3s"
+    )
+    assert (res_unrelated, res_lock, mock_run.call_count) == (False, True, 2)
 
 
 def test_k8s_apply_and_logs() -> None:
@@ -825,10 +846,10 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     """Verify workload resource limits, relaxed memory constraints, and resilient probes."""
     repo_root = Path(__file__).resolve().parent.parent
 
-    # 1. Ollama Deployment: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup, readiness and liveness probes
+    # 1. Ollama DaemonSet: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup, readiness and liveness probes
     ollama_path = repo_root / "k8s" / "llm" / "profiles" / "ollama-profiles.yaml"
     ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
-    dep = next(d for d in ollama_docs if d and d.get("kind") == "Deployment")
+    dep = next(d for d in ollama_docs if d and d.get("kind") in ("Deployment", "DaemonSet"))
     container = dep["spec"]["template"]["spec"]["containers"][0]
     resources = container.get("resources", {})
     startup = container["startupProbe"]
@@ -949,20 +970,30 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert fb_values["resources"]["limits"]["cpu"] == "500m"
     assert fb_values["resources"]["limits"]["memory"] == "1024Mi"
 
-    # 11. Prometheus stack values: elevated requests and limits to eliminate OOM kills
-    prom_values = yaml.safe_load(
-        (repo_root / "k8s" / "monitoring" / "prometheus-values.yaml").read_text(encoding="utf-8")
+    # 11. K8s monitoring stack values: elevated requests and limits to eliminate OOM kills
+    k8s_mon_values = yaml.safe_load(
+        (repo_root / "k8s" / "monitoring" / "k8s-monitoring-values.yaml").read_text(
+            encoding="utf-8"
+        )
     )
+    ksm_res = k8s_mon_values["telemetryServices"]["kube-state-metrics"]["resources"]
+    node_res = k8s_mon_values["telemetryServices"]["node-exporter"]["resources"]
+    alloy_metrics_res = k8s_mon_values["collectors"]["alloy-metrics"]["alloy"]["resources"]
     assert (
-        prom_values["prometheus"]["prometheusSpec"]["resources"]["requests"]["memory"] == "1024Mi"
+        ksm_res["requests"]["memory"],
+        ksm_res["limits"]["memory"],
+        node_res["requests"]["memory"],
+        node_res["limits"]["memory"],
+        alloy_metrics_res["requests"]["memory"],
+        alloy_metrics_res["limits"]["memory"],
+    ) == (
+        "64Mi",
+        "256Mi",
+        "64Mi",
+        "256Mi",
+        "256Mi",
+        "1024Mi",
     )
-    assert prom_values["prometheus"]["prometheusSpec"]["resources"]["limits"]["memory"] == "4096Mi"
-    assert prom_values["grafana"]["resources"]["requests"]["memory"] == "768Mi"
-    assert prom_values["grafana"]["resources"]["limits"]["memory"] == "2048Mi"
-    assert prom_values["nodeExporter"]["resources"]["requests"]["memory"] == "64Mi"
-    assert prom_values["nodeExporter"]["resources"]["limits"]["memory"] == "256Mi"
-    assert prom_values["kubeStateMetrics"]["resources"]["requests"]["memory"] == "64Mi"
-    assert prom_values["kubeStateMetrics"]["resources"]["limits"]["memory"] == "256Mi"
 
     # 12. GPU Feature Discovery DaemonSet: Burstable QoS requests and limits
     gfd_docs = list(
@@ -974,7 +1005,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     )
     gfd_ds = next(d for d in gfd_docs if d and d.get("kind") == "DaemonSet")
     gfd_container = gfd_ds["spec"]["template"]["spec"]["containers"][0]
-    assert gfd_container["image"] == "nvcr.io/nvidia/gpu-feature-discovery:v0.16.2"
+    assert gfd_container["image"] == "nvcr.io/nvidia/gpu-feature-discovery:v0.20.1"
     gfd_res = gfd_container["resources"]
     assert gfd_res["requests"]["cpu"] == "50m"
     assert gfd_res["requests"]["memory"] == "64Mi"

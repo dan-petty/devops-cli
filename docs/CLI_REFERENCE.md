@@ -4267,7 +4267,7 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 
 #### `devops ai gateway scale`
 
-**Inspect or scale inference backend (vLLM, LightLLM) serving configurations.**
+**Inspect or scale vLLM inference backend serving configuration.**
 
 ```bash
 devops ai gateway scale [OPTIONS]
@@ -4277,7 +4277,6 @@ devops ai gateway scale [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--backend`, `-b` | `string` | `vllm` | Inference backend to scale: vllm or lightllm. |
 | `--replicas`, `-r` | `integer` | - | Replica count for backend deployment. |
 | `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree for vLLM (e.g. 2). |
 | `--apply`, `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
@@ -4295,7 +4294,7 @@ devops ai gateway probe-backend [OPTIONS] <backend>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<backend>` | `string` | Yes | Backend to probe: vllm, lightllm, or ollama. |
+| `<backend>` | `string` | Yes | Backend to probe: vllm or ollama. |
 
 **Options:**
 
@@ -5780,8 +5779,8 @@ devops pr check-readiness [OPTIONS] <number>
 | `--allow-draft` | `boolean` | - | Report a draft pull request as ready; GitHub still refuses to merge one. |
 | `--allow-pending-checks` | `boolean` | - | Treat checks that are still running as acceptable rather than blocking. |
 | `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
-| `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
-| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |
+| `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received a reply from someone other than the thread opener. |
+| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received a reply from someone other than the thread opener as addressed rather than blocking. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ### `devops pr update`
@@ -5856,7 +5855,7 @@ devops pr threads reply <thread_id> <body>
 **Programmatically mark one or more PR review discussion threads as resolved.**
 
 ```bash
-devops pr threads resolve <thread_ids>
+devops pr threads resolve [OPTIONS] <thread_ids>
 ```
 
 **Arguments:**
@@ -5864,6 +5863,12 @@ devops pr threads resolve <thread_ids>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<thread_ids>` | `string` | Yes | One or more review thread GraphQL IDs to resolve. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--without-reply`, `-w` | `boolean` | - | Force resolution of review threads even if they lack a reply from someone other than the thread opener. |
 
 #### `devops pr threads unresolve`
 
@@ -5897,7 +5902,7 @@ devops pr threads resolve-all [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received one or more in-thread replies. |
+| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---
@@ -6878,8 +6883,8 @@ devops gh pr check-readiness [OPTIONS] <number>
 | `--allow-draft` | `boolean` | - | Report a draft pull request as ready; GitHub still refuses to merge one. |
 | `--allow-pending-checks` | `boolean` | - | Treat checks that are still running as acceptable rather than blocking. |
 | `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
-| `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
-| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |
+| `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received a reply from someone other than the thread opener. |
+| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received a reply from someone other than the thread opener as addressed rather than blocking. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 #### `devops gh pr update`
@@ -6954,7 +6959,7 @@ devops gh pr threads reply <thread_id> <body>
 **Programmatically mark one or more PR review discussion threads as resolved.**
 
 ```bash
-devops gh pr threads resolve <thread_ids>
+devops gh pr threads resolve [OPTIONS] <thread_ids>
 ```
 
 **Arguments:**
@@ -6962,6 +6967,12 @@ devops gh pr threads resolve <thread_ids>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<thread_ids>` | `string` | Yes | One or more review thread GraphQL IDs to resolve. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--without-reply`, `-w` | `boolean` | - | Force resolution of review threads even if they lack a reply from someone other than the thread opener. |
 
 ##### `devops gh pr threads unresolve`
 
@@ -6995,7 +7006,7 @@ devops gh pr threads resolve-all [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received one or more in-thread replies. |
+| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---

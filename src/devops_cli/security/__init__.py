@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from devops_cli.security.bandit import BanditScanner, run_bandit_scan
-from devops_cli.security.base import BaseSecurityScanner
+from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.security.checkov import CheckovScanner, run_checkov_scan
-from devops_cli.security.dive import DiveScanner, run_dive_analysis
+from devops_cli.security.dive import DiveScanner, run_dive_analysis, run_dive_scan
 from devops_cli.security.gitleaks import GitleaksScanner, run_gitleaks_scan
 from devops_cli.security.kubeconform import KubeconformScanner, run_kubeconform_validation
 from devops_cli.security.kubelinter import KubelinterScanner, run_kubelinter_scan
@@ -61,6 +61,7 @@ __all__ = [
     "OSVClient",
     "PlutoScanner",
     "PopeyeScanner",
+    "ScanOutcome",
     "ScannerRegistry",
     "SemgrepScanner",
     "ShodanInternetDBClient",
@@ -87,6 +88,7 @@ __all__ = [
     "run_bandit_scan",
     "run_checkov_scan",
     "run_dive_analysis",
+    "run_dive_scan",
     "run_gitleaks_scan",
     "run_kubeconform_validation",
     "run_kubelinter_scan",

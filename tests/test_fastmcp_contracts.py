@@ -537,6 +537,52 @@ def test_fastmcp_pr_check_readiness_tool() -> None:
         )
 
 
+def test_fastmcp_pr_thread_resolve_tool() -> None:
+    """Verify pr_thread_resolve FastMCP execution contract with without_reply option."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import pr_thread_resolve
+    from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
+        mock_cmd.return_value = "Thread resolved"
+
+        # Test default without_reply=False
+        res_default = pr_thread_resolve(thread_id="PRRT_1")
+        cmd_default = [
+            "uv",
+            "run",
+            "devops",
+            "pr",
+            "threads",
+            "resolve",
+            "PRRT_1",
+        ]
+        assert (res_default, mock_cmd.call_args[0][0], mock_cmd.call_args[1]["timeout"]) == (
+            "Thread resolved",
+            cmd_default,
+            DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        )
+
+        # Test without_reply=True
+        res_override = pr_thread_resolve(thread_id="PRRT_2", without_reply=True)
+        cmd_override = [
+            "uv",
+            "run",
+            "devops",
+            "pr",
+            "threads",
+            "resolve",
+            "PRRT_2",
+            "--without-reply",
+        ]
+        assert (res_override, mock_cmd.call_args[0][0], mock_cmd.call_args[1]["timeout"]) == (
+            "Thread resolved",
+            cmd_override,
+            DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        )
+
+
 def test_fastmcp_pr_ready_tool() -> None:
     """Verify pr_ready FastMCP execution contract."""
     from unittest.mock import patch

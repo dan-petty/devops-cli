@@ -130,6 +130,13 @@ def dashboards_export(
         )
         raise typer.Exit(1)
     if output is not None:
+        try:
+            from devops_cli.core.paths import validate_no_path_traversal
+
+            validate_no_path_traversal(output, label="Dashboard export output path")
+        except Exception:
+            print_error(ERRORS.grafana.invalid_output_path, prefix=False)
+            raise typer.Exit(1)
         resolved = output.resolve()
         if not resolved.is_relative_to(Path.cwd().resolve()):
             print_error(ERRORS.grafana.invalid_output_path, prefix=False)

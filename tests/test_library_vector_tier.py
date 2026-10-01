@@ -126,7 +126,7 @@ def test_ensure_collection_already_exists() -> None:
     store = LibraryVectorStore(qdrant_client=mock_qdrant, valkey_client=None)
     created = store.ensure_collection_exists()
 
-    assert created is False
+    assert created is True
     mock_qdrant.ensure_collection.assert_not_called()
     mock_qdrant.create_collection.assert_not_called()
 

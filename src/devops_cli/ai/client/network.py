@@ -257,31 +257,41 @@ def reset_ollama_slots() -> None:
         ollama_slot_condition.notify_all()
 
 
+def _check_response_size(response: httpx2.Response, limit_bytes: int) -> None:
+    """Validate content-length header and content buffer against maximum body size limit."""
+    headers = getattr(response, "headers", {})
+    cl = headers.get("content-length") if hasattr(headers, "get") else None
+    if cl and cl.isdigit() and int(cl) > limit_bytes:
+        mb = limit_bytes // (1024 * 1024)
+        raise AIClientError(f"Response body exceeded maximum size ({mb}MB).")
+
+    body = getattr(response, "content", None)
+    if body is not None and len(body) > limit_bytes:
+        mb = limit_bytes // (1024 * 1024)
+        raise AIClientError(f"Response body exceeded maximum size ({mb}MB).")
+
+
 def read_limited_json(
     response: httpx2.Response, limit_bytes: int = DEFAULT_AI_MAX_RESPONSE_BYTES
 ) -> dict[str, Any]:
-    """Parse JSON response while enforcing a maximum response body size limit."""
-    headers = getattr(response, "headers", {})
-    content_length = headers.get("content-length") if hasattr(headers, "get") else None
-    if content_length and content_length.isdigit() and int(content_length) > limit_bytes:
-        raise AIClientError(
-            f"Response body exceeded maximum size ({limit_bytes // (1024 * 1024)}MB)."
-        )
-    if hasattr(response, "content") and response.content is not None:
-        body = response.content
-        if len(body) > limit_bytes:
-            raise AIClientError(
-                f"Response body exceeded maximum size ({limit_bytes // (1024 * 1024)}MB)."
-            )
+    """Parse JSON response while enforcing a maximum response body size limit.
+
+    4xx and 5xx responses are treated as HTTP errors and never parsed as a valid response.
+    """
+    if getattr(response, "status_code", 200) >= 400:
+        response.raise_for_status()
+
+    _check_response_size(response, limit_bytes)
+
+    body = getattr(response, "content", None)
+    if body is not None:
         try:
-            res: dict[str, Any] = json.loads(body)
-            return res
+            return json.loads(body)  # type: ignore[no-any-return]
         except json.JSONDecodeError as exc:
             raise AIClientError(f"Invalid JSON response payload from AI provider: {exc}") from exc
 
     try:
-        raw_res: dict[str, Any] = response.json()
-        return raw_res
+        return response.json()  # type: ignore[no-any-return]
     except Exception as exc:
         raise AIClientError(f"Failed to parse JSON response body from AI provider: {exc}") from exc
 

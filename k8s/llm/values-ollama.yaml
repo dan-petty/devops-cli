@@ -21,7 +21,7 @@ service:
 
 persistentVolume:
   enabled: true
-  size: 10Gi
+  size: 120Gi
   accessModes:
     - ReadWriteOnce
 

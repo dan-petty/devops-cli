@@ -347,3 +347,156 @@ def test_deterministic_url_signal_breaking_checkers() -> None:
         "deterministic:benign_compliment",
         "deterministic:localhost_default_config",
     )
+
+
+def test_verify_ground_truth_json_loads_and_ast_syntax_warning(tmp_path: Path) -> None:
+    """Verify ground truth verification for json.loads and ast.parse syntax warning suppression."""
+    py_json_file = tmp_path / "checks.py"
+    py_json_file.write_text(
+        "import json\ndef parse(raw):\n    try:\n        return json.loads(raw)\n    except json.JSONDecodeError, ValueError:\n        return None\n",
+        encoding="utf-8",
+    )
+    json_entry = CommonHallucinationEntry(
+        id="HALLUCINATION-JSON-LOADS-ARBITRARY-CODE-EXECUTION",
+        name="JSON Loads ACE",
+        category=HallucinationCategory.SYNTAX_GRAMMAR,
+        description="json.loads exception handling allows ACE",
+        signature_patterns=[r"json\.loads.*arbitrary"],
+        pattern_keywords=["json_loads_arbitrary_code_execution"],
+        file_patterns=["*.py"],
+        resolution="Defensive error handling",
+    )
+    json_finding = Finding(
+        severity="CRITICAL",
+        location=f"{py_json_file}:5",
+        title="Insecure Exception Handling Allows Arbitrary Code Execution",
+        description="The exception handling in parse catches json.JSONDecodeError, ValueError allowing arbitrary code execution",
+    )
+    json_gt = verify_ground_truth_hallucination(json_finding, json_entry, py_json_file)
+
+    py_ast_file = tmp_path / "classify.py"
+    py_ast_file.write_text(
+        "import ast, warnings\ndef parse_tree(code):\n    with warnings.catch_warnings():\n        warnings.simplefilter('ignore', SyntaxWarning)\n        return ast.parse(code)\n",
+        encoding="utf-8",
+    )
+    ast_entry = CommonHallucinationEntry(
+        id="HALLUCINATION-AST-PARSE-SYNTAX-WARNING-SUPPRESSION",
+        name="AST Parse SyntaxWarning",
+        category=HallucinationCategory.SYNTAX_GRAMMAR,
+        description="SyntaxWarning suppression in AST parsing",
+        signature_patterns=[r"suppression.*syntaxwarning"],
+        pattern_keywords=["ast_parse_syntax_warning_suppression"],
+        file_patterns=["*.py"],
+        resolution="Harmless warning suppression",
+    )
+    ast_finding = Finding(
+        severity="MEDIUM",
+        location=f"{py_ast_file}:4",
+        title="Insecure Suppression of SyntaxWarnings in AST Parsing",
+        description="Suppression of SyntaxWarnings during AST parsing masks issues",
+    )
+    ast_gt = verify_ground_truth_hallucination(ast_finding, ast_entry, py_ast_file)
+
+    assert (json_gt, ast_gt) == (True, True)
+
+
+def test_verify_ground_truth_session_20260930_entries(tmp_path: Path) -> None:
+    """Verify ground truth verification for session 20260930 calibrated hallucinations."""
+    # 1. Tenacity HTTP status
+    py_tenacity_file = tmp_path / "retries.py"
+    py_tenacity_file.write_text(
+        "def create_retry_transport():\n    return is_retryable_status_code(429)\n",
+        encoding="utf-8",
+    )
+    tenacity_entry = CommonHallucinationEntry(
+        id="HALLUCINATION-TENACITY-TRANSPORT-HTTP-STATUS",
+        name="Tenacity HTTP Status",
+        category=HallucinationCategory.SYNTAX_GRAMMAR,
+        description="Overly broad status code validation",
+        signature_patterns=[r"overly\s+broad\s+http\s+status"],
+        pattern_keywords=["tenacity_http_status_validation"],
+        file_patterns=["*.py"],
+        resolution="Filtered by downstream logic",
+    )
+    tenacity_finding = Finding(
+        severity="HIGH",
+        location=f"{py_tenacity_file}:2",
+        title="Overly Broad HTTP Status Code Validation",
+        description="Validates resp.status_code >= 400 treating all as retryable",
+    )
+    tenacity_gt = verify_ground_truth_hallucination(
+        tenacity_finding, tenacity_entry, py_tenacity_file
+    )
+
+    # 2. Async pool leak
+    py_pool_file = tmp_path / "pool.py"
+    py_pool_file.write_text(
+        "async def aclose_shared_clients():\n    _ASYNC_CLIENTS.clear()\n",
+        encoding="utf-8",
+    )
+    pool_entry = CommonHallucinationEntry(
+        id="HALLUCINATION-ASYNC-POOL-CLIENT-LEAK",
+        name="Async Pool Leak",
+        category=HallucinationCategory.SYNTAX_GRAMMAR,
+        description="Async client pool resource leak",
+        signature_patterns=[r"resource\s+leak"],
+        pattern_keywords=["aclose_shared_clients_leak"],
+        file_patterns=["*.py"],
+        resolution="Cleared before iteration",
+    )
+    pool_finding = Finding(
+        severity="HIGH",
+        location=f"{py_pool_file}:2",
+        title="Potential Resource Leak in Async Client Shutdown",
+        description="aclose_shared_clients leaks clients in _ASYNC_CLIENTS",
+    )
+    pool_gt = verify_ground_truth_hallucination(pool_finding, pool_entry, py_pool_file)
+
+    # 3. GPU Feature Discovery
+    k8s_dir = tmp_path / "k8s" / "gpu-feature-discovery"
+    k8s_dir.mkdir(parents=True)
+    gfd_file = k8s_dir / "daemonset.yaml"
+    gfd_file.write_text("apiVersion: apps/v1\nkind: DaemonSet\n", encoding="utf-8")
+    gfd_entry = CommonHallucinationEntry(
+        id="HALLUCINATION-GPU-FEATURE-DISCOVERY-PRIVILEGED",
+        name="GFD Privileged",
+        category=HallucinationCategory.BOUNDARY_ERRORS,
+        description="Privileged DaemonSet",
+        signature_patterns=[r"gpu-feature-discovery.*privileged"],
+        pattern_keywords=["gpu_feature_discovery_privileged"],
+        file_patterns=["*.yaml"],
+        resolution="Hardware access required",
+    )
+    gfd_finding = Finding(
+        severity="MEDIUM",
+        location=f"{gfd_file}:2",
+        title="[kube-linter-check] K8s Security Lint Warning",
+        description="container gpu-feature-discovery is Privileged",
+    )
+    gfd_gt = verify_ground_truth_hallucination(gfd_finding, gfd_entry, gfd_file)
+
+    # 4. Error metrics type disclosure
+    metrics_file = tmp_path / "decorator.py"
+    metrics_file.write_text(
+        "def handler():\n    _record_error_metrics(type(exc).__name__)\n",
+        encoding="utf-8",
+    )
+    metrics_entry = CommonHallucinationEntry(
+        id="HALLUCINATION-ERROR-METRICS-TYPE-DISCLOSURE",
+        name="Error Metrics Type",
+        category=HallucinationCategory.GENERAL,
+        description="Error type disclosure",
+        signature_patterns=[r"error\s+type\s+disclosure"],
+        pattern_keywords=["error_metrics_type_disclosure"],
+        file_patterns=["*.py"],
+        resolution="Standard observability practice",
+    )
+    metrics_finding = Finding(
+        severity="MEDIUM",
+        location=f"{metrics_file}:2",
+        title="Potential Information Exposure via Error Type Disclosure",
+        description="_record_error_metrics passes type(exc).__name__",
+    )
+    metrics_gt = verify_ground_truth_hallucination(metrics_finding, metrics_entry, metrics_file)
+
+    assert (tenacity_gt, pool_gt, gfd_gt, metrics_gt) == (True, True, True, True)

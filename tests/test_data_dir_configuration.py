@@ -12,11 +12,7 @@ import pytest
 def clean_data_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure data directory environment variables are completely clean between tests."""
     for k in list(os.environ.keys()):
-        if (
-            k.startswith("DEVOPS_CLI_DATA")
-            or k.startswith("DEVOPS_DATA")
-            or k == "DEVOPS_CLI_CONFIG"
-        ):
+        if k.startswith("DEVOPS_CLI_DATA") or k.startswith("DEVOPS_DATA"):
             monkeypatch.delenv(k, raising=False)
 
 

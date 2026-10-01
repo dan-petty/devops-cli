@@ -115,6 +115,13 @@ CONST_CI_CACHE_FILENAME = "ci_cache.json"
 # Click context meta key the `devops ci` group sets when a subcommand only prints its help,
 # so the gate does not announce the root it would check.
 CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_shows_help"
+# The gate runs before every push, so its test step must stay inside this budget; past it, the
+# gate names the slowest tests from a pytest durations report of this many entries.
+CONST_CI_TEST_BUDGET_SECONDS: Final[float] = 300.0
+CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
+# Host-folder shares (WSL's drvfs over 9p) answer each file check hundreds of times slower than
+# a Linux filesystem, which multiplies the gate's time for a workspace checked out on them.
+CONST_SLOW_WORKSPACE_FSTYPES: Final[frozenset[str]] = frozenset({"9p", "drvfs"})
 CONST_LLM_CACHE_DIR_NAME = "llm"
 CONST_BENCHMARKS_DIR_NAME = "benchmarks"
 CONST_AUDIT_LOG_NAME = "audit.jsonl"
@@ -126,6 +133,21 @@ CONST_SAMPLES_DIR_NAME = "samples"
 CONST_RUNS_DIR_NAME = "runs"
 CONST_INDEX_CACHE_FILENAME = "index_cache.json"
 CONST_HALLUCINATIONS_FILE_NAME = "common_hallucinations.json"
+# Test-only paths and environment variables that must be strictly isolated outside the project root
+CONST_FORBIDDEN_PROJECT_TEST_PATHS: Final[tuple[str, ...]] = (
+    "test_config.yaml",
+    "test_data",
+    "test_llm_cache",
+    "gh-config",
+    ".data/test_llm_cache",
+    ".data/test_data",
+)
+CONST_ISOLATED_TEST_ENV_KEYS: Final[tuple[str, ...]] = (
+    "DEVOPS_CLI_CONFIG",
+    "DEVOPS_CLI_DATA_DIR",
+    "GH_CONFIG_DIR",
+    "XDG_RUNTIME_DIR",
+)
 
 # ── Memory & Byte Sizing Constants ────────────────────────────────────────────
 CONST_FP32_BYTES_PER_ELEMENT: int = 4
@@ -231,6 +253,15 @@ CONST_GITHUB_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
     "too many requests",
     "http 429",
     "wait a few minutes before you try again",
+    "retry-after",
+    "retry after",
+)
+CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
+    "secondary rate limit",
+    "abuse-rate-limit",
+    "wait a few minutes before you try again",
+    "please retry your request again later",
+    "exceeded a secondary rate limit",
 )
 
 CONST_URL_OLLAMA_LOCALHOST = "http://localhost:11434"
@@ -373,6 +404,8 @@ CONST_STATUS_MITIGATED = "MITIGATED"
 CONST_STATUS_SUCCESS = "SUCCESS"
 
 CONST_GIT_MAIN_BRANCH = "main"
+CONST_SAFE_GIT_REF_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9_\-/.^~@]+$")
+CONST_SAFE_GIT_RELPATH_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9_\-/.@+]+$")
 CONST_DEFAULT_LINE_NUMBER = 1
 CONST_MARKDOWN_HEADING_LEVEL = 3
 
@@ -434,15 +467,24 @@ CONST_GH_NON_API_COMMANDS: Final[frozenset[str]] = frozenset(
         "--help",
     }
 )
-CONST_GH_FAILING_CHECK_CONCLUSIONS: Final[frozenset[str]] = frozenset(
+CONST_GH_CHECK_BUCKET_PASS: Final[str] = "pass"
+CONST_GH_CHECK_BUCKET_FAIL: Final[str] = "fail"
+CONST_GH_CHECK_BUCKET_PENDING: Final[str] = "pending"
+CONST_GH_CHECK_BUCKET_SKIPPING: Final[str] = "skipping"
+CONST_GH_CHECK_BUCKET_CANCEL: Final[str] = "cancel"
+CONST_GH_CHECK_BUCKET_UNREAD: Final[str] = "unread"
+
+CONST_GH_CHECK_BUCKETS: Final[frozenset[str]] = frozenset(
     {
-        "failure",
-        "timed_out",
-        "cancelled",
-        "action_required",
-        "startup_failure",
+        CONST_GH_CHECK_BUCKET_PASS,
+        CONST_GH_CHECK_BUCKET_FAIL,
+        CONST_GH_CHECK_BUCKET_PENDING,
+        CONST_GH_CHECK_BUCKET_SKIPPING,
+        CONST_GH_CHECK_BUCKET_CANCEL,
+        CONST_GH_CHECK_BUCKET_UNREAD,
     }
 )
+
 CONST_PR_API_STATE_MAP: Final[dict[str, str]] = {
     "all": "all",
     "closed": "closed",
@@ -879,6 +921,30 @@ CONST_FORBIDDEN_PYTHON_CRITERIA_MODULES: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Substrings indicating that a criteria command is tautological (testing symbol existence or reflection only).
+CONST_TAUTOLOGICAL_CRITERIA_SUBSTRINGS: Final[tuple[str, ...]] = (
+    "co_varnames",
+    "__code__",
+    "hasattr(",
+    "getattr(",
+    "isinstance(",
+    "type(",
+    "syntax error",
+    "no syntax errors",
+    "successfully",
+    "method exists",
+    "function exists",
+    "class exists",
+    "symbol exists",
+    "validates input",
+    "exists and validates",
+    "is defined",
+    "defined successfully",
+    "imported successfully",
+    "import successfully",
+    "imports successfully",
+)
+
 # ── Review Schemas & Deterministic Verification Constants ─────────────────────
 CONST_ABSENCE_FINDING_MARKERS: Final[tuple[str, ...]] = (
     "missing",
@@ -1242,8 +1308,21 @@ CONST_SECRET_PROVIDER_SETTINGS: Final[str] = "settings"
 CONST_SECRET_PROVIDER_TOOL: Final[str] = "tool"
 
 # Upper bound on retained credential access records, preventing unbounded growth in
-# long-running sessions. The trail records provider and outcome only, never values.
 CONST_SECRET_AUDIT_MAX_ENTRIES: Final[int] = 1000
+
+# Illustrative placeholder markers and documentation tokens ignored by native secret scanner.
+CONST_SECRET_PLACEHOLDER_MARKERS: Final[tuple[str, ...]] = (
+    "your_",
+    "placeholder",
+    "dummy",
+    "token_here",
+    "key_here",
+    "insert_",
+    "change_me",
+    "changeme",
+    "masked",
+    "xxx",
+)
 
 # Vault API paths. Fixed by the Vault HTTP API, so this set is closed and exhaustive.
 CONST_VAULT_API_PREFIX: Final[str] = "/v1"
@@ -1520,6 +1599,26 @@ CONST_THREAT_INTEL_CACHE_PREFIX: Final[str] = "valkey:threat_intel:domain"
 # RAG embedding distributed caching
 CONST_VALKEY_EMBEDDING_PREFIX: Final[str] = "valkey:rag:embedding"
 
+# Canonical embedding dimensions for widely used embedding models to ensure deterministic fallback synchronization
+CONST_KNOWN_EMBEDDING_DIMENSIONS: Final[dict[str, int]] = {
+    "bge-m3": 1024,
+    "bge-large": 1024,
+    "bge-base": 768,
+    "bge-small": 384,
+    "nomic-embed-text": 768,
+    "text-embedding-3-small": 1536,
+    "text-embedding-3-large": 3072,
+    "text-embedding-ada-002": 1536,
+    "all-minilm": 384,
+    "qwen3-embedding": 768,
+    "embeddinggemma": 768,
+}
+
+# Helm releases that deploy DaemonSets across all cluster nodes
+CONST_HELM_DAEMONSET_RELEASES: Final[frozenset[str]] = frozenset(
+    {"k8s-monitoring", "dcgm-exporter", "fluent-bit"}
+)
+
 # GitHub CLI rate limiter mutation verbs and HTTP methods
 CONST_GH_MUTATION_VERBS: Final[frozenset[str]] = frozenset(
     {
@@ -1585,15 +1684,17 @@ CONST_AI_GATEWAY_PROVIDER_LITELLM: Final[str] = "litellm"
 CONST_AI_GATEWAY_PROVIDER_PORTKEY: Final[str] = "portkey"
 CONST_AI_GATEWAY_DEFAULT_PORT: Final[int] = 4000
 CONST_AI_PORTKEY_DEFAULT_PORT: Final[int] = 8787
-CONST_AI_LIGHTLLM_DEFAULT_PORT: Final[int] = 8000
-CONST_AI_BACKEND_LIGHTLLM: Final[str] = "lightllm"
-CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama", "vllm", "lightllm")
+CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama", "vllm")
 CONST_AI_PROMPT_CACHE_TTL_5M: Final[str] = "5m"
 CONST_AI_PROMPT_CACHE_TTL_1H: Final[str] = "1h"
 CONST_AI_PROMPT_CACHE_TTLS: Final[tuple[str, ...]] = ("5m", "1h")
-CONST_AI_CASCADE_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey", "lightllm", "ollama")
+CONST_AI_CASCADE_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey", "ollama")
 CONST_AI_DEFAULT_CACHE_MARKER_KIND: Final[str] = "cache-point"
 CONST_AI_ALLOW_PRIVATE_NETWORK_ENV: Final[str] = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
+CONST_CLOUD_METADATA_HOSTS: Final[frozenset[str]] = frozenset(
+    {"169.254.169.254", "fd00:ec2::254", "metadata.google.internal", "metadata"}
+)
+CONST_CLOUD_METADATA_IPS: Final[frozenset[str]] = frozenset({"169.254.169.254", "fd00:ec2::254"})
 
 # ── AI Model Capability Tier Gates & AIMD Constants ───────────────────────────
 CONST_MIN_REASONING_MODEL_TIER_B: Final[int] = 30
@@ -2154,9 +2255,7 @@ CONST_MAX_SCHEMA_REFLECTION_ERRORS: Final[int] = 5
 CONST_MAX_INPUT_VALUE_REPR_LENGTH: Final[int] = 60
 
 # ── LLM Gateway Dynamic Hardware Routing Constants ────────────────────────────
-CONST_CONTINUOUS_BATCHING_ENGINES: Final[frozenset[str]] = frozenset(
-    {"vllm", "lightllm", "sglang", "tgi"}
-)
+CONST_CONTINUOUS_BATCHING_ENGINES: Final[frozenset[str]] = frozenset({"vllm", "sglang", "tgi"})
 CONST_ENGINE_MULTIPLIER_CONTINUOUS_BATCHING: Final[float] = 3.0
 CONST_ENGINE_MULTIPLIER_SERIAL: Final[float] = 1.0
 CONST_DEFAULT_CONTINUOUS_CONCURRENCY: Final[int] = 64
@@ -2170,6 +2269,7 @@ CONST_HOST_SANDBOX_DEFAULT_ENV: tuple[tuple[str, str], ...] = (
     ("LC_ALL", "C.UTF-8"),
     ("TMPDIR", "/tmp"),  # nosec B108
     ("PYTHONDONTWRITEBYTECODE", "1"),
+    ("PYTHONWARNINGS", "ignore::SyntaxWarning"),
 )
 CONST_HOST_SANDBOX_SYSTEM_SYMLINKS: tuple[str, ...] = ("/bin", "/lib", "/lib64", "/sbin")
 CONST_HOST_SANDBOX_SYSTEM_DIRS: tuple[str, ...] = ("/usr",)
@@ -2196,4 +2296,25 @@ CONST_CODE_EXEMPTION_RECEIVERS: Final[frozenset[str]] = frozenset(
         "ctx",
         "session",
     }
+)
+
+# ── HTTP Retryable Status Codes ──────────────────────────────────────────────
+# Transient HTTP status codes indicating retryable server, gateway, or rate limit conditions.
+CONST_RETRYABLE_HTTP_STATUS_CODES: Final[tuple[int, ...]] = (
+    408,  # Request Timeout
+    429,  # Too Many Requests
+    500,  # Internal Server Error
+    502,  # Bad Gateway
+    503,  # Service Unavailable
+    504,  # Gateway Timeout
+    520,  # Web Server Returned an Unknown Error (Cloudflare)
+    521,  # Web Server Is Down (Cloudflare)
+    522,  # Connection Timed Out (Cloudflare)
+    523,  # Origin Is Unreachable (Cloudflare)
+    524,  # A Timeout Occurred (Cloudflare)
+    525,  # SSL Handshake Failed (Cloudflare)
+    526,  # Invalid SSL Certificate (Cloudflare)
+    527,  # Railgun Error (Cloudflare)
+    529,  # Site Is Overloaded (Anthropic / OpenAI)
+    530,  # Site Is Frozen / Origin DNS Error (Cloudflare)
 )

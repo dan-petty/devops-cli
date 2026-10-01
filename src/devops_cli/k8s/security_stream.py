@@ -262,10 +262,9 @@ def stream_security_events(
             return _build_stream_result(alerts, start_time, span, request.namespace)
 
         if proc.returncode != 0:
-            stderr_msg = proc.stderr.strip()[:256]
-            logger.debug("kubectl logs failed: %s", stderr_msg)
+            logger.debug("kubectl logs failed with exit code %s", proc.returncode)
             raise KubernetesLoggingError(
-                f"Failed to stream security events from Falco: {stderr_msg or 'kubectl logs returned non-zero exit code'}",
+                "Failed to stream security events from Falco: kubectl logs returned non-zero exit code",
                 query=f"kubectl logs -n {request.namespace} -l {request.label_selector}",
                 details={
                     "namespace": request.namespace,

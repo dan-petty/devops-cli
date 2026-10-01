@@ -20,6 +20,8 @@ from devops_cli.ai.client import LLMClient
 from devops_cli.config.constants import (
     CONST_GIT_MAIN_BRANCH,
     CONST_MAX_FILE_SIZE_BYTES,
+    CONST_SAFE_GIT_REF_PATTERN,
+    CONST_SAFE_GIT_RELPATH_PATTERN,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
@@ -137,12 +139,18 @@ def _fetch_git_file_content(repo: Path, revision: str, rel_path: str) -> str | N
     """Fetch content of a file at a specific git revision using git show."""
     if not revision or revision.startswith("-") or not rel_path or rel_path.startswith("-"):
         return None
+    if not CONST_SAFE_GIT_REF_PATTERN.match(revision):
+        return None
+    if not CONST_SAFE_GIT_RELPATH_PATTERN.match(rel_path):
+        return None
     if ".." in Path(rel_path).parts:
         return None
     try:
         from devops_cli.core.process import run_subprocess
 
-        proc = run_subprocess(["git", "--no-pager", "show", f"{revision}:{rel_path}"], cwd=repo)
+        proc = run_subprocess(
+            ["git", "--no-pager", "show", "--", f"{revision}:{rel_path}"], cwd=repo
+        )
         if proc.returncode == 0:
             return proc.stdout
     except Exception:
@@ -152,13 +160,15 @@ def _fetch_git_file_content(repo: Path, revision: str, rel_path: str) -> str | N
 
 def _resolve_merge_base(repo: Path, base: str | None, head: str | None = None) -> str | None:
     """Resolve git merge-base between base and target branch/HEAD."""
-    if not base:
+    if not base or base.startswith("-") or not CONST_SAFE_GIT_REF_PATTERN.match(base):
+        return None
+    ref = head or "HEAD"
+    if ref.startswith("-") or not CONST_SAFE_GIT_REF_PATTERN.match(ref):
         return None
     try:
         from devops_cli.core.process import run_subprocess
 
-        ref = head or "HEAD"
-        proc = run_subprocess(["git", "merge-base", base, ref], cwd=repo)
+        proc = run_subprocess(["git", "merge-base", "--", base, ref], cwd=repo)
         if proc.returncode == 0 and proc.stdout.strip():
             return proc.stdout.strip()
     except Exception:

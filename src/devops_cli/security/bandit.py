@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_BANDIT
@@ -15,9 +15,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess
-from devops_cli.dry_run.state import is_dry_run
-from devops_cli.security.base import BaseSecurityScanner
-from devops_cli.telemetry import trace_span
+from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +58,8 @@ class BanditScanner(BaseSecurityScanner):
 
     name: str = "bandit"
     binary_name: str = BIN_BANDIT
+    gating: ClassVar[bool] = True
+    has_builtin_patterns: ClassVar[bool] = False
 
     def build_command(
         self,
@@ -141,21 +141,7 @@ def _execute_bandit_subprocess(
 def run_bandit_scan(
     target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     severity_level: str = DEFAULT_BANDIT_SEVERITY,
-) -> list[Finding]:
-    """Execute Bandit Python security scanner subprocess and return parsed findings."""
+) -> ScanOutcome:
+    """Execute Bandit Python security scanner subprocess and return scan outcome."""
     scanner = BanditScanner()
-    target_desc = str(target[0]) if isinstance(target, list) and target else str(target)
-    with trace_span(
-        "security.scan.bandit",
-        attributes={"target": target_desc, "severity_level": severity_level},
-    ) as span_h:
-        if is_dry_run():
-            return scanner.dry_run_scan(target)
-
-        cmd = scanner.build_command(target, severity_level=severity_level)
-        if not cmd:
-            return []
-
-        findings = _execute_bandit_subprocess(scanner, cmd, target)
-        span_h.set_attribute("findings_count", len(findings))
-        return findings
+    return scanner.scan(target, severity_level=severity_level)

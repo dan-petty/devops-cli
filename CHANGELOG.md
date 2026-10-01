@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Roadmap Planning Glossary & GitHub-Source ADR (`CONTEXT.md`, `docs/adr/`)**:
+  - Added `CONTEXT.md`, the glossary for release planning and the roadmap jobs, and `docs/adr/0001-github-is-the-roadmap-source.md`, which makes GitHub issues, milestones and the project board the roadmap's source of truth (#746).
+  - Scheduled the roadmap jobs in `docs/ROADMAP.md` (#739-#744, with #745 in the backlog), revised the #697 and #704 entries, and removed the superseded #418, #696 and #699 entries (#746).
+- **Roadmap Service Decisions, Machine-Account & Polling ADRs (`CONTEXT.md`, `docs/adr/`)**:
+  - Resolved the glossary's open boundaries (Item, Candidate, Blocked, Dependency, Stalled, Cut, Current release, Critical fix, Value, Effort, Reprioritization, Closure) and added Service, the homelab deployment that runs the roadmap jobs (#756).
+  - Added `docs/adr/0002-roadmap-jobs-act-as-a-machine-account.md` and `docs/adr/0003-polling-is-how-the-roadmap-sees-changes.md`, revised the #739-#743 roadmap entries, moved #741 to v0.2.26 beside #752 and #753, and added #754 and #755 to the backlog (#756).
+
+### Removed
+- **LightLLM Inference Backend (`devops_cli.ai`, `k8s/llm`)**:
+  - Fully removed the unused `ghcr.io/modeltc/lightllm` inference backend, including `k8s/llm/lightllm/` manifests, `CONST_AI_BACKEND_LIGHTLLM`, `GatewayRouter.scale_lightllm()`, the `devops-cli-ai_lightllm_scale` MCP tool, and all associated CLI, configuration, and test references. The `devops ai gateway scale` command now exclusively targets the vLLM backend.
+
+### Fixed
+- **Quality Gate Within Its Five-Minute Budget (`devops ci`, `tests/`)**:
+  - The secops dry-run tests enable dry-run mode instead of running trivy, kube-linter and pluto over the whole workspace until they time out (#748).
+  - The test network guard now fails external DNS lookups too; tests that validate egress against a resolving hostname declare the `public_dns` fixture (#748).
+  - `devops ci` warns when the workspace is on a 9p or drvfs share of a host folder, and lists pytest's slowest tests when the test step runs past the 5-minute budget (#748).
+
+## [0.2.24] - 2026-09-28
+
+### Fixed & Hardened
+- **Review Self-Improvement & Verification Feedback Loop (`devops_cli.ai.review`, `devops_cli.security`)**:
+  - Remediated session `20260928-160843` findings, eliminating native secret scanner false positives, tautological criteria auto-promotions, and cluster overlay networking hallucinations (#682).
+  - Anchored native fallback secret patterns with `\b` word boundaries and tightened OpenAI key pattern to `\bsk-(?:proj-)?[A-Za-z0-9]{32,128}\b`, preventing `task-*.md` markdown links from falsely triggering secret detection (#682).
+  - Implemented `CONST_SECRET_PLACEHOLDER_MARKERS` and `_is_placeholder_secret` to filter out documentation and illustrative placeholder tokens (#682).
+  - Implemented `_is_tautological_verification_command` in `review_environment.py` to prevent text-search (`git grep`, `grep`) and reflection commands (`__code__.co_varnames`, `hasattr`, `getattr`) from falsely promoting findings to verified status (#682).
+  - Broadened `HALLUCINATION-K8S-CLUSTER-OVERLAY-HTTP` in `common_hallucinations.json` and verification prompts to cover internal container-to-container and backend service HTTP communication (#682).
+  - Added `HALLUCINATION-OFFLINE-PRICING-URLSPLIT` and `HALLUCINATION-MITIGATION-LEDGER-INITIAL-EMPTY` to prevent false SSRF and absent-mitigation claims on offline pricing calculators and dynamic audit ledgers (#682).
+  - Added `_sanitize_api_key_header` in `gateway.py` to strip newlines and reject non-ASCII/CRLF injection characters (#682).
+  - Hardened URL scheme validation in `gateway_bench.py` before `urllib.request.urlopen` (#682).
+  - Enforced strict regex format `^[a-zA-Z0-9_\-\.]+$` on `run_id` in `run_store.py` rejecting `..` traversal (#682).
+  - Narrowed exception handlers in `install_tools.py` and guarded git directory pointer resolution in `tracer.py` against `(OSError, RuntimeError, ValueError)` (#682).
+  - Hardened git invocations in `analyze.py` with `--` argument separator and revision/path regex validation (#682).
+  - Added `_validate_mcp_arg("session_id", ...)` in MCP `review_findings` (#682).
+  - Updated `src/devops_cli/ai/tasks/verify_finding_system.md`, `src/devops_cli/ai/tasks/review.md`, and `src/devops_cli/ai/personas/devsecops/prompt.md` with explicit falsification rules against tautological criteria, documentation placeholders, and internal cluster networking (#682).
+  - Added Calibration Record for session `20260928-160843` to `docs/SELF_IMPROVEMENT.md` (#682).
+  - Exported refreshed feedback dataset with 1,219 findings via `devops review export-feedback` (#682).
+
 ## [0.2.23] - 2026-09-28
 
 ### Added

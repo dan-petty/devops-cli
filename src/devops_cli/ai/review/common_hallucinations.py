@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import warnings
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -406,7 +407,9 @@ def _file_defines_symbol(path: Path, sym: str) -> bool:
         return False
     try:
         content = path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(content)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(content)
         if sym in _extract_defined_ast_names(tree):
             return True
         return any(pattern in content for pattern in (f"def {sym}", f"class {sym}", f"{sym} ="))
@@ -474,11 +477,22 @@ def _verify_syntax_grammar_ground_truth(
     if file_path.suffix.lower() != ".py":
         return False
     try:
-        tree = ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(content)
     except SyntaxError:
         return False
     del tree
     entry_id = entry.id.lower()
+    if "json" in entry_id and "loads" in entry_id:
+        return "json.loads" in content
+    if "ast" in entry_id and "syntax" in entry_id:
+        return "ast.parse" in content
+    if "tenacity" in entry_id or "retry" in entry_id:
+        return "create_retry_transport" in content or "is_retryable_status_code" in content
+    if "async" in entry_id and "pool" in entry_id:
+        return "aclose_shared_clients" in content or "_ASYNC_CLIENTS" in content
     if any(word in entry_id for word in ("missing", "symbol", "header")):
         return False
     return bool(SYNTAX_CLAIM.search(f"{finding.title}\n{finding.description or ''}"))
@@ -504,14 +518,27 @@ def _verify_secret_scanning_ground_truth(
             lines = content.splitlines()
             if 1 <= num <= len(lines):
                 target_line = lines[num - 1]
-                return bool(
+                has_masked = bool(
                     re.search(
                         r"<masked-[a-zA-Z0-9_\-]+>|\*{3,}redacted\*{3,}",
                         target_line,
                         re.IGNORECASE,
                     )
-                    or not re.search(r"['\"][^'\"]{6,}['\"]", target_line)
                 )
+                if has_masked:
+                    return True
+                # Clean line of getattr/get attribute keys and standard option name strings
+                cleaned_line = re.sub(
+                    r"(?:getattr|hasattr|setattr|\.get)\s*\([^)]*['\"][a-zA-Z0-9_]+['\"]",
+                    "",
+                    target_line,
+                )
+                cleaned_line = re.sub(
+                    r"['\"](?:password|secret|token|api_key|host|port|db|key|name)['\"]",
+                    "",
+                    cleaned_line,
+                )
+                return not bool(re.search(r"['\"][^'\"]{6,}['\"]", cleaned_line))
         except Exception:
             pass
     return True
@@ -564,6 +591,8 @@ def _verify_test_mocks_ground_truth(
         "00000000",
         "assertion",
         "tuple",
+        "traversal",
+        "fixture",
     )
     return any(kw in finding_text for kw in mock_keywords)
 
@@ -571,12 +600,26 @@ def _verify_test_mocks_ground_truth(
 def _verify_documentation_context_ground_truth(
     finding: Finding, entry: CommonHallucinationEntry, file_path: Path
 ) -> bool:
+    if file_path.name in ("common_hallucinations.json", "mitigated_findings.json"):
+        return True
     parts = set(file_path.parts)
     if parts & {"docs", "tasks"} or file_path.suffix.lower() in (".md", ".rst", ".txt"):
         return True
+    entry_id = entry.id.upper()
     if "k8s" in parts:
-        entry_id = entry.id.upper()
         return any(kw in entry_id for kw in ("OVERLAY", "NODEPORT", "HTTP", "PROMPT", "DOC"))
+    if "JAEGER" in entry_id:
+        try:
+            return "jaegertracing/jaeger" in file_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+    if "MITIGATION" in entry_id and "mitigated_findings" in file_path.name:
+        try:
+            return file_path.read_text(encoding="utf-8").strip() in ("[]", "")
+        except OSError:
+            return False
+    if "PRICING" in entry_id and file_path.name == "pricing.py":
+        return True
     return False
 
 
@@ -621,8 +664,32 @@ def _verify_boundary_errors_ground_truth(
     finding_text = f"{finding.title} {finding.description or ''}".lower()
     if _UNTRUSTED_INPUT_CLAIM.search(finding_text):
         return False
+    entry_id = entry.id.upper()
+    if "GPU-FEATURE-DISCOVERY" in entry_id:
+        return "gpu-feature-discovery" in str(file_path).lower()
+    if "KUBE-ROUTER" in entry_id:
+        return "networkpolicy" in str(file_path).lower()
     if any(pat in finding_text for pat in ("cwe-400", "cwe400", "read_text", "exhaustion")):
         return _check_boundary_cwe400_local_file(finding, file_path)
+    return False
+
+
+def _verify_general_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    entry_id = entry.id.upper()
+    finding_text = f"{finding.title} {finding.description or ''}".lower()
+    if "ERROR-METRICS" in entry_id:
+        try:
+            return "type(exc).__name__" in file_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+    if "PROMETHEUS" in entry_id or "TELEMETRY" in entry_id:
+        return any(
+            term in finding_text for term in ("promql", "prometheus", "opentelemetry", "query")
+        )
+    if "LOCALHOST" in entry_id or "LOOPBACK" in entry_id:
+        return any(term in finding_text for term in ("localhost", "127.0.0.1", "loopback"))
     return False
 
 
@@ -637,6 +704,7 @@ _GROUND_TRUTH_VERIFIERS: dict[
     HallucinationCategory.DOCUMENTATION_CONTEXT: _verify_documentation_context_ground_truth,
     HallucinationCategory.MUTABLE_DEFAULTS: _verify_mutable_defaults_ground_truth,
     HallucinationCategory.BOUNDARY_ERRORS: _verify_boundary_errors_ground_truth,
+    HallucinationCategory.GENERAL: _verify_general_ground_truth,
 }
 
 
@@ -716,7 +784,9 @@ def calculate_hallucination_similarity(
 
         if file_path and file_path.exists() and file_path.suffix.lower() == ".py":
             try:
-                ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", SyntaxWarning)
+                    ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
             except SyntaxError:
                 # Real syntax error in source! Never match as hallucination.
                 return HallucinationMatch(

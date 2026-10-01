@@ -130,7 +130,7 @@ def test_executive_summary_single_low_finding_described_by_own_theme_only(
 
 
 def test_unqueried_dependencies_not_marked_clean(tmp_path: Path) -> None:
-    """Unqueried dependencies default to NOT_QUERIED / Not Queried and emit no false good patterns."""
+    """Unqueried dependencies default to UNCHECKED / Unchecked and emit no false good patterns."""
     from devops_cli.models.vulnerability import DependencySpec
 
     pipeline = _make_dummy_pipeline(tmp_path)
@@ -140,8 +140,8 @@ def test_unqueried_dependencies_not_marked_clean(tmp_path: Path) -> None:
         ecosystem="PyPI",
     )
     assert (dep_unqueried.severity, dep_unqueried.security_status, dep_unqueried.queried) == (
-        "NOT_QUERIED",
-        "Not Queried",
+        "UNCHECKED",
+        "Unchecked",
         False,
     )
     report_md = pipeline._build_consolidated_markdown_report(
@@ -153,7 +153,7 @@ def test_unqueried_dependencies_not_marked_clean(tmp_path: Path) -> None:
     )
     assert (
         "### Key Good Patterns Observed" not in report_md,
-        "Not Queried" in report_md,
+        "Unchecked" in report_md,
     ) == (True, True)
 
 

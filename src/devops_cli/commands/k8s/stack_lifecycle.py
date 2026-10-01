@@ -15,6 +15,7 @@ import typer
 import devops_cli.commands.k8s.cluster_runtime as runtime
 import devops_cli.commands.k8s.networking as net
 from devops_cli.commands.k8s.cluster_runtime import run_subprocess as run_subprocess
+from devops_cli.config.constants import CONST_HELM_DAEMONSET_RELEASES
 from devops_cli.config.defaults import (
     DEFAULT_K8S_DIR,
     DEFAULT_K8S_STACK,
@@ -34,6 +35,7 @@ _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
     "infra": {
         "argo": "https://argoproj.github.io/argo-helm",
         "prometheus-community": "https://prometheus-community.github.io/helm-charts",
+        "grafana": "https://grafana.github.io/helm-charts",
         "open-telemetry": "https://open-telemetry.github.io/opentelemetry-helm-charts",
         "nvidia-dcgm": "https://nvidia.github.io/dcgm-exporter/helm-charts",
     },
@@ -63,10 +65,22 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "values": str(DEFAULT_K8S_DIR / "argocd" / "values.yaml"),
         },
         {
-            "name": "kube-prometheus",
-            "chart": "prometheus-community/kube-prometheus-stack",
+            "name": "k8s-monitoring",
+            "chart": "grafana/k8s-monitoring",
+            "namespace": "monitoring",
+            "values": str(DEFAULT_K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml"),
+        },
+        {
+            "name": "prometheus",
+            "chart": "prometheus-community/prometheus",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
+        },
+        {
+            "name": "grafana",
+            "chart": "grafana/grafana",
+            "namespace": "monitoring",
+            "values": str(DEFAULT_K8S_DIR / "monitoring" / "grafana-values.yaml"),
         },
         {
             "name": "dcgm-exporter",
@@ -118,8 +132,13 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         DEFAULT_K8S_DIR / "otel" / "jaeger.yaml",
     ],
     "llm": [
+        DEFAULT_K8S_DIR / "llm" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "llm" / "valkey.yaml",
-        DEFAULT_K8S_DIR / "llm" / "ollama.yaml",
+        DEFAULT_K8S_DIR / "llm" / "profiles" / "services.yaml",
+        DEFAULT_K8S_DIR / "llm" / "profiles" / "ollama-profiles.yaml",
+        DEFAULT_K8S_DIR / "llm" / "gateway" / "configmap.yaml",
+        DEFAULT_K8S_DIR / "llm" / "gateway" / "deployment.yaml",
+        DEFAULT_K8S_DIR / "llm" / "gateway" / "service.yaml",
     ],
     "logging": [
         DEFAULT_K8S_DIR / "logging" / "networkpolicy.yaml",
@@ -127,6 +146,47 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
 }
 
 VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "all")
+
+
+def _recover_stuck_helm_release_if_pending(
+    error_output: str, release_name: str, namespace: str, context: str | None = None
+) -> bool:
+    """If Helm failed due to another operation in progress, clean up stuck pending lock."""
+    if "another operation" not in error_output:
+        return False
+
+    helm_ctx = ["--kube-context", context] if context else []
+    status_cmd = ["helm", "status", release_name, "-n", namespace, "-o", "json"] + helm_ctx
+    res = runtime._run_cmd(status_cmd, check=False, capture=True)
+    if res.returncode != 0 or not res.stdout:
+        return False
+
+    try:
+        data = json.loads(res.stdout)
+        status = str(data.get("info", {}).get("status", ""))
+        version = data.get("version")
+        if status.startswith("pending-") and version:
+            secret_name = f"sh.helm.release.v1.{release_name}.v{version}"
+            msg = (
+                f"Helm release '{release_name}' in namespace '{namespace}' is stuck in '{status}' "
+                f"(revision {version}). Cleaning up release lock secret '{secret_name}'..."
+            )
+            print_warning(msg)
+            k_ctx = ["--context", context] if context else []
+            del_cmd = [
+                "kubectl",
+                "delete",
+                "secret",
+                secret_name,
+                "-n",
+                namespace,
+                "--ignore-not-found",
+            ] + k_ctx
+            runtime._run_cmd(del_cmd, check=False)
+            return True
+    except json.JSONDecodeError, KeyError, TypeError:
+        pass
+    return False
 
 
 def _adopt_helm_resource_if_conflict(
@@ -480,18 +540,25 @@ def _run_helm_with_adoption_retries(
     release: dict[str, str],
     effective_context: str | None,
 ) -> Any:
-    """Execute Helm upgrade command retrying up to 5 times on adoptable resource conflicts."""
+    """Execute Helm upgrade command retrying up to 5 times on adoptable resource conflicts or stuck pending locks."""
     result = runtime._run_cmd(helm_cmd, check=False, capture=True)
     for _ in range(5):
         if result.returncode == 0:
             break
         err_msg = (result.stderr or "") + " " + (result.stdout or "")
-        if not _adopt_helm_resource_if_conflict(
+        pending_recovered = _recover_stuck_helm_release_if_pending(
             err_msg,
             release["name"],
             release["namespace"],
             context=effective_context,
-        ):
+        )
+        conflicts_adopted = _adopt_helm_resource_if_conflict(
+            err_msg,
+            release["name"],
+            release["namespace"],
+            context=effective_context,
+        )
+        if not (pending_recovered or conflicts_adopted):
             break
         result = runtime._run_cmd(helm_cmd, check=False, capture=True)
     return result
@@ -503,6 +570,7 @@ def _install_single_release(
     helm_ctx: list[str],
     wait: bool,
     timeout: str,
+    unready_nodes: Sequence[str] = (),
 ) -> None:
     """Install or upgrade a single Helm release with conflict adoption retries."""
     if release["name"] == "qdrant":
@@ -515,8 +583,14 @@ def _install_single_release(
                 prefix=False,
             )
             raise typer.Exit(1)
+    effective_wait = wait
+    if wait and unready_nodes and release["name"] in CONST_HELM_DAEMONSET_RELEASES:
+        print_warning(
+            f"Cluster has unready nodes ({', '.join(unready_nodes)}). Skipping Helm '--wait' for DaemonSet release '{release['name']}'."
+        )
+        effective_wait = False
     print_info(f"[bold]Installing {release['name']}...[/bold]", prefix=False)
-    helm_cmd = _build_helm_upgrade_cmd(release, helm_ctx, wait, timeout)
+    helm_cmd = _build_helm_upgrade_cmd(release, helm_ctx, effective_wait, timeout)
     result = _run_helm_with_adoption_retries(helm_cmd, release, effective_context)
     if result.returncode != 0:
         err_details = (result.stderr or result.stdout or "").strip()
@@ -671,9 +745,18 @@ def deploy_stack(
     # 4. Install native manifests
     _apply_manifest_files(all_manifests, kubectl_ctx)
 
-    # 5. Install Helm releases
+    # 5. Check for unready cluster nodes to avoid DaemonSet wait timeouts
+    unready_nodes = runtime._get_unready_nodes(context=effective_context)
+    if unready_nodes and wait:
+        print_warning(
+            f"Detected unready cluster nodes: {', '.join(unready_nodes)}. Skipping Helm '--wait' for DaemonSet releases to prevent deadline timeouts."
+        )
+
+    # 6. Install Helm releases
     for release in all_releases:
-        _install_single_release(release, effective_context, helm_ctx, wait, timeout)
+        _install_single_release(
+            release, effective_context, helm_ctx, wait, timeout, unready_nodes=unready_nodes
+        )
 
     # 6. Post-deployment networking & credentials
     write_stdout("\n")
@@ -722,6 +805,32 @@ def sync_secrets(
             print_success(f"{label} credentials securely stored in OS Keyring.")
         elif not svc.endswith("_token"):
             print_info(f"{svc.capitalize()} secret not found in active cluster.", prefix=False)
+
+
+def _teardown_namespaces(stack: str, k8s_dir: Path, kubectl_ctx: list[str]) -> None:
+    """Delete Kubernetes namespaces corresponding to torn-down stacks."""
+    normalized_stack = stack.lower()
+    if normalized_stack == "all":
+        print_info(MESSAGES.k8s.removing_stack_namespaces, prefix=False)
+        runtime._run_cmd(
+            ["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"] + kubectl_ctx,
+            check=False,
+        )
+        return
+
+    ns_map: dict[str, tuple[str, ...]] = {
+        "infra": ("argocd", "monitoring", "otel"),
+        "llm": ("llm",),
+        "logging": ("logging",),
+    }
+    targets = ns_map.get(normalized_stack, ())
+    if targets:
+        print_info(f"Removing {normalized_stack} namespace(s)...", prefix=False)
+        for ns in targets:
+            runtime._run_cmd(
+                ["kubectl", "delete", "namespace", ns, "--ignore-not-found"] + kubectl_ctx,
+                check=False,
+            )
 
 
 def teardown_stack(
@@ -784,31 +893,6 @@ def teardown_stack(
         )
 
     # 3. Clean up namespaces
-    normalized_stack = stack.lower()
-    if normalized_stack == "all":
-        print_info(MESSAGES.k8s.removing_stack_namespaces, prefix=False)
-        runtime._run_cmd(
-            ["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"] + kubectl_ctx,
-            check=False,
-        )
-    elif normalized_stack == "infra":
-        print_info(MESSAGES.k8s.removing_infra_namespaces, prefix=False)
-        for ns in ["argocd", "monitoring", "otel"]:
-            runtime._run_cmd(
-                ["kubectl", "delete", "namespace", ns, "--ignore-not-found"] + kubectl_ctx,
-                check=False,
-            )
-    elif normalized_stack == "llm":
-        print_info(MESSAGES.k8s.removing_llm_namespace, prefix=False)
-        runtime._run_cmd(
-            ["kubectl", "delete", "namespace", "llm", "--ignore-not-found"] + kubectl_ctx,
-            check=False,
-        )
-    elif normalized_stack == "logging":
-        print_info("Removing logging namespace...", prefix=False)
-        runtime._run_cmd(
-            ["kubectl", "delete", "namespace", "logging", "--ignore-not-found"] + kubectl_ctx,
-            check=False,
-        )
+    _teardown_namespaces(stack, k8s_dir, kubectl_ctx)
 
     print_success(f"Kubernetes stack ({stack}) torn down.")

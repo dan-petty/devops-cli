@@ -6,7 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/name: gpu-feature-discovery
     app.kubernetes.io/part-of: nvidia-gpu
-    app.kubernetes.io/version: 0.16.2
+    app.kubernetes.io/version: 0.20.1
 spec:
   selector:
     matchLabels:
@@ -17,7 +17,7 @@ spec:
       labels:
         app.kubernetes.io/name: gpu-feature-discovery
         app.kubernetes.io/part-of: nvidia-gpu
-        app.kubernetes.io/version: 0.16.2
+        app.kubernetes.io/version: 0.20.1
     spec:
       affinity:
         nodeAffinity:
@@ -40,7 +40,7 @@ spec:
                 - "true"
       containers:
       - name: gpu-feature-discovery
-        image: nvcr.io/nvidia/gpu-feature-discovery:v0.16.2
+        image: nvcr.io/nvidia/gpu-feature-discovery:v0.20.1
         imagePullPolicy: IfNotPresent
         command:
         - /usr/bin/gpu-feature-discovery

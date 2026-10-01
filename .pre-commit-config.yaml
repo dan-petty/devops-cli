@@ -51,7 +51,7 @@ repos:
       # functions breach that cap today and nothing enforces it.
       - id: structural-invariants
         name: AST structural invariants (nesting depth)
-        entry: python3 scripts/check_structural_invariants.py
+        entry: uv run python3 -m devops_cli.security.structural_invariants
         language: system
         stages: [pre-commit]
         types: [python]

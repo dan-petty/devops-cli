@@ -54,10 +54,10 @@ def test_trivy_parser() -> None:
     assert any("[SECRET]" in f.title for f in findings)
 
 
-def test_trivy_dry_run() -> None:
-    findings = run_trivy_scan(target=Path("."), scan_type="fs")
-    # dry run should execute or return simulated/empty
-    assert isinstance(findings, list)
+def test_trivy_dry_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
+    findings = run_trivy_scan(target=tmp_path, scan_type="fs")
+    assert [f.title for f in findings] == ["[DRY-RUN] Simulated Trivy Vulnerability Scan Result"]
 
 
 def test_kubelinter_parser() -> None:
@@ -84,9 +84,10 @@ def test_kubelinter_parser() -> None:
     assert "Deployment/nginx-web" in findings[0].location
 
 
-def test_kubelinter_dry_run() -> None:
-    findings = run_kubelinter_scan(target=Path("."))
-    assert isinstance(findings, list)
+def test_kubelinter_dry_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
+    findings = run_kubelinter_scan(target=tmp_path)
+    assert [f.title for f in findings] == ["[DRY-RUN] Simulated Kube-linter Manifest Audit"]
 
 
 def test_popeye_parser() -> None:
@@ -138,9 +139,10 @@ def test_pluto_parser() -> None:
     assert "networking.k8s.io/v1" in findings[0].fix
 
 
-def test_pluto_dry_run() -> None:
-    findings = run_pluto_scan(target=Path("."))
-    assert isinstance(findings, list)
+def test_pluto_dry_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
+    findings = run_pluto_scan(target=tmp_path)
+    assert [f.title for f in findings] == ["[DRY-RUN] Simulated Pluto Deprecated K8s API Detection"]
 
 
 def test_devops_scan_dry_run() -> None:

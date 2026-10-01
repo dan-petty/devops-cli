@@ -187,7 +187,7 @@ class LibraryVectorStore:
             return False
         info = self.qdrant_client.get_collection_info(self.collection_name)
         if info:
-            return False
+            return True
 
         dim = self._resolve_dimension()
         if hasattr(self.qdrant_client, "ensure_collection"):

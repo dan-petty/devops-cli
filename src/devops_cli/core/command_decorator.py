@@ -86,7 +86,12 @@ def cli_command_handler(
                     span_h.set_attribute("cli.success", False)
                     span_h.set_attribute("cli.exit_code", exc.exit_code)
                     span_h.record_exception(exc)
-                    _record_error_metrics(command_name, record_metrics, error_code=exc.error_code)
+                    _record_error_metrics(
+                        command_name,
+                        record_metrics,
+                        error_code=exc.error_code,
+                        error_type=type(exc).__name__,
+                    )
                     print_error(f"[{exc.error_code}] {exc.message}", prefix=True)
                     raise typer.Exit(code=exc.exit_code) from exc
 

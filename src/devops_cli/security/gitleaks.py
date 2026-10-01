@@ -2,24 +2,21 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
-import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_GITLEAKS, build_gitleaks_cmd
+from devops_cli.config.constants import CONST_SECRET_PLACEHOLDER_MARKERS
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
-    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
-from devops_cli.core.process import run_subprocess
+from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
-from devops_cli.dry_run.state import is_dry_run
-from devops_cli.security.base import BaseSecurityScanner
-from devops_cli.telemetry import trace_span
+from devops_cli.dry_run.state import is_dry_run  # noqa: F401
+from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -28,17 +25,17 @@ _FALLBACK_SECRET_PATTERNS: tuple[tuple[str, str, re.Pattern[str]], ...] = (
     (
         "AWS Access Key ID",
         "HIGH",
-        re.compile(r"(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}"),
+        re.compile(r"\b(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}\b"),
     ),
     (
         "GitHub Personal Access Token",
         "CRITICAL",
-        re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,255}"),
+        re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,255}\b"),
     ),
     (
         "OpenAI API Key",
         "CRITICAL",
-        re.compile(r"sk-[A-Za-z0-9-_]{32,128}"),
+        re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9]{32,128}\b"),
     ),
     (
         "Private Key Block",
@@ -48,14 +45,20 @@ _FALLBACK_SECRET_PATTERNS: tuple[tuple[str, str, re.Pattern[str]], ...] = (
     (
         "Slack Token",
         "HIGH",
-        re.compile(r"xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*"),
+        re.compile(r"\bxox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*\b"),
     ),
     (
         "Stripe API Key",
         "HIGH",
-        re.compile(r"(?:sk|rk)_(?:test|live)_[0-9a-zA-Z]{24,99}"),
+        re.compile(r"\b(?:sk|rk)_(?:test|live)_[0-9a-zA-Z]{24,99}\b"),
     ),
 )
+
+
+def _is_placeholder_secret(match_str: str) -> bool:
+    """Return True if match appears to be an illustrative placeholder or documentation token."""
+    lowered = match_str.lower()
+    return any(p in lowered for p in CONST_SECRET_PLACEHOLDER_MARKERS)
 
 
 def _scan_line_for_secrets(line: str, file_path: Path, line_idx: int) -> list[Finding]:
@@ -63,7 +66,8 @@ def _scan_line_for_secrets(line: str, file_path: Path, line_idx: int) -> list[Fi
     matches: list[Finding] = []
     fix_msg = "Revoke and rotate secret immediately. Move credentials to OS Keyring or environment variables."
     for desc, sev, pattern in _FALLBACK_SECRET_PATTERNS:
-        if pattern.search(line):
+        match = pattern.search(line)
+        if match and not _is_placeholder_secret(match.group(0)):
             matches.append(
                 Finding(
                     severity=sev,
@@ -88,7 +92,7 @@ def _scan_file_native_secrets(file_path: Path) -> list[Finding]:
             for line_idx, line in enumerate(f, start=1):
                 findings.extend(_scan_line_for_secrets(line, file_path, line_idx))
     except Exception as exc:
-        logger.debug("Failed reading %s for native secret scan: %s", file_path, exc)
+        logger.debug("Failed reading %s for native scan: %s", file_path, exc)
         return []
     return findings
 
@@ -175,6 +179,8 @@ class GitleaksScanner(BaseSecurityScanner):
 
     name: str = "gitleaks"
     binary_name: str = BIN_GITLEAKS
+    gating: ClassVar[bool] = True
+    has_builtin_patterns: ClassVar[bool] = True
 
     def build_command(
         self,
@@ -219,62 +225,21 @@ class GitleaksScanner(BaseSecurityScanner):
         ]
 
 
-def _execute_gitleaks_proc(
-    scanner: GitleaksScanner,
-    cmd: list[str],
-    target: Path | list[Path],
-    ignore_tests: bool,
-) -> list[Finding] | None:
-    """Execute Gitleaks CLI subprocess and return findings, or None if skipped/failed."""
-    try:
-        proc = run_subprocess(cmd, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, check=False)
-        if proc.stdout and proc.stdout.strip().startswith(("[", "{")):
-            data = json.loads(proc.stdout)
-            if isinstance(data, list):
-                parsed = scanner.parse_output(data, target)
-                if ignore_tests:
-                    return [
-                        f for f in parsed if not _is_test_file(_extract_location_path(f.location))
-                    ]
-                return parsed
-    except (
-        FileNotFoundError,
-        OSError,
-        subprocess.SubprocessError,
-    ):
-        pass
-    except Exception as exc:
-        logger.debug("Gitleaks execution skipped or failed: %s", exc)
-    return None
-
-
 def run_gitleaks_scan(
     target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     no_git: bool = True,
     ignore_tests: bool = False,
-) -> list[Finding]:
+) -> ScanOutcome:
     """Execute Gitleaks secret scanner subprocess or fallback pattern scan."""
     if isinstance(target, Path) and target.is_file() and ignore_tests and _is_test_file(target):
-        return []
+        return ScanOutcome("ran", [], "Test file ignored")
 
     scanner = GitleaksScanner()
-    target_desc = str(target[0]) if isinstance(target, list) and target else str(target)
-
-    with trace_span("security.scan.gitleaks", attributes={"target": target_desc}) as span_h:
-        if is_dry_run():
-            return scanner.dry_run_scan(target)
-
-        files_to_scan = _resolve_scan_files(target, ignore_tests=ignore_tests)
-        cmd = scanner.build_command(target, no_git=no_git)
-
-        binary_findings = _execute_gitleaks_proc(scanner, cmd, target, ignore_tests)
-        if binary_findings is not None:
-            span_h.set_attribute("findings_count", len(binary_findings))
-            return binary_findings
-
-        findings: list[Finding] = []
-        for fp in files_to_scan:
-            findings.extend(_scan_file_native_secrets(fp))
-
-        span_h.set_attribute("findings_count", len(findings))
-        return findings
+    tgt = target[0] if isinstance(target, list) and target else target
+    outcome = scanner.scan(tgt, no_git=no_git)
+    if ignore_tests and outcome.findings:
+        filtered = [
+            f for f in outcome.findings if not _is_test_file(_extract_location_path(f.location))
+        ]
+        return ScanOutcome(outcome.status, filtered, outcome.reason)
+    return outcome

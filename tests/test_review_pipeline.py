@@ -850,6 +850,7 @@ def test_review_pipeline_dependency_and_network_auditing() -> None:
         DependencySpec,
         NetworkReference,
         NetworkReputationRecord,
+        PackageLookupResult,
         VulnerabilityRecord,
     )
 
@@ -871,6 +872,7 @@ def test_review_pipeline_dependency_and_network_auditing() -> None:
     # 2. Audit dependencies
     dep_clean = DependencySpec(name="pydantic", version_range="2.11.0", ecosystem="PyPI")
     dep_vuln = DependencySpec(name="requests", version_range="2.20.0", ecosystem="PyPI")
+    dep_failed = DependencySpec(name="urllib3", version_range="1.26.0", ecosystem="PyPI")
     vuln_rec = VulnerabilityRecord(
         id="CVE-2023-1234",
         summary="Vuln in requests",
@@ -878,24 +880,44 @@ def test_review_pipeline_dependency_and_network_auditing() -> None:
         fixed_version="2.31.0",
     )
     dep_cache = {
-        ("requests", "2.20.0", "PyPI"): [vuln_rec],
-        ("pydantic", "2.11.0", "PyPI"): [],
+        ("requests", "2.20.0", "PyPI"): PackageLookupResult(
+            status="ok", vulnerabilities=[vuln_rec]
+        ),
+        ("pydantic", "2.11.0", "PyPI"): PackageLookupResult(status="ok", vulnerabilities=[]),
+        ("urllib3", "1.26.0", "PyPI"): PackageLookupResult(status="failed", vulnerabilities=[]),
     }
     dep_unqueried = DependencySpec(name="flask", version_range="*", ecosystem="PyPI")
 
     findings = orchestrator._audit_file_dependencies(
-        "src/app.py", [dep_clean, dep_vuln, dep_unqueried], dep_cache
+        "src/app.py", [dep_clean, dep_vuln, dep_failed, dep_unqueried], dep_cache
     )
     assert (
         dep_clean.severity,
         dep_clean.queried,
         dep_vuln.severity,
         dep_vuln.queried,
+        dep_failed.severity,
+        dep_failed.queried,
+        dep_failed.security_status,
         dep_unqueried.severity,
         dep_unqueried.queried,
+        dep_unqueried.security_status,
         len(findings),
         "CVE-2023-1234" in findings[0].title,
-    ) == ("CLEAN", True, "CRITICAL", True, "NOT_QUERIED", False, 1, True)
+    ) == (
+        "CLEAN",
+        True,
+        "CRITICAL",
+        True,
+        "UNCHECKED",
+        False,
+        "Lookup Failed",
+        "UNCHECKED",
+        False,
+        "Not Queried",
+        1,
+        True,
+    )
 
     # 3. Audit network references
     net_clean = NetworkReference(target="127.0.0.1", reference_type="ipv4", is_local=True)
@@ -1401,4 +1423,133 @@ def test_multi_persona_review_tracks_bare_empty_list_and_degrades_partially_on_m
         1,
         ["Senior Test Engineer"],
         {"findings": 1, "empty": 1, "unparsed": 1},
+    )
+
+
+def test_execute_page_review_with_backoff_retries_and_recovers() -> None:
+    """Verify _execute_page_review_with_backoff retries on AIClientError and recovers."""
+    from devops_cli.ai.client import AIClientError
+    from devops_cli.ai.review.pipeline import _execute_page_review_with_backoff
+
+    calls = 0
+
+    def mock_single_page(*args: object, **kwargs: object) -> int:
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise AIClientError("Provider request failed with HTTP 524: Cloudflare timeout")
+        return 2
+
+    payload = FileReviewPayload(file_path="src/dummy.py")
+    with patch(
+        "devops_cli.ai.review.pipeline._execute_single_page_review", side_effect=mock_single_page
+    ):
+        with patch("time.sleep", return_value=None):
+            result = _execute_page_review_with_backoff(
+                p_idx=1,
+                page_content="content",
+                fpath="src/dummy.py",
+                total_pages=1,
+                symbols="foo",
+                rag_context_str="",
+                contract_context_str="",
+                resolved_context=MagicMock(),
+                pipeline=MagicMock(),
+                persona_lookup={"qa": ("QA Engineer", "prompt")},
+                thoughts=[],
+                actual_servers=[],
+                file_findings=[],
+                file_replies=[],
+                payload=payload,
+                max_retries=3,
+            )
+
+    assert (result, calls) == (2, 3)
+
+
+def test_execute_page_review_with_backoff_exhausts_retries() -> None:
+    """Verify _execute_page_review_with_backoff re-raises after exhausting max_retries."""
+    from devops_cli.ai.client import AIClientError
+    from devops_cli.ai.review.pipeline import _execute_page_review_with_backoff
+
+    calls = 0
+
+    def mock_fail(*args: object, **kwargs: object) -> int:
+        nonlocal calls
+        calls += 1
+        raise AIClientError("Provider request failed with HTTP 500: Server error")
+
+    payload = FileReviewPayload(file_path="src/dummy.py")
+    with patch("devops_cli.ai.review.pipeline._execute_single_page_review", side_effect=mock_fail):
+        with patch("time.sleep", return_value=None):
+            with pytest.raises(AIClientError, match="Server error"):
+                _execute_page_review_with_backoff(
+                    p_idx=1,
+                    page_content="content",
+                    fpath="src/dummy.py",
+                    total_pages=1,
+                    symbols="foo",
+                    rag_context_str="",
+                    contract_context_str="",
+                    resolved_context=MagicMock(),
+                    pipeline=MagicMock(),
+                    persona_lookup={"qa": ("QA Engineer", "prompt")},
+                    thoughts=[],
+                    actual_servers=[],
+                    file_findings=[],
+                    file_replies=[],
+                    payload=payload,
+                    max_retries=2,
+                )
+
+    assert calls == 2
+
+
+def test_generate_consolidated_report_records_active_personas(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify generate_consolidated_report records active personas in findings.json and candidates.json."""
+    import json
+
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="persona-record-test", llm_client=MagicMock()
+    )
+    finding = SavedFinding(
+        location="src/sample.py:10",
+        title="Sample Finding",
+        description="Sample Description",
+        status="VERIFIED",
+        verified=True,
+        verified_by="criteria",
+        persona="devsecops",
+        reportable=True,
+    )
+    payload = FileReviewPayload(file_path="src/sample.py", findings=[finding])
+
+    # Case 1: Explicit personas passed to generate_consolidated_report
+    orchestrator.generate_consolidated_report([payload], personas=["devsecops"])
+    findings_data = json.loads(
+        (orchestrator.session_dir / "findings.json").read_text(encoding="utf-8")
+    )
+    candidates_data = json.loads(
+        (orchestrator.session_dir / "candidates.json").read_text(encoding="utf-8")
+    )
+    assert (findings_data["personas"], candidates_data["personas"]) == (
+        ["devsecops"],
+        ["devsecops"],
+    )
+
+    # Case 2: Personas stored from execute_multi_persona_review
+    orchestrator.personas = ["qa", "auditor"]
+    orchestrator.generate_consolidated_report([payload])
+    findings_data2 = json.loads(
+        (orchestrator.session_dir / "findings.json").read_text(encoding="utf-8")
+    )
+    candidates_data2 = json.loads(
+        (orchestrator.session_dir / "candidates.json").read_text(encoding="utf-8")
+    )
+    assert (findings_data2["personas"], candidates_data2["personas"]) == (
+        ["qa", "auditor"],
+        ["qa", "auditor"],
     )

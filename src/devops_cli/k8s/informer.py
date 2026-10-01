@@ -27,6 +27,26 @@ from devops_cli.models.k8s import K8sEvent, K8sInformerState
 logger = logging.getLogger(__name__)
 
 
+def _extract_event_metadata(obj: Any, default_namespace: str) -> tuple[str, str, str]:
+    """Extract (name, namespace, status) from a Kubernetes object or dictionary."""
+    if isinstance(obj, dict):
+        d_meta = obj.get("metadata")
+        d_status = obj.get("status")
+        name = str(d_meta.get("name") if isinstance(d_meta, dict) else "unknown")
+        namespace = str(
+            (d_meta.get("namespace") if isinstance(d_meta, dict) else None) or default_namespace
+        )
+        status = str((d_status.get("phase") if isinstance(d_status, dict) else None) or "Active")
+        return name, namespace, status
+
+    meta = getattr(obj, "metadata", None)
+    name = str(getattr(meta, "name", "unknown") or "unknown")
+    namespace = str(getattr(meta, "namespace", default_namespace) or default_namespace)
+    st = getattr(obj, "status", None)
+    status = str(getattr(st, "phase", "Active") or "Active")
+    return name, namespace, status
+
+
 class ResourceInformer:
     """Watch-based resource informer maintaining in-memory cache of cluster objects."""
 
@@ -152,9 +172,7 @@ class ResourceInformer:
             event_type = CONST_K8S_EVENT_MODIFIED
 
         obj = raw.get("object")
-        name = getattr(getattr(obj, "metadata", None), "name", "unknown")
-        namespace = getattr(getattr(obj, "metadata", None), "namespace", self.namespace)
-        status = getattr(getattr(obj, "status", None), "phase", "Active")
+        name, namespace, status = _extract_event_metadata(obj, self.namespace)
 
         timestamp = datetime.now(UTC).isoformat()
         self._last_event_time = timestamp

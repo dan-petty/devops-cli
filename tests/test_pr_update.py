@@ -248,3 +248,67 @@ def test_mcp_pr_update_branch(monkeypatch: pytest.MonkeyPatch) -> None:
         "--dry-run",
     ]
     assert (res, captured_cmds) == ("OK", [expected_cmd])
+
+
+def test_sort_prs_oldest_first() -> None:
+    """Verify sort_prs_oldest_first orders PRs in ascending order by number (FIFO)."""
+    from devops_cli.github.pr_monitor import sort_prs_oldest_first
+
+    newest_first = [
+        {"number": 577, "title": "PR 577"},
+        {"number": 576, "title": "PR 576"},
+        {"number": 573, "title": "PR 573"},
+        {"number": 575, "title": "PR 575"},
+        {"number": 574, "title": "PR 574"},
+    ]
+    sorted_prs = sort_prs_oldest_first(newest_first)
+    numbers = [p["number"] for p in sorted_prs]
+    assert numbers == [573, 574, 575, 576, 577]
+
+
+def test_update_all_prs_runs_oldest_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify devops pr update --all processes candidates in oldest-first order."""
+    runner = CliRunner()
+    # Provide descending PR numbers matching gh pr list default order
+    descending_prs = [
+        {"number": 577, "headRefName": "feat/c", "baseRefName": "main", "isDraft": False},
+        {"number": 576, "headRefName": "feat/b", "baseRefName": "main", "isDraft": False},
+        {"number": 573, "headRefName": "feat/a", "baseRefName": "main", "isDraft": False},
+    ]
+    updated_order: list[int] = []
+
+    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        "devops_cli.commands.pr._fetch_open_prs",
+        lambda *args, **kwargs: descending_prs,
+    )
+
+    def mock_update(num: int, **kwargs: Any) -> tuple[bool, str]:
+        updated_order.append(num)
+        return True, "Updated"
+
+    monkeypatch.setattr("devops_cli.commands.pr._update_single_pr", mock_update)
+
+    res = runner.invoke(app, ["update", "--all", "--repo", "owner/repo"])
+    assert (res.exit_code, updated_order) == (0, [573, 576, 577])
+
+
+def test_fetch_open_prs_sorts_oldest_first() -> None:
+    """Verify _fetch_open_prs sorts gh pr list output in oldest-first order."""
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.commands.pr import _fetch_open_prs
+
+    raw_output = json.dumps(
+        [
+            {"number": 300, "headRefName": "feat/3", "baseRefName": "main", "isDraft": False},
+            {"number": 100, "headRefName": "feat/1", "baseRefName": "main", "isDraft": False},
+            {"number": 200, "headRefName": "feat/2", "baseRefName": "main", "isDraft": False},
+        ]
+    )
+    mock_proc = MagicMock(returncode=0, stdout=raw_output)
+    with patch("devops_cli.commands.pr.run_gh", return_value=mock_proc):
+        prs = _fetch_open_prs("owner/repo", "main")
+        numbers = [p["number"] for p in prs]
+        assert numbers == [100, 200, 300]

@@ -16,8 +16,10 @@ Example:
 from __future__ import annotations
 
 import hashlib
+import inspect
 import logging
 import os
+import random
 import re
 import time
 from collections.abc import Callable, Sequence
@@ -25,11 +27,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx2
+
 from devops_cli.ai.agents.pipeline import MultiAgentPipeline
 from devops_cli.ai.agents.pydantic_agent import PydanticAgent
 from devops_cli.ai.analyze.cache import load_cached_analysis
 from devops_cli.ai.analyze.outlines import analyze_single_file
-from devops_cli.ai.client import LLMClient
+from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.personas import PERSONAS
 from devops_cli.ai.review.category_metrics import format_category_baseline_markdown
@@ -95,6 +99,9 @@ from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS,
     DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
+    DEFAULT_REVIEW_RETRY_ATTEMPTS,
+    DEFAULT_REVIEW_RETRY_MAX_BACKOFF,
+    DEFAULT_REVIEW_RETRY_MIN_BACKOFF,
 )
 from devops_cli.core.binaries import check_binary
 from devops_cli.exceptions import SecurityError
@@ -103,6 +110,7 @@ from devops_cli.models.vulnerability import (
     DependencySpec,
     NetworkReference,
     NetworkReputationRecord,
+    PackageLookupResult,
     VulnerabilityRecord,
 )
 from devops_cli.output import (
@@ -499,28 +507,50 @@ def _lockfiles_beside(paths: list[Path]) -> list[Path]:
     )
 
 
-def _scan_kubernetes_manifests(yaml_paths: list[Path]) -> list[SavedFinding]:
+def _scan_kubernetes_manifests(
+    yaml_paths: list[Path],
+    outcomes: dict[str, Any] | None = None,
+) -> list[SavedFinding]:
     """Scan Kubernetes YAML manifests with Kube-linter and Pluto."""
     from devops_cli.security.kubelinter import run_kubelinter_scan
     from devops_cli.security.pluto import run_pluto_scan
 
     findings: list[SavedFinding] = []
     for yp in yaml_paths:
-        if kl := run_kubelinter_scan(yp):
+        kl = run_kubelinter_scan(yp)
+        if outcomes is not None and (
+            "Kube-linter" not in outcomes or getattr(kl, "status", None) == "failed"
+        ):
+            outcomes["Kube-linter"] = kl
+        if kl:
             findings.extend(_wrap_static_findings(kl))
-        if pl := run_pluto_scan(yp):
+
+        pl = run_pluto_scan(yp)
+        if outcomes is not None and (
+            "Pluto" not in outcomes or getattr(pl, "status", None) == "failed"
+        ):
+            outcomes["Pluto"] = pl
+        if pl:
             findings.extend(_wrap_static_findings(pl))
     return findings
 
 
-def _scan_container_and_lockfiles(docker_lock_paths: list[Path]) -> list[SavedFinding]:
+def _scan_container_and_lockfiles(
+    docker_lock_paths: list[Path],
+    outcomes: dict[str, Any] | None = None,
+) -> list[SavedFinding]:
     """Scan container files and lockfiles with Trivy."""
     from devops_cli.security.trivy import run_trivy_scan
 
     findings: list[SavedFinding] = []
     for dp in docker_lock_paths:
         scan_t = "config" if "docker" in dp.name.lower() else "fs"
-        if t_findings := run_trivy_scan(dp, scan_type=scan_t):
+        t_findings = run_trivy_scan(dp, scan_type=scan_t)
+        if outcomes is not None and (
+            "Trivy" not in outcomes or getattr(t_findings, "status", None) == "failed"
+        ):
+            outcomes["Trivy"] = t_findings
+        if t_findings:
             findings.extend(_wrap_static_findings(t_findings))
     return findings
 
@@ -957,6 +987,7 @@ ANALYZER_RAN = "ran"
 ANALYZER_BUILTIN_PATTERNS = "built-in patterns"
 ANALYZER_NOT_INSTALLED = "not installed"
 ANALYZER_NO_FILES = "no files"
+ANALYZER_FAILED = "failed"
 
 # (name, binary, the kind of file it scans). Gitleaks falls back to built-in secret patterns.
 _STATIC_ANALYZERS: tuple[tuple[str, str, str], ...] = (
@@ -970,18 +1001,47 @@ _STATIC_ANALYZERS: tuple[tuple[str, str, str], ...] = (
 _ANALYZERS_WITH_BUILTIN_PATTERNS = frozenset({"Gitleaks"})
 
 
-def _static_analyzer_states(files_by_kind: dict[str, list[Path]]) -> dict[str, str]:
-    """How each static analyzer takes part: runs, uses built-in patterns, is missing, or has no files."""
+def _static_analyzer_state_from_outcome(outcome: Any) -> str:
+    """Map a ScanOutcome status to a review static analyzer state string."""
+    status = getattr(outcome, "status", None)
+    if status == "ran":
+        return ANALYZER_RAN
+    if status == "built-in patterns":
+        return ANALYZER_BUILTIN_PATTERNS
+    if status == "unavailable":
+        return ANALYZER_NOT_INSTALLED
+    if status == "failed":
+        return ANALYZER_FAILED
+    if status in ("not_applicable", "no files"):
+        return ANALYZER_NO_FILES
+    if status == "dry-run":
+        return ANALYZER_RAN
+    return ANALYZER_RAN
+
+
+def _predict_analyzer_state(name: str, binary: str) -> str:
+    """Predict analyzer state via binary lookup when execution was not observed."""
+    if check_binary(binary):
+        return ANALYZER_RAN
+    if name in _ANALYZERS_WITH_BUILTIN_PATTERNS:
+        return ANALYZER_BUILTIN_PATTERNS
+    return ANALYZER_NOT_INSTALLED
+
+
+def _static_analyzer_states(
+    files_by_kind: dict[str, list[Path]],
+    observed_outcomes: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """How each static analyzer took part: runs, uses built-in patterns, is missing, or has no files."""
     states: dict[str, str] = {}
+    outcomes = observed_outcomes or {}
     for name, binary, kind in _STATIC_ANALYZERS:
         if not files_by_kind.get(kind):
             states[name] = ANALYZER_NO_FILES
-        elif check_binary(binary):
-            states[name] = ANALYZER_RAN
-        elif name in _ANALYZERS_WITH_BUILTIN_PATTERNS:
-            states[name] = ANALYZER_BUILTIN_PATTERNS
+        elif name in outcomes:
+            states[name] = _static_analyzer_state_from_outcome(outcomes[name])
         else:
-            states[name] = ANALYZER_NOT_INSTALLED
+            states[name] = _predict_analyzer_state(name, binary)
     return states
 
 
@@ -993,6 +1053,7 @@ def _static_analyzer_summary(states: dict[str, str], findings: int) -> list[str]
         if state in (ANALYZER_RAN, ANALYZER_BUILTIN_PATTERNS)
     ]
     missing = [name for name, state in states.items() if state == ANALYZER_NOT_INSTALLED]
+    failed = [name for name, state in states.items() if state == ANALYZER_FAILED]
     lines = (
         [f"    [dim]✓ Static analyzers found {findings} finding(s): {', '.join(ran)} ran[/dim]"]
         if ran
@@ -1000,10 +1061,15 @@ def _static_analyzer_summary(states: dict[str, str], findings: int) -> list[str]
     )
     if missing:
         lines.append(f"    [yellow]! Not installed, so not run: {', '.join(missing)}[/yellow]")
+    if failed:
+        lines.append(f"    [yellow]! Failed during execution: {', '.join(failed)}[/yellow]")
     return lines
 
 
-def _scan_gitleaks_and_semgrep(all_resolved: list[Path]) -> list[SavedFinding]:
+def _scan_gitleaks_and_semgrep(
+    all_resolved: list[Path],
+    outcomes: dict[str, Any] | None = None,
+) -> list[SavedFinding]:
     """Run Gitleaks secret and Semgrep AST static analysis."""
     if not all_resolved:
         return []
@@ -1011,9 +1077,36 @@ def _scan_gitleaks_and_semgrep(all_resolved: list[Path]) -> list[SavedFinding]:
     from devops_cli.security.semgrep import run_semgrep_scan
 
     findings: list[SavedFinding] = []
-    findings.extend(_wrap_static_findings(run_gitleaks_scan(all_resolved, ignore_tests=True)))
-    findings.extend(_wrap_static_findings(run_semgrep_scan(all_resolved)))
+    gl = run_gitleaks_scan(all_resolved, ignore_tests=True)
+    if outcomes is not None:
+        outcomes["Gitleaks"] = gl
+    findings.extend(_wrap_static_findings(gl))
+
+    sg = run_semgrep_scan(all_resolved)
+    if outcomes is not None:
+        outcomes["Semgrep"] = sg
+    findings.extend(_wrap_static_findings(sg))
     return findings
+
+
+def _call_scanner_helper(
+    func: Any, paths: list[Path], outcomes: dict[str, Any]
+) -> list[SavedFinding]:
+    """Invoke scanner helper with outcomes dict if supported by callable signature."""
+    try:
+        sig = inspect.signature(func)
+        if "outcomes" in sig.parameters or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        ):
+            res = func(paths, outcomes=outcomes)
+            return list(res) if isinstance(res, list) else []
+    except ValueError, TypeError:
+        pass
+    try:
+        res = func(paths, outcomes=outcomes)
+    except TypeError:
+        res = func(paths)
+    return list(res) if isinstance(res, list) else []
 
 
 def _get_finding_status_badge(status: str) -> str:
@@ -1034,8 +1127,10 @@ _DEP_SEV_STYLES: dict[str, tuple[str, str]] = {
     "MEDIUM": ("[yellow]MEDIUM[/yellow]", "[yellow]{status}[/yellow]"),
     "LOW": ("[cyan]LOW[/cyan]", "[cyan]{status}[/cyan]"),
     "CLEAN": ("[green]CLEAN[/green]", "[green]{status}[/green]"),
+    "UNCHECKED": ("[dim]UNCHECKED[/dim]", "[dim]{status}[/dim]"),
+    "NOT_QUERIED": ("[dim]NOT QUERIED[/dim]", "[dim]{status}[/dim]"),
 }
-_DEFAULT_DEP_SEV_STYLE: tuple[str, str] = ("[dim]NOT QUERIED[/dim]", "[dim]{status}[/dim]")
+_DEFAULT_DEP_SEV_STYLE: tuple[str, str] = ("[dim]UNCHECKED[/dim]", "[dim]{status}[/dim]")
 
 
 def _format_dependency_table_row(d: DependencySpec) -> list[str]:
@@ -1188,6 +1283,77 @@ def _execute_single_page_review(
     return steps
 
 
+def _execute_page_review_with_backoff(
+    p_idx: int,
+    page_content: str,
+    fpath: str,
+    total_pages: int,
+    symbols: str,
+    rag_context_str: str,
+    contract_context_str: str,
+    resolved_context: FileContextType,
+    pipeline: Any,
+    persona_lookup: dict[str, tuple[str, str]],
+    thoughts: list[str],
+    actual_servers: list[str],
+    file_findings: list[SavedFinding],
+    file_replies: list[dict[str, Any]],
+    payload: FileReviewPayload,
+    max_retries: int = DEFAULT_REVIEW_RETRY_ATTEMPTS,
+) -> int:
+    """Execute review for a single page with incremental backoff on transient errors."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            return _execute_single_page_review(
+                p_idx=p_idx,
+                page_content=page_content,
+                fpath=fpath,
+                total_pages=total_pages,
+                symbols=symbols,
+                rag_context_str=rag_context_str,
+                contract_context_str=contract_context_str,
+                resolved_context=resolved_context,
+                pipeline=pipeline,
+                persona_lookup=persona_lookup,
+                thoughts=thoughts,
+                actual_servers=actual_servers,
+                file_findings=file_findings,
+                file_replies=file_replies,
+                payload=payload,
+            )
+        except (AIClientError, httpx2.HTTPError, OSError, Exception) as exc:
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                raise
+            is_transient = (
+                isinstance(exc, (AIClientError, httpx2.HTTPError, OSError))
+                or any(
+                    str(code) in str(exc)
+                    for code in (408, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524)
+                )
+                or "timeout" in str(exc).lower()
+            )
+            if not is_transient and attempt > 1:
+                raise
+            if attempt >= max_retries:
+                raise
+            backoff = min(
+                DEFAULT_REVIEW_RETRY_MIN_BACKOFF * (2 ** (attempt - 1)) + random.uniform(0.2, 0.8),
+                DEFAULT_REVIEW_RETRY_MAX_BACKOFF,
+            )
+            logger.warning(
+                "Review attempt %d/%d for %s (page %d/%d) failed with %s. Retrying in %.2fs...",
+                attempt,
+                max_retries,
+                fpath,
+                p_idx,
+                total_pages,
+                exc,
+                backoff,
+            )
+            time.sleep(backoff)
+    return 0
+
+
 def _log_reviewed_file_completion(
     fpath: str,
     idx: int,
@@ -1258,6 +1424,7 @@ class ReviewPipelineOrchestrator:
         self.errored_files: dict[str, str] = {}
         self.static_analyzers: dict[str, str] = {}
         self._conventions_by_dir: dict[Path, str] = {}
+        self.personas: list[str] = []
 
     def _resolve_file_path(self, fpath: str) -> Path:
         """Resolve fpath to an existing file within target_dir or its repository, never outside.
@@ -1439,14 +1606,20 @@ class ReviewPipelineOrchestrator:
             ) as sc_span:
                 all_resolved = [self._resolve_file_path(f) for f in file_paths]
 
+                observed_outcomes: dict[str, Any] = {}
+
                 # 1. Batch Bandit scan for Python files
                 py_paths = [p for p in all_resolved if p.suffix == ".py"]
                 if py_paths:
-                    all_static_findings.extend(_wrap_static_findings(run_bandit_scan(py_paths)))
+                    bandit_res = run_bandit_scan(py_paths)
+                    observed_outcomes["Bandit"] = bandit_res
+                    all_static_findings.extend(_wrap_static_findings(bandit_res))
 
                 # 2. Pluto & Kube-linter scan for Kubernetes manifests
                 yaml_paths = [p for p in all_resolved if p.suffix in (".yaml", ".yml")]
-                all_static_findings.extend(_scan_kubernetes_manifests(yaml_paths))
+                all_static_findings.extend(
+                    _call_scanner_helper(_scan_kubernetes_manifests, yaml_paths, observed_outcomes)
+                )
 
                 # 3. Aqua Trivy scan for Dockerfiles and lockfiles
                 docker_lock_paths = sorted(
@@ -1458,17 +1631,26 @@ class ReviewPipelineOrchestrator:
                     }
                     | set(_lockfiles_beside(all_resolved))
                 )
-                all_static_findings.extend(_scan_container_and_lockfiles(docker_lock_paths))
+                all_static_findings.extend(
+                    _call_scanner_helper(
+                        _scan_container_and_lockfiles, docker_lock_paths, observed_outcomes
+                    )
+                )
 
                 # 4. Gitleaks & Semgrep scans
-                all_static_findings.extend(_scan_gitleaks_and_semgrep(all_resolved))
+                all_static_findings.extend(
+                    _call_scanner_helper(
+                        _scan_gitleaks_and_semgrep, all_resolved, observed_outcomes
+                    )
+                )
                 self._record_static_analyzers(
                     {
                         "python": py_paths,
                         "yaml": yaml_paths,
                         "container": docker_lock_paths,
                         "any": all_resolved,
-                    }
+                    },
+                    observed_outcomes=observed_outcomes,
                 )
 
                 static_findings_by_file = _match_static_findings_to_files(
@@ -1490,9 +1672,13 @@ class ReviewPipelineOrchestrator:
 
         return static_findings_by_file
 
-    def _record_static_analyzers(self, files_by_kind: dict[str, list[Path]]) -> None:
+    def _record_static_analyzers(
+        self,
+        files_by_kind: dict[str, list[Path]],
+        observed_outcomes: dict[str, Any] | None = None,
+    ) -> None:
         """Keep how each analyzer took part, for the report and the review's profile."""
-        self.static_analyzers = _static_analyzer_states(files_by_kind)
+        self.static_analyzers = _static_analyzer_states(files_by_kind, observed_outcomes)
         if profiler := active_profiler():
             profiler.set_static_analyzers(self.static_analyzers)
 
@@ -1598,11 +1784,11 @@ class ReviewPipelineOrchestrator:
         unique_deps: set[tuple[str, str, str]],
         unique_nets: set[tuple[str, str]],
     ) -> tuple[
-        dict[tuple[str, str, str], list[VulnerabilityRecord]],
+        dict[tuple[str, str, str], PackageLookupResult],
         dict[str, NetworkReputationRecord],
     ]:
         """Pre-fetch vulnerability records from OSV and threat intel from Shodan/Cloudflare."""
-        dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]] = {}
+        dep_cache: dict[tuple[str, str, str], PackageLookupResult] = {}
         net_cache: dict[str, NetworkReputationRecord] = {}
 
         from devops_cli.dry_run.state import is_dry_run
@@ -1688,30 +1874,39 @@ class ReviewPipelineOrchestrator:
         self,
         fpath: str,
         file_deps: list[DependencySpec],
-        dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]],
+        dep_cache: dict[tuple[str, str, str], Any],
     ) -> list[SavedFinding]:
         """Audit dependencies against vulnerability cache and return any vulnerability findings."""
         findings: list[SavedFinding] = []
         for dep in file_deps:
             d_key = (dep.name, dep.version_range, dep.ecosystem)
             if d_key in dep_cache:
-                dep.queried = True
-                vulns = dep_cache[d_key]
-                if vulns:
-                    dep.vulnerabilities = vulns
-                    highest_sev = max(
-                        (v.severity.upper() for v in vulns),
-                        key=lambda s: _SEV_ORDER.get(s, 0),
-                        default="MEDIUM",
-                    )
-                    dep.severity = highest_sev
-                    dep.security_status = f"⚠️ {len(vulns)} Known Vuln(s) [{highest_sev}]"
+                entry = dep_cache[d_key]
+                is_pkg_res = isinstance(entry, PackageLookupResult)
+                lookup_status = entry.status if is_pkg_res else "ok"
+                vulns = entry.vulnerabilities if is_pkg_res else entry
+                if lookup_status == "ok":
+                    dep.queried = True
+                    if vulns:
+                        dep.vulnerabilities = vulns
+                        highest_sev = max(
+                            (v.severity.upper() for v in vulns),
+                            key=lambda s: _SEV_ORDER.get(s, 0),
+                            default="MEDIUM",
+                        )
+                        dep.severity = highest_sev
+                        dep.security_status = f"⚠️ {len(vulns)} Known Vuln(s) [{highest_sev}]"
+                    else:
+                        dep.severity = "CLEAN"
+                        dep.security_status = "✓ Clean"
                 else:
-                    dep.severity = "CLEAN"
-                    dep.security_status = "✓ Clean"
+                    dep.queried = False
+                    dep.severity = "UNCHECKED"
+                    dep.security_status = "Lookup Failed"
+                    vulns = []
             else:
                 dep.queried = False
-                dep.severity = "NOT_QUERIED"
+                dep.severity = "UNCHECKED"
                 dep.security_status = "Not Queried"
                 vulns = []
 
@@ -1746,7 +1941,7 @@ class ReviewPipelineOrchestrator:
         metadata_by_path: dict[str, FileAnalysisMeta],
         static_findings_by_file: dict[str, list[SavedFinding]],
         raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
-        dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]],
+        dep_cache: dict[tuple[str, str, str], PackageLookupResult],
         net_cache: dict[str, NetworkReputationRecord],
     ) -> FileReviewPayload:
         """Construct, validate, and write a single file review tracking JSON payload."""
@@ -1782,7 +1977,7 @@ class ReviewPipelineOrchestrator:
         metadata_by_path: dict[str, FileAnalysisMeta],
         static_findings_by_file: dict[str, list[SavedFinding]],
         raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
-        dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]],
+        dep_cache: dict[tuple[str, str, str], PackageLookupResult],
         net_cache: dict[str, NetworkReputationRecord],
     ) -> FileReviewPayload | None:
         """Safely build and persist single file payload with error logging."""
@@ -1809,7 +2004,7 @@ class ReviewPipelineOrchestrator:
         metadata_by_path: dict[str, FileAnalysisMeta],
         static_findings_by_file: dict[str, list[SavedFinding]],
         raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
-        dep_cache: dict[tuple[str, str, str], list[VulnerabilityRecord]],
+        dep_cache: dict[tuple[str, str, str], PackageLookupResult],
         net_cache: dict[str, NetworkReputationRecord],
     ) -> list[FileReviewPayload]:
         """Assemble FileReviewPayload models and persist tracking JSON files."""
@@ -1949,6 +2144,7 @@ class ReviewPipelineOrchestrator:
                 name=p_def.title,
                 system_prompt=sys_prompt,
                 output_type=ReviewResult,
+                retries=DEFAULT_REVIEW_RETRY_ATTEMPTS,
             )
             pipeline.add_agent(agent)
 
@@ -1961,6 +2157,7 @@ class ReviewPipelineOrchestrator:
                 name=p_def.title,
                 system_prompt=_persona_system_prompt(p_def, target_conventions),
                 output_type=ReviewResult,
+                retries=DEFAULT_REVIEW_RETRY_ATTEMPTS,
             )
             pipeline.add_agent(agent)
 
@@ -2049,7 +2246,7 @@ class ReviewPipelineOrchestrator:
 
             try:
                 total_step_count = sum(
-                    _execute_single_page_review(
+                    _execute_page_review_with_backoff(
                         p_idx,
                         page_content,
                         fpath,
@@ -2188,6 +2385,7 @@ class ReviewPipelineOrchestrator:
             return
 
         active_personas = personas or ["devsecops", "architect", "qa"]
+        self.personas = list(active_personas)
         total_files = len(file_payloads)
         server_info = self._get_server_info()
 
@@ -2767,8 +2965,8 @@ class ReviewPipelineOrchestrator:
         )
         for dep in all_deps:
             sev_upper = (dep.severity or "").upper()
-            if sev_upper in ("NOT_QUERIED", "NOT QUERIED"):
-                sev_badge = "NOT QUERIED"
+            if sev_upper in ("UNCHECKED", "NOT_QUERIED", "NOT QUERIED"):
+                sev_badge = "UNCHECKED"
             elif sev_upper not in ("CLEAN", "NONE", "INFO"):
                 sev_badge = f"**{dep.severity}**"
             else:
@@ -3193,7 +3391,7 @@ class ReviewPipelineOrchestrator:
             1
             for dep in all_deps
             if (dep.severity or "").upper()
-            not in ("CLEAN", "NONE", "INFO", "NOT_QUERIED", "NOT QUERIED")
+            not in ("CLEAN", "NONE", "INFO", "NOT_QUERIED", "NOT QUERIED", "UNCHECKED")
         )
         queried_count = sum(
             1
@@ -3203,10 +3401,12 @@ class ReviewPipelineOrchestrator:
         )
         if vuln_count:
             vuln_note = f" ([red]{vuln_count} vulnerable[/red])"
-        elif queried_count:
+        elif queried_count and queried_count == len(all_deps):
             vuln_note = " ([green]clean[/green])"
+        elif queried_count:
+            vuln_note = f" ([green]{queried_count} clean[/green], [dim]{len(all_deps) - queried_count} unchecked[/dim])"
         else:
-            vuln_note = " ([dim]not queried[/dim])"
+            vuln_note = " ([dim]unchecked[/dim])"
         return f"{len(all_deps)} audited{vuln_note}"
 
     def _format_network_summary(self, all_nets: list[NetworkReference]) -> str:
@@ -3350,6 +3550,7 @@ class ReviewPipelineOrchestrator:
         self,
         file_payloads: list[FileReviewPayload],
         stage_flags: ReviewStageFlags | None = None,
+        personas: list[str] | None = None,
     ) -> tuple[dict[str, Any], str]:
         """Generate consolidated findings.json and client-facing Markdown report."""
         if stage_flags is not None and not stage_flags.reporting:
@@ -3358,6 +3559,12 @@ class ReviewPipelineOrchestrator:
                 prefix=False,
             )
             return {}, ""
+
+        resolved_personas = (
+            personas
+            or (self.personas if self.personas else None)
+            or ["devsecops", "architect", "qa"]
+        )
 
         with trace_span(
             "review.report_generation",
@@ -3381,7 +3588,7 @@ class ReviewPipelineOrchestrator:
 
         payload_out = ReviewSessionPayload(
             generated_at=datetime.now(UTC).isoformat(),
-            personas=["devsecops", "architect", "qa"],
+            personas=resolved_personas,
             findings=all_findings,
             external_dependencies=all_deps,
             network_references=all_nets,
@@ -3395,6 +3602,7 @@ class ReviewPipelineOrchestrator:
 
         candidates = ReviewSessionPayload(
             generated_at=payload_out.generated_at,
+            personas=resolved_personas,
             findings=[f for payload in file_payloads for f in payload.findings],
         )
         (self.session_dir / CONST_REVIEW_CANDIDATES_FILENAME).write_text(

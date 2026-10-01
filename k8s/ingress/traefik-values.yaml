@@ -10,6 +10,18 @@ ports:
   web:
     forwardedHeaders:
       insecure: true
+  metrics:
+    port: 9100
+    expose:
+      default: false
+    exposedPort: 9100
+
+api:
+  dashboard: true
+
+metrics:
+  prometheus:
+    entryPoint: metrics
 
 securityContext:
   runAsNonRoot: true

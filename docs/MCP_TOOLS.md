@@ -20,7 +20,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_harness_status`](#ai-harness-status) | Inspect AI agent harness slot configuration, active models, skills, and sandbox state. |
 | [`ai_ingest_library`](#ai-ingest-library) | Introspect an installed Python package and extract its public API contract into .data/libraries/. |
 | [`ai_inspect_symbol`](#ai-inspect-symbol) | Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts. |
-| [`ai_lightllm_scale`](#ai-lightllm-scale) | Inspect or configure LightLLM high-throughput serving parameters. |
 | [`ai_pack_context`](#ai-pack-context) | Pack and prune source code context to fit token budget while preserving signatures and types. |
 | [`ai_prewarm_models`](#ai-prewarm-models) | Prewarm local LLM models into GPU VRAM or proactively evict them across candidate cluster nodes. |
 | [`ai_query_library`](#ai-query-library) | Search library contracts and documentation via semantic search or exact symbol lookup. |
@@ -318,17 +317,6 @@ Inspect exact symbol signature, parameter types, return type, and docstrings fro
 |---|---|---|---|---|
 | `symbol` | `string` | Yes | - | - |
 | `package` | `string` | No | `` | - |
-
-### `ai_lightllm_scale`
-
-Inspect or configure LightLLM high-throughput serving parameters.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `replicas` | `integer` | No | `1` | - |
-| `tensor_parallel_size` | `integer` | No | `1` | - |
 
 ### `ai_pack_context`
 
@@ -1250,6 +1238,7 @@ Programmatically mark a pull request review discussion thread as resolved.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `thread_id` | `string` | Yes | - | - |
+| `without_reply` | `boolean` | No | `False` | - |
 
 ### `pr_threads_list`
 

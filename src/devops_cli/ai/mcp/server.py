@@ -166,6 +166,8 @@ def review_pr(number: int, post: bool = False, persona: str = "devsecops") -> st
 @mcp.tool()
 def review_findings(session_id: str = "", status: str = "") -> str:
     """Inspect structured review findings for a session by verification status."""
+    if session_id:
+        _validate_mcp_arg("session_id", session_id)
     cmd = ["uv", "run", "devops", "review", "findings"]
     if session_id:
         cmd.append(session_id)
@@ -2204,13 +2206,13 @@ def pr_thread_reply(thread_id: str, body: str) -> str:
 
 
 @mcp.tool()
-def pr_thread_resolve(thread_id: str) -> str:
+def pr_thread_resolve(thread_id: str, without_reply: bool = False) -> str:
     """Programmatically mark a pull request review discussion thread as resolved."""
     _validate_mcp_arg("thread_id", thread_id)
-    return _run_mcp_cmd(
-        ["uv", "run", "devops", "pr", "threads", "resolve", thread_id],
-        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
-    )
+    cmd = ["uv", "run", "devops", "pr", "threads", "resolve", thread_id]
+    if without_reply:
+        cmd.append("--without-reply")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
@@ -2767,31 +2769,6 @@ def ai_vllm_scale(
         "ai",
         "gateway",
         "scale",
-        "--replicas",
-        str(replicas),
-        "--tensor-parallel-size",
-        str(tensor_parallel_size),
-        "--format",
-        "json",
-    ]
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
-
-
-@mcp.tool()
-def ai_lightllm_scale(
-    replicas: int = 1,
-    tensor_parallel_size: int = 1,
-) -> str:
-    """Inspect or configure LightLLM high-throughput serving parameters."""
-    cmd = [
-        "uv",
-        "run",
-        "devops",
-        "ai",
-        "gateway",
-        "scale",
-        "--backend",
-        "lightllm",
         "--replicas",
         str(replicas),
         "--tensor-parallel-size",

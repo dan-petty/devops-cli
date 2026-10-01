@@ -31,7 +31,7 @@ spec:
         - protocol: TCP
           port: 8787
   egress:
-    # Allow communication to backend inference pods (Ollama, vLLM, LightLLM) and Valkey cache
+    # Allow communication to backend inference pods (Ollama, vLLM) and Valkey cache
     - to:
         - podSelector:
             matchLabels:
@@ -43,13 +43,6 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: vllm
-      ports:
-        - protocol: TCP
-          port: 8000
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: lightllm
       ports:
         - protocol: TCP
           port: 8000
@@ -70,11 +63,3 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Squid forward proxy in squid namespace
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: squid
-      ports:
-        - protocol: TCP
-          port: 3128

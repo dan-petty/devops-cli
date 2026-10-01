@@ -137,10 +137,10 @@ def _check_durations(expression: str, masked: str) -> list[str]:
             errors.extend(
                 f"Invalid duration {part!r} in subquery selector '[{raw}]'"
                 for part in parts
-                if part and not _DURATION_REGEX.match(part)
+                if part and not part.startswith("$") and not _DURATION_REGEX.match(part)
             )
             continue
-        if not _DURATION_REGEX.match(raw):
+        if not raw.startswith("$") and not _DURATION_REGEX.match(raw):
             errors.append(f"Invalid duration literal {raw!r} in range selector")
     return errors
 

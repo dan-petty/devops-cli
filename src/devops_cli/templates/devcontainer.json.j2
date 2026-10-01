@@ -55,17 +55,13 @@
     "GIT_CONFIG_VALUE_3": "!gh auth git-credential",
     "UV_MALWARE_CHECK": "1"
   },
+  {% if minikube %}
   "forwardPorts": [
     8080,
     8030,
     8090,
     16686,
-    3000,
     6333,
-    6379,
-    9090,
-    4317,
-    4318,
     11434,
     9418
   ],
@@ -90,26 +86,6 @@
       "label": "Qdrant Vector DB",
       "onAutoForward": "notify"
     },
-    "6379": {
-      "label": "Valkey Cache",
-      "onAutoForward": "ignore"
-    },
-    "3000": {
-      "label": "Grafana Fallback",
-      "onAutoForward": "ignore"
-    },
-    "9090": {
-      "label": "Prometheus Fallback",
-      "onAutoForward": "ignore"
-    },
-    "4317": {
-      "label": "OpenTelemetry gRPC",
-      "onAutoForward": "ignore"
-    },
-    "4318": {
-      "label": "OpenTelemetry HTTP",
-      "onAutoForward": "ignore"
-    },
     "11434": {
       "label": "Ollama LLM Engine",
       "onAutoForward": "ignore"
@@ -119,6 +95,17 @@
       "onAutoForward": "ignore"
     }
   },
+  {% else %}
+  "forwardPorts": [
+    9418
+  ],
+  "portsAttributes": {
+    "9418": {
+      "label": "Git Daemon",
+      "onAutoForward": "ignore"
+    }
+  },
+  {% endif %}
   "postCreateCommand": "devops devcontainer post-create",
   "postStartCommand": "devops devcontainer post-start",
   "customizations": {
