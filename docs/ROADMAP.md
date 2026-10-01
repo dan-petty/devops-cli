@@ -809,6 +809,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: fdd4d0f (#734) pointed the OpenTelemetry collector's remote write at Alloy's `prometheus.receive_http` but kept the Prometheus server's `/api/v1/write` path. Alloy answers that path with 404, so the collector dropped every devops-cli metric and the devops-cli dashboards stayed empty.
   - *Deliverable*: The exporter posts to `/api/v1/metrics/write`, and a values test holds the endpoint to the receiver's host, port and path.
   - *Constraint*: Critical fix: a P0 regression whose introducing commit is cited, admitted by the owner after the cut. The homelab collector must be redeployed from the release branch.
+- [x] **deploy-stack Applies the Monitoring Services Alloy, Grafana and Port-Forward Use (P0 - Critical, Issue #912)**:
+  - *Context & Rationale*: fdd4d0f (#734) pointed Alloy's Prometheus destination, Grafana's datasource and `devops k8s port-forward` at Services only `k8s/monitoring/service-aliases.yaml` defines, and `deploy-stack` applies only the root kustomization, which never listed it. A cluster built by `deploy-stack` alone stored no metrics.
+  - *Deliverable*: The root kustomization applies the alias Services, and a test holds every monitoring Service the stack addresses to what `kubectl apply -k k8s/` applies.
+  - *Constraint*: Critical fix: a P0 regression whose introducing commit is cited, admitted by the owner after the cut. Removing the kube-prometheus aliases is #818.
 
 ### Multi-IDE MCP Scaffolding, Context Budgeting & Invariant Pinning (v0.2.25 - Scheduled)
 - [ ] **Pipeline Stage Context Budgeting & Invariant Pinning (P0 - Critical)**:

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import yaml
+
+from devops_cli.commands.k8s.networking import _collect_port_forward_services
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
@@ -147,6 +150,48 @@ def test_otel_collector_remote_writes_to_the_path_alloy_serves() -> None:
         receiver.get("port", 9090),
         "/api/v1/metrics/write",
     )
+
+
+def _kustomize_services(kustomization_dir: Path) -> set[tuple[str, str]]:
+    """(namespace, name) of every Service `kubectl apply -k` applies from this kustomization."""
+    with open(kustomization_dir / "kustomization.yaml", encoding="utf-8") as f:
+        kustomization = yaml.safe_load(f)
+    services: set[tuple[str, str]] = set()
+    for entry in kustomization.get("resources", []):
+        path = kustomization_dir / entry
+        if path.is_dir():
+            services |= _kustomize_services(path)
+            continue
+        with open(path, encoding="utf-8") as f:
+            for doc in yaml.safe_load_all(f):
+                if doc and doc.get("kind") == "Service":
+                    meta = doc["metadata"]
+                    namespace = meta.get("namespace", kustomization.get("namespace", ""))
+                    services.add((namespace, meta["name"]))
+    return services
+
+
+def test_deploy_stack_applies_the_monitoring_services_the_stack_addresses() -> None:
+    """deploy-stack applies only the root kustomization (`kubectl apply -k k8s/`). No chart creates
+    the `prometheus` Service that Alloy writes to and Grafana queries, or the Services
+    `devops k8s port-forward` targets, so the root kustomization must apply them (#912)."""
+    with open(K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml", encoding="utf-8") as f:
+        alloy_url = yaml.safe_load(f)["destinations"]["localPrometheus"]["url"]
+    with open(K8S_DIR / "monitoring" / "grafana-values.yaml", encoding="utf-8") as f:
+        datasources = yaml.safe_load(f)["datasources"]["datasources.yaml"]["datasources"]
+    grafana_url = next(d["url"] for d in datasources if d["type"] == "prometheus")
+
+    addressed = {
+        tuple(reversed(str(urlsplit(url).hostname).split(".")[:2]))
+        for url in (alloy_url, grafana_url)
+    }
+    addressed |= {
+        (namespace, service.removeprefix("svc/"))
+        for namespace, service, _, _ in _collect_port_forward_services(["infra"], defaultdict(int))
+        if namespace == "monitoring"
+    }
+
+    assert sorted(addressed - _kustomize_services(K8S_DIR)) == []
 
 
 def test_dcgm_exporter_values_timeout_and_capabilities() -> None:

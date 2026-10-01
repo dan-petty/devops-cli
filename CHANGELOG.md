@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The Prometheus server and Grafana run as their own charts again, cluster CPU metrics are restored, duplicate scrape jobs are off, and the Kubernetes views dashboards default to the homelab cluster (#738).
   - Traefik serves ingress routes for the monitoring services, and the monitoring perimeter admits it (#734).
   - The OpenTelemetry collector remote-writes devops-cli metrics to Alloy's Prometheus receiver at `/api/v1/metrics/write`, the only path it serves (#829).
+  - `devops k8s deploy-stack` applies the `prometheus` Service that Alloy writes to and Grafana queries, and the Services `devops k8s port-forward` targets. No chart creates them (#912).
 - **Multi-Node Ollama Profiles (`k8s/llm/profiles`)**:
   - Ollama runs as per-VRAM-tier DaemonSets behind `ollama-<n>gib` Services, and the LLM gateway routes every model group to them (#734).
 
