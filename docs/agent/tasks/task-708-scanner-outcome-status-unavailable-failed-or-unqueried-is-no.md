@@ -1,7 +1,7 @@
 # Task 708: Scanner Outcome Status Unavailable, Failed or Unqueried Is Not Clean
 
 **Issue**: [#708](https://github.com/dan-petty/devops-cli/issues/708)
-**Status**: In Progress
+**Status**: Done
 **Milestone**: `v0.2.24`
 **Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/cli`, `priority/p0-critical`
@@ -15,10 +15,16 @@
 - **Deliverable Breakdown**:
   - [x] **PR1**: `DependencySpec.severity` defaults to `UNCHECKED`; failed lookups are not cached, `query_batch` returns a status per key, and only a successful lookup yields CLEAN or lets the verifier invalidate.
   - [x] **PR2**: `BaseSecurityScanner.scan` returns `ScanOutcome(status, findings, reason)`: `ran`, `built-in patterns`, `not_applicable`, `unavailable`, `failed` or `dry-run`, deciding applicability (Dive without an image, Popeye without a context) before `check_binary`. `ScanReport.outcomes` replaces `tools_run`; single-scanner commands say "not run", never "passed"; each `run_*_scan` wraps its registry scanner; observed outcomes replace #516's `_static_analyzer_states`. `--fail-on` exits non-zero on `failed` or when a `--scanner`-named tool did not run; otherwise a missing scanner warns. `gating: ClassVar[bool]` is False for Dive alone, and `exceeds` counts gating findings.
-  - [ ] **PR3**: Before Publish Scanner Findings to Code Scanning uploads: `ran` emits a run, zero results included, with `invocations[].executionSuccessful` and start/end times; other outcomes emit no run, only a `toolExecutionNotifications` entry on the devops-cli invocation; non-gating results get `level: note`, `problem.severity: recommendation` and no `security-severity`. Tests validate against the vendored OASIS schema via `jsonschema.validators.validator_for`; `jsonschema`, locked only via `mcp`, joins the dev group.
+  - [x] **PR3**: Before Publish Scanner Findings to Code Scanning uploads: `ran` emits a run, zero results included, with `invocations[].executionSuccessful` and start/end times; other outcomes emit no run, only a `toolExecutionNotifications` entry on the devops-cli invocation; non-gating results get `level: note`, `problem.severity: recommendation` and no `security-severity`. Tests validate against the vendored OASIS schema via `jsonschema.validators.validator_for`; `jsonschema`, locked only via `mcp`, joins the dev group.
 - **Constraint**: Not-applicable must differ from unavailable, or `scan report` goes red on every workstation without a cluster or image. No unavailable or failed scanner becomes an empty run, and checkov, gitleaks, kubeconform or tflint fallback findings never carry the real tool's driver name: once empty runs are uploaded, either closes the tool's open alerts. Code scanning's handling of `executionSuccessful: false` is unverified. Class is not severity: Dive is not demoted to LOW, and unregistered scanners and `from_sarif` input stay gating.
 - **Measured**: With only bandit of the 11 registered binaries on PATH (`command -v`), `devops scan report <empty-dir> --json --fail-on LOW --sarif out.sarif` exits 0, lists all 11 under `tools`, and writes 1 SARIF run, `devops-cli`, holding only `tool` and `results`. `devops scan sast <empty-dir>` without semgrep exits 0 with "No static AST pattern flaws detected". `uv run --no-sync python probe/osv_fail_clean.py`: on `ConnectError`, `query_batch` returns `[]` and a HIGH CVE finding comes back INVALIDATED, not reportable.
 - **Source**: vibes `observations/systems/17-a-fuzzers-first-report-is-about-the-fuzzer.md`, `tools/sarif_report.py`, `examples/code-smell-quantifier/smell_quantifier.py`, `examples/go-leak-sentinel/go_leak_sentinel.py`, `examples/go-leak-sentinel/test_go_leak_sentinel.py`, `tools/metric_reference.py`, `observations/systems/09-multi-agent-epistemic-loss-and-delegation-boundary-distortion.md`, `artifacts/schemas/sarif-schema-2.1.0.json`, `tools/fuzz_harness.py`, `tools/resource_iteration_workbench.py`, `examples/code-smell-quantifier/README.md`, `examples/code-smell-quantifier/test_smell_quantifier.py`, `tools/reliability_slo.py`, `observations/systems/13-verify-the-finding-before-you-fix-it.md`
 - Unit and integration test coverage with structural tuple equality assertions.
 - Maintain cyclomatic complexity $M \le 10$ and nesting depth $\le 5$.
 - 100% passing across Gated CI validation suite (`uv run devops ci`).
+
+## 2. Verification (PR3)
+
+- `devops scan report <empty-dir> --json --fail-on LOW --sarif out.sarif`, with bandit, kube-linter, pluto, semgrep and trivy on PATH, exits 0 and writes one run per scanner that ran (zero results, `executionSuccessful: true`, start and end times) plus a `devops-cli` run whose invocation carries a `note` notification for each of checkov, gitleaks, kubeconform and tflint (built-in patterns) and dive and popeye (not applicable). No scanner that did not run has a run of its own.
+- `tests/test_security_sarif.py` validates emitted documents against the vendored OASIS schema (`tests/fixtures/sarif-schema-2.1.0.json`) through `jsonschema.validators.validator_for`; `jsonschema` joins the dev dependency group.
+- The 18 test files that touch scanners, scan outcomes, SARIF or the security modules: 303 passed.

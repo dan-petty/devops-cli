@@ -6,6 +6,7 @@ import json
 import logging
 import sys
 from abc import ABC, abstractmethod
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 from unittest.mock import NonCallableMock
@@ -65,6 +66,9 @@ class ScanOutcome(list[Finding]):
         self.status: str = status
         self.findings: list[Finding] = items
         self.reason: str = reason
+        # When the scanner started and finished, in UTC; set by `BaseSecurityScanner.scan`.
+        self.started_utc: str | None = None
+        self.ended_utc: str | None = None
 
     def __repr__(self) -> str:
         return f"ScanOutcome(status={self.status!r}, findings={self.findings!r}, reason={self.reason!r})"
@@ -178,6 +182,11 @@ def _handle_json_output(
         err_msg = stderr.strip()[:256]
         return ScanOutcome("failed", [], f"Scanner exited with code {returncode}: {err_msg}")
     return ScanOutcome("ran", findings)
+
+
+def _utc_now() -> str:
+    """Return the current UTC time in SARIF's millisecond date-time form."""
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _is_mocked(module_name: str | None, attr_name: str) -> Any:
@@ -311,6 +320,13 @@ class BaseSecurityScanner(ABC):
         **kwargs: Any,
     ) -> ScanOutcome:
         """Execute scanner with applicability pre-flight checking, timeouts, and fallback recovery."""
+        started = _utc_now()
+        outcome = self._execute(target_path, timeout, **kwargs)
+        outcome.started_utc, outcome.ended_utc = started, _utc_now()
+        return outcome
+
+    def _execute(self, target_path: Any, timeout: float, **kwargs: Any) -> ScanOutcome:
+        """Run the pre-flight checks, then the scanner command."""
         preflight = _evaluate_preflight(self, target_path, **kwargs)
         if preflight is not None:
             return preflight

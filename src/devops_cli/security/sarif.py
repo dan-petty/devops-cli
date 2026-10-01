@@ -15,11 +15,13 @@ Reference: https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.constants import (
     CONST_SARIF_FINGERPRINT_KEY,
+    CONST_SARIF_LEVEL_NOTE,
     CONST_SARIF_LEVEL_TO_SEVERITY,
     CONST_SARIF_LEVEL_WARNING,
     CONST_SARIF_LEVELS,
@@ -34,8 +36,18 @@ from devops_cli.security.normalization import (
     normalize_severity,
 )
 
+if TYPE_CHECKING:
+    from devops_cli.security.base import ScanOutcome
+
 CONST_SARIF_TOOL_NAME = "devops-cli"
 CONST_SARIF_TOOL_URI = "https://github.com/dan-petty/devops-cli"
+
+# Only a scanner that ran gets a run of its own; any other outcome is a notification.
+_STATUS_RAN = "ran"
+_NOTIFICATION_LEVELS: dict[str, str] = {"failed": "error", "unavailable": "warning"}
+# GitHub code scanning shows a rule with this property as a recommendation, not an alert.
+_PROBLEM_SEVERITY_PROPERTY = "problem.severity"
+_PROBLEM_SEVERITY_RECOMMENDATION = "recommendation"
 
 
 class SarifError(ValueError):
@@ -49,20 +61,23 @@ class SarifError(ValueError):
 
 def _rule_for(finding: NormalizedFinding) -> dict[str, Any]:
     """Build the rule descriptor a result refers to by id."""
+    properties: dict[str, Any] = {"tags": ["security", finding.tool]}
+    if finding.gating:
+        # GitHub code scanning orders by this rather than by `level`, so both are
+        # emitted: the level for generic consumers, the score for GitHub.
+        properties[CONST_SARIF_SECURITY_SEVERITY_PROPERTY] = CONST_SEVERITY_TO_SECURITY_SCORE.get(
+            finding.severity, "5.0"
+        )
+    else:
+        # A non-gating finding is advice; a security score would rank it as an alert.
+        properties[_PROBLEM_SEVERITY_PROPERTY] = _PROBLEM_SEVERITY_RECOMMENDATION
     return {
         "id": finding.rule_id,
         "name": finding.rule_id,
         "shortDescription": {"text": finding.message or finding.rule_id},
         "fullDescription": {"text": finding.description or finding.message},
         "help": {"text": finding.fix or finding.description or finding.message},
-        "properties": {
-            # GitHub code scanning orders by this rather than by `level`, so both are
-            # emitted: the level for generic consumers, the score for GitHub.
-            CONST_SARIF_SECURITY_SEVERITY_PROPERTY: CONST_SEVERITY_TO_SECURITY_SCORE.get(
-                finding.severity, "5.0"
-            ),
-            "tags": ["security", finding.tool],
-        },
+        "properties": properties,
     }
 
 
@@ -87,7 +102,11 @@ def _result_for(finding: NormalizedFinding, rule_index: int) -> dict[str, Any]:
     result: dict[str, Any] = {
         "ruleId": finding.rule_id,
         "ruleIndex": rule_index,
-        "level": CONST_SEVERITY_TO_SARIF_LEVEL.get(finding.severity, CONST_SARIF_LEVEL_WARNING),
+        "level": (
+            CONST_SEVERITY_TO_SARIF_LEVEL.get(finding.severity, CONST_SARIF_LEVEL_WARNING)
+            if finding.gating
+            else CONST_SARIF_LEVEL_NOTE
+        ),
         "message": {"text": finding.message or finding.description or finding.rule_id},
         "partialFingerprints": {CONST_SARIF_FINGERPRINT_KEY: finding.fingerprint},
         "properties": {"tool": finding.tool, "severity": finding.severity},
@@ -98,7 +117,11 @@ def _result_for(finding: NormalizedFinding, rule_index: int) -> dict[str, Any]:
     return result
 
 
-def _run_for(tool: str, findings: list[NormalizedFinding]) -> dict[str, Any]:
+def _run_for(
+    tool: str,
+    findings: list[NormalizedFinding],
+    invocation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Build one SARIF run for a single tool.
 
     Each tool gets its own run because a run carries exactly one tool driver; merging them
@@ -116,7 +139,7 @@ def _run_for(tool: str, findings: list[NormalizedFinding]) -> dict[str, Any]:
             rules.append(_rule_for(finding))
         results.append(_result_for(finding, index))
 
-    return {
+    run: dict[str, Any] = {
         "tool": {
             "driver": {
                 "name": tool,
@@ -126,20 +149,98 @@ def _run_for(tool: str, findings: list[NormalizedFinding]) -> dict[str, Any]:
         },
         "results": results,
     }
+    if invocation is not None:
+        run["invocations"] = [invocation]
+    return run
 
 
-def to_sarif(findings: list[NormalizedFinding]) -> dict[str, Any]:
+def _execution_window(started: str | None, ended: str | None) -> dict[str, str]:
+    """Return the start and end times that are known."""
+    window: dict[str, str] = {}
+    if started:
+        window["startTimeUtc"] = started
+    if ended:
+        window["endTimeUtc"] = ended
+    return window
+
+
+def _notification_for(tool: str, outcome: ScanOutcome) -> dict[str, Any]:
+    """Record why a scanner has no run of its own."""
+    text = f"{tool}: {outcome.status}" + (f": {outcome.reason}" if outcome.reason else "")
+    return {
+        "level": _NOTIFICATION_LEVELS.get(outcome.status, CONST_SARIF_LEVEL_NOTE),
+        "message": {"text": text},
+        "properties": {"tool": tool, "status": outcome.status},
+    }
+
+
+def _orchestrator_invocation(outcomes: Mapping[str, ScanOutcome]) -> dict[str, Any]:
+    """Describe devops-cli's own invocation, with a notification per scanner that did not run."""
+    starts = [o.started_utc for o in outcomes.values() if o.started_utc]
+    ends = [o.ended_utc for o in outcomes.values() if o.ended_utc]
+    invocation: dict[str, Any] = {
+        "executionSuccessful": all(o.status != "failed" for o in outcomes.values()),
+        **_execution_window(min(starts, default=None), max(ends, default=None)),
+    }
+    notifications = [
+        _notification_for(tool, outcome)
+        for tool, outcome in sorted(outcomes.items())
+        if outcome.status != _STATUS_RAN
+    ]
+    if notifications:
+        invocation["toolExecutionNotifications"] = notifications
+    return invocation
+
+
+def _runs_for_outcomes(
+    by_tool: dict[str, list[NormalizedFinding]], outcomes: Mapping[str, ScanOutcome]
+) -> list[dict[str, Any]]:
+    """Build one run per scanner that ran, and devops-cli's run for everything else.
+
+    A run for a scanner that did not run would read as a clean scan and close that tool's
+    open alerts, and findings from devops-cli's built-in patterns must not carry the real
+    tool's name, so both belong to devops-cli's own run.
+    """
+    ran = {tool for tool, outcome in outcomes.items() if outcome.status == _STATUS_RAN}
+    runs = [
+        _run_for(
+            tool,
+            by_tool.get(tool, []),
+            {
+                "executionSuccessful": True,
+                **_execution_window(outcomes[tool].started_utc, outcomes[tool].ended_utc),
+            },
+        )
+        for tool in sorted(ran)
+    ]
+    others = [f for tool, found in sorted(by_tool.items()) if tool not in ran for f in found]
+    if others or len(ran) < len(outcomes) or not runs:
+        runs.append(_run_for(CONST_SARIF_TOOL_NAME, others, _orchestrator_invocation(outcomes)))
+    return runs
+
+
+def to_sarif(
+    findings: list[NormalizedFinding],
+    outcomes: Mapping[str, ScanOutcome] | None = None,
+) -> dict[str, Any]:
     """Render normalized findings as a SARIF 2.1.0 document.
 
     An empty list still produces a valid document with a single empty run. Emitting nothing
     would be read by a consumer as "the scan did not happen" rather than "the scan found
     nothing", which are very different claims to make about a security scan.
+
+    With the scanners' outcomes, only a scanner that ran gets a run, and every other outcome
+    becomes a notification on devops-cli's own invocation. Without them, as for ingested
+    SARIF, each tool named by a finding gets a run.
     """
     by_tool: dict[str, list[NormalizedFinding]] = {}
     for finding in findings:
         by_tool.setdefault(finding.tool or CONST_SARIF_TOOL_NAME, []).append(finding)
 
-    runs = [_run_for(tool, tool_findings) for tool, tool_findings in sorted(by_tool.items())]
+    if outcomes is not None:
+        runs = _runs_for_outcomes(by_tool, outcomes)
+    else:
+        runs = [_run_for(tool, tool_findings) for tool, tool_findings in sorted(by_tool.items())]
     if not runs:
         runs = [_run_for(CONST_SARIF_TOOL_NAME, [])]
 
@@ -150,10 +251,15 @@ def to_sarif(findings: list[NormalizedFinding]) -> dict[str, Any]:
     }
 
 
-def write_sarif(findings: list[NormalizedFinding], destination: Path) -> Path:
+def write_sarif(
+    findings: list[NormalizedFinding],
+    destination: Path,
+    outcomes: Mapping[str, ScanOutcome] | None = None,
+) -> Path:
     """Write a SARIF document to disk, returning the path written."""
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(to_sarif(findings), indent=2) + "\n", encoding="utf-8")
+    document = to_sarif(findings, outcomes)
+    destination.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
     return destination
 
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import jsonschema
 import pytest
 from typer.testing import CliRunner
 
@@ -18,9 +19,11 @@ from devops_cli.config.constants import (
     CONST_SARIF_FINGERPRINT_KEY,
     CONST_SARIF_LEVELS,
     CONST_SARIF_SCHEMA_URI,
+    CONST_SARIF_SECURITY_SEVERITY_PROPERTY,
     CONST_SARIF_VERSION,
     CONST_SEVERITY_ORDER,
 )
+from devops_cli.security.base import ScanOutcome
 from devops_cli.security.normalization import (
     NormalizedFinding,
     as_dict,
@@ -1312,3 +1315,148 @@ def test_a_non_mapping_rule_entry_is_ignored() -> None:
         rules=["nonsense", {"id": "good", "help": {"text": "guidance"}}],
     )
     assert from_sarif(document)[0].fix == "guidance"
+
+
+# =============================================================================
+# Scanner Outcomes in SARIF
+# =============================================================================
+
+_SARIF_SCHEMA = json.loads(
+    (Path(__file__).parent / "fixtures" / "sarif-schema-2.1.0.json").read_text(encoding="utf-8")
+)
+
+
+def _assert_valid_sarif(document: dict[str, Any]) -> None:
+    """Validate a document against the vendored OASIS SARIF 2.1.0 schema."""
+    validator = jsonschema.validators.validator_for(_SARIF_SCHEMA)
+    validator(_SARIF_SCHEMA).validate(document)
+
+
+def _timed(status: str, reason: str = "") -> ScanOutcome:
+    """Build an outcome carrying the execution window a real scanner records."""
+    outcome = ScanOutcome(status, [], reason)
+    outcome.started_utc = "2026-10-01T12:00:00.000Z"
+    outcome.ended_utc = "2026-10-01T12:00:01.500Z"
+    return outcome
+
+
+def _drivers(document: dict[str, Any]) -> list[str]:
+    return [run["tool"]["driver"]["name"] for run in document["runs"]]
+
+
+def _notifications(document: dict[str, Any]) -> list[tuple[str, str, str]]:
+    run = next(r for r in document["runs"] if r["tool"]["driver"]["name"] == "devops-cli")
+    return [
+        (n["properties"]["tool"], n["properties"]["status"], n["level"])
+        for n in run["invocations"][0]["toolExecutionNotifications"]
+    ]
+
+
+def test_a_scanner_that_ran_gets_a_run_even_with_no_results() -> None:
+    """A run with zero results is how a consumer learns the tool looked and found nothing."""
+    document = to_sarif([], {"bandit": _timed("ran")})
+    run = document["runs"][0]
+    assert (_drivers(document), run["results"], run["invocations"]) == (
+        ["bandit"],
+        [],
+        [
+            {
+                "executionSuccessful": True,
+                "startTimeUtc": "2026-10-01T12:00:00.000Z",
+                "endTimeUtc": "2026-10-01T12:00:01.500Z",
+            }
+        ],
+    )
+    _assert_valid_sarif(document)
+
+
+def test_a_scanner_that_did_not_run_gets_no_run_only_a_notification() -> None:
+    """An empty run for a tool that never ran would close that tool's open alerts."""
+    outcomes = {
+        "bandit": ScanOutcome("unavailable", [], "Binary 'bandit' not found on PATH"),
+        "popeye": ScanOutcome("not_applicable", [], "No Kubernetes context"),
+        "semgrep": ScanOutcome("failed", [], "Scanner exited with code 2: boom"),
+    }
+    document = to_sarif([], outcomes)
+    invocation = document["runs"][0]["invocations"][0]
+    assert (_drivers(document), _notifications(document), invocation["executionSuccessful"]) == (
+        ["devops-cli"],
+        [
+            ("bandit", "unavailable", "warning"),
+            ("popeye", "not_applicable", "note"),
+            ("semgrep", "failed", "error"),
+        ],
+        False,
+    )
+    _assert_valid_sarif(document)
+
+
+def test_built_in_pattern_findings_never_carry_the_real_tools_driver_name() -> None:
+    """Findings from devops-cli's own patterns are attributed to devops-cli, not to gitleaks."""
+    finding = make(tool="gitleaks", rule_id="aws-access-key-id", path="app.env", line=1)
+    outcomes = {"gitleaks": ScanOutcome("built-in patterns", [finding], "Binary not found")}
+    document = to_sarif([finding], outcomes)
+    results = document["runs"][0]["results"]
+    assert (
+        _drivers(document),
+        [r["ruleId"] for r in results],
+        _notifications(document),
+        document["runs"][0]["invocations"][0]["executionSuccessful"],
+    ) == (["devops-cli"], ["aws-access-key-id"], [("gitleaks", "built-in patterns", "note")], True)
+    _assert_valid_sarif(document)
+
+
+def test_a_non_gating_finding_is_a_recommendation_without_a_security_severity() -> None:
+    """An image efficiency score is advice, so it must not rank as a security alert."""
+    finding = make(tool="dive", rule_id="efficiency", severity="MEDIUM", gating=False)
+    document = to_sarif([finding], {"dive": _timed("ran")})
+    rule = document["runs"][0]["tool"]["driver"]["rules"][0]
+    result = document["runs"][0]["results"][0]
+    assert (
+        result["level"],
+        rule["properties"].get("problem.severity"),
+        CONST_SARIF_SECURITY_SEVERITY_PROPERTY in rule["properties"],
+    ) == ("note", "recommendation", False)
+    _assert_valid_sarif(document)
+
+
+def test_a_gating_finding_keeps_its_security_severity_beside_outcomes() -> None:
+    """Outcome handling must not strip the score GitHub ranks security alerts by."""
+    document = to_sarif([make(severity="HIGH")], {"bandit": _timed("ran")})
+    rule = document["runs"][0]["tool"]["driver"]["rules"][0]
+    assert CONST_SARIF_SECURITY_SEVERITY_PROPERTY in rule["properties"]
+    _assert_valid_sarif(document)
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        to_sarif([]),
+        to_sarif([make(), make(tool="semgrep", rule_id="S1", line=None)]),
+        to_sarif([make(path="", line=None)]),
+    ],
+)
+def test_every_emitted_document_conforms_to_the_sarif_schema(document: dict[str, Any]) -> None:
+    """Code scanning rejects an upload that fails the OASIS schema."""
+    _assert_valid_sarif(document)
+
+
+def test_the_report_command_records_why_scanners_did_not_run(tmp_path: Path) -> None:
+    """Scanners missing from the workstation become notifications, never empty runs."""
+    destination = tmp_path / "out.sarif"
+    with (
+        patch(
+            "devops_cli.security.registry.ScannerRegistry.list_scanners",
+            return_value=["bandit", "gitleaks"],
+        ),
+        patch("devops_cli.security.base.check_binary", return_value=False),
+    ):
+        result = runner.invoke(scan_app, ["report", str(tmp_path), "--sarif", str(destination)])
+    document = json.loads(destination.read_text(encoding="utf-8"))
+    tools = [tool for tool, _, _ in _notifications(document)]
+    assert (result.exit_code, _drivers(document), tools) == (
+        0,
+        ["devops-cli"],
+        ["bandit", "gitleaks"],
+    )
+    _assert_valid_sarif(document)
