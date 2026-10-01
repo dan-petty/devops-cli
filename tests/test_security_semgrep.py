@@ -10,6 +10,7 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from devops_cli.commands.scan import app as scan_app
+from devops_cli.security.base import ScanOutcome
 from devops_cli.security.semgrep import (
     parse_semgrep_json,
     run_semgrep_scan,
@@ -104,11 +105,10 @@ def test_scan_semgrep_cli(tmp_path: Path) -> None:
     test_file = tmp_path / "test.py"
     test_file.write_text("x = 1\n", encoding="utf-8")
 
-    with patch("devops_cli.security.semgrep.run_semgrep_scan", return_value=[]):
+    clean_outcome = ScanOutcome(status="ran", findings=[], reason="")
+    with patch("devops_cli.commands.scan.run_semgrep_scan", return_value=clean_outcome):
         res = runner.invoke(scan_app, ["sast", str(test_file)])
-        assert res.exit_code == 0
-        assert "No static AST pattern flaws detected" in res.stdout
+        assert (res.exit_code, "No static AST pattern flaws detected" in res.stdout) == (0, True)
 
         res_json = runner.invoke(scan_app, ["sast", str(test_file), "--json"])
-        assert res_json.exit_code == 0
-        assert "[]" in res_json.stdout
+        assert (res_json.exit_code, "[]" in res_json.stdout) == (0, True)
