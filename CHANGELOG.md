@@ -62,6 +62,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Deploy-Stack Installs the Prometheus Operator CRDs (`devops k8s deploy-stack`, `devops k8s teardown-stack`)**:
   - The infra stack installs `prometheus-community/prometheus-operator-crds` before k8s-monitoring and dcgm-exporter, whose ServiceMonitors need its CRDs. Since #734 removed kube-prometheus-stack, a cluster without leftover CRDs got no Alloy, and so no cluster metrics, pod logs, or gateway and GPU metrics. Teardown leaves the CRDs in place, and they carry `helm.sh/resource-policy: keep` (#819).
   - Adoption of pre-existing resources handles cluster-scoped ones such as leftover CRDs, annotates the release's namespace that Helm checks, and retries until every leftover is adopted or a retry fails unchanged (#819).
+- **The Finding Detail Pane Opens Each Finding at the Top at Once (`devops dashboard`)**:
+  - Highlighting another finding scrolls the detail pane to the top immediately instead of after the next screen refresh, which a slower machine had not always drawn; CI failed intermittently on it (#834).
 
 ## [0.2.24] - 2026-09-28
 
