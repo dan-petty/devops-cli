@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dashboard Keeps Its Place Across Refreshes (`devops dashboard`, `devops tui`)**:
   - A refresh keeps each table's highlighted row and its horizontal and vertical scroll, on every tab, instead of returning to the first row every five seconds. Rows carry stable keys, so repeated records stay separate rows and a record that vanishes leaves the cursor at its index (#684).
   - The AI Review findings sub-tab shows the highlighted finding's full record in a detail pane beside the table, toggled with `i`, with model-written markup and control characters shown literally. Every finding of a session is listed, not just the first 50 (#684).
+- **Truthful Pod Status, Filters and a Pod Inspector (`devops dashboard`, `devops k8s pods`)**:
+  - STATUS and READY match `kubectl get pods` wherever pods are listed: the dashboard, `devops dashboard --summary`, `devops k8s pods` and `--watch`. The Kubernetes tab's banner names the context, the Ready nodes and the unhealthy pods, or the context and the real error when it cannot connect (#686).
+  - Namespace and text filters survive refreshes and keep the highlighted pod on screen. Logs follow a pod's default container, `c` cycles containers, a replaced log stream is closed, and `e` opens the pod's containers and recent events. The Minikube probe is gone (#686).
 
 ### Changed
 - **MCP Tool `k8s_chaos` Previews by Default**:
@@ -69,6 +72,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Adoption of pre-existing resources handles cluster-scoped ones such as leftover CRDs, annotates the release's namespace that Helm checks, and retries until every leftover is adopted or a retry fails unchanged (#819).
 - **The Finding Detail Pane Opens Each Finding at the Top at Once (`devops dashboard`)**:
   - Highlighting another finding scrolls the detail pane to the top immediately instead of after the next screen refresh, which a slower machine had not always drawn; CI failed intermittently on it (#834).
+- **Tests Never Reach Port-Forwarded Services (`tests/conftest.py`)**:
+  - The test network guard refuses loopback connects to any port the test process is not listening on, and a port refuses again once its listener closes, so a workstation's port-forwards (OTLP collector, Valkey, Ollama, ArgoCD) are never reached by the suite; one run had made 5,716 such connects. The refusal is the `ConnectionRefusedError` clients already handle (#837).
+  - `EmbeddingsEngine` no longer skips its Valkey probe under pytest, and `test_popeye_dry_run` no longer runs the real popeye binary (#837).
 - **MCP Tools Call Commands That Exist (`devops mcp`, `devops docs check`)**:
   - Twelve MCP entry points called commands or options the CLI does not have and failed on every call. They now call real commands: `benchmark_embeddings` and `benchmark_suite` run `devops ai benchmark`; `scan_gitleaks`, `scan_semgrep` and `scan_checkov` run `devops scan secrets`, `sast` and `iac`; `resource://workspace/status` runs `devops repos list`; `scan_complexity` passes `--max-indent`; `resource://argo/fleet/status` no longer passes `--json` (#836).
   - `devops docs check` resolves every `uv run devops` argv in the MCP server against the real command tree without running it, and reports each defect at its server line (#836).

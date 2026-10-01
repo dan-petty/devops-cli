@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import errno
+import ipaddress
 import os
 import subprocess
+import threading
+import weakref
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -54,30 +58,61 @@ def register_test_mock_provider():
     register_provider("mock", MockProvider)
 
 
+def _is_loopback(host: str) -> bool:
+    """Report whether a connect or lookup names the loopback interface."""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_ip_literal(host: str) -> bool:
+    """Report whether a host is an IP address, which resolves without a DNS query."""
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
+def _refuses_connect(address: Any, owned_ports: set[int]) -> bool:
+    """Report whether the network guard refuses a connect; raise for a host that is not loopback."""
+    if not (isinstance(address, tuple) and len(address) >= 2):
+        return False
+    host = str(address[0])
+    if not _is_loopback(host):
+        raise RuntimeError(
+            f"External network call blocked during test execution: attempt to connect to {host}:{address[1]}. "
+            "All external APIs and endpoints must be mocked in tests."
+        )
+    return address[1] not in owned_ports
+
+
 @pytest.fixture(autouse=True, scope="session")
-def prevent_external_network_calls():
-    """Guarantee that tests never hit external APIs or endpoints."""
-    import ipaddress
+def prevent_external_network_calls() -> None:
+    """Guarantee that tests never hit external APIs or endpoints, nor live services on loopback.
+
+    A loopback connect reaches only a port this test process listens on, and only while that
+    listener is open. Any other loopback port refuses, as if nothing listened there, so a
+    `kubectl port-forward` or a daemon on the workstation is never reached and every machine takes
+    CI's offline path. Once a test closes its server, the port refuses again, so whatever binds it
+    next, such as another xdist worker or a port-forward, is not reached either. The refusal is the
+    `ConnectionRefusedError` that clients already handle: a `RuntimeError` would escape them and
+    send the test down a path no user reaches. Non-loopback connects raise `RuntimeError`.
+
+    The guard patches this process only. A subprocess a test spawns is not guarded, and a server
+    a test starts in a subprocess is refused like any other port this process does not own.
+    """
     import socket
 
     orig_connect = socket.socket.connect
     orig_connect_ex = socket.socket.connect_ex
+    orig_listen = socket.socket.listen
     orig_getaddrinfo = socket.getaddrinfo
-
-    def _is_loopback(host: str) -> bool:
-        if host == "localhost":
-            return True
-        try:
-            return ipaddress.ip_address(host).is_loopback
-        except ValueError:
-            return False
-
-    def _is_ip_literal(host: str) -> bool:
-        try:
-            ipaddress.ip_address(host)
-        except ValueError:
-            return False
-        return True
+    listeners: weakref.WeakKeyDictionary[socket.socket, int] = weakref.WeakKeyDictionary()
+    listeners_lock = threading.RLock()
 
     # A blocked connect still pays for a real DNS query first, and the extractor resolves every
     # domain-like token it scans: each lookup costs a round trip per xdist worker. Fail external
@@ -92,34 +127,35 @@ def prevent_external_network_calls():
             "All external APIs and endpoints must be mocked in tests.",
         )
 
+    def guarded_listen(self, *args):
+        orig_listen(self, *args)
+        name = self.getsockname()
+        if isinstance(name, tuple):
+            with listeners_lock:
+                listeners[self] = name[1]
+
+    # A listener's port is owned while the socket is open. A closed one reports fileno -1, and one
+    # that was collected has already left the weak mapping.
+    def owned_ports() -> set[int]:
+        with listeners_lock:
+            return {port for sock, port in listeners.items() if sock.fileno() != -1}
+
     def guarded_connect(self, address):
-        if isinstance(address, tuple) and len(address) >= 2:
-            host = str(address[0])
-            if _is_loopback(host):
-                return orig_connect(self, address)
-            raise RuntimeError(
-                f"External network call blocked during test execution: attempt to connect to {host}:{address[1]}. "
-                "All external APIs and endpoints must be mocked in tests."
-            )
+        if _refuses_connect(address, owned_ports()):
+            raise ConnectionRefusedError(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED))
         return orig_connect(self, address)
 
     def guarded_connect_ex(self, address):
-        if isinstance(address, tuple) and len(address) >= 2:
-            host = str(address[0])
-            if _is_loopback(host):
-                return orig_connect_ex(self, address)
-            raise RuntimeError(
-                f"External network call blocked during test execution: attempt to connect to {host}:{address[1]}. "
-                "All external APIs and endpoints must be mocked in tests."
-            )
+        if _refuses_connect(address, owned_ports()):
+            return errno.ECONNREFUSED
         return orig_connect_ex(self, address)
 
-    with (
-        patch.object(socket.socket, "connect", guarded_connect),
-        patch.object(socket.socket, "connect_ex", guarded_connect_ex),
-        patch.object(socket, "getaddrinfo", guarded_getaddrinfo),
-    ):
-        yield
+    # Installed for the rest of the process, not undone at teardown: an export a test queued on a
+    # worker thread, or one `atexit` flushes, still runs after the last fixture is torn down.
+    socket.socket.connect = guarded_connect
+    socket.socket.connect_ex = guarded_connect_ex
+    socket.socket.listen = guarded_listen
+    socket.getaddrinfo = guarded_getaddrinfo
 
 
 @pytest.fixture

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import threading
 import time
@@ -11,7 +12,7 @@ from typing import Any
 
 import pytest
 from textual.containers import VerticalScroll
-from textual.widgets import DataTable, Static, TabbedContent, TabPane
+from textual.widgets import DataTable, Input, Select, Static, TabbedContent, TabPane
 
 import devops_cli.ui.dashboard as dashboard_module
 import devops_cli.ui.data_providers as data_providers
@@ -24,6 +25,8 @@ from devops_cli.config.constants import (
     CONST_DOCKER_RESOURCES,
     CONST_LOG_STREAM_QUEUE_SIZE,
 )
+from devops_cli.config.defaults import DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS
+from devops_cli.models.k8s import ContainerInfo, PodEventInfo, PodInfo
 from devops_cli.ui.dashboard import DashboardApp, HelpScreen
 from devops_cli.ui.data_providers import (
     DockerSummary,
@@ -37,6 +40,7 @@ from devops_cli.ui.data_providers import (
     list_review_sessions,
 )
 from devops_cli.ui.log_buffer import LogLine, VirtualLogBuffer, tail
+from devops_cli.ui.pod_inspector import PodInspector
 from devops_cli.ui.projections import (
     DOCKER_RESOURCE_COLUMNS,
     DOMAIN_COLUMNS,
@@ -47,9 +51,15 @@ from devops_cli.ui.projections import (
     docker_resource_label,
     docker_resource_rows,
     docker_rows,
+    filter_pods,
     finding_detail,
     k8s_banner,
     k8s_rows,
+    log_title,
+    namespace_choices,
+    next_container,
+    pod_container_rows,
+    pod_event_rows,
     render_banner,
     render_domain,
     render_keys,
@@ -69,7 +79,9 @@ from devops_cli.ui.refresh import (
     refresh_domain,
 )
 from devops_cli.ui.state import DashboardState, DomainSnapshot
-from devops_cli.ui.widgets import DockerPanel, DomainPanel, LogPane, ReviewPanel
+from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, LogPane, ReviewPanel
+from tests.k8s_fakes import NOW, FakeCoreV1, crashlooping_pod, event, pod, running, terminated
+from tests.k8s_fakes import status as container_status
 
 # =============================================================================
 # Fixtures
@@ -85,15 +97,18 @@ def state() -> DashboardState:
 def _k8s() -> K8sSummary:
     return K8sSummary(
         connected=True,
-        minikube_active=True,
+        context="lab",
+        nodes_ready=1,
+        nodes_total=1,
         pods=[
-            {
-                "namespace": "devops-system",
-                "name": "api-0",
-                "status": "Running",
-                "ready": "1/1",
-                "restarts": "0",
-            }
+            PodInfo(
+                namespace="devops-system",
+                name="api-0",
+                status="Running",
+                ready_containers="1/1",
+                containers=[ContainerInfo(name="api", ready=True, state="Running")],
+                default_container="api",
+            )
         ],
     )
 
@@ -494,15 +509,39 @@ def test_every_configured_domain_has_a_registered_provider() -> None:
 # =============================================================================
 
 
-def test_k8s_banner_reports_connection_and_minikube() -> None:
-    """The banner surfaces both cluster reachability and local Minikube state."""
-    banner = k8s_banner(_k8s())
-    assert ("Connected" in banner, "Minikube: Active" in banner) == (True, True)
+def test_k8s_banner_names_the_context_nodes_and_pod_health() -> None:
+    """The banner says which cluster it read, how many nodes are Ready and what needs a look."""
+    summary = K8sSummary(
+        connected=True,
+        context="lab",
+        nodes_ready=3,
+        nodes_total=4,
+        pods=[_pod("api-0"), _pod("api-1"), _pod("exporter-0", status="CrashLoopBackOff")],
+    )
+    assert k8s_banner(summary) == (
+        "[green]●[/green] Kubernetes: Connected | context lab | 3/4 nodes Ready | "
+        "3 pods, 1 unhealthy"
+    )
 
 
-def test_k8s_banner_reports_a_disconnected_cluster() -> None:
-    """A disconnected cluster is stated plainly rather than shown as an empty table."""
-    assert "Disconnected" in k8s_banner(K8sSummary(connected=False))
+def test_k8s_banner_says_why_the_node_count_is_missing() -> None:
+    """Pods still render when listing nodes is forbidden, and the banner says so."""
+    summary = K8sSummary(connected=True, context="lab", nodes_error="403 Forbidden")
+    assert "| nodes: unavailable (403 Forbidden) |" in k8s_banner(summary)
+
+
+def test_k8s_banner_reports_a_disconnected_cluster_with_the_context_and_error() -> None:
+    """A disconnected cluster names the context it tried and why it failed."""
+    summary = K8sSummary(connected=False, context="lab", error_message="ConnectionError: refused")
+    assert k8s_banner(summary) == (
+        "[yellow]●[/yellow] Kubernetes: Disconnected | context lab — ConnectionError: refused"
+    )
+
+
+def test_k8s_banner_shows_cluster_text_literally() -> None:
+    """An error quoting a markup tag must not restyle the banner."""
+    summary = K8sSummary(connected=False, context="lab", error_message="bad [bold]x[/bold]")
+    assert k8s_banner(summary).endswith("bad \\[bold]x\\[/bold]")
 
 
 def test_docker_banner_distinguishes_running_from_present() -> None:
@@ -570,6 +609,17 @@ def test_k8s_rows_project_pod_records() -> None:
     assert k8s_rows(_k8s()) == [("devops-system", "api-0", "Running", "1/1", "0")]
 
 
+def test_k8s_rows_colour_an_unhealthy_pod() -> None:
+    """A pod that needs attention stands out from the healthy ones around it."""
+    summary = K8sSummary(connected=True, pods=[_pod("exporter-0", status="CrashLoopBackOff")])
+    assert k8s_rows(summary) == [
+        tuple(
+            f"[red]{cell}[/red]"
+            for cell in ("default", "exporter-0", "CrashLoopBackOff", "0/1", "0")
+        )
+    ]
+
+
 def test_docker_rows_project_container_records() -> None:
     """Container records become rows in declared column order."""
     assert docker_rows(_docker()) == [("abc123", "valkey", "valkey:8", "running")]
@@ -594,12 +644,6 @@ def test_ai_rows_substitute_defaults_for_absent_finding_fields() -> None:
     """A partially written findings file renders rather than raising on the UI thread."""
     summary = ReviewSummary(has_session=True, findings=[{}])
     assert ai_rows(summary) == [("MEDIUM", "Untitled", "—", "UNVERIFIED")]
-
-
-def test_k8s_rows_tolerate_a_pod_record_missing_keys() -> None:
-    """A provider that omits a key yields an empty cell, never an exception."""
-    summary = K8sSummary(connected=True, pods=[{"name": "api-0"}])
-    assert k8s_rows(summary) == [("", "api-0", "", "", "")]
 
 
 def test_valkey_rows_render_every_server_property() -> None:
@@ -687,14 +731,23 @@ def test_render_domain_returns_both_banner_and_rows() -> None:
 # =============================================================================
 
 
-def _pod(name: str) -> dict[str, str]:
-    return {
-        "namespace": "default",
-        "name": name,
-        "status": "Running",
-        "ready": "1/1",
-        "restarts": "0",
-    }
+def _pod(
+    name: str,
+    namespace: str = "default",
+    *,
+    status: str = "Running",
+    containers: tuple[str, ...] = ("app",),
+) -> PodInfo:
+    healthy = status == "Running"
+    return PodInfo(
+        namespace=namespace,
+        name=name,
+        status=status,
+        ready_containers=f"{len(containers) if healthy else 0}/{len(containers)}",
+        containers=[ContainerInfo(name=container, ready=healthy) for container in containers],
+        default_container=containers[0],
+        unhealthy=not healthy,
+    )
 
 
 def _pods(count: int) -> K8sSummary:
@@ -791,7 +844,7 @@ def test_findings_are_keyed_by_persona_location_and_full_title() -> None:
 
 def test_pods_are_keyed_by_namespace_and_name() -> None:
     """A pod name is unique only within its namespace."""
-    summary = K8sSummary(connected=True, pods=[_pod("api-0"), {**_pod("api-0"), "namespace": "b"}])
+    summary = K8sSummary(connected=True, pods=[_pod("api-0"), _pod("api-0", "b")])
     keys = render_keys(DomainSnapshot(domain="k8s", data=summary, updated_at=time.time()))
     assert [json.loads(key) for key in keys] == [["default", "api-0", 0], ["b", "api-0", 0]]
 
@@ -1186,6 +1239,7 @@ async def test_the_dashboard_mounts_one_panel_per_configured_domain(
         panels = {panel.domain for panel in app.query(DomainPanel).results(DomainPanel)}
         panels |= {panel.domain for panel in app.query(DockerPanel).results(DockerPanel)}
         panels |= {panel.domain for panel in app.query(ReviewPanel).results(ReviewPanel)}
+        panels |= {panel.domain for panel in app.query(K8sPanel).results(K8sPanel)}
         assert panels == set(CONST_DASHBOARD_DOMAINS)
 
 
@@ -1201,6 +1255,7 @@ async def test_every_panel_declares_the_columns_its_domain_projects(
             panel.domain: len(panel.query_one(DataTable).columns)
             for panel in app.query(DomainPanel).results(DomainPanel)
         }
+        widths["k8s"] = len(app.query_one("#k8s-table", DataTable).columns)
         # Docker and AI Review compose nested tabs, so they are not plain DomainPanels.
         assert widths == {
             domain: len(DOMAIN_COLUMNS[domain])
@@ -1227,6 +1282,7 @@ async def test_the_initial_refresh_populates_every_panel(
             panel.domain: panel.query_one(DataTable).row_count
             for panel in app.query(DomainPanel).results(DomainPanel)
         }
+        counts["k8s"] = app.query_one("#k8s-table", DataTable).row_count
         counts["docker"] = app.query_one("#docker-table", DataTable).row_count
         counts["ai"] = app.query_one("#ai-table", DataTable).row_count
         assert counts == {"k8s": 1, "docker": 1, "telemetry": 3, "ai": 1, "valkey": 7}
@@ -1590,10 +1646,12 @@ async def test_selecting_a_pod_opens_its_logs(
 ) -> None:
     """Choosing a pod row tails that pod without leaving the dashboard."""
     patched_fetchers()
-    requested: list[tuple[str, str]] = []
+    requested: list[tuple[str, str, str | None]] = []
 
-    def fake_source(pod: str, namespace: str, tail_lines: int = 100) -> Callable[[], Any]:
-        requested.append((namespace, pod))
+    def fake_source(
+        pod: str, namespace: str, container: str | None = None, tail_lines: int = 100
+    ) -> Callable[[], Any]:
+        requested.append((namespace, pod, container))
         return lambda: iter(["log line one", "log line two"])
 
     monkeypatch.setattr(dashboard_module, "pod_log_source", fake_source)
@@ -1613,7 +1671,11 @@ async def test_selecting_a_pod_opens_its_logs(
             requested,
             app.query_one(TabbedContent).active,
             pane.title,
-        ) == ([("devops-system", "api-0")], "tab-logs", "devops-system/api-0")
+        ) == (
+            [("devops-system", "api-0", "api")],
+            "tab-logs",
+            "devops-system/api-0 [api] (1 of 1 containers)",
+        )
 
 
 @pytest.mark.asyncio
@@ -1627,7 +1689,7 @@ async def test_selecting_a_row_outside_the_pod_table_starts_no_stream(
     monkeypatch.setattr(
         dashboard_module,
         "pod_log_source",
-        lambda pod, namespace, tail_lines=100: requested.append(pod),
+        lambda pod, namespace, container=None, tail_lines=100: requested.append(pod),
     )
     state = DashboardState()
     app = DashboardApp(refresh_interval=0, state=state)
@@ -1752,30 +1814,43 @@ def test_a_pod_log_source_splits_a_non_streaming_response(
     assert list(pod_log_source("api-0", "devops-system")()) == ["alpha", "beta"]
 
 
-@pytest.mark.asyncio
-async def test_selecting_a_pod_row_with_no_pod_name_starts_no_stream(
-    patched_fetchers: Callable[..., None],
-    monkeypatch: pytest.MonkeyPatch,
+class _FakeLogStream:
+    """A followed log as the service returns it: lines, and close() to stop reading."""
+
+    def __init__(self, lines: list[str]) -> None:
+        self.lines = lines
+        self.closed = 0
+
+    def __iter__(self) -> Any:
+        return iter(self.lines)
+
+    def close(self) -> None:
+        self.closed += 1
+
+
+@pytest.mark.parametrize("closed_first", [False, True])
+def test_closing_a_pod_log_source_closes_its_stream_whenever_it_opens(
+    monkeypatch: pytest.MonkeyPatch, closed_first: bool
 ) -> None:
-    """A malformed pod record must not open a stream against an empty pod name."""
-    patched_fetchers(k8s=lambda: K8sSummary(connected=True, pods=[{"namespace": "default"}]))
-    requested: list[str] = []
-    monkeypatch.setattr(
-        dashboard_module,
-        "pod_log_source",
-        lambda pod, namespace, tail_lines=100: requested.append(pod),
-    )
-    state = DashboardState()
-    app = DashboardApp(refresh_interval=0, state=state)
-    async with app.run_test() as pilot:
-        await _settle(pilot, lambda: not state.pending_domains())
-        table = app.query_one("#k8s-table", DataTable)
-        table.focus()
-        table.move_cursor(row=0)
-        await pilot.pause()
-        await pilot.press("enter")
-        await pilot.pause()
-        assert (requested, app.query_one(TabbedContent).active) == ([], "tab-k8s")
+    """The pane may stop a stream before its worker has opened the connection."""
+    stream = _FakeLogStream(["one"])
+
+    class FakeService:
+        @staticmethod
+        def get_instance() -> Any:
+            return FakeService()
+
+        def read_pod_logs(self, **kwargs: Any) -> Any:
+            return stream
+
+    monkeypatch.setattr("devops_cli.k8s.service.KubernetesService", FakeService)
+    source = pod_log_source("api-0", "devops-system")
+    if closed_first:
+        source.close()
+    opened = source()
+    if not closed_first:
+        source.close()
+    assert (list(opened), stream.closed) == (["one"], 1)
 
 
 # =============================================================================
@@ -2200,7 +2275,7 @@ async def test_a_vanished_record_leaves_the_cursor_at_its_index(
         table.move_cursor(row=2)
         await pilot.pause()
         summary = K8sSummary(connected=True, pods=[_pod(name) for name in remaining])
-        app.query_one("#panel-k8s", DomainPanel).apply(
+        app.query_one("#panel-k8s", K8sPanel).apply(
             DomainSnapshot(domain="k8s", data=summary, updated_at=time.time())
         )
         await pilot.pause()
@@ -2657,3 +2732,732 @@ async def test_a_producer_faster_than_the_terminal_does_not_grow_without_bound(
         pane = app.query_one("#log-pane", LogPane)
         await _stream_into(pilot, pane, [f"line-{index}" for index in range(5000)])
         assert pane._lines.qsize() <= CONST_LOG_STREAM_QUEUE_SIZE
+
+
+# =============================================================================
+# Kubernetes Panel: Filters
+# =============================================================================
+
+
+def _cluster(*, extra: tuple[PodInfo, ...] = (), without: str = "") -> K8sSummary:
+    """63 pods, as on a small workstation cluster: one crashlooping, nine log collectors."""
+    pods = [
+        _pod("coredns-0", "kube-system"),
+        _pod("exporter-0", "monitoring", status="CrashLoopBackOff"),
+        _pod("grafana-0", "monitoring", containers=("grafana", "sidecar")),
+        _pod("prometheus-server-0", "monitoring", containers=("server", "reloader")),
+        *(_pod(f"alloy-logs-{index}", "monitoring") for index in range(9)),
+        *(_pod(f"web-{index:02d}", "shop") for index in range(50)),
+        *extra,
+    ]
+    return K8sSummary(
+        connected=True,
+        context="lab",
+        pods=[p for p in pods if without not in (p.namespace, p.name)],
+    )
+
+
+def _shown(app: DashboardApp) -> list[str]:
+    """Name the pods the Kubernetes table lists, in row order."""
+    table = app.query_one("#k8s-table", DataTable)
+    return [json.loads(str(row_key.value))[1] for row_key in table.rows]
+
+
+def _k8s_banner_text(app: DashboardApp) -> str:
+    return str(app.query_one("#k8s-banner", Static).render())
+
+
+def test_filter_pods_matches_namespace_name_or_status_ignoring_case() -> None:
+    """The text filter covers status too, so it doubles as the status filter."""
+    summary = _cluster()
+    records = dict(
+        zip(render_keys(DomainSnapshot(domain="k8s", data=summary)), summary.pods, strict=True)
+    )
+    by_text = {
+        text: [p.name for p in filter_pods(records, "", text).values()]
+        for text in ("CRASH", "Kube-")
+    }
+    assert (by_text, len(filter_pods(records, "monitoring", ""))) == (
+        {"CRASH": ["exporter-0"], "Kube-": ["coredns-0"]},
+        12,
+    )
+
+
+def test_namespace_choices_keep_the_selected_namespace_after_its_pods_are_gone() -> None:
+    """A namespace whose pods are being recreated stays selectable, so the filter holds."""
+    assert namespace_choices(_cluster(without="monitoring").pods, "monitoring") == (
+        "kube-system",
+        "monitoring",
+        "shop",
+    )
+
+
+@pytest.mark.asyncio
+async def test_slash_focuses_the_filter_box_and_typing_narrows_the_pods(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """Letters typed into the box are text, not the tab keys bound to them."""
+    patched_fetchers(k8s=_cluster)
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        await _loaded(pilot, app)
+        await pilot.press("slash")
+        focused = app.focused.id if app.focused else None
+        await pilot.press(*"alloy-logs")
+        await pilot.pause()
+        assert (focused, app.query_one(TabbedContent).active, _shown(app)) == (
+            "k8s-filter",
+            "tab-k8s",
+            [f"alloy-logs-{index}" for index in range(9)],
+        )
+
+
+@pytest.mark.asyncio
+async def test_typing_a_status_keeps_only_pods_in_it(patched_fetchers: Callable[..., None]) -> None:
+    """`crash` finds the crashlooping pod, which its phase used to hide."""
+    patched_fetchers(k8s=_cluster)
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        await _loaded(pilot, app)
+        await pilot.press("slash", *"crash")
+        await pilot.pause()
+        assert _shown(app) == ["exporter-0"]
+
+
+@pytest.mark.asyncio
+async def test_escape_clears_the_filter_and_returns_to_the_table(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """Escape undoes the filter and hands the arrow keys back to the pod table."""
+    patched_fetchers(k8s=_cluster)
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        await _loaded(pilot, app)
+        await pilot.press("slash", *"web")
+        await pilot.press("escape")
+        await pilot.pause()
+        assert (
+            app.query_one("#k8s-filter", Input).value,
+            app.focused.id if app.focused else None,
+            len(_shown(app)),
+        ) == ("", "k8s-table", 63)
+
+
+@pytest.mark.asyncio
+async def test_choosing_a_namespace_lists_only_its_pods(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """The selector is reached and operated from the keyboard, and narrows the table.
+
+    From the pod table, shift+tab passes the text box to the selector; Enter opens it,
+    and its options are All namespaces, kube-system, monitoring and shop.
+    """
+    patched_fetchers(k8s=_cluster)
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        await _loaded(pilot, app)
+        await pilot.press("shift+tab", "shift+tab")
+        focused = app.focused.id if app.focused else None
+        await pilot.press("enter", "down", "down", "enter")
+        await pilot.pause()
+        assert (
+            focused,
+            app.query_one("#k8s-namespace", Select).value,
+            len(_shown(app)),
+            "showing 12 of 63" in _k8s_banner_text(app),
+        ) == ("k8s-namespace", "monitoring", 12, True)
+
+
+@pytest.mark.asyncio
+async def test_the_namespace_and_text_filters_survive_refreshes(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """A refresh changes the namespaces on offer, never the one chosen or the text typed."""
+    cluster = {"summary": _cluster()}
+    patched_fetchers(k8s=lambda: cluster["summary"])
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        await _loaded(pilot, app)
+        select = app.query_one("#k8s-namespace", Select)
+        select.value = "monitoring"
+        await pilot.press("slash", *"alloy")
+        cluster["summary"] = _cluster(extra=(_pod("job-0", "batch"),))
+        await _refresh(pilot, app)
+        first = (select.value, len(_shown(app)), "showing 9 of 64" in _k8s_banner_text(app))
+        cluster["summary"] = _cluster(without="monitoring")
+        await _refresh(pilot, app)
+        assert (first, select.value, _shown(app), "showing 0 of 51" in _k8s_banner_text(app)) == (
+            ("monitoring", 9, True),
+            "monitoring",
+            [],
+            True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_namespace_added_by_a_refresh_becomes_selectable(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """The options follow the cluster, so a new namespace can be chosen without a restart."""
+    cluster = {"summary": _cluster()}
+    patched_fetchers(k8s=lambda: cluster["summary"])
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        await _loaded(pilot, app)
+        cluster["summary"] = _cluster(extra=(_pod("job-0", "batch"),))
+        await _refresh(pilot, app)
+        app.query_one("#k8s-namespace", Select).value = "batch"
+        await pilot.pause()
+        assert _shown(app) == ["job-0"]
+
+
+# =============================================================================
+# Kubernetes Panel: Stable Selection
+# =============================================================================
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("removed", "expected_row", "expected_pod"),
+    [("web-00", 39, "web-27"), ("web-27", 40, "web-28")],
+)
+async def test_the_cursor_stays_on_its_pod_or_the_nearest_row(
+    patched_fetchers: Callable[..., None], removed: str, expected_row: int, expected_pod: str
+) -> None:
+    """Row 40 of 63 went back to row 0 on every snapshot; now it follows the pod."""
+    cluster = {"summary": _cluster()}
+    patched_fetchers(k8s=lambda: cluster["summary"])
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        await _loaded(pilot, app)
+        table = app.query_one("#k8s-table", DataTable)
+        table.move_cursor(row=40)
+        await pilot.pause()
+        before = _shown(app)[table.cursor_row]
+        cluster["summary"] = _cluster(without=removed)
+        await _refresh(pilot, app)
+        assert (before, table.cursor_row, _shown(app)[table.cursor_row]) == (
+            "web-27",
+            expected_row,
+            expected_pod,
+        )
+
+
+def _two_namespaces(*, ahead: int = 0) -> K8sSummary:
+    """40 pods in alpha, then 60 in beta, listed after `ahead` pods in jobs."""
+    return K8sSummary(
+        connected=True,
+        context="lab",
+        pods=[
+            *(_pod(f"j-{index:03d}", "jobs") for index in range(ahead)),
+            *(_pod(f"a-{index:03d}", "alpha") for index in range(40)),
+            *(_pod(f"b-{index:03d}", "beta") for index in range(60)),
+        ],
+    )
+
+
+def _cursor_on_screen(table: DataTable[Any]) -> bool:
+    """Whether the highlighted row lies inside the window the table is scrolled to."""
+    rows = table.scrollable_content_region.height - table.header_height
+    return table.scroll_y <= table.cursor_row < table.scroll_y + rows
+
+
+async def _scrolled(pilot: Any) -> None:
+    """Wait out the scrolls a redraw defers, each until after the next screen refresh (#834)."""
+    for _ in range(4):
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_choosing_a_namespace_keeps_the_highlighted_pod_on_screen(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """b-030 moved from row 70 to row 30 under the offset row 70 needed, out of sight.
+
+    Enter and `e` then acted on a pod the operator could not see.
+    """
+    patched_fetchers(k8s=_two_namespaces)
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test(size=(120, 30)) as pilot:
+        await _loaded(pilot, app)
+        table = app.query_one("#k8s-table", DataTable)
+        table.move_cursor(row=70)
+        await _scrolled(pilot)
+        before = (_shown(app)[table.cursor_row], table.scroll_y > 30, _cursor_on_screen(table))
+        app.query_one("#k8s-namespace", Select).value = "beta"
+        await _scrolled(pilot)
+        assert (before, _shown(app)[table.cursor_row], _cursor_on_screen(table)) == (
+            ("b-030", True, True),
+            "b-030",
+            True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_pods_added_above_the_cursor_leave_its_pod_on_screen(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """A refresh listing 30 new pods first left the highlighted pod below the window."""
+    cluster = {"summary": _two_namespaces()}
+    patched_fetchers(k8s=lambda: cluster["summary"])
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test(size=(120, 30)) as pilot:
+        await _loaded(pilot, app)
+        table = app.query_one("#k8s-table", DataTable)
+        table.move_cursor(row=5)
+        await _scrolled(pilot)
+        cluster["summary"] = _two_namespaces(ahead=30)
+        await _refresh(pilot, app)
+        await _scrolled(pilot)
+        assert (table.cursor_row, _shown(app)[table.cursor_row], _cursor_on_screen(table)) == (
+            35,
+            "a-005",
+            True,
+        )
+
+
+# =============================================================================
+# Focus Follows the Tab
+# =============================================================================
+
+
+def _numbered_lines(count: int) -> Callable[..., Callable[[], Any]]:
+    """A pod log source factory whose every stream is the same finite set of lines."""
+    return lambda *args, **kwargs: lambda: iter([f"line-{index}" for index in range(count)])
+
+
+@pytest.mark.asyncio
+async def test_keys_reach_the_pod_table_and_the_log_pane_without_focusing_by_hand(
+    patched_fetchers: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """At startup the tab strip held focus, so the pod table and log pane ignored their keys."""
+    patched_fetchers(k8s=lambda: _pods(5))
+    monkeypatch.setattr(dashboard_module, "pod_log_source", _numbered_lines(300))
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        await _loaded(pilot, app)
+        table = app.query_one("#k8s-table", DataTable)
+        await pilot.press("down")
+        moved = table.cursor_row
+        await pilot.press("enter")
+        pane = app.query_one("#log-pane", LogPane)
+        await _settle(pilot, lambda: pane.buffer.total_appended >= 300)
+        await pilot.press("pageup")
+        paged = (app.query_one(TabbedContent).active, pane.buffer.following, pane.buffer.offset)
+        await pilot.press("end")
+        followed = pane.buffer.following
+        await pilot.press("1", "down")
+        assert (moved, paged[:2], paged[2] < pane.buffer.offset, followed, table.cursor_row) == (
+            1,
+            ("tab-logs", False),
+            True,
+            True,
+            2,
+        )
+
+
+@pytest.mark.asyncio
+async def test_another_tab_takes_focus_so_the_pod_keys_stay_on_the_kubernetes_tab(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """A hidden pod table kept focus, so a tab switch bounced back and `e` acted unseen."""
+    patched_fetchers()
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        await _loaded(pilot, app)
+        await pilot.press("3", "e")
+        await pilot.pause()
+        assert (
+            app.query_one(TabbedContent).active,
+            app.focused.id if app.focused else None,
+            isinstance(app.screen, PodInspector),
+        ) == ("tab-telemetry", "telemetry-table", False)
+
+
+# =============================================================================
+# Container-Aware Logs
+# =============================================================================
+
+
+def _sidecar_pod(annotated: bool) -> K8sSummary:
+    """A pod with containers [sidecar, app], optionally annotated to default to app."""
+    annotations = {"kubectl.kubernetes.io/default-container": "app"} if annotated else None
+    api_pod = pod("web-0", containers=("sidecar", "app"), annotations=annotations)
+    return K8sSummary(connected=True, pods=[PodInfo.from_pod(api_pod)])
+
+
+def _recording_source(requested: list[str | None]) -> Callable[..., Callable[[], Any]]:
+    """A pod log source factory recording the container each stream was opened for."""
+
+    def source(pod: str, namespace: str, container: str | None = None, **_: Any) -> Any:
+        requested.append(container)
+        return lambda: iter([f"{container} line"])
+
+    return source
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("annotated", "expected"),
+    [
+        (True, (["app", "sidecar"], "default/web-0 [sidecar] (1 of 2 containers)")),
+        (False, (["sidecar", "app"], "default/web-0 [app] (2 of 2 containers)")),
+    ],
+)
+async def test_enter_streams_the_default_container_and_c_moves_to_the_next(
+    patched_fetchers: Callable[..., None],
+    monkeypatch: pytest.MonkeyPatch,
+    annotated: bool,
+    expected: tuple[list[str], str],
+) -> None:
+    """A pod with two containers could not be tailed at all: the API wants a container."""
+    requested: list[str | None] = []
+    patched_fetchers(k8s=lambda: _sidecar_pod(annotated))
+    monkeypatch.setattr(dashboard_module, "pod_log_source", _recording_source(requested))
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        await _loaded(pilot, app)
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("c")
+        await pilot.pause()
+        assert (requested, app.query_one("#log-pane", LogPane).title) == expected
+
+
+@pytest.mark.asyncio
+async def test_a_pod_without_a_name_opens_no_stream_and_no_inspector(
+    patched_fetchers: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A record whose pod has no name would stream and inspect pod '', which the API refuses."""
+    nameless = pod()
+    nameless.metadata.name = None
+    requested: list[str | None] = []
+    patched_fetchers(k8s=lambda: K8sSummary(connected=True, pods=[PodInfo.from_pod(nameless)]))
+    monkeypatch.setattr(dashboard_module, "pod_log_source", _recording_source(requested))
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        await _loaded(pilot, app)
+        await pilot.press("enter", "e")
+        await pilot.pause()
+        assert (
+            requested,
+            app.query_one(TabbedContent).active,
+            isinstance(app.screen, PodInspector),
+        ) == ([], "tab-k8s", False)
+
+
+def test_log_titles_name_the_container_and_its_place_among_them() -> None:
+    """Init containers are counted, so every container of the pod can be reached with `c`."""
+    info = PodInfo.from_pod(pod("web-0", containers=("app", "web"), init_containers=("migrate",)))
+    assert (
+        log_title(info, "web"),
+        next_container(info, "web"),
+        next_container(info, "migrate"),
+    ) == ("default/web-0 [web] (2 of 3 containers)", "migrate", "app")
+
+
+def test_a_pod_log_source_reads_the_container_it_was_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without a container, the API server answers 400 for any pod with more than one."""
+    opened: list[dict[str, Any]] = []
+
+    class FakeService:
+        @staticmethod
+        def get_instance() -> Any:
+            return FakeService()
+
+        def read_pod_logs(self, **kwargs: Any) -> Any:
+            opened.append(kwargs)
+            return iter(["one"])
+
+    monkeypatch.setattr("devops_cli.k8s.service.KubernetesService", FakeService)
+    list(pod_log_source("web-0", "shop", "app")())
+    assert (opened[0]["pod"], opened[0]["namespace"], opened[0]["container"]) == (
+        "web-0",
+        "shop",
+        "app",
+    )
+
+
+# =============================================================================
+# One Stream at a Time
+# =============================================================================
+
+
+def _endless(release: threading.Event) -> Callable[..., Callable[[], Any]]:
+    """A pod log source factory whose streams never end until released, as a followed log."""
+
+    def source(pod: str, namespace: str, container: str | None = None, **_: Any) -> Any:
+        def lines() -> Any:
+            index = 0
+            while not release.is_set():
+                index += 1
+                yield f"{pod}/{container} {index}"
+                time.sleep(0.002)
+
+        return lines
+
+    return source
+
+
+async def _switched_cleanly(pilot: Any, pane: LogPane, old: str, new: str) -> bool:
+    """Wait for the new stream, then for long enough that a leaking old one would show."""
+    await _settle(pilot, lambda: bool(pane.buffer.search(new)))
+    await pilot.pause(0.3)
+    return not pane.buffer.search(old) and bool(pane.buffer.search(new))
+
+
+@pytest.mark.asyncio
+async def test_switching_containers_stops_the_previous_stream(
+    patched_fetchers: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The old producer kept reading and its consumer kept writing into the shared buffer."""
+    release = threading.Event()
+    patched_fetchers(k8s=lambda: _sidecar_pod(annotated=True))
+    monkeypatch.setattr(dashboard_module, "pod_log_source", _endless(release))
+    app = DashboardApp(refresh_interval=0)
+    try:
+        async with app.run_test() as pilot:
+            await _loaded(pilot, app)
+            pane = app.query_one("#log-pane", LogPane)
+            await pilot.press("enter")
+            await _settle(pilot, lambda: bool(pane.buffer.search("web-0/app")))
+            await pilot.press("c")
+            assert await _switched_cleanly(pilot, pane, "web-0/app", "web-0/sidecar")
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
+async def test_opening_a_second_pod_stops_the_first_pods_stream(
+    patched_fetchers: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Enter on a second pod mixed both pods' live logs in one pane."""
+    release = threading.Event()
+    patched_fetchers(k8s=lambda: _pods(2))
+    monkeypatch.setattr(dashboard_module, "pod_log_source", _endless(release))
+    app = DashboardApp(refresh_interval=0)
+    try:
+        async with app.run_test() as pilot:
+            await _loaded(pilot, app)
+            pane = app.query_one("#log-pane", LogPane)
+            await pilot.press("enter")
+            await _settle(pilot, lambda: bool(pane.buffer.search("pod-00/")))
+            await pilot.press("1", "down", "enter")
+            assert await _switched_cleanly(pilot, pane, "pod-00/", "pod-01/")
+    finally:
+        release.set()
+
+
+class _ClosableSource:
+    """A pod log source recording when the pane closes it."""
+
+    def __init__(self, name: str, closed: list[str]) -> None:
+        self.name = name
+        self.closed = closed
+
+    def __call__(self) -> Any:
+        return iter([f"{self.name} line"])
+
+    def close(self) -> None:
+        self.closed.append(self.name)
+
+
+@pytest.mark.asyncio
+async def test_switching_streams_closes_the_one_before(
+    patched_fetchers: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stopped stream of a quiet container kept its connection and thread until exit.
+
+    `c` and Enter on another pod close the stream they replace; quitting closes the last.
+    """
+    closed: list[str] = []
+    patched_fetchers(
+        k8s=lambda: K8sSummary(
+            connected=True, pods=[_pod("web-0", containers=("app", "sidecar")), _pod("web-1")]
+        )
+    )
+    monkeypatch.setattr(
+        dashboard_module,
+        "pod_log_source",
+        lambda pod, namespace, container=None, **_: _ClosableSource(f"{pod}/{container}", closed),
+    )
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        await _loaded(pilot, app)
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("c")
+        await pilot.pause()
+        await pilot.press("1", "down", "enter")
+        await pilot.pause()
+        switched = list(closed)
+    assert (switched, closed) == (
+        ["web-0/app", "web-0/sidecar"],
+        ["web-0/app", "web-0/sidecar", "web-1/app"],
+    )
+
+
+# =============================================================================
+# Pod Inspector
+# =============================================================================
+
+EVENT_FIELD_SELECTOR = (
+    "involvedObject.kind=Pod,involvedObject.name=exporter-0,"
+    "involvedObject.uid=uid-monitoring-exporter-0"
+)
+
+
+def _inspected() -> K8sSummary:
+    return K8sSummary(
+        connected=True, pods=[PodInfo.from_pod(crashlooping_pod("exporter-0", "monitoring"))]
+    )
+
+
+def _events() -> list[Any]:
+    """25 events a minute apart, plus a newest one written through events.k8s.io/v1."""
+    old = [
+        event(f"Old{index:02d}", last=NOW - datetime.timedelta(minutes=30 - index), count=1)
+        for index in range(25)
+    ]
+    return [*old, event("Series", event_time=NOW, series_count=9)]
+
+
+async def _inspect(pilot: Any, app: DashboardApp) -> PodInspector:
+    """Open the inspector on the highlighted pod and wait for its events call to finish."""
+    await _loaded(pilot, app)
+    await pilot.press("e")
+    await pilot.pause()
+    screen = app.screen
+    assert isinstance(screen, PodInspector)
+    await screen.workers.wait_for_complete()
+    await pilot.pause()
+    return screen
+
+
+def _cells(screen: PodInspector, table_id: str) -> list[list[str]]:
+    table = screen.query_one(table_id, DataTable)
+    return [[str(cell) for cell in table.get_row(key)] for key in table.rows]
+
+
+@pytest.mark.asyncio
+async def test_e_inspects_the_pod_from_its_record_and_its_newest_events(
+    patched_fetchers: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Containers come from the snapshot; the only API call is for the pod's own events."""
+    patched_fetchers(k8s=_inspected)
+    core = FakeCoreV1(events=_events())
+    monkeypatch.setattr(data_providers, "_get_k8s_client", lambda: core)
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test(size=(160, 50)) as pilot:
+        screen = await _inspect(pilot, app)
+        events = _cells(screen, "#inspector-events")
+        assert (
+            _cells(screen, "#inspector-containers"),
+            len(events),
+            events[0][1:4:2],
+            [row[1] for row in events[1:3]],
+            core.calls,
+        ) == (
+            [
+                [
+                    "app",
+                    "example.com/app:1",
+                    "no",
+                    "86",
+                    "Waiting: CrashLoopBackOff",
+                    "Error (exit 1)",
+                ]
+            ],
+            20,
+            ["Series", "9"],
+            ["Old24", "Old23"],
+            [
+                (
+                    "list_namespaced_event",
+                    {
+                        "namespace": "monitoring",
+                        "field_selector": EVENT_FIELD_SELECTOR,
+                        "_request_timeout": DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS,
+                    },
+                )
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_failed_events_call_is_shown_in_the_inspector(
+    patched_fetchers: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A 403 on events is reported in the dialog, and the dashboard carries on."""
+    from kubernetes.client.exceptions import ApiException  # type: ignore[import-untyped]
+
+    patched_fetchers(k8s=_inspected)
+    core = FakeCoreV1(events=ApiException(status=403, reason="Forbidden"))
+    monkeypatch.setattr(data_providers, "_get_k8s_client", lambda: core)
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test(size=(160, 50)) as pilot:
+        screen = await _inspect(pilot, app)
+        status = str(screen.query_one("#inspector-events-status", Static).render())
+        await pilot.press("escape")
+        await pilot.pause()
+        assert (
+            "403 Forbidden" in status,
+            app.is_running,
+            isinstance(app.screen, PodInspector),
+        ) == (True, True, False)
+
+
+def test_container_rows_show_state_and_last_termination() -> None:
+    """Init containers are listed too, marked as such.
+
+    A previous run that ended without a reason, as one killed by a signal can, is named
+    by its state.
+    """
+    info = PodInfo.from_pod(
+        pod(
+            statuses=[container_status("app", running(), restarts=1, last=terminated(137))],
+            init_containers=("migrate",),
+            init_statuses=[container_status("migrate", terminated(0, "Completed"))],
+        )
+    )
+    assert pod_container_rows(info) == [
+        ("app", "example.com/app:1", "no", "1", "Running", "Terminated (exit 137)"),
+        ("migrate (init)", "example.com/migrate:1", "no", "0", "Terminated: Completed", "—"),
+    ]
+
+
+def test_event_rows_escape_cluster_text_and_age_from_last_seen() -> None:
+    """An event message is cluster text: it must not be read as markup."""
+    rows = pod_event_rows(
+        [PodEventInfo(type="Warning", reason="BackOff", message="see [bold]x[/bold]", count=3)]
+    )
+    assert rows == [("Warning", "BackOff", "—", "3", "see \\[bold]x\\[/bold]")]
+
+
+# =============================================================================
+# Help
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_the_help_screen_lists_the_kubernetes_and_log_keys(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """`/`, `e`, `c` and Escape are hidden from the footer, so help is where they are found."""
+    patched_fetchers()
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        app.push_screen(HelpScreen())
+        await pilot.pause()
+        help_text = str(app.screen.query_one("#help-body", Static).content)
+        assert all(
+            line in help_text
+            for line in (
+                "  /   : Filter pods by namespace, name or status (Kubernetes)",
+                "  e   : Inspect the highlighted pod's containers and events (Kubernetes)",
+                "  esc : Clear the pod filter, or close a dialog",
+                "  c         : Stream the pod's next container",
+            )
+        )
