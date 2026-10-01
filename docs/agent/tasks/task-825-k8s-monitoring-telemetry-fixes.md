@@ -40,6 +40,7 @@ Resolves missing metrics and empty/zero-value panels across Kubernetes Grafana d
   - Enabled `serviceMonitor` for OpenTelemetry Collector to scrape internal metrics on port `metrics` (8888).
 - [x] **Qdrant Vector Database Configuration** (`k8s/llm/values-qdrant.yaml`):
   - Enabled `metrics.serviceMonitor` with a 15-second scrape interval.
-- [x] **Automated Regression Test Suite** (`tests/test_k8s_monitoring_integration.py`):
+- [x] **Automated Regression Test Suite** (`tests/test_k8s_monitoring_integration.py`, `tests/test_k8s.py`):
   - Authored unit test assertions verifying cAdvisor and KSM metrics tuning, KSM metric labels allowlist, collectors extra, monitoring NetworkPolicy egress rules, OTel collector ServiceMonitor, and Qdrant ServiceMonitor configurations.
+  - Updated `test_prometheus_operator_crds_install_before_every_service_monitor` in `tests/test_k8s.py` to assert that `prometheus-operator-crds` precedes all 4 releases rendering ServiceMonitors (`k8s-monitoring`, `dcgm-exporter`, `otel-collector`, `qdrant`).
   - Verified 100% test pass rate with zero flaky tests.

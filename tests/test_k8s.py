@@ -309,7 +309,12 @@ def test_prometheus_operator_crds_install_before_every_service_monitor() -> None
     ) == (
         ("prometheus-operator-crds", "prometheus-community/prometheus-operator-crds", "monitoring"),
         True,
-        [("infra", "k8s-monitoring"), ("infra", "dcgm-exporter")],
+        [
+            ("infra", "k8s-monitoring"),
+            ("infra", "dcgm-exporter"),
+            ("infra", "otel-collector"),
+            ("llm", "qdrant"),
+        ],
     )
 
 
