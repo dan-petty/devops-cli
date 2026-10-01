@@ -243,6 +243,218 @@ def test_adopt_helm_resource_if_conflict(mock_run: MagicMock) -> None:
     assert mock_run.call_count == 2
 
 
+_OPERATOR_CRDS = tuple(
+    f"{plural}.monitoring.coreos.com"
+    for plural in (
+        "alertmanagerconfigs",
+        "alertmanagers",
+        "podmonitors",
+        "probes",
+        "prometheusagents",
+        "prometheuses",
+        "prometheusrules",
+        "scrapeconfigs",
+        "servicemonitors",
+        "thanosrulers",
+    )
+)
+
+
+def _ownership_conflict(kind: str, name: str, namespace: str) -> str:
+    """Helm's refusal to adopt a resource it does not own, as pkg/action/validate.go words it."""
+    return (
+        f'Error: unable to continue with install: {kind} "{name}" in namespace "{namespace}" '
+        "exists and cannot be imported into the current release: invalid ownership metadata; "
+        'label validation error: missing key "app.kubernetes.io/managed-by": must be set to "Helm"'
+    )
+
+
+def _renders_service_monitor(values: object) -> bool:
+    """Whether chart values add a ServiceMonitor object or turn on a chart's own monitor."""
+    if isinstance(values, list):
+        return any(_renders_service_monitor(item) for item in values)
+    if not isinstance(values, dict):
+        return False
+    own_monitor = values.get("serviceMonitor")
+    return (
+        values.get("kind") == "ServiceMonitor"
+        or (isinstance(own_monitor, dict) and own_monitor.get("enabled") is True)
+        or any(_renders_service_monitor(item) for item in values.values())
+    )
+
+
+def test_prometheus_operator_crds_install_before_every_service_monitor() -> None:
+    """The CRD release installs first, ahead of every release whose values render a ServiceMonitor.
+
+    k8s-monitoring 4.x and dcgm-exporter ship no ServiceMonitor CRD, so on a cluster without it
+    Helm refused both releases and the infra stack came up without Alloy (#819).
+    """
+    from devops_cli.commands.k8s.stack_lifecycle import (
+        _HELM_RELEASES_BY_STACK,
+        _HELM_REPOS_BY_STACK,
+    )
+
+    crds = _HELM_RELEASES_BY_STACK["infra"][0]
+    monitor_releases = [
+        (stack, release["name"])
+        for stack, releases in _HELM_RELEASES_BY_STACK.items()
+        for release in releases
+        if _renders_service_monitor(yaml.safe_load(Path(release["values"]).read_text("utf-8")))
+    ]
+
+    assert (
+        (crds["name"], crds["chart"], crds["namespace"]),
+        crds["chart"].split("/")[0] in _HELM_REPOS_BY_STACK["infra"],
+        monitor_releases,
+    ) == (
+        ("prometheus-operator-crds", "prometheus-community/prometheus-operator-crds", "monitoring"),
+        True,
+        [("infra", "k8s-monitoring"), ("infra", "dcgm-exporter")],
+    )
+
+
+@pytest.mark.parametrize(
+    ("conflict", "release", "target"),
+    [
+        # A leftover CRD is cluster-scoped: Helm prints an empty namespace and kubectl gets no -n.
+        (
+            ("CustomResourceDefinition", "servicemonitors.monitoring.coreos.com", ""),
+            ("prometheus-operator-crds", "monitoring"),
+            ["customresourcedefinition", "servicemonitors.monitoring.coreos.com"],
+        ),
+        # k8s-monitoring's gateway monitor sits in llm, outside the release's own namespace.
+        (
+            ("ServiceMonitor", "llm-gateway", "llm"),
+            ("k8s-monitoring", "monitoring"),
+            ["servicemonitor", "llm-gateway", "-n", "llm"],
+        ),
+    ],
+)
+def test_adopt_helm_resource_addresses_cluster_scoped_and_namespaced_conflicts(
+    conflict: tuple[str, str, str], release: tuple[str, str], target: list[str]
+) -> None:
+    """Adoption annotates and labels the resource Helm named, passing -n only for a namespaced
+    one, and records the release's namespace, which Helm checks the annotation against (#819)."""
+    from devops_cli.commands.k8s.stack_lifecycle import _adopt_helm_resource_if_conflict
+
+    release_name, release_namespace = release
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_run:
+        adopted = _adopt_helm_resource_if_conflict(
+            _ownership_conflict(*conflict), release_name, release_namespace, context="local-k3s"
+        )
+
+    assert (adopted, [c.args[0] for c in mock_run.call_args_list]) == (
+        True,
+        [
+            [
+                "kubectl",
+                "annotate",
+                *target,
+                f"meta.helm.sh/release-name={release_name}",
+                f"meta.helm.sh/release-namespace={release_namespace}",
+                "--overwrite",
+                "--context",
+                "local-k3s",
+            ],
+            [
+                "kubectl",
+                "label",
+                *target,
+                "app.kubernetes.io/managed-by=Helm",
+                "--overwrite",
+                "--context",
+                "local-k3s",
+            ],
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("helm_errors", "expected"),
+    [
+        # Helm names one leftover CRD per attempt; the release installs once all ten are adopted.
+        (
+            [_ownership_conflict("CustomResourceDefinition", crd, "") for crd in _OPERATOR_CRDS],
+            (0, 11, list(_OPERATOR_CRDS)),
+        ),
+        # An adoption that does not clear the conflict fails the same way twice, ending retries.
+        (
+            [_ownership_conflict("CustomResourceDefinition", _OPERATOR_CRDS[8], "")] * 30,
+            (1, 2, [_OPERATOR_CRDS[8]]),
+        ),
+    ],
+)
+def test_helm_retries_adopt_each_leftover_crd_until_the_release_installs(
+    helm_errors: list[str], expected: tuple[int, int, list[str]]
+) -> None:
+    """Every leftover CRD is adopted in one deploy, and a conflict adoption cannot clear stops
+    the retries instead of repeating Helm (#819)."""
+    from devops_cli.commands.k8s.stack_lifecycle import (
+        _HELM_RELEASES_BY_STACK,
+        _run_helm_with_adoption_retries,
+    )
+
+    release = _HELM_RELEASES_BY_STACK["infra"][0]
+    helm_cmd = ["helm", "upgrade", "--install", release["name"], release["chart"]]
+    pending_errors = iter(helm_errors)
+
+    def fake_run(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        if cmd != helm_cmd:
+            return _mock_proc(0)
+        error = next(pending_errors, None)
+        return _mock_proc(1, stderr=error) if error else _mock_proc(0)
+
+    with patch(
+        "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd", side_effect=fake_run
+    ) as mock_run:
+        result = _run_helm_with_adoption_retries(helm_cmd, release, None)
+
+    calls = [c.args[0] for c in mock_run.call_args_list]
+    assert (
+        result.returncode,
+        calls.count(helm_cmd),
+        [cmd[3] for cmd in calls if cmd[:2] == ["kubectl", "annotate"]],
+    ) == expected
+
+
+def test_teardown_stack_keeps_the_prometheus_operator_crds() -> None:
+    """teardown-stack uninstalls every other infra release but never the CRD release, whose
+    uninstall would delete every ServiceMonitor in the cluster; the CRDs also carry Helm's keep
+    policy against an uninstall by hand (#819)."""
+    from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
+
+    infra_names = [r["name"] for r in _HELM_RELEASES_BY_STACK["infra"]]
+    crd_values = yaml.safe_load(
+        Path("k8s/monitoring/prometheus-operator-crds-values.yaml").read_text("utf-8")
+    )
+    with (
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle.runtime._cluster_reachable",
+            return_value=True,
+        ),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd",
+            return_value=_mock_proc(0),
+        ) as mock_run,
+    ):
+        result = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
+
+    uninstalled = [
+        c.args[0][2] for c in mock_run.call_args_list if c.args[0][:2] == ["helm", "uninstall"]
+    ]
+    assert (
+        result.exit_code,
+        "prometheus-operator-crds" in infra_names,
+        uninstalled,
+        crd_values["crds"]["annotations"],
+    ) == (
+        0,
+        True,
+        [name for name in reversed(infra_names) if name != "prometheus-operator-crds"],
+        {"helm.sh/resource-policy": "keep"},
+    )
+
+
 @patch("devops_cli.commands.k8s._run_cmd")
 def test_recover_stuck_helm_release_if_pending(mock_run: MagicMock) -> None:
     """_recover_stuck_helm_release_if_pending deletes lock secret when release is stuck in pending state."""

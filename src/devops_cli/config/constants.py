@@ -1619,6 +1619,18 @@ CONST_HELM_DAEMONSET_RELEASES: Final[frozenset[str]] = frozenset(
     {"k8s-monitoring", "dcgm-exporter", "fluent-bit"}
 )
 
+# Helm releases teardown-stack leaves installed: deleting a CRD deletes every object of its kind
+# in the cluster, so uninstalling the Prometheus Operator CRDs would delete every ServiceMonitor
+CONST_HELM_TEARDOWN_RETAINED_RELEASES: Final[frozenset[str]] = frozenset(
+    {"prometheus-operator-crds"}
+)
+
+# A resource Helm refuses to adopt, as its resourceString prints it: `<Kind> "<name>" in namespace
+# "<namespace>"`, where the namespace is empty for a cluster-scoped resource such as a CRD
+CONST_HELM_OWNERSHIP_CONFLICT_RE: Final[re.Pattern[str]] = re.compile(
+    r'([A-Za-z0-9_-]+)\s+"([^"]+)"\s+in namespace\s+"([^"]*)"'
+)
+
 # GitHub CLI rate limiter mutation verbs and HTTP methods
 CONST_GH_MUTATION_VERBS: Final[frozenset[str]] = frozenset(
     {

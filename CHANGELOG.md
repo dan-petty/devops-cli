@@ -46,6 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `telemetry profile <command>` reads the command's trace back from Jaeger, waiting until it stops growing, and exits non-zero without a command or trace, with telemetry export off, or when no spans reach Jaeger. The `sample.*` fallback spans and the unused `--last` are removed, and the MCP tool passes the command positionally (#710).
 - **The Workspace Tripwire Passes From a Linked Worktree (`tests/conftest.py`)**:
   - `uv run devops ci` no longer fails from a linked worktree. The #749 tripwire required `.git/index`, which a linked worktree lacks, so it reported every file the gate regenerates as modified by tests; git now finds the index itself (#824).
+- **Deploy-Stack Installs the Prometheus Operator CRDs (`devops k8s deploy-stack`, `devops k8s teardown-stack`)**:
+  - The infra stack installs `prometheus-community/prometheus-operator-crds` before k8s-monitoring and dcgm-exporter, whose ServiceMonitors need its CRDs. Since #734 removed kube-prometheus-stack, a cluster without leftover CRDs got no Alloy, and so no cluster metrics, pod logs, or gateway and GPU metrics. Teardown leaves the CRDs in place, and they carry `helm.sh/resource-policy: keep` (#819).
+  - Adoption of pre-existing resources handles cluster-scoped ones such as leftover CRDs, annotates the release's namespace that Helm checks, and retries until every leftover is adopted or a retry fails unchanged (#819).
 
 ## [0.2.24] - 2026-09-28
 
