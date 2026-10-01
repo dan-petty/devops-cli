@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -25,10 +25,12 @@ from devops_cli.output import (
     print_muted,
     print_success,
     print_table,
+    print_warning,
     render_table,
     write_stdout,
 )
 from devops_cli.security.aibom import generate_aibom
+from devops_cli.security.base import ScanOutcome
 from devops_cli.security.checkov import run_checkov_scan
 from devops_cli.security.complexity import run_complexity_scan
 from devops_cli.security.gitleaks import run_gitleaks_scan
@@ -82,6 +84,24 @@ def _render_scan_results_table(title: str, findings: list[Finding]) -> None:
 
     table = render_table(title=title, columns=columns, rows=rows)
     print_table(table)
+
+
+def _handle_single_scanner_result(
+    tool_name: str,
+    findings: Any,
+    success_message: str,
+) -> bool:
+    """Handle unrun or empty scanner findings. Return True if handled (table not rendered)."""
+    status = getattr(findings, "status", "ran")
+    reason = getattr(findings, "reason", "")
+    if status in ("unavailable", "failed", "not_applicable"):
+        detail = f" ({reason})" if reason else ""
+        print_warning(f"{tool_name} was not run{detail}.")
+        return True
+    if not findings:
+        print_success(success_message)
+        return True
+    return False
 
 
 # =============================================================================
@@ -155,8 +175,7 @@ def scan_trivy(
             )
         return None
 
-    if not findings:
-        print_success(MESSAGES.scan.no_flaws_found)
+    if _handle_single_scanner_result("Trivy", findings, MESSAGES.scan.no_flaws_found):
         if is_dry_run():
             return CommandDryRunResult(
                 command=f"devops scan trivy {target} --type {scan_type}",
@@ -223,8 +242,7 @@ def scan_secrets(
             )
         return None
 
-    if not findings:
-        print_success(MESSAGES.scan.gitleaks_passed)
+    if _handle_single_scanner_result("Gitleaks", findings, MESSAGES.scan.gitleaks_passed):
         if is_dry_run():
             return CommandDryRunResult(
                 command=f"devops scan secrets {target}",
@@ -294,8 +312,7 @@ def scan_sast(
             )
         return None
 
-    if not findings:
-        print_success(MESSAGES.scan.semgrep_passed)
+    if _handle_single_scanner_result("Semgrep", findings, MESSAGES.scan.semgrep_passed):
         if is_dry_run():
             return CommandDryRunResult(
                 command=f"devops scan sast {target} --config {config}",
@@ -360,8 +377,7 @@ def scan_iac(
             )
         return None
 
-    if not findings:
-        print_success(MESSAGES.scan.checkov_passed)
+    if _handle_single_scanner_result("Checkov", findings, MESSAGES.scan.checkov_passed):
         if is_dry_run():
             return CommandDryRunResult(
                 command=f"devops scan iac {target}",
@@ -770,6 +786,61 @@ def _load_policy_or_exit(policy_path: Path | None) -> SuppressionPolicy | None:
         raise typer.Exit(2) from exc
 
 
+def _warn_missing_scanners(report: ScanReport) -> None:
+    """Warn about missing/unavailable or failed scanners."""
+    for name, outcome in report.outcomes.items():
+        if outcome.status == "unavailable":
+            print_warning(f"Scanner '{name}' was not run ({outcome.reason}).")
+        elif outcome.status == "failed":
+            print_warning(f"Scanner '{name}' failed during execution: {outcome.reason}")
+
+
+def _check_failed_scanners(report: ScanReport, json_output: bool) -> bool:
+    """Return True if any scanner failed, printing an error message if not json_output."""
+    failed = [name for name, o in report.outcomes.items() if o.status == "failed"]
+    if failed and not json_output:
+        print_error(f"Scanner(s) failed during execution: {', '.join(sorted(failed))}")
+    return bool(failed)
+
+
+def _check_explicit_scanners_not_run(
+    report: ScanReport, explicit_scanners: list[str], json_output: bool
+) -> bool:
+    """Return True if any explicitly named scanner did not run."""
+    not_run = [
+        name
+        for name in explicit_scanners
+        if report.outcomes.get(name) is None
+        or report.outcomes[name].status not in ("ran", "built-in patterns")
+    ]
+    if not_run and not json_output:
+        print_error(f"Requested scanner(s) did not run: {', '.join(sorted(not_run))}")
+    return bool(not_run)
+
+
+def _evaluate_fail_on(
+    report: ScanReport,
+    *,
+    fail_on: str | None,
+    explicit_scanners: list[str] | None,
+    json_output: bool,
+) -> None:
+    """Enforce failure criteria when --fail-on is specified."""
+    if not fail_on:
+        return
+
+    if _check_failed_scanners(report, json_output):
+        raise typer.Exit(1)
+
+    if explicit_scanners and _check_explicit_scanners_not_run(
+        report, explicit_scanners, json_output
+    ):
+        raise typer.Exit(1)
+
+    if report.exceeds(fail_on):
+        raise typer.Exit(1)
+
+
 @app.command("report")
 def scan_report(
     target: Annotated[
@@ -821,7 +892,7 @@ def scan_report(
         print_error(f"Unknown scanner(s): {', '.join(sorted(unknown))}")
         raise typer.Exit(2)
 
-    results: dict[str, list[Finding]] = {}
+    results: dict[str, ScanOutcome] = {}
     for name in selected:
         scanner = registry.get(name)
         if scanner is None:
@@ -831,7 +902,7 @@ def scan_report(
         except Exception as exc:
             # One failing scanner must not discard every other scanner's findings.
             logger.debug("Scanner '%s' failed during report: %s", name, exc)
-            results[name] = []
+            results[name] = ScanOutcome("failed", [], str(exc))
 
     report = build_report(results, target_abs, policy=policy, min_severity=min_severity)
 
@@ -843,13 +914,13 @@ def scan_report(
     else:
         _render_report_table(report)
         _warn_expired(report)
+        _warn_missing_scanners(report)
         if show_suppressed:
             _render_suppressed(report)
         if sarif is not None:
             print_success(f"SARIF document written to {sarif}")
 
-    if fail_on and report.exceeds(fail_on):
-        raise typer.Exit(1)
+    _evaluate_fail_on(report, fail_on=fail_on, explicit_scanners=scanners, json_output=json_output)
 
 
 @app.command("sarif")

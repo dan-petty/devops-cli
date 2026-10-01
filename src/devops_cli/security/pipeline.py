@@ -18,6 +18,7 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.constants import CONST_SEVERITY_ORDER
+from devops_cli.security.base import ScanOutcome
 from devops_cli.security.normalization import (
     FindingCluster,
     NormalizedFinding,
@@ -43,7 +44,7 @@ class ScanReport:
     clusters: list[FindingCluster] = field(default_factory=list)
     suppressed: list[tuple[NormalizedFinding, SuppressionRule]] = field(default_factory=list)
     expired_suppressions: list[SuppressionRule] = field(default_factory=list)
-    tools_run: tuple[str, ...] = ()
+    outcomes: dict[str, ScanOutcome] = field(default_factory=dict)
     duplicates_removed: int = 0
 
     @property
@@ -56,15 +57,16 @@ class ScanReport:
         """Number of findings that survived suppression and deduplication."""
         return len(self.findings)
 
-    def highest_severity(self) -> str | None:
+    def highest_severity(self, *, gating_only: bool = False) -> str | None:
         """The most severe surviving finding's severity, or ``None`` if there are none."""
-        if not self.findings:
+        candidates = [f for f in self.findings if not gating_only or f.gating]
+        if not candidates:
             return None
-        return min(self.findings, key=lambda finding: finding.rank).severity
+        return min(candidates, key=lambda finding: finding.rank).severity
 
     def exceeds(self, threshold: str) -> bool:
-        """Report whether any surviving finding is at or above a severity threshold."""
-        highest = self.highest_severity()
+        """Report whether any surviving gating finding is at or above a severity threshold."""
+        highest = self.highest_severity(gating_only=True)
         if highest is None:
             return False
         return severity_rank(highest) <= severity_rank(threshold)
@@ -75,7 +77,7 @@ class ScanReport:
 
         return {
             "target": self.target,
-            "tools": list(self.tools_run),
+            "tools": list(self.outcomes.keys()),
             "counts": self.counts,
             "total": self.total,
             "duplicates_removed": self.duplicates_removed,
@@ -96,8 +98,28 @@ class ScanReport:
         }
 
 
+def _normalize_report_inputs(
+    results: dict[str, Any],
+) -> tuple[dict[str, ScanOutcome], dict[str, list[Finding]]]:
+    """Partition input scanner results into outcomes and findings."""
+    outcomes: dict[str, ScanOutcome] = {}
+    raw_findings: dict[str, list[Finding]] = {}
+    for name in sorted(results):
+        val = results[name]
+        if isinstance(val, ScanOutcome):
+            outcomes[name] = val
+            raw_findings[name] = val.findings
+        elif isinstance(val, list):
+            outcomes[name] = ScanOutcome(status="ran", findings=val, reason="")
+            raw_findings[name] = val
+        else:
+            outcomes[name] = ScanOutcome(status="failed", findings=[], reason=str(val))
+            raw_findings[name] = []
+    return outcomes, raw_findings
+
+
 def build_report(
-    results: dict[str, list[Finding]],
+    results: dict[str, list[Finding]] | dict[str, ScanOutcome] | dict[str, Any],
     target: Path,
     *,
     policy: SuppressionPolicy | None = None,
@@ -111,7 +133,8 @@ def build_report(
     silenced four results would understate what the policy is doing.
     """
     active_policy = policy or empty_policy()
-    normalized = normalize_results(results, base if base is not None else target)
+    outcomes, raw_findings = _normalize_report_inputs(results)
+    normalized = normalize_results(raw_findings, base if base is not None else target)
 
     kept, suppressed = active_policy.apply(normalized)
 
@@ -127,7 +150,7 @@ def build_report(
         clusters=correlate(deduplicated),
         suppressed=suppressed,
         expired_suppressions=active_policy.expired_rules(),
-        tools_run=tuple(sorted(results)),
+        outcomes=outcomes,
         duplicates_removed=duplicates_removed,
     )
 
@@ -148,13 +171,18 @@ def report_from_findings(
     if min_severity:
         deduplicated = filter_by_severity(deduplicated, min_severity)
 
+    outcomes = {
+        tool: ScanOutcome(status="ran", findings=[], reason="")
+        for tool in sorted({finding.tool for finding in findings})
+    }
+
     return ScanReport(
         target=target,
         findings=rank(deduplicated),
         clusters=correlate(deduplicated),
         suppressed=suppressed,
         expired_suppressions=active_policy.expired_rules(),
-        tools_run=tuple(sorted({finding.tool for finding in findings})),
+        outcomes=outcomes,
         duplicates_removed=duplicates_removed,
     )
 

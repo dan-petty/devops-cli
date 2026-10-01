@@ -9,12 +9,12 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
-from devops_cli.security.base import BaseSecurityScanner
+from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -148,6 +148,8 @@ class CheckovScanner(BaseSecurityScanner):
 
     name: str = "checkov"
     binary_name: str = "checkov"
+    gating: ClassVar[bool] = True
+    has_builtin_patterns: ClassVar[bool] = True
 
     def build_command(
         self,
@@ -181,7 +183,7 @@ def run_checkov_scan(
     target_path: Path,
     framework: str | None = None,
     timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
-) -> list[Finding]:
-    """Execute Checkov IaC security scanner on target_path and return normalized findings."""
+) -> ScanOutcome:
+    """Execute Checkov IaC security scanner on target_path and return scan outcome."""
     scanner = CheckovScanner()
     return scanner.scan(target_path, timeout=timeout, framework=framework)

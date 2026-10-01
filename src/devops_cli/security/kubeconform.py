@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import (
@@ -14,7 +13,7 @@ from devops_cli.config.defaults import (
     DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
 )
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
-from devops_cli.security.base import BaseSecurityScanner
+from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -132,6 +131,8 @@ class KubeconformScanner(BaseSecurityScanner):
 
     name: str = "kubeconform"
     binary_name: str = "kubeconform"
+    gating: ClassVar[bool] = True
+    has_builtin_patterns: ClassVar[bool] = True
 
     def build_command(
         self,
@@ -174,38 +175,7 @@ def run_kubeconform_validation(
     k8s_version: str = DEFAULT_KUBECONFORM_VERSION,
     strict: bool = True,
     timeout: float = DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
-) -> list[Finding]:
+) -> ScanOutcome:
     """Validate Kubernetes manifests against target version schema using Kubeconform."""
-    kubeconform_bin = shutil.which("kubeconform")
-    if not kubeconform_bin:
-        logger.debug("Kubeconform binary not found in PATH; running native schema fallback.")
-        return _run_native_fallback_k8s_validation(manifest_path)
-
     scanner = KubeconformScanner()
-    cmd = scanner.build_command(manifest_path, k8s_version=k8s_version, strict=strict)
-
-    try:
-        from devops_cli.core.process import run_subprocess
-
-        proc = run_subprocess(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-        if not proc.stdout.strip():
-            return []
-
-        findings: list[Finding] = []
-        for line in proc.stdout.splitlines():
-            line = line.strip()
-            if line and line.startswith("{"):
-                finding = _parse_kubeconform_line(line)
-                if finding:
-                    findings.append(finding)
-
-        return findings
-    except Exception as exc:
-        logger.debug("Kubeconform run error: %s", exc)
-        return _run_native_fallback_k8s_validation(manifest_path)
+    return scanner.scan(manifest_path, timeout=timeout, k8s_version=k8s_version, strict=strict)

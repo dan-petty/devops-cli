@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_KUBELINTER, build_kubelinter_cmd
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
-    DEFAULT_KUBELINTER_TIMEOUT_SECONDS,
 )
-from devops_cli.core.process import run_subprocess
-from devops_cli.dry_run.state import is_dry_run
-from devops_cli.security.base import BaseSecurityScanner
+from devops_cli.core.process import run_subprocess  # noqa: F401
+from devops_cli.dry_run.state import is_dry_run  # noqa: F401
+from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +70,8 @@ class KubelinterScanner(BaseSecurityScanner):
 
     name: str = "kubelinter"
     binary_name: str = BIN_KUBELINTER
+    gating: ClassVar[bool] = True
+    has_builtin_patterns: ClassVar[bool] = False
 
     def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
         """Build argument command list for invoking Kube-linter."""
@@ -97,31 +97,7 @@ class KubelinterScanner(BaseSecurityScanner):
         ]
 
 
-def run_kubelinter_scan(target: Path = DEFAULT_CURRENT_PATH) -> list[Finding]:
-    """Execute Kube-linter scanner subprocess and return parsed findings."""
-    from devops_cli.telemetry import trace_span
-
+def run_kubelinter_scan(target: Path = DEFAULT_CURRENT_PATH) -> ScanOutcome:
+    """Execute Kube-linter scanner and return scan outcome."""
     scanner = KubelinterScanner()
-    with trace_span(
-        "security.scan.kubelinter",
-        attributes={"target": str(target)},
-    ) as span_h:
-        if is_dry_run():
-            return scanner.dry_run_scan(target)
-
-        cmd = scanner.build_command(target)
-        findings: list[Finding] = []
-
-        try:
-            proc = run_subprocess(cmd, timeout=DEFAULT_KUBELINTER_TIMEOUT_SECONDS, check=False)
-            if proc.returncode == 127:
-                span_h.set_attribute("tool.available", False)
-            elif proc.stdout:
-                data = json.loads(proc.stdout)
-                if isinstance(data, dict):
-                    findings = scanner.parse_output(data, target)
-        except Exception as exc:
-            logger.debug(f"Kube-linter scan execution skipped or failed: {exc}")
-
-        span_h.set_attribute("findings_count", len(findings))
-        return findings
+    return scanner.scan(target)

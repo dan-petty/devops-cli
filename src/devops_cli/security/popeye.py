@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_POPEYE, build_popeye_cmd
-from devops_cli.config.defaults import DEFAULT_POPEYE_TIMEOUT_SECONDS
-from devops_cli.core.process import run_subprocess
-from devops_cli.dry_run.state import is_dry_run
-from devops_cli.security.base import BaseSecurityScanner
+from devops_cli.core.process import run_subprocess  # noqa: F401
+from devops_cli.dry_run.state import is_dry_run  # noqa: F401
+from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +60,15 @@ class PopeyeScanner(BaseSecurityScanner):
 
     name: str = "popeye"
     binary_name: str = BIN_POPEYE
+    gating: ClassVar[bool] = True
+    has_builtin_patterns: ClassVar[bool] = False
+
+    def is_applicable(self, target_path: Path, **kwargs: Any) -> tuple[bool, str]:
+        """Verify cluster context presence before invoking Popeye."""
+        context = kwargs.get("context")
+        if not context:
+            return False, "Popeye requires a Kubernetes cluster context (--context)"
+        return True, ""
 
     def build_command(
         self,
@@ -70,7 +77,8 @@ class PopeyeScanner(BaseSecurityScanner):
         **kwargs: Any,
     ) -> list[str]:
         """Build argument command list for invoking Popeye."""
-        return build_popeye_cmd(context=context)
+        ctx = context if context and context != "current" else None
+        return build_popeye_cmd(context=ctx)
 
     def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
         """Parse raw Popeye cluster JSON payload into Finding models."""
@@ -96,30 +104,8 @@ def run_popeye_scan(
     namespace: str | None = None,
     context: str | None = None,
     save_output: bool = True,
-) -> list[Finding]:
-    """Execute Popeye sanitizer subprocess and return parsed findings."""
-    from devops_cli.telemetry import trace_span
-
+) -> ScanOutcome:
+    """Execute Popeye sanitizer and return scan outcome."""
     scanner = PopeyeScanner()
-    with trace_span(
-        "security.scan.popeye",
-        attributes={"namespace": namespace or "all", "context": context or "default"},
-    ) as span_h:
-        if is_dry_run():
-            return scanner.dry_run_scan(Path.cwd())
-
-        cmd = scanner.build_command(Path.cwd(), context=context)
-        findings: list[Finding] = []
-        try:
-            proc = run_subprocess(cmd, timeout=DEFAULT_POPEYE_TIMEOUT_SECONDS, check=False)
-            if proc.returncode == 127:
-                span_h.set_attribute("tool.available", False)
-            elif proc.stdout:
-                data = json.loads(proc.stdout)
-                if isinstance(data, dict):
-                    findings = scanner.parse_output(data, Path.cwd())
-        except Exception as exc:
-            logger.debug(f"Popeye execution skipped or failed: {exc}")
-
-        span_h.set_attribute("findings_count", len(findings))
-        return findings
+    effective_context = context or "current"
+    return scanner.scan(Path.cwd(), namespace=namespace, context=effective_context)

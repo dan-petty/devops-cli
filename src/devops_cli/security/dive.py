@@ -5,17 +5,18 @@ from __future__ import annotations
 import logging
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
     DEFAULT_DIVE_MAX_WASTED_BYTES,
     DEFAULT_DIVE_MIN_EFFICIENCY,
     DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
 )
-from devops_cli.security.base import BaseSecurityScanner
+from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,28 @@ class DiveScanner(BaseSecurityScanner):
 
     name: str = "dive"
     binary_name: str = "dive"
+    gating: ClassVar[bool] = False
+    has_builtin_patterns: ClassVar[bool] = False
+
+    def is_applicable(self, target_path: Path, **kwargs: Any) -> tuple[bool, str]:
+        """Determine if target represents a container image rather than a filesystem directory."""
+        image_name = kwargs.get("image") or kwargs.get("image_name")
+        if image_name:
+            return True, ""
+        if isinstance(target_path, Path):
+            if target_path.exists() and target_path.is_dir():
+                return (
+                    False,
+                    f"Dive requires container image target; skipping directory {target_path}",
+                )
+        elif isinstance(target_path, str):
+            p = Path(target_path)
+            if p.exists() and p.is_dir():
+                return (
+                    False,
+                    f"Dive requires container image target; skipping directory {target_path}",
+                )
+        return True, ""
 
     def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
         """Build argument command list for invoking Dive.
@@ -166,3 +189,13 @@ class DiveScanner(BaseSecurityScanner):
                 fix="No action required (dry-run mode)",
             )
         ]
+
+
+def run_dive_scan(
+    target: Path | str = DEFAULT_CURRENT_PATH,
+    **kwargs: Any,
+) -> ScanOutcome:
+    """Execute Dive container layer scanner and return scan outcome."""
+    scanner = DiveScanner()
+    tgt = Path(target) if isinstance(target, str) else target
+    return scanner.scan(tgt, **kwargs)

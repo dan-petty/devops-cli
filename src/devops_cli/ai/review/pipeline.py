@@ -16,6 +16,7 @@ Example:
 from __future__ import annotations
 
 import hashlib
+import inspect
 import logging
 import os
 import random
@@ -506,28 +507,50 @@ def _lockfiles_beside(paths: list[Path]) -> list[Path]:
     )
 
 
-def _scan_kubernetes_manifests(yaml_paths: list[Path]) -> list[SavedFinding]:
+def _scan_kubernetes_manifests(
+    yaml_paths: list[Path],
+    outcomes: dict[str, Any] | None = None,
+) -> list[SavedFinding]:
     """Scan Kubernetes YAML manifests with Kube-linter and Pluto."""
     from devops_cli.security.kubelinter import run_kubelinter_scan
     from devops_cli.security.pluto import run_pluto_scan
 
     findings: list[SavedFinding] = []
     for yp in yaml_paths:
-        if kl := run_kubelinter_scan(yp):
+        kl = run_kubelinter_scan(yp)
+        if outcomes is not None and (
+            "Kube-linter" not in outcomes or getattr(kl, "status", None) == "failed"
+        ):
+            outcomes["Kube-linter"] = kl
+        if kl:
             findings.extend(_wrap_static_findings(kl))
-        if pl := run_pluto_scan(yp):
+
+        pl = run_pluto_scan(yp)
+        if outcomes is not None and (
+            "Pluto" not in outcomes or getattr(pl, "status", None) == "failed"
+        ):
+            outcomes["Pluto"] = pl
+        if pl:
             findings.extend(_wrap_static_findings(pl))
     return findings
 
 
-def _scan_container_and_lockfiles(docker_lock_paths: list[Path]) -> list[SavedFinding]:
+def _scan_container_and_lockfiles(
+    docker_lock_paths: list[Path],
+    outcomes: dict[str, Any] | None = None,
+) -> list[SavedFinding]:
     """Scan container files and lockfiles with Trivy."""
     from devops_cli.security.trivy import run_trivy_scan
 
     findings: list[SavedFinding] = []
     for dp in docker_lock_paths:
         scan_t = "config" if "docker" in dp.name.lower() else "fs"
-        if t_findings := run_trivy_scan(dp, scan_type=scan_t):
+        t_findings = run_trivy_scan(dp, scan_type=scan_t)
+        if outcomes is not None and (
+            "Trivy" not in outcomes or getattr(t_findings, "status", None) == "failed"
+        ):
+            outcomes["Trivy"] = t_findings
+        if t_findings:
             findings.extend(_wrap_static_findings(t_findings))
     return findings
 
@@ -964,6 +987,7 @@ ANALYZER_RAN = "ran"
 ANALYZER_BUILTIN_PATTERNS = "built-in patterns"
 ANALYZER_NOT_INSTALLED = "not installed"
 ANALYZER_NO_FILES = "no files"
+ANALYZER_FAILED = "failed"
 
 # (name, binary, the kind of file it scans). Gitleaks falls back to built-in secret patterns.
 _STATIC_ANALYZERS: tuple[tuple[str, str, str], ...] = (
@@ -977,18 +1001,47 @@ _STATIC_ANALYZERS: tuple[tuple[str, str, str], ...] = (
 _ANALYZERS_WITH_BUILTIN_PATTERNS = frozenset({"Gitleaks"})
 
 
-def _static_analyzer_states(files_by_kind: dict[str, list[Path]]) -> dict[str, str]:
-    """How each static analyzer takes part: runs, uses built-in patterns, is missing, or has no files."""
+def _static_analyzer_state_from_outcome(outcome: Any) -> str:
+    """Map a ScanOutcome status to a review static analyzer state string."""
+    status = getattr(outcome, "status", None)
+    if status == "ran":
+        return ANALYZER_RAN
+    if status == "built-in patterns":
+        return ANALYZER_BUILTIN_PATTERNS
+    if status == "unavailable":
+        return ANALYZER_NOT_INSTALLED
+    if status == "failed":
+        return ANALYZER_FAILED
+    if status in ("not_applicable", "no files"):
+        return ANALYZER_NO_FILES
+    if status == "dry-run":
+        return ANALYZER_RAN
+    return ANALYZER_RAN
+
+
+def _predict_analyzer_state(name: str, binary: str) -> str:
+    """Predict analyzer state via binary lookup when execution was not observed."""
+    if check_binary(binary):
+        return ANALYZER_RAN
+    if name in _ANALYZERS_WITH_BUILTIN_PATTERNS:
+        return ANALYZER_BUILTIN_PATTERNS
+    return ANALYZER_NOT_INSTALLED
+
+
+def _static_analyzer_states(
+    files_by_kind: dict[str, list[Path]],
+    observed_outcomes: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """How each static analyzer took part: runs, uses built-in patterns, is missing, or has no files."""
     states: dict[str, str] = {}
+    outcomes = observed_outcomes or {}
     for name, binary, kind in _STATIC_ANALYZERS:
         if not files_by_kind.get(kind):
             states[name] = ANALYZER_NO_FILES
-        elif check_binary(binary):
-            states[name] = ANALYZER_RAN
-        elif name in _ANALYZERS_WITH_BUILTIN_PATTERNS:
-            states[name] = ANALYZER_BUILTIN_PATTERNS
+        elif name in outcomes:
+            states[name] = _static_analyzer_state_from_outcome(outcomes[name])
         else:
-            states[name] = ANALYZER_NOT_INSTALLED
+            states[name] = _predict_analyzer_state(name, binary)
     return states
 
 
@@ -1000,6 +1053,7 @@ def _static_analyzer_summary(states: dict[str, str], findings: int) -> list[str]
         if state in (ANALYZER_RAN, ANALYZER_BUILTIN_PATTERNS)
     ]
     missing = [name for name, state in states.items() if state == ANALYZER_NOT_INSTALLED]
+    failed = [name for name, state in states.items() if state == ANALYZER_FAILED]
     lines = (
         [f"    [dim]✓ Static analyzers found {findings} finding(s): {', '.join(ran)} ran[/dim]"]
         if ran
@@ -1007,10 +1061,15 @@ def _static_analyzer_summary(states: dict[str, str], findings: int) -> list[str]
     )
     if missing:
         lines.append(f"    [yellow]! Not installed, so not run: {', '.join(missing)}[/yellow]")
+    if failed:
+        lines.append(f"    [yellow]! Failed during execution: {', '.join(failed)}[/yellow]")
     return lines
 
 
-def _scan_gitleaks_and_semgrep(all_resolved: list[Path]) -> list[SavedFinding]:
+def _scan_gitleaks_and_semgrep(
+    all_resolved: list[Path],
+    outcomes: dict[str, Any] | None = None,
+) -> list[SavedFinding]:
     """Run Gitleaks secret and Semgrep AST static analysis."""
     if not all_resolved:
         return []
@@ -1018,9 +1077,36 @@ def _scan_gitleaks_and_semgrep(all_resolved: list[Path]) -> list[SavedFinding]:
     from devops_cli.security.semgrep import run_semgrep_scan
 
     findings: list[SavedFinding] = []
-    findings.extend(_wrap_static_findings(run_gitleaks_scan(all_resolved, ignore_tests=True)))
-    findings.extend(_wrap_static_findings(run_semgrep_scan(all_resolved)))
+    gl = run_gitleaks_scan(all_resolved, ignore_tests=True)
+    if outcomes is not None:
+        outcomes["Gitleaks"] = gl
+    findings.extend(_wrap_static_findings(gl))
+
+    sg = run_semgrep_scan(all_resolved)
+    if outcomes is not None:
+        outcomes["Semgrep"] = sg
+    findings.extend(_wrap_static_findings(sg))
     return findings
+
+
+def _call_scanner_helper(
+    func: Any, paths: list[Path], outcomes: dict[str, Any]
+) -> list[SavedFinding]:
+    """Invoke scanner helper with outcomes dict if supported by callable signature."""
+    try:
+        sig = inspect.signature(func)
+        if "outcomes" in sig.parameters or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        ):
+            res = func(paths, outcomes=outcomes)
+            return list(res) if isinstance(res, list) else []
+    except ValueError, TypeError:
+        pass
+    try:
+        res = func(paths, outcomes=outcomes)
+    except TypeError:
+        res = func(paths)
+    return list(res) if isinstance(res, list) else []
 
 
 def _get_finding_status_badge(status: str) -> str:
@@ -1520,14 +1606,20 @@ class ReviewPipelineOrchestrator:
             ) as sc_span:
                 all_resolved = [self._resolve_file_path(f) for f in file_paths]
 
+                observed_outcomes: dict[str, Any] = {}
+
                 # 1. Batch Bandit scan for Python files
                 py_paths = [p for p in all_resolved if p.suffix == ".py"]
                 if py_paths:
-                    all_static_findings.extend(_wrap_static_findings(run_bandit_scan(py_paths)))
+                    bandit_res = run_bandit_scan(py_paths)
+                    observed_outcomes["Bandit"] = bandit_res
+                    all_static_findings.extend(_wrap_static_findings(bandit_res))
 
                 # 2. Pluto & Kube-linter scan for Kubernetes manifests
                 yaml_paths = [p for p in all_resolved if p.suffix in (".yaml", ".yml")]
-                all_static_findings.extend(_scan_kubernetes_manifests(yaml_paths))
+                all_static_findings.extend(
+                    _call_scanner_helper(_scan_kubernetes_manifests, yaml_paths, observed_outcomes)
+                )
 
                 # 3. Aqua Trivy scan for Dockerfiles and lockfiles
                 docker_lock_paths = sorted(
@@ -1539,17 +1631,26 @@ class ReviewPipelineOrchestrator:
                     }
                     | set(_lockfiles_beside(all_resolved))
                 )
-                all_static_findings.extend(_scan_container_and_lockfiles(docker_lock_paths))
+                all_static_findings.extend(
+                    _call_scanner_helper(
+                        _scan_container_and_lockfiles, docker_lock_paths, observed_outcomes
+                    )
+                )
 
                 # 4. Gitleaks & Semgrep scans
-                all_static_findings.extend(_scan_gitleaks_and_semgrep(all_resolved))
+                all_static_findings.extend(
+                    _call_scanner_helper(
+                        _scan_gitleaks_and_semgrep, all_resolved, observed_outcomes
+                    )
+                )
                 self._record_static_analyzers(
                     {
                         "python": py_paths,
                         "yaml": yaml_paths,
                         "container": docker_lock_paths,
                         "any": all_resolved,
-                    }
+                    },
+                    observed_outcomes=observed_outcomes,
                 )
 
                 static_findings_by_file = _match_static_findings_to_files(
@@ -1571,9 +1672,13 @@ class ReviewPipelineOrchestrator:
 
         return static_findings_by_file
 
-    def _record_static_analyzers(self, files_by_kind: dict[str, list[Path]]) -> None:
+    def _record_static_analyzers(
+        self,
+        files_by_kind: dict[str, list[Path]],
+        observed_outcomes: dict[str, Any] | None = None,
+    ) -> None:
         """Keep how each analyzer took part, for the report and the review's profile."""
-        self.static_analyzers = _static_analyzer_states(files_by_kind)
+        self.static_analyzers = _static_analyzer_states(files_by_kind, observed_outcomes)
         if profiler := active_profiler():
             profiler.set_static_analyzers(self.static_analyzers)
 

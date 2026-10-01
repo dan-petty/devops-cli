@@ -204,7 +204,7 @@ def test_all_11_scanners_dry_run_simulation(tmp_path: Path) -> None:
         for name in ALL_EXPECTED_SCANNER_NAMES:
             scanner = global_scanner_registry.get(name)
             assert scanner is not None
-            findings = scanner.scan(test_file)
+            findings = scanner.scan(test_file, image="ubuntu:latest", context="test-cluster")
             assert isinstance(findings, list)
             assert len(findings) >= 1
             assert any(
@@ -391,7 +391,7 @@ def test_scanner_contract_execution_and_parsing(scanner_name: str, tmp_path: Pat
         patch("devops_cli.security.base.check_binary", return_value=True),
         patch("devops_cli.security.base.run_subprocess", return_value=mock_proc),
     ):
-        findings = scanner.scan(test_file, image="ubuntu:latest")
+        findings = scanner.scan(test_file, image="ubuntu:latest", context="test-cluster")
         assert isinstance(findings, list)
         assert len(findings) >= 1, (
             f"Scanner '{scanner_name}' failed to produce normalized findings from sample output"

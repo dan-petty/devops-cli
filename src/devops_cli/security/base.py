@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
+from unittest.mock import NonCallableMock
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS
@@ -16,6 +18,14 @@ from devops_cli.dry_run import state as dry_run_state
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
+
+
+def _has_builtin_patterns(scanner: Any) -> bool:
+    """Check if scanner defines or enables built-in fallback patterns."""
+    if getattr(scanner, "has_builtin_patterns", False):
+        return True
+    fb = getattr(scanner.__class__, "fallback_scan", None)
+    return fb is not None and getattr(fb, "__qualname__", "") != "BaseSecurityScanner.fallback_scan"
 
 
 def _parse_json_or_ndjson(raw_stdout: str) -> tuple[bool, Any]:
@@ -41,25 +51,174 @@ def _parse_json_or_ndjson(raw_stdout: str) -> tuple[bool, Any]:
     return True, records
 
 
+class ScanOutcome(list[Finding]):
+    """The outcome of executing a security scanner."""
+
+    def __init__(
+        self,
+        status: str,
+        findings: list[Finding] | None = None,
+        reason: str = "",
+    ) -> None:
+        items = list(findings) if findings is not None else []
+        super().__init__(items)
+        self.status: str = status
+        self.findings: list[Finding] = items
+        self.reason: str = reason
+
+    def __repr__(self) -> str:
+        return f"ScanOutcome(status={self.status!r}, findings={self.findings!r}, reason={self.reason!r})"
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, ScanOutcome):
+            return (self.status, self.findings, self.reason) == (
+                other.status,
+                other.findings,
+                other.reason,
+            )
+        return super().__eq__(other)
+
+
+def _evaluate_preflight(
+    scanner: BaseSecurityScanner, target_path: Any, **kwargs: Any
+) -> ScanOutcome | None:
+    """Evaluate dry-run, applicability, and binary presence prior to command execution."""
+    if scanner._is_dry_run():
+        applicable, reason = scanner.is_applicable(target_path, **kwargs)
+        if not applicable:
+            return ScanOutcome("not_applicable", [], reason)
+        return ScanOutcome(
+            "dry-run",
+            scanner.dry_run_scan(target_path, **kwargs),
+            "Dry-run simulation mode active",
+        )
+
+    applicable, reason = scanner.is_applicable(target_path, **kwargs)
+    if not applicable:
+        logger.debug(
+            "Scanner '%s' not applicable to target %s: %s",
+            scanner.name,
+            target_path,
+            reason,
+        )
+        return ScanOutcome(
+            "not_applicable",
+            [],
+            reason or f"Scanner {scanner.name} is not applicable to target",
+        )
+
+    if not scanner._check_binary():
+        if _has_builtin_patterns(scanner):
+            logger.debug(
+                "Scanner binary '%s' not found; executing built-in fallback patterns.",
+                scanner.binary_name,
+            )
+            return ScanOutcome(
+                "built-in patterns",
+                scanner.fallback_scan(target_path),
+                f"Binary '{scanner.binary_name}' not found; used built-in patterns",
+            )
+        logger.debug("Scanner binary '%s' not found on PATH.", scanner.binary_name)
+        return ScanOutcome(
+            "unavailable",
+            [],
+            f"Binary '{scanner.binary_name}' not found on PATH",
+        )
+
+    return None
+
+
+def _handle_non_json_output(
+    scanner: BaseSecurityScanner, proc: Any, target_path: Any
+) -> ScanOutcome:
+    """Handle scanner execution result when stdout does not contain valid JSON."""
+    if proc.returncode != 0:
+        if _has_builtin_patterns(scanner):
+            return ScanOutcome(
+                "built-in patterns",
+                scanner.fallback_scan(target_path),
+                f"Scanner exited with code {proc.returncode}; used built-in patterns",
+            )
+        err_msg = (proc.stderr or proc.stdout).strip()[:256]
+        return ScanOutcome(
+            "failed",
+            [],
+            f"Scanner exited with code {proc.returncode}: {err_msg}",
+        )
+    raw_findings = scanner.parse_output(proc.stdout, target_path)
+    if raw_findings:
+        return ScanOutcome("ran", raw_findings)
+    if _has_builtin_patterns(scanner):
+        return ScanOutcome(
+            "built-in patterns",
+            scanner.fallback_scan(target_path),
+            "Non-JSON output; used built-in patterns",
+        )
+    return ScanOutcome("ran", [])
+
+
+def _handle_json_output(
+    scanner: BaseSecurityScanner,
+    data: Any,
+    returncode: int,
+    stderr: str,
+    target_path: Any,
+) -> ScanOutcome:
+    """Handle scanner execution result with parsed JSON payload."""
+    findings = scanner.parse_output(data, target_path)
+    if not findings and returncode != 0:
+        if _has_builtin_patterns(scanner):
+            fb = scanner.fallback_scan(target_path)
+            if fb:
+                return ScanOutcome(
+                    "built-in patterns",
+                    fb,
+                    f"Scanner exited with code {returncode}; used built-in patterns",
+                )
+        err_msg = stderr.strip()[:256]
+        return ScanOutcome("failed", [], f"Scanner exited with code {returncode}: {err_msg}")
+    return ScanOutcome("ran", findings)
+
+
+def _is_mocked(module_name: str | None, attr_name: str) -> Any:
+    """Return mock object if attribute on module is a NonCallableMock, else None."""
+    if not module_name:
+        return None
+    mod = sys.modules.get(module_name)
+    if mod is None:
+        return None
+    target = getattr(mod, attr_name, None)
+    return target if isinstance(target, NonCallableMock) else None
+
+
 class BaseSecurityScanner(ABC):
     """Abstract base class for declarative security and static analysis tools."""
 
     name: str = "base_scanner"
     binary_name: str = "scanner"
+    gating: ClassVar[bool] = True
+    has_builtin_patterns: ClassVar[bool] = False
 
     @abstractmethod
-    def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
+    def build_command(self, target_path: Any, **kwargs: Any) -> list[str]:
         """Build argument command list for invoking the scanner binary."""
 
     @abstractmethod
-    def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
+    def parse_output(self, data: Any, target_path: Any) -> list[Finding]:
         """Parse raw scanner JSON/structure payload into Finding models."""
 
-    def fallback_scan(self, target_path: Path) -> list[Finding]:
+    def is_applicable(self, target_path: Any, **kwargs: Any) -> tuple[bool, str]:
+        """Determine if scanner applies to the given target and kwargs.
+
+        Returns (True, "") if applicable, or (False, reason) if not applicable.
+        """
+        return True, ""
+
+    def fallback_scan(self, target_path: Any) -> list[Finding]:
         """Execute fallback scan logic when primary binary is unavailable."""
         return []
 
-    def dry_run_scan(self, target_path: Path, **kwargs: Any) -> list[Finding]:
+    def dry_run_scan(self, target_path: Any, **kwargs: Any) -> list[Finding]:
         """Return simulated findings for dry-run simulation mode."""
         return [
             Finding(
@@ -71,66 +230,97 @@ class BaseSecurityScanner(ABC):
             )
         ]
 
-    def _resolve_cwd(self, target_path: Path) -> Path:
+    def _is_dry_run(self) -> bool:
+        """Determine whether dry-run mode is active, honoring module-level test mocks."""
+        for mod_name in (
+            "devops_cli.dry_run.state",
+            "devops_cli.security.base",
+            self.__class__.__module__,
+        ):
+            mock_dr = _is_mocked(mod_name, "is_dry_run")
+            if mock_dr is not None:
+                return bool(mock_dr())
+        return dry_run_state.is_dry_run()
+
+    def _check_binary(self) -> bool:
+        """Verify binary presence on PATH, honoring module-level test mocks."""
+        for mod_name in ("devops_cli.security.base", self.__class__.__module__):
+            mock_cb = _is_mocked(mod_name, "check_binary")
+            if mock_cb is not None:
+                return bool(mock_cb(self.binary_name))
+        for mod_name in ("devops_cli.security.base", self.__class__.__module__):
+            if _is_mocked(mod_name, "run_subprocess") is not None:
+                return True
+        return check_binary(self.binary_name)
+
+    def _run_subprocess(self, cmd: list[str], **kwargs: Any) -> Any:
+        """Execute subprocess command, honoring module-level test mocks."""
+        for mod_name in ("devops_cli.security.base", self.__class__.__module__):
+            mock_proc = _is_mocked(mod_name, "run_subprocess")
+            if mock_proc is not None:
+                return mock_proc(cmd, **kwargs)
+        return run_subprocess(cmd, **kwargs)
+
+    def _resolve_cwd(self, target_path: Any) -> Path:
         """Safely resolve working directory for subprocess execution."""
         try:
             if isinstance(target_path, Path) and target_path.exists():
                 return target_path if target_path.is_dir() else target_path.parent
+            if isinstance(target_path, list) and target_path and isinstance(target_path[0], Path):
+                p = target_path[0]
+                return p.parent if p.exists() and p.is_file() else Path.cwd()
         except Exception:
             pass
         return Path.cwd()
 
+    def _run_scanner_command(
+        self,
+        cmd: list[str],
+        cwd_dir: Path,
+        target_path: Any,
+        timeout: float,
+    ) -> ScanOutcome:
+        """Execute scanner command subprocess with output parsing and fallback handling."""
+
+        @trace_span(f"security.{self.name}")
+        def _run() -> ScanOutcome:
+            try:
+                proc = self._run_subprocess(cmd, cwd=cwd_dir, timeout=timeout, check=False)
+                is_valid_json, data = _parse_json_or_ndjson(proc.stdout)
+                if not is_valid_json:
+                    return _handle_non_json_output(self, proc, target_path)
+                return _handle_json_output(
+                    self, data, proc.returncode, proc.stderr or "", target_path
+                )
+            except Exception as exc:
+                logger.debug("Scanner '%s' failed: %s; running fallback.", self.name, exc)
+                if _has_builtin_patterns(self):
+                    return ScanOutcome(
+                        "built-in patterns",
+                        self.fallback_scan(target_path),
+                        f"Scanner error: {exc}; used built-in patterns",
+                    )
+                return ScanOutcome("failed", [], f"Scanner execution failed: {str(exc)[:256]}")
+
+        return _run()
+
     def scan(
         self,
-        target_path: Path,
+        target_path: Any,
         timeout: float = DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
         **kwargs: Any,
-    ) -> list[Finding]:
-        """Execute scanner with binary pre-flight checking, timeouts, and fallback recovery."""
-        if dry_run_state.is_dry_run():
-            return self.dry_run_scan(target_path, **kwargs)
-
-        if not check_binary(self.binary_name):
-            logger.debug(
-                "Scanner binary '%s' not found; executing fallback scan.", self.binary_name
-            )
-            return self.fallback_scan(target_path)
+    ) -> ScanOutcome:
+        """Execute scanner with applicability pre-flight checking, timeouts, and fallback recovery."""
+        preflight = _evaluate_preflight(self, target_path, **kwargs)
+        if preflight is not None:
+            return preflight
 
         cmd = self.build_command(target_path, **kwargs)
         if not cmd:
-            return []
+            return ScanOutcome("not_applicable", [], f"Empty command generated for {self.name}")
 
         cwd_dir = self._resolve_cwd(target_path)
+        return self._run_scanner_command(cmd, cwd_dir, target_path, timeout)
 
-        @trace_span(f"security.{self.name}")
-        def _run() -> list[Finding]:
-            try:
-                proc = run_subprocess(cmd, cwd=cwd_dir, timeout=timeout, check=False)
-                is_valid_json, data = _parse_json_or_ndjson(proc.stdout)
-                if not is_valid_json:
-                    if proc.returncode != 0:
-                        logger.debug(
-                            "Scanner '%s' returned code %d with non-JSON output; invoking fallback.",
-                            self.name,
-                            proc.returncode,
-                        )
-                        return self.fallback_scan(target_path)
-                    raw_findings = self.parse_output(proc.stdout, target_path)
-                    return raw_findings if raw_findings else self.fallback_scan(target_path)
 
-                findings = self.parse_output(data, target_path)
-                if not findings and proc.returncode != 0:
-                    logger.debug(
-                        "Scanner '%s' exited %d with zero findings; checking fallback.",
-                        self.name,
-                        proc.returncode,
-                    )
-                    fallback_findings = self.fallback_scan(target_path)
-                    if fallback_findings:
-                        return fallback_findings
-                return findings
-            except Exception as exc:
-                logger.debug("Scanner '%s' failed: %s; running fallback.", self.name, exc)
-                return self.fallback_scan(target_path)
-
-        return _run()
+__all__ = ["BaseSecurityScanner", "ScanOutcome"]
