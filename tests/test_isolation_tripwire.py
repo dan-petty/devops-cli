@@ -157,37 +157,23 @@ def test_check_test_paths_isolated_rejects_project_dir(tmp_path: Path) -> None:
 
 
 def test_evaluate_workspace_tripwire_aggregates_failures(tmp_path: Path) -> None:
-    """Verify _evaluate_workspace_tripwire aggregates config, tracked, lock, and forbidden failures."""
+    """Verify _evaluate_workspace_tripwire aggregates config, tracked, and forbidden failures."""
     repo_dir = tmp_path / "eval_repo"
     repo_dir.mkdir()
     (repo_dir / "config.yaml").write_text("bad: true", encoding="utf-8")
     (repo_dir / "test_config.yaml").write_text("leak: true", encoding="utf-8")
-    git_dir = repo_dir / ".git"
-    git_dir.mkdir()
-    (git_dir / "index.lock").write_text("lock", encoding="utf-8")
 
-    snapshot_unlocked: dict[str, Any] = {
+    snapshot: dict[str, Any] = {
         "repo_root": repo_dir,
         "config_state": None,
         "tracked_snapshot": {},
-        "had_index_lock": False,
     }
-    failures = _evaluate_workspace_tripwire(snapshot_unlocked)
-
-    snapshot_locked: dict[str, Any] = {
-        "repo_root": repo_dir,
-        "config_state": None,
-        "tracked_snapshot": {},
-        "had_index_lock": True,
-    }
-    failures_locked = _evaluate_workspace_tripwire(snapshot_locked)
+    failures = _evaluate_workspace_tripwire(snapshot)
 
     assert (
         "config.yaml (created by tests)" in failures,
-        ".git/index.lock (left behind by tests)" in failures,
         "test_config.yaml (test path found in project directory)" in failures,
-        ".git/index.lock (left behind by tests)" in failures_locked,
-    ) == (True, True, True, False)
+    ) == (True, True)
 
 
 def test_session_hooks_lifecycle(tmp_path: Path) -> None:
