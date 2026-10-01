@@ -331,6 +331,36 @@ def test_network_guard_refuses_loopback_services_the_test_did_not_start(host: st
         )
 
 
+def test_network_guard_refuses_a_port_once_the_test_closes_its_server() -> None:
+    """A port is the test's only while its listener is open; whoever holds it next is refused.
+
+    The service shares the port through SO_REUSEPORT and listens through the C socket type, so it
+    still answers there after the test closes its server, as a port-forward that binds the freed
+    port in another process would.
+    """
+    import _socket
+    import errno
+    import socket
+
+    with (
+        socket.socket() as server,
+        socket.socket() as service,
+        socket.socket() as client,
+        socket.socket() as probe,
+    ):
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        service.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        service.bind(server.getsockname())
+        _socket.socket.listen(service)
+        server.close()
+        address = service.getsockname()
+        with pytest.raises(ConnectionRefusedError):
+            client.connect(address)
+        assert probe.connect_ex(address) == errno.ECONNREFUSED
+
+
 def test_network_guard_lets_a_test_reach_a_server_it_started() -> None:
     """A server the test starts in-process stays reachable over loopback."""
     import socket

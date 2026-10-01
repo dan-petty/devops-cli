@@ -6,6 +6,8 @@ import errno
 import ipaddress
 import os
 import subprocess
+import threading
+import weakref
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -92,9 +94,11 @@ def _refuses_connect(address: Any, owned_ports: set[int]) -> bool:
 def prevent_external_network_calls() -> None:
     """Guarantee that tests never hit external APIs or endpoints, nor live services on loopback.
 
-    A loopback connect reaches only a port this test process listens on. Any other loopback port
-    refuses, as if nothing listened there, so a `kubectl port-forward` or a daemon on the
-    workstation is never reached and every machine takes CI's offline path. The refusal is the
+    A loopback connect reaches only a port this test process listens on, and only while that
+    listener is open. Any other loopback port refuses, as if nothing listened there, so a
+    `kubectl port-forward` or a daemon on the workstation is never reached and every machine takes
+    CI's offline path. Once a test closes its server, the port refuses again, so whatever binds it
+    next, such as another xdist worker or a port-forward, is not reached either. The refusal is the
     `ConnectionRefusedError` that clients already handle: a `RuntimeError` would escape them and
     send the test down a path no user reaches. Non-loopback connects raise `RuntimeError`.
 
@@ -107,7 +111,8 @@ def prevent_external_network_calls() -> None:
     orig_connect_ex = socket.socket.connect_ex
     orig_listen = socket.socket.listen
     orig_getaddrinfo = socket.getaddrinfo
-    owned_ports: set[int] = set()
+    listeners: weakref.WeakKeyDictionary[socket.socket, int] = weakref.WeakKeyDictionary()
+    listeners_lock = threading.RLock()
 
     # A blocked connect still pays for a real DNS query first, and the extractor resolves every
     # domain-like token it scans: each lookup costs a round trip per xdist worker. Fail external
@@ -126,15 +131,22 @@ def prevent_external_network_calls() -> None:
         orig_listen(self, *args)
         name = self.getsockname()
         if isinstance(name, tuple):
-            owned_ports.add(name[1])
+            with listeners_lock:
+                listeners[self] = name[1]
+
+    # A listener's port is owned while the socket is open. A closed one reports fileno -1, and one
+    # that was collected has already left the weak mapping.
+    def owned_ports() -> set[int]:
+        with listeners_lock:
+            return {port for sock, port in listeners.items() if sock.fileno() != -1}
 
     def guarded_connect(self, address):
-        if _refuses_connect(address, owned_ports):
+        if _refuses_connect(address, owned_ports()):
             raise ConnectionRefusedError(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED))
         return orig_connect(self, address)
 
     def guarded_connect_ex(self, address):
-        if _refuses_connect(address, owned_ports):
+        if _refuses_connect(address, owned_ports()):
             return errno.ECONNREFUSED
         return orig_connect_ex(self, address)
 
