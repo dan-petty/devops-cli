@@ -424,10 +424,11 @@ def _check_config_diff(repo_root: Path, initial_bytes: bytes | None) -> str | No
 
 
 def _is_git_file_modified(repo_root: Path, rel_path: str) -> bool:
-    """Check if a tracked file has uncommitted changes relative to the git index."""
-    git_index = repo_root / ".git" / "index"
-    if not git_index.exists():
-        return True
+    """Check if a tracked file has uncommitted changes relative to the git index.
+
+    git finds the index itself, also in a linked worktree, where `.git` is a file; a git error
+    exits non-zero and counts as a change.
+    """
     try:
         res = subprocess.run(
             ["git", "-C", str(repo_root), "diff", "--quiet", "--", rel_path],
