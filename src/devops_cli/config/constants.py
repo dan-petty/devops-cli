@@ -1691,6 +1691,10 @@ CONST_AI_PROMPT_CACHE_TTLS: Final[tuple[str, ...]] = ("5m", "1h")
 CONST_AI_CASCADE_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey", "ollama")
 CONST_AI_DEFAULT_CACHE_MARKER_KIND: Final[str] = "cache-point"
 CONST_AI_ALLOW_PRIVATE_NETWORK_ENV: Final[str] = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
+CONST_CLOUD_METADATA_HOSTS: Final[frozenset[str]] = frozenset(
+    {"169.254.169.254", "fd00:ec2::254", "metadata.google.internal", "metadata"}
+)
+CONST_CLOUD_METADATA_IPS: Final[frozenset[str]] = frozenset({"169.254.169.254", "fd00:ec2::254"})
 
 # ── AI Model Capability Tier Gates & AIMD Constants ───────────────────────────
 CONST_MIN_REASONING_MODEL_TIER_B: Final[int] = 30

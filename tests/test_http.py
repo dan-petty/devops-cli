@@ -40,7 +40,7 @@ def test_public_http_url_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
 )
 def test_private_ip_rejected_by_default(url: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
-    with pytest.raises(ValueError, match="Refusing non-public"):
+    with pytest.raises(ValueError, match=r"(Refusing non-public|Access to link-local)"):
         validate_service_url(url, "Grafana")
 
 

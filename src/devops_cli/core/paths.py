@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -11,6 +12,23 @@ from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.security import SecurityError
 
 E = TypeVar("E", bound=DevOpsCLIError)
+
+
+def _verify_no_symlinks(
+    candidate: Path,
+    base: Path,
+    error_cls: type[DevOpsCLIError],
+) -> None:
+    """Verify that candidate path and its parent hierarchy contain no symbolic links."""
+    current = candidate
+    while True:
+        if current.is_symlink():
+            raise error_cls(
+                f"Symlink rejected: '{current}' is a symbolic link and allow_symlinks is False."
+            )
+        if current == base or current.parent == current:
+            break
+        current = current.parent
 
 
 def safe_resolve_subpath(
@@ -46,14 +64,16 @@ def safe_resolve_subpath(
     if not raw_sub:
         raise error_cls(f"Path traversal detected: empty subpath provided for base '{base}'.")
 
-    # If subpath is absolute or relative, resolve against base
-    candidate = Path(raw_sub)
-    if not candidate.is_absolute():
-        candidate = base / candidate
+    if "\x00" in raw_sub or "\x00" in str(subpath):
+        raise error_cls(f"Path traversal detected: null byte in path '{subpath}'.")
 
+    # If subpath is absolute or relative, resolve against base
     try:
+        candidate = Path(raw_sub)
+        if not candidate.is_absolute():
+            candidate = base / candidate
         resolved = candidate.resolve()
-    except (OSError, RuntimeError) as exc:
+    except (ValueError, OSError, RuntimeError) as exc:
         raise error_cls(f"Failed to resolve path '{subpath}': {exc}") from exc
 
     # Enforce strict directory containment (symlinks or traversal outside base are never permitted)
@@ -64,15 +84,7 @@ def safe_resolve_subpath(
 
     # Symlink rejection when allow_symlinks=False
     if not allow_symlinks:
-        current = candidate
-        while True:
-            if current.is_symlink():
-                raise error_cls(
-                    f"Symlink rejected: '{current}' is a symbolic link and allow_symlinks is False."
-                )
-            if current == base or current.parent == current:
-                break
-            current = current.parent
+        _verify_no_symlinks(candidate, base, error_cls)
 
     # Existence verification
     if must_exist and not resolved.exists():
@@ -131,9 +143,11 @@ def validate_no_path_traversal(
     import urllib.parse
 
     unquoted = urllib.parse.unquote(raw_str)
-    p = Path(unquoted)
+    if "\x00" in raw_str or "\x00" in unquoted:
+        raise error_cls(f"{label} traversal detected: null byte in path '{path}'.")
 
-    if ".." in raw_str or ".." in unquoted or any(part == ".." for part in p.parts):
+    parts = [part for part in re.split(r"[/\\]+", unquoted) if part]
+    if any(part == ".." for part in parts):
         raise error_cls(
             f"Path traversal detected in {label}: '{path}' (cannot contain '..' traversal sequences)."
         )
@@ -158,18 +172,24 @@ def validate_path_parameter(
     import urllib.parse
 
     unquoted = urllib.parse.unquote(raw_str)
-    p = Path(unquoted)
+    if "\x00" in raw_str or "\x00" in unquoted:
+        raise error_cls(
+            f"Path traversal sequence detected in parameter '{param_name}': null byte in path '{value}'."
+        )
 
-    if (
-        ".." in raw_str
-        or "../" in raw_str
-        or "..\\" in raw_str
-        or ".." in unquoted
-        or any(part == ".." for part in p.parts)
-    ):
+    parts = [part for part in re.split(r"[/\\]+", unquoted) if part]
+    if any(part == ".." for part in parts):
         raise error_cls(f"Path traversal sequence detected in parameter '{param_name}': '{value}'.")
 
-    if not allow_absolute and (p.is_absolute() or raw_str.startswith(("/", "\\"))):
-        raise error_cls(
-            f"Absolute path in parameter '{param_name}' is blocked by security policy: '{value}'."
+    if not allow_absolute:
+        p = Path(unquoted)
+        is_abs = (
+            p.is_absolute()
+            or raw_str.startswith(("/", "\\"))
+            or unquoted.startswith(("/", "\\", "~"))
+            or "://" in unquoted
         )
+        if is_abs:
+            raise error_cls(
+                f"Absolute path in parameter '{param_name}' is blocked by security policy: '{value}'."
+            )

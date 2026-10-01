@@ -123,12 +123,14 @@ def _resolve_safe_jaeger_target(
     Returns (is_blocked, vetted_ip).
     """
     host = parsed.hostname or ""
-    clean = host.strip("[]").rstrip(".").lower()
-    if clean in ("169.254.169.254", "metadata.google.internal") or clean.startswith("169.254."):
+    from devops_cli.core.validation import is_cloud_metadata_host
+
+    if is_cloud_metadata_host(host, resolve_dns=False):
         return True, None
+    clean = host.strip("[]").rstrip(".").lower()
     try:
         ip = ipaddress.ip_address(clean)
-        if _is_unsafe_ip(ip):
+        if _is_unsafe_ip(ip) or is_cloud_metadata_host(ip, resolve_dns=False):
             return True, None
         return False, str(ip)
     except ValueError:
@@ -140,8 +142,12 @@ def _resolve_safe_jaeger_target(
         addr_info = socket.getaddrinfo(clean, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
         for _, _, _, _, sockaddr in addr_info:
             ip_str = sockaddr[0] if isinstance(sockaddr[0], str) else ""
-            if ip_str and _is_unsafe_ip(ipaddress.ip_address(ip_str)):
-                return True, None
+            if ip_str:
+                resolved_ip = ipaddress.ip_address(ip_str)
+                if _is_unsafe_ip(resolved_ip) or is_cloud_metadata_host(
+                    resolved_ip, resolve_dns=False
+                ):
+                    return True, None
         if addr_info and isinstance(addr_info[0][4][0], str):
             return False, addr_info[0][4][0]
     except socket.gaierror, OSError, ValueError:

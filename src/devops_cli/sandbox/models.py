@@ -33,7 +33,11 @@ from devops_cli.config.defaults import (
     DEFAULT_SANDBOX_NAMESPACE,
     DEFAULT_SANDBOX_PIDS_LIMIT,
 )
-from devops_cli.core.validation import is_loopback_or_private_host, is_non_public_ip
+from devops_cli.core.validation import (
+    is_cloud_metadata_host,
+    is_loopback_or_private_host,
+    is_non_public_ip,
+)
 
 
 class SandboxStatus(StrEnum):
@@ -87,7 +91,7 @@ def _is_forbidden_local_ip(
     ),
 ) -> bool:
     """Return whether an IP address or network is link-local metadata forbidden in local whitelist."""
-    return ip_obj.is_link_local or str(ip_obj).startswith("169.254.")
+    return is_cloud_metadata_host(ip_obj, resolve_dns=False)
 
 
 def _is_private_or_loopback(
@@ -118,7 +122,7 @@ def _validate_local_whitelist_item(item: str) -> None:
     host = _extract_host_or_ip(item)
     if not host:
         raise ValueError(f"Invalid local whitelist entry: '{item}'")
-    if host == "169.254.169.254" or host.startswith("169.254."):
+    if is_cloud_metadata_host(host, resolve_dns=False):
         raise ValueError(
             f"Cloud metadata '{item}' is forbidden in local whitelist to mitigate SSRF."
         )
@@ -208,6 +212,8 @@ def _resolve_local_host(host: str) -> list[str]:
     """Resolve local host/domain to validated private/loopback IPv4/IPv6 address strings."""
     if host in ("localhost", "host.docker.internal"):
         return ["127.0.0.1/32"]
+    if is_cloud_metadata_host(host, resolve_dns=False):
+        raise ValueError(f"Link-local cloud metadata '{host}' is forbidden in local whitelist.")
     try:
         ip_net = ipaddress.ip_network(host, strict=False)
         if _is_forbidden_local_ip(ip_net):
