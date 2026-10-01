@@ -4,7 +4,11 @@
 command is a lazy proxy that accepts any arguments (`core/cli.py`). The walk therefore
 starts where `main._delegate` does, at the module app `main._COMMAND_SPECS` names, and
 descends it with `resolve_command`. Each node is parsed with `make_context`, which converts
-values and runs parameter callbacks but never a command's own callback.
+values and runs parameter callbacks but never a command's own callback. An action option
+-- eager, like `--help` and `--version`, or one whose value the command never sees, like
+Typer's completion options -- runs its callback as it is parsed, to print, write a shell
+profile or exit. A node given one, or a group given nothing, which prints its help, is
+therefore not parsed: none of them names a missing command or option.
 
 Typer vendors its own copy of Click, so nothing here imports a Click class: a group is
 whatever has `resolve_command`, and an unknown option is the parse error that carries
@@ -109,35 +113,57 @@ def _walk(
 
 def _parse(
     command: Any, name: str, path: str, tokens: Sequence[ArgvToken], parent: Any
-) -> tuple[Any, CommandReferenceFinding | None]:
+) -> tuple[Any | None, CommandReferenceFinding | None]:
     """Parse `tokens` as `command`'s arguments: its context, or the defect that stopped it.
 
-    Of the errors a strict parse raises, only an unknown option is final. Click converts
-    values before it looks for extra arguments, so a value that fails conversion -- usually
-    a placeholder -- hides them, and a lenient parse recovers the leftovers instead. Click's
-    parser consumes the list it is given, so each parse gets its own.
+    No context means the walk stops here with nothing to report. Of the errors a strict
+    parse raises, one naming an option is final: an unknown option is the defect, and a
+    known option missing its value stopped the parser before it bound the positionals, so
+    its leftovers are not extra arguments. Click converts values before it looks for extra
+    arguments, so a value that fails conversion -- usually a placeholder -- hides them, and
+    a lenient parse recovers the leftovers instead. Click's parser consumes the list it is
+    given, so each parse gets its own. An exit is a fallback for any other callback that
+    ends the command.
     """
     args = [str(token) for token in tokens]
+    if not args or _gives_action_option(command, name, args, parent):
+        return None, None
     try:
         strict = command.make_context(name, list(args), parent=parent, resilient_parsing=False)
         return strict, None
+    except typer.Exit, SystemExit:
+        return None, None
     except typer.TyperException as error:
-        option = _unknown_option(error)
-        if option is not None:
-            return None, _found(CommandReferenceDefect.UNKNOWN_OPTION, path, option)
+        if hasattr(error, "option_name"):
+            return None, _unknown_option(error, path)
     context = command.make_context(name, args, parent=parent, resilient_parsing=True)
     return context, _unexpected_argument(context, path, tokens)
 
 
-def _unknown_option(error: Exception) -> str | None:
-    """The option a parse rejected as unknown, duck-typed on vendored Click's `NoSuchOption`.
+def _gives_action_option(command: Any, name: str, args: list[str], parent: Any) -> bool:
+    """Whether `args` hands `command` one of its own action options, without parsing them.
+
+    An action option is eager, or keeps its value from the command, so it exists for its
+    callback. Only the option parser runs, on a context parsed from no arguments, so no
+    callback sees these tokens. A group's parser stops at its subcommand, so
+    `scan gitleaks --help` gives `--help` to `gitleaks`, not to `scan`, and the missing
+    `gitleaks` is still found.
+    """
+    probe = command.make_context(name, [], parent=parent, resilient_parsing=True)
+    _, _, given = command.make_parser(probe).parse_args(list(args))
+    return any(parameter.is_eager or not parameter.expose_value for parameter in given)
+
+
+def _unknown_option(error: Exception, path: str) -> CommandReferenceFinding | None:
+    """The unknown option a parse rejected, duck-typed on vendored Click's `NoSuchOption`.
 
     `BadOptionUsage` carries `option_name` too, for a known option missing its value; only
     `NoSuchOption` carries `possibilities`.
     """
     if not hasattr(error, "possibilities"):
         return None
-    return str(getattr(error, "option_name", ""))
+    option = str(getattr(error, "option_name", ""))
+    return _found(CommandReferenceDefect.UNKNOWN_OPTION, path, option)
 
 
 def _unexpected_argument(
@@ -152,9 +178,11 @@ def _unexpected_argument(
 
 
 def _literal_subcommand(
-    context: Any, tokens: Sequence[ArgvToken]
+    context: Any | None, tokens: Sequence[ArgvToken]
 ) -> tuple[str, Sequence[ArgvToken]] | None:
     """The literal subcommand name a group's parse left over, and the tokens after it."""
+    if context is None:
+        return None
     # Vendored Click keeps the subcommand name in `_protected_args`, with no public
     # accessor. A group parses no positionals of its own, so what it leaves is a suffix of
     # its tokens. If Typer renames the attribute, the walk fails here, loudly.

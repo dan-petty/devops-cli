@@ -13,6 +13,7 @@ import inspect
 import sys
 from collections.abc import Iterable, Iterator, Sequence
 from importlib import import_module
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
@@ -21,6 +22,7 @@ from devops_cli.config.constants import (
     CONST_DEVOPS_ARGV_PREFIX,
     CONST_MCP_SERVER_MODULE,
 )
+from devops_cli.core.repo import find_repo_root
 from devops_cli.docs.command_resolver import ArgvPlaceholder, ArgvToken, resolve_devops_argv
 from devops_cli.lang import MESSAGES
 
@@ -47,9 +49,11 @@ class DevopsArgvReference(BaseModel):
 def collect_devops_argv_references(source: str, path: str) -> list[DevopsArgvReference]:
     """Collect every list literal in `source` that starts with `uv run devops`.
 
-    A list assigned to a variable also gains the literal flags later appended or extended
-    onto that variable in the same function, up to the next list assigned to it. Any other
-    element becomes a placeholder; a non-literal append or extend is left out.
+    A list assigned to a variable also gains every token later appended or extended onto
+    that variable in the same function, in source order, up to the next list assigned to
+    it. A literal string is kept as written and any other element or added value becomes a
+    placeholder. Branches are not followed, so appends that exclude each other read as one
+    command line.
     """
     tree = ast.parse(source, filename=path)
     scopes = [tree, *(node for node in ast.walk(tree) if isinstance(node, _SCOPE_NODES))]
@@ -58,9 +62,14 @@ def collect_devops_argv_references(source: str, path: str) -> list[DevopsArgvRef
 
 
 def collect_mcp_server_argv_references() -> list[DevopsArgvReference]:
-    """Collect the `uv run devops` argv lists of the FastMCP server's tools and resources."""
+    """Collect the `uv run devops` argv lists of the FastMCP server's tools and resources.
+
+    Each is located by its path from the repository root, `src/` included, so an editor or
+    a CI annotation can open it.
+    """
     module = import_module(CONST_MCP_SERVER_MODULE)
-    path = CONST_MCP_SERVER_MODULE.replace(".", "/") + ".py"
+    source_file = Path(inspect.getsourcefile(module) or "").resolve()
+    path = source_file.relative_to(find_repo_root(source_file)).as_posix()
     return collect_devops_argv_references(inspect.getsource(module), path)
 
 
@@ -134,7 +143,7 @@ def _extended_name(call: ast.Call) -> str | None:
 def _added_tokens(
     argv: ast.List, bindings: Sequence[tuple[str, ast.List]], calls: Sequence[ast.Call]
 ) -> list[ArgvToken]:
-    """The literal flags added to `argv`'s variable before the variable is reassigned."""
+    """The tokens added to `argv`'s variable before the variable is reassigned."""
     name = next((bound for bound, value in bindings if value is argv), None)
     if name is None:
         return []
@@ -151,17 +160,24 @@ def _added_tokens(
         token
         for call in calls
         if _extended_name(call) == name and start < _position(call) < end
-        for token in _literal_flag_tokens(call)
+        for token in _call_tokens(call)
     ]
 
 
-def _literal_flag_tokens(call: ast.Call) -> list[ArgvToken]:
-    """The tokens of `.append("--flag")`, or of `.extend(["--flag", value])`; else none."""
-    added = call.args[0] if len(call.args) == 1 else None
-    elements = added.elts if isinstance(added, (ast.List, ast.Tuple)) else [added]
-    tokens = [_token(element) for element in elements if element is not None]
-    head = tokens[0] if tokens else None
-    return tokens if isinstance(head, str) and head.startswith("-") else []
+def _call_tokens(call: ast.Call) -> list[ArgvToken]:
+    """The tokens `.append(value)` or `.extend(values)` adds, a placeholder per runtime value.
+
+    An extend of a list or tuple literal adds its elements; any other extend adds tokens
+    that are not known until it runs, which one placeholder stands for.
+    """
+    if len(call.args) != 1:
+        return []
+    added = call.args[0]
+    if not isinstance(call.func, ast.Attribute) or call.func.attr != "extend":
+        return [_token(added)]
+    if isinstance(added, ast.List | ast.Tuple):
+        return [_token(element) for element in added.elts]
+    return [ArgvPlaceholder(expression=ast.unparse(added))]
 
 
 def _token(element: ast.expr) -> ArgvToken:

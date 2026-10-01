@@ -11,8 +11,10 @@ from devops_cli.docs.command_resolver import (
     ArgvToken,
     CommandReferenceDefect,
     CommandReferenceFinding,
+    module_click_command,
     resolve_devops_argv,
 )
+from devops_cli.main import _COMMAND_SPECS
 
 
 def _finding(defect: CommandReferenceDefect, path: str, token: str) -> CommandReferenceFinding:
@@ -64,6 +66,18 @@ NUMBER = ArgvPlaceholder(expression="str(max_complexity)")
         (
             ["lint", "--nope"],
             _finding(CommandReferenceDefect.UNKNOWN_OPTION, "devops lint", "--nope"),
+        ),
+        (
+            ["scan", "gitleaks", "--help"],
+            _finding(CommandReferenceDefect.UNKNOWN_COMMAND, "devops scan", "gitleaks"),
+        ),
+        (
+            ["scan", "complexity", "--max-nesting-depth", "--help"],
+            _finding(
+                CommandReferenceDefect.UNKNOWN_OPTION,
+                "devops scan complexity",
+                "--max-nesting-depth",
+            ),
         ),
     ],
 )
@@ -123,8 +137,58 @@ def test_a_placeholder_is_never_reported(tokens: list[ArgvToken]) -> None:
     assert resolve_devops_argv(tokens) is None
 
 
+def test_an_option_missing_its_value_is_not_an_extra_argument() -> None:
+    """Verify a known option left without its value does not blame an earlier literal.
+
+    Click's parser stops at the option, before it binds the positionals, so what that parse
+    leaves over is not a set of extra arguments.
+    """
+    assert resolve_devops_argv(["scan", "sast", ".", "--config"]) is None
+
+
+@pytest.mark.parametrize(
+    "tokens",
+    [
+        [],
+        ["--help"],
+        ["--version"],
+        ["k8s"],
+        ["scan", "--help"],
+        ["scan", "sast", "--help"],
+        ["scan", "sast", ".", "-h"],
+        ["scan", "--show-completion", "bash"],
+    ],
+)
+def test_an_eager_option_or_a_bare_group_resolves_silently(
+    tokens: list[ArgvToken], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify `--help`, `--version`, a completion option or a bare group prints nothing.
+
+    An eager option's callback prints and exits as the option is parsed, and a group given
+    nothing prints its help. None of them names a missing command or option, so the walk
+    stops there instead of parsing them.
+    """
+    finding = resolve_devops_argv(tokens)
+
+    assert (finding, capsys.readouterr().out) == (None, "")
+
+
+def test_a_completion_option_never_installs_completion() -> None:
+    """Verify `--install-completion` resolves without writing a completion script or profile."""
+    with patch("typer.completion.install", side_effect=AssertionError("installed")) as install:
+        finding = resolve_devops_argv(["scan", "--install-completion", "bash"])
+
+    assert (finding, install.called) == (None, False)
+
+
 def test_resolving_parses_without_invoking_or_spawning() -> None:
-    """Verify a destructive command line resolves without its callback or a subprocess."""
+    """Verify a destructive command line resolves without its callback or a subprocess.
+
+    Importing a command module may spawn (GitPython runs `git version` on import), and
+    `devops docs check` imports every module to generate the docs anyway, so the module is
+    built before the guard and only the resolving runs inside it.
+    """
+    module_click_command(_COMMAND_SPECS["k8s"][0])
     with (
         patch("devops_cli.k8s.chaos.execute_chaos_experiment") as experiment,
         patch("subprocess.Popen", side_effect=AssertionError("no subprocess")) as popen,

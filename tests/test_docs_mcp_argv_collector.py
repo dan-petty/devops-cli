@@ -8,7 +8,7 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from devops_cli.commands.docs import app as docs_app
-from devops_cli.docs.command_resolver import ArgvPlaceholder
+from devops_cli.docs.command_resolver import ArgvPlaceholder, module_click_command
 from devops_cli.docs.generator import DocGenerator
 from devops_cli.docs.mcp_argv_collector import (
     DevopsArgvReference,
@@ -16,6 +16,7 @@ from devops_cli.docs.mcp_argv_collector import (
     collect_mcp_server_argv_references,
     describe_unresolved_references,
 )
+from devops_cli.main import _COMMAND_SPECS
 
 FIXTURE_SOURCE = """\
 def ai_architecture(target: str = "src") -> str:
@@ -49,6 +50,13 @@ def two_commands() -> str:
 
 def not_devops() -> str:
     return _run(["uv", "run", "pytest", "-q"])
+
+
+def scan_sast(config: str) -> str:
+    cmd = ["uv", "run", "devops", "scan", "sast", "."]
+    cmd.append("--config")
+    cmd.append(config)
+    return _run(cmd)
 """
 
 FIXTURE_REFERENCES = collect_devops_argv_references(FIXTURE_SOURCE, "fixture.py")
@@ -58,12 +66,12 @@ def _reference(line: int, owner: str, *tokens: str | ArgvPlaceholder) -> DevopsA
     return DevopsArgvReference(path="fixture.py", line=line, owner=owner, tokens=tokens)
 
 
-def test_argv_lists_and_their_literal_flags_are_collected() -> None:
+def test_argv_lists_and_everything_added_to_them_are_collected() -> None:
     """Verify each `uv run devops` list keeps its literals, a placeholder per runtime value,
-    and the literal flags appended or extended onto the variable it is assigned to.
+    and every token appended or extended onto the variable it is assigned to, in order.
 
-    A non-literal append, a non-literal extend and a literal positional append are left
-    out: none of them is a literal flag.
+    A non-literal append or extend becomes a placeholder like a non-literal element, so an
+    option and its value appended in two calls stay together.
     """
     assert FIXTURE_REFERENCES == [
         _reference(
@@ -78,21 +86,42 @@ def test_argv_lists_and_their_literal_flags_are_collected() -> None:
             "--max-nesting-depth",
             ArgvPlaceholder(expression="str(depth)"),
         ),
-        _reference(12, "repos_sync", "repos", "sync", "--all"),
+        _reference(
+            12,
+            "repos_sync",
+            "repos",
+            "sync",
+            "--all",
+            ArgvPlaceholder(expression="branch"),
+            ArgvPlaceholder(expression="extra_flags"),
+            "list",
+        ),
         _reference(23, "two_commands", "repos", "sync", "--no-pull"),
         _reference(25, "two_commands", "repos", "sync", "--dry-run"),
+        _reference(
+            35,
+            "scan_sast",
+            "scan",
+            "sast",
+            ".",
+            "--config",
+            ArgvPlaceholder(expression="config"),
+        ),
     ]
 
 
 def test_unresolved_fixture_argv_are_reported_with_their_source_line() -> None:
-    """Verify an unknown command names `analyze` and an unknown option names its line."""
+    """Verify an unknown command names `analyze` and an unknown option names its line.
+
+    The option and value appended in two calls, at line 35, resolve.
+    """
     assert describe_unresolved_references(FIXTURE_REFERENCES) == [
         "fixture.py:2 ai_architecture: 'devops analyze architecture <target>': "
         "unknown command 'analyze' under 'devops'.",
         "fixture.py:6 scan_complexity: "
         "'devops scan complexity <target> --max-nesting-depth <str(depth)>': "
         "unknown option '--max-nesting-depth' for 'devops scan complexity'.",
-        "fixture.py:12 repos_sync: 'devops repos sync --all': "
+        "fixture.py:12 repos_sync: 'devops repos sync --all <branch> <extra_flags> list': "
         "unknown option '--all' for 'devops repos sync'.",
     ]
 
@@ -101,8 +130,13 @@ def test_every_mcp_server_argv_resolves() -> None:
     """Verify every literal argv list in the MCP server names a real command and options.
 
     The lists are resolved, not run: neither the MCP runner nor a subprocess is reached.
-    168 is every list once `ai_architecture`, the 169th, was deleted.
+    168 is every list once `ai_architecture`, the 169th, was deleted. Importing a command
+    module may spawn (GitPython runs `git version` on import), and `devops docs check` has
+    imported every module to generate the docs before it resolves, so each module's command
+    tree is built before the guard and only collecting and resolving run inside it.
     """
+    for module_path, _ in _COMMAND_SPECS.values():
+        module_click_command(module_path)
     with (
         patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mcp_runner,
         patch("subprocess.Popen", side_effect=AssertionError("no subprocess")) as popen,
@@ -116,7 +150,7 @@ def test_every_mcp_server_argv_resolves() -> None:
         unresolved,
         mcp_runner.called,
         popen.called,
-    ) == (True, {"devops_cli/ai/mcp/server.py"}, [], False, False)
+    ) == (True, {"src/devops_cli/ai/mcp/server.py"}, [], False, False)
 
 
 def test_docs_check_reports_an_unresolved_mcp_argv(tmp_path: Path) -> None:
