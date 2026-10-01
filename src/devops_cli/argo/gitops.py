@@ -29,6 +29,7 @@ from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.http.validation import validate_service_url
+from devops_cli.k8s.credentials import get_or_mint_argocd_token
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
 from devops_cli.security.sanitizer import mask_secrets, mask_uri_credentials
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
@@ -361,7 +362,7 @@ def trigger_argocd_sync(
             url, headers, payload = _build_sync_request_params(
                 app_name, base, sync_mode, prune, force
             )
-            token = get_argocd_token(settings)
+            token = get_argocd_token(settings) or get_or_mint_argocd_token(settings)
             if token and not token.startswith("*"):
                 headers["Authorization"] = f"Bearer {token}"
 

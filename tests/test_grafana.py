@@ -115,39 +115,39 @@ def test_grafana_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     mock_settings.grafana.url = "http://localhost:3000"
     mock_settings.ai.allow_private_network = True
 
-    def mock_get(*args: object, **kwargs: object) -> MagicMock:
-        resp = MagicMock()
-        resp.status_code = 200
-        url_str = ""
-        for a in args:
-            if isinstance(a, str) and ("http" in a or "/api/" in a):
-                url_str = a
-                break
-        if not url_str and "url" in kwargs:
-            url_str = str(kwargs["url"])
+    endpoint_map = {
+        "dashboards/uid": mock_dashboard_detail,
+        "search": mock_dashboards,
+        "datasources": mock_datasources,
+        "alert-rules": mock_alerts,
+    }
 
-        if "dashboards/uid" in url_str:
-            resp.json.return_value = mock_dashboard_detail
-        elif "search" in url_str:
-            resp.json.return_value = mock_dashboards
-        elif "datasources" in url_str:
-            resp.json.return_value = mock_datasources
-        elif "alert-rules" in url_str:
-            resp.json.return_value = mock_alerts
-        else:
-            resp.json.return_value = []
+    def mock_get(*args: object, **kwargs: object) -> MagicMock:
+        resp = MagicMock(status_code=200)
+        url_str = next(
+            (
+                str(a)
+                for a in (*args, kwargs.get("url", ""))
+                if "http" in str(a) or "/api/" in str(a)
+            ),
+            "",
+        )
+        resp.json.return_value = next(
+            (val for key, val in endpoint_map.items() if key in url_str), []
+        )
         return resp
 
     def mock_post(*args: object, **kwargs: object) -> MagicMock:
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.json.return_value = {"slug": "imported-dash", "status": "success"}
-        return resp
+        return MagicMock(
+            status_code=200, json=lambda: {"slug": "imported-dash", "status": "success"}
+        )
 
+    monkeypatch.chdir(tmp_path)
     sample_dash_file = tmp_path / "dash.json"
     sample_dash_file.write_text(
         json.dumps({"title": "Sample Dashboard", "panels": []}), encoding="utf-8"
     )
+    export_out = tmp_path / "test_exported.json"
 
     with (
         patch("devops_cli.commands.grafana.httpx2.Client.get", side_effect=mock_get),
@@ -155,11 +155,11 @@ def test_grafana_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         patch("devops_cli.commands.grafana.load_settings", return_value=mock_settings),
     ):
         res_list = runner.invoke(grafana_app, ["dashboards", "list"])
-        export_out = Path("test_exported.json")
         res_export = runner.invoke(
             grafana_app,
             ["dashboards", "export", "cluster-overview", "--output", str(export_out)],
         )
+        export_created = export_out.exists()
         res_import = runner.invoke(grafana_app, ["dashboards", "import", str(sample_dash_file)])
         res_search = runner.invoke(grafana_app, ["search", "--query", "cluster"])
         res_ds = runner.invoke(grafana_app, ["datasources"])
@@ -168,9 +168,29 @@ def test_grafana_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         assert (
             res_list.exit_code,
             res_export.exit_code,
-            export_out.exists(),
+            export_created,
             res_import.exit_code,
             res_search.exit_code,
             res_ds.exit_code,
             res_alerts.exit_code,
         ) == (0, 0, True, 0, 0, 0, 0)
+
+
+def test_grafana_client_args_masked_token_fallback() -> None:
+    from devops_cli.commands.grafana import _client_args
+
+    settings_masked = Settings()
+    settings_masked.grafana.url = "http://example.com:3000"
+    with (
+        patch("devops_cli.commands.grafana.get_grafana_token", return_value="******"),
+        patch(
+            "devops_cli.k8s.credentials.get_or_mint_grafana_auth",
+            return_value=("minted-token", None),
+        ) as mock_mint,
+    ):
+        base_url, headers = _client_args(settings_masked)
+        assert (
+            base_url,
+            headers.get("Authorization"),
+            mock_mint.called,
+        ) == ("http://example.com:3000", "Bearer minted-token", True)

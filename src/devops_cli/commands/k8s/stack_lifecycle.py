@@ -627,8 +627,12 @@ def _post_deploy_credentials(
         synced = sync_k8s_credentials(context=effective_context, stack="infra")
         if synced.get("argocd"):
             print_success("ArgoCD admin credentials securely synced to OS Keyring.")
+        if synced.get("argocd_token"):
+            print_success("ArgoCD API token securely synced to OS Keyring.")
         if synced.get("grafana"):
             print_success("Grafana admin credentials securely synced to OS Keyring.")
+        if synced.get("grafana_token"):
+            print_success("Grafana API token securely synced to OS Keyring.")
         print_info(
             "[dim]Jaeger Query UI: http://localhost:16686 (namespace: otel)[/dim]",
             prefix=False,
@@ -797,8 +801,9 @@ def sync_secrets(
     results = sync_k8s_credentials(context=effective_context, stack=stack)
     for svc, success in results.items():
         if success:
-            print_success(f"{svc.capitalize()} credentials securely stored in OS Keyring.")
-        else:
+            label = svc.replace("_", " ").title()
+            print_success(f"{label} credentials securely stored in OS Keyring.")
+        elif not svc.endswith("_token"):
             print_info(f"{svc.capitalize()} secret not found in active cluster.", prefix=False)
 
 

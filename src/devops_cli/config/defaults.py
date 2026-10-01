@@ -293,6 +293,7 @@ DEFAULT_REVIEW_OVERLAP_FACTOR: float = 0.1
 DEFAULT_SUBPROCESS_TIMEOUT_SECONDS: float = 1800.0  # 30 minutes (kubectl, helm, minikube, git, gh)
 DEFAULT_HTTP_TIMEOUT_SECONDS: float = 3600.0  # 1 hour (API requests & downloads)
 DEFAULT_DNS_TIMEOUT_SECONDS: float = 15.0  # 15 seconds (socket DNS resolution)
+DEFAULT_STACK_AUTH_TIMEOUT_SECONDS: float = 5.0  # 5 seconds bounded timeout for stack token minting
 
 # ── Server & OpenAPI Defaults ──────────────────────────────────────────────────
 DEFAULT_SERVER_TITLE: str = "DevOps CLI REST & OpenAPI Service"

@@ -43,6 +43,8 @@ app.add_typer(dashboards_app, name="dashboards")
 
 def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
     """Return (base_url, headers) for Grafana API requests."""
+    from devops_cli.k8s.credentials import get_or_mint_grafana_auth
+
     if not settings.grafana.url:
         print_error(
             MESSAGES.grafana.url_not_configured,
@@ -58,8 +60,16 @@ def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
         raise typer.Exit(1)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     token = get_grafana_token(settings)
-    if token:
+    if token and not token.startswith("*"):
         headers["Authorization"] = f"Bearer {token}"
+    else:
+        from devops_cli.k8s.credentials import get_or_mint_grafana_auth
+
+        minted_token, basic_auth = get_or_mint_grafana_auth(settings)
+        if minted_token:
+            headers["Authorization"] = f"Bearer {minted_token}"
+        elif basic_auth:
+            headers["Authorization"] = basic_auth
     return settings.grafana.url.rstrip("/"), headers
 
 
