@@ -595,6 +595,11 @@ class RAGMessages:
     )
     cleared_collection: str = "Cleared collection: {coll}"
     no_matching_query: str = "No matching code/documentation found for query: {query}"
+    stopped_for_run: str = (
+        "RAG is off for the rest of this run: {error}. To fix it, serve {model} on a backend, "
+        "point ai.tasks.embedding at a backend that serves it, or set ai.rag.enabled: false."
+    )
+    search_embedding_failed: str = "RAG search unavailable: {error}. Fallback: use search_code."
 
 
 @dataclass(frozen=True)

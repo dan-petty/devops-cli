@@ -332,3 +332,32 @@ def test_builtin_security_and_iac_tools(tmp_path: Path) -> None:
 
         res_rag = rag_search("test query")
         assert "No semantic matches found" in res_rag
+
+
+def test_rag_search_names_an_embedding_failure() -> None:
+    """A query the embedding model cannot embed returns the failure, as an unreachable store does."""
+    from devops_cli.ai.rag.embeddings import EmbeddingsError
+    from devops_cli.ai.tools.builtin_tools import rag_search
+    from devops_cli.config.settings import Settings
+
+    failure = EmbeddingsError(
+        "Embedding model bge-m3:latest produced no embeddings: "
+        "https://example.com/v1/embeddings answered HTTP 400: model not loaded"
+    )
+    with (
+        patch("devops_cli.config.settings.load_settings", return_value=Settings()),
+        patch("devops_cli.config.settings.get_ai_api_key", return_value=None),
+        patch("devops_cli.config.settings.get_qdrant_api_key", return_value=None),
+        patch("devops_cli.ai.rag.embeddings.EmbeddingsEngine._init_valkey", return_value=None),
+        patch("devops_cli.ai.rag.qdrant.QdrantClient.is_alive", return_value=True),
+        patch(
+            "devops_cli.ai.rag.retriever.SemanticRetriever.retrieve_context", side_effect=failure
+        ),
+    ):
+        reply = rag_search("where is the retry policy")
+
+    assert reply == (
+        "RAG search unavailable: Embedding model bge-m3:latest produced no embeddings: "
+        "https://example.com/v1/embeddings answered HTTP 400: model not loaded. "
+        "Fallback: use search_code."
+    )

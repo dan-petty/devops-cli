@@ -155,6 +155,25 @@ def test_index_contract_and_valkey_cache() -> None:
     assert mock_valkey.set.call_count >= 3  # function, class, and method cached in Valkey
 
 
+def test_index_contract_the_model_cannot_embed_raises_and_upserts_nothing() -> None:
+    """A contract whose symbols cannot be embedded raises, and Qdrant receives no point."""
+    from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
+    from devops_cli.config.settings import AIConfig
+
+    mock_qdrant = MagicMock()
+    mock_qdrant.get_collection_info.return_value = {"status": "green"}
+    engine = EmbeddingsEngine(AIConfig(provider="custom", ollama_urls=[]), valkey_client=None)
+    store = LibraryVectorStore(qdrant_client=mock_qdrant, embedder=engine)
+
+    with pytest.raises(EmbeddingsError) as raised:
+        store.index_contract(_create_sample_contract())
+
+    assert (raised.value.details["model"], mock_qdrant.upsert_points.call_count) == (
+        engine.model,
+        0,
+    )
+
+
 def test_lookup_symbol_valkey_hit() -> None:
     fn_sig = FunctionSignature(
         name="get_data",
@@ -440,6 +459,39 @@ def test_cli_ai_ingest_query_library_semantic(
     assert "demo_pkg.api.get_data" in result.output
     assert "0.950" in result.output
     mock_store.search.assert_called_once_with("how to get data", package=None, top_k=5)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["ingest", "index-libraries", "--dir"],
+        ["ingest", "query-library", "q", "--contracts-dir"],
+    ],
+    ids=["index-libraries", "query-library"],
+)
+def test_cli_ai_ingest_fails_with_the_embedding_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]
+) -> None:
+    """Indexing and semantic search exit 1 with the EmbeddingsError's message, no traceback."""
+    from devops_cli.ai.rag.embeddings import EmbeddingsError
+    from devops_cli.commands import ai_ingest
+
+    (tmp_path / "demo-pkg.json").write_text(
+        _create_sample_contract().model_dump_json(), encoding="utf-8"
+    )
+    failure = EmbeddingsError("Embedding model m produced no embeddings: x answered HTTP 400")
+    mock_store = MagicMock()
+    mock_store.index_contract.side_effect = failure
+    mock_store.search.side_effect = failure
+    monkeypatch.setattr(ai_ingest, "_build_runtime_vector_store", lambda *a, **k: mock_store)
+
+    result = runner.invoke(ai_app, [*args, str(tmp_path)])
+
+    assert (result.exit_code, failure.message in result.output, type(result.exception)) == (
+        1,
+        True,
+        SystemExit,
+    )
 
 
 def test_discover_submodules_skips_private_and_main(monkeypatch: pytest.MonkeyPatch) -> None:

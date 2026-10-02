@@ -211,6 +211,17 @@ class RAGErrorMessages:
     cannot_connect_store: str = "Cannot connect to Qdrant vector store at {url}"
     path_not_found: str = "Path not found: {path}"
     fetch_details_failed: str = "Could not fetch collection details: {exc}"
+    embedding_failed: str = "Embedding model {model} produced no embeddings: {failures}"
+    embedding_endpoint_status: str = "{endpoint} answered HTTP {status}: {body}"
+    embedding_endpoint_malformed: str = (
+        "{endpoint} returned {received} embeddings for {expected} texts"
+    )
+    embedding_endpoint_error: str = "{endpoint} failed: {error}"
+    embedding_no_provider: str = (
+        "Embedding model {model} has no provider: the embedding task's provider '{provider}' "
+        "is not ollama, openai, copilot or gateway, and no Ollama URLs are set. "
+        "Set ai.tasks.embedding.provider"
+    )
 
 
 @dataclass(frozen=True)

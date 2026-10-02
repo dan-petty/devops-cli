@@ -364,8 +364,9 @@ def rag_search(
     category: str | None = None,
 ) -> str:
     """Perform semantic vector retrieval over indexed workspace code, polyglot repos, and docs."""
+    from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
+
     try:
-        from devops_cli.ai.rag.embeddings import EmbeddingsEngine
         from devops_cli.ai.rag.qdrant import QdrantClient
         from devops_cli.ai.rag.retriever import SemanticRetriever
         from devops_cli.config.settings import get_ai_api_key, get_qdrant_api_key, load_settings
@@ -399,6 +400,8 @@ def rag_search(
         if not context.results:
             return f"No semantic matches found in vector store for: {query}"
         return context.formatted_text
+    except EmbeddingsError as exc:
+        return MESSAGES.rag.search_embedding_failed.format(error=exc.message)
     except Exception as exc:
         return f"RAG search error: {exc}"
 

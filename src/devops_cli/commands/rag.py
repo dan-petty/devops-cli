@@ -14,7 +14,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
 )
-from devops_cli.core.cli import new_typer
+from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.dry_run import is_dry_run
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
@@ -169,6 +169,7 @@ def index_cmd(
         )
         raise typer.Exit(1)
 
+    from devops_cli.ai.rag.embeddings import EmbeddingsError
     from devops_cli.ai.rag.indexer import WorkspaceIndexer
 
     indexer = WorkspaceIndexer(
@@ -184,7 +185,7 @@ def index_cmd(
         style="cyan",
     )
 
-    with progress_context("Indexing files...") as update_progress:
+    with exit_on_error(EmbeddingsError), progress_context("Indexing files...") as update_progress:
 
         def _on_progress(desc: str, current: int, total: int) -> None:
             pct = (current / max(1, total)) * 100
@@ -263,6 +264,7 @@ def index_kb_cmd(
         )
         raise typer.Exit(1)
 
+    from devops_cli.ai.rag.embeddings import EmbeddingsError
     from devops_cli.ai.rag.indexer import WorkspaceIndexer
 
     indexer = WorkspaceIndexer(
@@ -278,7 +280,10 @@ def index_kb_cmd(
         style="cyan",
     )
 
-    with progress_context("Indexing knowledge base...") as update_progress:
+    with (
+        exit_on_error(EmbeddingsError),
+        progress_context("Indexing knowledge base...") as update_progress,
+    ):
 
         def _on_progress(desc: str, current: int, total: int) -> None:
             pct = (current / max(1, total)) * 100
@@ -371,6 +376,7 @@ def search(
         print_error(f"Cannot connect to Qdrant vector store at {qdrant.base_url}", prefix=False)
         raise typer.Exit(1)
 
+    from devops_cli.ai.rag.embeddings import EmbeddingsError
     from devops_cli.ai.rag.retriever import SemanticRetriever
 
     retriever = SemanticRetriever(
@@ -382,16 +388,17 @@ def search(
         default_score_threshold=min_score,
     )
 
-    results = retriever.search(
-        query,
-        top_k=top_k,
-        score_threshold=min_score,
-        collection=collection,
-        project=project,
-        language=language,
-        category=category,
-        file_filter=file_filter,
-    )
+    with exit_on_error(EmbeddingsError):
+        results = retriever.search(
+            query,
+            top_k=top_k,
+            score_threshold=min_score,
+            collection=collection,
+            project=project,
+            language=language,
+            category=category,
+            file_filter=file_filter,
+        )
 
     if not results:
         print_warning(f"No matching code/documentation found for query: {query!r}", prefix=False)
@@ -625,6 +632,7 @@ def drift_cmd(
 ) -> None:
     """Detect staleness and drift between the working tree and the Qdrant vector index."""
     from devops_cli.ai.rag.drift import RAGDriftDetector
+    from devops_cli.ai.rag.embeddings import EmbeddingsError
 
     if dry_run or is_dry_run():
         render_dry_run_result(
@@ -640,7 +648,8 @@ def drift_cmd(
         return
 
     detector = RAGDriftDetector(root_dir=path)
-    report = detector.detect_and_sync(auto_sync=auto_sync)
+    with exit_on_error(EmbeddingsError):
+        report = detector.detect_and_sync(auto_sync=auto_sync)
     _render_drift_report(report, json_output)
 
     if fail_on_drift and (report.drift_score > 0.0 or report.git_commit_drift):
