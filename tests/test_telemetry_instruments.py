@@ -127,7 +127,8 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
     """Verify each series sent but never charted is summed by the label asked for.
 
     The grouping must apply to that series, not to another in the same query, and the latency
-    panels chart command p50, p95 and p99, and review and RAG p50 and p95.
+    panels chart command p50, p95 and p99, review p50 and p95, RAG p50 and p95 of whole queries
+    and RAG p95 of each stage (#975). Qdrant retries are charted by operation and error type.
     """
     wanted = {
         ("devops_cli_command_duration_seconds_bucket", "command"),
@@ -135,7 +136,10 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
         ("devops_cli_review_duration_seconds_count", "target_type"),
         ("devops_cli_review_duration_seconds_bucket", "target_type"),
         ("devops_cli_findings_total", "severity"),
-        ("devops_cli_rag_query_duration_ms_bucket", "le"),
+        ('devops_cli_rag_query_duration_ms_bucket{stage="total"}', "le"),
+        ('devops_cli_rag_query_duration_ms_bucket{stage=~"embedding|search|ranking"}', "stage"),
+        ("devops_cli_qdrant_retries_total", "operation"),
+        ("devops_cli_qdrant_retries_total", "error_type"),
     }
     queries = _all_queries()
     grouped = {

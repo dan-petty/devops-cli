@@ -357,6 +357,8 @@ DEFAULT_RAG_INVESTIGATION_MAX_QUERY_CHARS: int = 2048  # Longer lookup queries a
 DEFAULT_RAG_MAX_PER_FILE: int = 8
 DEFAULT_RAG_UPSERT_BATCH_SIZE: int = 64
 DEFAULT_QDRANT_RETRY_ATTEMPTS: int = 3
+# The least a Qdrant request waits, and the longest a RAG query's search waits per attempt (#975)
+DEFAULT_QDRANT_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_QDRANT_DISTANCE: str = "Cosine"
 DEFAULT_AI_PROMPT_TEST: str = "Reply with exactly one word: OK"
 DEFAULT_AI_PIPELINE_PROMPT: str = (

@@ -42,7 +42,9 @@ class Instrument:
 
 _SECONDS = (0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600)
 _REVIEW_SECONDS = (30, 60, 120, 300, 600, 900, 1800, 3600, 7200)
-_MILLISECONDS = (10, 25, 50, 100, 250, 500, 1000, 2500, 5000)
+# Up to Qdrant's 60 s request timeout, the longest a RAG query waits on: a quantile past the top
+# bucket comes out as its bound, so a top bucket of 5 s drew the slow tail as a flat line (#975).
+_RAG_MILLISECONDS = (10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 15000, 30000, 60000)
 
 COMMAND_TOTAL = Instrument(
     "devops_cli_command_total", InstrumentKind.COUNTER, "1", "Commands run, by command and status"
@@ -95,8 +97,14 @@ RAG_QUERY_DURATION = Instrument(
     "devops_cli_rag_query_duration_ms",
     InstrumentKind.HISTOGRAM,
     "ms",
-    "RAG retrieval time",
-    _MILLISECONDS,
+    "RAG retrieval time, by stage: embedding, search, ranking, or total for the whole query",
+    _RAG_MILLISECONDS,
+)
+QDRANT_RETRIES_TOTAL = Instrument(
+    "devops_cli_qdrant_retries_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Qdrant requests retried after a transient error, by operation and error type",
 )
 
 _DAYS = (1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 14.0, 21.0, 30.0, 60.0, 90.0)
@@ -149,6 +157,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     AI_SPEND_USD_TOTAL,
     AI_LOCAL_COST_EQUIVALENT_USD_TOTAL,
     RAG_QUERY_DURATION,
+    QDRANT_RETRIES_TOTAL,
     PROJECT_RELEASES_TOTAL,
     PROJECT_COMMITS_TOTAL,
     PROJECT_PRS_TOTAL,
@@ -200,6 +209,7 @@ __all__ = [
     "PROJECT_PRS_TOTAL",
     "PROJECT_RELEASES_TOTAL",
     "PROJECT_RELEASE_INTERVAL_DAYS",
+    "QDRANT_RETRIES_TOTAL",
     "RAG_QUERY_DURATION",
     "REVIEW_DURATION",
     "Instrument",

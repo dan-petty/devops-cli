@@ -72,7 +72,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "RAG retrieval time over the last hour. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 5000 ms.",
+      "description": "Whole RAG query time over the last hour, from embedding the query to the ranked results; RAG Query Stage Latency splits it by stage. Queries sent before #975 carry no stage and are left out: their buckets stopped at 5000 ms. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 60000 ms.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -88,13 +88,13 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.5, sum by (le) (increase(devops_cli_rag_query_duration_ms_bucket[1h])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(devops_cli_rag_query_duration_ms_bucket{stage=\"total\"}[1h])))",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum by (le) (increase(devops_cli_rag_query_duration_ms_bucket[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(devops_cli_rag_query_duration_ms_bucket{stage=\"total\"}[1h])))",
           "legendFormat": "p95",
           "refId": "B"
         }
@@ -163,8 +163,56 @@
       ]
     },
     {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "p95 of each RAG query stage over the last hour: embedding the query through the gateway, searching the Qdrant collections, which run at once so the stage takes as long as the slower search, and ranking the results locally. Each line is its own quantile, so the stages' p95 need not add up to the whole query's. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 60000 ms.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "drawStyle": "line", "lineInterpolation": "smooth" },
+          "unit": "ms"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "id": 15,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "title": "RAG Query Stage Latency (p95)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, stage) (increase(devops_cli_rag_query_duration_ms_bucket{stage=~\"embedding|search|ranking\"}[1h])))",
+          "legendFormat": "p95 {{stage}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Qdrant requests retried per hour after a transient error, by client operation and error type. The error type is the class of the error behind the retry, taken from inside the ResponseHandlingException the Qdrant client wraps transport errors in: RemoteProtocolError for a keep-alive connection the tunnel closed while idle, ConnectError for a refused connection, ReadTimeout for a request that waited out its 60 s. Each retry reconnects after a pause of 0.5 s times the attempt number, which a search spends in the search stage. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "drawStyle": "bars" },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "id": 16,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "title": "Qdrant Retries by Operation and Error",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (operation, error_type) (increase(devops_cli_qdrant_retries_total[1h]))",
+          "legendFormat": "{{operation}} {{error_type}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
       "id": 5,
       "title": "AI Review Findings Breakdown",
       "type": "row"
@@ -179,7 +227,7 @@
           "unit": "short"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
       "id": 13,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "title": "Reviews by Target Type",
@@ -208,7 +256,7 @@
           "unit": "short"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
       "id": 14,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "title": "Findings by Severity",
@@ -232,7 +280,7 @@
           "unit": "short"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
       "id": 6,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "title": "Findings by Persona",
@@ -256,7 +304,7 @@
           "unit": "short"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
       "id": 7,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "title": "Findings by Status (Verified vs Unverified vs Mitigated)",
@@ -272,7 +320,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 },
       "id": 8,
       "title": "AI Spend & Economics",
       "type": "row"
@@ -294,7 +342,7 @@
           "unit": "currencyUSD"
         }
       },
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 35 },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 43 },
       "id": 9,
       "options": {
         "colorMode": "value",
@@ -324,7 +372,7 @@
           "unit": "currencyUSD"
         }
       },
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 35 },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 43 },
       "id": 10,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "title": "AI Spend Rate by Server ($/hr)",
