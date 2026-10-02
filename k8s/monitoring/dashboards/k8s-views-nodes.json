@@ -1242,6 +1242,28 @@
           "interval": "$resolution",
           "legendFormat": "{{ pod }}",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum(rate(container_cpu_usage_seconds_total{node=~\"$node\", image=\"\", cluster=~\"$cluster\"}[$__rate_interval]))",
+          "interval": "$resolution",
+          "legendFormat": "Total (Sum)",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "avg(rate(container_cpu_usage_seconds_total{node=~\"$node\", image=\"\", cluster=~\"$cluster\"}[$__rate_interval]))",
+          "interval": "$resolution",
+          "legendFormat": "Average (Mean)",
+          "refId": "C"
         }
       ],
       "title": "CPU usage by Pod",
@@ -1339,6 +1361,28 @@
           "interval": "$resolution",
           "legendFormat": "{{ pod }}",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "sum(container_memory_working_set_bytes{node=~\"$node\", image=\"\", cluster=~\"$cluster\"})",
+          "interval": "$resolution",
+          "legendFormat": "Total (Sum)",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": true,
+          "expr": "avg(container_memory_working_set_bytes{node=~\"$node\", image=\"\", cluster=~\"$cluster\"})",
+          "interval": "$resolution",
+          "legendFormat": "Average (Mean)",
+          "refId": "C"
         }
       ],
       "title": "Memory usage by Pod",

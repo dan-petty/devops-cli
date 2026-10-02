@@ -519,3 +519,46 @@ def test_sre_dashboards_contain_heatmap_and_ratio_panels() -> None:
             "CPU Throttling & Network Packet Drop Ratios (%)",
         ],
     )
+
+
+def test_dashboards_contain_properly_labeled_sum_and_average_lines() -> None:
+    """Verify service, ingress, k8s, and LLM dashboards contain properly labeled sum/avg queries."""
+    sre_dash = json.loads((_REPO_DASHBOARDS / "sre-service.json").read_text(encoding="utf-8"))
+    ingress_dash = json.loads(
+        (_REPO_DASHBOARDS / "ingress-tunnel.json").read_text(encoding="utf-8")
+    )
+    nodes_dash = json.loads((_REPO_DASHBOARDS / "k8s-views-nodes.json").read_text(encoding="utf-8"))
+    pods_dash = json.loads((_REPO_DASHBOARDS / "k8s-views-pods.json").read_text(encoding="utf-8"))
+    llm_dash = json.loads((_REPO_DASHBOARDS / "llm-stack.json").read_text(encoding="utf-8"))
+
+    legends = {
+        (dash_name, p["title"]): [t.get("legendFormat") for t in p.get("targets", [])]
+        for dash_name, dash in (
+            ("sre", sre_dash),
+            ("ingress", ingress_dash),
+            ("nodes", nodes_dash),
+            ("pods", pods_dash),
+            ("llm", llm_dash),
+        )
+        for p in dash.get("panels", [])
+        if "title" in p
+    }
+
+    assert (
+        "Total (Sum)" in legends.get(("sre", "CPU Usage by Pod"), []),
+        "Average (Mean)" in legends.get(("sre", "CPU Usage by Pod"), []),
+        "Total (Sum)" in legends.get(("sre", "Memory Working Set by Pod"), []),
+        "Average (Mean)" in legends.get(("sre", "Memory Working Set by Pod"), []),
+        "Total (Sum)" in legends.get(("ingress", "Service Request Rate"), []),
+        "Average (Mean)" in legends.get(("ingress", "Service Request Rate"), []),
+        "Total (Sum)" in legends.get(("ingress", "Ingress & Tunnel Pod CPU Usage"), []),
+        "Average (Mean)" in legends.get(("ingress", "Ingress & Tunnel Pod CPU Usage"), []),
+        "Total (Sum)" in legends.get(("nodes", "CPU usage by Pod"), []),
+        "Average (Mean)" in legends.get(("nodes", "CPU usage by Pod"), []),
+        "Total (Sum)" in legends.get(("pods", "CPU Usage by container"), []),
+        "Average (Mean)" in legends.get(("pods", "CPU Usage by container"), []),
+        "Total (Sum)" in legends.get(("llm", "Requests per Deployment"), []),
+        "Average (Mean)" in legends.get(("llm", "Requests per Deployment"), []),
+        "Total (Sum)" in legends.get(("llm", "GPU Memory Used"), []),
+        "Average (Mean)" in legends.get(("llm", "GPU Memory Used"), []),
+    ) == (True,) * 16
