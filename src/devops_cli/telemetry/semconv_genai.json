@@ -1,0 +1,227 @@
+{
+  "attributes": [
+    "aws.bedrock.guardrail.id",
+    "aws.bedrock.knowledge_base.id",
+    "azure.resource_provider.namespace",
+    "client.address",
+    "client.port",
+    "error.type",
+    "exception.message",
+    "exception.stacktrace",
+    "exception.type",
+    "gen_ai.agent.description",
+    "gen_ai.agent.id",
+    "gen_ai.agent.name",
+    "gen_ai.agent.version",
+    "gen_ai.conversation.compacted",
+    "gen_ai.conversation.id",
+    "gen_ai.data_source.id",
+    "gen_ai.embeddings.dimension.count",
+    "gen_ai.evaluation.explanation",
+    "gen_ai.evaluation.name",
+    "gen_ai.evaluation.score.label",
+    "gen_ai.evaluation.score.value",
+    "gen_ai.input.messages",
+    "gen_ai.main_agent.description",
+    "gen_ai.main_agent.id",
+    "gen_ai.main_agent.name",
+    "gen_ai.memory.query.text",
+    "gen_ai.memory.record.count",
+    "gen_ai.memory.record.id",
+    "gen_ai.memory.records",
+    "gen_ai.memory.store.id",
+    "gen_ai.operation.name",
+    "gen_ai.output.messages",
+    "gen_ai.output.type",
+    "gen_ai.prompt.name",
+    "gen_ai.prompt.variable",
+    "gen_ai.prompt.version",
+    "gen_ai.provider.name",
+    "gen_ai.request.choice.count",
+    "gen_ai.request.encoding_formats",
+    "gen_ai.request.frequency_penalty",
+    "gen_ai.request.max_tokens",
+    "gen_ai.request.model",
+    "gen_ai.request.presence_penalty",
+    "gen_ai.request.previous_response.id",
+    "gen_ai.request.reasoning.level",
+    "gen_ai.request.seed",
+    "gen_ai.request.stop_sequences",
+    "gen_ai.request.stream",
+    "gen_ai.request.stream_cursor",
+    "gen_ai.request.temperature",
+    "gen_ai.request.top_k",
+    "gen_ai.request.top_p",
+    "gen_ai.response.finish_reasons",
+    "gen_ai.response.id",
+    "gen_ai.response.model",
+    "gen_ai.response.status",
+    "gen_ai.response.time_to_first_chunk",
+    "gen_ai.retrieval.documents",
+    "gen_ai.retrieval.query.text",
+    "gen_ai.retrieval.top_k",
+    "gen_ai.skill.description",
+    "gen_ai.skill.name",
+    "gen_ai.skill.resource.name",
+    "gen_ai.skill.source.uri",
+    "gen_ai.system_instructions",
+    "gen_ai.token.modality",
+    "gen_ai.tool.call.arguments",
+    "gen_ai.tool.call.id",
+    "gen_ai.tool.call.result",
+    "gen_ai.tool.definitions",
+    "gen_ai.tool.description",
+    "gen_ai.tool.name",
+    "gen_ai.tool.type",
+    "gen_ai.usage.audio.cache_read.input_tokens",
+    "gen_ai.usage.audio.input_tokens",
+    "gen_ai.usage.audio.output_tokens",
+    "gen_ai.usage.cache_read.input_tokens",
+    "gen_ai.usage.cache_write.input_tokens",
+    "gen_ai.usage.image.cache_read.input_tokens",
+    "gen_ai.usage.image.input_tokens",
+    "gen_ai.usage.image.output_tokens",
+    "gen_ai.usage.input_tokens",
+    "gen_ai.usage.output_tokens",
+    "gen_ai.usage.reasoning.output_tokens",
+    "gen_ai.usage.text.cache_read.input_tokens",
+    "gen_ai.usage.text.input_tokens",
+    "gen_ai.usage.text.output_tokens",
+    "gen_ai.workflow.name",
+    "jsonrpc.protocol.version",
+    "jsonrpc.request.id",
+    "mcp.method.name",
+    "mcp.protocol.version",
+    "mcp.resource.uri",
+    "mcp.session.id",
+    "network.protocol.name",
+    "network.protocol.version",
+    "network.transport",
+    "openai.api.type",
+    "openai.request.service_tier",
+    "openai.response.service_tier",
+    "openai.response.system_fingerprint",
+    "process.executable.name",
+    "process.executable.path",
+    "process.exit.code",
+    "rpc.response.status_code",
+    "server.address",
+    "server.port"
+  ],
+  "metrics": [
+    "gen_ai.client.inference.operation.input_tokens",
+    "gen_ai.client.inference.operation.output_tokens",
+    "gen_ai.client.inference.usage.cache_read.input_tokens",
+    "gen_ai.client.inference.usage.cache_write.input_tokens",
+    "gen_ai.client.inference.usage.input_tokens",
+    "gen_ai.client.inference.usage.output_tokens",
+    "gen_ai.client.inference.usage.reasoning.output_tokens",
+    "gen_ai.client.operation.duration",
+    "gen_ai.client.operation.time_per_output_chunk",
+    "gen_ai.client.operation.time_to_first_chunk",
+    "gen_ai.execute_tool.duration",
+    "gen_ai.invoke_agent.duration",
+    "gen_ai.invoke_agent.inference_calls",
+    "gen_ai.invoke_agent.tool_calls",
+    "gen_ai.invoke_workflow.duration",
+    "gen_ai.server.request.duration",
+    "gen_ai.server.time_per_output_token",
+    "gen_ai.server.time_to_first_token",
+    "mcp.client.operation.duration",
+    "mcp.client.session.duration",
+    "mcp.server.operation.duration",
+    "mcp.server.session.duration"
+  ],
+  "source": {
+    "commit": "b31e9e8ea26ac1c086d3313d474e31d7c3f391ae",
+    "repo": "open-telemetry/semantic-conventions-genai",
+    "weaver": "0.26.1"
+  },
+  "spans": {
+    "gen_ai.create_agent.client": {
+      "kind": "client",
+      "required": [
+        "gen_ai.operation.name",
+        "gen_ai.provider.name"
+      ]
+    },
+    "gen_ai.embeddings.client": {
+      "kind": "client",
+      "required": [
+        "gen_ai.operation.name",
+        "gen_ai.provider.name"
+      ]
+    },
+    "gen_ai.execute_tool.internal": {
+      "kind": "internal",
+      "required": [
+        "gen_ai.operation.name",
+        "gen_ai.tool.name"
+      ]
+    },
+    "gen_ai.fetch_response.client": {
+      "kind": "client",
+      "required": [
+        "gen_ai.operation.name",
+        "gen_ai.provider.name",
+        "gen_ai.response.id"
+      ]
+    },
+    "gen_ai.inference.client": {
+      "kind": "client",
+      "required": [
+        "gen_ai.operation.name",
+        "gen_ai.provider.name"
+      ]
+    },
+    "gen_ai.invoke_agent.client": {
+      "kind": "client",
+      "required": [
+        "gen_ai.operation.name",
+        "gen_ai.provider.name"
+      ]
+    },
+    "gen_ai.invoke_agent.internal": {
+      "kind": "internal",
+      "required": [
+        "gen_ai.operation.name"
+      ]
+    },
+    "gen_ai.invoke_workflow.internal": {
+      "kind": "internal",
+      "required": [
+        "gen_ai.operation.name"
+      ]
+    },
+    "gen_ai.memory.client": {
+      "kind": "client",
+      "required": [
+        "gen_ai.operation.name"
+      ]
+    },
+    "gen_ai.plan.internal": {
+      "kind": "internal",
+      "required": [
+        "gen_ai.operation.name"
+      ]
+    },
+    "gen_ai.retrieval.client": {
+      "kind": "client",
+      "required": [
+        "gen_ai.operation.name"
+      ]
+    },
+    "mcp.client": {
+      "kind": "client",
+      "required": [
+        "mcp.method.name"
+      ]
+    },
+    "mcp.server": {
+      "kind": "server",
+      "required": [
+        "mcp.method.name"
+      ]
+    }
+  }
+}

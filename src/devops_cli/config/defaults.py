@@ -487,6 +487,9 @@ DEFAULT_TELEMETRY_TEST_NAME: str = "devops-cli.manual_test"
 # `telemetry profile` polls Jaeger until a trace stops growing, for at most this long.
 DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS: float = 10.0
 DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS: float = 0.5
+# Longest one weaver call may take in `telemetry semconv refresh`; packaging the GenAI
+# registry, two git clones included, took about 9 s.
+DEFAULT_SEMCONV_WEAVER_TIMEOUT_SECONDS: float = 300.0
 
 # ── AI Formatting & XML Prompt Serialization Defaults ────────────────────────
 DEFAULT_XML_INDENT: str = "  "

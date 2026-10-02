@@ -9,7 +9,7 @@ import time
 from collections.abc import AsyncGenerator, Callable, Generator, Sequence
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 import httpx2
 
@@ -21,6 +21,7 @@ from devops_cli.ai.client.models import (
     LLMResponse,
     RequestPriority,
     _is_json_error_payload,
+    genai_provider_name,
 )
 from devops_cli.ai.client.network import (
     ALLOW_PRIVATE_NETWORK_ENV,
@@ -32,6 +33,8 @@ from devops_cli.ai.client.openai import OpenAICompatProviderMixin
 from devops_cli.ai.client.structured import StructuredOutputMixin
 from devops_cli.ai.thinking_stream import strip_think_blocks
 from devops_cli.config.constants import (
+    CONST_AI_BACKEND_HOST_UNKNOWN,
+    CONST_OTEL_SPAN_KIND_CLIENT,
     CONST_URL_ANTHROPIC_API_BASE,
     CONST_URL_GITHUB_COPILOT_API_BASE,
     CONST_URL_OPENAI_API_BASE,
@@ -61,18 +64,39 @@ def _extract_server_from_backend_info(backend_info: str | None, default_host: st
     return backend_info.strip()
 
 
+def _server_span_attributes(netloc: str) -> dict[str, Any]:
+    """Split one backend's `host[:port]` into `server.address` and `server.port`.
+
+    A comma-joined host list names no single server, and neither does the placeholder
+    `backend_host` gives a provider with no endpoint, so both yield neither. A netloc without
+    a port yields no `server.port`: `backend_info` drops the URL scheme, so a default port
+    would be a guess.
+    """
+    if not netloc or "," in netloc or netloc == CONST_AI_BACKEND_HOST_UNKNOWN:
+        return {}
+    parts = urlsplit(f"//{netloc}")
+    try:
+        port = parts.port
+    except ValueError:
+        return {}
+    if not parts.hostname:
+        return {}
+    attributes: dict[str, Any] = {"server.address": parts.hostname}
+    if port is not None:
+        attributes["server.port"] = port
+    return attributes
+
+
 def _set_timing_span_attributes(span_handle: Any, res: LLMResponse) -> None:
     """Set latency, duration, and token rate attributes on response span."""
     if res.eval_duration_ms is not None:
         span_handle.set_attribute("llm.eval_duration_ms", res.eval_duration_ms)
         if res.completion_tokens and res.eval_duration_ms > 0:
             tok_rate = round(res.completion_tokens / (res.eval_duration_ms / 1000.0), 2)
-            span_handle.set_attribute("gen_ai.token_rate_tok_per_sec", tok_rate)
-            span_handle.set_attribute("gen_ai.tokens_per_second", tok_rate)
+            span_handle.set_attribute("llm.tokens_per_second", tok_rate)
     elif res.wall_seconds and res.wall_seconds > 0 and res.completion_tokens:
         tok_rate = round(res.completion_tokens / res.wall_seconds, 2)
-        span_handle.set_attribute("gen_ai.tokens_per_second", tok_rate)
-        span_handle.set_attribute("gen_ai.token_rate_tok_per_sec", tok_rate)
+        span_handle.set_attribute("llm.tokens_per_second", tok_rate)
     if res.prompt_eval_duration_ms is not None:
         span_handle.set_attribute("llm.prompt_eval_duration_ms", res.prompt_eval_duration_ms)
     if res.processing_seconds is not None:
@@ -82,25 +106,26 @@ def _set_timing_span_attributes(span_handle: Any, res: LLMResponse) -> None:
 
 
 def _set_response_span_attributes(span_handle: Any, res: LLMResponse, p: str) -> None:
-    """Set standard GenAI telemetry attributes on response span."""
-    if res.backend_info:
-        span_handle.set_attribute("gen_ai.server.address", res.backend_info)
+    """Set the reply's GenAI attributes on the `ai.llm.dispatch` inference span.
+
+    This is the only writer of the usage, response model and finish reason keys, so a
+    request's tokens are counted once, on the span that made it.
+    """
+    netloc = _extract_server_from_backend_info(res.backend_info, "")
+    for key, value in _server_span_attributes(netloc).items():
+        span_handle.set_attribute(key, value)
     if getattr(res, "served_by", None):
-        span_handle.set_attribute("gen_ai.server.served_by", res.served_by)
+        span_handle.set_attribute("llm.served_by", res.served_by)
     if getattr(res, "model", None):
         span_handle.set_attribute("gen_ai.response.model", res.model)
     if res.prompt_tokens is not None:
-        span_handle.set_attribute("gen_ai.usage.prompt_tokens", res.prompt_tokens)
         span_handle.set_attribute("gen_ai.usage.input_tokens", res.prompt_tokens)
     if res.completion_tokens is not None:
-        span_handle.set_attribute("gen_ai.usage.completion_tokens", res.completion_tokens)
         span_handle.set_attribute("gen_ai.usage.output_tokens", res.completion_tokens)
-    if res.total_tokens is not None:
-        span_handle.set_attribute("gen_ai.usage.total_tokens", res.total_tokens)
     _set_timing_span_attributes(span_handle, res)
     span_handle.set_attribute("gen_ai.response.finish_reasons", ["stop"])
-    span_handle.set_attribute("gen_ai.response_preview", res.text[:200].replace("\n", " ").strip())
-    span_handle.set_attribute("gen_ai.thinking", bool(res.thinking))
+    span_handle.set_attribute("llm.response_preview", res.text[:200].replace("\n", " ").strip())
+    span_handle.set_attribute("llm.response.thinking", bool(res.thinking))
     event_payload: dict[str, Any] = {
         "total_tokens": res.total_tokens or 0,
         "wall_seconds": res.wall_seconds or 0.0,
@@ -244,7 +269,7 @@ class LLMClient(
         if isinstance(base_url, str) and base_url:
             parsed = urlparse(base_url)
             return str(parsed.netloc or parsed.path or base_url)
-        return "unknown"
+        return CONST_AI_BACKEND_HOST_UNKNOWN
 
     def _resolve_ollama_backend_host(self) -> str:
         """Resolve comma-separated backend host string for configured Ollama endpoints."""
@@ -358,14 +383,14 @@ class LLMClient(
         )
 
         dispatch_attrs: dict[str, Any] = {
-            "gen_ai.system": p,
             "gen_ai.operation.name": "chat",
+            "gen_ai.provider.name": genai_provider_name(p),
             "gen_ai.request.model": self._config.model,
-            "gen_ai.request.message_count": len(messages),
-            "gen_ai.request.system_prompt_length": len(system),
-            "gen_ai.request.enable_thinking": enable_thinking,
-            "gen_ai.request.priority": resolved_priority.value,
-            "gen_ai.prompt_preview": prompt_preview,
+            "llm.request.message_count": len(messages),
+            "llm.request.system_prompt_length": len(system),
+            "llm.request.enable_thinking": enable_thinking,
+            "llm.request.priority": resolved_priority.value,
+            "llm.prompt_preview": prompt_preview,
             "provider": p,
             "model": self._config.model,
         }
@@ -374,7 +399,9 @@ class LLMClient(
         if getattr(self._config, "top_p", None) is not None:
             dispatch_attrs["gen_ai.request.top_p"] = self._config.top_p
 
-        with trace_span("ai.llm.dispatch", dispatch_attrs) as span_handle:
+        with trace_span(
+            "ai.llm.dispatch", dispatch_attrs, kind=CONST_OTEL_SPAN_KIND_CLIENT
+        ) as span_handle:
             res = self._invoke_provider_messages(
                 p, system, messages, enable_thinking, resolved_priority
             )
@@ -452,7 +479,7 @@ class LLMClient(
             stage=resolve_spend_stage(None, getattr(self._config, "task_name", None)),
         )
         if rec is not None:
-            span_handle.set_attribute("gen_ai.usage.cost_usd", rec.cost_usd)
+            span_handle.set_attribute("llm.usage.cost_usd", rec.cost_usd)
 
     def chat(
         self,
@@ -483,15 +510,14 @@ class LLMClient(
         )
 
     def _record_chat_telemetry(self, span_h: Any, res: LLMResponse) -> None:
-        """Record response metrics and tokens on the telemetry span."""
-        span_h.set_attribute("gen_ai.response.model", res.backend_info)
-        span_h.set_attribute("gen_ai.cached", res.cached)
-        span_h.set_attribute("gen_ai.processing_seconds", res.processing_seconds)
-        span_h.set_attribute("gen_ai.wall_seconds", res.wall_seconds)
-        if res.total_tokens:
-            span_h.set_attribute("gen_ai.usage.total_tokens", res.total_tokens)
-            span_h.set_attribute("gen_ai.usage.prompt_tokens", res.prompt_tokens)
-            span_h.set_attribute("gen_ai.usage.completion_tokens", res.completion_tokens)
+        """Record cache and timing on the `ai.llm.chat` wrapper span.
+
+        Usage and the response model stay on the `ai.llm.dispatch` span below it, so a
+        request's tokens are counted once.
+        """
+        span_h.set_attribute("llm.cached", res.cached)
+        span_h.set_attribute("llm.processing_seconds", res.processing_seconds)
+        span_h.set_attribute("llm.wall_seconds", res.wall_seconds)
 
     def _cache_chat_entry(
         self,
@@ -553,9 +579,8 @@ class LLMClient(
             cached_entry.content, validator
         ):
             return None
-        span_h.set_attribute("gen_ai.response.model", "cache")
-        span_h.set_attribute("gen_ai.cached", True)
-        span_h.set_attribute("gen_ai.wall_seconds", 0.0)
+        span_h.set_attribute("llm.cached", True)
+        span_h.set_attribute("llm.wall_seconds", 0.0)
         return LLMResponse(
             cached_entry.content,
             processing_seconds=0.0,
@@ -680,12 +705,12 @@ class LLMClient(
         )
 
         with trace_span(
-            "gen_ai.chat",
+            "ai.llm.chat",
             attributes={
-                "gen_ai.system": self._config.provider,
+                "gen_ai.provider.name": genai_provider_name(self._config.provider),
                 "gen_ai.request.model": self._config.model,
-                "gen_ai.request.priority": resolved_p.value,
-                "gen_ai.enable_thinking": enable_thinking,
+                "llm.request.priority": resolved_p.value,
+                "llm.request.enable_thinking": enable_thinking,
                 "use_cache": use_cache,
                 "append_cache": eff_append,
             },
@@ -752,11 +777,11 @@ class LLMClient(
     def _record_first_token(
         self, span_h: Any, t_start: float, first_token_time: float | None
     ) -> float:
-        """Record time to first token on trace span if not already recorded."""
+        """Record the time to the first chunk, in seconds, on the stream span once."""
         if first_token_time is not None:
             return first_token_time
         ttft = time.perf_counter() - t_start
-        span_h.set_attribute("gen_ai.ttft_seconds", ttft)
+        span_h.set_attribute("gen_ai.response.time_to_first_chunk", ttft)
         return ttft
 
     def chat_messages_stream(
@@ -779,15 +804,18 @@ class LLMClient(
             else (priority or network.current_request_priority.get())
         )
 
+        stream_attrs: dict[str, Any] = {
+            "gen_ai.operation.name": "chat",
+            "gen_ai.provider.name": genai_provider_name(p),
+            "gen_ai.request.model": self._config.model,
+            "gen_ai.request.stream": True,
+            "llm.request.priority": resolved_p.value,
+            "llm.request.enable_thinking": enable_thinking,
+            "llm.stream.sanitize": sanitize,
+        }
+        stream_attrs.update(_server_span_attributes(self.backend_host))
         with trace_span(
-            "gen_ai.stream",
-            attributes={
-                "gen_ai.system": p,
-                "gen_ai.request.model": self._config.model,
-                "gen_ai.request.priority": resolved_p.value,
-                "gen_ai.enable_thinking": enable_thinking,
-                "gen_ai.sanitize": sanitize,
-            },
+            "ai.llm.stream", attributes=stream_attrs, kind=CONST_OTEL_SPAN_KIND_CLIENT
         ) as span_h:
             network.stream_served_by.set(None)
             try:
@@ -806,8 +834,8 @@ class LLMClient(
                     yield chunk
 
                 total_dur = time.perf_counter() - t_start
-                span_h.set_attribute("gen_ai.stream_chunks_count", token_chunks_count)
-                span_h.set_attribute("gen_ai.wall_seconds", total_dur)
+                span_h.set_attribute("llm.stream.chunk_count", token_chunks_count)
+                span_h.set_attribute("llm.wall_seconds", total_dur)
                 self._record_stream_spend(
                     span_h, p, messages, system, "".join(accumulated_chunks), total_dur
                 )
@@ -847,7 +875,7 @@ class LLMClient(
             stage=resolve_spend_stage(None, getattr(self._config, "task_name", None)),
         )
         if rec is not None:
-            span_h.set_attribute("gen_ai.usage.cost_usd", rec.cost_usd)
+            span_h.set_attribute("llm.usage.cost_usd", rec.cost_usd)
 
     def list_models(self) -> list[str]:
         """List available models for the current provider."""

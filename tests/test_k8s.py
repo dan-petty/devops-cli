@@ -1365,3 +1365,44 @@ def test_extract_service_url_ingress_and_nodeport() -> None:
         "http://127.0.0.1:30080",
         None,
     )
+
+
+def test_pyroscope_helm_release_and_grafana_datasource() -> None:
+    """Verify Pyroscope is configured as an infra Helm release and provisioned in Grafana."""
+    from devops_cli.commands.k8s.stack_lifecycle import (
+        _HELM_RELEASES_BY_STACK,
+        _HELM_REPOS_BY_STACK,
+    )
+
+    pyro_release = next(
+        (r for r in _HELM_RELEASES_BY_STACK["infra"] if r["name"] == "pyroscope"), None
+    )
+    assert pyro_release is not None
+
+    values_path = Path(pyro_release["values"])
+    assert values_path.is_file()
+    pyro_values = yaml.safe_load(values_path.read_text(encoding="utf-8"))
+
+    grafana_values = yaml.safe_load(
+        Path("k8s/monitoring/grafana-values.yaml").read_text(encoding="utf-8")
+    )
+    grafana_datasources = grafana_values["datasources"]["datasources.yaml"]["datasources"]
+    pyro_ds = next((ds for ds in grafana_datasources if ds.get("uid") == "pyroscope"), None)
+
+    assert (
+        (pyro_release["chart"], pyro_release["namespace"]),
+        pyro_release["chart"].split("/")[0] in _HELM_REPOS_BY_STACK["infra"],
+        pyro_values["pyroscope"]["service"]["port"],
+        pyro_values["architecture"]["microservices"]["enabled"],
+        pyro_values["alloy"]["alloy"]["enableReporting"],
+        pyro_ds is not None,
+        (pyro_ds["type"], pyro_ds["url"]) if pyro_ds else None,
+    ) == (
+        ("grafana/pyroscope", "monitoring"),
+        True,
+        4040,
+        False,
+        False,
+        True,
+        ("grafana-pyroscope-datasource", "http://pyroscope.monitoring.svc.cluster.local:4040"),
+    )

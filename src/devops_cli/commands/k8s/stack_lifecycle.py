@@ -106,6 +106,12 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "namespace": "otel",
             "values": str(DEFAULT_K8S_DIR / "otel" / "values.yaml"),
         },
+        {
+            "name": "pyroscope",
+            "chart": "grafana/pyroscope",
+            "namespace": "monitoring",
+            "values": str(DEFAULT_K8S_DIR / "monitoring" / "pyroscope-values.yaml"),
+        },
     ],
     "llm": [
         {

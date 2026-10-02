@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
@@ -46,6 +47,8 @@ app = new_typer(
     help=HELP.telemetry.app,
     no_args_is_help=True,
 )
+semconv_app = new_typer(help=HELP.telemetry.semconv, no_args_is_help=True)
+app.add_typer(semconv_app, name="semconv", help=HELP.telemetry.semconv)
 
 
 # =============================================================================
@@ -458,3 +461,44 @@ def telemetry_open_ui_cmd() -> None:
     """Print and show the Jaeger Query UI endpoint for inspecting traces."""
     print_info(f"[bold]Jaeger Tracing UI:[/bold] {format_link(_jaeger_url())}", prefix=False)
     print_info(MESSAGES.telemetry.port_forward_tip, prefix=False)
+
+
+# =============================================================================
+# Command: devops telemetry semconv refresh
+# =============================================================================
+
+
+@semconv_app.command("refresh")
+def telemetry_semconv_refresh_cmd(
+    commit: Annotated[str, typer.Option("--commit", help=HELP.telemetry.semconv_commit)],
+) -> None:
+    """Resolve the GenAI semantic conventions at a commit with weaver and rewrite the snapshot."""
+    from devops_cli.exceptions import DevOpsCLIError
+    from devops_cli.telemetry.semconv import (
+        GENAI_SNAPSHOT_PATH,
+        refresh_genai_snapshot,
+        weaver_package_argv,
+    )
+
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops telemetry semconv refresh",
+            action="refresh_semconv_snapshot",
+            target=str(GENAI_SNAPSHOT_PATH),
+            details={"argv": weaver_package_argv("weaver", commit, Path("<tmp>/package"))},
+        )
+        return
+    try:
+        snapshot = refresh_genai_snapshot(commit, snapshot_path=GENAI_SNAPSHOT_PATH)
+    except DevOpsCLIError as exc:
+        print_error(exc.message, prefix=False)
+        raise typer.Exit(exc.exit_code) from exc
+    print_success(
+        MESSAGES.telemetry.semconv_refreshed.format(
+            path=GENAI_SNAPSHOT_PATH,
+            attributes=len(snapshot["attributes"]),
+            metrics=len(snapshot["metrics"]),
+            spans=len(snapshot["spans"]),
+            **snapshot["source"],
+        )
+    )
