@@ -10,10 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **One Roadmap Store for Releases, Items and Board Fields (`devops_cli.roadmap`)**:
   - `RoadmapStore` reads and writes Releases, Items, Candidates, board fields and issue-event changes behind one interface, with a GitHub adapter over `gh` and an in-memory adapter for tests. Reads page through every result and raise rather than return an empty or partial result. Each Item write also records the value the store set in the board's `Job record` field (ADR 0002), so a later job can tell a person's change from its own (#768).
+- **Readiness Requires a PR to Close One Issue and Change Its Task File (`devops pr check-readiness`)**:
+  - Every PR except the release PR (`release/vX.Y.Z` from the same repository into the default branch) is blocked unless its body closes exactly one issue, read as `devops gh issues close-merged` reads it, and it adds, modifies or renames that issue's `docs/agent/tasks/task-<issue>-*.md`. Each missing piece is one blocker that names it. A repository whose base has no `docs/agent/tasks/` is not checked (#704).
+  - The changed files come from `pulls/{n}/files?per_page=100`, paged to the end. Where the check applies, a failed read is a blocker that names the failure; elsewhere it is a warning. The read replaces `gh pr diff --name-only`, which returned an empty list on any failure (#704).
 
 ### Changed
 - **`devops gh milestones edit` and `close` Take a Version (`devops gh milestones`)**:
   - Both take a version, with or without the leading `v`, and no longer a milestone number. The milestone commands and the milestone close after `devops release tag --push` run on the roadmap store (#768).
+- **A Task File Ticks a Box Only for Work That Is Done (`docs/agent/tasks/`, `AGENTS.md`)**:
+  - `tests/test_agent_task_files.py` fails on an unchecked box outside a code fence. Work not done is a plain bullet naming its follow-up issue, and a check only a person can run is a plain bullet starting "Pending a person:". The 17 task files that held unchecked boxes are brought into line, and `AGENTS.md` no longer asks for typed verification results: the PR's passing checks are the verification (#704).
+- **The PR Template and the Release PR Body Ask Only What No Check Decides (`.github/pull_request_template.md`, `devops release`)**:
+  - The template asks for a summary, the type of change, the base branch, `Closes #<issue>` and the task file. Its 15-box quality-gate checklist is gone, and so is the example closing reference in a comment, which read as closing that issue in any body that kept it (#704).
+  - The release PR body no longer carries the seven quality boxes it ticked on every ready release PR without reading anything (#704).
 
 ### Fixed
 - **Editing a Milestone No Longer Closes It (`devops gh milestones edit`)**:

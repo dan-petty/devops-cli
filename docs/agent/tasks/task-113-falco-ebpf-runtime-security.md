@@ -32,9 +32,8 @@ Container runtimes in Kubernetes clusters and local Minikube workstations lack r
 
 ## 2. Verification & Acceptance Criteria
 
-- [ ] Real-time kernel syscall anomaly detection and streaming.
-- [ ] Bounded complexity $\le 10$ and nesting $\le 5$.
-- [ ] 100% passing tests in `tests/test_k8s_security_stream.py`.
-- [ ] FastMCP contract validation passing.
-- [ ] Local `devops ci` passes with $\ge 90.0\%$ coverage.
-- [ ] Remote CI passing and PR staged.
+- Not checked when merged: real-time kernel syscall anomaly detection and streaming.
+- Not checked when merged: bounded complexity $\le 10$ and nesting $\le 5$.
+- Not checked when merged: 100% passing tests in `tests/test_k8s_security_stream.py`.
+- Not checked when merged: FastMCP contract validation passing.
+- Not checked when merged: local `devops ci` passes with $\ge 90.0\%$ coverage.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -32,6 +33,8 @@ from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState
 
 runner = CliRunner()
+# A Markdown task-list item, ticked or not, under any list marker and at any indent.
+_CHECKBOX_LINE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]", re.MULTILINE)
 
 
 @pytest.fixture
@@ -875,7 +878,7 @@ def test_release_changelog_command(sample_project_dir: Path) -> None:
 
 
 def test_build_release_pr_body_draft_mode(sample_project_dir: Path) -> None:
-    """Verify _build_release_pr_body in draft mode formats milestone items, notes, and draft checklist."""
+    """Verify _build_release_pr_body in draft mode formats milestone items and has no checkbox."""
     import json
 
     from devops_cli.commands.release import _build_release_pr_body
@@ -903,19 +906,15 @@ def test_build_release_pr_body_draft_mode(sample_project_dir: Path) -> None:
         assert "- #117" in body
         assert "- #118" in body
         assert "- **#117**" not in body
-        assert "### Quality Gate Checklist" in body
-        assert "- [ ] Gated CI Quality Gate passing (`devops ci`)" in body
-        assert "- [ ] Documentation and Command Matrix in `README.md` synchronized" in body
-        assert (
-            "- [ ] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`"
-            in body
-        )
-        assert "- [ ] CodeQL & Static Analysis passing" in body
-        assert "- [ ] Milestone deliverables reviewed and merged into `release/v0.2.19`" in body
+        assert _CHECKBOX_LINE.search(body) is None
 
 
 def test_build_release_pr_body_ready_mode(sample_project_dir: Path) -> None:
-    """Verify _build_release_pr_body in ready mode formats included deliverables and completed checklist."""
+    """Verify _build_release_pr_body in ready mode formats included deliverables and no checkbox.
+
+    Its seven quality boxes were ticked on every ready release PR without reading anything;
+    the PR's own checks are what GitHub shows.
+    """
     from devops_cli.commands.release import _build_release_pr_body
 
     with patch(
@@ -937,11 +936,11 @@ def test_build_release_pr_body_ready_mode(sample_project_dir: Path) -> None:
                 draft=False,
                 pr_title="feat(release): v0.2.19",
             )
-            assert "### Included Deliverables" in body
-            assert "feat(security): cosign container signing (#213)" in body
-            assert "- [x] Gated CI Quality Gate passing (`devops ci`)" in body
-            assert "- [x] CodeQL & Static Analysis passing" in body
-            assert "- [x] Milestone deliverables reviewed and merged into `release/v0.2.19`" in body
+            assert (
+                "### Included Deliverables" in body,
+                "feat(security): cosign container signing (#213)" in body,
+                _CHECKBOX_LINE.search(body),
+            ) == (True, True, None)
 
 
 def test_resolve_clean_release_notes_stale_duplicate_fallback(sample_project_dir: Path) -> None:

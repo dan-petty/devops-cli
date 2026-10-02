@@ -54,8 +54,8 @@ Implement multi-tier networking configuration options for workload sandboxes acr
 
 ## 3. Verification & Acceptance Criteria
 
-- [ ] All 4 networking modes fully supported across `SandboxDeployConfig` and `WorkloadSandboxConfig`.
-- [ ] NetworkPolicy generator creates valid, standard Kubernetes `networking.k8s.io/v1` specifications for all modes.
-- [ ] Whitelist validation strictly prevents SSRF / cloud metadata leakage.
-- [ ] CLI flags exposed on `devops sandbox deploy`, `devops docker sandbox`, and `devops test sandbox`.
-- [ ] 100% test pass on `tests/test_sandbox_networking.py` and zero regressions in `devops ci`.
+- Not checked when merged: all 4 networking modes fully supported across `SandboxDeployConfig` and `WorkloadSandboxConfig`.
+- Not checked when merged: NetworkPolicy generator creates valid, standard Kubernetes `networking.k8s.io/v1` specifications for all modes.
+- Not checked when merged: whitelist validation strictly prevents SSRF / cloud metadata leakage.
+- Not checked when merged: CLI flags exposed on `devops sandbox deploy`, `devops docker sandbox`, and `devops test sandbox`.
+- Not checked when merged: 100% test pass on `tests/test_sandbox_networking.py` and zero regressions in `devops ci`.

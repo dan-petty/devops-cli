@@ -357,7 +357,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops pr ready [OPTIONS] <number>` | Mark a draft pull request as ready for review. |
 |  | `devops pr diff [OPTIONS] <number>` | View diff of a pull request. |
 |  | `devops pr close [OPTIONS] <number>` | Close a pull request. |
-|  | `devops pr check-readiness [OPTIONS] <number>` | Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state. |
+|  | `devops pr check-readiness [OPTIONS] <number>` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding. |
 |  | `devops pr update [OPTIONS] <number>` | Update pull request branch with latest commits from its base branch. |
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |
 | **gh** | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching. |

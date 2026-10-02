@@ -51,4 +51,3 @@ Implement an automated PR monitoring engine and CLI command (`devops pr monitor`
 - [x] Update `docs/ROUTINE_TASKS.md` and `docs/SDLC.md`
 - [x] Regenerate documentation via `devops docs generate --sync-readme`
 - [x] Validate entire CI suite via `uv run devops ci`
-- [ ] Open draft PR targeting `release/v0.2.17` and verify via `devops pr monitor`

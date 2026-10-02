@@ -2349,6 +2349,25 @@ CONST_GH_MILESTONE_STATE_FILTERS: Final[frozenset[str]] = frozenset(
 # names; rendering all of them costs more than it tells the reader.
 CONST_TELEMETRY_PANEL_MAX_SERIES: Final[int] = 50
 
+# ── Pull Request Grounding ───────────────────────────────────────────────────
+# Readiness requires a pull request to close exactly one issue and to change that issue's task
+# file. The release pull request, `release/vX.Y.Z` from the same repository into the default
+# branch, delivers a whole release rather than one item, so it is the only exemption.
+CONST_RELEASE_BRANCH_RE: Final[re.Pattern[str]] = re.compile(r"release/v\d+\.\d+\.\d+")
+CONST_AGENT_TASKS_DIR: Final[str] = "docs/agent/tasks"
+# `task-<issue>-<slug>.md` directly under the tasks directory. The number is read as an
+# integer, so `task-089-x.md` belongs to #89.
+CONST_AGENT_TASK_FILE_RE: Final[re.Pattern[str]] = re.compile(
+    rf"{re.escape(CONST_AGENT_TASKS_DIR)}/task-(?P<issue>\d+)-[^/]*\.md"
+)
+# The `pulls/{n}/files` statuses under which the file is in the pull request's head and was
+# written by it. GitHub's full set is added, removed, modified, renamed, copied, changed (mode
+# only) and unchanged.
+CONST_PR_FILE_WRITTEN_STATUSES: Final[frozenset[str]] = frozenset({"added", "modified", "renamed"})
+# `gh api` reports a failed request as `gh: <message> (HTTP <status>)`, or `gh: HTTP <status>`
+# when the response carries no message.
+CONST_GH_API_HTTP_STATUS_RE: Final[re.Pattern[str]] = re.compile(r"\bHTTP (?P<status>\d{3})\b")
+
 # ── Cluster-Native Service Addressing ────────────────────────────────────────
 # A k8s:// URL names a Service rather than a host and port, so the same configuration
 # resolves on every cluster without a port-forward:
