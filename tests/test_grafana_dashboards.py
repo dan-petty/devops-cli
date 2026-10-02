@@ -470,3 +470,52 @@ def test_cli_supports_dry_run() -> None:
     )
     assert result.exit_code == 0
     assert "lint_grafana_dashboards" in result.output
+
+
+def test_sre_dashboards_contain_heatmap_and_ratio_panels() -> None:
+    """Verify SRE dashboards include heatmap distributions and ratio-based saturation panels."""
+    ingress_report = lint_dashboard_file(_REPO_DASHBOARDS / "ingress-tunnel.json")
+    sre_report = lint_dashboard_file(_REPO_DASHBOARDS / "sre-service.json")
+
+    ingress_dash = json.loads(
+        (_REPO_DASHBOARDS / "ingress-tunnel.json").read_text(encoding="utf-8")
+    )
+    sre_dash = json.loads((_REPO_DASHBOARDS / "sre-service.json").read_text(encoding="utf-8"))
+
+    ingress_heatmaps = [p["title"] for p in ingress_dash["panels"] if p.get("type") == "heatmap"]
+    sre_heatmaps = [p["title"] for p in sre_dash["panels"] if p.get("type") == "heatmap"]
+
+    ingress_ratios = [
+        p["title"]
+        for p in ingress_dash["panels"]
+        if p.get("fieldConfig", {}).get("defaults", {}).get("unit") == "percent"
+    ]
+    sre_ratios = [
+        p["title"]
+        for p in sre_dash["panels"]
+        if p.get("fieldConfig", {}).get("defaults", {}).get("unit") == "percent"
+    ]
+
+    assert (
+        (len(ingress_report.errors), len(ingress_report.warnings)),
+        (len(sre_report.errors), len(sre_report.warnings)),
+        ingress_heatmaps,
+        sre_heatmaps,
+        ingress_ratios,
+        sre_ratios,
+    ) == (
+        (0, 0),
+        (0, 0),
+        ["Ingress Request Latency Distribution (Heatmap)"],
+        ["Service Request Duration Distribution (Heatmap)"],
+        [
+            "Cloudflare Tunnel Request Error Ratio (%)",
+            "Ingress Success Rate",
+            "Ingress Error Rate",
+            "Ingress HTTP Status Code Ratios (Success vs. Error %)",
+        ],
+        [
+            "Container Resource Saturation Ratios (% of Limit)",
+            "CPU Throttling & Network Packet Drop Ratios (%)",
+        ],
+    )
