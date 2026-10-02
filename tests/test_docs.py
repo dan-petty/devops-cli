@@ -161,17 +161,27 @@ def test_render_markdown_and_json(generator: DocGenerator) -> None:
 
 
 def test_write_and_check_docs(generator: DocGenerator, tmp_path: Path) -> None:
-    written = generator.write_all_docs(tmp_path)
-    assert len(written) > 0
-    assert (tmp_path / "CLI_REFERENCE.md").exists()
-    assert (tmp_path / "ENV_VARS.md").exists()
-    assert (tmp_path / "MCP_TOOLS.md").exists()
-    assert (tmp_path / "commands" / "repos.md").exists()
+    """Write and check every generated file, syncing a README under `tmp_path`.
 
-    # Check passes when docs are unchanged
-    ok, errors = generator.check_docs(tmp_path)
-    assert ok is True
-    assert len(errors) == 0
+    With the default README this rewrote the repository's own, which the workspace tripwire
+    reports whenever that README already differs from HEAD.
+    """
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        "# Title\n\n## Complete Command Matrix\n\n| Command Group | Subcommand |\n|---|---|\n\n---\n",
+        encoding="utf-8",
+    )
+    with patch.object(generator, "_find_readme", return_value=readme):
+        written = generator.write_all_docs(tmp_path)
+        # Check passes when docs are unchanged
+        ok, errors = generator.check_docs(tmp_path)
+    expected = ("CLI_REFERENCE.md", "ENV_VARS.md", "MCP_TOOLS.md", "commands/repos.md")
+    assert (
+        all((tmp_path / name).exists() for name in expected),
+        readme in written,
+        ok,
+        errors,
+    ) == (True, True, True, [])
 
     # Stale file detection
     (tmp_path / "CLI_REFERENCE.md").write_text("Modified content", encoding="utf-8")

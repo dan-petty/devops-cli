@@ -497,6 +497,24 @@ class PRMessages:
         "✗ Merge conflict detected on PR #{number} with base '{base}'. Manual resolution required."
     )
     update_table_title: str = "Pull Request Branch Update Summary"
+    grounding_closes_no_issue: str = (
+        "PR #{number} is not grounded: its body closes no issue in {repo}. Name the one issue "
+        "it delivers with a closing keyword: Closes #<issue>."
+    )
+    grounding_closes_several_issues: str = (
+        "PR #{number} is not grounded: its body closes {count} issues ({issues}), and a PR "
+        "delivers exactly one."
+    )
+    grounding_task_file_missing: str = (
+        "PR #{number} is not grounded: it adds, modifies or renames no {pattern} for #{issue}."
+    )
+    grounding_files_unread: str = (
+        "PR #{number} is not grounded: the files it changes could not be read ({error})."
+    )
+    grounding_tasks_dir_unread: str = (
+        "PR #{number} is not grounded: {path}/ could not be read at its base ({error})."
+    )
+    changed_files_unread: str = "Could not read the files PR #{number} changes ({error})."
 
 
 @dataclass(frozen=True)

@@ -295,7 +295,7 @@ def test_cli_verify_finding_mitigated(tmp_path: Path) -> None:
 
 
 def test_pr_check_perimeter_warning(tmp_path: Path) -> None:
-    from devops_cli.commands.pr import _check_pr_perimeter_changes
+    from devops_cli.commands.pr import ChangedFile, _ChangedFilesRead, _check_pr_perimeter_changes
 
     ledger_file = tmp_path / "mitigated_findings.json"
     entries = [
@@ -310,15 +310,11 @@ def test_pr_check_perimeter_warning(tmp_path: Path) -> None:
 
     with (
         patch(
-            "devops_cli.commands.pr._fetch_pr_changed_files",
-            return_value=["src/res.py"],
-        ),
-        patch(
             "devops_cli.ai.review.mitigations.DEFAULT_MITIGATIONS_LEDGER_PATH",
             ledger_file,
         ),
         patch("devops_cli.commands.pr.print_warning") as mock_warn,
     ):
-        _check_pr_perimeter_changes(123, "example.com", "devops-cli")
+        _check_pr_perimeter_changes(_ChangedFilesRead([ChangedFile("src/res.py", "modified")]))
         assert mock_warn.called
         assert "Resource leak" in str(mock_warn.call_args[0][0])

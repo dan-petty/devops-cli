@@ -66,4 +66,3 @@ Implement a deterministic async memory and connection pool profiler under `devop
 - [x] Open Pull Request [#200](https://github.com/dan-petty/devops-cli/pull/200) targeting `release/v0.2.17`.
 - [x] Remediate Copilot review comments and post in-thread replies on PR #200.
 - [x] Implement `devops pr threads resolve-all` and `--auto-resolve` for merge readiness check in CI.
-- [ ] Monitor CI checks until green, then squash-merge into `release/v0.2.17`.

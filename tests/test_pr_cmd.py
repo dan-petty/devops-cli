@@ -3,17 +3,53 @@
 from __future__ import annotations
 
 import json
+import re
+import subprocess
+import time
+from collections.abc import Callable, Iterator
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.commands.pr import app
+from devops_cli.commands.pr import ChangedFile, app
+from devops_cli.github.issue_closure import extract_linked_issues
+from devops_cli.github.rate_limiter import get_github_rate_limiter, reset_github_rate_limiter
 
 
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
+
+
+def _gh_reply(stdout: object = "", returncode: int = 0, stderr: str = "") -> MagicMock:
+    """A `run_gh` result; a stdout that is not a string is sent as JSON."""
+    text = stdout if isinstance(stdout, str) else json.dumps(stdout)
+    return MagicMock(returncode=returncode, stdout=text, stderr=stderr)
+
+
+_NOT_FOUND = _gh_reply('{"message": "Not Found", "status": "404"}', 1, "gh: Not Found (HTTP 404)")
+_SERVER_ERROR = _gh_reply("", 1, "gh: Server Error (HTTP 500)")
+
+
+def _readiness_gh(
+    pr_payload: str = "{}", routes: dict[str, MagicMock] | None = None
+) -> Callable[..., MagicMock]:
+    """Answer `run_gh` by the endpoint it is given, its last argument.
+
+    Unless `routes` says otherwise the repository keeps no task files and the PR changes no
+    files; anything unrouted gets the PR payload.
+    """
+    replies = {"/contents/": _NOT_FOUND, "/files?": _gh_reply([]), **(routes or {})}
+
+    def answer(args: list[str], **_: object) -> MagicMock:
+        return next(
+            (reply for key, reply in replies.items() if key in args[-1]), _gh_reply(pr_payload)
+        )
+
+    return answer
 
 
 class TestPrCommands:
@@ -950,10 +986,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch(
-                "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
-            ),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
         ):
             res = runner.invoke(app, ["check-readiness", "187"])
@@ -971,10 +1004,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch(
-                "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
-            ),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
         ):
             res = runner.invoke(app, ["check-readiness", "187"])
             assert (res.exit_code, "already merged into base branch" in res.output) == (0, True)
@@ -991,10 +1021,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch(
-                "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
-            ),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
         ):
             res = runner.invoke(app, ["check-readiness", "187"])
             assert (res.exit_code, "closed without being merged" in res.output) == (1, True)
@@ -1012,10 +1039,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch(
-                "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
-            ),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
         ):
             res = runner.invoke(app, ["check-readiness", "187"])
@@ -1042,10 +1066,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch(
-                "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
-            ),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
             patch(
                 "devops_cli.github.pr_threads.list_pr_review_threads",
                 return_value=[mock_thread],
@@ -1072,10 +1093,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch(
-                "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
-            ),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
             patch(
                 "devops_cli.github.pr_threads.resolve_all_pr_review_threads",
                 return_value=[mock_res],
@@ -1114,10 +1132,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch(
-                "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
-            ),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
             patch(
                 "devops_cli.github.pr_threads.list_pr_review_threads",
                 return_value=[mock_thread],
@@ -1158,10 +1173,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch(
-                "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
-            ),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
             patch(
                 "devops_cli.github.pr_threads.list_pr_review_threads",
                 return_value=[mock_replied, mock_unreplied],
@@ -1196,10 +1208,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch(
-                "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
-            ),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
             patch(
                 "devops_cli.github.pr_threads.list_pr_review_threads",
                 return_value=[mock_probe_thread],
@@ -1229,10 +1238,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch(
-                "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
-            ),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
             patch("devops_cli.commands.pr._failing_check_runs", return_value=([], [])),
         ):
@@ -1253,10 +1259,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch(
-                "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
-            ),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
         ):
             res = runner.invoke(app, ["check-readiness", "187"])
@@ -1276,10 +1279,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch(
-                "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
-            ),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
         ):
             res = runner.invoke(app, ["check-readiness", "187"])
@@ -1299,10 +1299,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-            patch(
-                "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
-            ),
+            patch("devops_cli.commands.pr.run_gh", side_effect=_readiness_gh(mock_pr)),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
         ):
             res = runner.invoke(app, ["check-readiness", "187", "--allow-blocked-state"])
@@ -1327,10 +1324,14 @@ class TestPrCommands:
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
                 "devops_cli.commands.pr.run_gh",
-                side_effect=[
-                    MagicMock(returncode=0, stdout=mock_pr, stderr=""),
-                    MagicMock(returncode=1, stdout="", stderr="HTTP 500: Server Error"),
-                ],
+                side_effect=_readiness_gh(
+                    mock_pr,
+                    {
+                        "/check-runs": MagicMock(
+                            returncode=1, stdout="", stderr="HTTP 500: Server Error"
+                        )
+                    },
+                ),
             ),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
         ):
@@ -1637,29 +1638,51 @@ class TestPrCommands:
 # =============================================================================
 
 
+def _file(filename: str, status: str = "modified") -> dict[str, str]:
+    """One `pulls/{n}/files` entry."""
+    return {"filename": filename, "status": status}
+
+
+_REPO = {"full_name": "dan-petty/devops-cli", "default_branch": "main"}
+_TASK_704 = _file("docs/agent/tasks/task-704-x.md")
+# The base keeps task files, and the PR changes #704's.
+_GROUNDED = {"/contents/": _gh_reply(), "/files?": _gh_reply([_TASK_704])}
+
+
 def _ready_pr(**overrides: object) -> dict:
-    """Shape a pull request that is mergeable unless an override says otherwise."""
+    """Shape a grounded pull request into a release branch, mergeable unless overridden."""
     payload = {
         "merged": False,
         "state": "open",
         "draft": False,
         "mergeable": True,
         "mergeable_state": "clean",
-        "base": {"ref": "release/v0.2.22"},
-        "head": {"sha": "a" * 40},
+        "body": "Closes #704",
+        "base": {"ref": "release/v0.2.25", "sha": "b" * 40, "repo": _REPO},
+        "head": {"ref": "feat/x", "sha": "a" * 40, "repo": _REPO},
     }
     payload.update(overrides)
     return payload
 
 
-def _blockers(pr_data: dict, **kwargs: object) -> list[str]:
-    """Evaluate blockers with no review threads and no check runs unless stubbed."""
+def _blockers(
+    pr_data: dict,
+    *,
+    checks: tuple[list[str], list[str]] = ([], []),
+    gh: Callable[..., MagicMock] | None = None,
+    **kwargs: object,
+) -> list[str]:
+    """Evaluate blockers with no review threads, the given check runs, and `run_gh` stubbed.
+
+    Unless `gh` answers instead, the base keeps task files and the PR changes #704's.
+    """
     from devops_cli.commands import pr as pr_module
 
     with (
         patch.object(pr_module, "list_pr_review_threads", return_value=[], create=True),
         patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
-        patch.object(pr_module, "_failing_check_runs", return_value=([], [])),
+        patch.object(pr_module, "_failing_check_runs", return_value=checks),
+        patch.object(pr_module, "run_gh", side_effect=gh or _readiness_gh(routes=_GROUNDED)),
     ):
         return pr_module._evaluate_pr_blockers(pr_data, 335, "dan-petty", "devops-cli", **kwargs)
 
@@ -1684,45 +1707,247 @@ def test_a_failing_check_blocks_readiness() -> None:
     #335 passed this command while a CodeQL check had been failing on it for the whole
     release, because check status was never consulted.
     """
-    from devops_cli.commands import pr as pr_module
-
-    with (
-        patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
-        patch.object(pr_module, "_failing_check_runs", return_value=(["CodeQL"], [])),
-    ):
-        blockers = pr_module._evaluate_pr_blockers(_ready_pr(), 335, "dan-petty", "devops-cli")
+    blockers = _blockers(_ready_pr(), checks=(["CodeQL"], []))
     assert any("CodeQL" in blocker for blocker in blockers)
 
 
 def test_checks_still_running_block_by_default() -> None:
     """An unfinished check is not a passing one; calling it ready would be a guess."""
-    from devops_cli.commands import pr as pr_module
-
-    with (
-        patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
-        patch.object(pr_module, "_failing_check_runs", return_value=([], ["Tests & Coverage"])),
-    ):
-        blockers = pr_module._evaluate_pr_blockers(_ready_pr(), 335, "dan-petty", "devops-cli")
-    assert blockers != []
+    assert _blockers(_ready_pr(), checks=([], ["Tests & Coverage"])) != []
 
 
 def test_running_checks_can_be_excused_for_in_flight_verification() -> None:
     """A CI job checking its own pull request cannot wait for itself to finish."""
-    from devops_cli.commands import pr as pr_module
-
-    with (
-        patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
-        patch.object(pr_module, "_failing_check_runs", return_value=([], ["Tests & Coverage"])),
-    ):
-        blockers = pr_module._evaluate_pr_blockers(
-            _ready_pr(), 335, "dan-petty", "devops-cli", allow_pending_checks=True
-        )
+    blockers = _blockers(_ready_pr(), checks=([], ["Tests & Coverage"]), allow_pending_checks=True)
     assert blockers == []
 
 
 def test_a_clean_pull_request_reports_ready() -> None:
     """Adding gates must not make every pull request unmergeable."""
     assert _blockers(_ready_pr()) == []
+
+
+# =============================================================================
+# Grounding: one closed issue and its task file
+# =============================================================================
+
+
+def _grounding_gh(files: object, task_dir: MagicMock | None = None) -> MagicMock:
+    """A recording `run_gh` stub for a base with task files and this list of changed files."""
+    files_reply = files if isinstance(files, MagicMock) else _gh_reply(files)
+    routes = {"/contents/": task_dir or _gh_reply(), "/files?": files_reply}
+    return MagicMock(side_effect=_readiness_gh(routes=routes))
+
+
+@pytest.mark.parametrize(
+    ("body", "files"),
+    [
+        ("Closes #704", [_TASK_704]),
+        ("Closes #704", [_file("docs/agent/tasks/task-704-x.md", "added")]),
+        ("Closes #704", [_file("docs/agent/tasks/task-704-x.md", "renamed")]),
+        ("Fixes #89", [_file("src/x.py"), _file("docs/agent/tasks/task-089-x.md")]),
+    ],
+    ids=["modified", "added", "renamed", "zero-padded-089"],
+)
+def test_grounding_passes_a_pr_closing_one_issue_with_its_task_file(
+    body: str, files: list[dict[str, str]]
+) -> None:
+    """A PR into `release/v0.2.25` closing one issue and writing its task file is grounded."""
+    assert _blockers(_ready_pr(body=body), gh=_grounding_gh(files)) == []
+
+
+@pytest.mark.parametrize(
+    ("body", "files", "cause"),
+    [
+        ("Adds the readiness blocker.", [_TASK_704], "closes no issue in dan-petty/devops-cli"),
+        ("Closes #1\nCloses #2", [_TASK_704], "closes 2 issues (#1, #2)"),
+        ("Part 1 of #704", [_TASK_704], "closes no issue"),
+        ("Closes other/repo#704", [_TASK_704], "closes no issue"),
+        (
+            "Closes #704",
+            [_file("docs/agent/tasks/task-705-x.md")],
+            "renames no docs/agent/tasks/task-704-*.md for #704",
+        ),
+        (
+            "Closes #704",
+            [_file("docs/agent/tasks/task-704-x.md", "removed")],
+            "renames no docs/agent/tasks/task-704-*.md for #704",
+        ),
+        ("Closes #704", _SERVER_ERROR, "could not be read (gh: Server Error (HTTP 500))"),
+    ],
+    ids=[
+        "no-closing-reference",
+        "two-issues",
+        "part-of-an-item",
+        "other-repository",
+        "another-issues-task-file",
+        "task-file-removed",
+        "files-unreadable",
+    ],
+)
+def test_grounding_blocks_once_and_names_the_cause(body: str, files: object, cause: str) -> None:
+    """Each way a PR can be ungrounded is exactly one blocker that says what is missing.
+
+    Of the 41 PRs merged into release/v0.2.24, 8 closed no issue, 2 closed several and 3
+    closed one without changing its task file. Nothing blocked any of them.
+    """
+    blockers = _blockers(_ready_pr(body=body), gh=_grounding_gh(files))
+    assert [cause in blocker for blocker in blockers] == [True], blockers
+
+
+_RELEASE_HEAD = {"ref": "release/v0.2.25", "sha": "a" * 40, "repo": _REPO}
+_MAIN_BASE = {"ref": "main", "sha": "b" * 40, "repo": _REPO}
+
+
+@pytest.mark.parametrize("files", [[], _SERVER_ERROR], ids=["files-read", "files-unreadable"])
+def test_grounding_exempts_only_the_release_pr(files: object) -> None:
+    """`release/vX.Y.Z` from this repository into the default branch delivers a release.
+
+    It is exempt before any lookup, so even a task directory that can't be read doesn't
+    block it, and an unread file list is one warning.
+    """
+    release_pr = _ready_pr(body="", head=_RELEASE_HEAD, base=_MAIN_BASE)
+    with patch("devops_cli.commands.pr.print_warning") as warn:
+        blockers = _blockers(release_pr, gh=_grounding_gh(files, task_dir=_SERVER_ERROR))
+    assert (blockers, warn.call_count) == ([], 0 if files == [] else 1)
+
+
+@pytest.mark.parametrize(
+    "head",
+    [
+        {"ref": "feat/x", "sha": "a" * 40, "repo": _REPO},
+        {"ref": "release/foo", "sha": "a" * 40, "repo": _REPO},
+        {"ref": "release/v0.2.25", "sha": "a" * 40, "repo": {"full_name": "fork/devops-cli"}},
+    ],
+    ids=["topic-branch", "not-a-release-version", "from-a-fork"],
+)
+def test_grounding_holds_other_prs_into_the_default_branch(head: dict) -> None:
+    """Only the release PR is exempt; a topic, malformed release or forked head is not."""
+    blockers = _blockers(_ready_pr(body="", head=head, base=_MAIN_BASE), gh=_grounding_gh([]))
+    assert ["closes no issue" in blocker for blocker in blockers] == [True], blockers
+
+
+def test_grounding_skips_a_base_without_task_files() -> None:
+    """A 404 for `docs/agent/tasks` means the repository keeps none, so nothing is required.
+
+    None of the other repositories devops-cli manages has the directory, and a file list that
+    can't be read there is a warning, not a blocker.
+    """
+    gh = _grounding_gh(_SERVER_ERROR, task_dir=_NOT_FOUND)
+    with patch("devops_cli.commands.pr.print_warning") as warn:
+        blockers = _blockers(_ready_pr(body=""), gh=gh)
+    assert (blockers, warn.call_count, "Could not read the files" in str(warn.call_args)) == (
+        [],
+        1,
+        True,
+    )
+
+
+def test_grounding_blocks_when_the_task_directory_lookup_fails() -> None:
+    """Only a 404 rules grounding out; any other failure is a blocker that names it."""
+    blockers = _blockers(_ready_pr(), gh=_grounding_gh([_TASK_704], task_dir=_SERVER_ERROR))
+    assert blockers == [
+        "PR #335 is not grounded: docs/agent/tasks/ could not be read at its base "
+        "(gh: Server Error (HTTP 500))."
+    ]
+
+
+def test_grounding_reads_the_files_and_the_base_once_each() -> None:
+    """The reader's argv is pinned: without `per_page=100`, `run_gh` stops after 30 files."""
+    gh = _grounding_gh([_TASK_704])
+    _blockers(_ready_pr(), gh=gh)
+    assert [call.args[0] for call in gh.call_args_list] == [
+        ["gh", "api", "--paginate", "repos/dan-petty/devops-cli/pulls/335/files?per_page=100"],
+        [
+            "gh",
+            "api",
+            "--silent",
+            f"repos/dan-petty/devops-cli/contents/docs/agent/tasks?ref={'b' * 40}",
+        ],
+    ]
+
+
+@pytest.fixture
+def full_core_quota() -> Iterator[None]:
+    """A fresh `run_gh` limiter whose core quota is known and large.
+
+    No request then reads `rate_limit`, and the pacing between requests (time to reset over
+    requests remaining) is microseconds.
+    """
+    reset_github_rate_limiter()
+    limiter = get_github_rate_limiter()
+    quota = 1_000_000
+    limiter.update_quota("core", remaining=quota, limit=quota, reset_epoch=time.time() + 60.0)
+    yield
+    reset_github_rate_limiter()
+
+
+@pytest.mark.usefixtures("full_core_quota")
+def test_grounding_reads_every_page_of_changed_files_through_the_pager() -> None:
+    """`run_gh` pages the files itself, so the 101st file, on page 2, is read.
+
+    PR #738 changed 51 files; without `per_page=100` the pager stopped after GitHub's
+    default page of 30.
+    """
+    from devops_cli.commands import pr as pr_module
+
+    pages = {"1": [_file(f"src/m{n}.py") for n in range(100)], "2": [_TASK_704]}
+
+    def subprocess_reply(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        endpoint = urlsplit(cmd[-1])
+        page = parse_qs(endpoint.query).get("page", [""])[0] if "/files" in endpoint.path else ""
+        stdout = json.dumps(pages[page]) if page in pages else ""
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=stdout, stderr="")
+
+    with (
+        patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=subprocess_reply),
+        patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
+        patch.object(pr_module, "_failing_check_runs", return_value=([], [])),
+    ):
+        files = pr_module._fetch_pr_files(335, "dan-petty", "devops-cli")
+        blockers = pr_module._evaluate_pr_blockers(_ready_pr(), 335, "dan-petty", "devops-cli")
+    assert (len(files), files[-1], blockers) == (
+        101,
+        ChangedFile("docs/agent/tasks/task-704-x.md", "modified"),
+        [],
+    )
+
+
+# =============================================================================
+# The pull request template asks only for what no check decides
+# =============================================================================
+
+_PR_TEMPLATE = Path(".github/pull_request_template.md")
+_CHECKBOX_LINE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]")
+
+
+def test_pr_template_asks_for_the_issue_and_task_file_and_nothing_a_check_decides() -> None:
+    """The template's quality-gate boxes asked authors to tick what they could not verify.
+
+    All 5 of the last 40 merged PRs that used it ticked "complexity <= 10", which nothing
+    enforced, and its "e.g. Closes #123" comment read as closing #123 in any body that kept it.
+    """
+    text = _PR_TEMPLATE.read_text(encoding="utf-8")
+    assert (
+        [line for line in text.splitlines() if _CHECKBOX_LINE.match(line)],
+        "Closes #" in text,
+        "docs/agent/tasks/task-" in text,
+        extract_linked_issues(text, "dan-petty/devops-cli"),
+        re.search(r"complexity|coverage|quality gate|10/10", text, re.IGNORECASE),
+    ) == (
+        [
+            "- [ ] `feat`: New feature or capability",
+            "- [ ] `fix`: Bug fix or defect remediation",
+            "- [ ] `refactor`: Code reorganization with zero functional behavior change",
+            "- [ ] `docs`: Documentation updates or additions",
+            "- [ ] `test`: New or updated tests",
+            "- [ ] `chore`: Maintenance, dependencies, or tooling updates",
+        ],
+        True,
+        True,
+        [],
+        None,
+    )
 
 
 def test_a_failed_create_explains_itself() -> None:

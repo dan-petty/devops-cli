@@ -37,8 +37,8 @@ devops-cli measures structure at one revision only: per-function complexity in `
 - [x] All 10 Gated CI checks passing (`uv run devops ci`).
 
 ### Part 2: Per-Function Complexity Delta Before & After (Pending)
-- [ ] Per-function complexity before and after through a content-taking entry to `security/complexity.py`.
-- [ ] Library backend evaluation (lizard text analysis).
+- Planned: per-function complexity before and after through a content-taking entry to `security/complexity.py`.
+- Planned: library backend evaluation (lizard text analysis).
 
 ### Part 3: PR Reviews Integration (Pending)
-- [ ] PR reviews fetching `pull.base.sha` and `pull.head.sha` for symbol delta computation.
+- Planned: PR reviews fetching `pull.base.sha` and `pull.head.sha` for symbol delta computation.

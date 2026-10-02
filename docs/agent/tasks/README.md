@@ -6,9 +6,9 @@ This directory contains modular, per-task tracking documents for active delivera
 
 Historically, a monolithic `docs/agent/task.md` file was used for task tracking across branches. When multiple feature branches ran concurrently, each appended lines to the same index table, causing frequent merge conflicts upon PR merge. To eliminate merge conflicts and enable clean multi-agent / multi-branch collaboration, `docs/agent/task.md` has been completely decommissioned and task tracking is decomposed into **isolated, per-task files**:
 
-1. **Zero Merge Conflicts**: Each topic or feature branch creates and edits **only its dedicated task file** (`docs/agent/tasks/task-<issue>-<slug>.md`). Because git treats distinct files independently, merging branches introduces zero conflicts.
+1. **Zero Merge Conflicts**: Each topic or feature branch creates and edits **only its dedicated task file** (`docs/agent/tasks/task-<issue>-<slug>.md`). Because git treats distinct files independently, merging branches introduces zero conflicts. The one exception: a PR that changes a rule every task file follows brings the existing task files into line in that same PR.
 2. **Decommissioned Monolithic Index**: Centralized task visualization, roadmap tracking, and sprint management are managed natively through GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and GitHub Issues views (`https://github.com/dan-petty/devops-cli/issues/views`). No central index markdown file is maintained.
-3. **Commit Context Rule**: Updates to task tracking files **MUST ONLY** occur in the commit that delivers the feature or fix, written as the file should read once merged (`**Status**: Done`). Standalone task-tracking commits, including follow-ups that only add a pull request number, are strictly prohibited.
+3. **Commit Context Rule**: Updates to task tracking files **MUST ONLY** occur in the commit that delivers the feature or fix, written as the file should read once merged (`**Status**: Done`). Standalone task-tracking commits, including follow-ups that only add a pull request number, are strictly prohibited. A box is ticked only for work that is done. Work that was not done is a plain bullet naming its follow-up issue. A check only a person can run is a plain bullet starting `Pending a person:`, followed by the exact commands. Verification is the PR's passing checks, which `devops pr check-readiness` reads; typed pass counts and coverage figures are not required.
 4. **Issue-Only Linking**: A task file links its GitHub issue and nothing else. The issue links the pull request that closes it (`Closes #<issue>`), and GitHub shows that pull request on the issue. Task files never carry a pull request number or a review state: the number is unknown until the pull request exists, so recording it takes a second commit that re-runs every check.
 5. **Project Synchronization**: `devops gh project sync` (and FastMCP `gh_project_sync`) creates or updates the board from `.github/project-template.json`, adds the repository's open issues, and reconciles Status, Priority and Milestone from GitHub. It does not read task files: the board owns Status, and task files are the implementation record.
 
@@ -47,19 +47,19 @@ Each task file should follow this standard format:
 <Concise technical description of the deliverable and architectural goals>
 
 ## Acceptance Criteria
-- [ ] Criterion 1
-- [ ] Criterion 2
+- [x] <Criterion met, with the test or command that shows it>
+- Pending a person: <the exact commands a person runs, and what they should see>
 
 ## Deliverables
-- [ ] Deliverable 1
-- [ ] Deliverable 2
+- [x] <Deliverable done>
+- <Work not done>: moved to #<follow-up issue>
 ```
 
 ---
 
 ## Lifecycle States
 
-A task file records one of four statuses. `tests/test_agent_task_files.py` enforces them, together with the issue link and the absence of a pull request field:
+A task file records one of four statuses. `tests/test_agent_task_files.py` enforces them, together with the issue link, the absence of a pull request field, and the absence of an unchecked box (`- [ ]` or `* [ ]`, at any indent) outside fenced code blocks:
 - **Backlog**: Queued deliverable, awaiting assignment or active milestone start.
 - **Ready**: Scoped with concrete acceptance criteria and tests designed.
 - **In Progress (WIP)**: Active work item currently being authored. If an early PR is opened to share work, it must be a Draft Pull Request (`--draft`).

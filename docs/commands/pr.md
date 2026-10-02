@@ -239,7 +239,13 @@ devops pr close [OPTIONS] <number>
 
 ## `devops pr check-readiness`
 
-**Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state.**
+**Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.**
+
+Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
+
+Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch):
+its body closes exactly one issue, and it adds, modifies or renames that issue's
+docs/agent/tasks/task-\<issue\>-*.md. A base branch without docs/agent/tasks/ is exempt.
 
 ```bash
 devops pr check-readiness [OPTIONS] <number>

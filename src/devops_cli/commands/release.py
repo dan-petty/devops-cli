@@ -919,21 +919,6 @@ def _resolve_clean_release_notes(
     return f"### Added\n- Initial release branch preparation and quality certification for v{cleaned_ver}."
 
 
-def _build_quality_checklist(branch_name: str, draft: bool) -> str:
-    """Build standardized Gated quality checklist for release PR."""
-    pr_checked = " " if draft else "x"
-    return (
-        "### Quality Gate Checklist\n"
-        f"- [{pr_checked}] Gated CI Quality Gate passing (`devops ci`)\n"
-        f"- [{pr_checked}] Documentation and Command Matrix in `README.md` synchronized\n"
-        f"- [{pr_checked}] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`\n"
-        f"- [{pr_checked}] CodeQL & Static Analysis passing\n"
-        f"- [{pr_checked}] Pre-commit & CI validation passing\n"
-        f"- [{pr_checked}] Milestone deliverables reviewed and merged into `{branch_name}`\n"
-        f"- [{pr_checked}] Final release readiness verified before converting from draft"
-    )
-
-
 def _build_release_pr_body(
     repo_root: Path,
     target_ver: str,
@@ -946,7 +931,6 @@ def _build_release_pr_body(
     cleaned_ver = target_ver.lstrip("v")
     deliverables = _fetch_milestone_deliverables(repo_root, cleaned_ver, base, branch_name)
     notes = _resolve_clean_release_notes(repo_root, cleaned_ver, base, branch_name)
-    checklist = _build_quality_checklist(branch_name, draft)
 
     sections = [
         f"## {pr_title}",
@@ -960,7 +944,6 @@ def _build_release_pr_body(
     if notes:
         sections.append(f"### Release Notes\n{notes}")
 
-    sections.append(checklist)
     return "\n\n".join(sections).strip() + "\n"
 
 
