@@ -65,6 +65,12 @@ datasources:
         url: http://jaeger.otel.svc.cluster.local:16686
         access: proxy
         isDefault: false
+      - name: Pyroscope
+        type: grafana-pyroscope-datasource
+        uid: pyroscope
+        url: http://pyroscope.monitoring.svc.cluster.local:4040
+        access: proxy
+        isDefault: false
 
 dashboardProviders:
   dashboardproviders.yaml:
