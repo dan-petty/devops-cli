@@ -261,6 +261,7 @@ devops k8s port-forward [OPTIONS]
 | `--grafana-port` | `integer` | `8030` | Local port for Grafana. |
 | `--prometheus-port` | `integer` | `8090` | Local port for Prometheus. |
 | `--jaeger-port` | `integer` | `16686` | Local port for Jaeger Query UI. |
+| `--pyroscope-port` | `integer` | `4040` | Local port for Pyroscope Continuous Profiling UI. |
 | `--otel-port` | `integer` | `4318` | Local port for OpenTelemetry OTLP Traces (HTTP). |
 | `--ollama-port` | `integer` | `11434` | Local port for Ollama. |
 | `--open-webui-port` | `integer` | `3000` | Local port for Open-WebUI. |

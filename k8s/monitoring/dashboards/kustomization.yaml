@@ -39,3 +39,4 @@ configMapGenerator:
       - llm-stack.json
       - otel-collector.json
       - prometheus-server.json
+      - pyroscope.json

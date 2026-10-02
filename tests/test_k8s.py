@@ -1413,3 +1413,46 @@ def test_pyroscope_helm_release_and_grafana_datasource() -> None:
         True,
         ("grafana-pyroscope-datasource", "http://pyroscope.monitoring.svc.cluster.local:4040"),
     )
+
+
+def test_pyroscope_port_forward_and_proxy_targets() -> None:
+    """Verify Pyroscope networking, port-forwarding, and configuration targets."""
+    from devops_cli.commands.k8s.networking import (
+        _NODEPORT_KEYS_INFRA,
+        _PROXY_TARGETS_INFRA,
+        _build_port_forward_details,
+        _collect_port_forward_services,
+    )
+    from devops_cli.config.defaults import DEFAULT_PYROSCOPE_PORT, DEFAULT_PYROSCOPE_URL
+    from devops_cli.config.settings import Settings
+
+    pyro_proxy = next((t for t in _PROXY_TARGETS_INFRA if t[0] == "pyroscope.url"), None)
+    ports = {
+        "argocd": 8080,
+        "grafana": 8030,
+        "prometheus": 8090,
+        "jaeger": 16686,
+        "pyroscope": 4040,
+        "otel": 4318,
+    }
+    services = _collect_port_forward_services(["infra"], ports)
+    details = _build_port_forward_details(["infra"], ports)
+    pyro_svc = next((s for s in services if s[1] == "svc/pyroscope"), None)
+
+    assert (
+        DEFAULT_PYROSCOPE_PORT,
+        DEFAULT_PYROSCOPE_URL,
+        pyro_proxy,
+        "pyroscope.url" in _NODEPORT_KEYS_INFRA,
+        pyro_svc,
+        details.get("pyroscope.url"),
+        Settings().pyroscope.url,
+    ) == (
+        4040,
+        "http://localhost:4040",
+        ("pyroscope.url", "monitoring", ("pyroscope",), ("4040", "http2", "http")),
+        True,
+        ("monitoring", "svc/pyroscope", 4040, 4040),
+        "http://localhost:4040",
+        "http://localhost:4040",
+    )

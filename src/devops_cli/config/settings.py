@@ -67,6 +67,7 @@ from devops_cli.config.defaults import (
     DEFAULT_OLLAMA_URLS,
     DEFAULT_OTEL_ENDPOINT,
     DEFAULT_PORTKEY_GATEWAY_URL,
+    DEFAULT_PYROSCOPE_URL,
     DEFAULT_QDRANT_URL,
     DEFAULT_RAG_CHUNK_OVERLAP,
     DEFAULT_RAG_CHUNK_SIZE,
@@ -257,6 +258,11 @@ class ValkeyConfig(BaseModel):
 class JaegerConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     url: str | None = DEFAULT_JAEGER_URL
+
+
+class PyroscopeConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    url: str | None = DEFAULT_PYROSCOPE_URL
 
 
 class TelemetryConfig(BaseModel):
@@ -604,6 +610,7 @@ class Settings(BaseSettings):
     valkey: ValkeyConfig = ValkeyConfig()
     runs: RunsConfig = RunsConfig()
     jaeger: JaegerConfig = JaegerConfig()
+    pyroscope: PyroscopeConfig = PyroscopeConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
     k8s: KubernetesConfig = KubernetesConfig()
     cloudflare: CloudflareConfig = CloudflareConfig()
