@@ -14,11 +14,14 @@ spec:
     # 1. Intra-namespace communications (Fluent Bit -> Loki)
     - from:
         - podSelector: {}
-    # 2. Allow Grafana in monitoring namespace to query Loki (3100)
+    # 2. Allow Grafana/Alloy in monitoring and OTel collector in otel namespace to push/query Loki (3100)
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel
       ports:
         - protocol: TCP
           port: 3100

@@ -74,6 +74,12 @@ config:
       tls:
         insecure: true
 
+    # Push OTLP logs to Loki in logging namespace.
+    loki:
+      endpoint: http://loki.logging.svc.cluster.local:3100/loki/api/v1/push
+      tls:
+        insecure: true
+
     # Prometheus remote write to Alloy's prometheus.receive_http (k8s-monitoring's
     # prometheusMetricsReceiver), which serves only POST /api/v1/metrics/write and answers 404
     # on the Prometheus server's /api/v1/write. Local dev uses the internal HTTP Service; for
@@ -92,9 +98,6 @@ config:
         processors: [memory_limiter, batch]
         exporters: [debug, otlp_grpc/jaeger]
 
-
-
-
       metrics:
         receivers: [otlp]
         processors: [memory_limiter, deltatocumulative, batch]
@@ -103,7 +106,7 @@ config:
       logs:
         receivers: [otlp]
         processors: [memory_limiter, batch]
-        exporters: [debug]
+        exporters: [debug, loki]
 
 # ClusterIP: In-cluster workloads export to otel-collector.otel.svc.cluster.local.
 # Workstation export uses `devops k8s port-forward` or ingress routing.
