@@ -229,7 +229,7 @@ def test_cli_verify_finding_mitigated(tmp_path: Path) -> None:
         severity="HIGH",
         status="UNVERIFIED",
     )
-    payload = ReviewSessionPayload(findings=[f], summary="Initial review")
+    payload = ReviewSessionPayload(findings=[f])
     findings_file.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
 
     ledger_file = tmp_path / "mitigated_findings.json"

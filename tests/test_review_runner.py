@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from typer.testing import CliRunner
 
 from devops_cli.ai.personas import PERSONAS, Persona
+from devops_cli.ai.review.history import review_subject
 from devops_cli.ai.review.runner import (
     ReviewClients,
     _build_path_prompt,
@@ -421,10 +422,8 @@ def test_review_cli_commands(tmp_path: Path) -> None:
         ),
     ]
     payload = ReviewSessionPayload(
-        session_id="sample-session",
-        created_at="2026-08-26T00:00:00",
-        target_type="path",
-        target="src/",
+        generated_at="2026-08-26T00:00:00",
+        subject=review_subject("path", "src/", []),
         findings=findings,
     )
     (session_dir / "findings.json").write_text(payload.model_dump_json(indent=2), encoding="utf-8")

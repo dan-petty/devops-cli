@@ -9,7 +9,7 @@ import secrets
 import time
 from collections import Counter
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import Any, Literal
@@ -432,6 +432,7 @@ def _save_findings_json(
     session_dir: Path,
     show_status: bool = False,
     analysis_metas: dict[str, FileAnalysisMeta] | None = None,
+    subject: dict[str, str] | None = None,
 ) -> bool:
     target = session_dir / "findings.json"
     findings: list[SavedFinding] = []
@@ -452,7 +453,8 @@ def _save_findings_json(
     removed_count = sum(1 for f in findings if f.verification_note == "cites removed symbol")
     delta_summary = _compute_delta_summary(analysis_metas)
     payload = ReviewSessionPayload(
-        generated_at=datetime.now().isoformat(),
+        generated_at=datetime.now(UTC).isoformat(),
+        subject=subject or {},
         personas=[pd.name for pd, _ in completed],
         findings=findings,
         removed_symbol_findings_count=removed_count,
@@ -714,10 +716,17 @@ def _write_summary(
     pages: list[str],
     completed: list[tuple[PersonaDefinition, ReviewResult | str]],
     analysis_metas: dict[str, FileAnalysisMeta] | None = None,
+    subject: dict[str, str] | None = None,
 ) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     if completed:
-        _save_findings_json(completed, session_dir, show_status=True, analysis_metas=analysis_metas)
+        _save_findings_json(
+            completed,
+            session_dir,
+            show_status=True,
+            analysis_metas=analysis_metas,
+            subject=subject,
+        )
     lines: list[str] = [
         f"# Review: {title}",
         f"**Date:** {now}  ",
@@ -1266,8 +1275,12 @@ def _run_persona_loop(
     agents_md: str,
     all_personas: bool,
     persona: Persona | None,
+    subject: dict[str, str] | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
-    """Run full persona review loop using analysis metadata exclusively."""
+    """Run full persona review loop using analysis metadata exclusively.
+
+    `subject` is what the session reviews, written to its findings.json.
+    """
     personas = _personas_to_run(all_personas, persona)
     session_dir = _review_session_dir(title) if not is_dry_run() else None
     if session_dir:
@@ -1285,7 +1298,7 @@ def _run_persona_loop(
 
     shared_meta = _load_shared_metadata_for_pages(pages)
     if session_dir and shared_meta:
-        _write_summary(title, session_dir, pages, [], shared_meta)
+        _write_summary(title, session_dir, pages, [], shared_meta, subject=subject)
 
     completed: list[tuple[PersonaDefinition, ReviewResult | str]] = []
     try:
@@ -1309,7 +1322,7 @@ def _run_persona_loop(
             completed.append((pd, review_text))
             if session_dir:
                 _save_persona_review(pd, review_text, session_dir)
-                _write_summary(title, session_dir, pages, completed, shared_meta)
+                _write_summary(title, session_dir, pages, completed, shared_meta, subject=subject)
 
         if len(personas) > 1 and not is_dry_run():
             from devops_cli.ai.review.pool import ReviewWorkerPool
@@ -1334,7 +1347,7 @@ def _run_persona_loop(
         print_error("Review cancelled by user.", prefix=False)
     finally:
         if session_dir and completed:
-            _write_summary(title, session_dir, pages, completed, shared_meta)
+            _write_summary(title, session_dir, pages, completed, shared_meta, subject=subject)
 
     return completed
 
@@ -2210,8 +2223,10 @@ def _execute_review_workflow(
     """Common review execution workflow for path, branch, and PR reviews.
 
     `base_revision` is where a branch or PR diff starts; pre-analysis records each changed
-    Python file's symbol delta from it. A path review has none.
+    Python file's symbol delta from it. A path review has none. Both findings.json writers record
+    the session's subject, which review history counts once.
     """
+    from devops_cli.ai.review.history import review_subject
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
     from devops_cli.lang import MESSAGES
 
@@ -2221,6 +2236,7 @@ def _execute_review_workflow(
 
     all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
     _check_and_warn_perimeter_changes(target_type, all_files)
+    subject = review_subject(target_type, target_ref, pages)
     orchestrator = ReviewPipelineOrchestrator(
         llm_client=clients.analysis,
         verification_client=clients.verification,
@@ -2228,6 +2244,7 @@ def _execute_review_workflow(
         concurrency=concurrency,
         parallel=parallel,
         ground_contracts=ground_contracts,
+        subject=subject,
     )
 
     if type(clients.analysis).__name__ == "LLMClient":
@@ -2278,5 +2295,5 @@ def _execute_review_workflow(
         return []
 
     return _run_persona_loop(
-        pages, title, prompt_builder, clients, agents_md, all_personas, persona
+        pages, title, prompt_builder, clients, agents_md, all_personas, persona, subject=subject
     )

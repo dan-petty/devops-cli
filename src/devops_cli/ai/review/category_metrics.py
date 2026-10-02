@@ -1,19 +1,21 @@
 """Per-category false-positive rate tracking and cross-run baseline analytics.
 
 Computes verification statistics and false-positive rates segmented by finding
-category across individual review sessions and historical review runs.
+category across individual review sessions and historical review runs. The historical
+side reads review history (`history.py`): every finding raised by the sessions it
+counts, with the session being compared left out.
 """
 
 from __future__ import annotations
 
-import json
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from devops_cli.ai.review.history import HistoryFinding, ReviewHistory
     from devops_cli.ai.review_schema import Finding, SavedFinding
 
 
@@ -30,7 +32,7 @@ class CategoryMetric:
     false_positive_rate: float
 
 
-def resolve_finding_category(finding: Finding | SavedFinding) -> str:
+def resolve_finding_category(finding: Finding | SavedFinding | HistoryFinding) -> str:
     """Determine the canonical category for a finding.
 
     Honors explicit finding category when present; otherwise infers the category
@@ -66,7 +68,7 @@ def _build_category_metric(category: str, counts: dict[str, int]) -> CategoryMet
 
 
 def compute_category_metrics(
-    findings: Sequence[Finding | SavedFinding],
+    findings: Sequence[Finding | SavedFinding | HistoryFinding],
 ) -> dict[str, CategoryMetric]:
     """Calculate per-category total, status counts, and false-positive rates."""
     tallies: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -82,59 +84,39 @@ def compute_category_metrics(
     return results
 
 
-def _load_session_findings(session_dir: Path) -> list[Any]:
-    """Safely load and return findings from a saved session directory."""
-    findings_file = session_dir / "findings.json"
-    if not findings_file.is_file():
-        return []
-    try:
-        from devops_cli.ai.review_schema import ReviewSessionPayload
-
-        content = findings_file.read_text(encoding="utf-8")
-        payload = ReviewSessionPayload.model_validate_json(content)
-        return list(payload.findings)
-    except OSError, json.JSONDecodeError, ValueError:
-        return []
-
-
 def collect_historical_category_metrics(
     reviews_dir: Path | None = None,
-) -> tuple[dict[str, CategoryMetric], int, int]:
-    """Aggregate per-category findings and false-positive metrics across saved sessions.
+    exclude: Path | None = None,
+) -> tuple[dict[str, CategoryMetric], ReviewHistory]:
+    """Aggregate per-category metrics over every finding raised by the sessions history counts.
+
+    `exclude`, the session being compared, is left out before repeats of a subject collapse.
 
     Returns:
-        (category_metrics, total_sessions, total_findings)
+        (category_metrics, history)
     """
+    from devops_cli.ai.review.history import load_review_history
     from devops_cli.ai.review.review_environment import _get_reviews_base_dir
 
-    r_dir = reviews_dir or _get_reviews_base_dir()
-    if not r_dir.exists() or not r_dir.is_dir():
-        return {}, 0, 0
-
-    session_dirs = [d for d in r_dir.iterdir() if d.is_dir() and (d / "findings.json").exists()]
-    if not session_dirs:
-        return {}, 0, 0
-
-    all_historical_findings: list[Any] = []
-    for s_dir in session_dirs:
-        all_historical_findings.extend(_load_session_findings(s_dir))
-
-    total_sessions = len(session_dirs)
-    total_findings = len(all_historical_findings)
-    metrics = compute_category_metrics(all_historical_findings)
-    return metrics, total_sessions, total_findings
+    history = load_review_history(reviews_dir or _get_reviews_base_dir(), exclude=exclude)
+    raised = [f for session in history.counted for f in session.raised]
+    return compute_category_metrics(raised), history
 
 
 def format_category_baseline_markdown(
     session_findings: Sequence[Finding | SavedFinding],
     reviews_dir: Path | None = None,
+    exclude: Path | None = None,
 ) -> list[str]:
-    """Render Markdown section comparing session category false-positive rates to historical baseline."""
+    """Render Markdown section comparing session category false-positive rates to historical baseline.
+
+    `exclude` is the current session's directory, which the pipeline writes before the report.
+    """
     session_metrics = compute_category_metrics(session_findings)
     if not session_metrics:
         return []
 
-    hist_metrics, total_sessions, _ = collect_historical_category_metrics(reviews_dir)
+    hist_metrics, history = collect_historical_category_metrics(reviews_dir, exclude)
 
     lines = [
         "## Category Verification & False-Positive Baseline",
@@ -144,8 +126,10 @@ def format_category_baseline_markdown(
     ]
 
     for cat, s_metric in session_metrics.items():
+        # History leaves out the session being compared, so a category it has is one that at
+        # least one counted earlier session raised.
         h_metric = hist_metrics.get(cat)
-        if h_metric and total_sessions > 1:
+        if h_metric is not None:
             h_str = f"{h_metric.false_positive_rate:.1f}% ({h_metric.invalidated}/{h_metric.total})"
         else:
             h_str = "— (baseline established)"
@@ -156,5 +140,10 @@ def format_category_baseline_markdown(
             f"{s_metric.false_positive_rate:.1f}% | {h_str} |"
         )
 
+    lines.append("")
+    lines.append(
+        f"_Baseline: {len(history.counted)} earlier session(s), {history.repeats} repeat "
+        "session(s) collapsed, this session excluded._"
+    )
     lines.append("")
     return lines

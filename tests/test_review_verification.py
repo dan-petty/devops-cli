@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.ai.review_schema import Finding
+from devops_cli.ai.review.history import review_subject
+from devops_cli.ai.review_schema import Finding, SavedFinding
 from devops_cli.commands.review import app
 
 runner = CliRunner()
@@ -128,42 +130,44 @@ def test_review_verify_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert updated_finding["verified_by"] == "human"
 
 
-def test_review_stats_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    reviews_dir = tmp_path / "reviews"
-    session_dir = reviews_dir / "20260809-120000-test-repo"
-    session_dir.mkdir(parents=True)
+def test_review_verify_keeps_the_session_subject(
+    isolate_data_dir: Path, write_review_session: Callable[..., Path]
+) -> None:
+    """Verify `devops review verify` rewrites findings.json with the session's subject, so a
+    session that holds human verdicts keeps its place in review history (#607)."""
+    subject = review_subject("pr", "42", ["diff --git a/auth.py b/auth.py\n"])
+    session = write_review_session(
+        isolate_data_dir / "reviews" / "20261001-090000",
+        generated_at="2026-10-01T09:00:00+00:00",
+        subject=subject,
+        findings=[SavedFinding(title="Hardcoded Token", location="auth.py:42")],
+    )
 
-    findings_payload = {
-        "generated_at": "2026-08-09T12:00:00",
-        "personas": ["devsecops"],
-        "findings": [
-            {
-                "persona": "devsecops",
-                "severity": "HIGH",
-                "location": "auth.py:42",
-                "title": "Hardcoded Token",
-                "status": "VERIFIED",
-            },
-            {
-                "persona": "devsecops",
-                "severity": "MEDIUM",
-                "location": "logging.py:10",
-                "title": "Verbose Log",
-                "status": "INVALIDATED",
-                "invalidation_reason": "Debug mode only",
-            },
-        ],
-    }
-    (session_dir / "findings.json").write_text(json.dumps(findings_payload), encoding="utf-8")
+    res = runner.invoke(
+        app, ["verify", session.name, "--index", "1", "--status", "VERIFIED", "--reason", "Seen"]
+    )
 
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    saved = json.loads((session / "findings.json").read_text(encoding="utf-8"))
+    assert (res.exit_code, saved["subject"], saved["findings"][0]["verified_by"]) == (
+        0,
+        subject,
+        "human",
+    )
 
-    res = runner.invoke(app, ["stats"], env={"DEVOPS_CLI_DATA_DIR": str(tmp_path)})
-    assert res.exit_code == 0
-    assert "Total Sessions:  1" in res.output
-    assert "Total Findings:  2" in res.output
-    assert "VERIFIED" in res.output
-    assert "INVALIDATED" in res.output
+
+def test_review_stats_command(review_history: Path) -> None:
+    """Verify `devops review stats` reports how its sessions were counted, and that its tables
+    count each review subject once: counting every session would add the repeats' VERIFIED and
+    UNVERIFIED findings (#607)."""
+    res = runner.invoke(app, ["stats", "--reviews-dir", str(review_history)])
+
+    output = " ".join(res.output.split())
+    assert (
+        res.exit_code,
+        "Sessions: 5 (counted 3: 2 repeat sessions collapsed, 1 target-only, 1 unkeyed)" in output,
+        "Total Findings: 3" in output,
+        "VERIFIED 1 33.3% UNVERIFIED 0 0.0% INVALIDATED 1 33.3% MITIGATED 1 33.3%" in output,
+    ) == (0, True, True, True)
 
 
 def test_find_related_file_metas_matches_dependencies_and_symbols() -> None:

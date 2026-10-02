@@ -448,6 +448,8 @@ CONST_GPU_MEMORY_BANDWIDTH_GBPS: Final[dict[str, float]] = {
 # Share of the context window a review page's diff may fill; the rest holds the persona system
 # prompt, instructions and the model's reply.
 CONST_REVIEW_PAGE_WINDOW_SHARE: Final[float] = 0.6
+# A review session's reported findings; a session directory holding one is a completed session.
+CONST_REVIEW_FINDINGS_FILENAME = "findings.json"
 # Every finding a review session produced, each with its verification status; findings.json keeps
 # only those still reported.
 CONST_REVIEW_CANDIDATES_FILENAME = "candidates.json"
@@ -2481,6 +2483,9 @@ CONST_TEST_ASSERTION_LINT_RULES: Final[frozenset[str]] = frozenset({"B017", "RUF
 # "human", which routed every finding the verifier never reached into the human
 # ground-truth bucket -- the one part of that dataset trusted because a person wrote it.
 CONST_VERIFIED_BY_UNKNOWN: Final[str] = "unknown"
+# The adjudicator `devops review verify` records: the only verdicts a person wrote, which review
+# history ranks above any number of machine verdicts.
+CONST_VERIFIED_BY_HUMAN: Final[str] = "human"
 # Marks a finding the verifier never adjudicated because verification itself failed, as
 # opposed to one it considered and declined to confirm.
 CONST_VERIFICATION_UNAVAILABLE: Final[str] = "verification-unavailable"

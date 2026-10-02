@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch, sentinel
 
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai.review.history import review_subject
 from devops_cli.ai.review_schema import ReviewSessionPayload
 from devops_cli.commands.review import app as review_app
 
@@ -111,8 +111,7 @@ def test_review_findings_stats_export_feedback(tmp_path: Path) -> None:
     session_dir.mkdir()
     findings_file = session_dir / "findings.json"
     session_payload = ReviewSessionPayload(
-        target_type="path",
-        target_ref=str(tmp_path),
+        subject=review_subject("path", str(tmp_path), []),
         findings=[],
         generated_at=datetime.now(UTC).isoformat(),
     )
@@ -167,8 +166,7 @@ def test_review_verify_command(tmp_path: Path) -> None:
         status="UNVERIFIED",
     )
     session_payload = ReviewSessionPayload(
-        target_type="path",
-        target_ref=str(tmp_path),
+        subject=review_subject("path", str(tmp_path), []),
         findings=[f1, f2],
         generated_at=datetime.now(UTC).isoformat(),
     )
@@ -318,8 +316,8 @@ def _create_sample_review_session(target_dir: Path) -> Path:
         status="UNVERIFIED",
     )
     payload = ReviewSessionPayload(
-        target="src/",
-        timestamp="2026-08-26T12:00:00Z",
+        generated_at="2026-08-26T12:00:00Z",
+        subject=review_subject("path", "src/", []),
         findings=[f1, f2],
     )
     (sess_dir / "findings.json").write_text(payload.model_dump_json(indent=2), encoding="utf-8")
@@ -449,64 +447,20 @@ def test_finding_location_and_title_sanitizes_criteria_leakage() -> None:
     assert "Invalidation criteria" not in f.location
 
 
-def test_tally_single_session_findings_splits_comma_joined_personas(tmp_path: Path) -> None:
-    """Verify that _tally_single_session_findings splits comma-joined persona strings."""
-    from devops_cli.ai.review_schema import SavedFinding
-    from devops_cli.commands.review import _tally_single_session_findings
+def test_tally_findings_splits_comma_joined_personas() -> None:
+    """Verify that _tally_findings splits comma-joined persona strings."""
+    from devops_cli.ai.review.history import HistoryFinding
+    from devops_cli.commands.review import _tally_findings
 
-    findings_file = tmp_path / "findings.json"
-    f1 = SavedFinding(
-        title="SQL Injection",
-        location="src/db.py:10",
-        description="Raw SQL concatenation",
-        fix="Use parameters",
-        status="INVALIDATED",
-        persona="devsecops, architect",
-    )
-    f2 = SavedFinding(
-        title="Unbounded Concurrency",
-        location="src/worker.py:20",
-        description="Missing semaphore",
-        fix="Add semaphore",
-        status="VERIFIED",
-        persona="architect, performance",
-    )
-    f3 = SavedFinding(
-        title="Missing Test",
-        location="src/test_api.py:1",
-        description="No test coverage",
-        fix="Add tests",
-        status="UNVERIFIED",
-        persona="",
-    )
-    payload = ReviewSessionPayload(
-        target_type="path",
-        target_ref=str(tmp_path),
-        findings=[f1, f2, f3],
-        generated_at=datetime.now(UTC).isoformat(),
-    )
-    findings_file.write_text(payload.model_dump_json(), encoding="utf-8")
+    findings = [
+        HistoryFinding(title="SQL Injection", status="INVALIDATED", persona="devsecops, architect"),
+        HistoryFinding(
+            title="Unbounded Concurrency", status="VERIFIED", persona="architect, performance"
+        ),
+        HistoryFinding(title="Missing Test", status="UNVERIFIED", persona=""),
+    ]
 
-    by_status: dict[str, int] = {}
-    by_persona_total: dict[str, int] = {}
-    by_persona_invalidated: dict[str, int] = {}
-    all_findings: list[Any] = []
-
-    count = _tally_single_session_findings(
-        findings_file,
-        by_status,
-        by_persona_total,
-        by_persona_invalidated,
-        all_findings,
-    )
-
-    expected_status = {"INVALIDATED": 1, "VERIFIED": 1, "UNVERIFIED": 1}
+    expected_status = {"VERIFIED": 1, "UNVERIFIED": 1, "INVALIDATED": 1, "MITIGATED": 0}
     expected_total = {"devsecops": 1, "architect": 2, "performance": 1, "unknown": 1}
     expected_invalidated = {"devsecops": 1, "architect": 1}
-    assert (count, by_status, by_persona_total, by_persona_invalidated, len(all_findings)) == (
-        3,
-        expected_status,
-        expected_total,
-        expected_invalidated,
-        3,
-    )
+    assert _tally_findings(findings) == (expected_status, expected_total, expected_invalidated)
