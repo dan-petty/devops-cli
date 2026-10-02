@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from devops_cli.ai import run_store
+from devops_cli.ai.review.runner import _make_review_clients
 from devops_cli.config import settings
 
 
@@ -32,6 +36,47 @@ ai:
     assert loaded_settings.ai.model == "qwen3.6:35b"
     assert loaded_settings.ai.reasoning_effort == "low"
     assert loaded_settings.ai.get_ollama_urls == ["http://10.0.0.10:11434"]
+
+
+def test_the_environment_pins_review_analysis_and_verification_to_one_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify the task environment overrides reach a configured verification model, so one shell
+    pins a review's analysis and verification to one gateway group (#475)."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+ai:
+  tasks:
+    analysis:
+      provider: gateway
+      model: devops-review
+    verification:
+      model: devops-review
+""".lstrip(),
+        encoding="utf-8",
+    )
+    pool = [{"backend": "ollama-16gib", "model": "ollama_chat/gpt-oss:20b", "weight": 8}]
+    monkeypatch.setattr(settings, "CONFIG_PATH", config_path)
+    monkeypatch.setenv("DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL", "gpt-oss:20b")
+    monkeypatch.setenv("DEVOPS_CLI_AI_TASK_VERIFICATION_MODEL", "gpt-oss:20b")
+    monkeypatch.setattr(run_store, "gateway_pool", lambda task: pool)
+
+    loaded_settings = settings.load_settings()
+    verifier = _make_review_clients(loaded_settings).verification._config
+    setup = run_store.review_setup()
+
+    assert (
+        loaded_settings.ai.tasks.verification.model,
+        (verifier.provider, verifier.model),
+        setup["models"],
+        setup["pools"],
+    ) == (
+        "gpt-oss:20b",
+        ("gateway", "gpt-oss:20b"),
+        {"analysis": "gateway/gpt-oss:20b", "verification": "gateway/gpt-oss:20b"},
+        {"gpt-oss:20b": pool},
+    )
 
 
 def test_load_settings_applies_embedding_task_and_rag_url_overrides(

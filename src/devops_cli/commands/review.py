@@ -1345,6 +1345,10 @@ def benchmark(
         bool,
         typer.Option("--no-pre-analysis", help=HELP.review.no_pre_analysis),
     ] = False,
+    no_static_scan: Annotated[
+        bool,
+        typer.Option("--no-static-scan", help=HELP.review.no_static_scan),
+    ] = False,
     concurrency: Annotated[
         int | None,
         typer.Option("--concurrency", "-c", help=HELP.review.concurrency),
@@ -1363,6 +1367,7 @@ def benchmark(
                 persona=persona,
                 all_personas=all_personas,
                 no_pre_analysis=no_pre_analysis,
+                no_static_scan=no_static_scan,
                 no_cache=True,
                 concurrency=concurrency,
             )
@@ -1376,6 +1381,7 @@ def benchmark(
         persona=persona.value if persona else None,
         all_personas=all_personas,
         pre_analysis=not no_pre_analysis,
+        static_scan=not no_static_scan,
         concurrency=concurrency,
     )
     subject = {"corpus_digest": summary.corpus_digest, "target": Path(summary.target).name}

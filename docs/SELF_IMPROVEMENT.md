@@ -510,6 +510,15 @@ are the noise floor a prompt change is read against. Verification learns false-p
 entries from deterministic invalidations, so an earlier run can change a later run's verdicts; an
 A/A pair whose ranges read `apart` shows that effect.
 
+To compare models rather than prompts, run every arm from one checkout and pin each arm's model
+from the shell. Each model `devops-review` serves has a gateway group of its own
+(`qwen3-coder:30b`, `gpt-oss:20b`) with the pool's deployments and weights and no fallback.
+`DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL` and `DEVOPS_CLI_AI_TASK_VERIFICATION_MODEL` name that group for
+both tasks; the second overrides a configured `ai.tasks.verification`. `devops review benchmark
+--no-static-scan` keeps scanner findings out of the model's recall. With `DEVOPS_CLI_DATA_DIR`
+unset, `DEVOPS_CLI_DATA_REVIEWS_DIR` and `DEVOPS_CLI_DATA_ANALYSIS_DIR` give each arm its own
+sessions and pre-analysis metadata, which also keeps its sessions out of `devops review stats`.
+
 ### Sample Repositories
 
 devops ai is meant for any technical project. `devops review samples list` shows a checked-in

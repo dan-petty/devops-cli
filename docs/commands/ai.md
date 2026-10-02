@@ -712,6 +712,7 @@ devops ai review benchmark [OPTIONS] <targets>
 | `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
 | `--all` | `boolean` | - | Run all reviewer personas in sequence. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
+| `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
 
 ### `devops ai review export-feedback`

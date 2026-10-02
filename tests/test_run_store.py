@@ -278,6 +278,43 @@ def test_a_review_benchmark_is_kept_with_its_setup_and_corpus(
     ) == (0, (True, True), True, True)
 
 
+@pytest.mark.parametrize(
+    ("flags", "no_static_scan"), [(["--no-static-scan"], True), ([], False)], ids=["off", "on"]
+)
+def test_a_review_benchmark_can_review_without_static_scanners(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: list[str], no_static_scan: bool
+) -> None:
+    """Verify `--no-static-scan` reaches every review of a benchmark and the run's setup, so a
+    scanner hit on an injected defect does not count as the model's recall (#475)."""
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "site.yaml").write_text("- hosts: all\n", encoding="utf-8")
+    calls: list[bool] = []
+
+    def fake_review(**kwargs: Any) -> None:
+        calls.append(kwargs["no_static_scan"])
+        report_profile(
+            ReviewProfile(
+                session_id=f"s{len(calls)}",
+                target=str(corpus),
+                total_wall_seconds=10,
+                stages=[StageProfile(name="persona_review", wall_seconds=5)],
+            )
+        )
+
+    monkeypatch.setattr(review_commands, "path", fake_review)
+    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: tmp_path / "reviews")
+
+    result = cli.invoke(review_commands.app, ["benchmark", str(corpus), "-n", "2", *flags])
+    (record,) = load_runs(Mechanism.REVIEW_BENCHMARK)
+
+    assert (result.exit_code, calls, record.setup["static_scan"]) == (
+        0,
+        [no_static_scan, no_static_scan],
+        not no_static_scan,
+    )
+
+
 def test_prompt_evaluations_are_kept_and_json_output_stays_parseable(tmp_path: Path) -> None:
     """Verify a prompt evaluation is kept by dataset content, announcing on stderr under --json."""
     dataset = tmp_path / "feedback.jsonl"

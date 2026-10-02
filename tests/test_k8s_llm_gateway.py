@@ -48,11 +48,27 @@ def _load_service(path: Path, name: str) -> dict[str, Any]:
     )
 
 
+def _gateway_config() -> dict[str, Any]:
+    """Return the LiteLLM configuration the gateway ConfigMap carries."""
+    cm = _load_kind(GATEWAY_DIR / "configmap.yaml", "ConfigMap")
+    return dict(yaml.safe_load(cm["data"]["config.yaml"]))
+
+
 def _deployments(group: str) -> list[dict[str, Any]]:
     """Return the gateway deployments of one model group, in configuration order."""
-    cm = _load_kind(GATEWAY_DIR / "configmap.yaml", "ConfigMap")
-    cfg = yaml.safe_load(cm["data"]["config.yaml"])
-    return [m for m in cfg["model_list"] if m["model_name"] == group]
+    return [m for m in _gateway_config()["model_list"] if m["model_name"] == group]
+
+
+def _routes(deployments: list[dict[str, Any]]) -> list[tuple[str, str, int | None]]:
+    """Return each deployment's model, backend and weight, in configuration order."""
+    return [
+        (
+            m["litellm_params"]["model"],
+            m["litellm_params"]["api_base"],
+            m["litellm_params"].get("weight"),
+        )
+        for m in deployments
+    ]
 
 
 class TestK8sLLMGatewayManifests:
@@ -107,6 +123,8 @@ class TestK8sLLMGatewayManifests:
                 "bge-m3:latest",
                 "embeddinggemma:300m",
                 "devops-review",
+                "qwen3-coder:30b",
+                "gpt-oss:20b",
                 "gemma4:31b",
                 "qwen3.8:27b",
                 "deepseek-r1:70b",
@@ -164,6 +182,37 @@ class TestK8sLLMGatewayManifests:
             "http://ollama-16gib.llm.svc.cluster.local:11434": 8,
             "http://ollama-24gib.llm.svc.cluster.local:11434": 1,
         }
+
+    @pytest.mark.parametrize("group", ["qwen3-coder:30b", "gpt-oss:20b"])
+    def test_a_review_model_has_a_group_of_its_review_deployments_alone(self, group: str) -> None:
+        """Verify each model devops-review serves can be pinned: its own group copies that model's
+        devops-review deployments (model, backend and weight, in order) with no window that would
+        route it differently from the pool, and no fallback reaches or leaves it (#475)."""
+        review = [
+            m
+            for m in _deployments("devops-review")
+            if m["litellm_params"]["model"] == f"ollama_chat/{group}"
+        ]
+        pinned = _deployments(group)
+        router = _gateway_config()["router_settings"]
+        fallback_groups = {
+            name
+            for rule in [*router["fallbacks"], *router["context_window_fallbacks"]]
+            for source, targets in rule.items()
+            for name in (source, *targets)
+        }
+
+        assert (
+            bool(review),
+            _routes(pinned),
+            [(sorted(m), sorted(m["litellm_params"])) for m in pinned],
+            group in fallback_groups,
+        ) == (
+            True,
+            _routes(review),
+            [(["litellm_params", "model_name"], ["api_base", "model", "weight"])] * len(review),
+            False,
+        )
 
     def test_gateway_routes_to_provider_vram_services(self) -> None:
         """Verify Gateway routes target standardized <llm_provider>-<vram_gib> services."""
