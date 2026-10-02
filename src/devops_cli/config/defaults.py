@@ -712,6 +712,8 @@ DEFAULT_ARGO_SYNC_MODE: str = "api"
 DEFAULT_GH_STATE_ALL: str = "all"
 DEFAULT_ISSUE_STATE: str = "open"
 DEFAULT_GH_ISSUE_LIMIT: int = 30
+# `gh label list` stops at 30 unless asked for more; .github/labels.yml alone holds 31.
+DEFAULT_GH_LABEL_LIST_LIMIT: int = 1000
 DEFAULT_GH_PAGES_LIMIT: int = 5
 DEFAULT_PR_MONITOR_TIMEOUT_SECONDS: int = 300
 DEFAULT_PR_MONITOR_INTERVAL_SECONDS: int = 60

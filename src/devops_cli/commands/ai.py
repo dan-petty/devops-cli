@@ -1533,6 +1533,13 @@ def audit_library_usage_cmd(
         ws_dir, package_filter=package, save_report_path=default_report_path
     )
     _render_drift_report(report, json_output)
+    if report.save_error is not None:
+        print_warning(
+            f"Could not write the drift report to {default_report_path}: {report.save_error}",
+            to_stderr=json_output,
+        )
+    elif not json_output:
+        print_info(f"Drift report saved to {default_report_path}", prefix=False)
 
     if fail_on_breaking and report.breaking_count > 0:
         raise typer.Exit(code=1)

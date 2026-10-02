@@ -19,11 +19,13 @@ from devops_cli.config.constants import (
     CONST_GH_MILESTONE_STATE_FILTERS,
     CONST_PROJECT_WORKFLOW_EXPECTATIONS,
 )
+from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT
 from devops_cli.config.env import ENV_GITHUB_TOKEN
 from devops_cli.config.settings import get_keyring_secret
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.branch_protection import (
     audit_branch_protection,
     load_branch_protection_policies,
@@ -160,6 +162,7 @@ def _get_repo_labels(repo: str | None = None) -> list[dict[str, Any]]:
     """Retrieve repository labels via gh CLI or GitHubClient."""
     target_repo = _resolve_repo(repo)
     cmd = ["label", "list", "--json", "name,color,description"]
+    cmd += ["--limit", str(DEFAULT_GH_LABEL_LIST_LIMIT)]
     if repo:
         cmd.extend(["--repo", repo])
     res = run_gh(cmd, check=False, quiet=True, use_cache=True, cache_ttl=30.0)
@@ -249,7 +252,11 @@ def sync_labels(
         raise typer.Exit(1) from exc
 
     client = _get_github_client() or GhCliClient(target_repo)
-    result = sync_repository_labels(client, target_repo, desired, dry_run=dry_run)
+    try:
+        result = sync_repository_labels(client, target_repo, desired, dry_run=dry_run)
+    except GitHubOperationError as exc:
+        print_error(f"Label sync failed for {target_repo}: {exc}", safe=True)
+        raise typer.Exit(1) from exc
     mode_text = "[yellow][DRY RUN][/yellow] " if result.dry_run else ""
     print_success(
         f"{mode_text}Label sync complete for {target_repo}: "

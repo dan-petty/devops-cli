@@ -52,9 +52,19 @@ class SSHErrorMessages:
 
 @dataclass(frozen=True)
 class WorkspaceErrorMessages:
-    file_too_large: str = "Workspace file too large to load: {ws_file}. Using defaults."
-    malformed: str = "Malformed workspace file structure: {ws_file}. Using defaults."
-    corrupted: str = "Corrupted workspace file: {ws_file}. Using defaults."
+    file_too_large: str = (
+        "Workspace file too large to load: {ws_file}. It was left unchanged; "
+        "run 'devops workspace generate' to rebuild it."
+    )
+    malformed: str = (
+        "Workspace file {ws_file} has no 'folders' list. It was left unchanged; "
+        "fix it or run 'devops workspace generate' to rebuild it."
+    )
+    corrupted: str = (
+        "Workspace file {ws_file} is not UTF-8 JSON; comments and trailing commas are not "
+        "supported. It was left unchanged; fix it or run 'devops workspace generate' to "
+        "rebuild it."
+    )
     outside_roots: str = "Error: Cannot add path '{path}' outside allowed workspace roots."
     outside_boundary: str = "Cannot write workspace file '{path}' outside boundary."
     already_present: str = "Already in workspace: {path}"

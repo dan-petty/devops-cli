@@ -962,45 +962,55 @@ def _launch_port_forwards(
     address: str,
     stack: str,
 ) -> None:
-    """Launch detached kubectl port-forward processes and record active daemons."""
-    from devops_cli.k8s.port_forward_daemon import PortForwardInfo, get_daemon_manager
+    """Launch detached kubectl port-forward processes and record active daemons.
+
+    The state file stays locked from its read to its save, so a run started at the same
+    time records its forwards after these instead of over them.
+    """
+    from devops_cli.k8s.port_forward_daemon import (
+        PortForwardInfo,
+        get_daemon_manager,
+        process_start_ticks,
+    )
 
     daemon_mgr = get_daemon_manager()
-    active_forwards: list[PortForwardInfo] = daemon_mgr.list_forwards()
     ctx_args = ["--context", effective_context] if effective_context else []
-    for ns, svc, lport, rport in services:
-        cmd = [
-            "kubectl",
-            "port-forward",
-            "--address",
-            address,
-            "-n",
-            ns,
-            svc,
-            f"{lport}:{rport}",
-        ] + ctx_args
-        # Its own session, so the forward outlives the command that started it and does
-        # not take a terminal's SIGINT along with the CLI. `devops k8s port-forward status`
-        # lists these as background daemons, which is only true if they are detached.
-        proc = subprocess.Popen(  # nosec B603
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        active_forwards.append(
-            PortForwardInfo(
-                pid=proc.pid,
-                service=svc,
-                namespace=ns,
-                local_port=lport,
-                remote_port=rport,
-                address=address,
-                stack=stack,
+    with daemon_mgr.locked():
+        active_forwards: list[PortForwardInfo] = daemon_mgr.load_forwards()
+        for ns, svc, lport, rport in services:
+            cmd = [
+                "kubectl",
+                "port-forward",
+                "--address",
+                address,
+                "-n",
+                ns,
+                svc,
+                f"{lport}:{rport}",
+            ] + ctx_args
+            # Its own session, so the forward outlives the command that started it and does
+            # not take a terminal's SIGINT along with the CLI. `devops k8s port-forward status`
+            # lists these as background daemons, which is only true if they are detached.
+            proc = subprocess.Popen(  # nosec B603
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
             )
-        )
-        print_success(f"Forwarding {svc} ({ns}) to http://{address}:{lport} (pid {proc.pid})")
-    daemon_mgr.save_forwards(active_forwards)
+            active_forwards.append(
+                PortForwardInfo(
+                    pid=proc.pid,
+                    service=svc,
+                    namespace=ns,
+                    local_port=lport,
+                    remote_port=rport,
+                    address=address,
+                    stack=stack,
+                    start_ticks=process_start_ticks(proc.pid),
+                )
+            )
+            print_success(f"Forwarding {svc} ({ns}) to http://{address}:{lport} (pid {proc.pid})")
+        daemon_mgr.save_forwards(active_forwards)
 
 
 def port_forward(

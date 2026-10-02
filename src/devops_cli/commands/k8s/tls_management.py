@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
 import devops_cli.commands.k8s.networking as net
 from devops_cli.config.constants import (
+    CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_SERVER_CERT_NAME,
     CONST_SERVER_KEY_NAME,
 )
@@ -30,6 +31,73 @@ from devops_cli.output import (
     print_info,
     print_success,
 )
+
+if TYPE_CHECKING:
+    import subprocess
+
+
+def _kubectl_error(result: subprocess.CompletedProcess[str]) -> str:
+    """Return what kubectl wrote to stderr, bounded, or a generic note when it wrote nothing."""
+    return (result.stderr or "").strip()[:CONST_MAX_ERROR_DETAIL_LENGTH] or "kubectl failed"
+
+
+def _apply_tls_secret(
+    secret_name: str,
+    namespace: str,
+    cert_path: Path,
+    key_path: Path,
+    kubectl_ctx: list[str],
+) -> str | None:
+    """Create the TLS secret, or update the one in place, and return kubectl's error if any.
+
+    The secret is rendered with a client-side dry run first, which is where kubectl rejects a
+    certificate and key that do not match, and applied only once it renders. The secret already
+    in the namespace is never deleted, so a failure leaves it serving.
+    """
+    rendered = runtime._run_cmd(
+        ["kubectl", "create", "secret", "tls", secret_name]
+        + [f"--cert={cert_path}", f"--key={key_path}", "-n", namespace]
+        + ["--dry-run=client", "-o", "yaml"]
+        + kubectl_ctx,
+        check=False,
+        capture=True,
+    )
+    if rendered.returncode != 0:
+        return _kubectl_error(rendered)
+    applied = runtime._run_cmd(
+        ["kubectl", "apply", "-f", "-", "-n", namespace] + kubectl_ctx,
+        input=rendered.stdout,
+        check=False,
+        capture=True,
+    )
+    return None if applied.returncode == 0 else _kubectl_error(applied)
+
+
+def _deploy_tls_secret(
+    secret_name: str,
+    namespace: str,
+    cert_path: Path,
+    key_path: Path,
+    kubectl_ctx: list[str],
+    *,
+    overwrite: bool,
+) -> str | None:
+    """Put the TLS secret in one namespace, replacing one already there only with overwrite."""
+    if overwrite:
+        return _apply_tls_secret(secret_name, namespace, cert_path, key_path, kubectl_ctx)
+    create_cmd = [
+        "kubectl",
+        "create",
+        "secret",
+        "tls",
+        secret_name,
+        f"--cert={cert_path}",
+        f"--key={key_path}",
+        "-n",
+        namespace,
+    ] + kubectl_ctx
+    created = runtime._run_cmd(create_cmd, check=False)
+    return None if created.returncode == 0 else "Failed to create secret via kubectl"
 
 
 def create_tls_secret(
@@ -91,36 +159,17 @@ def create_tls_secret(
     if ns_check.returncode != 0:
         runtime._run_cmd(["kubectl", "create", "namespace", namespace] + kubectl_ctx, check=True)
 
-    # Delete existing secret to allow clean recreation
-    runtime._run_cmd(
-        ["kubectl", "delete", "secret", secret_name, "-n", namespace] + kubectl_ctx,
-        check=False,
-    )
-
-    create_cmd = [
-        "kubectl",
-        "create",
-        "secret",
-        "tls",
-        secret_name,
-        f"--cert={cert_path}",
-        f"--key={key_path}",
-        "-n",
-        namespace,
-    ] + kubectl_ctx
-
-    rc = runtime._run_cmd(create_cmd, check=False)
-    if rc.returncode == 0:
-        print_success(
-            f"Created TLS secret [cyan]{secret_name}[/cyan] "
-            f"in namespace [magenta]{namespace}[/magenta]"
-        )
-    else:
+    error = _apply_tls_secret(secret_name, namespace, cert_path, key_path, kubectl_ctx)
+    if error is not None:
         print_error(
-            f"Failed to create TLS secret {secret_name} in namespace {namespace}",
+            f"Failed to apply TLS secret {secret_name} in namespace {namespace}; "
+            f"any existing secret is unchanged: {error}",
             prefix=False,
         )
         raise typer.Exit(1)
+    print_success(
+        f"Applied TLS secret [cyan]{secret_name}[/cyan] in namespace [magenta]{namespace}[/magenta]"
+    )
 
 
 def enable_tls_stack(
@@ -200,34 +249,17 @@ def enable_tls_stack(
             )
             continue
 
-        # Delete existing secret if overwrite requested
-        if overwrite:
-            runtime._run_cmd(
-                ["kubectl", "delete", "secret", secret_name, "-n", ns] + kubectl_ctx,
-                check=False,
-            )
-
-        create_cmd = [
-            "kubectl",
-            "create",
-            "secret",
-            "tls",
-            secret_name,
-            f"--cert={cert_path}",
-            f"--key={key_path}",
-            "-n",
-            ns,
-        ] + kubectl_ctx
-
-        rc = runtime._run_cmd(create_cmd, check=False)
+        error = _deploy_tls_secret(
+            secret_name, ns, cert_path, key_path, kubectl_ctx, overwrite=overwrite
+        )
         results.append(
             KubernetesTLSSecretResult(
                 secret_name=secret_name,
                 namespace=ns,
-                created=(rc.returncode == 0),
+                created=error is None,
                 cert_path=str(cert_path),
                 key_path=str(key_path),
-                error=None if rc.returncode == 0 else "Failed to create secret via kubectl",
+                error=error,
             )
         )
 

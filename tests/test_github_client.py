@@ -332,6 +332,40 @@ def test_gh_cli_client_labels() -> None:
         assert "0075ca" in edit_cmd
 
 
+def test_gh_cli_client_label_failures_raise() -> None:
+    """A failed `gh label` call raises instead of reading as no labels or as done (#961).
+
+    `get_labels` returned [] on any failure, so `labels sync` set out to create every label,
+    and `create_label` and `edit_label` dropped the result, so their failures went unseen.
+    """
+    from devops_cli.exceptions.git import GitHubOperationError
+
+    client = GhCliClient(default_repo="o/r")
+    failed = MagicMock(returncode=1, stdout="", stderr="not logged in")
+    calls = [
+        lambda: client.get_labels("o/r"),
+        lambda: client.create_label("o/r", "x", "000000"),
+        lambda: client.edit_label("o/r", "x", "000000"),
+    ]
+    raised: list[str] = []
+    with patch("devops_cli.github.client.run_gh", return_value=failed):
+        for call in calls:
+            with pytest.raises(GitHubOperationError) as error:
+                call()
+            raised.append(str(error.value))
+    assert all("not logged in" in message for message in raised)
+
+
+def test_gh_cli_client_lists_every_label() -> None:
+    """`gh label list` stops at 30 labels unless told otherwise; .github/labels.yml has 31."""
+    listed = MagicMock(returncode=0, stdout="[]", stderr="")
+    with patch("devops_cli.github.client.run_gh", return_value=listed) as run_gh:
+        GhCliClient(default_repo="o/r").get_labels("o/r")
+    argv = run_gh.call_args.args[0]
+    # Without --limit, gh lists 30.
+    assert (int(argv[argv.index("--limit") + 1]) if "--limit" in argv else 30) > 30
+
+
 def test_get_repo_overview_wraps_graphql_failure() -> None:
     """A GraphQL transport failure surfaces as a typed, annotated GitHubOperationError.
 

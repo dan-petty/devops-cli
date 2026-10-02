@@ -1204,23 +1204,18 @@ def _git_daemon_pid_file() -> Path:
 
 
 def _is_git_daemon_running() -> bool:
-    """Check if git daemon is running via pidfile or port 9418 socket check."""
-    pid_file = _git_daemon_pid_file()
-    if pid_file.exists():
-        try:
-            pid = int(pid_file.read_text(encoding="utf-8").strip())
-            os.kill(pid, 0)
-            return True
-        except OSError, ValueError:
-            pass
+    """Check whether something accepts connections on the git daemon port, 127.0.0.1:9418.
+
+    The pid file is not consulted. `git daemon` never removes it and `/tmp` outlives
+    container rebuilds, so after a restart the pid it names can belong to any process.
+    """
     import socket
 
     try:
         with socket.create_connection(("127.0.0.1", 9418), timeout=0.2):
             return True
     except OSError:
-        pass
-    return False
+        return False
 
 
 def _start_git_daemon(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
