@@ -1348,6 +1348,24 @@
           "expr": "sum by (service) (rate(traefik_service_requests_total{service=~\"$service\"}[2m]))",
           "legendFormat": "{{service}}",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(traefik_service_requests_total{service=~\"$service\"}[2m]))",
+          "legendFormat": "Total (Sum)",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "avg(rate(traefik_service_requests_total{service=~\"$service\"}[2m]))",
+          "legendFormat": "Average (Mean)",
+          "refId": "C"
         }
       ],
       "title": "Service Request Rate",
@@ -1701,6 +1719,24 @@
           "expr": "sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{namespace=~\"kube-system|cloudflared\", pod=~\"traefik.*|cloudflared.*\", container!=\"\"}[2m]))",
           "legendFormat": "{{namespace}}/{{pod}}",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"kube-system|cloudflared\", pod=~\"traefik.*|cloudflared.*\", container!=\"\"}[2m]))",
+          "legendFormat": "Total (Sum)",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "avg(rate(container_cpu_usage_seconds_total{namespace=~\"kube-system|cloudflared\", pod=~\"traefik.*|cloudflared.*\", container!=\"\"}[2m]))",
+          "legendFormat": "Average (Mean)",
+          "refId": "C"
         }
       ],
       "title": "Ingress & Tunnel Pod CPU Usage",
@@ -1786,6 +1822,24 @@
           "expr": "sum by (namespace, pod) (container_memory_working_set_bytes{namespace=~\"kube-system|cloudflared\", pod=~\"traefik.*|cloudflared.*\", container!=\"\"})",
           "legendFormat": "{{namespace}}/{{pod}}",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(container_memory_working_set_bytes{namespace=~\"kube-system|cloudflared\", pod=~\"traefik.*|cloudflared.*\", container!=\"\"})",
+          "legendFormat": "Total (Sum)",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "avg(container_memory_working_set_bytes{namespace=~\"kube-system|cloudflared\", pod=~\"traefik.*|cloudflared.*\", container!=\"\"})",
+          "legendFormat": "Average (Mean)",
+          "refId": "C"
         }
       ],
       "title": "Ingress & Tunnel Memory Working Set",

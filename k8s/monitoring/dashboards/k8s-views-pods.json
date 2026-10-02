@@ -1588,6 +1588,32 @@
           "legendFormat": "{{ container }}",
           "range": true,
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", pod=~\"$pod\", image!=\"\", container!=\"\", cluster=~\"$cluster\"}[$__rate_interval]))",
+          "interval": "$resolution",
+          "legendFormat": "Total (Sum)",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "avg(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", pod=~\"$pod\", image!=\"\", container!=\"\", cluster=~\"$cluster\"}[$__rate_interval]))",
+          "interval": "$resolution",
+          "legendFormat": "Average (Mean)",
+          "range": true,
+          "refId": "C"
         }
       ],
       "title": "CPU Usage by container",
@@ -1695,6 +1721,32 @@
           "legendFormat": "{{ container }}",
           "range": true,
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "sum(container_memory_working_set_bytes{namespace=\"$namespace\", pod=~\"$pod\", image!=\"\", container!=\"\", cluster=~\"$cluster\"})",
+          "interval": "",
+          "legendFormat": "Total (Sum)",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "exemplar": true,
+          "expr": "avg(container_memory_working_set_bytes{namespace=\"$namespace\", pod=~\"$pod\", image!=\"\", container!=\"\", cluster=~\"$cluster\"})",
+          "interval": "",
+          "legendFormat": "Average (Mean)",
+          "range": true,
+          "refId": "C"
         }
       ],
       "title": "Memory Usage by container",

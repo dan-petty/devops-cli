@@ -116,6 +116,24 @@
           "expr": "sum by (api_base) (rate(litellm_deployment_total_requests_total[5m]))",
           "legendFormat": "{{api_base}}",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(litellm_deployment_total_requests_total[5m]))",
+          "legendFormat": "Total (Sum)",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "avg(rate(litellm_deployment_total_requests_total[5m]))",
+          "legendFormat": "Average (Mean)",
+          "refId": "C"
         }
       ]
     },
@@ -602,6 +620,15 @@
           "expr": "avg by (hostname, gpu, modelName) (DCGM_FI_DEV_GPU_UTIL)",
           "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}})",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "avg(DCGM_FI_DEV_GPU_UTIL)",
+          "legendFormat": "Average (Mean)",
+          "refId": "B"
         }
       ]
     },
@@ -650,6 +677,24 @@
           "expr": "max by (hostname, gpu, modelName) (DCGM_FI_DEV_FB_USED)",
           "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}})",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(DCGM_FI_DEV_FB_USED)",
+          "legendFormat": "Total (Sum)",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "avg(DCGM_FI_DEV_FB_USED)",
+          "legendFormat": "Average (Mean)",
+          "refId": "C"
         }
       ]
     },
@@ -698,6 +743,24 @@
           "expr": "max by (hostname, gpu, modelName) (DCGM_FI_DEV_POWER_USAGE)",
           "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}})",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(DCGM_FI_DEV_POWER_USAGE)",
+          "legendFormat": "Total (Sum)",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "avg(DCGM_FI_DEV_POWER_USAGE)",
+          "legendFormat": "Average (Mean)",
+          "refId": "C"
         }
       ]
     },
