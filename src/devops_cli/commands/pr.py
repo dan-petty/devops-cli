@@ -15,12 +15,17 @@ import typer
 from devops_cli.config.constants import (
     CONST_AGENT_TASK_FILE_RE,
     CONST_AGENT_TASKS_DIR,
+    CONST_CHANGELOG_FRAGMENTS_DIR,
     CONST_GH_API_HTTP_STATUS_RE,
     CONST_GH_CLI,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_PR_API_STATE_MAP,
+    CONST_PR_FILE_CHANGED_STATUSES,
     CONST_PR_FILE_WRITTEN_STATUSES,
+    CONST_RELEASE_BRANCH_PREFIX,
     CONST_RELEASE_BRANCH_RE,
+    CONST_RELEASE_PROCESS_BRANCH_RE,
+    CONST_RELEASE_SHARED_FILES,
 )
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE, DEFAULT_PR_LIMIT, DEFAULT_PR_STATE
 from devops_cli.core.binaries import check_binary
@@ -1400,10 +1405,14 @@ def _check_run_blockers(
 
 
 class ChangedFile(NamedTuple):
-    """A file a pull request changes, with GitHub's status for it (`added`, `removed`, ...)."""
+    """A file a pull request changes, with GitHub's status for it (`added`, `removed`, ...).
+
+    A renamed file also carries the path it had before.
+    """
 
     filename: str
     status: str
+    previous_filename: str = ""
 
 
 class _ChangedFilesRead(NamedTuple):
@@ -1429,7 +1438,8 @@ def _changed_file(entry: Any) -> ChangedFile:
         raise GitHubOperationError(
             "the pull request files API returned an entry without a filename or status"
         )
-    return ChangedFile(filename, status)
+    previous = entry.get("previous_filename")
+    return ChangedFile(filename, status, previous if isinstance(previous, str) else "")
 
 
 def _fetch_pr_files(pr_num: int, owner: str, repo_name: str) -> list[ChangedFile]:
@@ -1493,14 +1503,37 @@ def _repo_full_name(side: dict[str, Any]) -> str:
     return str(repo.get("full_name") or "").lower() if isinstance(repo, dict) else ""
 
 
+def _same_repository(pr_data: dict[str, Any]) -> bool:
+    """Whether the PR's head lives in its base's repository rather than a fork."""
+    head, base = pr_data.get("head") or {}, pr_data.get("base") or {}
+    return _repo_full_name(head) != "" and _repo_full_name(head) == _repo_full_name(base)
+
+
+def _branch_ref(pr_data: dict[str, Any], side: str) -> str:
+    """The branch name on one side (`head` or `base`) of a pull request."""
+    return str((pr_data.get(side) or {}).get("ref") or "")
+
+
 def _is_release_pr(pr_data: dict[str, Any]) -> bool:
     """Whether this is the release PR: `release/vX.Y.Z` into the default branch, not from a fork."""
-    head, base = pr_data.get("head") or {}, pr_data.get("base") or {}
+    base = pr_data.get("base") or {}
     default_branch = str((base.get("repo") or {}).get("default_branch") or "")
-    same_repository = _repo_full_name(head) != "" and _repo_full_name(head) == _repo_full_name(base)
     into_default = default_branch != "" and base.get("ref") == default_branch
-    release_head = CONST_RELEASE_BRANCH_RE.fullmatch(str(head.get("ref") or "")) is not None
-    return same_repository and into_default and release_head
+    release_head = CONST_RELEASE_BRANCH_RE.fullmatch(_branch_ref(pr_data, "head")) is not None
+    return _same_repository(pr_data) and into_default and release_head
+
+
+def _is_release_process_pr(pr_data: dict[str, Any]) -> bool:
+    """Whether this PR opens or cuts a release rather than delivering an item.
+
+    Its head is `chore/open-vX.Y.Z` or `chore/cut-vX.Y.Z`, optionally followed by `-<slug>`,
+    from the same repository, and its base is `release/vX.Y.Z` of the same version.
+    """
+    process = CONST_RELEASE_PROCESS_BRANCH_RE.fullmatch(_branch_ref(pr_data, "head"))
+    release = CONST_RELEASE_BRANCH_RE.fullmatch(_branch_ref(pr_data, "base"))
+    if process is None or release is None:
+        return False
+    return process["version"] == release["version"] and _same_repository(pr_data)
 
 
 def _base_has_task_files(pr_data: dict[str, Any], owner: str, repo_name: str) -> bool:
@@ -1537,7 +1570,7 @@ def _grounding_scope(
     A lookup that fails for any reason but a 404 can't rule grounding out, so the check still
     applies and the failure is a blocker of its own.
     """
-    if _is_release_pr(pr_data):
+    if _is_release_pr(pr_data) or _is_release_process_pr(pr_data):
         return False, []
     try:
         return _base_has_task_files(pr_data, owner, repo_name), []
@@ -1549,10 +1582,11 @@ def _grounding_scope(
 
 
 class _Grounding(NamedTuple):
-    """What the grounding checks judge: the issues the body closes and the files the PR changes."""
+    """What the grounding checks judge: the PR's base, the issues it closes, the files it changes."""
 
     pr_num: int
     repo: str
+    base: str
     issues: list[int]
     changed: _ChangedFilesRead
 
@@ -1603,22 +1637,54 @@ def _changes_its_task_file(grounding: _Grounding) -> str | None:
     )
 
 
+def _changes_a_release_file(changed: ChangedFile) -> list[str]:
+    """The files the cut writes that this change adds, modifies, renames or removes."""
+    if changed.status not in CONST_PR_FILE_CHANGED_STATUSES:
+        return []
+    paths = (changed.filename, changed.previous_filename)
+    return [path for path in paths if path in CONST_RELEASE_SHARED_FILES]
+
+
+def _leaves_release_files_to_the_cut(grounding: _Grounding) -> str | None:
+    """A PR into a release branch leaves CHANGELOG.md and docs/ROADMAP.md to the cut.
+
+    Every such PR edited the same lines of both, so each merge made every other open PR
+    conflict and run CI again (#933). Its changelog entry is a fragment of its own instead.
+    """
+    if not grounding.base.startswith(CONST_RELEASE_BRANCH_PREFIX) or grounding.changed.error:
+        return None
+    found = {
+        path for changed in grounding.changed.files for path in _changes_a_release_file(changed)
+    }
+    if not found:
+        return None
+    issue = str(grounding.issues[0]) if len(grounding.issues) == 1 else "<issue>"
+    return MESSAGES.pr.grounding_release_files_changed.format(
+        number=grounding.pr_num,
+        files=" and ".join(path for path in CONST_RELEASE_SHARED_FILES if path in found),
+        base=grounding.base,
+        fragment=f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{issue}.md",
+    )
+
+
 # Each check names what is missing, or returns None. A check that needs what an earlier one
 # found missing returns None, so each failure is one blocker. A new rule is one more entry.
 _GROUNDING_CHECKS: tuple[Callable[[_Grounding], str | None], ...] = (
     _closes_one_issue,
     _changed_files_were_read,
     _changes_its_task_file,
+    _leaves_release_files_to_the_cut,
 )
 
 
 def _grounding_blockers(
     pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str, changed: _ChangedFilesRead
 ) -> list[str]:
-    """Require every PR but the release PR to close one issue and change that issue's task file.
+    """Require every item PR to close one issue, change its task file and leave shared files alone.
 
-    It applies where the base holds `docs/agent/tasks/`. Where it does not apply, an unread file
-    list is a warning, since only the perimeter warning reads it.
+    The release PR and release-process PRs deliver no single item and are exempt. It applies
+    where the base holds `docs/agent/tasks/`. Where it does not apply, an unread file list is a
+    warning, since only the perimeter warning reads it.
     """
     applies, blockers = _grounding_scope(pr_data, pr_num, owner, repo_name)
     if not applies:
@@ -1629,7 +1695,8 @@ def _grounding_blockers(
         return []
     repo = f"{owner}/{repo_name}"
     linked = extract_linked_issues(str(pr_data.get("body") or ""), repo)
-    grounding = _Grounding(pr_num, repo, [issue.number for issue in linked], changed)
+    base = _branch_ref(pr_data, "base")
+    grounding = _Grounding(pr_num, repo, base, [issue.number for issue in linked], changed)
     return blockers + [found for check in _GROUNDING_CHECKS if (found := check(grounding))]
 
 
@@ -1778,9 +1845,12 @@ def check_readiness(
 ) -> None:
     """Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
-    Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch):
-    its body closes exactly one issue, and it adds, modifies or renames that issue's
-    docs/agent/tasks/task-<issue>-*.md. A base branch without docs/agent/tasks/ is exempt.
+    Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
+    and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
+    body closes exactly one issue, and it adds, modifies or renames that issue's
+    docs/agent/tasks/task-<issue>-*.md. Into a release/* branch it leaves CHANGELOG.md and
+    docs/ROADMAP.md to the cut and adds changelog.d/<issue>.md instead. A base branch without
+    docs/agent/tasks/ is exempt.
     """
     owner, repo_name, pr_num, target_repo = _resolve_readiness_target(repo, number)
     pr_data = _fetch_pr_details(pr_num, target_repo)

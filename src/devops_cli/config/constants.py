@@ -47,6 +47,20 @@ CONST_CONVENTIONAL_COMMIT_CATEGORY_ORDER: Final[tuple[str, ...]] = (
     "Changed & Improved",
     "Other Changes",
 )
+# A pull request into a release branch adds its changelog entry as `changelog.d/<issue>.md`, a
+# file no other pull request writes; the cut collects them into the version's section. The
+# directory holds fragments and its README only.
+CONST_CHANGELOG_FRAGMENTS_DIR: Final[str] = "changelog.d"
+CONST_CHANGELOG_FRAGMENT_NAME_RE: Final[re.Pattern[str]] = re.compile(r"(?P<issue>\d+)\.md")
+# Keep a Changelog 1.0.0's complete set of change types, in its order.
+CONST_KEEP_A_CHANGELOG_CATEGORIES: Final[tuple[str, ...]] = (
+    "Added",
+    "Changed",
+    "Deprecated",
+    "Removed",
+    "Fixed",
+    "Security",
+)
 CONST_CURRENT_DIR = Path(".")
 CONST_ROOT_DIR = Path("/")
 CONST_SRC_DIR_NAME = "src"
@@ -2397,9 +2411,24 @@ CONST_TELEMETRY_PANEL_MAX_SERIES: Final[int] = 50
 
 # ── Pull Request Grounding ───────────────────────────────────────────────────
 # Readiness requires a pull request to close exactly one issue and to change that issue's task
-# file. The release pull request, `release/vX.Y.Z` from the same repository into the default
-# branch, delivers a whole release rather than one item, so it is the only exemption.
-CONST_RELEASE_BRANCH_RE: Final[re.Pattern[str]] = re.compile(r"release/v\d+\.\d+\.\d+")
+# file. Two kinds of pull request deliver the release process rather than one item, and are
+# exempt: the release pull request, `release/vX.Y.Z` from the same repository into the default
+# branch, and a release-process pull request, `chore/open-vX.Y.Z` or `chore/cut-vX.Y.Z`,
+# optionally followed by `-<slug>`, from the same repository into `release/vX.Y.Z`.
+CONST_RELEASE_BRANCH_PREFIX: Final[str] = "release/"
+CONST_RELEASE_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
+    rf"{CONST_RELEASE_BRANCH_PREFIX}v(?P<version>\d+\.\d+\.\d+)"
+)
+CONST_RELEASE_PROCESS_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
+    r"chore/(?:open|cut)-v(?P<version>\d+\.\d+\.\d+)(?:-[^/\s]+)?"
+)
+# Files every pull request into a release branch used to edit, so each merge made every other
+# open pull request conflict. The cut writes both: `CHANGELOG.md` from `changelog.d/`, and
+# `docs/ROADMAP.md` with `devops roadmap render`.
+CONST_RELEASE_SHARED_FILES: Final[tuple[str, ...]] = (
+    CONST_CHANGELOG_FILENAME,
+    CONST_ROADMAP_DOCUMENT_PATH,
+)
 CONST_AGENT_TASKS_DIR: Final[str] = "docs/agent/tasks"
 # `task-<issue>-<slug>.md` directly under the tasks directory. The number is read as an
 # integer, so `task-089-x.md` belongs to #89.
@@ -2410,6 +2439,8 @@ CONST_AGENT_TASK_FILE_RE: Final[re.Pattern[str]] = re.compile(
 # written by it. GitHub's full set is added, removed, modified, renamed, copied, changed (mode
 # only) and unchanged.
 CONST_PR_FILE_WRITTEN_STATUSES: Final[frozenset[str]] = frozenset({"added", "modified", "renamed"})
+# The statuses under which a pull request adds, modifies, renames or removes the file.
+CONST_PR_FILE_CHANGED_STATUSES: Final[frozenset[str]] = CONST_PR_FILE_WRITTEN_STATUSES | {"removed"}
 # `gh api` reports a failed request as `gh: <message> (HTTP <status>)`, or `gh: HTTP <status>`
 # when the response carries no message.
 CONST_GH_API_HTTP_STATUS_RE: Final[re.Pattern[str]] = re.compile(r"\bHTTP (?P<status>\d{3})\b")

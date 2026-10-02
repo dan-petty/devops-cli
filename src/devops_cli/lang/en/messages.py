@@ -514,6 +514,10 @@ class PRMessages:
     grounding_tasks_dir_unread: str = (
         "PR #{number} is not grounded: {path}/ could not be read at its base ({error})."
     )
+    grounding_release_files_changed: str = (
+        "PR #{number} changes {files}: a PR into {base} leaves them to the cut, so open PRs "
+        "never conflict on them. Add its changelog entry as {fragment} instead."
+    )
     changed_files_unread: str = "Could not read the files PR #{number} changes ({error})."
 
 

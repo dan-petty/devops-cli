@@ -895,9 +895,7 @@ class ReviewCommandHelp:
     corpus_generate: str = (
         "Copy source files with one known defect injected into each, and record where."
     )
-    corpus_score: str = (
-        "Score a review of a corpus: which injected defects it found, and what verification kept."
-    )
+    corpus_score: str = "Score one arm of reviews of a corpus: which injected defects each run found, and what verification kept."
     corpus_source: str = "Clean file(s) or directory(ies) to inject defects into; each becomes a folder of the corpus."
     corpus_out: str = (
         "Corpus directory to create (default: corpora/<source>-<seed> under the reviews directory)."
@@ -907,7 +905,8 @@ class ReviewCommandHelp:
     )
     corpus_template: str = "Defect template to inject (repeatable; default: all)."
     corpus_dir: str = "Corpus directory created by `devops review corpus generate`."
-    corpus_session: str = "Review session to score (default: the latest review of the corpus)."
+    corpus_session: str = "Review session to score (repeatable; default: the latest review of the corpus). The sessions must have run the same review prompts."
+    corpus_runs: str = "Score the latest N reviews of the corpus together as one arm: how many runs found each injection, and each figure's mean and range across the runs. Refused with --session."
     samples: str = "Open-source sample repositories pinned by commit, across languages and infrastructure formats."
     samples_list: str = "List the sample catalog: category, languages, licence, pinned commit and paths, and whether each is fetched."
     samples_fetch: str = "Fetch samples at their pinned commits into the samples data directory, verifying commit, licence and paths."
