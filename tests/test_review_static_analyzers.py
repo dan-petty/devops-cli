@@ -19,6 +19,7 @@ from devops_cli.ai.review.pipeline import (
 )
 from devops_cli.ai.review.profile import ReviewProfile, profiling, summarize_profiles
 from devops_cli.commands import review as review_commands
+from devops_cli.security.base import ScanOutcome
 
 _ONLY_BANDIT = {
     "Bandit": "ran",
@@ -144,4 +145,32 @@ def test_a_benchmark_tells_a_clean_scan_from_a_skipped_one(
     )
     assert "Semgrep not installed / ran" in next(
         line for line in printed if line.startswith("Static analyzers: ")
+    )
+
+
+@pytest.mark.usefixtures("only_bandit")
+def test_the_report_says_why_an_analyzer_failed_and_the_console_points_there(
+    tmp_path: Path,
+) -> None:
+    """Verify a failed analyzer's reason reaches its report row, escaped, and the console names it."""
+    orchestrator = ReviewPipelineOrchestrator(session_id="s1009", target_dir=tmp_path)
+    failed = ScanOutcome(
+        "failed", [], 'Scanner exited with code 1; output was not JSON, starting "a | b"\nnext'
+    )
+    orchestrator._record_static_analyzers(
+        {"python": [Path("a.py")], "yaml": [], "container": [], "any": [Path("a.py")]},
+        observed_outcomes={"Bandit": failed},
+    )
+
+    report = orchestrator._build_consolidated_markdown_report("s1009", "now", [], [], [])
+
+    section = report.split("## Static Analyzers\n", 1)[1].split("\n\n", 1)[0]
+    assert (
+        section.splitlines()[2],
+        _static_analyzer_summary(orchestrator.static_analyzers, 0)[-1],
+    ) == (
+        "| Bandit | failed: Scanner exited with code 1; output was not JSON, starting "
+        '"a \\| b" next |',
+        "    [yellow]! Failed during execution: Bandit "
+        "(the report's Static Analyzers table says why)[/yellow]",
     )

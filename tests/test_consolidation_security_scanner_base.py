@@ -10,6 +10,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.constants import (
+    CONST_SCANNER_FAILURE_REASON_CHARS,
+    CONST_SCANNER_STDOUT_EXCERPT_CHARS,
+)
 from devops_cli.security.base import BaseSecurityScanner
 from devops_cli.security.dive import DiveAnalysisResult
 from devops_cli.security.registry import ScannerRegistry, global_scanner_registry
@@ -107,6 +111,55 @@ def test_scanner_falls_back_on_nonzero_exit_with_malformed_output(tmp_path: Path
         findings = scanner.scan(tmp_path)
         assert len(findings) == 1
         assert findings[0].title == "Fallback finding"
+
+
+class _NoPatternsScanner(BaseSecurityScanner):
+    """A scanner with no built-in patterns, so a failed run is reported as failed."""
+
+    name = "no_patterns_tool"
+    binary_name = "no-patterns-bin"
+
+    def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
+        return [self.binary_name, str(target_path)]
+
+    def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
+        return []
+
+
+def _failed_reason(tmp_path: Path, stdout: str, stderr: str) -> tuple[str, str]:
+    """Run _NoPatternsScanner on output exiting 1, returning the outcome's status and reason."""
+    proc = MagicMock(returncode=1, stdout=stdout, stderr=stderr)
+    with patch("devops_cli.security.base.run_subprocess", return_value=proc):
+        outcome = _NoPatternsScanner().scan(tmp_path)
+    return outcome.status, outcome.reason
+
+
+def test_a_failed_scan_says_its_output_was_not_json_and_quotes_it(tmp_path: Path) -> None:
+    """Verify the reason names non-JSON stdout and quotes its start on one line, then stderr."""
+    reason = _failed_reason(
+        tmp_path,
+        stdout='Working... ━━━━ 100% 0:00:20\n{\n  "errors": []\n}\n',
+        stderr="[main]\tINFO\tprofile include tests: None\n",
+    )
+
+    assert reason == (
+        "failed",
+        "Scanner exited with code 1; output was not JSON, starting "
+        '"Working... ━━━━ 100% 0:00:20 { "errors": [] }"; '
+        "stderr: [main] INFO profile include tests: None",
+    )
+
+
+def test_a_failed_scan_quotes_a_bounded_start_of_its_output(tmp_path: Path) -> None:
+    """Verify the quote and the whole reason are cut short, keeping as much stderr as fits."""
+    status, reason = _failed_reason(tmp_path, stdout="x" * 500, stderr="e" * 500)
+
+    assert (status, len(reason), reason.partition('"')[2].partition('"')[0], reason[-12:]) == (
+        "failed",
+        CONST_SCANNER_FAILURE_REASON_CHARS,
+        "x" * (CONST_SCANNER_STDOUT_EXCERPT_CHARS - 1) + "…",
+        "e" * 11 + "…",
+    )
 
 
 def test_scanner_registry_lifecycle(tmp_path: Path) -> None:
