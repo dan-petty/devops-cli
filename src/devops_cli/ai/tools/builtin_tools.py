@@ -378,6 +378,7 @@ def rag_search(
             base_url=qdrant_url,
             api_key=get_qdrant_api_key(settings),
             allow_private_network=settings.ai.allow_private_network,
+            timeout=settings.qdrant.timeout,
         )
         if not qdrant.is_alive():
             return f"RAG vector database unavailable at {qdrant_url}. Fallback: use search_code."

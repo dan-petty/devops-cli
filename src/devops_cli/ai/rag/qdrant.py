@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import math
+import threading
 import time
 import urllib.parse
 import uuid
@@ -15,17 +17,18 @@ from qdrant_client.http.exceptions import ResponseHandlingException
 
 from devops_cli.config.defaults import (
     DEFAULT_EMBEDDING_BATCH_SIZE,
-    DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_MAX_RETRIES,
     DEFAULT_QDRANT_DISTANCE,
     DEFAULT_QDRANT_QUANTIZATION_ENABLED,
     DEFAULT_QDRANT_QUANTIZATION_QUANTILE,
+    DEFAULT_QDRANT_TIMEOUT_SECONDS,
     DEFAULT_QDRANT_URL,
     DEFAULT_RAG_TOP_K,
 )
 from devops_cli.exceptions import DevOpsCLIError, InvalidURLError
 from devops_cli.http.validation import validate_service_url
 from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.telemetry.instruments import QDRANT_RETRIES_TOTAL, emit
 
 logger = logging.getLogger(__name__)
 
@@ -95,15 +98,27 @@ def _format_query_hits(points: list[Any]) -> list[dict[str, Any]]:
     return [{"id": hit.id, "score": hit.score, "payload": hit.payload or {}} for hit in points]
 
 
-def _log_retry_warning(op_desc: str, attempt: int, max_attempts: int, exc: Exception) -> None:
-    """Log transient Qdrant warning and apply exponential backoff sleep."""
+def _record_retry(
+    operation: str, target: str, attempt: int, max_attempts: int, exc: Exception
+) -> None:
+    """Log and count a transient Qdrant error, then back off before the next attempt.
+
+    The retry counts by operation and error type, not by target, so no collection or file
+    name becomes a metric label (#975). qdrant_client raises every transport error as a
+    `ResponseHandlingException`, so the type is the error it wraps: a dropped keep-alive
+    connection (`RemoteProtocolError`), retried at once, and a read that waited out the
+    timeout (`ReadTimeout`) would otherwise share one label.
+    """
     logger.warning(
-        "Transient error in Qdrant %s (attempt %d/%d): %s. Reconnecting...",
-        op_desc,
+        "Transient error in Qdrant %s(%s) (attempt %d/%d): %s. Reconnecting...",
+        operation,
+        target,
         attempt,
         max_attempts,
         exc,
     )
+    cause = exc.source if isinstance(exc, ResponseHandlingException) else exc
+    emit(QDRANT_RETRIES_TOTAL, 1, {"operation": operation, "error_type": type(cause).__name__})
     time.sleep(0.5 * attempt)
 
 
@@ -133,7 +148,7 @@ class QdrantClient:
         *,
         api_key: str | None = None,
         allow_private_network: bool = True,
-        timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
+        timeout: float = DEFAULT_QDRANT_TIMEOUT_SECONDS,
     ) -> None:
         parsed = urllib.parse.urlparse(base_url)
         if not parsed.scheme or not parsed.netloc:
@@ -151,7 +166,9 @@ class QdrantClient:
                 )
                 self.api_key = None
         self.allow_private_network = allow_private_network
-        self.timeout = max(timeout, 60.0)
+        # Each caller passes `qdrant.timeout`, which searches and indexing writes both wait. The
+        # native client takes whole seconds, so it is sent rounded up, never down to 0.
+        self.timeout = timeout
 
         # Validate URL for SSRF protection. A k8s:// address names a Service rather than a
         # host, so there is no host here to validate; what is actually dialled is the API
@@ -163,14 +180,17 @@ class QdrantClient:
             validate_service_url(self.base_url, "Qdrant", allow=self.allow_private_network)
 
         self._client: NativeQdrantClient | None = None
+        # Retrieval searches its collections at once, so they would otherwise each build one.
+        self._client_lock = threading.Lock()
         self._last_alive: tuple[float, bool] | None = None
         self._verified_collections: dict[str, int] = {}
         self._dim_mismatch_warned: set[str] = set()
 
     def _get_client(self, force_refresh: bool = False) -> NativeQdrantClient:
-        if self._client is None or force_refresh:
-            self._client = self._build_client()
-        return self._client
+        with self._client_lock:
+            if self._client is None or force_refresh:
+                self._client = self._build_client()
+            return self._client
 
     def _build_client(self) -> NativeQdrantClient:
         """Construct the Qdrant client for the configured address.
@@ -190,7 +210,7 @@ class QdrantClient:
                 url=self.base_url,
                 port=port,
                 api_key=self.api_key,
-                timeout=int(self.timeout),
+                timeout=math.ceil(self.timeout),
                 check_compatibility=False,
             )
 
@@ -205,24 +225,29 @@ class QdrantClient:
             headers=connection.headers,
             verify=connection.ssl_context,
             api_key=self.api_key,
-            timeout=int(self.timeout),
+            timeout=math.ceil(self.timeout),
             check_compatibility=False,
         )
 
     def _execute_with_retry(
         self,
         fn: Callable[[NativeQdrantClient], Any],
-        op_desc: str,
+        operation: str,
+        target: str = "",
         max_attempts: int = DEFAULT_MAX_RETRIES,
     ) -> Any:
-        """Execute a Qdrant client operation with automatic reconnect and exponential backoff."""
+        """Execute a Qdrant client operation with automatic reconnect and exponential backoff.
+
+        `operation` names the client method for the retry counter, and `target` what it acts
+        on, for the log only.
+        """
         for attempt in range(1, max_attempts + 1):
             try:
                 client = self._get_client(force_refresh=(attempt > 1))
                 return fn(client)
             except Exception as exc:
                 if attempt < max_attempts and _is_transient_qdrant_error(exc):
-                    _log_retry_warning(op_desc, attempt, max_attempts, exc)
+                    _record_retry(operation, target, attempt, max_attempts, exc)
                     continue
                 raise
 
@@ -260,8 +285,7 @@ class QdrantClient:
         """Fetch metadata, vectors count, and status for a collection."""
         try:
             info = self._execute_with_retry(
-                lambda c: c.get_collection(collection_name=name),
-                f"get_collection_info({name})",
+                lambda c: c.get_collection(collection_name=name), "get_collection_info", name
             )
             points_count = info.points_count or 0
             vectors_count = getattr(info, "indexed_vectors_count", None) or points_count
@@ -323,7 +347,8 @@ class QdrantClient:
                     vectors_config=qmodels.VectorParams(size=vector_size, distance=dist_enum),
                     quantization_config=_build_quantization_config(quantize),
                 ),
-                f"create_collection({name})",
+                "create_collection",
+                name,
             )
             self._verified_collections[name] = vector_size
             return True
@@ -338,8 +363,7 @@ class QdrantClient:
         _DIM_MISMATCH_WARNED_COLLECTIONS.discard(name)
         try:
             res = self._execute_with_retry(
-                lambda c: c.delete_collection(collection_name=name),
-                f"delete_collection({name})",
+                lambda c: c.delete_collection(collection_name=name), "delete_collection", name
             )
             return bool(res)
         except Exception as exc:
@@ -354,7 +378,8 @@ class QdrantClient:
         try:
             self._execute_with_retry(
                 lambda c: c.upsert(collection_name=name, points=point_structs, wait=True),
-                f"upsert_points({name})",
+                "upsert_points",
+                name,
             )
         except Exception as exc:
             logger.error("Error during Qdrant batch upsert: %s", exc)
@@ -427,7 +452,7 @@ class QdrantClient:
             },
         ) as q_span:
             try:
-                res = self._execute_with_retry(_query_op, f"search_points({name})")
+                res = self._execute_with_retry(_query_op, "search_points", name)
                 hits = _format_query_hits(res.points)
                 q_span.set_attribute("db.response.returned_points", len(hits))
                 if hits:
@@ -488,7 +513,8 @@ class QdrantClient:
                     points_selector=qmodels.FilterSelector(filter=file_filter),
                     wait=True,
                 ),
-                f"delete_points_by_file({name}, {file_path}, project={project_name})",
+                "delete_points_by_file",
+                f"{name}, {file_path}, project={project_name}",
             )
             return True
         except Exception as exc:

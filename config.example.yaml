@@ -61,6 +61,10 @@ qdrant:
   # Example: http://localhost:6333 or https://example.com:6333
   url: http://localhost:6333
   collection_prefix: devops
+  # Seconds each Qdrant request waits per attempt before it is retried, up to 3 attempts.
+  # RAG searches and indexing's upserts and deletes share the client, so they share this.
+  # 300 to 600 s suits a homelab Qdrant. Env: DEVOPS_CLI_QDRANT_TIMEOUT.
+  timeout: 300
 
 # ── Jaeger Tracing ────────────────────────────────────────────────────────────
 jaeger:

@@ -22,7 +22,8 @@ points devops-cli at the cluster's collector.
 | `devops_cli_ai_tokens_total` | Counter | `1` | LLM tokens, by type (prompt or completion), provider, model, server and backend. |
 | `devops_cli_ai_spend_usd_total` | Counter | `USD` | Approximate LLM spend, by provider, model, server and backend. |
 | `devops_cli_ai_local_cost_equivalent_usd_total` | Counter | `USD` | Equivalent hosted cloud spend avoided by local model execution. |
-| `devops_cli_rag_query_duration_ms` | Histogram | `ms` | RAG retrieval time. |
+| `devops_cli_rag_query_duration_ms` | Histogram | `ms` | RAG retrieval time, by stage: embedding, search, ranking, or total for the whole query. |
+| `devops_cli_qdrant_retries_total` | Counter | `1` | Qdrant requests retried after a transient error, by operation and error type. |
 | `devops_cli_project_releases_total` | Counter | `1` | Total project releases tracked. |
 | `devops_cli_project_commits_total` | Counter | `1` | Project commits count by release. |
 | `devops_cli_project_prs_total` | Counter | `1` | Project pull requests merged by release. |

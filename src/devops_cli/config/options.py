@@ -64,6 +64,7 @@ AI_RAG_SCORE_THRESHOLD = "ai.rag.score_threshold"
 QDRANT_URL = "qdrant.url"
 QDRANT_API_KEY = "qdrant.api_key"
 QDRANT_COLLECTION_PREFIX = "qdrant.collection_prefix"
+QDRANT_TIMEOUT = "qdrant.timeout"
 
 # Valkey In-Memory Data Store & Distributed Cache
 VALKEY_HOST = "valkey.host"
@@ -178,6 +179,7 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     QDRANT_URL,
     QDRANT_API_KEY,
     QDRANT_COLLECTION_PREFIX,
+    QDRANT_TIMEOUT,
     VALKEY_HOST,
     VALKEY_PORT,
     VALKEY_PASSWORD,

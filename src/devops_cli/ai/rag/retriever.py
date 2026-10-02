@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from devops_cli.ai.lexical import bm25_scores
@@ -19,10 +22,31 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
 )
-from devops_cli.telemetry import trace_span
+from devops_cli.telemetry import ContextPropagatingThread, trace_span
 from devops_cli.telemetry.instruments import RAG_QUERY_DURATION, emit
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _timed_stage(stage: str) -> Iterator[None]:
+    """Observe a query stage's time on the RAG histogram, labelled by stage and outcome.
+
+    A stage that raises is observed too, as outcome `error`: an embedding that times out is
+    exactly the tail the latency panels exist to show. An interrupt records nothing.
+    """
+    start = time.perf_counter()
+    try:
+        yield
+    except Exception:
+        _observe_stage(stage, start, "error")
+        raise
+    _observe_stage(stage, start, "ok")
+
+
+def _observe_stage(stage: str, start: float, outcome: str) -> None:
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    emit(RAG_QUERY_DURATION, elapsed_ms, {"stage": stage, "outcome": outcome})
 
 
 def _embed_search_query(embedder: Any, query: str) -> list[float]:
@@ -55,6 +79,30 @@ def _build_rag_filter_payload(
     return filter_payload if filter_payload else None
 
 
+def _search_collection(
+    collection: str,
+    *,
+    qdrant: Any,
+    query_vec: list[float],
+    fetch_limit: int,
+    threshold: float | None,
+    active_filter: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Query one collection's points; a collection whose search fails adds none."""
+    try:
+        points: list[dict[str, Any]] = qdrant.search_points(
+            collection,
+            query_vec,
+            limit=fetch_limit,
+            score_threshold=threshold,
+            filter_payload=active_filter,
+        )
+        return points
+    except Exception as exc:
+        logger.debug("Failed searching collection %s: %s", collection, exc)
+        return []
+
+
 def _search_collections(
     qdrant: Any,
     target_collections: list[str],
@@ -63,21 +111,44 @@ def _search_collections(
     threshold: float | None,
     active_filter: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
-    """Query Qdrant points across target collections."""
-    raw_results: list[dict[str, Any]] = []
-    for coll in target_collections:
-        try:
-            points = qdrant.search_points(
-                coll,
-                query_vec,
-                limit=fetch_limit,
-                score_threshold=threshold,
-                filter_payload=active_filter,
-            )
-            raw_results.extend(points)
-        except Exception as exc:
-            logger.debug("Failed searching collection %s: %s", coll, exc)
-    return raw_results
+    """Query Qdrant points across target collections at once, pooled in the collections' order.
+
+    Each collection is a round trip of its own, so searching them one after the other added
+    their latencies (#975). Pooling in the collections' order, not the order the replies come
+    back in, keeps fusion and ranking, and so the result, the same as a sequential search.
+
+    The first collection is searched on the caller's thread and the rest on daemon threads,
+    joined before this returns. A pool's threads would be joined however the caller left, so
+    Ctrl-C would wait out the other searches, up to three attempts of `qdrant.timeout` each
+    against a stalled Qdrant, and the interpreter would wait for them again on exit. Daemon
+    threads are not, so an interrupt leaves at once and abandons the searches still running.
+    """
+    search = functools.partial(
+        _search_collection,
+        qdrant=qdrant,
+        query_vec=query_vec,
+        fetch_limit=fetch_limit,
+        threshold=threshold,
+        active_filter=active_filter,
+    )
+    replies: list[list[dict[str, Any]]] = [[] for _ in target_collections]
+
+    def search_into(index: int) -> None:
+        replies[index] = search(target_collections[index])
+
+    others = [
+        ContextPropagatingThread(
+            target=search_into, args=(index,), name=f"devops-rag-search-{index}", daemon=True
+        )
+        for index in range(1, len(replies))
+    ]
+    for thread in others:
+        thread.start()
+    if replies:
+        search_into(0)
+    for thread in others:
+        thread.join()
+    return [point for points in replies for point in points]
 
 
 def _project_search_results(raw_results: list[dict[str, Any]]) -> list[SearchResult]:
@@ -231,6 +302,21 @@ class SemanticRetriever:
             return results[:k]
         return sorted(results, key=lambda r: r.score, reverse=True)[:k]
 
+    def _search_limits(
+        self, top_k: int | None, score_threshold: float | None, *, rerank: bool
+    ) -> tuple[int, int, float | None]:
+        """The result count, the points fetched per collection, and the score threshold.
+
+        Reranking fetches three times the result count, and at least 10, to choose from.
+        """
+        k = max(1, min(top_k if top_k is not None else self.default_top_k, 100))
+        fetch_limit = max(k * 3, 10) if rerank else k
+        raw_threshold = (
+            score_threshold if score_threshold is not None else self.default_score_threshold
+        )
+        threshold = max(0.0, min(raw_threshold, 1.0)) if raw_threshold is not None else None
+        return k, fetch_limit, threshold
+
     def search(
         self,
         query: str,
@@ -251,50 +337,52 @@ class SemanticRetriever:
         rankings, so exact symbol and identifier matches are not lost to embedding
         smoothing. Set it to False for purely semantic retrieval.
 
+        The RAG histogram times each stage, embedding the query, searching the collections and
+        ranking the pool, beside the whole query as `total`, so a slow query's time can be
+        attributed (#975).
+
         Raises EmbeddingsError when the query cannot be embedded.
         """
-        k = max(1, min(top_k if top_k is not None else self.default_top_k, 100))
-        fetch_limit = max(k * 3, 10) if rerank else k
-        raw_threshold = (
-            score_threshold if score_threshold is not None else self.default_score_threshold
-        )
-        threshold = max(0.0, min(raw_threshold, 1.0)) if raw_threshold is not None else None
-        start = time.perf_counter()
+        k, fetch_limit, threshold = self._search_limits(top_k, score_threshold, rerank=rerank)
 
-        with trace_span(
-            "ai.rag.search",
-            {
-                "query_length": len(query),
-                "top_k": k,
-                "project": project or "all",
-                "rag.rerank": rerank,
-            },
-        ) as search_span:
-            query_vec = _embed_search_query(self.embedder, query)
+        with (
+            _timed_stage("total"),
+            trace_span(
+                "ai.rag.search",
+                {
+                    "query_length": len(query),
+                    "top_k": k,
+                    "project": project or "all",
+                    "rag.rerank": rerank,
+                },
+            ) as search_span,
+        ):
+            with _timed_stage("embedding"):
+                query_vec = _embed_search_query(self.embedder, query)
             target_collections = self._resolve_collections(collection, category)
             search_span.set_attribute("rag.collections", target_collections)
 
             active_filter = _build_rag_filter_payload(file_filter, project, language, category)
-            raw_results = _search_collections(
-                self.qdrant,
-                target_collections,
-                query_vec,
-                fetch_limit,
-                threshold,
-                active_filter,
-            )
+            with _timed_stage("search"):
+                raw_results = _search_collections(
+                    self.qdrant,
+                    target_collections,
+                    query_vec,
+                    fetch_limit,
+                    threshold,
+                    active_filter,
+                )
 
-            results = _project_search_results(raw_results)
-            if hybrid and results:
-                results = hybrid_search_results(query, results)
-                search_span.set_attribute("rag.hybrid", True)
-            final_results = self._rank_results(query, results, k, rerank=rerank, hybrid=hybrid)
+            with _timed_stage("ranking"):
+                results = _project_search_results(raw_results)
+                if hybrid and results:
+                    results = hybrid_search_results(query, results)
+                    search_span.set_attribute("rag.hybrid", True)
+                final_results = self._rank_results(query, results, k, rerank=rerank, hybrid=hybrid)
 
             search_span.set_attribute("rag.results_count", len(final_results))
             if final_results:
                 search_span.set_attribute("rag.top_score", final_results[0].score)
-
-            emit(RAG_QUERY_DURATION, (time.perf_counter() - start) * 1000)
             return final_results
 
     def filter_and_validate_results(

@@ -66,6 +66,7 @@ ENV_AI_RAG_SCORE_THRESHOLD = "DEVOPS_CLI_AI_RAG_SCORE_THRESHOLD"
 ENV_QDRANT_URL = "DEVOPS_CLI_QDRANT_URL"
 ENV_QDRANT_API_KEY = "DEVOPS_CLI_QDRANT_API_KEY"
 ENV_QDRANT_COLLECTION_PREFIX = "DEVOPS_CLI_QDRANT_COLLECTION_PREFIX"
+ENV_QDRANT_TIMEOUT = "DEVOPS_CLI_QDRANT_TIMEOUT"
 
 ENV_VALKEY_HOST = "DEVOPS_CLI_VALKEY_HOST"
 ENV_VALKEY_PORT = "DEVOPS_CLI_VALKEY_PORT"
@@ -152,6 +153,7 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.QDRANT_URL: ENV_QDRANT_URL,
     opt.QDRANT_API_KEY: ENV_QDRANT_API_KEY,
     opt.QDRANT_COLLECTION_PREFIX: ENV_QDRANT_COLLECTION_PREFIX,
+    opt.QDRANT_TIMEOUT: ENV_QDRANT_TIMEOUT,
     opt.VALKEY_HOST: ENV_VALKEY_HOST,
     opt.VALKEY_PORT: ENV_VALKEY_PORT,
     opt.VALKEY_PASSWORD: ENV_VALKEY_PASSWORD,
@@ -483,6 +485,13 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.QDRANT_COLLECTION_PREFIX,
             False,
             "Prefix for Qdrant collection names",
+        ),
+        EnvVarSpec(
+            ENV_QDRANT_TIMEOUT,
+            opt.QDRANT_TIMEOUT,
+            False,
+            "Seconds each Qdrant request, a RAG search or an indexing upsert or delete, waits "
+            "per attempt (default: 300)",
         ),
         EnvVarSpec(
             ENV_VALKEY_HOST,
