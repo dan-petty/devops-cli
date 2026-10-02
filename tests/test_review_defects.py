@@ -5,23 +5,30 @@ from __future__ import annotations
 import ast
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai import run_store
 from devops_cli.ai.review import runner
 from devops_cli.ai.review.defects import (
     CORPUS_CONVENTIONS_FILE,
     CORPUS_FILES_DIR,
     CORPUS_MANIFEST,
+    CorpusScore,
     DefectCorpus,
     Injection,
     generate_corpus,
     score_corpus,
+    score_corpus_runs,
     select_templates,
 )
 from devops_cli.ai.review.profile import ReviewProfile
 from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
+from devops_cli.ai.run_store import Mechanism, load_runs
+from devops_cli.commands import review as review_commands
+from devops_cli.exceptions.validation import ValidationError
 from devops_cli.main import app
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
@@ -318,13 +325,110 @@ def test_score_matches_by_line_or_evidence_and_separates_what_verification_kept(
     )
 
 
-def _session(reviews: Path, name: str, target: Path, findings: list[SavedFinding]) -> None:
+def _arm_run(corpus: DefectCorpus, session_id: str, found: str, reported: str) -> CorpusScore:
+    """A session whose review found the injections in the named files, and kept those reported."""
+    candidates = [_finding(f"{name}.py:1") for name in found]
+    kept = [finding for name, finding in zip(found, candidates, strict=True) if name in reported]
+    return score_corpus(corpus, candidates, kept, session_id=session_id)
+
+
+def test_an_arm_counts_the_runs_that_found_and_reported_each_injection() -> None:
+    """Verify pass@k and pass^k over 3 runs, and each figure's mean beside its range (#413)."""
+    corpus = DefectCorpus(
+        sources=["src"],
+        seed=1,
+        created_at="2026-10-02T00:00:00+00:00",
+        injections=[_injection(f"{name}.py", 1, (1, 1), "drop-await", []) for name in "abcd"],
+    )
+    runs = [
+        _arm_run(corpus, "s1", found="abc", reported="a"),
+        _arm_run(corpus, "s2", found="ab", reported="a"),
+        _arm_run(corpus, "s3", found="a", reported=""),
+    ]
+
+    arm = score_corpus_runs(runs, [None, None, None])
+    spread = arm.spread or {}
+
+    assert (
+        [(t.found_in, t.reported_in) for t in arm.tallies],
+        (arm.found.pass_at_k, arm.found.pass_hat_k, arm.found.in_none),
+        (arm.reported.pass_at_k, arm.reported.pass_hat_k, arm.reported.in_none),
+        (arm.recall_found, spread["recall_found"]),
+        (arm.recall_reported, spread["recall_reported"]),
+        (arm.runs, [row.session_id for row in arm.sessions], arm.scores == runs),
+    ) == (
+        [(3, 2), (2, 0), (1, 0), (0, 0)],
+        (0.75, 0.25, 1),
+        (0.25, 0.0, 3),
+        (0.5, (0.25, 0.75)),
+        (0.167, (0.0, 0.25)),
+        (3, ["s1", "s2", "s3"], True),
+    )
+
+
+def _matching_fixture() -> tuple[DefectCorpus, list[SavedFinding], list[SavedFinding]]:
+    """The corpus and findings of the single-session matching test: candidates, then reported."""
+    corpus = DefectCorpus(
+        sources=["src"],
+        seed=1,
+        created_at="2026-09-24T00:00:00+00:00",
+        injections=[
+            _injection("site.yaml", 5, (5, 5), "disable-tls-verify", ["validate_certs"]),
+            _injection("roles/db.yaml", 10, (10, 10), "log-secrets", ["no_log"]),
+            _injection("app.py", 20, (18, 22), "drop-bounds-check", ["batch_size"]),
+            _injection("keys.py", 40, (40, 40), "widen-file-mode", ["0o777", "777"]),
+        ],
+    )
+    reported = [
+        _finding(".data/reviews/corpora/src-1/files/site.yaml:4-6"),
+        _finding("app.py:50", text="A zero batch_size loops forever."),
+        _finding("keys.py:3", text="The directory is created world-writable (777)."),
+        _finding("other.yaml:3"),
+        _finding("xsite.yaml:5", text="validate_certs is off."),
+    ]
+    dropped = _finding("roles/db.yaml:11", status="INVALIDATED", reportable=False)
+    return corpus, [*reported, dropped], reported
+
+
+def test_an_arm_of_one_run_reproduces_that_sessions_totals() -> None:
+    """Verify one session scored as an arm keeps its score, its recall as pass@1 and pass^1, its
+    finding counts, and claims no spread (#413)."""
+    corpus, candidates, reported = _matching_fixture()
+    score = score_corpus(corpus, candidates, reported, session_id="s1")
+
+    arm = score_corpus_runs([score], [None])
+
+    assert (
+        arm.scores[0] == score,
+        (arm.found.pass_at_k, arm.found.pass_hat_k, score.recall_found),
+        (arm.reported.pass_at_k, arm.reported.pass_hat_k),
+        (score.candidate_findings, score.invalidated_findings, score.reported_findings),
+        (arm.candidate_findings, arm.invalidated_findings, arm.reported_findings),
+        arm.spread,
+    ) == (True, (1.0, 1.0, 1.0), (0.75, 0.75), (6, 1, 5), (6, 1, 5), None)
+
+
+def test_an_arm_refuses_sessions_that_ran_different_prompts() -> None:
+    """Verify sessions with different prompt digests, or none, are not scored as an arm (#413)."""
+    corpus, candidates, reported = _matching_fixture()
+    scores = [score_corpus(corpus, candidates, reported, session_id=s) for s in ("s1", "s2")]
+    profiles = [ReviewProfile(session_id=s, target="t", prompt_digest=s * 4) for s in ("s1", "s2")]
+
+    with pytest.raises(ValidationError, match="s1 s1s1s1s1, s2 s2s2s2s2"):
+        score_corpus_runs(scores, profiles)
+    with pytest.raises(ValidationError, match="got 0 score"):
+        score_corpus_runs([], [])
+
+
+def _session(
+    reviews: Path, name: str, target: Path, findings: list[SavedFinding], **profile: Any
+) -> None:
     session = reviews / name
     session.mkdir(parents=True)
     (session / "findings.json").write_text(
         ReviewSessionPayload(findings=findings).model_dump_json(), encoding="utf-8"
     )
-    ReviewProfile(session_id=name, target=str(target.resolve())).write(session)
+    ReviewProfile(session_id=name, target=str(target.resolve()), **profile).write(session)
 
 
 def test_corpus_commands_generate_then_score_the_latest_review_of_that_corpus(
@@ -353,7 +457,12 @@ def test_corpus_commands_generate_then_score_the_latest_review_of_that_corpus(
 
     assert (
         generated.exit_code,
-        (scored.exit_code, score["session_id"], score["reported"], score["injections"]),
+        (
+            scored.exit_code,
+            score["scores"][0]["session_id"],
+            score["scores"][0]["reported"],
+            score["scores"][0]["injections"],
+        ),
         again.exit_code,
     ) == (0, (0, "20260924-100000", 1, 2), 1)
 
@@ -379,7 +488,7 @@ def test_a_corpus_score_is_kept_with_each_injections_outcome(
     assert (
         (first.exit_code, second.exit_code),
         len({r.subject_key for r in runs}),
-        [len(r.results["outcomes"]) for r in runs],
+        [len(r.results["scores"][0]["outcomes"]) for r in runs],
     ) == ((0, 0), 1, [2, 2])
 
 
@@ -397,3 +506,147 @@ def test_score_without_a_review_of_the_corpus_fails(
     result = cli.invoke(app, ["review", "corpus", "score", str(corpus_dir)])
 
     assert result.exit_code == 1
+
+
+# The corpus group's own app parses `devops review corpus score` as the full CLI does; the tests
+# above drive it through `devops`, and these through it, which builds two commands, not all.
+def _reviewed_corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    """A corpus and the reviews directory its sessions are written to."""
+    reviews = tmp_path / "reviews"
+    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: reviews)
+    # A kept run is stamped with the checkout's commit, which runs git three times; not tested here.
+    monkeypatch.setattr(run_store, "source_commit", lambda: None)
+    source = _source_tree(tmp_path)
+    corpus_dir = tmp_path / "corpus"
+    generate_corpus(_sources(source), corpus_dir, sources=[str(source)], seed=1)
+    _session(reviews, "20260924-090000", source, [], prompt_digest="d1")
+    return corpus_dir, reviews
+
+
+def _profiled(tokens: int, digest: str = "d1") -> dict[str, Any]:
+    """Profile fields of a session: its tokens, one parsed and one unparsed persona reply."""
+    return {
+        "prompt_digest": digest,
+        "prompt_tokens": tokens,
+        "completion_tokens": tokens // 10,
+        "persona_outcomes": {"findings": 1, "unparsed": 1},
+        "persona_replies": [
+            {"persona": "devsecops", "outcome": "findings"},
+            {"persona": "qa", "outcome": "unparsed"},
+        ],
+    }
+
+
+@pytest.fixture
+def three_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A corpus with three reviews written newest first, and one review of another target."""
+    corpus_dir, reviews = _reviewed_corpus(tmp_path, monkeypatch)
+    for name, tokens in (
+        ("20260924-120000", 300),
+        ("20260924-100000", 100),
+        ("20260924-110000", 200),
+    ):
+        _session(reviews, name, corpus_dir / CORPUS_FILES_DIR, [], **_profiled(tokens))
+    return corpus_dir
+
+
+def test_corpus_score_scores_the_latest_runs_oldest_first_as_one_arm(three_runs: Path) -> None:
+    """Verify --runs takes the corpus's reviews oldest first, each with its tokens and unparsed
+    replies, and records the personas that replied in its setup (#413)."""
+    result = cli.invoke(
+        review_commands.corpus_app, ["score", str(three_runs), "--runs", "3", "--json"]
+    )
+    arm = json.loads(result.stdout)
+    (record,) = load_runs(Mechanism.CORPUS_SCORE)
+
+    assert (
+        (result.exit_code, arm["runs"], arm["prompt_digest"]),
+        [
+            (r["session_id"], r["prompt_tokens"], r["completion_tokens"], r["unparsed_replies"])
+            for r in arm["sessions"]
+        ],
+        (record.setup["personas"], record.setup["runs"], record.setup["prompt_digest"]),
+    ) == (
+        (0, 3, "d1"),
+        [
+            ("20260924-100000", 100, 10, 1),
+            ("20260924-110000", 200, 20, 1),
+            ("20260924-120000", 300, 30, 1),
+        ],
+        (["devsecops", "qa"], 3, "d1"),
+    )
+
+
+def test_corpus_score_scores_exactly_the_named_sessions(three_runs: Path) -> None:
+    """Verify a repeated --session scores those sessions and no others (#413)."""
+    args = ["-s", "20260924-120000", "-s", "20260924-100000", "--json"]
+
+    result = cli.invoke(review_commands.corpus_app, ["score", str(three_runs), *args])
+
+    assert (result.exit_code, [r["session_id"] for r in json.loads(result.stdout)["sessions"]]) == (
+        0,
+        ["20260924-100000", "20260924-120000"],
+    )
+
+
+def test_corpus_score_refuses_more_runs_than_exist_and_says_how_many_do(three_runs: Path) -> None:
+    """Verify --runs beyond the reviews of the corpus exits 1, names how many exist and records
+    no run (#413)."""
+    result = cli.invoke(review_commands.corpus_app, ["score", str(three_runs), "--runs", "4"])
+
+    assert (
+        result.exit_code,
+        "Only 3 review(s)" in result.output,
+        load_runs(Mechanism.CORPUS_SCORE),
+    ) == (1, True, [])
+
+
+def test_corpus_score_refuses_session_beside_runs(three_runs: Path) -> None:
+    """Verify naming sessions and asking for the latest runs at once exits 1 (#413)."""
+    args = ["-s", "20260924-100000", "--runs", "2"]
+
+    result = cli.invoke(review_commands.corpus_app, ["score", str(three_runs), *args])
+
+    assert (result.exit_code, load_runs(Mechanism.CORPUS_SCORE)) == (1, [])
+
+
+def test_corpus_score_refuses_runs_of_different_prompts_and_records_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify two runs with different prompt digests are refused, each digest named (#413)."""
+    corpus_dir, reviews = _reviewed_corpus(tmp_path, monkeypatch)
+    files = corpus_dir / CORPUS_FILES_DIR
+    _session(reviews, "20260924-100000", files, [], **_profiled(100, "a1b2c3d4e5f60718"))
+    _session(reviews, "20260924-110000", files, [], **_profiled(100, "8f7e6d5c4b3a2910"))
+
+    result = cli.invoke(review_commands.corpus_app, ["score", str(corpus_dir), "--runs", "2"])
+
+    assert (
+        result.exit_code,
+        "a1b2c3d4e5f60718" in result.output and "8f7e6d5c4b3a2910" in result.output,
+        load_runs(Mechanism.CORPUS_SCORE),
+    ) == (1, True, [])
+
+
+def test_corpus_score_warns_when_a_gateway_group_serves_several_models(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify the report says a run is not model-pinned, and still records it (#413)."""
+    corpus_dir, reviews = _reviewed_corpus(tmp_path, monkeypatch)
+    _session(reviews, "20260924-100000", corpus_dir / CORPUS_FILES_DIR, [], **_profiled(100))
+    pool = [
+        {"backend": "backend-a", "model": "ollama_chat/qwen3-coder:30b", "weight": 1},
+        {"backend": "backend-b", "model": "ollama_chat/gpt-oss:20b", "weight": 1},
+    ]
+    monkeypatch.setattr(
+        review_commands, "review_setup", lambda **extra: {"pools": {"devops-review": pool}} | extra
+    )
+
+    result = cli.invoke(review_commands.corpus_app, ["score", str(corpus_dir)])
+
+    assert (
+        result.exit_code,
+        "not model-pinned: devops-review serves 2 models" in result.output,
+        "found in 0/1" in result.output and "Synthetic recall measures regression" in result.output,
+        len(load_runs(Mechanism.CORPUS_SCORE)),
+    ) == (0, True, True, 1)

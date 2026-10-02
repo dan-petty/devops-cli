@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -11,6 +12,8 @@ from unittest.mock import MagicMock
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai import personas
+from devops_cli.ai.personas import review_prompt_digest
 from devops_cli.ai.review import runner
 from devops_cli.ai.review.profile import (
     BenchmarkSummary,
@@ -305,3 +308,39 @@ def test_profiler_accumulates_cost_usd_per_stage(tmp_path: Path) -> None:
 
     stage_costs = [round(s.cost_usd, 6) for s in profile.stages]
     assert (stage_costs, profile.cost_usd) == ([0.0045, 0.009], 0.0135)
+
+
+def _change_one_character(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    path.write_text(("Y" if text[0] == "X" else "X") + text[1:], encoding="utf-8")
+
+
+def test_the_prompt_digest_changes_with_any_review_prompt_and_nothing_else(tmp_path: Path) -> None:
+    """Verify the digest is 16 stable hex characters, moves with one character of a task or
+    persona prompt, and ignores files that are not prompts (#413)."""
+    personas_dir = Path(personas.__file__).parent
+    tasks, roles = tmp_path / "tasks", tmp_path / "personas"
+    shutil.copytree(personas_dir.parent / "tasks", tasks)
+    shutil.copytree(personas_dir, roles, ignore=shutil.ignore_patterns("__pycache__"))
+    package = review_prompt_digest()
+    copy = review_prompt_digest(tasks, roles)
+    _change_one_character(tasks / "review.md")
+    task_edit = review_prompt_digest(tasks, roles)
+    _change_one_character(roles / "devsecops" / "prompt.md")
+    persona_edit = review_prompt_digest(tasks, roles)
+    (tasks / "helper.py").write_text("x = 1\n", encoding="utf-8")
+    (roles / "helper.py").write_text("x = 1\n", encoding="utf-8")
+
+    assert (
+        (len(package), int(package, 16) >= 0, review_prompt_digest() == package),
+        copy == package,
+        len({copy, task_edit, persona_edit}),
+        review_prompt_digest(tasks, roles) == persona_edit,
+    ) == ((16, True, True), True, 3, True)
+
+
+def test_a_profile_records_the_digest_of_the_prompts_it_ran_with() -> None:
+    """Verify every built profile names the package's review prompts (#413)."""
+    profile = ReviewProfiler().build(session_id="s", target="t")
+
+    assert profile.prompt_digest == review_prompt_digest()

@@ -3,8 +3,8 @@
 A review is a pipeline of stages (payloads, persona review, verification, reranking, report).
 Without a breakdown, a change to gateway weights or models could only be judged by total wall
 time, which also moves with the number of candidate findings a run happens to produce. A profile
-records each stage and every LLM call made during it, and is written next to the session's
-findings as `profile.json`.
+records each stage, every LLM call made during it and a digest of the review prompts the session
+ran with, and is written next to the session's findings as `profile.json`.
 
 Calls are observed through the spend ledger, the one place every LLM call passes through with its
 tokens and the backend the gateway routed it to. The current stage travels in a context variable,
@@ -30,6 +30,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devops_cli.ai.personas import review_prompt_digest
 from devops_cli.ai.spend.ledger import observe_llm_calls
 from devops_cli.config.constants import CONST_PERSONA_REPLY_UNPARSED
 
@@ -103,6 +104,8 @@ class ReviewProfile(BaseModel):
 
     session_id: str
     target: str
+    # The review prompts the session ran with, so runs of one prompt set can be told apart.
+    prompt_digest: str = ""
     files: int = 0
     total_wall_seconds: float = 0.0
     llm_calls: int = 0
@@ -246,6 +249,7 @@ class ReviewProfiler:
         return ReviewProfile(
             session_id=session_id,
             target=target,
+            prompt_digest=review_prompt_digest(),
             files=files,
             total_wall_seconds=round(time.monotonic() - self._started, 3),
             llm_calls=sum(s.llm_calls for s in stages),
