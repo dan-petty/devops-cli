@@ -107,7 +107,7 @@ def test_argocd_networkpolicy_specifics() -> None:
 
 
 def test_monitoring_networkpolicy_specifics() -> None:
-    """Verify Monitoring specific ports and rules: Grafana (3000), Prometheus (9090), cloudflared (2000)."""
+    """Verify Monitoring specific ports and rules: Grafana (3000), Prometheus (9090), Pyroscope (4040), cloudflared (2000)."""
     policy_path = K8S_DIR / "monitoring" / "networkpolicy.yaml"
     doc = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
     spec = doc.get("spec", {})
@@ -116,9 +116,10 @@ def test_monitoring_networkpolicy_specifics() -> None:
     allowed_ports = {p.get("port") for rule in ingress_rules for p in rule.get("ports", [])}
     egress_rules = spec.get("egress", [])
     egress_ports = {p.get("port") for rule in egress_rules for p in rule.get("ports", [])}
-    # UI ports 3000 (Grafana) and 9090 (Prometheus) allowed for ingress, and 2000 (cloudflared) for egress
+    # UI ports 3000 (Grafana), 9090 (Prometheus), 4040 (Pyroscope) allowed for ingress, and 2000 (cloudflared) for egress
     assert (
         3000 in allowed_ports,
         9090 in allowed_ports,
+        4040 in allowed_ports,
         2000 in egress_ports,
-    ) == (True, True, True)
+    ) == (True, True, True, True)

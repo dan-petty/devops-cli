@@ -1,0 +1,47 @@
+# Grafana Pyroscope Helm values
+# Chart: grafana/pyroscope
+# Repo:  https://grafana.github.io/helm-charts
+# https://github.com/grafana/pyroscope/tree/main/operations/pyroscope
+
+pyroscope:
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1024Mi
+
+  persistence:
+    enabled: true
+    storageClassName: local-path
+    size: 5Gi
+
+  service:
+    type: ClusterIP
+    port: 4040
+    port_name: http2
+    scheme: HTTP
+
+architecture:
+  microservices:
+    enabled: false
+  storage:
+    v1: false
+    v2: true
+
+minio:
+  enabled: false
+
+alloy:
+  enabled: true
+  controller:
+    type: statefulset
+    replicas: 1
+  alloy:
+    enableReporting: false
+
+serviceMonitor:
+  enabled: false
