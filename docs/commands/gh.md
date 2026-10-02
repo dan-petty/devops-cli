@@ -141,23 +141,6 @@ devops gh milestones list [OPTIONS]
 | `--state`, `-s` | `string` | `all` | Milestone state filter (open, closed or all) |
 | `--repo`, `-R` | `string` | - | Target repository |
 
-### `devops gh milestones sync`
-
-**Extract release milestones from ROADMAP.md and sync to repository.**
-
-```bash
-devops gh milestones sync [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
-| `--repo`, `-R` | `string` | - | Target repository |
-| `--create-release-epics` | `boolean` | - | Provision or synchronize release tracking epics for each milestone |
-| `--dry-run` | `boolean` | - | Simulate milestone extraction without creating remote records |
-
 ### `devops gh milestones status`
 
 **Inspect detailed progress and issue health for a specific milestone.**
@@ -592,40 +575,6 @@ devops gh issues edit [OPTIONS] <number>
 | `--clear-milestone` | `boolean` | - | Remove milestone linkage from the issue. |
 | `--add-label` | `string` | - | Taxonomy label to attach (repeatable). |
 | `--remove-label` | `string` | - | Taxonomy label to detach (repeatable). |
-| `--repo`, `-R` | `string` | - | Target repository |
-
-### `devops gh issues reconcile-roadmap`
-
-**Reconcile existing issue milestones to match docs/ROADMAP.md specifications.**
-
-```bash
-devops gh issues reconcile-roadmap [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
-| `--tasks-dir`, `-t` | `path` | `docs/agent/tasks` | Directory for local per-task tracking files |
-| `--repo`, `-R` | `string` | - | Target repository |
-| `--dry-run` | `boolean` | - | Preview issue milestone reconciliation without mutations |
-
-### `devops gh issues sync-roadmap`
-
-**Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files.**
-
-```bash
-devops gh issues sync-roadmap [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--milestone`, `-m` | `string` | - | Filter by release milestone (e.g. v0.2.20) |
-| `--dry-run` | `boolean` | - | Preview issue and task creation without modifying remote state |
-| `--limit`, `-L` | `integer` | `20` | Maximum issues to create |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 ### `devops gh issues close-merged`

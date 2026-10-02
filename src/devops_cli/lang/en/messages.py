@@ -881,6 +881,64 @@ class OutputMessages:
 
 
 @dataclass(frozen=True)
+class RoadmapMessages:
+    epic_closed: str = (
+        "Closed as not planned: a release is its milestone, so release epics are retired. "
+        "GitHub issues, milestones and the project board are now the roadmap's source of "
+        "truth (ADR 0001: {adr})."
+    )
+    not_planned_closed: str = (
+        "Closed as not planned: the hand-written roadmap recorded it as {status} "
+        "({location}). It stays on record so intake recognizes the idea as a duplicate if it "
+        "surfaces again (ADR 0001: {adr})."
+    )
+    not_planned_body: str = (
+        "The hand-written roadmap recorded this as not planned before GitHub became the "
+        "roadmap's source of truth. Its text, from {location}:\n\n{text}"
+    )
+    report_title: str = "# Roadmap migration plan for {repo} at {ref}"
+    report_p0: str = "## 1. P0 feature candidates for a later release"
+    report_unfiled: str = "## 2. Open entries without an issue"
+    report_closed: str = "## 3. Open entries whose issue is closed"
+    report_writes: str = "## 4. Planned writes"
+    report_left_alone: str = "### Left alone: set on the board and different from the matrix"
+    report_auto_add: str = (
+        "### Enabled auto-add workflows: turn these off in the board's Workflows page"
+    )
+    report_option_edits: str = (
+        "### Option edits a person makes in the board's field settings, which keep option ids"
+    )
+    report_none: str = "None."
+    report_not_imported: str = (
+        "{path} carries the `devops roadmap render` marker, so it is a generated view and was "
+        "not imported."
+    )
+    default_branch: str = "the default branch"
+    board_created: str = (
+        "Created board #{number} ({url}). Its Status options were replaced, so check the Status "
+        "each built-in workflow sets in its Workflows page. Set `board = {number}` in {config}, "
+        "then run migrate again."
+    )
+    applied: str = "Made {count} planned write(s)."
+    nothing_to_do: str = "Nothing to migrate: GitHub already holds the roadmap."
+    nothing_to_write: str = (
+        "Nothing for migrate to write. Make the option edits listed above in the board's field "
+        "settings."
+    )
+    edits_due: str = (
+        "Make these option edits in the board's field settings first, because the planned "
+        "writes set those options: {edits}. GitHub's API can't keep an option's id, so migrate "
+        "never edits options itself."
+    )
+    preview_only: str = "Nothing was written. Run again with --confirm to make these writes."
+    render_written: str = "Wrote {path}: {items} item(s) in {sections} section(s)."
+    render_current: str = "## Current release: {title}"
+    render_planned: str = "## Planned release: {title}"
+    render_backlog: str = "## Backlog"
+    render_empty: str = "No items."
+
+
+@dataclass(frozen=True)
 class LanguageCatalog:
     persona_titles: PersonaTitles = field(default_factory=PersonaTitles)
     messages: GeneralMessages = field(default_factory=GeneralMessages)
@@ -920,6 +978,7 @@ class LanguageCatalog:
     serve: ServeMessages = field(default_factory=ServeMessages)
     pipeline: PipelineMessages = field(default_factory=PipelineMessages)
     test: TestMessages = field(default_factory=TestMessages)
+    roadmap: RoadmapMessages = field(default_factory=RoadmapMessages)
 
 
 MESSAGES = LanguageCatalog()

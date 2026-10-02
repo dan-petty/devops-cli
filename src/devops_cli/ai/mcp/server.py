@@ -625,24 +625,33 @@ def release_status() -> str:
 
 
 @mcp.tool()
-def release_epic_sync(
-    version: str | None = None,
-    all_milestones: bool = False,
-    dry_run: bool = True,
-    repo: str | None = None,
-) -> str:
-    """Provision, correlate, and synchronize parent release tracking epics for milestones."""
-    cmd = ["uv", "run", "devops", "release", "epic"]
-    if version:
-        _validate_mcp_arg("version", version)
-        cmd.append(version)
-    if all_milestones:
-        cmd.append("--all")
-    if dry_run:
-        cmd.append("--dry-run")
+def roadmap_render(repo: str | None = None, ref: str | None = None, dry_run: bool = True) -> str:
+    """Render docs/ROADMAP.md from GitHub's issues, milestones and board; prints it by default."""
+    cmd = ["uv", "run", "devops", "roadmap", "render"]
     if repo:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])
+    if ref:
+        _validate_mcp_arg("ref", ref)
+        cmd.extend(["--ref", ref])
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def roadmap_migrate(repo: str | None = None, ref: str | None = None) -> str:
+    """Preview the one-time move of the roadmap's source to GitHub: its plan and report.
+
+    It never writes. A person reviews the plan and runs `devops roadmap migrate --confirm`.
+    """
+    cmd = ["uv", "run", "devops", "roadmap", "migrate", "--dry-run"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    if ref:
+        _validate_mcp_arg("ref", ref)
+        cmd.extend(["--ref", ref])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
@@ -1545,24 +1554,6 @@ def gh_milestone_list(repo: str | None = None) -> str:
 
 
 @mcp.tool()
-def gh_milestone_sync(
-    repo: str | None = None,
-    dry_run: bool = True,
-    create_release_epics: bool = False,
-) -> str:
-    """Synchronize repository milestones from docs/ROADMAP.md."""
-    cmd = ["uv", "run", "devops", "gh", "milestones", "sync"]
-    if dry_run:
-        cmd.append("--dry-run")
-    if create_release_epics:
-        cmd.append("--create-release-epics")
-    if repo:
-        _validate_mcp_arg("repo", repo)
-        cmd.extend(["--repo", repo])
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
-
-
-@mcp.tool()
 def gh_project_status() -> str:
     """Inspect GitHub Projects v2 template configuration, fields, and view definitions."""
     return _run_mcp_cmd(
@@ -1741,43 +1732,6 @@ def gh_issue_status(repo: str | None = None) -> str:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
-
-
-@mcp.tool()
-def gh_sync_roadmap(
-    milestone: str | None = None,
-    dry_run: bool = True,
-    limit: int = 20,
-    repo: str | None = None,
-) -> str:
-    """Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files."""
-    cmd = ["uv", "run", "devops", "gh", "issues", "sync-roadmap"]
-    if milestone:
-        _validate_mcp_arg("milestone", milestone)
-        cmd.extend(["--milestone", milestone])
-    if dry_run:
-        cmd.append("--dry-run")
-    if limit:
-        cmd.extend(["--limit", str(limit)])
-    if repo:
-        _validate_mcp_arg("repo", repo)
-        cmd.extend(["--repo", repo])
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
-
-
-@mcp.tool()
-def gh_issue_reconcile_roadmap(
-    dry_run: bool = True,
-    repo: str | None = None,
-) -> str:
-    """Reconcile repository issue milestones and local task files to match docs/ROADMAP.md declarations."""
-    cmd = ["uv", "run", "devops", "gh", "issues", "reconcile-roadmap"]
-    if dry_run:
-        cmd.append("--dry-run")
-    if repo:
-        _validate_mcp_arg("repo", repo)
-        cmd.extend(["--repo", repo])
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
@@ -3040,7 +2994,7 @@ def hydrate_tool_domain(domain: str, ctx: Context | None = None) -> dict[str, An
 
     Call this before browsing a domain's tools. Available lazy domains include `argo`,
     `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
-    `prometheus`, `rag`, `release`, `repos`, `sandbox`, `scan`, `security`, `ssh`,
+    `prometheus`, `rag`, `release`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`,
     `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
     Pass the domain name alone, for example `k8s`.
     """

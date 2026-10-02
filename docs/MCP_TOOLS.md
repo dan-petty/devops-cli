@@ -49,7 +49,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_issue_create`](#gh-issue-create) | Create a new GitHub issue linking milestone and taxonomy labels. |
 | [`gh_issue_edit`](#gh-issue-edit) | Edit an existing GitHub issue title, body, state, or milestone. |
 | [`gh_issue_list`](#gh-issue-list) | List repository issues with milestone, taxonomy labels, and status. |
-| [`gh_issue_reconcile_roadmap`](#gh-issue-reconcile-roadmap) | Reconcile repository issue milestones and local task files to match docs/ROADMAP.md declarations. |
 | [`gh_issue_status`](#gh-issue-status) | Display aggregated issue counts by priority, type, and milestone. |
 | [`gh_issue_triage`](#gh-issue-triage) | Audit open issues for mandatory taxonomy labels and milestone linkage. |
 | [`gh_label_list`](#gh-label-list) | List declarative repository labels and descriptions. |
@@ -57,7 +56,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_milestone_close`](#gh-milestone-close) | Close the release milestone of a version, with or without its v. |
 | [`gh_milestone_edit`](#gh-milestone-edit) | Edit a release milestone's title, description, state, or due date; others stay as they are. |
 | [`gh_milestone_list`](#gh-milestone-list) | List repository milestones and progress rates. |
-| [`gh_milestone_sync`](#gh-milestone-sync) | Synchronize repository milestones from docs/ROADMAP.md. |
 | [`gh_pages_build`](#gh-pages-build) | Trigger a new deployment build for GitHub Pages. |
 | [`gh_pages_status`](#gh-pages-status) | Inspect GitHub Pages site deployment status, URL, branch, and HTTPS enforcement. |
 | [`gh_pages_verify`](#gh-pages-verify) | Verify local repository readiness for GitHub Pages publishing. |
@@ -69,7 +67,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_rate_limit`](#gh-rate-limit) | Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 | [`gh_run_view`](#gh-run-view) | View details and diagnostic failure logs of a specific GitHub Actions workflow run. |
 | [`gh_runs_list`](#gh-runs-list) | List recent GitHub Actions CI/CD workflow runs. |
-| [`gh_sync_roadmap`](#gh-sync-roadmap) | Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files. |
 | [`gh_view_spec`](#gh-view-spec) | Return JSON specification for GitHub Projects v2 views. |
 | [`gh_views_audit`](#gh-views-audit) | Audit remote project views against standardized view template specifications. |
 | [`gh_views_sync`](#gh-views-sync) | Synchronize standardized GitHub Projects v2 views with the remote repository project. |
@@ -78,7 +75,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 
 Call this before browsing a domain's tools. Available lazy domains include `argo`,
 `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
-`prometheus`, `rag`, `release`, `repos`, `sandbox`, `scan`, `security`, `ssh`,
+`prometheus`, `rag`, `release`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`,
 `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
 Pass the domain name alone, for example `k8s`. |
 | [`k8s_audit`](#k8s-audit) | Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks. |
@@ -113,7 +110,6 @@ Pass the domain name alone, for example `k8s`. |
 | [`rag_drift`](#rag-drift) | Detect staleness and drift between the working tree and the Qdrant vector index. |
 | [`rag_index`](#rag-index) | Index workspace files into Qdrant vector database for semantic retrieval. |
 | [`rag_search`](#rag-search) | Perform semantic vector search across indexed workspace codebase and architecture docs. |
-| [`release_epic_sync`](#release-epic-sync) | Provision, correlate, and synchronize parent release tracking epics for milestones. |
 | [`release_status`](#release-status) | Check devops-cli release status, version consistency, tags, and docs state. |
 | [`repos_list`](#repos-list) | List local workspace repositories and active git branches. |
 | [`repos_status`](#repos-status) | Display uncommitted changes and branch drift across workspace repositories. |
@@ -124,6 +120,10 @@ Pass the domain name alone, for example `k8s`. |
 | [`review_path`](#review-path) | Run an AI code review on local files matching pattern using specified persona. |
 | [`review_pr`](#review-pr) | Fetch GitHub PR diff and review using specified persona; optionally post comment. |
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
+| [`roadmap_migrate`](#roadmap-migrate) | Preview the one-time move of the roadmap's source to GitHub: its plan and report.
+
+It never writes. A person reviews the plan and runs `devops roadmap migrate --confirm`. |
+| [`roadmap_render`](#roadmap-render) | Render docs/ROADMAP.md from GitHub's issues, milestones and board; prints it by default. |
 | [`sandbox_deploy`](#sandbox-deploy) | Deploy an isolated workload container sandbox with security containment and port allocation. |
 | [`sandbox_exec`](#sandbox-exec) | Execute a command inside an active sandbox container. |
 | [`sandbox_network_policy`](#sandbox-network-policy) | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
@@ -662,17 +662,6 @@ List repository issues with milestone, taxonomy labels, and status.
 | `label` | `string` | No | - | - |
 | `limit` | `integer` | No | `30` | - |
 
-### `gh_issue_reconcile_roadmap`
-
-Reconcile repository issue milestones and local task files to match docs/ROADMAP.md declarations.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `dry_run` | `boolean` | No | `True` | - |
-| `repo` | `string` | No | - | - |
-
 ### `gh_issue_status`
 
 Display aggregated issue counts by priority, type, and milestone.
@@ -749,18 +738,6 @@ List repository milestones and progress rates.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repo` | `string` | No | - | - |
-
-### `gh_milestone_sync`
-
-Synchronize repository milestones from docs/ROADMAP.md.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `repo` | `string` | No | - | - |
-| `dry_run` | `boolean` | No | `True` | - |
-| `create_release_epics` | `boolean` | No | `False` | - |
 
 ### `gh_pages_build`
 
@@ -871,19 +848,6 @@ List recent GitHub Actions CI/CD workflow runs.
 | `branch` | `string` | No | - | - |
 | `repo` | `string` | No | - | - |
 
-### `gh_sync_roadmap`
-
-Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `milestone` | `string` | No | - | - |
-| `dry_run` | `boolean` | No | `True` | - |
-| `limit` | `integer` | No | `20` | - |
-| `repo` | `string` | No | - | - |
-
 ### `gh_view_spec`
 
 Return JSON specification for GitHub Projects v2 views.
@@ -926,7 +890,7 @@ Advertise the tools for one domain, which are withheld from the listing by defau
 
 Call this before browsing a domain's tools. Available lazy domains include `argo`,
 `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
-`prometheus`, `rag`, `release`, `repos`, `sandbox`, `scan`, `security`, `ssh`,
+`prometheus`, `rag`, `release`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`,
 `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
 Pass the domain name alone, for example `k8s`.
 
@@ -1295,19 +1259,6 @@ Perform semantic vector search across indexed workspace codebase and architectur
 | `language` | `string` | No | - | - |
 | `category` | `string` | No | - | - |
 
-### `release_epic_sync`
-
-Provision, correlate, and synchronize parent release tracking epics for milestones.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `version` | `string` | No | - | - |
-| `all_milestones` | `boolean` | No | `False` | - |
-| `dry_run` | `boolean` | No | `True` | - |
-| `repo` | `string` | No | - | - |
-
 ### `release_status`
 
 Check devops-cli release status, version consistency, tags, and docs state.
@@ -1395,6 +1346,31 @@ Fetch GitHub PR diff and review using specified persona; optionally post comment
 View accuracy metrics and false-positive rates per reviewer persona.
 
 *No parameters required.*
+
+### `roadmap_migrate`
+
+Preview the one-time move of the roadmap's source to GitHub: its plan and report.
+
+It never writes. A person reviews the plan and runs `devops roadmap migrate --confirm`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+| `ref` | `string` | No | - | - |
+
+### `roadmap_render`
+
+Render docs/ROADMAP.md from GitHub's issues, milestones and board; prints it by default.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+| `ref` | `string` | No | - | - |
+| `dry_run` | `boolean` | No | `True` | - |
 
 ### `sandbox_deploy`
 

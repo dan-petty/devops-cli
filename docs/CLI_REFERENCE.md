@@ -25,6 +25,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops mcp`](#devops-mcp) — FastMCP server and Model Context Protocol integrations.
 - [`devops docs`](#devops-docs) — Generate and validate CLI and architecture documentation.
 - [`devops release`](#devops-release) — Automate version bumps, changelogs, tags, and GitHub releases.
+- [`devops roadmap`](#devops-roadmap) — Read and write the roadmap on GitHub, its source of truth: issues, milestones and the project board.
 - [`devops pr`](#devops-pr) — GitHub Pull Request workflows and reviews.
 - [`devops gh`](#devops-gh) — GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation.
 - [`devops tf`](#devops-tf) — OpenTofu and Terraform Infrastructure-as-Code operations.
@@ -5518,28 +5519,45 @@ devops release tag [OPTIONS]
 | `--message`, `-m` | `string` | - | Custom tag annotation message. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
 
-### `devops release epic`
+---
 
-**Provision, correlate, and synchronize parent release tracking epics for milestones.**
+## devops roadmap
+
+Read and write the roadmap on GitHub, its source of truth: issues, milestones and the project board.
+
+### `devops roadmap migrate`
+
+**Make GitHub the roadmap's source, once: bring the board in line with its template, fill unset Status, Priority, Value and Effort, retire release epics and milestones beyond the planning horizon, and record rejected roadmap ideas as issues closed as not planned. Prints the plan and a report, which lists the option renames, additions and removals a person makes in the board's field settings; writes only with --confirm, once the renames and additions are made.**
 
 ```bash
-devops release epic [OPTIONS] <version>
+devops roadmap migrate [OPTIONS]
 ```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<version>` | `string` | No | Target release milestone version (e.g. v0.2.21 or 0.2.21). Omit with --all. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--all`, `-a` | `boolean` | - | Synchronize release epics for all roadmap milestones |
-| `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
-| `--repo`, `-R` | `string` | - | Target repository |
-| `--dry-run` | `boolean` | - | Simulate release epic creation without modifying remote issues |
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--confirm` | `boolean` | - | Make the planned writes to GitHub. Without it, migrate prints its plan only. |
+| `--dry-run` | `boolean` | - | Print the plan and report, and write nothing. |
+
+### `devops roadmap render`
+
+**Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the backlog by priority.**
+
+```bash
+devops roadmap render [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--output`, `-o` | `path` | `docs/ROADMAP.md` | File render writes. |
+| `--dry-run` | `boolean` | - | Print the rendered file to stdout instead of writing it. |
 
 ---
 
@@ -6048,23 +6066,6 @@ devops gh milestones list [OPTIONS]
 | `--state`, `-s` | `string` | `all` | Milestone state filter (open, closed or all) |
 | `--repo`, `-R` | `string` | - | Target repository |
 
-#### `devops gh milestones sync`
-
-**Extract release milestones from ROADMAP.md and sync to repository.**
-
-```bash
-devops gh milestones sync [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
-| `--repo`, `-R` | `string` | - | Target repository |
-| `--create-release-epics` | `boolean` | - | Provision or synchronize release tracking epics for each milestone |
-| `--dry-run` | `boolean` | - | Simulate milestone extraction without creating remote records |
-
 #### `devops gh milestones status`
 
 **Inspect detailed progress and issue health for a specific milestone.**
@@ -6491,40 +6492,6 @@ devops gh issues edit [OPTIONS] <number>
 | `--clear-milestone` | `boolean` | - | Remove milestone linkage from the issue. |
 | `--add-label` | `string` | - | Taxonomy label to attach (repeatable). |
 | `--remove-label` | `string` | - | Taxonomy label to detach (repeatable). |
-| `--repo`, `-R` | `string` | - | Target repository |
-
-#### `devops gh issues reconcile-roadmap`
-
-**Reconcile existing issue milestones to match docs/ROADMAP.md specifications.**
-
-```bash
-devops gh issues reconcile-roadmap [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
-| `--tasks-dir`, `-t` | `path` | `docs/agent/tasks` | Directory for local per-task tracking files |
-| `--repo`, `-R` | `string` | - | Target repository |
-| `--dry-run` | `boolean` | - | Preview issue milestone reconciliation without mutations |
-
-#### `devops gh issues sync-roadmap`
-
-**Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files.**
-
-```bash
-devops gh issues sync-roadmap [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--milestone`, `-m` | `string` | - | Filter by release milestone (e.g. v0.2.20) |
-| `--dry-run` | `boolean` | - | Preview issue and task creation without modifying remote state |
-| `--limit`, `-L` | `integer` | `20` | Maximum issues to create |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 #### `devops gh issues close-merged`

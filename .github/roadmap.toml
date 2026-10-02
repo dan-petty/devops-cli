@@ -1,0 +1,15 @@
+# The roadmap jobs' settings for this repository (ADR 0001). Every runner reads this file
+# through the GitHub contents API at one ref; `devops roadmap migrate` and `render` take it with
+# `--ref`, which defaults to the default branch.
+
+# The project board (number) that holds the roadmap's Items. It has no default.
+board = 2
+
+# Planned releases kept after the current one. Three keep v0.2.26, and the v0.2.27 and v0.2.28
+# releases that hold the P0 and P1 work due before v0.3.0.
+planning_horizon = 3
+
+# Keys left out take these defaults:
+# release_cap = 12          # Ready items a starting release is filled to
+# discovery_threshold = 24  # backlog size below which discovery looks for candidates
+# stall_days = 14           # days without activity before an in-progress item stalls

@@ -437,7 +437,7 @@ def test_provision_remote_project_fields() -> None:
         side_effect=[
             MagicMock(returncode=0, stdout=json.dumps(existing), stderr=""),  # list
             MagicMock(returncode=0, stdout="{}", stderr=""),  # create Priority
-            MagicMock(returncode=0, stdout="{}", stderr=""),  # create Category
+            MagicMock(returncode=0, stdout="{}", stderr=""),  # create Job record
         ]
     )
     fields = [
@@ -447,16 +447,14 @@ def test_provision_remote_project_fields() -> None:
             type="single_select",
             options=[ProjectFieldOption(name="P0"), ProjectFieldOption(name="P1")],
         ),
-        ProjectField(name="Category", type="text"),
+        ProjectField(name="Job record", type="text"),
     ]
     with (
         patch("devops_cli.github.projects._get_authenticated_user", return_value="owner"),
         patch("devops_cli.github.projects.run_gh", mock_proc),
     ):
         provisioned = provision_remote_project_fields(2, "owner", fields)
-        assert "Priority" in provisioned
-        assert "Category" in provisioned
-        assert "Status" not in provisioned
+        assert provisioned == ["Priority", "Job record"]
 
 
 def test_get_remote_project_views() -> None:
@@ -743,58 +741,74 @@ def test_resolve_project_owner_arg() -> None:
         assert _resolve_project_owner_arg("my-org") == "my-org"
 
 
-def test_sync_single_select_field_options() -> None:
-    """_sync_single_select_field_options updates remote options via GraphQL mutation."""
+def test_project_sync_sends_no_option_update_when_the_template_options_differ() -> None:
+    """project sync creates missing fields only; it never replaces an existing field's options.
+
+    The board's Status has Todo and Backlog and lacks the template's New and Blocked. A request
+    that replaced the options without their ids would clear Status on every card.
+    """
     import json
     from unittest.mock import MagicMock, patch
 
     from devops_cli.github.projects import (
         ProjectField,
         ProjectFieldOption,
-        _sync_single_select_field_options,
+        ProjectTemplate,
+        sync_remote_project,
     )
 
-    template_field = ProjectField(
-        name="Status",
-        type="single_select",
-        options=[
-            ProjectFieldOption(name="Todo", color="GRAY"),
-            ProjectFieldOption(name="In Progress", color="BLUE"),
-            ProjectFieldOption(name="In Review", color="PURPLE"),
-            ProjectFieldOption(name="Done", color="GREEN"),
+    board_fields = {
+        "fields": [
+            {
+                "id": "PVTSSF_status",
+                "name": "Status",
+                "type": "ProjectV2SingleSelectField",
+                "options": [
+                    {"id": option_id, "name": name}
+                    for option_id, name in (
+                        ("5b8424c8", "Todo"),
+                        ("82b128b7", "Backlog"),
+                        ("89415499", "Ready"),
+                        ("1cb0cdfe", "In Progress"),
+                        ("77269eb5", "In Review"),
+                        ("82c424e4", "Done"),
+                    )
+                ],
+            }
+        ]
+    }
+    template = ProjectTemplate(
+        name="Roadmap",
+        fields=[
+            ProjectField(
+                name="Status",
+                type="single_select",
+                options=[
+                    ProjectFieldOption(name=name)
+                    for name in ("New", "Ready", "In Progress", "In Review", "Done", "Blocked")
+                ],
+            )
         ],
     )
-
-    # All options already present -> returns True without calling GraphQL
-    existing_all = {
-        "id": "field_123",
-        "options": [
-            {"name": "Todo", "color": "GRAY"},
-            {"name": "In Progress", "color": "BLUE"},
-            {"name": "In Review", "color": "PURPLE"},
-            {"name": "Done", "color": "GREEN"},
-        ],
-    }
-    assert _sync_single_select_field_options(existing_all, template_field) is True
-
-    # Missing option -> triggers GraphQL mutation
-    existing_partial = {
-        "id": "field_123",
-        "options": [
-            {"name": "Todo", "color": "GRAY"},
-            {"name": "In Progress", "color": "BLUE"},
-            {"name": "Done", "color": "GREEN"},
-        ],
-    }
-    with patch("devops_cli.github.projects.run_gh") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout="{}", stderr="")
-        assert _sync_single_select_field_options(existing_partial, template_field) is True
-        assert mock_run.call_count == 1
-        call_args = mock_run.call_args
-        assert "graphql" in call_args[0][0]
-        payload = json.loads(call_args[1]["input"])
-        option_names = [opt["name"] for opt in payload["variables"]["options"]]
-        assert "In Review" in option_names
+    run_gh = MagicMock(return_value=MagicMock(returncode=0, stdout=json.dumps(board_fields)))
+    with (
+        patch("devops_cli.github.projects.verify_project_auth_scopes"),
+        patch("devops_cli.github.projects.find_remote_project", return_value={"number": 2}),
+        patch("devops_cli.github.projects.link_project_to_repository", return_value=True),
+        patch("devops_cli.github.projects.sync_repository_issues_to_project", return_value=0),
+        patch("devops_cli.github.projects._get_authenticated_user", return_value="someone"),
+        patch("devops_cli.github.projects.run_gh", run_gh),
+    ):
+        result = sync_remote_project("owner", "owner/repo", template, [], reconcile_fields=False)
+    commands = [call.args[0] for call in run_gh.call_args_list]
+    assert (
+        result.fields_provisioned,
+        [command[1:3] for command in commands],
+        any(
+            "graphql" in command or "input" in call.kwargs
+            for command, call in zip(commands, run_gh.call_args_list, strict=True)
+        ),
+    ) == ([], [["project", "field-list"]], False)
 
 
 def test_paginated_project_fetch_helpers() -> None:
@@ -857,7 +871,6 @@ def test_reconcile_single_item_skips_matching_fields() -> None:
     current_matching = {
         "status": "Done",
         "priority": "P1-High",
-        "category": "Major Project",
         "value": "High",
         "effort": "High",
     }
@@ -885,7 +898,6 @@ def test_reconcile_single_item_edits_only_drifted_fields() -> None:
     current_with_drift = {
         "status": "In Progress",
         "priority": "P2-Medium",
-        "category": "Major Project",
         "value": "High",
         "effort": "High",
     }
@@ -919,19 +931,18 @@ def test_extract_item_fields_case_insensitive() -> None:
 
     item = {
         "Status": "Done",
-        "PRIORITY": "P1-High",
-        "Category": {"name": "Quick Win"},
+        "PRIORITY": {"name": "P1-High"},
         "value": "High",
         "Effort": "Low",
         "id": "ITEM_1",
     }
-    extracted = _extract_item_fields(item)
-    assert extracted["status"] == "Done"
-    assert extracted["priority"] == "P1-High"
-    assert extracted["category"] == "Quick Win"
-    assert extracted["value"] == "High"
-    assert extracted["effort"] == "Low"
-    assert extracted["id"] == "ITEM_1"
+    assert _extract_item_fields(item) == {
+        "status": "Done",
+        "priority": "P1-High",
+        "value": "High",
+        "effort": "Low",
+        "id": "ITEM_1",
+    }
 
 
 def test_parse_project_items_json_with_preamble() -> None:
@@ -999,11 +1010,11 @@ def test_apply_field_updates_respects_mutation_budget() -> None:
     budget = MutationBudget(limit=2)
     url = "https://example.com/1"
     changes = [
-        FieldChange(url=url, field="Status", old="Backlog", new="Done", source="issue closed"),
+        FieldChange(url=url, field="Status", old="New", new="Done", source="issue closed"),
         FieldChange(url=url, field="Priority", old=None, new="P1-High", source="label"),
-        FieldChange(url=url, field="Milestone", old=None, new="v1", source="issue milestone"),
+        FieldChange(url=url, field="Effort", old=None, new="Low", source="a person"),
     ]
-    current = {"status": "Backlog", "priority": None, "milestone": None}
+    current = {"status": "New", "priority": None, "effort": None}
 
     with (
         patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
@@ -1066,3 +1077,33 @@ def test_provision_and_reconcile_share_mutation_budget() -> None:
             "owner", 1, candidates, items_data, set(), dry_run=False, budget=budget
         )
         assert (reconciled, mock_edit.call_count) == ([], 0)
+
+
+def test_the_board_template_follows_adr_0001() -> None:
+    """Status is New, Ready, In Progress, In Review, Done and Blocked; Category and the Milestone text field are gone (#739)."""
+    from pathlib import Path
+
+    from devops_cli.config.constants import CONST_FINDING_DETAIL_HEADER_FIELDS
+    from devops_cli.github.projects import load_project_template
+
+    template = load_project_template(
+        Path(__file__).parents[1] / ".github" / "project-template.json"
+    )
+    fields = {field.name: field for field in template.fields}
+    assert (
+        [option.name for option in fields["Status"].options],
+        fields["Status"].options[0].replaces,
+        {"Category", "Milestone"} & set(fields),
+        [view.name for view in template.views if "Category" in view.model_dump_json()],
+        [option.name for option in fields["Value"].options],
+        [option.name for option in fields["Effort"].options],
+        ("category", "Category") in CONST_FINDING_DETAIL_HEADER_FIELDS,
+    ) == (
+        ["New", "Ready", "In Progress", "In Review", "Done", "Blocked"],
+        ["Backlog", "Todo"],
+        set(),
+        [],
+        ["High", "Medium", "Low"],
+        ["Low", "Medium", "High"],
+        True,
+    )

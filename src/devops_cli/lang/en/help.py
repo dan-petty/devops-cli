@@ -747,7 +747,6 @@ class GHCommandHelp:
     labels_audit: str = "Audit pull requests for mandatory type/ and scope/ taxonomy."
     milestones_app: str = "Manage roadmap milestones and track release progress."
     milestones_list: str = "List milestones and progress rates."
-    milestones_sync: str = "Extract milestones from ROADMAP.md and sync to repository."
     milestones_status: str = "Inspect progress and health for a specific milestone."
     milestones_close: str = "Close the release milestone of a version, with or without its v."
     milestones_edit: str = (
@@ -805,9 +804,6 @@ class GHCommandHelp:
     close_merged_pr: str = "Close issues for this single pull request instead of sweeping."
     close_merged_base: str = "Only consider merged pull requests with this base branch."
     close_merged_limit: str = "Maximum merged pull requests to examine."
-    issues_reconcile_roadmap: str = (
-        "Reconcile existing issue milestones to match docs/ROADMAP.md specifications."
-    )
     branch_protection_app: str = "Manage declarative branch protection rulesets and policies."
     branch_protection_audit: str = (
         "Audit repository branch protection rulesets against declarative policy specification."
@@ -849,11 +845,37 @@ class ReleaseCommandHelp:
     changelog_update: str = "Update CHANGELOG.md in-place with generated release notes."
     changelog_from_tag: str = "Starting git tag or ref for changelog compilation."
     changelog_to_tag: str = "Ending git tag or ref for changelog compilation."
-    epic: str = (
-        "Provision, correlate, and synchronize parent release tracking epics for milestones."
-    )
     sync_notes: str = "Republish GitHub release descriptions from CHANGELOG.md."
     sync_notes_all: str = "Sync every published release rather than one version."
+
+
+@dataclass(frozen=True)
+class RoadmapCommandHelp:
+    app: str = (
+        "Read and write the roadmap on GitHub, its source of truth: issues, milestones and the "
+        "project board."
+    )
+    migrate: str = (
+        "Make GitHub the roadmap's source, once: bring the board in line with its template, "
+        "fill unset Status, Priority, Value and Effort, retire release epics and milestones "
+        "beyond the planning horizon, and record rejected roadmap ideas as issues closed as not "
+        "planned. Prints the plan and a report, which lists the option renames, additions and "
+        "removals a person makes in the board's field settings; writes only with --confirm, "
+        "once the renames and additions are made."
+    )
+    render: str = (
+        "Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the "
+        "backlog by priority."
+    )
+    repo: str = "Repository as owner/name (default: this checkout's origin)."
+    ref: str = (
+        "Branch, tag or commit to read .github/roadmap.toml, the board template and "
+        "docs/ROADMAP.md at (default: the repository's default branch)."
+    )
+    confirm: str = "Make the planned writes to GitHub. Without it, migrate prints its plan only."
+    migrate_dry_run: str = "Print the plan and report, and write nothing."
+    render_dry_run: str = "Print the rendered file to stdout instead of writing it."
+    output: str = "File render writes."
 
 
 @dataclass(frozen=True)
@@ -1307,6 +1329,7 @@ class HelpCatalog:
     pr: PRCommandHelp = field(default_factory=PRCommandHelp)
     gh: GHCommandHelp = field(default_factory=GHCommandHelp)
     release: ReleaseCommandHelp = field(default_factory=ReleaseCommandHelp)
+    roadmap: RoadmapCommandHelp = field(default_factory=RoadmapCommandHelp)
     review: ReviewCommandHelp = field(default_factory=ReviewCommandHelp)
     scan: ScanCommandHelp = field(default_factory=ScanCommandHelp)
     telemetry: TelemetryCommandHelp = field(default_factory=TelemetryCommandHelp)

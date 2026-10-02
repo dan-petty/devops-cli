@@ -15,7 +15,7 @@ from devops_cli.github.projects import (
 )
 
 _URL = "https://github.com/owner/repo/issues/7"
-_STATUSES = ("Backlog", "Ready", "In Progress", "In Review", "Done")
+_STATUSES = ("New", "Ready", "In Progress", "In Review", "Done")
 
 
 def _issue(
@@ -52,7 +52,7 @@ def test_an_unset_status_comes_from_an_exact_status_label() -> None:
 def test_a_status_label_only_matches_exactly() -> None:
     """`status/ready-to-merge` and `status/triage` are not `status/ready`."""
     assert _changes(_issue(labels=["status/ready-to-merge", "status/triage"])) == [
-        ("Status", None, "Backlog", "default for an unset status")
+        ("Status", None, "New", "default for an unset status")
     ]
 
 
@@ -64,7 +64,7 @@ def test_blocked_maps_only_when_the_board_has_a_blocked_status() -> None:
         _changes(_issue(labels=["status/blocked"])),
         [(c.field, c.new) for c in with_blocked],
     ) == (
-        [("Status", None, "Backlog", "default for an unset status")],
+        [("Status", None, "New", "default for an unset status")],
         [("Status", "Blocked")],
     )
 
@@ -80,11 +80,11 @@ def test_an_open_pull_request_is_forced_into_review_and_a_draft_into_progress() 
     ready = {"html_url": pr_url, "state": "open", "labels": [], "pull_request": {}}
     draft = {**ready, "draft": True}
     assert (
-        _changes(ready, {"status": "Backlog"}),
-        _changes(draft, {"status": "Backlog"}),
+        _changes(ready, {"status": "New"}),
+        _changes(draft, {"status": "New"}),
     ) == (
-        [("Status", "Backlog", "In Review", "open pull request")],
-        [("Status", "Backlog", "In Progress", "draft pull request")],
+        [("Status", "New", "In Review", "open pull request")],
+        [("Status", "New", "In Progress", "draft pull request")],
     )
 
 
@@ -111,16 +111,21 @@ def test_a_matching_value_is_not_rewritten_whatever_its_case() -> None:
     assert _changes(_issue(state="CLOSED"), {"status": "done"}) == []
 
 
-def test_category_value_and_effort_are_never_inferred() -> None:
+def test_value_and_effort_are_never_inferred() -> None:
     """An inferred field that keeps writing reads as decided; unset is honest."""
     fields = [c[0] for c in _changes(_issue(labels=["type/feature", "priority/p0-critical"]))]
-    assert {"Category", "Value", "Effort"} & set(fields) == set()
+    assert {"Value", "Effort"} & set(fields) == set()
 
 
-def test_the_milestone_field_mirrors_the_issue_milestone() -> None:
+def test_the_milestone_the_board_mirrors_is_never_written() -> None:
     item = _issue(milestone={"title": "v0.2.24"})
-    assert _changes(item, {"status": "Ready", "milestone": "v0.2.23"}) == [
-        ("Milestone", "v0.2.23", "v0.2.24", "issue milestone")
+    assert _changes(item, {"status": "Ready", "milestone": "v0.2.23"}) == []
+
+
+def test_a_backlog_label_reads_as_new() -> None:
+    """`status/backlog` names the status the board now calls New."""
+    assert _changes(_issue(labels=["status/backlog"])) == [
+        ("Status", None, "New", "label status/backlog")
     ]
 
 

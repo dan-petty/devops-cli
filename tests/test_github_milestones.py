@@ -1,4 +1,4 @@
-"""Test suite for GitHub Milestones extraction, synchronization, and progress tracking."""
+"""Test suite for GitHub Milestones progress tracking and the milestone commands."""
 
 from __future__ import annotations
 
@@ -7,104 +7,13 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devops_cli.commands.gh import milestones_app
-from devops_cli.github.milestones import (
-    MilestoneSpec,
-    calculate_milestone_progress,
-    diff_milestones,
-    extract_roadmap_milestones,
-    sync_repository_milestones,
-)
+from devops_cli.github.milestones import calculate_milestone_progress
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, Release
 
 runner = CliRunner()
 # Not this checkout's origin, so a command that ignored `--repo` would open the wrong store.
 REPO = "example/scratch"
-
-
-def test_extract_roadmap_milestones(tmp_path: Path) -> None:
-    """extract_roadmap_milestones parses markdown milestone headings into MilestoneSpec objects."""
-    roadmap = tmp_path / "ROADMAP.md"
-    roadmap.write_text(
-        "# Roadmap\n\n"
-        "### Core Foundation (v0.0.1 - Completed)\n"
-        "- [x] Feature A\n\n"
-        "### Valkey Management (v0.2.12 - Scheduled)\n"
-        "- [ ] Task 1\n\n"
-        "### Library Ingestion (v0.2.13 - Scheduled)\n"
-        "- [ ] Task 2\n",
-        encoding="utf-8",
-    )
-
-    specs = extract_roadmap_milestones(roadmap)
-    assert len(specs) >= 2
-    titles = [s.title for s in specs]
-    assert "v0.2.12" in titles
-    assert "v0.2.13" in titles
-    valkey_spec = next(s for s in specs if s.title == "v0.2.12")
-    assert valkey_spec.description == "Valkey Management"
-    assert "Scheduled" not in valkey_spec.description
-
-    core_spec = next(s for s in specs if s.title == "v0.0.1")
-    assert core_spec.description == "Core Foundation"
-    assert "Completed" not in core_spec.description
-    assert core_spec.state == "closed"
-
-
-def test_diff_milestones() -> None:
-    """diff_milestones matches desired milestones to Releases by version, with or without the v."""
-    desired = [
-        MilestoneSpec(title="v0.2.12", description="Valkey"),
-        MilestoneSpec(title="v0.2.13", description="Library"),
-    ]
-    existing = [Release(number=1, title="0.2.12", description="Valkey")]
-
-    to_create, existing_matches = diff_milestones(desired, existing)
-    assert (
-        [spec.title for spec in to_create],
-        [release.number for release in existing_matches],
-    ) == (
-        ["v0.2.13"],
-        [1],
-    )
-
-
-def test_sync_repository_milestones_dry_run() -> None:
-    """A dry-run sync counts the Releases it would create and creates none."""
-    store = InMemoryRoadmapStore()
-    desired = [MilestoneSpec(title="v0.2.15", description="Scanner Framework")]
-
-    res = sync_repository_milestones(store, desired, dry_run=True)
-    assert (res.created_count, res.dry_run, store.releases()) == (1, True, [])
-
-
-def test_sync_repository_milestones_creates_missing_and_updates_changed_releases() -> None:
-    """A sync creates the missing Releases and edits those whose description or state differs."""
-    store = InMemoryRoadmapStore()
-    store.create_release("v0.2.14", description="Old name")
-    store.create_release("v0.2.16", description="Same")
-    desired = [
-        MilestoneSpec(title="v0.2.14", description="Scanner Framework", state=GitHubState.CLOSED),
-        MilestoneSpec(title="v0.2.15", description="Next"),
-        MilestoneSpec(title="v0.2.16", description="Same"),
-    ]
-
-    res = sync_repository_milestones(store, desired)
-    assert (
-        res.created,
-        res.updated,
-        res.existing_count,
-        [(r.title, r.description, r.state) for r in store.releases()],
-    ) == (
-        ["v0.2.15"],
-        ["v0.2.14"],
-        2,
-        [
-            ("v0.2.14", "Scanner Framework", GitHubState.CLOSED),
-            ("v0.2.15", "Next", GitHubState.OPEN),
-            ("v0.2.16", "Same", GitHubState.OPEN),
-        ],
-    )
 
 
 def test_calculate_milestone_progress() -> None:
@@ -136,41 +45,6 @@ def test_cli_milestones_close_command(
         "No Release 'v9.9.9' exists" in missing.output,
         roadmap_store_repos,
     ) == (0, True, GitHubState.CLOSED, 1, True, [REPO, REPO])
-
-
-def test_validate_roadmap_path_helpers(tmp_path: Path) -> None:
-    """Verify _is_safe_roadmap_path and _validate_roadmap_path prevent directory traversal."""
-    import pytest
-
-    from devops_cli.exceptions.git import GitHubOperationError
-    from devops_cli.github.milestones import _is_safe_roadmap_path, _validate_roadmap_path
-
-    # Safe vs unsafe path predicates
-    assert (
-        _is_safe_roadmap_path(Path("docs/ROADMAP.md")),
-        _is_safe_roadmap_path(Path("docs/ROADMAP_2.md")),
-        _is_safe_roadmap_path(tmp_path / "ROADMAP.md"),
-        _is_safe_roadmap_path(Path("../ROADMAP.md")),
-        _is_safe_roadmap_path(Path("docs/../ROADMAP.md")),
-        _is_safe_roadmap_path(Path("docs/ROADMAP..md")),
-        _is_safe_roadmap_path(Path("docs/../../ROADMAP.md")),
-    ) == (True, True, True, False, False, True, False)
-
-    # Traversal raises GitHubOperationError
-    with pytest.raises(GitHubOperationError, match="Path traversal detected"):
-        _validate_roadmap_path(Path("../ROADMAP.md"))
-
-    with pytest.raises(GitHubOperationError, match="Path traversal detected"):
-        _validate_roadmap_path(Path("foo/../bar.md"))
-
-    # Missing file raises GitHubOperationError
-    with pytest.raises(GitHubOperationError, match="Roadmap file not found"):
-        _validate_roadmap_path(tmp_path / "nonexistent.md")
-
-    # Valid file passes validation
-    sample = tmp_path / "valid_roadmap.md"
-    sample.write_text("# Roadmap\n", encoding="utf-8")
-    assert _validate_roadmap_path(sample) == sample
 
 
 def test_cli_labels_list() -> None:
@@ -311,25 +185,6 @@ def test_cli_milestones_status(
         "not found" in missing.output,
         roadmap_store_repos,
     ) == (0, True, 1, True, [REPO, REPO])
-
-
-def test_cli_milestones_sync(
-    tmp_path: Path, roadmap_store: InMemoryRoadmapStore, roadmap_store_repos: list[str]
-) -> None:
-    """devops gh milestones sync previews with --dry-run, then creates the roadmap's Releases."""
-    roadmap = tmp_path / "ROADMAP.md"
-    roadmap.write_text("# Roadmap\n### Test Milestone (v0.9.0 - Scheduled)\n", encoding="utf-8")
-
-    dry = runner.invoke(
-        milestones_app, ["sync", "--roadmap", str(roadmap), "--dry-run", "-R", REPO]
-    )
-    dry_releases = roadmap_store.releases()
-    live = runner.invoke(milestones_app, ["sync", "--roadmap", str(roadmap), "-R", REPO])
-    assert (
-        (dry.exit_code, "1 created" in dry.output, dry_releases),
-        (live.exit_code, [(r.title, r.description) for r in roadmap_store.releases()]),
-        roadmap_store_repos,
-    ) == ((0, True, []), (0, [("v0.9.0", "Test Milestone")]), [REPO, REPO])
 
 
 def test_gh_helper_subprocess_fallbacks() -> None:

@@ -14,7 +14,17 @@ from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.validation import InvalidVersionError
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.store import ChangeKind, GitHubState, ItemField, RoadmapStore
+from devops_cli.roadmap.store import (
+    BoardField,
+    CardKind,
+    ChangeKind,
+    CloseReason,
+    FieldOption,
+    FieldSpec,
+    GitHubState,
+    ItemField,
+    RoadmapStore,
+)
 
 BOARD_OPTIONS = {
     ItemField.STATUS: ("Backlog", "Ready", "In Progress", "Done"),
@@ -297,3 +307,211 @@ def test_writing_an_item_that_left_the_board_raises(store: InMemoryRoadmapStore)
     stale = item.model_copy(update={"number": store.seed_issue("never on the board")})
     with pytest.raises(GitHubOperationError, match="not on the board"):
         store.set_field(stale, ItemField.STATUS, "Ready")
+
+
+# ── Board shape, cards, issues and files (#739) ───────────────────────────────
+
+STATUS = FieldSpec(
+    name="Status",
+    single_select=True,
+    options=(
+        FieldOption(name="Todo", color="GRAY", description="Fresh"),
+        FieldOption(name="Backlog", color="GRAY", description="Queued"),
+        FieldOption(name="Ready", color="BLUE", description="Scoped"),
+    ),
+)
+
+
+@pytest.fixture
+def board(clock: SteppedClock) -> InMemoryRoadmapStore:
+    """A board whose Status has Todo, Backlog and Ready, with one card on each."""
+    roadmap = InMemoryRoadmapStore(clock=clock)
+    roadmap.seed_field(STATUS)
+    person = roadmap.as_actor("alice")
+    for status in ("Todo", "Backlog", "Ready"):
+        number = roadmap.seed_issue(f"holds {status}", on_board=True)
+        card = next(card for card in roadmap.cards() if card.number == number)
+        person.set_card_field(card, ItemField.STATUS, status)
+    return roadmap
+
+
+def _status(store: InMemoryRoadmapStore) -> BoardField:
+    return next(board_field for board_field in store.board_fields() if board_field.name == "Status")
+
+
+def test_board_fields_carry_each_options_id_color_and_description(
+    board: InMemoryRoadmapStore,
+) -> None:
+    status = _status(board)
+    assert (
+        status.single_select,
+        [(bool(o.id), o.name, o.color, o.description) for o in status.options],
+        len({o.id for o in status.options}),
+    ) == (
+        True,
+        [
+            (True, "Todo", "GRAY", "Fresh"),
+            (True, "Backlog", "GRAY", "Queued"),
+            (True, "Ready", "BLUE", "Scoped"),
+        ],
+        3,
+    )
+
+
+def test_an_option_renamed_by_hand_keeps_its_id_and_its_cards_value(
+    board: InMemoryRoadmapStore,
+) -> None:
+    """The in-memory model of the board's field settings, the only place an option keeps its id.
+
+    No store operation edits options: GitHub's option input takes no id (#739).
+    """
+    todo, backlog, ready = _status(board).options
+    edited = board.edit_options_by_hand(
+        "Status",
+        [
+            backlog.model_copy(update={"name": "New"}),
+            ready,
+            FieldOption(name="Blocked", color="RED"),
+        ],
+    )
+    assert (
+        [(o.id, o.name) for o in edited.options[:2]],
+        bool(edited.options[2].id),
+        [card.status for card in board.cards()],
+    ) == ([(backlog.id, "New"), (ready.id, "Ready")], True, [None, "New", "Ready"])
+
+
+def test_deleting_a_field_removes_it_and_an_unknown_field_raises(
+    board: InMemoryRoadmapStore,
+) -> None:
+    board.seed_field(
+        FieldSpec(name="Category", single_select=True, options=(FieldOption(name="Quick Win"),))
+    )
+    board.delete_field("Category")
+    with pytest.raises(GitHubOperationError, match="no 'Category' field"):
+        board.delete_field("Category")
+    assert [f.name for f in board.board_fields()] == ["Job record", "Status"]
+
+
+def test_cards_include_pull_requests_and_a_card_write_is_recorded(
+    board: InMemoryRoadmapStore,
+) -> None:
+    number = board.seed_issue("a pull request", pull_request=True, on_board=True)
+    card = next(card for card in board.cards() if card.number == number)
+    board.set_card_field(card, ItemField.STATUS, "Ready")
+    written = next(card for card in board.cards() if card.number == number)
+    assert (written.kind, written.status, written.job_record, board.item(number)) == (
+        CardKind.PULL_REQUEST,
+        "Ready",
+        {ItemField.STATUS: "Ready"},
+        None,
+    )
+
+
+def test_a_card_write_refuses_the_release_a_foreign_option_and_a_card_off_the_board(
+    board: InMemoryRoadmapStore,
+) -> None:
+    card = board.cards()[0]
+    gone = card.model_copy(update={"id": "card-99"})
+    with pytest.raises(GitHubOperationError, match="not a board field"):
+        board.set_card_field(card, ItemField.RELEASE, "v0.2.25")
+    with pytest.raises(GitHubOperationError, match="not a Status option"):
+        board.set_card_field(card, ItemField.STATUS, "Icebox")
+    with pytest.raises(GitHubOperationError, match="not on the board"):
+        board.set_card_field(gone, ItemField.STATUS, "Ready")
+
+
+def test_removing_a_card_takes_it_off_the_board(board: InMemoryRoadmapStore) -> None:
+    card = board.cards()[0]
+    board.remove_card(card)
+    with pytest.raises(GitHubOperationError, match="not on the board"):
+        board.remove_card(card)
+    assert ([c.number for c in board.candidates()], board.item(card.number or 0)) == ([1], None)
+
+
+def test_an_issue_is_opened_then_closed_as_not_planned_with_a_comment(
+    store: InMemoryRoadmapStore,
+) -> None:
+    opened = store.create_issue("Bare-Metal OS Installers", "Rejected.", labels=["type/feature"])
+    store.close_issue(opened.number, CloseReason.NOT_PLANNED, "Not planned (ADR 0001).")
+    closed = next(issue for issue in store.issues() if issue.number == opened.number)
+    assert (
+        (closed.title, closed.body, closed.labels, closed.state, closed.state_reason),
+        store.comments_on(opened.number),
+        [(c.kind, c.number) for c in store.changes_since(datetime.min)],
+    ) == (
+        (
+            "Bare-Metal OS Installers",
+            "Rejected.",
+            ("type/feature",),
+            GitHubState.CLOSED,
+            "not_planned",
+        ),
+        ["Not planned (ADR 0001)."],
+        [(ChangeKind.CLOSED, opened.number)],
+    )
+
+
+def test_closing_a_pull_request_raises(store: InMemoryRoadmapStore) -> None:
+    number = store.seed_issue("a pull request", pull_request=True)
+    with pytest.raises(GitHubOperationError, match="not an issue"):
+        store.close_issue(number, CloseReason.NOT_PLANNED, "no")
+
+
+def test_issues_are_every_issue_open_or_closed_and_never_a_pull_request(
+    store: InMemoryRoadmapStore,
+) -> None:
+    store.seed_issue("open, off the board")
+    store.seed_issue("closed, on the board", state=GitHubState.CLOSED, on_board=True)
+    store.seed_issue("a pull request", pull_request=True)
+    assert [issue.title for issue in store.issues()] == [
+        "open, off the board",
+        "closed, on the board",
+    ]
+
+
+def test_deleting_a_release_leaves_its_issues_in_no_release(store: InMemoryRoadmapStore) -> None:
+    number = store.seed_issue("planned", release="v0.2.25", on_board=True)
+    store.delete_release("0.2.25")
+    with pytest.raises(GitHubOperationError, match="No Release"):
+        store.delete_release("v0.2.25")
+    assert ([r.title for r in store.releases()], [i.number for i in store.backlog()]) == (
+        ["v0.2.24"],
+        [number],
+    )
+
+
+def test_a_repository_file_is_read_at_its_ref_and_a_missing_one_raises(
+    store: InMemoryRoadmapStore,
+) -> None:
+    store.seed_file(".github/roadmap.toml", "board = 2\n", ref="release/v0.2.25")
+    store.seed_file(".github/roadmap.toml", "board = 1\n")
+    read = (
+        store.repository_file(".github/roadmap.toml", ref="release/v0.2.25"),
+        store.repository_file(".github/roadmap.toml"),
+    )
+    with pytest.raises(GitHubOperationError, match=r"no docs/ROADMAP\.md"):
+        store.repository_file("docs/ROADMAP.md")
+    assert read == ("board = 2\n", "board = 1\n")
+
+
+def test_a_board_number_that_names_no_board_reads_none_until_one_is_created() -> None:
+    store = InMemoryRoadmapStore(board_exists=False)
+    missing = store.board()
+    with pytest.raises(GitHubOperationError, match="names no board"):
+        store.items()
+    created = store.create_board("Roadmap", [STATUS])
+    assert (missing, created == store.board(), [f.name for f in store.board_fields()]) == (
+        None,
+        True,
+        ["Job record", "Status"],
+    )
+
+
+def test_workflows_lists_the_boards_built_in_workflows(store: InMemoryRoadmapStore) -> None:
+    store.seed_workflow("Item closed", enabled=True)
+    store.seed_workflow("Auto-add sub-issues to project", enabled=False)
+    assert [(w.name, w.enabled) for w in store.workflows()] == [
+        ("Item closed", True),
+        ("Auto-add sub-issues to project", False),
+    ]

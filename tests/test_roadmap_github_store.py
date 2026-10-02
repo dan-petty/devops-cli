@@ -20,8 +20,19 @@ import pytest
 from packaging.version import Version
 
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
-from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.store import ChangeKind, GitHubState, Item, ItemField, RoadmapStore
+from devops_cli.roadmap.github_store import GitHubRoadmapStore, option_update_request
+from devops_cli.roadmap.store import (
+    Card,
+    CardKind,
+    ChangeKind,
+    CloseReason,
+    FieldOption,
+    FieldSpec,
+    GitHubState,
+    Item,
+    ItemField,
+    RoadmapStore,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "roadmap"
 REPO = "dan-petty/devops-cli"
@@ -83,9 +94,23 @@ class RecordedGh:
     @property
     def writes(self) -> list[list[str]]:
         """The calls that change GitHub."""
-        return [
-            args for args, _ in self.calls if {"POST", "PATCH", "item-edit", "item-add"} & set(args)
-        ]
+        changing = {
+            "POST",
+            "PATCH",
+            "DELETE",
+            "item-edit",
+            "item-add",
+            "item-delete",
+            "field-delete",
+            "create",
+            "link",
+            "--input",
+        }
+        return [args for args, _ in self.calls if changing & set(args)]
+
+    def inputs(self) -> list[Any]:
+        """The JSON each call sent on stdin, in call order."""
+        return [json.loads(kwargs["input"]) for _, kwargs in self.calls if kwargs.get("input")]
 
 
 def board_store(replies: dict[str, Any]) -> tuple[GitHubRoadmapStore, RecordedGh]:
@@ -601,3 +626,409 @@ def test_the_factory_opens_the_github_adapter_without_reading(
 ) -> None:
     store = github_roadmap_factory(REPO, board_owner="dan-petty", board_number=2)
     assert type(store) is GitHubRoadmapStore
+
+
+# ── Board shape, cards, issues and files (#739) ───────────────────────────────
+# The GraphQL replies follow the shape of GitHub's ProjectV2 schema; the option ids are the
+# recorded board's (`project-field-list.json`) and the colors and descriptions are the ones
+# the board template gave those options.
+
+STATUS_NODE = {
+    "id": "PVTSSF_lAHOAHXnKc4BiwcgzhhnQg8",
+    "name": "Status",
+    "dataType": "SINGLE_SELECT",
+    "options": [
+        {"id": "5b8424c8", "name": "Todo", "color": "GRAY", "description": ""},
+        {
+            "id": "82b128b7",
+            "name": "Backlog",
+            "color": "GRAY",
+            "description": "Queued backlog items awaiting milestone assignment",
+        },
+        {
+            "id": "89415499",
+            "name": "Ready",
+            "color": "BLUE",
+            "description": "Scoped and ready for implementation",
+        },
+        {
+            "id": "1cb0cdfe",
+            "name": "In Progress",
+            "color": "YELLOW",
+            "description": "Actively under active development (WIP)",
+        },
+        {
+            "id": "77269eb5",
+            "name": "In Review",
+            "color": "PURPLE",
+            "description": "Pull Request opened undergoing multi-persona review & CI",
+        },
+        {
+            "id": "82c424e4",
+            "name": "Done",
+            "color": "GREEN",
+            "description": "Merged into release branch and verified",
+        },
+    ],
+}
+FIELD_NODES = [
+    {"id": "PVTF_lAHOAHXnKc4BiwcgzhhnQg0", "name": "Title", "dataType": "TITLE"},
+    STATUS_NODE,
+    {
+        "id": "PVTSSF_category",
+        "name": "Category",
+        "dataType": "SINGLE_SELECT",
+        "options": [{"id": "f1", "name": "Quick Win", "color": "GREEN", "description": ""}],
+    },
+    {"id": "PVTF_jobrecord", "name": "Job record", "dataType": "TEXT"},
+]
+PROJECTS = {
+    "projects": [
+        {
+            "id": "PVT_kwHOAHXnKc4Biwcg",
+            "number": 2,
+            "title": "DevOps CLI — Enterprise Development & Release Roadmap",
+            "url": "https://github.com/users/dan-petty/projects/2",
+        }
+    ],
+    "totalCount": 1,
+}
+
+
+def owned_board(selection: str, nodes: list[Any]) -> dict[str, Any]:
+    connection = {"totalCount": len(nodes), "nodes": nodes}
+    return {"data": {"repositoryOwner": {"projectV2": {selection: connection}}}}
+
+
+def updated_field(node: dict[str, Any]) -> dict[str, Any]:
+    return {"data": {"updateProjectV2Field": {"projectV2Field": node}}}
+
+
+FIELDS_REPLY = owned_board("fields", FIELD_NODES)
+
+
+def test_board_fields_come_from_graphql_with_option_colors_and_descriptions() -> None:
+    store, runner = board_store({"fields(first": FIELDS_REPLY})
+    fields = store.board_fields()
+    status = next(f for f in fields if f.name == "Status")
+    args = runner.calls[0][0]
+    assert (
+        args[:3] + args[4:],
+        [(f.name, f.single_select) for f in fields],
+        (status.options[1].id, status.options[1].color, status.options[1].description),
+    ) == (
+        ["api", "graphql", "-f", "-f", "owner=dan-petty", "-F", "number=2", "-F", "first=100"],
+        [("Title", False), ("Status", True), ("Category", True), ("Job record", False)],
+        ("82b128b7", "GRAY", "Queued backlog items awaiting milestone assignment"),
+    )
+
+
+def test_a_short_field_listing_raises() -> None:
+    reply = owned_board("fields", FIELD_NODES)
+    reply["data"]["repositoryOwner"]["projectV2"]["fields"]["totalCount"] = 9
+    store, _ = board_store({"fields(first": reply})
+    with pytest.raises(GitHubOperationError, match="Read 4 of 9"):
+        store.board_fields()
+
+
+# The input fields GitHub's public GraphQL schema gives `ProjectV2SingleSelectFieldOptionInput`,
+# the type `createProjectV2Field` and `updateProjectV2Field` both take options as. It has no id,
+# and GitHub rejects a request that sends a field the type doesn't define.
+SCHEMA_OPTION_INPUT_FIELDS = ["color", "description", "name"]
+
+
+def test_the_option_update_request_sends_only_the_input_fields_the_schema_defines() -> None:
+    """Options read from the board carry their ids; the request sends none of them (#739)."""
+    read = [FieldOption.model_validate(option) for option in STATUS_NODE["options"]]
+    blocked = FieldOption(name="Blocked", color="RED", description="Waiting outside the roadmap")
+    request = option_update_request(str(STATUS_NODE["id"]), [*read, blocked])
+    sent = request["variables"]["options"]
+    assert (
+        "[ProjectV2SingleSelectFieldOptionInput!]!" in request["query"],
+        request["variables"]["fieldId"],
+        [sorted(option) for option in sent],
+        sent[1],
+        sent[-1],
+    ) == (
+        True,
+        STATUS_NODE["id"],
+        [SCHEMA_OPTION_INPUT_FIELDS] * 7,
+        {
+            "name": "Backlog",
+            "color": "GRAY",
+            "description": "Queued backlog items awaiting milestone assignment",
+        },
+        {"name": "Blocked", "color": "RED", "description": "Waiting outside the roadmap"},
+    )
+
+
+def test_delete_field_deletes_the_field_by_its_node_id() -> None:
+    store, runner = board_store({"fields(first": FIELDS_REPLY, "field-delete": ""})
+    store.delete_field("Category")
+    with pytest.raises(GitHubOperationError, match="no 'Effort' field"):
+        store.delete_field("Effort")
+    assert runner.writes == [["project", "field-delete", "--id", "PVTSSF_category"]]
+
+
+def test_cards_are_everything_on_the_board() -> None:
+    store, _ = board_store({"item-list": BOARD})
+    assert [(c.kind, c.number, c.repository, c.status) for c in store.cards()] == [
+        (CardKind.ISSUE, 737, REPO, "Done"),
+        (CardKind.PULL_REQUEST, 246, REPO, "Done"),
+        (CardKind.DRAFT_ISSUE, None, None, "Backlog"),
+        (CardKind.ISSUE, 540, "example/other-repo", "Backlog"),
+    ]
+
+
+def test_a_card_field_is_set_by_node_ids_then_recorded() -> None:
+    store, runner = board_store(
+        {
+            "project list": PROJECTS,
+            "fields(first": FIELDS_REPLY,
+            "item-list": BOARD,
+            "item-edit": "",
+        }
+    )
+    draft = next(card for card in store.cards() if card.kind is CardKind.DRAFT_ISSUE)
+    store.set_card_field(draft, ItemField.STATUS, "Ready")
+    edit = ["project", "item-edit", "--id", draft.id, "--project-id", "PVT_kwHOAHXnKc4Biwcg"]
+    assert runner.writes == [
+        [*edit, "--field-id", STATUS_NODE["id"], "--single-select-option-id", "89415499"],
+        [*edit, "--field-id", "PVTF_jobrecord", "--text", '{"Status": "Ready"}'],
+    ]
+
+
+def test_a_card_write_to_the_release_raises_before_any_read() -> None:
+    store, runner = board_store({})
+    card = Card(id="PVTI_x", kind=CardKind.ISSUE, number=1)
+    with pytest.raises(GitHubOperationError, match="not a board field"):
+        store.set_card_field(card, ItemField.RELEASE, "v0.2.25")
+    assert runner.calls == []
+
+
+def test_remove_card_deletes_the_board_item_by_id() -> None:
+    store, runner = board_store({"item-list": BOARD, "item-delete": ""})
+    card = store.cards()[0]
+    store.remove_card(card)
+    with pytest.raises(GitHubOperationError, match="not on the board"):
+        store.remove_card(card.model_copy(update={"id": "PVTI_gone"}))
+    assert runner.writes == [
+        ["project", "item-delete", "2", "--owner", "dan-petty", "--id", card.id]
+    ]
+
+
+def test_board_finds_the_number_among_the_owners_boards() -> None:
+    store, runner = board_store({"project list": PROJECTS})
+    missing = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=7, runner=runner)
+    found = store.board()
+    assert (found.id if found else None, missing.board(), runner.calls[0][0]) == (
+        "PVT_kwHOAHXnKc4Biwcg",
+        None,
+        [
+            "project",
+            "list",
+            "--owner",
+            "dan-petty",
+            "--closed",
+            "--format",
+            "json",
+            "--limit",
+            "100",
+        ],
+    )
+
+
+def test_a_short_board_listing_raises() -> None:
+    store, _ = board_store({"project list": {**PROJECTS, "totalCount": 120}})
+    with pytest.raises(GitHubOperationError, match="Read 1 of 120"):
+        store.board()
+
+
+def test_create_issue_posts_its_title_body_and_labels() -> None:
+    opened = {**OPEN_ISSUES[1], "number": 950, "title": "Bare-Metal OS Installers"}
+    store, runner = board_store({"-X POST": opened})
+    created = store.create_issue("Bare-Metal OS Installers", "Rejected.", labels=["type/feature"])
+    assert (runner.writes, created.number) == (
+        [
+            [
+                "api",
+                "-X",
+                "POST",
+                f"repos/{REPO}/issues",
+                "-f",
+                "title=Bare-Metal OS Installers",
+                "-f",
+                "body=Rejected.",
+                "-f",
+                "labels[]=type/feature",
+            ]
+        ],
+        950,
+    )
+
+
+def test_close_issue_comments_then_closes_for_its_reason() -> None:
+    store, runner = board_store(
+        {"-X POST": {}, "-X PATCH": {}, f"api repos/{REPO}/issues/917": OPEN_ISSUES[1]}
+    )
+    store.close_issue(917, CloseReason.NOT_PLANNED, "Not planned (ADR 0001).")
+    assert runner.writes == [
+        [
+            "api",
+            "-X",
+            "POST",
+            f"repos/{REPO}/issues/917/comments",
+            "-f",
+            "body=Not planned (ADR 0001).",
+        ],
+        [
+            "api",
+            "-X",
+            "PATCH",
+            f"repos/{REPO}/issues/917",
+            "-f",
+            "state=closed",
+            "-f",
+            "state_reason=not_planned",
+        ],
+    ]
+
+
+def test_closing_a_pull_request_raises_without_writing() -> None:
+    store, runner = board_store({f"api repos/{REPO}/issues/918": OPEN_ISSUES[0]})
+    with pytest.raises(GitHubOperationError, match="pull request"):
+        store.close_issue(918, CloseReason.NOT_PLANNED, "no")
+    assert runner.writes == []
+
+
+def test_delete_release_deletes_its_milestone_by_number() -> None:
+    store, runner = board_store({"milestones?state=all": MILESTONES, "-X DELETE": ""})
+    store.delete_release("0.2.25")
+    with pytest.raises(GitHubOperationError, match="No Release"):
+        store.delete_release("9.9.9")
+    assert runner.writes == [["api", "-X", "DELETE", f"repos/{REPO}/milestones/43"]]
+
+
+def test_issues_read_every_state_and_drop_pull_requests() -> None:
+    store, runner = board_store({"issues?state=all": ISSUES_IN_RELEASE + OPEN_ISSUES})
+    numbers = [issue.number for issue in store.issues()]
+    assert (
+        918 in numbers,
+        len(numbers) < len(ISSUES_IN_RELEASE + OPEN_ISSUES),
+        runner.calls[0][0][2],
+    ) == (
+        False,
+        True,
+        f"repos/{REPO}/issues?state=all&per_page=100",
+    )
+
+
+def test_workflows_come_from_graphql() -> None:
+    nodes = [
+        {"number": 1, "name": "Item closed", "enabled": True},
+        {"number": 4, "name": "Auto-add sub-issues to project", "enabled": True},
+    ]
+    store, runner = board_store({"workflows(first": owned_board("workflows", nodes)})
+    assert ([(w.name, w.enabled) for w in store.workflows()], runner.calls[0][0][-1]) == (
+        [("Item closed", True), ("Auto-add sub-issues to project", True)],
+        "first=50",
+    )
+
+
+def test_repository_file_reads_raw_contents_at_the_ref() -> None:
+    store, runner = board_store({"contents/": "board = 2\n"})
+    texts = (
+        store.repository_file(".github/roadmap.toml", ref="release/v0.2.25"),
+        store.repository_file(".github/roadmap.toml"),
+    )
+    assert (texts, [args for args, _ in runner.calls]) == (
+        ("board = 2\n", "board = 2\n"),
+        [
+            [
+                "api",
+                "-H",
+                "Accept: application/vnd.github.raw+json",
+                f"repos/{REPO}/contents/.github/roadmap.toml?ref=release%2Fv0.2.25",
+            ],
+            [
+                "api",
+                "-H",
+                "Accept: application/vnd.github.raw+json",
+                f"repos/{REPO}/contents/.github/roadmap.toml",
+            ],
+        ],
+    )
+
+
+def test_a_file_that_cannot_be_read_raises() -> None:
+    store, _ = board_store({"contents/": (1, "HTTP 404: Not Found")})
+    with pytest.raises(GitHubOperationError, match=r"Could not read docs/ROADMAP\.md"):
+        store.repository_file("docs/ROADMAP.md", ref="main")
+
+
+def test_create_board_creates_links_and_gives_the_new_board_the_template_fields() -> None:
+    new_status = {
+        **STATUS_NODE,
+        "id": "PVTSSF_new",
+        "options": [
+            {"id": "aa", "name": "Todo", "color": "GRAY", "description": ""},
+            {"id": "bb", "name": "In Progress", "color": "YELLOW", "description": ""},
+            {"id": "cc", "name": "Done", "color": "GREEN", "description": ""},
+        ],
+    }
+    created = {"id": "PVT_new", "number": 3, "title": "Roadmap", "url": "https://github.com/x"}
+    runner: RecordedGh  # the stdin reply below reads the runner's own requests
+    store, runner = board_store(
+        {
+            "project create": created,
+            "project link": "",
+            "fields(first": owned_board("fields", [FIELD_NODES[0], new_status]),
+            "--input": lambda _: (
+                updated_field(new_status)
+                if "updateProjectV2Field" in runner.inputs()[-1]["query"]
+                else {"data": {}}
+            ),
+        }
+    )
+    specs = [
+        FieldSpec(
+            name="Status",
+            single_select=True,
+            options=(
+                FieldOption(name="New", color="GRAY", description="Not yet ready"),
+                FieldOption(name="In Progress", color="YELLOW", description="WIP"),
+                FieldOption(name="Done", color="GREEN", description="Closed"),
+            ),
+        ),
+        FieldSpec(name="Value", single_select=True, options=(FieldOption(name="High"),)),
+        FieldSpec(name="Job record"),
+    ]
+    board = store.create_board("Roadmap", specs)
+    requests = runner.inputs()
+    assert (
+        board.number,
+        [args[:2] for args in runner.writes],
+        [o["name"] for o in requests[0]["variables"]["options"]],
+        [
+            sorted(option)
+            for option in (
+                *requests[0]["variables"]["options"],
+                *requests[1]["variables"]["input"]["singleSelectOptions"],
+            )
+        ],
+        [request["variables"]["input"]["name"] for request in requests[1:]],
+        [request["variables"]["input"]["dataType"] for request in requests[1:]],
+    ) == (
+        3,
+        [
+            ["project", "create"],
+            ["project", "link"],
+            ["api", "graphql"],
+            ["api", "graphql"],
+            ["api", "graphql"],
+        ],
+        ["New", "In Progress", "Done"],
+        [SCHEMA_OPTION_INPUT_FIELDS] * 4,
+        ["Value", "Job record"],
+        ["SINGLE_SELECT", "TEXT"],
+    )

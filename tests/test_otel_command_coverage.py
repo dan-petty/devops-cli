@@ -236,6 +236,7 @@ def test_all_command_specs_registered() -> None:
         "mcp",
         "docs",
         "release",
+        "roadmap",
         "pr",
         "gh",
         "tf",

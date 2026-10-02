@@ -56,8 +56,6 @@ from devops_cli.github.metrics import (
 from devops_cli.github.milestones import (
     MilestoneProgress,
     calculate_milestone_progress,
-    extract_roadmap_milestones,
-    sync_repository_milestones,
 )
 from devops_cli.github.pages import (
     get_pages_builds,
@@ -77,7 +75,6 @@ from devops_cli.github.projects import (
     sync_remote_project_views,
 )
 from devops_cli.github.rate_limiter import get_github_rate_limiter, run_gh
-from devops_cli.github.roadmap_sync import sync_roadmap_to_issues
 from devops_cli.github.secrets import (
     list_repository_secrets,
     sync_repository_secrets,
@@ -340,55 +337,6 @@ def list_milestones(
     columns = ["Milestone", "State", "Progress", "Open", "Closed", "Due Date"]
     rows = [_progress_row(calculate_milestone_progress(release)) for release in shown]
     print_table("Release Milestones", columns, rows)
-
-
-@milestones_app.command("sync")
-def sync_milestones(
-    roadmap: Annotated[
-        Path,
-        typer.Option("--roadmap", "-r", help="Path to docs/ROADMAP.md file"),
-    ] = Path("docs/ROADMAP.md"),
-    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
-    create_release_epics: Annotated[
-        bool,
-        typer.Option(
-            "--create-release-epics",
-            help="Provision or synchronize release tracking epics for each milestone",
-        ),
-    ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option(
-            "--dry-run", help="Simulate milestone extraction without creating remote records"
-        ),
-    ] = False,
-) -> None:
-    """Extract release milestones from ROADMAP.md and sync to repository."""
-    target_repo = _resolve_repo(repo)
-    try:
-        desired = extract_roadmap_milestones(roadmap)
-    except Exception as exc:
-        print_error(f"Failed to extract milestones from roadmap: {exc}")
-        raise typer.Exit(1) from exc
-
-    with _exit_on_roadmap_error(f"Failed to synchronize milestones in {target_repo}"):
-        store = roadmap_store.get_roadmap_store(target_repo)
-        result = sync_repository_milestones(store, desired, dry_run=dry_run)
-    mode_text = "[yellow][DRY RUN][/yellow] " if result.dry_run else ""
-    print_success(
-        f"{mode_text}Milestone synchronization for {target_repo}: "
-        f"{result.created_count} created, {result.updated_count} updated, {result.existing_count} existing."
-    )
-    if create_release_epics:
-        from devops_cli.github.release_epics import sync_all_release_epics
-
-        with _exit_on_roadmap_error(f"Failed to synchronize release epics in {target_repo}"):
-            epic_res = sync_all_release_epics(target_repo, roadmap_path=roadmap, dry_run=dry_run)
-        print_success(
-            f"{mode_text}Release Epics synchronized: "
-            f"{epic_res.created_count} created, {epic_res.updated_count} updated, "
-            f"{epic_res.unchanged_count} unchanged across {epic_res.total_milestones} milestone(s)."
-        )
 
 
 @milestones_app.command("status")
@@ -1200,132 +1148,6 @@ def edit_issue_cmd(
         print_error(f"Failed to edit issue #{number}: {clean_err}", safe=True)
         raise typer.Exit(res.returncode or 1)
     print_success(f"Issue #{number} updated successfully.")
-
-
-def _display_reconciled_issues(res: Any, mode_text: str) -> None:
-    """Format and print issue milestone reconciliation results."""
-    if res.reconciled_count == 0:
-        print_info(
-            f"{mode_text}All {res.total_issues_checked} checked issues are correctly aligned with roadmap milestones."
-        )
-        return
-
-    print_success(
-        f"{mode_text}Reconciled {res.reconciled_count} issue milestone(s) to match docs/ROADMAP.md."
-    )
-    for item in res.reconciled_issues:
-        print_info(
-            f"  - #{item['number']}: {item['title'][:50]} "
-            f"({item['old_milestone']} -> {item['new_milestone']})"
-        )
-
-
-@issues_app.command("reconcile-roadmap", help=HELP.gh.issues_reconcile_roadmap)
-def reconcile_issues_roadmap_cmd(
-    roadmap_path: Annotated[
-        Path,
-        typer.Option("--roadmap", "-r", help="Path to docs/ROADMAP.md file"),
-    ] = Path("docs/ROADMAP.md"),
-    tasks_dir: Annotated[
-        Path,
-        typer.Option("--tasks-dir", "-t", help="Directory for local per-task tracking files"),
-    ] = Path("docs/agent/tasks"),
-    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help="Preview issue milestone reconciliation without mutations"),
-    ] = False,
-) -> None:
-    """Reconcile repository issue milestones and local task files to match docs/ROADMAP.md declarations."""
-    from devops_cli.github.roadmap_sync import reconcile_issue_milestones_from_roadmap
-
-    target_repo = repo or _resolve_repo()
-    if not target_repo or "/" not in target_repo:
-        print_error("Cannot resolve target repository.")
-        raise typer.Exit(1)
-
-    mode_text = "[yellow][DRY RUN][/yellow] " if dry_run else ""
-    try:
-        res = reconcile_issue_milestones_from_roadmap(
-            repo=target_repo,
-            roadmap_path=roadmap_path,
-            tasks_dir=tasks_dir,
-            dry_run=dry_run,
-        )
-        _display_reconciled_issues(res, mode_text)
-    except Exception as exc:
-        print_error(f"Failed to reconcile issue milestones: {exc}", safe=True)
-        raise typer.Exit(1)
-
-
-def _format_issues_table_rows(created_issues: list[dict[str, Any]]) -> list[list[str]]:
-    """Format created issues dictionary entries into table rows."""
-    return [
-        [
-            f"#{iss.get('number', 0)}" if iss.get("number") else "new",
-            str(iss.get("title", ""))[:50],
-            str(iss.get("milestone", "")),
-            ", ".join(iss.get("labels", [])),
-        ]
-        for iss in created_issues
-    ]
-
-
-@issues_app.command(
-    "sync-roadmap",
-    help="Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files.",
-)
-def issues_sync_roadmap_cmd(
-    milestone: Annotated[
-        str | None,
-        typer.Option("--milestone", "-m", help="Filter by release milestone (e.g. v0.2.20)"),
-    ] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option(
-            "--dry-run", help="Preview issue and task creation without modifying remote state"
-        ),
-    ] = False,
-    limit: Annotated[
-        int,
-        typer.Option("--limit", "-L", help="Maximum issues to create"),
-    ] = 20,
-    repo: Annotated[
-        str | None,
-        typer.Option("--repo", "-R", help="Target repository"),
-    ] = None,
-) -> None:
-    """Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files."""
-    target_repo = repo or _resolve_repo()
-    result = sync_roadmap_to_issues(
-        target_repo,
-        milestone_filter=milestone,
-        dry_run=dry_run,
-        limit=limit,
-    )
-    columns = ["Metric", "Count"]
-    rows = [
-        ["Total Roadmap Items", str(result.total_roadmap_items)],
-        ["Eligible Uncompleted", str(result.eligible_uncompleted)],
-        ["Already Tracked", str(result.already_tracked)],
-        ["Issues Created", str(result.created_count)],
-        ["Task Files Created", str(len(result.task_files_created))],
-        [
-            "Scope Fell Back to scope/cli",
-            f"{result.scope_fallbacks} of {result.eligible_uncompleted}",
-        ],
-    ]
-    mode_str = " (Dry-Run)" if dry_run else ""
-    print_table(f"Roadmap Issues Synchronization{mode_str} ({target_repo})", columns, rows)
-    if result.created_issues:
-        issue_cols = ["#", "Title", "Milestone", "Labels"]
-        print_table(
-            "Generated Issues", issue_cols, _format_issues_table_rows(result.created_issues)
-        )
-    if not dry_run and result.created_count > 0:
-        print_success(
-            f"Successfully synchronized {result.created_count} roadmap deliverables into issues and tasks."
-        )
 
 
 @issues_app.command(

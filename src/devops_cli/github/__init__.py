@@ -71,11 +71,7 @@ from devops_cli.github.metrics import (
 )
 from devops_cli.github.milestones import (
     MilestoneProgress,
-    MilestoneSpec,
-    MilestoneSyncResult,
     calculate_milestone_progress,
-    diff_milestones,
-    extract_roadmap_milestones,
 )
 from devops_cli.github.pages import (
     GitHubPagesBuildInfo,
@@ -162,8 +158,6 @@ __all__ = [
     "LabelTaxonomyMetric",
     "MilestoneMetric",
     "MilestoneProgress",
-    "MilestoneSpec",
-    "MilestoneSyncResult",
     "PRCheckItem",
     "PRCheckRun",
     "PRMonitorResult",
@@ -202,10 +196,8 @@ __all__ = [
     "create_repository_issue",
     "diff_branch_protection",
     "diff_labels",
-    "diff_milestones",
     "emit_project_metrics_telemetry",
     "encrypt_secret",
-    "extract_roadmap_milestones",
     "fetch_pr_check_verdicts",
     "find_remote_project",
     "get_ci_workflow_metrics",

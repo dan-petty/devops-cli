@@ -130,7 +130,8 @@ def test_every_mcp_server_argv_resolves() -> None:
     """Verify every literal argv list in the MCP server names a real command and options.
 
     The lists are resolved, not run: neither the MCP runner nor a subprocess is reached.
-    168 is every list once `ai_architecture`, the 169th, was deleted. Importing a command
+    166 is every list once `ai_architecture` was deleted, the four roadmap-sync tools went and
+    `roadmap_render` and `roadmap_migrate` came (#739). Importing a command
     module may spawn (GitPython runs `git version` on import), and `devops docs check` has
     imported every module to generate the docs before it resolves, so each module's command
     tree is built before the guard and only collecting and resolving run inside it.
@@ -145,7 +146,7 @@ def test_every_mcp_server_argv_resolves() -> None:
         unresolved = describe_unresolved_references(references)
 
     assert (
-        len(references) >= 168,
+        len(references) >= 166,
         {reference.path for reference in references},
         unresolved,
         mcp_runner.called,
