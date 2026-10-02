@@ -11,7 +11,7 @@ import random
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import as_completed
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
@@ -34,6 +34,7 @@ from devops_cli.config.constants import (
     CONST_AIMD_ADDITIVE_INCREASE_STEP,
     CONST_AIMD_MULTIPLICATIVE_DECREASE_FACTOR,
     CONST_AIMD_SUCCESS_THRESHOLD,
+    CONST_EMBEDDING_REPLY_EXCERPT_CHARS,
     CONST_ERROR_CODE_EMBEDDINGS,
     CONST_EXIT_FAILURE,
     CONST_KNOWN_EMBEDDING_DIMENSIONS,
@@ -55,6 +56,7 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.http.validation import validate_service_url
+from devops_cli.lang import ERRORS
 from devops_cli.telemetry import (
     ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor,
 )
@@ -141,24 +143,12 @@ class _EmbeddingLRUCache:
             self.misses = 0
 
 
-class EmbeddingVector(list[float]):
-    """Vector of float values with provenance tracking for cache safety."""
-
-    def __init__(self, items: Sequence[float] = (), *, is_fallback: bool = False) -> None:
-        super().__init__(items)
-        self.is_fallback = is_fallback
-
-
-class EmbeddingList(list[list[float]]):
-    """List of embedding vectors with provenance tracking for cache safety."""
-
-    def __init__(self, items: Sequence[list[float]] = (), *, is_fallback: bool = False) -> None:
-        super().__init__(items)
-        self.is_fallback = is_fallback
-
-
 class EmbeddingsError(DevOpsCLIError, RuntimeError):
     """Raised when embeddings generation fails across all endpoints.
+
+    Embeddings come from a model or not at all: the message names the model, each endpoint or
+    node that was asked, and the HTTP status or error it gave. No vector stands in for a failed
+    request, because a search with one ranks unrelated chunks and an index stores them.
 
     This carries its own error code rather than reusing `LLM_INFERENCE_ERROR`. It is not an
     `LLMInferenceError` and exits with a different status, so sharing the code meant one
@@ -181,6 +171,62 @@ class EmbeddingsError(DevOpsCLIError, RuntimeError):
             error_code=error_code,
             details=details or {},
         )
+
+
+def _ollama_embed_endpoint(base_url: str) -> str:
+    """The batch embedding endpoint of one Ollama node."""
+    return f"{base_url.rstrip('/')}/api/embed"
+
+
+def _openai_reply_vectors(body: Any) -> Any:
+    """The vectors of an OpenAI-compatible `/embeddings` reply, in input order."""
+    items = sorted(body["data"], key=lambda item: item.get("index", 0))
+    return [item["embedding"] for item in items]
+
+
+def _ollama_reply_vectors(body: Any) -> Any:
+    """The vectors of an Ollama `/api/embed` reply, batched or single."""
+    return body["embeddings"] if "embeddings" in body else [body["embedding"]]
+
+
+def _parsed_vectors(res: httpx2.Response, parse: Callable[[Any], Any]) -> list[list[float]]:
+    """The vectors `parse` finds in a reply's JSON body, or none for a body it cannot read."""
+    try:
+        vectors = parse(res.json())
+    except ValueError, KeyError, TypeError, AttributeError:
+        return []
+    return vectors if isinstance(vectors, list) else []
+
+
+def _reply_vectors(
+    res: httpx2.Response, endpoint: str, expected: int, parse: Callable[[Any], Any]
+) -> list[list[float]]:
+    """One embedding reply's vectors; EmbeddingsError naming the endpoint for any other reply."""
+    if res.status_code != 200:
+        body = " ".join(res.text.split())[:CONST_EMBEDDING_REPLY_EXCERPT_CHARS]
+        raise EmbeddingsError(
+            ERRORS.rag.embedding_endpoint_status.format(
+                endpoint=endpoint, status=res.status_code, body=body
+            ),
+            details={"endpoint": endpoint, "status": res.status_code},
+        )
+    vectors = _parsed_vectors(res, parse)
+    if len(vectors) != expected or not all(vectors):
+        raise EmbeddingsError(
+            ERRORS.rag.embedding_endpoint_malformed.format(
+                endpoint=endpoint, received=len(vectors), expected=expected
+            ),
+            details={"endpoint": endpoint, "received": len(vectors), "expected": expected},
+        )
+    return vectors
+
+
+def _endpoint_failure(endpoint: str, exc: Exception) -> str:
+    """One endpoint's failed request, phrased for the EmbeddingsError that reports it."""
+    if isinstance(exc, EmbeddingsError):
+        return exc.message
+    error = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+    return ERRORS.rag.embedding_endpoint_error.format(endpoint=endpoint, error=error)
 
 
 def _probe_ollama_embed_dimension(client: httpx2.Client, base_url: str, model: str) -> int | None:
@@ -532,7 +578,8 @@ class EmbeddingsEngine:
                 miss_texts.append(text)
         return cached, miss_indices, miss_texts
 
-    def _dispatch_embed(self, prefixed_miss: list[str]) -> list[list[float]] | EmbeddingList:
+    def _dispatch_embed(self, prefixed_miss: list[str]) -> list[list[float]]:
+        """Embed with the configured provider; raise EmbeddingsError when none is configured."""
         provider = self.ai_config.provider.lower()
         api_base = self.ai_config.api_base_url or ""
         if provider in ("openai", "copilot", CONST_AI_GATEWAY_PROVIDER):
@@ -541,7 +588,20 @@ class EmbeddingsEngine:
             return self._embed_ollama(prefixed_miss)
         if self.ai_config.ollama_urls:
             return self._embed_ollama(prefixed_miss)
-        return self._deterministic_fallback(prefixed_miss)
+        raise EmbeddingsError(
+            ERRORS.rag.embedding_no_provider.format(
+                model=self.model, provider=self.ai_config.provider
+            ),
+            details={"model": self.model, "provider": self.ai_config.provider},
+        )
+
+    def _embedding_error(self, failures: list[str], *, model: str | None = None) -> EmbeddingsError:
+        """The EmbeddingsError for a request no endpoint answered with embeddings."""
+        name = model or self.model
+        return EmbeddingsError(
+            ERRORS.rag.embedding_failed.format(model=name, failures="; ".join(failures)),
+            details={"model": name, "provider": self.ai_config.provider, "failures": failures},
+        )
 
     def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
         """Generate vector embeddings for a list of text strings with LRU cache acceleration."""
@@ -589,13 +649,10 @@ class EmbeddingsEngine:
         *,
         is_query: bool = False,
     ) -> None:
-        """Store fresh embeddings into in-memory L1 and Valkey L2 (skipping fallbacks)."""
-        batch_fallback = getattr(fresh, "is_fallback", False)
+        """Store fresh embeddings into in-memory L1 and Valkey L2."""
         for miss_idx, original_text, vector in zip(miss_indices, miss_texts, fresh, strict=True):
             self._cache.put(original_text, self.model, vector, is_query=is_query)
-            is_vector_fallback = getattr(vector, "is_fallback", False) or batch_fallback
-            if not is_vector_fallback:
-                self._set_valkey_embedding(original_text, self.model, vector, is_query=is_query)
+            self._set_valkey_embedding(original_text, self.model, vector, is_query=is_query)
             cached[miss_idx] = vector
 
     def embed_query(self, text: str) -> list[float]:
@@ -622,24 +679,10 @@ class EmbeddingsEngine:
             return [t if t.startswith(("query: ", "passage: ")) else f"{prefix}{t}" for t in texts]
         return texts
 
-    def _try_batch_embed_endpoint(
-        self, client: httpx2.Client, base_url: str, batch_texts: list[str]
-    ) -> list[list[float]] | None:
-        """Attempt /api/embed batch endpoint."""
-        alt_payload = {"model": self.model, "input": batch_texts}
-        alt_res = client.post(f"{base_url}/api/embed", json=alt_payload)
-        if alt_res.status_code == 200:
-            data = alt_res.json()
-            embs = data.get("embeddings") or ([data["embedding"]] if "embedding" in data else None)
-            if embs and isinstance(embs, list) and len(embs) == len(batch_texts):
-                return embs
-        return None
-
-    def _query_ollama_node_batch(
-        self, base_url: str, batch_texts: list[str]
-    ) -> list[list[float]] | None:
-        """Attempt to fetch batch embeddings from a single Ollama node."""
+    def _query_ollama_node_batch(self, base_url: str, batch_texts: list[str]) -> list[list[float]]:
+        """Embed a batch on one Ollama node; raise when the node refuses, fails or misanswers."""
         validate_service_url(base_url, "Ollama", allow=self.ai_config.allow_private_network)
+        endpoint = _ollama_embed_endpoint(base_url)
         with trace_span(
             "ai.rag.ollama_embed_batch",
             attributes={
@@ -651,64 +694,54 @@ class EmbeddingsEngine:
             start_t = time.monotonic()
             client_timeout = httpx2.Timeout(self.timeout, connect=min(self.timeout, 2.0))
             with httpx2.Client(timeout=client_timeout) as client:
-                res = self._try_batch_embed_endpoint(client, base_url, batch_texts)
-            elapsed = time.monotonic() - start_t
-            if res is not None:
-                self._record_batch_latency(elapsed)
-            return res
+                res = client.post(endpoint, json={"model": self.model, "input": batch_texts})
+            embs = _reply_vectors(res, endpoint, len(batch_texts), _ollama_reply_vectors)
+            self._record_batch_latency(time.monotonic() - start_t)
+            self._record_dimension(len(embs[0]))
+            return embs
 
     def _try_single_candidate(
         self, base_url: str, batch_texts: list[str], attempt: int
-    ) -> list[list[float]] | None:
-        """Attempt single node query with timeout backoff and dynamic batch halving."""
+    ) -> list[list[float]]:
+        """Embed a batch on one node, backing off and halving the batch size after a timeout."""
         try:
-            embs = self._query_ollama_node_batch(base_url.rstrip("/"), batch_texts)
-            if embs and embs[0]:
-                self._record_dimension(len(embs[0]))
-                return embs
+            return self._query_ollama_node_batch(base_url.rstrip("/"), batch_texts)
         except (httpx2.TimeoutException, TimeoutError) as exc:
             self._apply_aimd_decrease()
             delay = _calculate_backoff_delay(attempt)
             logger.debug("Ollama timeout on %s, backoff %.2fs: %s", base_url, delay, exc)
             time.sleep(delay)
-        except Exception as exc:
-            logger.debug("Ollama error on %s: %s", base_url, exc)
-        return None
+            raise
 
     def _try_query_candidate_nodes(
         self, urls: list[str], batch_texts: list[str]
-    ) -> list[list[float]] | None:
-        """Iterate candidate nodes with backoff to execute batch."""
+    ) -> list[list[float]]:
+        """Embed a batch on the first node that answers; raise naming each node's failure."""
+        failures: list[str] = []
         for attempt, base_url in enumerate(urls):
-            embs = self._try_single_candidate(base_url, batch_texts, attempt)
-            if embs is not None:
-                return embs
-        return None
+            try:
+                return self._try_single_candidate(base_url, batch_texts, attempt)
+            except Exception as exc:
+                logger.debug("Ollama embedding on %s failed: %s", base_url, exc)
+                failures.append(_endpoint_failure(_ollama_embed_endpoint(base_url), exc))
+        raise self._embedding_error(failures)
 
     def _embed_batch_with_subdivision(
         self, urls: list[str], batch_texts: list[str]
-    ) -> list[list[float]] | EmbeddingList:
-        """Embed batch with recursive halving down to single-chunk fallback."""
+    ) -> list[list[float]]:
+        """Embed a batch, halving it while every node fails, until a single text fails."""
         if not batch_texts:
             return []
-        embs = self._try_query_candidate_nodes(urls, batch_texts)
-        if embs is not None:
-            return embs
+        try:
+            return self._try_query_candidate_nodes(urls, batch_texts)
+        except EmbeddingsError:
+            if len(batch_texts) == 1:
+                raise
+        mid = len(batch_texts) // 2
+        left = self._embed_batch_with_subdivision(urls, batch_texts[:mid])
+        return left + self._embed_batch_with_subdivision(urls, batch_texts[mid:])
 
-        # If batch size > 1, subdivide into two halves and retry
-        if len(batch_texts) > 1:
-            mid = len(batch_texts) // 2
-            left = self._embed_batch_with_subdivision(urls, batch_texts[:mid])
-            right = self._embed_batch_with_subdivision(urls, batch_texts[mid:])
-            is_fallback = getattr(left, "is_fallback", False) or getattr(
-                right, "is_fallback", False
-            )
-            return EmbeddingList(left + right, is_fallback=is_fallback)
-
-        # Single chunk failed across all candidate nodes: deterministic fallback
-        return self._deterministic_fallback(batch_texts)
-
-    def _embed_ollama(self, texts: list[str]) -> list[list[float]] | EmbeddingList:
+    def _embed_ollama(self, texts: list[str]) -> list[list[float]]:
         """Compute Ollama embeddings with dynamic batch sizing and multi-node distribution."""
         urls = self._get_ollama_urls()
         chunk_batch_size = max(
@@ -717,43 +750,32 @@ class EmbeddingsEngine:
         )
         max_parallel = max(1, min(16, getattr(self.ai_config, "ollama_max_parallel", 2)))
 
-        batches = [
-            (idx, texts[i : i + chunk_batch_size])
-            for idx, i in enumerate(range(0, len(texts), chunk_batch_size))
-        ]
+        batches = [texts[i : i + chunk_batch_size] for i in range(0, len(texts), chunk_batch_size)]
 
-        def _embed_single_batch(
-            batch_tuple: tuple[int, list[str]],
-        ) -> tuple[int, list[list[float]]]:
-            batch_idx, batch_texts = batch_tuple
-            n_urls = len(urls)
-            start_offset = batch_idx % n_urls if n_urls > 0 else 0
-            candidate_urls = (
-                [urls[(start_offset + j) % n_urls] for j in range(n_urls)] if n_urls > 0 else []
+        def _embed_single_batch(batch_idx: int) -> list[list[float]]:
+            start = batch_idx % len(urls)
+            return self._embed_batch_with_subdivision(
+                urls[start:] + urls[:start], batches[batch_idx]
             )
-            embs = self._embed_batch_with_subdivision(candidate_urls, batch_texts)
-            return (batch_idx, embs)
 
         total_workers = min(len(batches), max(1, len(urls) * max_parallel))
-        results: list[tuple[int, list[list[float]]]] = []
+        if total_workers <= 1:
+            return [vec for idx in range(len(batches)) for vec in _embed_single_batch(idx)]
 
-        if total_workers > 1:
-            with ThreadPoolExecutor(max_workers=total_workers) as executor:
-                futures = [executor.submit(_embed_single_batch, b) for b in batches]
+        results: dict[int, list[list[float]]] = {}
+        with ThreadPoolExecutor(max_workers=total_workers) as executor:
+            futures = {
+                executor.submit(_embed_single_batch, idx): idx for idx in range(len(batches))
+            }
+            try:
                 for future in as_completed(futures):
-                    results.append(future.result())
-        else:
-            for b in batches:
-                results.append(_embed_single_batch(b))
-
-        results.sort(key=lambda x: x[0])
-        all_embs: list[list[float]] = []
-        any_fallback = False
-        for _, batch_res in results:
-            if getattr(batch_res, "is_fallback", False):
-                any_fallback = True
-            all_embs.extend(batch_res)
-        return EmbeddingList(all_embs, is_fallback=any_fallback)
+                    results[futures[future]] = future.result()
+            except EmbeddingsError:
+                # One batch failing on every node fails the call; the queued ones would only
+                # send more requests the same nodes refuse.
+                executor.shutdown(wait=False, cancel_futures=True)
+                raise
+        return [vec for idx in range(len(batches)) for vec in results[idx]]
 
     def _openai_compatible_base_url(self) -> str:
         """Resolve the embeddings base URL: gateway_url for provider gateway (a gateway task's own
@@ -762,16 +784,13 @@ class EmbeddingsEngine:
             return self.ai_config.gateway_url or DEFAULT_AI_GATEWAY_URL
         return self.ai_config.api_base_url or "https://api.openai.com/v1"
 
-    def _embed_openai(self, texts: list[str]) -> list[list[float]] | EmbeddingList:
-        """Query OpenAI-compatible /v1/embeddings API (OpenAI or the LLM gateway)."""
+    def _embed_openai(self, texts: list[str]) -> list[list[float]]:
+        """Query the OpenAI-compatible /v1/embeddings API (OpenAI or the LLM gateway).
+
+        Raises EmbeddingsError naming the model, the endpoint and the HTTP status or error.
+        """
         base_url = self._openai_compatible_base_url().rstrip("/")
         is_gateway = self.ai_config.provider.lower() == CONST_AI_GATEWAY_PROVIDER
-        validate_service_url(
-            base_url,
-            "LLM gateway" if is_gateway else "OpenAI",
-            allow=self.ai_config.allow_private_network,
-        )
-
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -781,50 +800,24 @@ class EmbeddingsEngine:
         if not is_gateway and model in ("all-minilm", "qwen3-embedding:0.6b"):
             model = "text-embedding-3-small"
 
-        payload: dict[str, Any] = {
-            "model": model,
-            "input": texts,
-        }
-
         endpoint = (
             f"{base_url}/embeddings" if base_url.endswith("/v1") else f"{base_url}/v1/embeddings"
         )
         try:
+            validate_service_url(
+                base_url,
+                "LLM gateway" if is_gateway else "OpenAI",
+                allow=self.ai_config.allow_private_network,
+            )
             client_timeout = httpx2.Timeout(max(self.timeout, 30.0), connect=2.0)
             with httpx2.Client(timeout=client_timeout) as client:
-                res = client.post(endpoint, headers=headers, json=payload)
-                if res.status_code != 200:
-                    raise EmbeddingsError(f"OpenAI embeddings HTTP {res.status_code}: {res.text}")
-                data = res.json()
-                items = sorted(data.get("data", []), key=lambda x: x.get("index", 0))
-                embs = [item["embedding"] for item in items]
-                if embs:
-                    self._record_dimension(len(embs[0]))
-                return embs
-        except Exception as exc:
-            logger.warning("OpenAI embeddings failed: %s. Using fallback.", exc)
-            return self._deterministic_fallback(texts)
-
-    def _deterministic_fallback(
-        self, texts: list[str], dimensions: int | None = None
-    ) -> EmbeddingList:
-        """Generate deterministic normalized hash-based embeddings when no model is reachable."""
-        dim = dimensions or self.dimension
-        embeddings: list[list[float]] = []
-        for text in texts:
-            vec = [0.0] * dim
-            # Generate deterministic pseudo-random float vector from text hash
-            for i in range(dim):
-                token_hash = hashlib.sha256(f"{text}_{i}".encode()).hexdigest()
-                val = (int(token_hash[:8], 16) / 0xFFFFFFFF) * 2.0 - 1.0
-                vec[i] = round(val, 6)
-
-            # Cosine normalize
-            norm = sum(v * v for v in vec) ** 0.5
-            if norm > 0:
-                vec = [round(v / norm, 6) for v in vec]
-            embeddings.append(EmbeddingVector(vec, is_fallback=True))
-        return EmbeddingList(embeddings, is_fallback=True)
+                res = client.post(endpoint, headers=headers, json={"model": model, "input": texts})
+            embs = _reply_vectors(res, endpoint, len(texts), _openai_reply_vectors)
+        except (DevOpsCLIError, httpx2.HTTPError) as exc:
+            raise self._embedding_error([_endpoint_failure(endpoint, exc)], model=model) from exc
+        if embs:
+            self._record_dimension(len(embs[0]))
+        return embs
 
     def to_embedder(self) -> Embedder:
         """Create a standard Pydantic AI Embedder backed by this engine."""

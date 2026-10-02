@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+import pytest
+
+from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
 from devops_cli.ai.rag.indexer import WorkspaceIndexer
 from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.ai.rag.retriever import SemanticRetriever
@@ -73,6 +75,16 @@ class FakeQdrantClient(QdrantClient):
         return results[:limit]
 
 
+class FixedVectorEngine(EmbeddingsEngine):
+    """An engine whose model answers every text with the same unit vector."""
+
+    def __init__(self) -> None:
+        super().__init__(AIConfig(provider="custom", ollama_urls=[]), valkey_client=None)
+
+    def _dispatch_embed(self, prefixed_miss: list[str]) -> list[list[float]]:
+        return [[1.0, 0.0, 0.0, 0.0] for _ in prefixed_miss]
+
+
 def test_indexer_and_retriever_flow(tmp_path: Path) -> None:
     # Setup test workspace files
     src_dir = tmp_path / "src"
@@ -84,8 +96,7 @@ def test_indexer_and_retriever_flow(tmp_path: Path) -> None:
     doc_file.write_text("# App Documentation\nHow to run app.\n", encoding="utf-8")
 
     qdrant = FakeQdrantClient()
-    ai_cfg = AIConfig(provider="custom", ollama_urls=[])
-    embedder = EmbeddingsEngine(ai_cfg)
+    embedder = FixedVectorEngine()
 
     indexer = WorkspaceIndexer(
         qdrant=qdrant,
@@ -131,8 +142,7 @@ def test_index_and_index_kb_coexistence(tmp_path: Path) -> None:
     ws_file.write_text("print('hello workspace')", encoding="utf-8")
 
     qdrant = FakeQdrantClient()
-    ai_cfg = AIConfig(provider="custom", ollama_urls=[])
-    embedder = EmbeddingsEngine(ai_cfg)
+    embedder = FixedVectorEngine()
 
     indexer = WorkspaceIndexer(
         qdrant=qdrant,
@@ -201,3 +211,52 @@ def test_indexer_file_filters_and_gitignore(tmp_path: Path) -> None:
     assert stat is not None
     assert stat.collection_name == "test_coll"
     assert stat.total_vectors == 1
+
+
+def test_a_query_that_cannot_be_embedded_fails_the_search() -> None:
+    """Search and context retrieval raise the EmbeddingsError instead of searching with nothing.
+
+    An empty result would read as "nothing relevant is indexed", and Qdrant is never asked.
+    """
+    searched: list[list[float]] = []
+
+    class RecordingQdrant(FakeQdrantClient):
+        def search_points(
+            self, name: str, query_vector: list[float], **kwargs: object
+        ) -> list[dict]:
+            searched.append(query_vector)
+            return []
+
+    engine = EmbeddingsEngine(AIConfig(provider="custom", ollama_urls=[]), valkey_client=None)
+    retriever = SemanticRetriever(qdrant=RecordingQdrant(), embedder=engine)
+
+    with pytest.raises(EmbeddingsError) as from_search:
+        retriever.search("how to run app")
+    with pytest.raises(EmbeddingsError) as from_context:
+        retriever.retrieve_context("how to run app")
+
+    assert (from_search.value.details, from_context.value.details, searched) == (
+        {"model": engine.model, "provider": "custom"},
+        {"model": engine.model, "provider": "custom"},
+        [],
+    )
+
+
+def test_indexing_text_the_model_cannot_embed_raises_and_stores_nothing(tmp_path: Path) -> None:
+    """Indexing raises the EmbeddingsError and upserts no point, so no stand-in vector is stored.
+
+    The file is not recorded as indexed either, so the next run retries it.
+    """
+    (tmp_path / "app.py").write_text("def run_app():\n    print('app running')\n", "utf-8")
+    qdrant = FakeQdrantClient()
+    engine = EmbeddingsEngine(AIConfig(provider="custom", ollama_urls=[]), valkey_client=None)
+    indexer = WorkspaceIndexer(qdrant=qdrant, embedder=engine, cache_dir=tmp_path / ".cache")
+
+    with pytest.raises(EmbeddingsError) as raised:
+        indexer.index_workspace(tmp_path, include_kb=False)
+
+    assert (
+        raised.value.details["model"],
+        [point for points in qdrant.collections.values() for point in points],
+        indexer._load_cache(),
+    ) == (engine.model, [], {})

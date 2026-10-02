@@ -1780,7 +1780,11 @@ CONST_THREAT_INTEL_CACHE_PREFIX: Final[str] = "valkey:threat_intel:domain"
 # RAG embedding distributed caching
 CONST_VALKEY_EMBEDDING_PREFIX: Final[str] = "valkey:rag:embedding"
 
-# Canonical embedding dimensions for widely used embedding models to ensure deterministic fallback synchronization
+# Characters of a failed embedding reply's body quoted in its EmbeddingsError
+CONST_EMBEDDING_REPLY_EXCERPT_CHARS: Final[int] = 500
+
+# Canonical embedding dimensions for widely used embedding models, used to size a collection when
+# the model cannot be probed
 CONST_KNOWN_EMBEDDING_DIMENSIONS: Final[dict[str, int]] = {
     "bge-m3": 1024,
     "bge-large": 1024,

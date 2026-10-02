@@ -25,15 +25,15 @@ from devops_cli.telemetry.instruments import RAG_QUERY_DURATION, emit
 logger = logging.getLogger(__name__)
 
 
-def _embed_search_query(embedder: Any, query: str) -> list[float] | None:
-    """Embed search query with tracing and error handling."""
+def _embed_search_query(embedder: Any, query: str) -> list[float]:
+    """Embed the search query, traced; an EmbeddingsError propagates to the caller.
+
+    A query that cannot be embedded has no vector to search with, so the search fails rather
+    than returning nothing, which a caller would read as "no relevant context".
+    """
     model_name = getattr(embedder, "model", "default")
-    try:
-        with trace_span("ai.rag.embed_query", {"query_length": len(query), "model": model_name}):
-            return embedder.embed_query(query)  # type: ignore[no-any-return]
-    except Exception as exc:
-        logger.warning("Failed to embed search query: %s", exc)
-        return None
+    with trace_span("ai.rag.embed_query", {"query_length": len(query), "model": model_name}):
+        return embedder.embed_query(query)  # type: ignore[no-any-return]
 
 
 def _build_rag_filter_payload(
@@ -250,6 +250,8 @@ class SemanticRetriever:
         `hybrid` additionally scores the dense candidate pool lexically and fuses the two
         rankings, so exact symbol and identifier matches are not lost to embedding
         smoothing. Set it to False for purely semantic retrieval.
+
+        Raises EmbeddingsError when the query cannot be embedded.
         """
         k = max(1, min(top_k if top_k is not None else self.default_top_k, 100))
         fetch_limit = max(k * 3, 10) if rerank else k
@@ -269,9 +271,6 @@ class SemanticRetriever:
             },
         ) as search_span:
             query_vec = _embed_search_query(self.embedder, query)
-            if query_vec is None:
-                return []
-
             target_collections = self._resolve_collections(collection, category)
             search_span.set_attribute("rag.collections", target_collections)
 
@@ -366,7 +365,10 @@ class SemanticRetriever:
         rerank: bool = True,
         max_chars: int = DEFAULT_RAG_MAX_CHARS,
     ) -> RAGContext:
-        """Search and format results into a validated, structured prompt context block."""
+        """Search and format results into a validated, structured prompt context block.
+
+        Raises EmbeddingsError when the query cannot be embedded.
+        """
         results = self.search(
             query,
             top_k=top_k,

@@ -110,6 +110,11 @@ ai:
   allow_private_network: false
 
   # RAG (Retrieval-Augmented Generation) settings
+  # Reviews, chat and analysis look up context with the embedding model (tasks.embedding).
+  # If that model cannot embed a lookup, for example because no backend serves it, RAG is off
+  # for the rest of the run after one warning; indexing and `devops ai rag query` fail with the
+  # error. Serve the model, point tasks.embedding at a backend that serves it, or set
+  # enabled: false.
   rag:
     enabled: true
     top_k: 5

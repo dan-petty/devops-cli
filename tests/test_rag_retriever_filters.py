@@ -5,6 +5,17 @@ from __future__ import annotations
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.ai.rag.retriever import SemanticRetriever
+from devops_cli.config.settings import AIConfig
+
+
+class FixedVectorEngine(EmbeddingsEngine):
+    """An engine whose model answers every text with the same unit vector."""
+
+    def __init__(self) -> None:
+        super().__init__(AIConfig(provider="custom", ollama_urls=[]), valkey_client=None)
+
+    def _dispatch_embed(self, prefixed_miss: list[str]) -> list[list[float]]:
+        return [[1.0, 0.0, 0.0, 0.0] for _ in prefixed_miss]
 
 
 def test_retriever_faceted_filtering() -> None:
@@ -43,7 +54,7 @@ def test_retriever_faceted_filtering() -> None:
 
     retriever = SemanticRetriever(
         qdrant=DummyQdrant(base_url="http://example.com:6333", allow_private_network=True),
-        embedder=EmbeddingsEngine(),
+        embedder=FixedVectorEngine(),
     )
 
     context = retriever.retrieve_context(
@@ -102,7 +113,7 @@ def test_retriever_deduplication_and_validation() -> None:
 
     retriever = SemanticRetriever(
         qdrant=QdrantClient("http://localhost:6333", allow_private_network=True),
-        embedder=EmbeddingsEngine(),
+        embedder=FixedVectorEngine(),
     )
 
     deduped = retriever.filter_and_validate_results([r1, r2, r3], max_chars=10000)

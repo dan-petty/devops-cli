@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 import typer
 
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
-from devops_cli.core.cli import new_typer
+from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.lang import HELP
 
 if TYPE_CHECKING:
@@ -288,6 +288,7 @@ def index_libraries(
     """Index exported library API contracts into Qdrant vector collection and Valkey cache."""
     import json
 
+    from devops_cli.ai.rag.embeddings import EmbeddingsError
     from devops_cli.output import print_warning, write_stdout
 
     contracts = _load_local_contracts(contracts_dir)
@@ -297,8 +298,9 @@ def index_libraries(
 
     if not dry_run:
         store = _build_runtime_vector_store(contracts_dir, semantic_needed=True, dry_run=False)
-        for contract in contracts:
-            store.index_contract(contract)
+        with exit_on_error(EmbeddingsError):
+            for contract in contracts:
+                store.index_contract(contract)
 
     if output_format == "json":
         payload = [
@@ -328,6 +330,7 @@ def query_library(
     """Search library contracts and documentation via semantic search or exact symbol lookup."""
     import json
 
+    from devops_cli.ai.rag.embeddings import EmbeddingsError
     from devops_cli.output import print_error, write_stdout
 
     store = _build_runtime_vector_store(
@@ -347,7 +350,8 @@ def query_library(
         _render_query_exact_table(sig)
         return
 
-    results = store.search(query, package=package, top_k=top_k)
+    with exit_on_error(EmbeddingsError):
+        results = store.search(query, package=package, top_k=top_k)
     if output_format == "json":
         write_stdout(json.dumps([r.model_dump() for r in results], indent=2) + "\n")
         return

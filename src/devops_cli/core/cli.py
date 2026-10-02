@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import functools
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, TypeVar
 
 import typer
 
 from devops_cli.config.constants import CONST_HELP_OPTION_NAMES
+from devops_cli.exceptions.base import DevOpsCLIError
 
 
 def _record_cli_success(span_h: Any, cmd_name: str, dur: float) -> None:
@@ -177,3 +179,19 @@ def new_typer(**kwargs: Any) -> OTelTyper:
 def repo_label(repo_dir: Path) -> str:
     """Return the "<group>/<repo>" display label for a cloned repository directory."""
     return f"{repo_dir.parent.name}/{repo_dir.name}"
+
+
+@contextmanager
+def exit_on_error(error_type: type[DevOpsCLIError]) -> Iterator[None]:
+    """Report an `error_type` raised in the block as the command's error and exit with its status.
+
+    The error's own message is the report, printed without a traceback and with any Rich markup
+    in it escaped, since it can quote a remote service's reply.
+    """
+    try:
+        yield
+    except error_type as exc:
+        from devops_cli.output import print_error
+
+        print_error(exc.message, safe=True)
+        raise typer.Exit(exc.exit_code) from exc
