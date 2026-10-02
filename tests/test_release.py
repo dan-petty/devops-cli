@@ -1176,3 +1176,188 @@ def test_release_targets_the_nested_worktree_it_is_given(
     roots = (_get_project_root(nested), _get_project_root(main))
 
     assert roots == (nested.resolve(), main.resolve())
+
+
+# =============================================================================
+# The cut collects changelog.d/ fragments (#933)
+# =============================================================================
+
+_UNRELEASED_CHANGELOG = (
+    "# Changelog\n\n"
+    "## [Unreleased]\n\n"
+    "## [0.1.7] - 2026-08-13\n\n"
+    "### Added\n- Native DevContainer Lifecycle.\n"
+)
+# Three fragments whose categories overlap, each written out of Keep a Changelog order.
+_THREE_FRAGMENTS = {
+    "100.md": "### Changed\n- **Hundred Changed** (#100).\n\n### Added\n- **Hundred Added** (#100).\n",
+    "12.md": (
+        "### Fixed\n- **Twelve Fixed**:\n  - detail (#12).\n\n"
+        "### Added\n- **Twelve Added**:\n  - detail (#12).\n"
+    ),
+    "3.md": "### Security\n- **Three Security** (#3).\n\n### Fixed\n- **Three Fixed** (#3).\n",
+}
+_COLLECTED_CHANGELOG = (
+    "# Changelog\n\n"
+    "## [Unreleased]\n\n"
+    "## [0.1.8] - <date>\n\n"
+    "### Added\n- **Twelve Added**:\n  - detail (#12).\n- **Hundred Added** (#100).\n\n"
+    "### Changed\n- **Hundred Changed** (#100).\n\n"
+    "### Fixed\n- **Three Fixed** (#3).\n- **Twelve Fixed**:\n  - detail (#12).\n\n"
+    "### Security\n- **Three Security** (#3).\n\n"
+    "## [0.1.7] - 2026-08-13\n\n"
+    "### Added\n- Native DevContainer Lifecycle.\n"
+)
+
+
+def _with_fragments(project: Path, fragments: dict[str, str]) -> Path:
+    """Open `[Unreleased]` in the project's changelog and write `changelog.d/` with a README."""
+    (project / "CHANGELOG.md").write_text(_UNRELEASED_CHANGELOG, encoding="utf-8")
+    fragments_dir = project / "changelog.d"
+    fragments_dir.mkdir()
+    (fragments_dir / "README.md").write_text("Fragments.\n", encoding="utf-8")
+    for name, text in fragments.items():
+        (fragments_dir / name).write_text(text, encoding="utf-8")
+    return project
+
+
+def _changelog_with_date_masked(project: Path) -> str:
+    """The changelog with the cut's own date, which is today's, replaced by `<date>`."""
+    text = (project / "CHANGELOG.md").read_text(encoding="utf-8")
+    return re.sub(r"(## \[0\.1\.8\] - )\d{4}-\d{2}-\d{2}", r"\1<date>", text)
+
+
+def _left_in_changelog_d(project: Path) -> list[str]:
+    return sorted(path.name for path in (project / "changelog.d").iterdir())
+
+
+def test_the_cut_merges_three_fragments_into_one_section_and_deletes_them(
+    sample_project_dir: Path,
+) -> None:
+    """Categories in Keep a Changelog order, fragments in issue order within each, text intact.
+
+    Every PR into a release branch wrote at the top of `[Unreleased]`, so each merge made
+    every other open PR conflict: #928 and #932 each conflicted twice in one hour (#933).
+    """
+    project = _with_fragments(sample_project_dir, _THREE_FRAGMENTS)
+    with patch("devops_cli.commands.release.DocGenerator.write_all_docs"):
+        result = runner.invoke(app, ["prepare", "0.1.8", "--root", str(project)])
+    assert (
+        result.exit_code,
+        _changelog_with_date_masked(project),
+        _left_in_changelog_d(project),
+        _get_pyproject_version(project),
+    ) == (0, _COLLECTED_CHANGELOG, ["README.md"], "0.1.8"), result.output
+
+
+def test_release_changelog_update_collects_the_fragments_too(sample_project_dir: Path) -> None:
+    """`devops release changelog --update` writes the version's section the same way."""
+    project = _with_fragments(sample_project_dir, _THREE_FRAGMENTS)
+    with patch("devops_cli.commands.release._extract_git_commit_notes", return_value=None):
+        result = runner.invoke(
+            app, ["changelog", "--version", "0.1.8", "--update", "--root", str(project)]
+        )
+    assert (
+        result.exit_code,
+        _changelog_with_date_masked(project),
+        _left_in_changelog_d(project),
+    ) == (0, _COLLECTED_CHANGELOG, ["README.md"]), result.output
+
+
+@pytest.mark.parametrize(
+    ("name", "text", "reason"),
+    [
+        ("7.md", "### Improvements\n- x (#7).\n", "changelog.d/7.md:1 '### Improvements' is not"),
+        ("7.md", "A note first.\n\n### Added\n- x (#7).\n", "changelog.d/7.md:1 is outside a"),
+        ("notes.md", "### Added\n- x.\n", "changelog.d/notes.md is not a changelog fragment"),
+    ],
+    ids=["unknown-category", "text-outside-a-category", "misnamed-file"],
+)
+def test_a_bad_fragment_stops_the_cut_before_any_write(
+    sample_project_dir: Path, name: str, text: str, reason: str
+) -> None:
+    """The fragments are checked before the version bump, so a refusal leaves every file as it was."""
+    project = _with_fragments(sample_project_dir, {**_THREE_FRAGMENTS, name: text})
+    with patch("devops_cli.commands.release.DocGenerator.write_all_docs") as docs:
+        result = runner.invoke(app, ["prepare", "0.1.8", "--root", str(project)])
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        reason in output,
+        (project / "CHANGELOG.md").read_text(encoding="utf-8"),
+        _left_in_changelog_d(project),
+        (_get_pyproject_version(project), _get_init_version(project), docs.call_count),
+    ) == (
+        1,
+        True,
+        _UNRELEASED_CHANGELOG,
+        sorted([*_THREE_FRAGMENTS, name, "README.md"]),
+        ("0.1.7", "0.1.7", 0),
+    ), result.output
+
+
+@pytest.mark.parametrize("command", [["prepare", "0.1.8"], ["changelog", "-v", "0.1.8", "-u"]])
+def test_a_dry_run_cut_names_the_fragments_and_writes_nothing(
+    sample_project_dir: Path, command: list[str]
+) -> None:
+    """A dry run reads the fragments, so it refuses what the cut would, and deletes none."""
+    from devops_cli.dry_run import set_dry_run
+
+    project = _with_fragments(sample_project_dir, _THREE_FRAGMENTS)
+    set_dry_run(True)
+    try:
+        with patch("devops_cli.commands.release._extract_git_commit_notes", return_value=None):
+            result = runner.invoke(app, [*command, "--root", str(project)])
+    finally:
+        set_dry_run(False)
+    assert (
+        result.exit_code,
+        all(f"changelog.d/{name}" in result.output for name in ("3.md", "12.md", "100.md")),
+        (project / "CHANGELOG.md").read_text(encoding="utf-8"),
+        _left_in_changelog_d(project),
+        _get_pyproject_version(project),
+    ) == (0, True, _UNRELEASED_CHANGELOG, sorted([*_THREE_FRAGMENTS, "README.md"]), "0.1.7")
+
+
+@pytest.mark.parametrize(
+    "unreleased",
+    ["## [Unreleased]\n\n### Fixed\n- By hand.\n\n", "## [Unreleased]\n\n"],
+    ids=["unreleased-with-entries", "unreleased-empty"],
+)
+@pytest.mark.parametrize("readme_only", [True, False], ids=["readme-only", "no-directory"])
+def test_without_fragments_the_section_is_built_as_the_current_code_builds_it(
+    tmp_path: Path, unreleased: str, readme_only: bool
+) -> None:
+    """No fragment means no change: `[Unreleased]` is renamed, or filled from the commits."""
+    from devops_cli.commands.release import _plan_fragment_collection, _write_version_changelog
+
+    changelog = "# Changelog\n\n" + unreleased + "## [0.1.7] - 2026-08-13\n\n### Added\n- Old.\n"
+    project, before = tmp_path / "project", tmp_path / "before"
+    for root in (project, before):
+        root.mkdir()
+        (root / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
+    if readme_only:
+        (project / "changelog.d").mkdir()
+        (project / "changelog.d" / "README.md").write_text("Fragments.\n", encoding="utf-8")
+    commits = "### Changes in v0.1.8\n\n### Added\n- feat(a): one (#1)\n"
+    with patch("devops_cli.commands.release._extract_git_commit_notes", return_value=commits):
+        plan = _plan_fragment_collection(project, "0.1.8", "2026-10-02")
+        written = _write_version_changelog(project, "0.1.8", "2026-10-02", plan)
+        _update_changelog_header(before, "0.1.8", "2026-10-02")
+    assert (plan, written, (project / "CHANGELOG.md").read_text(encoding="utf-8")) == (
+        None,
+        True,
+        (before / "CHANGELOG.md").read_text(encoding="utf-8"),
+    )
+
+
+def test_a_release_commit_stages_changelog_d_only_where_it_exists(tmp_path: Path) -> None:
+    """The cut deletes the fragments, so the release commit records the deletions.
+
+    Naming a path that does not exist would fail the whole `git add`.
+    """
+    from devops_cli.commands.release import _release_paths
+
+    without = _release_paths(tmp_path)
+    (tmp_path / "changelog.d").mkdir()
+    assert (without[-1], _release_paths(tmp_path)[-1]) == ("docs/", "changelog.d/")
