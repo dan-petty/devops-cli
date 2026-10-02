@@ -268,6 +268,45 @@ def test_written_profiles_reach_the_collecting_benchmark(tmp_path: Path) -> None
     ) == ([("20260924-120000", "playbooks", 15)], True)
 
 
+def test_the_profile_records_a_digest_of_the_conventions_the_review_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify profile.json says which conventions the prompts carried (#946).
+
+    The prompt digest covers the prompts devops-cli ships, so arms of a benchmark reviewed
+    under different conventions looked alike. A review whose target has no conventions records
+    an empty digest, as one that never read them does, not the digest of an empty text.
+    """
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.ai.run_store import digest
+
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+    recorded: list[tuple[str | None, str]] = []
+    for name, rules in (("a", "Rule a.\n"), ("b", "Rule b.\n"), ("none", "")):
+        project = tmp_path / name
+        (project / ".git").mkdir(parents=True)
+        if rules:
+            (project / ".devops").mkdir()
+            (project / ".devops" / "review.md").write_text(rules, encoding="utf-8")
+        orchestrator = ReviewPipelineOrchestrator(
+            session_id=name, llm_client=MagicMock(), target_dir=project
+        )
+        with profiling() as profiler:
+            conventions = orchestrator._read_target_conventions()
+            _write_review_profile(profiler, orchestrator, str(project), 1)
+        saved = ReviewProfile.load(orchestrator.session_dir)
+        recorded.append((saved.conventions_digest if saved else None, conventions))
+    digests = [kept for kept, _ in recorded]
+    used = [conventions for _, conventions in recorded]
+
+    assert (
+        digests,
+        used[2],
+        digests[0] != digests[1],
+        ReviewProfiler().build(session_id="s", target="t").conventions_digest,
+    ) == ([digest(used[0]), digest(used[1]), ""], "", True, "")
+
+
 def test_benchmark_summary_is_saved_under_the_reviews_directory(tmp_path: Path) -> None:
     """Verify each benchmark is saved as its own JSON file, which loads back unchanged."""
     summary = summarize_profiles([_profile(300, 200, 80, 50)])

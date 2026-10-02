@@ -93,7 +93,7 @@ This session produced 42 findings (4 CRITICAL, 6 HIGH). Of the ten highest-sever
 | `_are_findings_duplicate` no longer checks same-file/same-line | Both checks are present and reachable in the current source. |
 | Unpinned `:latest` image in the release workflow | The reference is `cacheFrom`, a build-cache hint, not a deployed image. |
 
-Two of these were verifiable by a tool the repository already runs on every commit. The verification stage was reasoning about types instead of consulting the type checker, so `_check_none_dereference_hallucination` now invalidates a claimed `None` dereference whenever the cited module passes `mypy --strict`, before the model verifier sees it. The remaining two classes were added to the verifier prompt as falsification rules.
+Two of these were verifiable by a tool the repository already runs on every commit. The verification stage was reasoning about types instead of consulting the type checker, so `_check_none_dereference_hallucination` now invalidates a claimed `None` dereference whenever the cited module passes `mypy --strict`, before the model verifier sees it. The reviewed tree is untrusted, so the check runs devops-cli's own mypy in isolated mode (`python -I -m mypy --strict`), from an empty temporary directory, with devops-cli's own config, which loads only the `pydantic.mypy` plugin its `[tool.mypy]` loads. Nothing of the target runs: not its build backend, which `uv run` would sync, not its mypy config and plugins, and not a `sitecustomize` or `mypy` package that a `PYTHONPATH` naming it would put first (#946). mypy's cache is kept in devops-cli's cache directory (`<data dir>/cache/typecheck-probe/`), one per interpreter, and probes run one at a time. The first probe on a machine is a cold pass over the module's imports: about a minute for a devops-cli module, and longer on a loaded machine, against a 120 s timeout. A probe that times out claims nothing, and the next starts from what it cached. The remaining two classes were added to the verifier prompt as falsification rules.
 
 The general lesson, and the reason this record exists: **a high-confidence `VERIFIED` is not evidence.** Confidence measures the model's agreement with itself. When a deterministic oracle for a claim exists, it outranks any confidence score, and the loop should consult it first rather than asking a second model to agree with the first.
 
@@ -408,6 +408,17 @@ root, in full up to 8,000 characters. It gives the file to the persona reviewers
 beside the general conventions file (`AGENTS.md` or its peers), of which only the opening is used.
 This repository keeps its own rules in `.devops/review.md`.
 
+A change is reviewed under the conventions it started from, so it cannot loosen its own review
+(#946). `devops review branch` reads both files with git at the merge base of the branch and its
+base (at `HEAD` for uncommitted changes), not from the working tree, and `devops review pr` reads
+them from the pull request's base. A base with no local branch, as in a CI checkout of a feature,
+is `origin/<base>`, and the checked-out branch is never its own base: with no base at all the diff
+fails. The lookup also stops at a defect corpus's root, which its manifest marks, read at the same
+revision. It reads only regular files: a conventions file that is a link is skipped, on disk and
+at a revision, as the chunker skips a linked source file, so a reviewed tree cannot bring a file
+from outside it into the prompts. Each review's `profile.json` records `conventions_digest`, a digest of the conventions
+its prompts carried, empty when they carried none.
+
 ### Synthetic Defect Corpora
 
 A review of a real repository cannot say what it missed, and the verifier labels what it found.
@@ -451,7 +462,10 @@ stays balanced and well formed. A Go error check is removed only when `err` is r
 or the file would not compile.
 
 The mutated files sit under `files/`, and the manifest sits beside that directory rather than in it,
-so the reviewer cannot read the answers. After `devops review path <corpus>/files --all`, run
+so the reviewer cannot read the answers. The corpus carries copies of the first source's
+conventions files where it has them, and the manifest marks the corpus root, where the conventions
+lookup stops: a corpus written under `.data/reviews/corpora/` is not reviewed under the
+conventions of the checkout around it. After `devops review path <corpus>/files --all`, run
 `devops review corpus score <corpus>`. It reports:
 
 - how many injections some finding matched, before verification;
@@ -495,7 +509,8 @@ The score gives:
 
 Each review's `profile.json` records `prompt_digest`, a digest of every `.md` file under the
 package's `ai/tasks/` and `ai/personas/`. Prompts load only from the package, so each arm runs from
-its own checkout, and the digest says which prompts a session ran. Sessions with different digests
+its own checkout, and the digest says which prompts a session ran. It does not cover the target's
+conventions, which `conventions_digest` records beside it. Sessions with different digests
 are refused rather than scored as one arm. The run record's setup names the prompt digest, k, the
 personas that replied, each task's model, temperature and `top_p`, and the gateway pool of each
 group the review used. Verification is recorded as reviews resolve it, layered on the analysis

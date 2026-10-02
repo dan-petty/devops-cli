@@ -35,6 +35,10 @@ _TARGET_CONVENTIONS_CANDIDATES: tuple[str, ...] = (
 )
 
 
+# A file's text by its path, or None when there is no such file.
+_FileReader = Callable[[Path], str | None]
+
+
 def _repo_root(directory: Path) -> Path | None:
     for candidate in (directory, *directory.parents):
         if (candidate / ".git").exists():
@@ -42,55 +46,114 @@ def _repo_root(directory: Path) -> Path | None:
     return None
 
 
-def _nearest(start: Path, read: Callable[[Path], str]) -> str:
+def _is_corpus_root(directory: Path, read_file: _FileReader) -> bool:
+    """Whether a defect corpus's manifest marks the directory as the root of a corpus.
+
+    A corpus is reviewed as a project of its own, under the conventions it carries and no
+    others. The manifest must load as one, since many projects keep a `manifest.json`. It is
+    read as the conventions are: at their revision, so a branch cannot add one to end the walk
+    before its base's conventions, and on disk only as a regular file, so a FIFO or a link to
+    `/dev/zero` named `manifest.json` cannot hang the walk or exhaust memory.
+    """
+    from devops_cli.ai.review.defects import CORPUS_MANIFEST, DefectCorpus
+
+    if (manifest := read_file(directory / CORPUS_MANIFEST)) is None:
+        return False
+    try:
+        DefectCorpus.model_validate_json(manifest)
+    except ValueError:
+        return False
+    return True
+
+
+def _disk_reader(root: Path) -> _FileReader:
+    """Read regular files on disk that lie within `root`, the resolved tree under review.
+
+    A file reached through a link, at the file or at any directory below `root`, is absent,
+    as the chunker refuses links for reviewed files: the tree must not bring a file from
+    outside it into the prompts. Refusing links inside the tree too keeps a path review and a
+    branch review of one tree reading the same files, since git stores a link as a link.
+    """
+
+    def read_on_disk(path: Path) -> str | None:
+        try:
+            resolved = path.resolve()
+            if resolved != path.absolute() or not resolved.is_relative_to(root):
+                return None
+            if not resolved.is_file():
+                return None
+            return path.read_text(encoding="utf-8")
+        except OSError, RuntimeError, UnicodeDecodeError:
+            return None
+
+    return read_on_disk
+
+
+def _file_reader(directory: Path, repo_root: Path | None, revision: str | None) -> _FileReader:
+    """Read files on disk, or as they were at `revision` of the repository at `repo_root`.
+
+    On disk, files are read within the repository, or outside one within `directory`, the only
+    directory read. Outside a repository nothing exists at a revision, so nothing is read.
+    """
+    if revision is None:
+        return _disk_reader(repo_root or directory)
+    from devops_cli.git.operations import read_file_at_revision
+
+    def read_at_revision(path: Path) -> str | None:
+        if repo_root is None:
+            return None
+        return read_file_at_revision(repo_root, revision, path.relative_to(repo_root).as_posix())
+
+    return read_at_revision
+
+
+def _nearest(
+    start: Path, read: Callable[[Path, _FileReader], str], revision: str | None = None
+) -> str:
     """The first non-empty `read` result from the start directory up to its repo root.
 
     The nearest file wins, as for AGENTS.md generally: a subproject's conventions override its
-    repository's. Outside a repository only the start directory is read.
+    repository's. Outside a repository only the start directory is read, and the walk ends at
+    a defect corpus's root. With `revision`, each file is read as it was at that git revision.
+    Only a regular file is read: a link is absent, on disk and at a revision alike.
     """
     start_resolved = start.resolve()
     directory = start_resolved if start_resolved.is_dir() else start_resolved.parent
     repo_root = _repo_root(directory)
+    read_file = _file_reader(directory, repo_root, revision)
     for candidate in (directory, *directory.parents):
-        if content := read(candidate):
+        if content := read(candidate, read_file):
             return content
-        if repo_root is None or candidate == repo_root:
+        if repo_root is None or candidate == repo_root or _is_corpus_root(candidate, read_file):
             break
     return ""
 
 
-def nearest_conventions(start: Path) -> str:
-    """The nearest general conventions file (AGENTS.md and its peers) for a review target."""
-    return _nearest(start, _read_candidate_conventions_file)
+def nearest_conventions(start: Path, revision: str | None = None) -> str:
+    """The nearest general conventions file (AGENTS.md and its peers) for a review target.
+
+    With `revision`, the files are read as they were at that git revision, not from disk.
+    """
+    return _nearest(start, _read_candidate_conventions_file, revision)
 
 
-def _read_review_conventions_file(directory: Path) -> str:
-    path = directory / CONST_REVIEW_CONVENTIONS_FILE
-    try:
-        return path.read_text(encoding="utf-8") if path.is_file() else ""
-    except OSError:
-        return ""
+def _read_review_conventions_file(directory: Path, read_file: _FileReader) -> str:
+    return read_file(directory / CONST_REVIEW_CONVENTIONS_FILE) or ""
 
 
-def nearest_review_conventions(start: Path) -> str:
-    """The nearest `.devops/review.md`: rules a project keeps for reviews of its own code."""
-    return _nearest(start, _read_review_conventions_file).strip()
+def nearest_review_conventions(start: Path, revision: str | None = None) -> str:
+    """The nearest `.devops/review.md`: rules a project keeps for reviews of its own code.
+
+    With `revision`, the files are read as they were at that git revision, not from disk.
+    """
+    return _nearest(start, _read_review_conventions_file, revision).strip()
 
 
-def _read_candidate_conventions_file(directory: Path | None) -> str:
-    """Read first matching project conventions file from directory."""
-    if not directory or not directory.is_dir():
-        return ""
+def _read_candidate_conventions_file(directory: Path, read_file: _FileReader) -> str:
+    """Read first non-blank project conventions file from directory."""
     for name in _TARGET_CONVENTIONS_CANDIDATES:
-        cand = directory / name
-        if not cand.is_file():
-            continue
-        try:
-            content = cand.read_text(encoding="utf-8")
-            if content.strip():
-                return content
-        except OSError:
-            continue
+        if (content := read_file(directory / name)) and content.strip():
+            return content
     return ""
 
 

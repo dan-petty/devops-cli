@@ -3,8 +3,9 @@
 A review is a pipeline of stages (payloads, persona review, verification, reranking, report).
 Without a breakdown, a change to gateway weights or models could only be judged by total wall
 time, which also moves with the number of candidate findings a run happens to produce. A profile
-records each stage, every LLM call made during it and a digest of the review prompts the session
-ran with, and is written next to the session's findings as `profile.json`.
+records each stage, every LLM call made during it and digests of the review prompts and of the
+target's conventions the session ran with, and is written next to the session's findings as
+`profile.json`.
 
 Calls are observed through the spend ledger, the one place every LLM call passes through with its
 tokens and the backend the gateway routed it to. The current stage travels in a context variable,
@@ -114,6 +115,9 @@ class ReviewProfile(BaseModel):
     target: str
     # The review prompts the session ran with, so runs of one prompt set can be told apart.
     prompt_digest: str = ""
+    # The target's conventions (`AGENTS.md` and `.devops/review.md`) its prompts carried, which
+    # the prompt digest does not cover; empty when they carried none.
+    conventions_digest: str = ""
     files: int = 0
     total_wall_seconds: float = 0.0
     llm_calls: int = 0
@@ -172,6 +176,7 @@ class ReviewProfiler:
         self._findings = (0, 0, 0)
         self._verdict_distributions: dict[str, dict[str, int | float]] = {}
         self._static_analyzers: dict[str, str] = {}
+        self._conventions = ""
         self._persona_replies: list[dict[str, Any]] = []
         self._persona_outcomes: dict[str, int] = {}
         self._unparsed_personas: set[str] = set()
@@ -254,8 +259,14 @@ class ReviewProfiler:
     def set_static_analyzers(self, states: dict[str, str]) -> None:
         self._static_analyzers = dict(states)
 
+    def set_conventions(self, conventions: str) -> None:
+        """Record the target conventions the review's prompts carry, as they were rendered."""
+        self._conventions = conventions
+
     def build(self, *, session_id: str, target: str, files: int = 0) -> ReviewProfile:
         """Assemble the profile of everything recorded so far."""
+        from devops_cli.ai.run_store import digest
+
         with self._lock:
             stages = [s.model_copy(deep=True) for s in self._stages.values()]
             intervals = {k: {b: list(v) for b, v in d.items()} for k, d in self._intervals.items()}
@@ -273,6 +284,7 @@ class ReviewProfiler:
             session_id=session_id,
             target=target,
             prompt_digest=review_prompt_digest(),
+            conventions_digest=digest(self._conventions) if self._conventions else "",
             files=files,
             total_wall_seconds=round(time.monotonic() - self._started, 3),
             llm_calls=sum(s.llm_calls for s in stages),

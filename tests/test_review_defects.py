@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import ast
+import contextlib
 import json
+import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +16,6 @@ from typer.testing import CliRunner
 from devops_cli.ai import run_store
 from devops_cli.ai.review import runner
 from devops_cli.ai.review.defects import (
-    CORPUS_CONVENTIONS_FILE,
     CORPUS_FILES_DIR,
     CORPUS_MANIFEST,
     CorpusScore,
@@ -25,6 +27,10 @@ from devops_cli.ai.review.defects import (
     select_templates,
 )
 from devops_cli.ai.review.profile import ReviewProfile
+from devops_cli.ai.review.review_environment import (
+    nearest_conventions,
+    nearest_review_conventions,
+)
 from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
 from devops_cli.ai.run_store import Mechanism, load_runs
 from devops_cli.commands import review as review_commands
@@ -247,16 +253,13 @@ def test_generation_is_seeded_and_keeps_the_answers_outside_the_reviewed_tree(
         first.injections == second.injections,
         sorted(p.relative_to(files).as_posix() for p in files.rglob("*") if p.is_file()),
         {i.file: i.mutated for i in first.injections} == mutated,
-        (tmp_path / "a" / CORPUS_MANIFEST).exists(),
-        (tmp_path / "a" / CORPUS_CONVENTIONS_FILE).exists()
-        and (tmp_path / "a" / ".devops" / "review.md").exists(),
+        sorted(p.name for p in (tmp_path / "a").iterdir()),
     ) == (
         [("roles/client.py", "drop-await"), ("site.yaml", "disable-tls-verify")],
         True,
         ["roles/client.py", "site.yaml"],
         True,
-        True,
-        True,
+        [CORPUS_FILES_DIR, CORPUS_MANIFEST],
     )
 
 
@@ -429,6 +432,96 @@ def _session(
         ReviewSessionPayload(findings=findings).model_dump_json(), encoding="utf-8"
     )
     ReviewProfile(session_id=name, target=str(target.resolve()), **profile).write(session)
+
+
+def _repository_with_conventions(root: Path) -> Path:
+    (root / ".git").mkdir(parents=True)
+    (root / ".devops").mkdir()
+    (root / "AGENTS.md").write_text("Repository conventions.\n", encoding="utf-8")
+    (root / ".devops" / "review.md").write_text("Repository review rules.\n", encoding="utf-8")
+    return root
+
+
+def test_a_corpus_inside_a_repository_reads_none_of_its_conventions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify the conventions lookup stops at the corpus root its manifest marks (#946).
+
+    A corpus is written under the reviews directory of the checkout that made it, and its
+    review climbed to that checkout's `AGENTS.md` and `.devops/review.md`, so every arm of a
+    benchmark was scored under conventions it did not choose. A source with none gives a
+    corpus with none; one with its own gives the corpus a copy.
+    """
+    repo = _repository_with_conventions(tmp_path / "repo")
+    reviews = repo / ".data" / "reviews"
+    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: reviews)
+    source = _source_tree(tmp_path)
+
+    generated = cli.invoke(review_commands.corpus_app, ["generate", str(source), "--seed", "7"])
+    files = reviews / "corpora" / "src-7" / CORPUS_FILES_DIR
+    copied = generate_corpus(
+        _sources(source),
+        repo / "copied",
+        sources=[str(source)],
+        seed=7,
+        conventions="Source conventions.\n",
+        review_conventions="Source review rules.\n",
+    )
+
+    assert (
+        generated.exit_code,
+        (nearest_conventions(files / "src"), nearest_review_conventions(files / "src")),
+        (nearest_conventions(reviews), nearest_review_conventions(reviews)),
+        bool(copied.injections),
+        (
+            nearest_conventions(repo / "copied" / CORPUS_FILES_DIR),
+            nearest_review_conventions(repo / "copied" / CORPUS_FILES_DIR),
+        ),
+    ) == (
+        0,
+        ("", ""),
+        ("Repository conventions.\n", "Repository review rules."),
+        True,
+        ("Source conventions.\n", "Source review rules."),
+    )
+
+
+def test_a_manifest_that_is_not_a_corpus_stops_no_conventions_lookup(tmp_path: Path) -> None:
+    """Verify only a corpus's manifest ends the walk: a web app's `manifest.json` is not one."""
+    repo = _repository_with_conventions(tmp_path / "repo")
+    (repo / "public").mkdir()
+    (repo / "public" / CORPUS_MANIFEST).write_text('{"name": "app"}', encoding="utf-8")
+
+    assert nearest_review_conventions(repo / "public") == "Repository review rules."
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs FIFOs")
+def test_a_manifest_that_is_no_regular_file_is_never_opened(tmp_path: Path) -> None:
+    """Verify the walk does not open a FIFO named `manifest.json` (#946).
+
+    Opening one waits for a writer, so the conventions lookup hung, and a link to `/dev/zero`
+    read until memory ran out. A regression is given a writer after a second, so it fails
+    instead of hanging the suite.
+    """
+    repo = _repository_with_conventions(tmp_path / "repo")
+    (repo / "src").mkdir()
+    fifo = repo / "src" / CORPUS_MANIFEST
+    os.mkfifo(fifo)
+    opened = threading.Event()
+
+    def give_it_a_writer() -> None:
+        with contextlib.suppress(OSError):  # ENXIO: nothing is waiting to read it
+            os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+            opened.set()
+
+    watchdog = threading.Timer(1.0, give_it_a_writer)
+    watchdog.start()
+    try:
+        conventions = nearest_conventions(repo / "src")
+    finally:
+        watchdog.cancel()
+
+    assert (conventions, opened.is_set()) == ("Repository conventions.\n", False)
 
 
 def test_corpus_commands_generate_then_score_the_latest_review_of_that_corpus(

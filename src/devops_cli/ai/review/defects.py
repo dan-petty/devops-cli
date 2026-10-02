@@ -15,8 +15,9 @@ each figure beside its range across the runs.
 
 A corpus directory holds the mutated files under `files/`, the manifest of injections beside it
 (outside the reviewed tree, so the reviewer cannot read the answers) and copies of the source
-project's conventions and `.devops/review.md`, so the review sees the same conventions as a review
-of the source.
+project's conventions and `.devops/review.md` where it has them, so the review sees the same
+conventions as a review of the source. The manifest marks the corpus root, where the conventions
+lookup stops: a corpus inside another repository is not reviewed under that repository's.
 """
 
 from __future__ import annotations
@@ -52,10 +53,6 @@ SYNTHETIC_CAVEAT = (
     "not review capability: a reviewer tuned against the corpus gets good at these defects."
 )
 
-# Without a conventions file of its own, a corpus inside another repository would be reviewed
-# under that repository's conventions.
-_NO_CONVENTIONS = "# Project Conventions\n\nNo conventions file was found for the source files.\n"
-_NO_REVIEW_CONVENTIONS = "# Review Conventions\n\nNone were found for the source files.\n"
 # A dropped guard leaves no line behind; a report counts from the enclosing function's start to
 # this many lines past where the guard stood.
 _GUARD_REACH_LINES = 10
@@ -1346,12 +1343,13 @@ def generate_corpus(
         for path, rel in files
         if (injection := _inject(path, rel, files_dir, seed, templates)) is not None
     ]
-    (corpus_dir / CORPUS_CONVENTIONS_FILE).write_text(conventions or _NO_CONVENTIONS, "utf-8")
-    # Always written, so the lookup stops at the corpus rather than climbing to the review
-    # conventions of the repository the corpus happens to sit in.
-    review_file = corpus_dir / CONST_REVIEW_CONVENTIONS_FILE
-    review_file.parent.mkdir(parents=True, exist_ok=True)
-    review_file.write_text(review_conventions or _NO_REVIEW_CONVENTIONS, "utf-8")
+    for name, text in (
+        (CORPUS_CONVENTIONS_FILE, conventions),
+        (CONST_REVIEW_CONVENTIONS_FILE, review_conventions),
+    ):
+        if text:
+            (corpus_dir / name).parent.mkdir(parents=True, exist_ok=True)
+            (corpus_dir / name).write_text(text, "utf-8")
     corpus = DefectCorpus(
         sources=list(sources),
         seed=seed,

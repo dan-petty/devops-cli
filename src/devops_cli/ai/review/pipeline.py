@@ -1462,9 +1462,14 @@ class ReviewPipelineOrchestrator:
         ground_contracts: bool = True,
         verification_client: LLMClient | None = None,
         subject: dict[str, str] | None = None,
+        conventions_revision: str | None = None,
     ) -> None:
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self.target_dir = target_dir
+        # The git revision the target's conventions are read at, or None to read them on disk.
+        # A branch review reads them where its diff starts, so the branch cannot loosen its own
+        # review (#946).
+        self.conventions_revision = conventions_revision
         # What this session reviews (`history.review_subject`), written with its findings.
         self.subject = subject or {}
         self.concurrency = concurrency
@@ -2149,9 +2154,10 @@ class ReviewPipelineOrchestrator:
     def _read_target_conventions(self) -> str:
         """The reviewed project's conventions, general and review-specific, sanitized once.
 
-        Both are the nearest from the target up to its repository root, so a subproject's
-        conventions apply to it. The general file is trimmed to its opening; `.devops/review.md`
-        exists for review rules and is read in full up to its own cap.
+        Both are the nearest from the target up to its repository root or a corpus root, so a
+        subproject's conventions apply to it, read at `conventions_revision` when there is one.
+        The general file is trimmed to its opening; `.devops/review.md` exists for review rules
+        and is read in full up to its own cap. The session's profile records their digest.
         """
         if (cached := self._conventions_by_dir.get(self.target_dir)) is not None:
             return cached
@@ -2161,11 +2167,16 @@ class ReviewPipelineOrchestrator:
         )
         from devops_cli.security.sanitizer import mask_secrets, sanitize_prompt_boundary_tags
 
+        revision = self.conventions_revision
         sections = [
-            ("Target Repository Conventions", nearest_conventions(self.target_dir), 3000),
+            (
+                "Target Repository Conventions",
+                nearest_conventions(self.target_dir, revision),
+                3000,
+            ),
             (
                 "Review Conventions (.devops/review.md)",
-                nearest_review_conventions(self.target_dir),
+                nearest_review_conventions(self.target_dir, revision),
                 DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS,
             ),
         ]
@@ -2176,6 +2187,8 @@ class ReviewPipelineOrchestrator:
         ]
         conventions = "\n\n" + "\n\n".join(rendered) + "\n" if rendered else ""
         self._conventions_by_dir[self.target_dir] = conventions
+        if profiler := active_profiler():
+            profiler.set_conventions(conventions)
         return conventions
 
     def _build_multi_persona_pipeline(

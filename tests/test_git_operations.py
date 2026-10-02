@@ -387,6 +387,63 @@ def test_read_file_at_revision_reads_the_base_revision(symbol_removal_repo: Path
     assert content == "def kept(): pass\ndef gone(): pass\n"
 
 
+def test_read_file_at_revision_reads_no_directory(tmp_path: Path, git: Callable[..., None]) -> None:
+    """A directory at the revision is not a file. `git show` printed its listing, which a
+    branch review reading its conventions at the merge base took for `.cursor/rules` (#946)."""
+    git(tmp_path, "init", "--quiet", "-b", "main")
+    (tmp_path / ".cursor" / "rules").mkdir(parents=True)
+    (tmp_path / ".cursor" / "rules" / "style.mdc").write_text("Rule.\n", encoding="utf-8")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "--quiet", "-m", "rules")
+
+    assert (
+        read_file_at_revision(tmp_path, "main", ".cursor/rules"),
+        read_file_at_revision(tmp_path, "main", ".cursor/rules/style.mdc"),
+    ) == (None, "Rule.\n")
+
+
+def test_read_file_at_revision_reads_no_link(tmp_path: Path, git: Callable[..., None]) -> None:
+    """A committed link is no file at the revision. Its blob is the path it points to, which a
+    branch review took for the `.devops/review.md` a project linked to its rules (#946)."""
+    git(tmp_path, "init", "--quiet", "-b", "main")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "rules.md").write_text("Rules.\n", encoding="utf-8")
+    (tmp_path / ".devops").mkdir()
+    (tmp_path / ".devops" / "review.md").symlink_to("../docs/rules.md")
+    (tmp_path / "linked").symlink_to("docs", target_is_directory=True)
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "--quiet", "-m", "links")
+
+    assert (
+        read_file_at_revision(tmp_path, "main", ".devops/review.md"),
+        read_file_at_revision(tmp_path, "main", "linked/rules.md"),
+        read_file_at_revision(tmp_path, "main", "docs/rules.md"),
+    ) == (None, None, "Rules.\n")
+
+
+def test_read_file_at_revision_reads_any_path_inside_the_repository(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """A path is refused only when it could leave the repository or read as an option (#946).
+
+    It reaches git inside one argument, after the validated revision, so a space or a character
+    outside ASCII is harmless. Both were refused, and a subproject named with one lost its
+    conventions in a branch review.
+    """
+    git(tmp_path, "init", "--quiet", "-b", "main")
+    (tmp_path / "my project").mkdir()
+    (tmp_path / "my project" / "AGENTS.md").write_text("Spaced.\n", encoding="utf-8")
+    (tmp_path / "café").mkdir()
+    (tmp_path / "café" / "mod.py").write_text("x = 1\n", encoding="utf-8")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "--quiet", "-m", "names")
+
+    assert (
+        read_file_at_revision(tmp_path, "main", "my project/AGENTS.md"),
+        read_file_at_revision(tmp_path, "main", "café/mod.py"),
+    ) == ("Spaced.\n", "x = 1\n")
+
+
 def test_list_changed_files_gives_a_rename_its_old_and_new_path(
     tmp_path: Path, git: Callable[..., None]
 ) -> None:
@@ -435,11 +492,15 @@ def test_revision_helpers_refuse_option_like_arguments(tmp_path: Path) -> None:
         refused = (
             read_file_at_revision(tmp_path, "--output=x", "mod.py"),
             read_file_at_revision(tmp_path, "main", "../escape.py"),
+            read_file_at_revision(tmp_path, "main", "src/../../escape.py"),
+            read_file_at_revision(tmp_path, "main", "-p"),
+            read_file_at_revision(tmp_path, "main", "/etc/hostname"),
+            read_file_at_revision(tmp_path, "main", ""),
             resolve_merge_base(tmp_path, "-x"),
             list_changed_files(tmp_path, "main", "--no-index"),
         )
 
-    assert (refused, run.call_count) == ((None, None, None, []), 0)
+    assert (refused, run.call_count) == ((None, None, None, None, None, None, None, []), 0)
 
 
 def test_revision_helpers_report_a_failed_git_call(tmp_path: Path) -> None:
