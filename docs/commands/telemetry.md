@@ -99,3 +99,27 @@ devops telemetry open-ui
 ```
 
 ---
+
+## `devops telemetry semconv`
+
+**The GenAI semantic conventions that LLM span attributes are checked against.**
+
+```bash
+devops telemetry semconv COMMAND [ARGS]...
+```
+
+### `devops telemetry semconv refresh`
+
+**Resolve the GenAI semantic conventions at a commit with weaver and rewrite the snapshot.**
+
+```bash
+devops telemetry semconv refresh [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--commit` | `string` | - | Full 40-character commit SHA of open-telemetry/semantic-conventions-genai to resolve. |
+
+---
