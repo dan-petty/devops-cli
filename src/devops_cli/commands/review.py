@@ -113,6 +113,7 @@ from devops_cli.ai.review_schema import (
     ReviewSessionPayload,
     SavedFinding,
     format_clean_text_field,
+    severity_named,
 )
 from devops_cli.ai.run_store import (
     Mechanism,
@@ -204,6 +205,10 @@ def path(
     summary: Annotated[
         bool,
         typer.Option("--summary", "-s", help=HELP.review.summary),
+    ] = False,
+    full: Annotated[
+        bool,
+        typer.Option("--full", help=HELP.review.full_output),
     ] = False,
     explain: Annotated[
         bool,
@@ -368,6 +373,7 @@ def path(
             stage_flags=stage_flags,
             concurrency=concurrency,
             parallel=parallel,
+            full_output=full,
         )
 
     if watch:
@@ -424,6 +430,10 @@ def branch(
     summary: Annotated[
         bool,
         typer.Option("--summary", "-s", help=HELP.review.summary),
+    ] = False,
+    full: Annotated[
+        bool,
+        typer.Option("--full", help=HELP.review.full_output),
     ] = False,
     explain: Annotated[
         bool,
@@ -549,6 +559,7 @@ def branch(
         concurrency=concurrency,
         parallel=parallel,
         base_revision=base_revision,
+        full_output=full,
     )
 
 
@@ -626,6 +637,10 @@ def pr(
     summary: Annotated[
         bool,
         typer.Option("--summary", "-s", help=HELP.review.summary),
+    ] = False,
+    full: Annotated[
+        bool,
+        typer.Option("--full", help=HELP.review.full_output),
     ] = False,
     explain: Annotated[
         bool,
@@ -763,6 +778,7 @@ def pr(
             concurrency=concurrency,
             parallel=parallel,
             base_revision=base_revision,
+            full_output=full,
         )
 
     if post_comment and reviews:
@@ -843,14 +859,37 @@ def _listed_status(
     return next((st for on, st in flags if on), status_filter.upper() if status_filter else None)
 
 
+def _listed_findings(
+    findings: list[SavedFinding], status: str | None, severities: list[str]
+) -> list[tuple[int, SavedFinding]]:
+    """Each finding with `status`, when given, and one of `severities`, spelled as a review
+    accepts them (`informational` is INFO), under its number: its place in the file."""
+    wanted = {severity_named(s) or s.upper() for s in severities}
+    return [
+        (number, f)
+        for number, f in enumerate(findings, 1)
+        if (status is None or f.status == status) and (not wanted or f.severity.upper() in wanted)
+    ]
+
+
 def _finding_row(number: int, f: SavedFinding) -> list[str]:
+    """A finding's `devops review findings` table cells, its text escaped."""
     color = _STATUS_COLORS.get(f.status)
     st_fmt = f"[{color}]{f.status}[/{color}]" if color else "[yellow]UNVERIFIED[/yellow]"
     by = f.verified_by or ""
     reason = f.invalidation_reason or ""
     info = f"{by}: {reason}".strip(": ") if (by or reason) else "—"
     conf_str = f"{f.confidence_score:.2f}" if f.confidence_score is not None else "N/A"
-    return [str(number), f.persona, f.severity, conf_str, f.location, f.title, st_fmt, info]
+    return [
+        str(number),
+        escape_text(f.persona),
+        escape_text(f.severity),
+        conf_str,
+        escape_text(f.location),
+        escape_text(f.title),
+        st_fmt,
+        escape_text(info),
+    ]
 
 
 def _print_finding_details(numbered: Sequence[tuple[int, SavedFinding]], noun: str) -> None:
@@ -889,6 +928,10 @@ def list_findings(
         bool, typer.Option("--mitigated", help="Filter findings by MITIGATED status")
     ] = False,
     candidates: Annotated[bool, typer.Option("--candidates", help=HELP.review.candidates)] = False,
+    severities: Annotated[
+        list[str] | None,
+        typer.Option("--severity", help=HELP.review.severity_filter),
+    ] = None,
     details: Annotated[
         bool,
         typer.Option("--details", "-d", help=HELP.review.details),
@@ -917,11 +960,7 @@ def list_findings(
     payload = ReviewSessionPayload.model_validate_json(source.read_text(encoding="utf-8"))
     target_status = _listed_status(status_filter, unverified, invalidated, verified, mitigated)
     # Each keeps its place in the file whatever the filter, the number `verify` takes.
-    numbered = [
-        (number, f)
-        for number, f in enumerate(payload.findings, 1)
-        if target_status is None or f.status == target_status
-    ]
+    numbered = _listed_findings(payload.findings, target_status, severities or [])
     noun = "Candidate" if candidates else "Finding"
     print_table(
         title=f"{noun}s: {session_dir.name}",

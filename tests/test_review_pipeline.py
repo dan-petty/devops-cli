@@ -753,8 +753,8 @@ def test_generate_consolidated_report_prints_findings_and_review_summary(
     assert "src/auth.py:42" in captured
     assert "Hardcoded Credential" in captured
     assert "VERIFIED" in captured
-    assert "External Dependencies Security Audit" in captured
-    assert "Network References & Endpoints Security Audit" in captured
+    assert "Dependencies: none declared in the reviewed files." in captured
+    assert "Network references: none in the reviewed files." in captured
     assert "Review Summary" in captured
     assert "Files Reviewed" in captured
     assert "Reportable Findings" in captured

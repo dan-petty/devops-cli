@@ -2508,6 +2508,28 @@ CONST_SARIF_LEVEL_TO_SEVERITY: Final[dict[str, str]] = {
     CONST_SARIF_LEVEL_NOTE: CONST_SEVERITY_LOW,
     CONST_SARIF_LEVEL_NONE: CONST_SEVERITY_INFO,
 }
+# What a review prints to the terminal unless asked for all of it (#987): the findings table
+# lists MEDIUM and above, detail panels follow for HIGH and above, and the rest are counted on
+# one line that points at review.md.
+CONST_REVIEW_CONSOLE_TABLE_SEVERITIES: Final[frozenset[str]] = frozenset(
+    {CONST_SEVERITY_CRITICAL, CONST_SEVERITY_HIGH, CONST_SEVERITY_MEDIUM}
+)
+CONST_REVIEW_CONSOLE_PANEL_SEVERITIES: Final[frozenset[str]] = frozenset(
+    {CONST_SEVERITY_CRITICAL, CONST_SEVERITY_HIGH}
+)
+# The order a finding count by status is printed in: verified first.
+CONST_REVIEW_STATUS_ORDER: Final[tuple[str, ...]] = (
+    CONST_STATUS_VERIFIED,
+    CONST_STATUS_UNVERIFIED,
+    CONST_STATUS_MITIGATED,
+    CONST_STATUS_INVALIDATED,
+)
+# A scanned dependency's severity is that of its worst known vulnerability; CLEAN and UNCHECKED
+# are the only other values (`DependencySpec.severity`).
+CONST_DEPENDENCY_VULNERABLE_SEVERITIES: Final[frozenset[str]] = frozenset(
+    {CONST_SEVERITY_CRITICAL, CONST_SEVERITY_HIGH, CONST_SEVERITY_MEDIUM, CONST_SEVERITY_LOW}
+)
+CONST_DEPENDENCY_SEVERITY_CLEAN: Final[str] = "CLEAN"
 # Depth limit for suppression policy inheritance, so a misconfigured chain fails with a
 # clear error rather than recursing until the interpreter stops it.
 CONST_SUPPRESSION_MAX_INHERITANCE_DEPTH: Final[int] = 10

@@ -27,6 +27,7 @@ devops review path [OPTIONS] <targets>
 | `--all` | `boolean` | - | Run all reviewer personas in sequence. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
@@ -75,6 +76,7 @@ devops review branch [OPTIONS] <branch_name>
 | `--repo` | `path` | `.` | Repository root directory (default: current directory). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
@@ -121,6 +123,7 @@ devops review pr [OPTIONS] <number>
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
@@ -175,6 +178,7 @@ devops review findings [OPTIONS] <session>
 | `--verified` | `boolean` | - | Show verified findings only. |
 | `--mitigated` | `boolean` | - | Filter findings by MITIGATED status |
 | `--candidates` | `boolean` | - | List candidates.json: every finding the review raised, with the ones verification dropped. |
+| `--severity` | `string` | - | Show only findings of this severity: CRITICAL, HIGH, MEDIUM, LOW or INFO (repeatable). |
 | `--details`, `-d` | `boolean` | - | Display full finding descriptions and fix recommendations. |
 
 ---
