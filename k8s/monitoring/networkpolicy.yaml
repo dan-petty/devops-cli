@@ -43,7 +43,9 @@ spec:
           port: 9400
         - protocol: TCP
           port: 12345
-    # 3. Allow OpenTelemetry collector to push metrics to Prometheus remote write receiver (9090)
+        - protocol: TCP
+          port: 4040
+    # 3. Allow OpenTelemetry collector to push metrics (9090) and profiles (4040)
     - from:
         - namespaceSelector:
             matchLabels:
@@ -51,6 +53,8 @@ spec:
       ports:
         - protocol: TCP
           port: 9090
+        - protocol: TCP
+          port: 4040
   egress:
     # 1. Allow intra-namespace pod communications
     - to:
