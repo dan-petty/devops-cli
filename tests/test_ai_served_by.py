@@ -163,9 +163,8 @@ class TestClient:
         sse = b'data: {"choices": [{"delta": {"content": "OK"}}]}\n\ndata: [DONE]\n\n'
 
         def fake_send(self: Any, request: httpx2.Request, **kwargs: Any) -> httpx2.Response:
-            return httpx2.Response(
-                200, headers={SERVED_BY_HEADER: OLLAMA}, content=sse, request=request
-            )
+            headers = {SERVED_BY_HEADER: OLLAMA, "content-type": "text/event-stream"}
+            return httpx2.Response(200, headers=headers, content=sse, request=request)
 
         monkeypatch.setattr(httpx2.Client, "send", fake_send)
 

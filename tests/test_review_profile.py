@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 
 from devops_cli.ai import personas
 from devops_cli.ai.personas import review_prompt_digest
+from devops_cli.ai.review import profile as profile_module
 from devops_cli.ai.review import runner
 from devops_cli.ai.review.profile import (
     BenchmarkSummary,
@@ -115,6 +116,65 @@ def test_cached_replies_are_counted_apart_from_backend_calls(tmp_path: Path) -> 
         profile = profiler.build(session_id="s", target="t")
 
     assert (profile.llm_calls, profile.cached_calls, profile.completion_tokens) == (1, 1, 10)
+
+
+def _observed(profiler: ReviewProfiler, served_by: str | None, reason: str | None) -> None:
+    """Show the profiler one served reply, as the spend ledger does when a call finishes."""
+    profiler.observe({"served_by": served_by, "finish_reason": reason, "completion_tokens": 10})
+
+
+@pytest.fixture
+def fixed_prompt_digest(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip hashing every review prompt on disk; the digest is not under test here."""
+    monkeypatch.setattr(profile_module, "review_prompt_digest", lambda: "digest")
+
+
+@pytest.mark.usefixtures("fixed_prompt_digest")
+def test_profile_counts_replies_by_finish_reason_and_cut_replies_by_backend(
+    tmp_path: Path,
+) -> None:
+    """Verify each stage counts replies per reason, and `length` replies per serving backend."""
+    with profiling() as profiler:
+        with review_stage("persona_review"):
+            for reason in ("stop", "stop", "length"):
+                _observed(profiler, "b1", reason)
+        with review_stage("verification"):
+            _observed(profiler, None, None)
+        profiler.build(session_id="s", target="t").write(tmp_path)
+
+    loaded = ReviewProfile.load(tmp_path)
+    stages = loaded.stages if loaded else []
+    assert [(s.name, s.finish_reasons, s.truncated) for s in stages] == [
+        ("persona_review", {"stop": 2, "length": 1}, {"b1": 1}),
+        ("verification", {"unknown": 1}, {}),
+    ]
+
+
+@pytest.mark.usefixtures("fixed_prompt_digest")
+@pytest.mark.parametrize(
+    ("reasons", "summary"),
+    [
+        (["stop", "length"], "2 LLM calls, 1 hit the reply cap; persona_review 1s (2 calls)"),
+        (["stop"], "1 LLM calls; persona_review 1s (1 calls)"),
+    ],
+    ids=["one-cut", "none-cut"],
+)
+def test_the_profile_summary_says_how_many_replies_hit_the_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reasons: list[str], summary: str
+) -> None:
+    """Verify the summary line counts replies cut at their cap, and is unchanged with none."""
+    lines: list[str] = []
+    monkeypatch.setattr(runner, "print_info", lambda message, **kwargs: lines.append(message))
+    monkeypatch.setattr(runner, "format_duration", lambda seconds: "1s")
+    orchestrator = MagicMock(session_id="s1", session_dir=tmp_path)
+
+    with profiling() as profiler:
+        with review_stage("persona_review"):
+            for reason in reasons:
+                _observed(profiler, VLLM, reason)
+        _write_review_profile(profiler, orchestrator, "playbooks", 2)
+
+    assert lines == [f"[dim]Profile: 1s, {summary} -> {tmp_path / 'profile.json'}[/dim]"]
 
 
 def test_stage_is_a_no_op_without_a_profiler() -> None:

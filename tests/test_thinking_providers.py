@@ -274,20 +274,21 @@ class TestOllamaThinkingSeparation:
 
 
 class TestStreamingThinkingExtractors:
-    """Validate SSE streaming chunk extraction for thinking deltas."""
+    """Validate SSE stream frames for thinking deltas."""
 
     def test_extract_claude_thinking_delta(self) -> None:
-        from devops_cli.ai.client.streaming import _extract_claude_stream_chunk
+        from devops_cli.ai.client.streaming import StreamFrame, _claude_stream_frame
 
-        line = 'data: {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "step 1 reasoning"}}'
-        chunk, is_done = _extract_claude_stream_chunk(line)
-        assert chunk == "<think>step 1 reasoning</think>"
-        assert is_done is False
+        data = (
+            '{"type": "content_block_delta", '
+            '"delta": {"type": "thinking_delta", "thinking": "step 1 reasoning"}}'
+        )
+        frame = _claude_stream_frame(httpx2.ServerSentEvent(event="content_block_delta", data=data))
+        assert frame == StreamFrame(chunk="<think>step 1 reasoning</think>")
 
     def test_extract_openai_reasoning_content_delta(self) -> None:
-        from devops_cli.ai.client.streaming import _extract_openai_stream_chunk
+        from devops_cli.ai.client.streaming import StreamFrame, _openai_stream_frame
 
-        line = 'data: {"choices": [{"delta": {"reasoning_content": "step 1 reasoning"}}]}'
-        chunk, is_done = _extract_openai_stream_chunk(line)
-        assert chunk == "<think>step 1 reasoning</think>"
-        assert is_done is False
+        data = '{"choices": [{"delta": {"reasoning_content": "step 1 reasoning"}}]}'
+        frame = _openai_stream_frame(httpx2.ServerSentEvent(data=data))
+        assert frame == StreamFrame(chunk="<think>step 1 reasoning</think>")

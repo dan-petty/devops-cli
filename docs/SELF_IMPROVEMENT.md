@@ -385,6 +385,11 @@ tokens made during each stage, the backends the gateway routed them to, and the 
 verified and reported finding counts. The profile's session ID is an attribute of the session's
 `review.session` span, so a slow stage can be followed into its trace.
 
+Each stage also counts its replies by the reason the provider gave for their end
+(`finish_reasons`, with `unknown` when it gave none), and the replies cut at their token cap by
+the backend that served them (`truncated`). When any reply hit the cap, the profile's summary line
+says how many.
+
 A single review is not a measurement: identical runs produce different numbers of candidate
 findings, and verification time follows them. `devops review benchmark <targets> -n 3` reviews the
 same files several times with the response cache bypassed and saves the medians under

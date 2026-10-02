@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from pydantic_ai.messages import FinishReason
 
 # ── Application & Configuration ───────────────────────────────────────────────
 CONST_APP_NAME = "devops-cli"
@@ -1869,6 +1872,44 @@ CONST_REASONING_MODEL_EXACT: Final[frozenset[str]] = frozenset(
 CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
 # Response header in which the LiteLLM gateway names the backend (api_base) that served a call.
 CONST_AI_GATEWAY_SERVED_BY_HEADER: Final[str] = "x-litellm-model-api-base"
+# Why a provider says a reply ended, as pydantic-ai's FinishReason. The OpenAI-compatible and
+# Anthropic tables copy pydantic-ai 2.35.0's private maps (models/openai.py, models/anthropic.py),
+# which are not imported because they are private. A value absent from a table, or mapped to
+# None, is unknown: truncation is never guessed.
+CONST_OPENAI_FINISH_REASONS: Final[dict[str, FinishReason]] = {
+    "stop": "stop",
+    "length": "length",
+    "tool_calls": "tool_call",
+    "content_filter": "content_filter",
+    "function_call": "tool_call",
+}
+CONST_ANTHROPIC_STOP_REASONS: Final[dict[str, FinishReason | None]] = {
+    "compaction": "stop",
+    "end_turn": "stop",
+    "max_tokens": "length",
+    "model_context_window_exceeded": "length",
+    "stop_sequence": "stop",
+    "tool_use": "tool_call",
+    "pause_turn": None,
+    "refusal": "content_filter",
+}
+CONST_OLLAMA_DONE_REASONS: Final[dict[str, FinishReason | None]] = {
+    "stop": "stop",
+    "length": "length",
+    "load": None,
+    "unload": None,
+}
+# A reply cut at its token cap, and the reason a stream that failed after yielding output is
+# recorded with.
+CONST_FINISH_REASON_LENGTH: Final[FinishReason] = "length"
+CONST_FINISH_REASON_ERROR: Final[FinishReason] = "error"
+# Replies the response cache never stores: one cut short, filtered or failed is not the answer
+# the prompt asked for, and serving it again for 7 days would repeat the cut.
+CONST_UNCACHED_FINISH_REASONS: Final[frozenset[FinishReason]] = frozenset(
+    {"length", "content_filter", "error"}
+)
+# How a review profile counts a reply whose provider gave no finish reason.
+CONST_FINISH_REASON_UNKNOWN: Final[str] = "unknown"
 CONST_AI_GATEWAY_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey")
 CONST_AI_GATEWAY_PROVIDER_LITELLM: Final[str] = "litellm"
 CONST_AI_GATEWAY_PROVIDER_PORTKEY: Final[str] = "portkey"

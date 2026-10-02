@@ -9,6 +9,7 @@ from typing import Any
 import httpx2
 import pytest
 
+from devops_cli.ai import context_budget
 from devops_cli.ai.benchmark.document_chunker import (
     InMemoryDocumentTokenizer,
     load_test_document_corpus,
@@ -21,11 +22,6 @@ from devops_cli.ai.client import (
     AIClientError,
     LLMClient,
     LLMResponse,
-    _consume_streaming_lines,
-    _extract_claude_stream_chunk,
-    _extract_ollama_stream_chunk,
-    _extract_ollama_stream_tuple,
-    _extract_openai_stream_chunk,
     _is_json_error_payload,
     model_request,
     model_request_sync,
@@ -33,8 +29,26 @@ from devops_cli.ai.client import (
     validate_base_url,
 )
 from devops_cli.ai.client.base import BaseLLMProviderMixin
+from devops_cli.ai.client.streaming import (
+    StreamFrame,
+    _claude_stream_frame,
+    _ollama_stream_frame,
+    _openai_stream_frame,
+    _read_event_stream,
+)
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
+from tests.llm_stream_fakes import (
+    NDJSON,
+    OPENAI_DONE,
+    anthropic_event,
+    anthropic_text,
+    ollama_line,
+    openai_chunk,
+    reply,
+    route_client,
+    streamed,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +56,16 @@ def _bypass_dns_validation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
     )
+
+
+def _quiet_stream_spend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep a stream's spend estimate off the tokenizer and the ledger, neither under test."""
+    monkeypatch.setattr(context_budget, "count_tokens", lambda text, *args, **kwargs: len(text))
+    monkeypatch.setattr("devops_cli.ai.spend.track_request_spend", lambda **kwargs: None)
+
+
+def _sse_event(data: str) -> httpx2.ServerSentEvent:
+    return httpx2.ServerSentEvent(data=data)
 
 
 def _make_resp(status_code: int = 200, json_data: dict | None = None) -> httpx2.Response:
@@ -180,42 +204,37 @@ def test_embedding_runner_similarity_and_ndcg() -> None:
 
 
 def test_chunk_extractors_and_stream_helpers() -> None:
-    """Test chunk extractor functions for Ollama, Claude, and OpenAI."""
-    from devops_cli.ai.client import (
-        _extract_claude_stream_chunk,
-        _extract_ollama_stream_chunk,
-        _extract_openai_stream_chunk,
-        _is_json_error_payload,
-    )
-
-    # 1. Ollama chunk extraction
-    assert _extract_ollama_stream_chunk('{"message": {"content": "hello"}}') == "hello"
+    """Test stream frame parsers for Ollama, Claude, and OpenAI, and the error payload check."""
+    # 1. Ollama frames
     assert (
-        _extract_ollama_stream_chunk('{"message": {"thinking": "pondering"}}')
-        == "<think>pondering</think>"
+        _ollama_stream_frame('{"message": {"content": "hello"}}'),
+        _ollama_stream_frame('{"message": {"thinking": "pondering"}}'),
+        _ollama_stream_frame(""),
+        _ollama_stream_frame("invalid json"),
+    ) == (
+        StreamFrame(chunk="hello"),
+        StreamFrame(chunk="<think>pondering</think>"),
+        StreamFrame(),
+        StreamFrame(),
     )
-    assert _extract_ollama_stream_chunk("") is None
-    assert _extract_ollama_stream_chunk("invalid json") is None
 
-    # 2. Claude chunk extraction
-    c_chunk, c_done = _extract_claude_stream_chunk(
-        'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "claude text"}}'
-    )
-    assert c_chunk == "claude text"
-    assert c_done is False
+    # 2. Claude frames: Anthropic ends a stream with message_stop and never sends [DONE]
+    assert (
+        _claude_stream_frame(
+            _sse_event(
+                '{"type": "content_block_delta", '
+                '"delta": {"type": "text_delta", "text": "claude text"}}'
+            )
+        ),
+        _claude_stream_frame(_sse_event('{"type": "message_stop"}')),
+        _claude_stream_frame(_sse_event("[DONE]")),
+    ) == (StreamFrame(chunk="claude text"), StreamFrame(complete=True, last=True), StreamFrame())
 
-    _, c_done_true = _extract_claude_stream_chunk("data: [DONE]")
-    assert c_done_true is True
-
-    # 3. OpenAI chunk extraction
-    o_chunk, o_done = _extract_openai_stream_chunk(
-        'data: {"choices": [{"delta": {"content": "openai text"}}]}'
-    )
-    assert o_chunk == "openai text"
-    assert o_done is False
-
-    _, o_done_true = _extract_openai_stream_chunk("data: [DONE]")
-    assert o_done_true is True
+    # 3. OpenAI frames
+    assert (
+        _openai_stream_frame(_sse_event('{"choices": [{"delta": {"content": "openai text"}}]}')),
+        _openai_stream_frame(_sse_event("[DONE]")),
+    ) == (StreamFrame(chunk="openai text"), StreamFrame(complete=True, last=True))
 
     # 4. JSON error payload detector
     assert _is_json_error_payload('{"error": "model not found"}') is True
@@ -299,19 +318,13 @@ def test_llm_client_streaming_and_error_branches(monkeypatch: pytest.MonkeyPatch
         client._read_limited_json(mock_bad_json)
 
     # 4. Stream max bytes exceeded
-    class DummyStreamResp:
-        def iter_lines(self):
-            for _ in range(100):
-                yield "data: huge line of stream tokens"
-
-    with pytest.raises(AIClientError, match="exceeded maximum stream size"):
-        gen = _consume_streaming_lines(
-            DummyStreamResp(),  # type: ignore[arg-type]
-            lambda line: (line, False),
-            "TestProvider",
-            max_stream_bytes=50,
+    with (
+        streamed([openai_chunk("huge line of stream tokens")] * 100) as response,
+        pytest.raises(AIClientError, match="exceeded maximum stream size"),
+    ):
+        list(
+            _read_event_stream(response, _openai_stream_frame, "TestProvider", max_stream_bytes=50)
         )
-        list(gen)
 
     # 5. Ollama semaphore and active tracking
     with client._track_ollama_url("http://localhost:11434", max_parallel=2):
@@ -325,37 +338,14 @@ def test_llm_client_streaming_and_error_branches(monkeypatch: pytest.MonkeyPatch
         allow_private_network=True,
     )
     claude_client = LLMClient(claude_cfg)
-
-    class MockStreamContext:
-        def __init__(self, lines):
-            self._lines = lines
-            self.status_code = 200
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            pass
-
-        def iter_lines(self):
-            yield from self._lines
-
-        def raise_for_status(self):
-            pass
-
-    monkeypatch.setattr(
-        httpx2.Client,
-        "stream",
-        lambda self, method, url, **kwargs: MockStreamContext(
-            [
-                'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "hello "}}',
-                'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "world"}}',
-                "data: [DONE]",
-            ]
-        ),
-    )
-    streamed = list(claude_client.chat_stream("system", "user"))
-    assert "".join(streamed) == "hello world"
+    _quiet_stream_spend(monkeypatch)
+    claude_frames = [
+        anthropic_text("hello "),
+        anthropic_text("world"),
+        anthropic_event("message_stop"),
+    ]
+    route_client(claude_client, monkeypatch, lambda request: reply(claude_frames))
+    assert "".join(claude_client.chat_stream("system", "user")) == "hello world"
 
     # 7. OpenAI models listing
     openai_cfg = AIConfig(
@@ -619,39 +609,37 @@ def test_read_limited_json_errors() -> None:
 
 
 def test_streaming_extractors_edge_cases() -> None:
-    assert _extract_ollama_stream_chunk("") is None
-    assert _extract_ollama_stream_chunk("invalid json") is None
     assert (
-        _extract_ollama_stream_chunk('{"message": {"thinking": "reasoning"}}')
-        == "<think>reasoning</think>"
+        _ollama_stream_frame(""),
+        _ollama_stream_frame("invalid json"),
+        _ollama_stream_frame('{"message": {"thinking": "reasoning"}}'),
+        _ollama_stream_frame('{"message": {"content": "token"}}'),
+        _claude_stream_frame(_sse_event("")),
+        _claude_stream_frame(_sse_event("[DONE]")),
+        _claude_stream_frame(_sse_event("invalid json")),
+        _claude_stream_frame(
+            _sse_event(
+                '{"type": "content_block_delta", "delta": {"type": "text_delta", "text": "token"}}'
+            )
+        ),
+        _openai_stream_frame(_sse_event("")),
+        _openai_stream_frame(_sse_event("[DONE]")),
+        _openai_stream_frame(_sse_event("invalid json")),
+        _openai_stream_frame(_sse_event('{"choices": [{"delta": {"content": "token"}}] }')),
+    ) == (
+        StreamFrame(),
+        StreamFrame(),
+        StreamFrame(chunk="<think>reasoning</think>"),
+        StreamFrame(chunk="token"),
+        StreamFrame(),
+        StreamFrame(),
+        StreamFrame(),
+        StreamFrame(chunk="token"),
+        StreamFrame(),
+        StreamFrame(complete=True, last=True),
+        StreamFrame(),
+        StreamFrame(chunk="token"),
     )
-    assert _extract_ollama_stream_chunk('{"message": {"content": "token"}}') == "token"
-
-    tok, done = _extract_ollama_stream_tuple('{"message": {"thinking": "th"}}')
-    assert (tok, done) == ("<think>th</think>", False)
-    assert _extract_ollama_stream_tuple("invalid") == (None, False)
-
-    chunk, is_done = _extract_claude_stream_chunk("")
-    assert (chunk, is_done) == (None, False)
-    chunk, is_done = _extract_claude_stream_chunk("data: [DONE]")
-    assert (chunk, is_done) == (None, True)
-    chunk, is_done = _extract_claude_stream_chunk("data: invalid json")
-    assert (chunk, is_done) == (None, False)
-    chunk, is_done = _extract_claude_stream_chunk(
-        'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "token"}}'
-    )
-    assert (chunk, is_done) == ("token", False)
-
-    chunk, is_done = _extract_openai_stream_chunk("")
-    assert (chunk, is_done) == (None, False)
-    chunk, is_done = _extract_openai_stream_chunk("data: [DONE]")
-    assert (chunk, is_done) == (None, True)
-    chunk, is_done = _extract_openai_stream_chunk("data: invalid json")
-    assert (chunk, is_done) == (None, False)
-    chunk, is_done = _extract_openai_stream_chunk(
-        'data: {"choices": [{"delta": {"content": "token"}}] }'
-    )
-    assert (chunk, is_done) == ("token", False)
 
 
 def test_ollama_streaming_and_failover(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -662,62 +650,33 @@ def test_ollama_streaming_and_failover(monkeypatch: pytest.MonkeyPatch) -> None:
         allow_private_network=True,
     )
     client_ollama = LLMClient(ollama_cfg)
+    _quiet_stream_spend(monkeypatch)
+    ollama_frames = [ollama_line("Ollama "), ollama_line("stream", done=True)]
 
     # 1. Successful stream
-    class MockOllamaStreamResponse:
-        status_code = 200
-
-        def __enter__(self) -> MockOllamaStreamResponse:
-            return self
-
-        def __exit__(self, *args: Any) -> None:
-            pass
-
-        def raise_for_status(self) -> None:
-            pass
-
-        def iter_lines(self) -> list[str]:
-            return [
-                '{"message": {"content": "Ollama "}, "done": false}',
-                '{"message": {"content": "stream"}, "done": true}',
-            ]
-
-    monkeypatch.setattr(httpx2.Client, "stream", lambda *args, **kwargs: MockOllamaStreamResponse())
+    route_client(client_ollama, monkeypatch, lambda request: reply(ollama_frames, NDJSON))
     tokens = list(client_ollama.chat_stream("system", "prompt"))
     assert "".join(tokens) == "Ollama stream"
 
     # 2. Failover on connection error
-    call_count = 0
+    def failover_stream(request: httpx2.Request) -> httpx2.Response:
+        if len(failover_sent) == 1:
+            raise httpx2.ConnectError("Server 1 down", request=request)
+        return reply(ollama_frames, NDJSON)
 
-    def mock_failover_stream(*args: Any, **kwargs: Any) -> MockOllamaStreamResponse:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            raise httpx2.ConnectError("Server 1 down")
-        return MockOllamaStreamResponse()
-
-    monkeypatch.setattr(httpx2.Client, "stream", mock_failover_stream)
+    failover_sent = route_client(client_ollama, monkeypatch, failover_stream)
     tokens_failover = list(client_ollama.chat_stream("system", "prompt"))
-    assert "".join(tokens_failover) == "Ollama stream"
+    assert ("".join(tokens_failover), len(failover_sent)) == ("Ollama stream", 2)
 
     # 3. Failover on HTTP 404 model not found (streaming)
-    call_404 = 0
+    def not_found_stream(request: httpx2.Request) -> httpx2.Response:
+        if len(not_found_sent) == 1:
+            return httpx2.Response(404, text='{"error":"model \'llama3\' not found"}')
+        return reply(ollama_frames, NDJSON)
 
-    def mock_404_stream(*args: Any, **kwargs: Any) -> MockOllamaStreamResponse:
-        nonlocal call_404
-        call_404 += 1
-        if call_404 == 1:
-            resp_404 = httpx2.Response(
-                404,
-                text='{"error":"model \'llama3\' not found"}',
-                request=httpx2.Request("POST", "http://localhost:11434/api/chat"),
-            )
-            raise httpx2.HTTPStatusError("Not Found", request=resp_404.request, response=resp_404)
-        return MockOllamaStreamResponse()
-
-    monkeypatch.setattr(httpx2.Client, "stream", mock_404_stream)
+    not_found_sent = route_client(client_ollama, monkeypatch, not_found_stream)
     tokens_404 = list(client_ollama.chat_stream("system", "prompt"))
-    assert "".join(tokens_404) == "Ollama stream"
+    assert ("".join(tokens_404), len(not_found_sent)) == ("Ollama stream", 2)
 
     # 4. Failover on HTTP 404 model not found (non-streaming)
     call_post_404 = 0
@@ -749,30 +708,9 @@ def test_copilot_and_openai_streaming_and_errors(monkeypatch: pytest.MonkeyPatch
         reasoning_effort="high",
     )
     client_copilot = LLMClient(copilot_cfg)
-
-    class MockCopilotStreamResponse:
-        status_code = 200
-        headers: dict[str, str] = {}
-
-        def __enter__(self) -> MockCopilotStreamResponse:
-            return self
-
-        def __exit__(self, *args: Any) -> None:
-            pass
-
-        def raise_for_status(self) -> None:
-            pass
-
-        def iter_lines(self) -> list[str]:
-            return [
-                'data: {"choices": [{"delta": {"content": "Copilot "}}]}',
-                'data: {"choices": [{"delta": {"content": "stream"}}]}',
-                "data: [DONE]",
-            ]
-
-    monkeypatch.setattr(
-        httpx2.Client, "stream", lambda *args, **kwargs: MockCopilotStreamResponse()
-    )
+    _quiet_stream_spend(monkeypatch)
+    copilot_frames = [openai_chunk("Copilot "), openai_chunk("stream"), OPENAI_DONE]
+    route_client(client_copilot, monkeypatch, lambda request: reply(copilot_frames))
     tokens = list(client_copilot.chat_stream("system", "prompt"))
     assert "".join(tokens) == "Copilot stream"
 
@@ -810,28 +748,15 @@ def test_claude_streaming_and_errors(monkeypatch: pytest.MonkeyPatch) -> None:
         allow_private_network=True,
     )
     client_claude = LLMClient(claude_cfg)
+    _quiet_stream_spend(monkeypatch)
 
     # 1. Streaming
-    class MockClaudeStreamResponse:
-        status_code = 200
-
-        def __enter__(self) -> MockClaudeStreamResponse:
-            return self
-
-        def __exit__(self, *args: Any) -> None:
-            pass
-
-        def raise_for_status(self) -> None:
-            pass
-
-        def iter_lines(self) -> list[str]:
-            return [
-                'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Claude "}}',
-                'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "stream"}}',
-                "data: [DONE]",
-            ]
-
-    monkeypatch.setattr(httpx2.Client, "stream", lambda *args, **kwargs: MockClaudeStreamResponse())
+    claude_frames = [
+        anthropic_text("Claude "),
+        anthropic_text("stream"),
+        anthropic_event("message_stop"),
+    ]
+    route_client(client_claude, monkeypatch, lambda request: reply(claude_frames))
     tokens = list(client_claude.chat_stream("system", "prompt"))
     assert "".join(tokens) == "Claude stream"
 

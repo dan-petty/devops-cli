@@ -12,7 +12,12 @@ from urllib.parse import urlparse
 import httpx2
 
 from devops_cli.ai.client.base import BaseLLMProviderMixin
-from devops_cli.ai.client.models import AIClientError, LLMResponse, RequestPriority
+from devops_cli.ai.client.models import (
+    AIClientError,
+    LLMResponse,
+    RequestPriority,
+    provider_finish_reason,
+)
 from devops_cli.ai.client.network import (
     acquire_ollama_slot,
     active_ollama_requests,
@@ -20,10 +25,8 @@ from devops_cli.ai.client.network import (
     read_limited_json,
     request_priority_scope,
 )
-from devops_cli.ai.client.streaming import (
-    _consume_streaming_lines,
-    _extract_ollama_stream_tuple,
-)
+from devops_cli.ai.client.streaming import _ollama_stream_frame, _read_ndjson_stream
+from devops_cli.config.constants import CONST_OLLAMA_DONE_REASONS
 from devops_cli.config.defaults import (
     DEFAULT_AI_EVICT_KEEP_ALIVE,
     DEFAULT_AI_PREWARM_KEEP_ALIVE,
@@ -378,6 +381,9 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             eval_duration_ms=eval_dur_ms,
             prompt_eval_duration_ms=prompt_eval_dur_ms,
             model=raw_res.get("model"),
+            finish_reason=provider_finish_reason(
+                CONST_OLLAMA_DONE_REASONS, raw_res.get("done_reason")
+            ),
         )
 
     def _try_single_ollama_stream(
@@ -481,7 +487,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             response.raise_for_status()
             if think and self._ollama_thinking_supported is None:
                 self._ollama_thinking_supported = True
-            yield from _consume_streaming_lines(response, _extract_ollama_stream_tuple, "LLM")
+            yield from _read_ndjson_stream(response, _ollama_stream_frame, "Ollama")
 
     def _fetch_ollama_tags(self, base: str) -> list[str]:
         """Fetch available model tags from single Ollama host."""

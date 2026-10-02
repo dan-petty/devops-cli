@@ -14,6 +14,7 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry.semconv import load_genai_snapshot
 from devops_cli.telemetry.tracer import get_tracer, reset_tracer
+from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, route_client
 
 INFERENCE_REQUIRED = load_genai_snapshot()["spans"]["gen_ai.inference.client"]["required"]
 
@@ -235,3 +236,58 @@ def test_provider_names_follow_the_conventions_well_known_values() -> None:
         "copilot",
         "github_copilot",
     ]
+
+
+@pytest.mark.parametrize(("reason", "expected"), [("length", ["length"]), (None, None)])
+def test_the_dispatch_span_names_the_reason_the_reply_ended(
+    monkeypatch: pytest.MonkeyPatch,
+    sent_spans: list[dict[str, Any]],
+    reason: str | None,
+    expected: list[str] | None,
+) -> None:
+    """A reply's reason is on ai.llm.dispatch only; an unknown one sets no attribute."""
+
+    def cut_reply(*args: Any, **kwargs: Any) -> LLMResponse:
+        return LLMResponse(
+            "OK",
+            backend_info="ollama (example.com:11434)",
+            prompt_tokens=12,
+            completion_tokens=3,
+            finish_reason=reason,
+        )
+
+    monkeypatch.setattr(LLMClient, "_ollama_messages", cut_reply)
+    monkeypatch.setattr("devops_cli.ai.spend.track_request_spend", lambda **kwargs: None)
+    cfg = AIConfig(provider="ollama", model="test-model", ollama_urls=["http://example.com:11434"])
+
+    LLMClient(cfg).chat("system instructions", "hello", use_cache=False)
+
+    (dispatch,) = _spans(sent_spans, "ai.llm.dispatch")
+    (chat,) = _spans(sent_spans, "ai.llm.chat")
+    key = "gen_ai.response.finish_reasons"
+    assert (_attributes(dispatch).get(key), key in _attributes(chat)) == (expected, False)
+
+
+def test_a_complete_stream_names_the_reason_on_the_stream_span(
+    monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]]
+) -> None:
+    """The reason in a stream's final frames is on ai.llm.stream."""
+    monkeypatch.setattr(context_budget, "count_tokens", lambda text, *args, **kwargs: len(text))
+    monkeypatch.setattr("devops_cli.ai.spend.track_request_spend", lambda **kwargs: None)
+    config = AIConfig(
+        provider="openai",
+        model="gpt-test",
+        api_base_url="http://example.com/v1",
+        allow_private_network=True,
+    )
+    client = LLMClient(config, api_key="sk-test")
+    frames = [openai_chunk("Hel"), openai_chunk("lo", "length"), OPENAI_DONE]
+    route_client(client, monkeypatch, lambda request: reply(frames))
+
+    chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
+
+    (stream,) = _spans(sent_spans, "ai.llm.stream")
+    assert (chunks, _attributes(stream).get("gen_ai.response.finish_reasons")) == (
+        ["Hel", "lo"],
+        ["length"],
+    )

@@ -8,7 +8,7 @@ import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Generator, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse, urlsplit
 
 import httpx2
@@ -34,7 +34,9 @@ from devops_cli.ai.client.structured import StructuredOutputMixin
 from devops_cli.ai.thinking_stream import strip_think_blocks
 from devops_cli.config.constants import (
     CONST_AI_BACKEND_HOST_UNKNOWN,
+    CONST_FINISH_REASON_ERROR,
     CONST_OTEL_SPAN_KIND_CLIENT,
+    CONST_UNCACHED_FINISH_REASONS,
     CONST_URL_ANTHROPIC_API_BASE,
     CONST_URL_GITHUB_COPILOT_API_BASE,
     CONST_URL_OPENAI_API_BASE,
@@ -51,6 +53,9 @@ from devops_cli.exceptions import LLMInferenceError
 from devops_cli.http.client import request_timeout
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import record_metric, trace_span
+
+if TYPE_CHECKING:
+    from pydantic_ai.messages import FinishReason
 
 logger = logging.getLogger(__name__)
 
@@ -105,11 +110,31 @@ def _set_timing_span_attributes(span_handle: Any, res: LLMResponse) -> None:
         span_handle.set_attribute("llm.wall_seconds", res.wall_seconds)
 
 
+def _set_finish_reason_attribute(span_handle: Any, reason: FinishReason | None) -> None:
+    """Name why the reply ended; an unknown reason sets nothing, as truncation is never guessed."""
+    if reason is not None:
+        span_handle.set_attribute("gen_ai.response.finish_reasons", [reason])
+
+
+def _response_event_payload(res: LLMResponse, p: str) -> dict[str, Any]:
+    """The `llm_response_received` event's summary of a reply."""
+    event_payload: dict[str, Any] = {
+        "total_tokens": res.total_tokens or 0,
+        "wall_seconds": res.wall_seconds or 0.0,
+        "backend": res.backend_info or p,
+    }
+    if getattr(res, "served_by", None):
+        event_payload["served_by"] = res.served_by
+    if getattr(res, "model", None):
+        event_payload["model"] = res.model
+    return event_payload
+
+
 def _set_response_span_attributes(span_handle: Any, res: LLMResponse, p: str) -> None:
     """Set the reply's GenAI attributes on the `ai.llm.dispatch` inference span.
 
-    This is the only writer of the usage, response model and finish reason keys, so a
-    request's tokens are counted once, on the span that made it.
+    This is the only writer of the usage and response model keys, so a request's tokens are
+    counted once, on the span that made it.
     """
     netloc = _extract_server_from_backend_info(res.backend_info, "")
     for key, value in _server_span_attributes(netloc).items():
@@ -123,19 +148,10 @@ def _set_response_span_attributes(span_handle: Any, res: LLMResponse, p: str) ->
     if res.completion_tokens is not None:
         span_handle.set_attribute("gen_ai.usage.output_tokens", res.completion_tokens)
     _set_timing_span_attributes(span_handle, res)
-    span_handle.set_attribute("gen_ai.response.finish_reasons", ["stop"])
+    _set_finish_reason_attribute(span_handle, res.finish_reason)
     span_handle.set_attribute("llm.response_preview", res.text[:200].replace("\n", " ").strip())
     span_handle.set_attribute("llm.response.thinking", bool(res.thinking))
-    event_payload: dict[str, Any] = {
-        "total_tokens": res.total_tokens or 0,
-        "wall_seconds": res.wall_seconds or 0.0,
-        "backend": res.backend_info or p,
-    }
-    if getattr(res, "served_by", None):
-        event_payload["served_by"] = res.served_by
-    if getattr(res, "model", None):
-        event_payload["model"] = res.model
-    span_handle.add_event("llm_response_received", event_payload)
+    span_handle.add_event("llm_response_received", _response_event_payload(res, p))
 
 
 class LLMClient(
@@ -477,6 +493,7 @@ class LLMClient(
             request_type="chat_dispatch",
             duration_seconds=res.wall_seconds or duration,
             stage=resolve_spend_stage(None, getattr(self._config, "task_name", None)),
+            finish_reason=res.finish_reason,
         )
         if rec is not None:
             span_handle.set_attribute("llm.usage.cost_usd", rec.cost_usd)
@@ -600,9 +617,13 @@ class LLMClient(
         context_tag: str | None,
         span_h: Any,
     ) -> LLMResponse:
-        """Record telemetry, optionally cache successful response, and return."""
+        """Record telemetry, optionally cache successful response, and return.
+
+        A reply cut at its cap, filtered or failed is returned but never cached, so the next
+        identical call reaches the provider again rather than the cut reply.
+        """
         self._record_chat_telemetry(span_h, res)
-        if use_cache:
+        if use_cache and res.finish_reason not in CONST_UNCACHED_FINISH_REASONS:
             self._cache_chat_entry(cache_key, system, out_messages, res, context_tag)
         return res
 
@@ -793,11 +814,15 @@ class LLMClient(
         sanitize: bool = False,
         priority: RequestPriority | str | None = None,
     ) -> Generator[str]:
-        """Send a multi-turn conversation and yield streaming tokens as they arrive."""
+        """Send a multi-turn conversation and yield streaming tokens as they arrive.
+
+        A stream that fails after yielding output records its spend with finish reason `error`
+        and re-raises; one that fails before its first chunk records nothing, as a failed
+        non-streamed call records nothing.
+        """
         p = self._config.provider
         t_start = time.perf_counter()
         first_token_time: float | None = None
-        token_chunks_count = 0
         resolved_p = (
             RequestPriority(priority)
             if isinstance(priority, str)
@@ -818,6 +843,8 @@ class LLMClient(
             "ai.llm.stream", attributes=stream_attrs, kind=CONST_OTEL_SPAN_KIND_CLIENT
         ) as span_h:
             network.stream_served_by.set(None)
+            network.stream_finish_reason.set(None)
+            accumulated_chunks: list[str] = []
             try:
                 gen = self._dispatch_stream(
                     system, messages, enable_thinking=enable_thinking, priority=resolved_p
@@ -826,22 +853,33 @@ class LLMClient(
                     from devops_cli.ai.client.streaming import StreamingTokenProcessor
 
                     gen = StreamingTokenProcessor().sanitize_stream(gen)
-                accumulated_chunks: list[str] = []
                 for chunk in gen:
                     first_token_time = self._record_first_token(span_h, t_start, first_token_time)
-                    token_chunks_count += 1
                     accumulated_chunks.append(chunk)
                     yield chunk
-
-                total_dur = time.perf_counter() - t_start
-                span_h.set_attribute("llm.stream.chunk_count", token_chunks_count)
-                span_h.set_attribute("llm.wall_seconds", total_dur)
-                self._record_stream_spend(
-                    span_h, p, messages, system, "".join(accumulated_chunks), total_dur
-                )
             except Exception as exc:
                 span_h.record_exception(exc)
+                if accumulated_chunks:
+                    # The provider produced tokens before failing, so they were spent.
+                    self._record_stream_spend(
+                        span_h,
+                        p,
+                        messages,
+                        system,
+                        "".join(accumulated_chunks),
+                        time.perf_counter() - t_start,
+                        CONST_FINISH_REASON_ERROR,
+                    )
                 raise
+
+            total_dur = time.perf_counter() - t_start
+            finish_reason = network.stream_finish_reason.get()
+            _set_finish_reason_attribute(span_h, finish_reason)
+            span_h.set_attribute("llm.stream.chunk_count", len(accumulated_chunks))
+            span_h.set_attribute("llm.wall_seconds", total_dur)
+            self._record_stream_spend(
+                span_h, p, messages, system, "".join(accumulated_chunks), total_dur, finish_reason
+            )
 
     def _record_stream_spend(
         self,
@@ -851,6 +889,7 @@ class LLMClient(
         system: str,
         accumulated_text: str,
         total_dur: float,
+        finish_reason: FinishReason | None,
     ) -> None:
         """Record streaming request spend to ledger and telemetry."""
         from devops_cli.ai.context_budget import count_tokens
@@ -873,6 +912,7 @@ class LLMClient(
             request_type="stream",
             duration_seconds=total_dur,
             stage=resolve_spend_stage(None, getattr(self._config, "task_name", None)),
+            finish_reason=finish_reason,
         )
         if rec is not None:
             span_h.set_attribute("llm.usage.cost_usd", rec.cost_usd)

@@ -124,6 +124,7 @@ def direct_model_request_sync(
                 request_type="direct_sync",
                 duration_seconds=time.monotonic() - started,
                 stage=current_stage.get(),
+                finish_reason=resp.finish_reason,
             )
         return resp
 
@@ -169,6 +170,7 @@ async def direct_model_request(
                 request_type="direct_async",
                 duration_seconds=time.monotonic() - started,
                 stage=current_stage.get(),
+                finish_reason=resp.finish_reason,
             )
         return resp
 
