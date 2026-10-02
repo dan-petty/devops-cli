@@ -1100,6 +1100,19 @@ def _static_analyzer_states(
     return states
 
 
+def _static_analyzer_reasons(
+    states: dict[str, str], observed_outcomes: dict[str, Any] | None = None
+) -> dict[str, str]:
+    """The reason each failed analyzer's scan outcome gave, for the report."""
+    outcomes = observed_outcomes or {}
+    reasons: dict[str, str] = {}
+    for name, state in states.items():
+        reason = getattr(outcomes.get(name), "reason", "")
+        if state == ANALYZER_FAILED and reason:
+            reasons[name] = str(reason)
+    return reasons
+
+
 def _static_analyzer_summary(states: dict[str, str], findings: int) -> list[str]:
     """Console lines naming the analyzers that ran and those skipped for not being installed."""
     ran = [
@@ -1117,7 +1130,10 @@ def _static_analyzer_summary(states: dict[str, str], findings: int) -> list[str]
     if missing:
         lines.append(f"    [yellow]! Not installed, so not run: {', '.join(missing)}[/yellow]")
     if failed:
-        lines.append(f"    [yellow]! Failed during execution: {', '.join(failed)}[/yellow]")
+        lines.append(
+            f"    [yellow]! Failed during execution: {', '.join(failed)} "
+            "(the report's Static Analyzers table says why)[/yellow]"
+        )
     return lines
 
 
@@ -1486,6 +1502,7 @@ class ReviewPipelineOrchestrator:
         self.verification_client = verification_client or self.llm_client
         self.errored_files: dict[str, str] = {}
         self.static_analyzers: dict[str, str] = {}
+        self.static_analyzer_reasons: dict[str, str] = {}
         self._conventions_by_dir: dict[Path, str] = {}
         self.personas: list[str] = []
 
@@ -1745,6 +1762,9 @@ class ReviewPipelineOrchestrator:
     ) -> None:
         """Keep how each analyzer took part, for the report and the review's profile."""
         self.static_analyzers = _static_analyzer_states(files_by_kind, observed_outcomes)
+        self.static_analyzer_reasons = _static_analyzer_reasons(
+            self.static_analyzers, observed_outcomes
+        )
         if profiler := active_profiler():
             profiler.set_static_analyzers(self.static_analyzers)
 
@@ -3246,7 +3266,12 @@ class ReviewPipelineOrchestrator:
         """Which static analyzers ran, so a scan with no findings is not read as clean."""
         if not self.static_analyzers:
             return []
-        rows = [f"| {name} | {state} |" for name, state in self.static_analyzers.items()]
+        rows = []
+        for name, state in self.static_analyzers.items():
+            reason = self.static_analyzer_reasons.get(name)
+            result = f"{state}: {reason}" if reason else state
+            cell = " ".join(result.split()).replace("|", "\\|")
+            rows.append(f"| {name} | {cell} |")
         return ["## Static Analyzers", "| Analyzer | Result |", "|---|---|", *rows, ""]
 
     def _render_console_findings_table(

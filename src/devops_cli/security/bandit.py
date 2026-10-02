@@ -59,20 +59,23 @@ class BanditScanner(BaseSecurityScanner):
         severity_level: str = DEFAULT_BANDIT_SEVERITY,
         **kwargs: Any,
     ) -> list[str]:
-        """Build argument command list for invoking Bandit."""
+        """Build argument command list for invoking Bandit.
+
+        `-q` keeps stdout to the JSON report: past 50 files Bandit draws a progress bar there.
+        """
         level_flag = "-ll" if severity_level.lower() == "medium" else "-lll"
 
         if isinstance(target_path, list):
             valid_files = [str(p.resolve()) for p in target_path if p.exists() and p.is_file()]
             if not valid_files:
                 return []
-            return [self.binary_name, *valid_files, level_flag, "-s", "B608", "-f", "json"]
+            return [self.binary_name, *valid_files, "-q", level_flag, "-s", "B608", "-f", "json"]
 
         if not target_path.exists():
             return []
         target_abs = target_path.resolve()
         if target_abs.is_file():
-            return [self.binary_name, str(target_abs), level_flag, "-s", "B608", "-f", "json"]
+            return [self.binary_name, str(target_abs), "-q", level_flag, "-s", "B608", "-f", "json"]
 
         return [
             self.binary_name,
@@ -80,6 +83,7 @@ class BanditScanner(BaseSecurityScanner):
             str(target_abs),
             "--exclude",
             ".venv,venv,node_modules,.data,repos,.git",
+            "-q",
             level_flag,
             "-s",
             "B608",

@@ -1879,6 +1879,10 @@ CONST_MAX_SECURITY_STREAM_DURATION: Final[int] = 3600
 CONST_MIN_SECURITY_STREAM_TAIL_LINES: Final[int] = 1
 CONST_MAX_SECURITY_STREAM_TAIL_LINES: Final[int] = 10000
 
+# Characters of a failed scanner's non-JSON stdout quoted in its reason, and the reason's length
+CONST_SCANNER_STDOUT_EXCERPT_CHARS: Final[int] = 100
+CONST_SCANNER_FAILURE_REASON_CHARS: Final[int] = 300
+
 # Threat intelligence distributed caching
 CONST_THREAT_INTEL_CACHE_PREFIX: Final[str] = "valkey:threat_intel:domain"
 

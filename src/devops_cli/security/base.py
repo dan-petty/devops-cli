@@ -13,6 +13,10 @@ from typing import Any, ClassVar
 from unittest.mock import NonCallableMock
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.constants import (
+    CONST_SCANNER_FAILURE_REASON_CHARS,
+    CONST_SCANNER_STDOUT_EXCERPT_CHARS,
+)
 from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.process import run_subprocess
@@ -133,6 +137,27 @@ def _evaluate_preflight(
     return None
 
 
+def _one_line(text: str, limit: int) -> str:
+    """Return text on one line, each run of whitespace a single space, cut to limit characters."""
+    flat = " ".join(text.split())
+    return flat if len(flat) <= limit else f"{flat[: limit - 1]}…"
+
+
+def _non_json_failure_reason(proc: Any) -> str:
+    """Say how the scanner exited, and when it printed something other than JSON, quote its start."""
+    stdout = (proc.stdout or "").strip()
+    if not stdout:
+        err_msg = (proc.stderr or "").strip()[:256]
+        return f"Scanner exited with code {proc.returncode}: {err_msg}"
+    reason = (
+        f"Scanner exited with code {proc.returncode}; output was not JSON, starting "
+        f'"{_one_line(stdout, CONST_SCANNER_STDOUT_EXCERPT_CHARS)}"'
+    )
+    if stderr := (proc.stderr or "").strip():
+        reason = f"{reason}; stderr: {stderr}"
+    return _one_line(reason, CONST_SCANNER_FAILURE_REASON_CHARS)
+
+
 def _handle_non_json_output(
     scanner: BaseSecurityScanner, proc: Any, target_path: Any
 ) -> ScanOutcome:
@@ -144,12 +169,7 @@ def _handle_non_json_output(
                 scanner.fallback_scan(target_path),
                 f"Scanner exited with code {proc.returncode}; used built-in patterns",
             )
-        err_msg = (proc.stderr or proc.stdout).strip()[:256]
-        return ScanOutcome(
-            "failed",
-            [],
-            f"Scanner exited with code {proc.returncode}: {err_msg}",
-        )
+        return ScanOutcome("failed", [], _non_json_failure_reason(proc))
     raw_findings = scanner.parse_output(proc.stdout, target_path)
     if raw_findings:
         return ScanOutcome("ran", raw_findings)
