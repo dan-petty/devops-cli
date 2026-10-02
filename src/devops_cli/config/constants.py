@@ -338,6 +338,9 @@ CONST_URL_OLLAMA_LOCALHOST = "http://localhost:11434"
 CONST_URL_ANTHROPIC_API_BASE = "https://api.anthropic.com"
 CONST_URL_GITHUB_COPILOT_API_BASE = "https://api.githubcopilot.com"
 CONST_URL_OPENAI_API_BASE = "https://api.openai.com"
+# What `backend_host` reports for a provider with no configured or default endpoint. It names
+# no server, so LLM spans write no `server.address` for it.
+CONST_AI_BACKEND_HOST_UNKNOWN = "unknown"
 CONST_URL_GITHUB_API_BASE = "https://api.github.com"
 CONST_URL_GITHUB_GRAPHQL = "https://api.github.com/graphql"
 CONST_URL_CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
@@ -384,6 +387,8 @@ CONST_PERM_DIR = 0o700
 CONST_PERM_PRIVATE_KEY = 0o600
 CONST_PERM_PUBLIC_KEY = 0o644
 CONST_PERM_EXEC = 0o755
+# A file the repository commits, such as a generated table under src/.
+CONST_PERM_REPO_FILE = 0o644
 
 CONST_MAX_FILE_SIZE_BYTES = 200 * 1024 * 1024
 CONST_MAX_PROBE_FILE_SIZE_BYTES: Final[int] = (
@@ -673,11 +678,35 @@ CONST_MSG_SSRF_RESOLVES_PRIVATE = "Target resolves to a private or loopback netw
 # ── Telemetry Invariants ──────────────────────────────────────────────────────
 CONST_OTEL_SCOPE_NAME = "devops-cli.telemetry"
 CONST_OTEL_SPAN_KIND_INTERNAL = "internal"
+CONST_OTEL_SPAN_KIND_CLIENT = "client"
 CONST_OTEL_METRIC_UNIT_ONE = "1"
 # OTLP AggregationTemporality: a delta covers only its own interval.
 CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA = 1
 CONST_OTEL_SERVICE_NAME = "devops-cli"
 CONST_OTEL_OTLP_HTTP_PORT = 4318
+# The GenAI semantic conventions, which have no tagged release, are pinned to a commit and
+# resolved by weaver (the version the conventions repository pins in its versions.env).
+CONST_SEMCONV_GENAI_REPO: Final[str] = "open-telemetry/semantic-conventions-genai"
+CONST_SEMCONV_GENAI_GIT_URL: Final[str] = (
+    "https://github.com/open-telemetry/semantic-conventions-genai.git"
+)
+CONST_SEMCONV_GENAI_MODEL_DIR: Final[str] = "model"
+CONST_SEMCONV_RESOLVED_REGISTRY_FILE: Final[str] = "resolved.yaml"
+CONST_SEMCONV_WEAVER_BIN: Final[str] = "weaver"
+CONST_SEMCONV_WEAVER_VERSION: Final[str] = "0.26.1"
+CONST_URL_WEAVER_RELEASES: Final[str] = "https://github.com/open-telemetry/weaver/releases"
+CONST_GIT_COMMIT_SHA_PATTERN: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{40}")
+# A quoted string in Python source whose text starts with the GenAI attribute namespace.
+CONST_SEMCONV_GENAI_LITERAL_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"""(?P<quote>['"])(?P<text>gen_ai\.[^\n]*?)(?P=quote)"""
+)
+# Python string prefixes are at most two letters (`rb`, `fr`, `tr`). An `f` or `t` among them
+# makes the string a template filled in at run time.
+CONST_PYTHON_STRING_PREFIX_MAX_LENGTH: Final[int] = 2
+CONST_PYTHON_TEMPLATE_STRING_PREFIXES: Final[frozenset[str]] = frozenset({"f", "t"})
+# Provider ids whose GenAI `gen_ai.provider.name` well-known value differs from the id.
+# Every other id is a custom value the conventions allow, and is written unchanged.
+CONST_GENAI_PROVIDER_NAMES: Final[dict[str, str]] = {"claude": "anthropic"}
 # The cluster's collector, as k8s/otel deploys it.
 CONST_OTEL_COLLECTOR_NAMESPACE = "otel"
 CONST_OTEL_COLLECTOR_SERVICE = "otel-collector-opentelemetry-collector"

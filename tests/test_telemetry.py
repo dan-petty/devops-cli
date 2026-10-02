@@ -6,6 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from devops_cli.ai.client.models import LLMResponse
+from devops_cli.ai.client.unified import _set_response_span_attributes
 from devops_cli.telemetry.tracer import (
     OTelTelemetryClient,
     get_tracer,
@@ -265,41 +267,47 @@ def test_traceparent_env_propagation_and_record_exception(
     assert attrs.get("exception.message") == "custom error"
 
 
-def test_record_llm_metrics_and_semantic_conventions(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_response_span_attributes_and_semantic_conventions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reply's usage is written once, under the current GenAI keys, beside normalized keys."""
     sent_payloads: list[tuple[str, dict[str, Any]]] = []
     client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
     monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+    reply = LLMResponse(
+        "ok",
+        backend_info="ollama (example.com:11434)",
+        prompt_tokens=500,
+        completion_tokens=150,
+        total_tokens=650,
+        wall_seconds=2.5,
+    )
 
     with client.span(
         "llm_call", {"cli.command": "devops ai review", "subprocess.bin": "ollama"}
     ) as handle:
-        handle.record_llm_metrics(
-            provider="ollama",
-            model="qwen2.5-coder:7b",
-            prompt_tokens=500,
-            completion_tokens=150,
-            total_tokens=650,
-            ttft_ms=120.5,
-            duration_s=2.5,
-            token_rate=60.0,
-        )
+        _set_response_span_attributes(handle, reply, "ollama")
 
-    assert len(sent_payloads) == 1
     span_data = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
     attrs = {a["key"]: next(iter(a["value"].values())) for a in span_data.get("attributes", [])}
-
-    # Normalized semantic attributes
-    assert attrs.get("process.command_line") == "devops ai review"
-    assert attrs.get("process.executable.name") == "ollama"
-
-    # GenAI standard attributes
-    assert attrs.get("gen_ai.system") == "ollama"
-    assert attrs.get("gen_ai.request.model") == "qwen2.5-coder:7b"
-    assert str(attrs.get("gen_ai.usage.prompt_tokens")) == "500"
-    assert str(attrs.get("gen_ai.usage.completion_tokens")) == "150"
-    assert str(attrs.get("gen_ai.usage.total_tokens")) == "650"
-    assert float(str(attrs.get("gen_ai.time_to_first_token_ms"))) == 120.5
-    assert float(str(attrs.get("gen_ai.token_rate_tok_per_sec"))) == 60.0
+    replaced = (
+        "gen_ai.usage.prompt_tokens",
+        "gen_ai.usage.completion_tokens",
+        "gen_ai.usage.total_tokens",
+        "gen_ai.server.address",
+        "gen_ai.tokens_per_second",
+        "gen_ai.token_rate_tok_per_sec",
+    )
+    assert (
+        len(sent_payloads),
+        attrs.get("process.command_line"),
+        attrs.get("process.executable.name"),
+        attrs.get("gen_ai.usage.input_tokens"),
+        attrs.get("gen_ai.usage.output_tokens"),
+        attrs.get("llm.tokens_per_second"),
+        (attrs.get("server.address"), attrs.get("server.port")),
+        [key for key in replaced if key in attrs],
+    ) == (1, "devops ai review", "ollama", "500", "150", 60.0, ("example.com", "11434"), [])
 
 
 def test_parent_context_dict_extraction(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -576,23 +584,24 @@ def test_cached_resource_attributes_enrichment() -> None:
     }.issubset(res_keys)
 
 
-def test_record_llm_metrics_enriched() -> None:
-    """Verify record_llm_metrics attaches model, served_by, and tokens_per_second attributes."""
+def test_response_span_attributes_enriched() -> None:
+    """The reply's model and serving backend are recorded; a port-less host sets no port."""
     client = OTelTelemetryClient(enabled=True)
+    reply = LLMResponse(
+        "ok",
+        backend_info="openai (example.com)",
+        model="gpt-4o-2024-08-06",
+        served_by="vllm-48gib",
+        completion_tokens=60,
+        wall_seconds=2.0,
+    )
     with client.span("test_genai_span") as handle:
-        handle.record_llm_metrics(
-            provider="openai",
-            model="gpt-4o",
-            response_model="gpt-4o-2024-08-06",
-            served_by="vllm-48gib",
-            token_rate=30.0,
-            prompt_tokens=120,
-            completion_tokens=60,
-            total_tokens=180,
-        )
+        _set_response_span_attributes(handle, reply, "openai")
         assert (
             handle._attributes.get("gen_ai.response.model"),
-            handle._attributes.get("gen_ai.server.served_by"),
-            handle._attributes.get("gen_ai.tokens_per_second"),
-            handle._attributes.get("gen_ai.token_rate_tok_per_sec"),
-        ) == ("gpt-4o-2024-08-06", "vllm-48gib", 30.0, 30.0)
+            handle._attributes.get("llm.served_by"),
+            handle._attributes.get("llm.tokens_per_second"),
+            handle._attributes.get("server.address"),
+            "server.port" in handle._attributes,
+            "gen_ai.server.served_by" in handle._attributes,
+        ) == ("gpt-4o-2024-08-06", "vllm-48gib", 30.0, "example.com", False, False)

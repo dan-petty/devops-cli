@@ -433,43 +433,6 @@ class SpanHandle(str):
             event_attrs.update(sanitized_attrs)
         self.add_event("exception", event_attrs)
 
-    def record_llm_metrics(
-        self,
-        *,
-        provider: str,
-        model: str,
-        prompt_tokens: int | None = None,
-        completion_tokens: int | None = None,
-        total_tokens: int | None = None,
-        ttft_ms: float | None = None,
-        duration_s: float | None = None,
-        token_rate: float | None = None,
-        response_model: str | None = None,
-        served_by: str | None = None,
-    ) -> None:
-        """Record standard OpenTelemetry GenAI attributes on the active span."""
-        self._attributes["gen_ai.system"] = provider
-        self._attributes["gen_ai.request.model"] = model
-        if response_model is not None:
-            self._attributes["gen_ai.response.model"] = response_model
-        if served_by is not None:
-            self._attributes["gen_ai.server.served_by"] = served_by
-        if prompt_tokens is not None:
-            self._attributes["gen_ai.usage.prompt_tokens"] = prompt_tokens
-            self._attributes["gen_ai.usage.input_tokens"] = prompt_tokens
-        if completion_tokens is not None:
-            self._attributes["gen_ai.usage.completion_tokens"] = completion_tokens
-            self._attributes["gen_ai.usage.output_tokens"] = completion_tokens
-        if total_tokens is not None:
-            self._attributes["gen_ai.usage.total_tokens"] = total_tokens
-        if ttft_ms is not None:
-            self._attributes["gen_ai.time_to_first_token_ms"] = round(ttft_ms, 2)
-        if duration_s is not None:
-            self._attributes["gen_ai.duration_seconds"] = round(duration_s, 4)
-        if token_rate is not None:
-            self._attributes["gen_ai.token_rate_tok_per_sec"] = round(token_rate, 2)
-            self._attributes["gen_ai.tokens_per_second"] = round(token_rate, 2)
-
 
 def _read_packed_refs(git_dir: Path, ref: str) -> str | None:
     """Read commit SHA for a ref from packed-refs file if present."""

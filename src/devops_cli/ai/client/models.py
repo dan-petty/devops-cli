@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import Any
 
 from devops_cli.config.constants import (
+    CONST_GENAI_PROVIDER_NAMES,
     CONST_REASONING_MODEL_EXACT,
     CONST_REASONING_MODEL_PREFIXES,
     CONST_REASONING_MODEL_SUBSTRINGS,
@@ -204,6 +205,11 @@ def _is_json_error_payload(raw_str: str) -> bool:
         return has_err_val or (err_code is not None and bool(err_code))
     except json.JSONDecodeError, TypeError, ValueError:
         return False
+
+
+def genai_provider_name(provider: str) -> str:
+    """The conventions' `gen_ai.provider.name` for a provider id: its well-known value or the id."""
+    return CONST_GENAI_PROVIDER_NAMES.get(provider, provider)
 
 
 def is_reasoning_model(model: str | None) -> bool:

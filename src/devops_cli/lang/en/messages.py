@@ -547,6 +547,10 @@ class TelemetryMessages:
     span_emitted_success: str = "Test span emitted successfully! (Span ID: [cyan]{span_id}[/cyan], Duration: {elapsed_ms:.1f}ms)"
     view_jaeger_service: str = "[dim]View in Jaeger: {url} (Service: {service})[/dim]"
     jaeger_ui_link: str = "[bold]Jaeger Tracing UI:[/bold] [link={url}]{url}[/link]"
+    semconv_refreshed: str = (
+        "{path} now holds {attributes} attributes, {metrics} metrics and {spans} span types "
+        "from {repo}@{commit} (weaver {weaver})."
+    )
 
 
 @dataclass(frozen=True)

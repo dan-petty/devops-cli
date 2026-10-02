@@ -400,6 +400,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops telemetry test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
 |  | `devops telemetry profile [OPTIONS] <command>` | Run a command, or name a trace, and show its span waterfall as Jaeger recorded it. |
 |  | `devops telemetry open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
+|  | `devops telemetry semconv COMMAND [ARGS]...` | The GenAI semantic conventions that LLM span attributes are checked against. |
 | **cloudflare** | `devops cloudflare status [OPTIONS]` | Verify Cloudflare API token authentication and inspect zone status. |
 |  | `devops cloudflare dns COMMAND [ARGS]...` | Cloudflare Zero Trust tunnels and DNS management. |
 |  | `devops cloudflare tunnel COMMAND [ARGS]...` | Cloudflare Zero Trust tunnels and DNS management. |

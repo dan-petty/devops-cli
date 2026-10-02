@@ -1055,6 +1055,10 @@ class TelemetryCommandHelp:
     trace_id: str = "Trace ID to read from Jaeger and show, instead of running a command."
     logfire: str = "Display Logfire structured observability bridge status and token metrics."
     test_logfire: str = "Emit test span via Logfire bridge."
+    semconv: str = "The GenAI semantic conventions that LLM span attributes are checked against."
+    semconv_commit: str = (
+        "Full 40-character commit SHA of open-telemetry/semantic-conventions-genai to resolve."
+    )
 
 
 @dataclass(frozen=True)
