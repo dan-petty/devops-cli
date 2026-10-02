@@ -143,7 +143,7 @@ def test_gateway_routing_entries_generation() -> None:
         all(".llm.svc.cluster.local" in base for base in api_bases),
         entries == cm_model_list,
     ) == (
-        21,
+        25,
         [
             "devops-chat",
             "devops-coder",
@@ -151,6 +151,8 @@ def test_gateway_routing_entries_generation() -> None:
             "bge-m3:latest",
             "embeddinggemma:300m",
             "devops-review",
+            "qwen3-coder:30b",
+            "gpt-oss:20b",
             "gemma4:31b",
             "qwen3.8:27b",
             "deepseek-r1:70b",

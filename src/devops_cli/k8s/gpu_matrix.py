@@ -725,6 +725,38 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             },
         },
         {
+            "model_name": "qwen3-coder:30b",
+            "litellm_params": {
+                "model": "ollama_chat/qwen3-coder:30b",
+                "api_base": "http://ollama-48gib.llm.svc.cluster.local:11434",
+                "weight": 9,
+            },
+        },
+        {
+            "model_name": "qwen3-coder:30b",
+            "litellm_params": {
+                "model": "ollama_chat/qwen3-coder:30b",
+                "api_base": "http://ollama-64gib.llm.svc.cluster.local:11434",
+                "weight": 6,
+            },
+        },
+        {
+            "model_name": "gpt-oss:20b",
+            "litellm_params": {
+                "model": "ollama_chat/gpt-oss:20b",
+                "api_base": "http://ollama-16gib.llm.svc.cluster.local:11434",
+                "weight": 8,
+            },
+        },
+        {
+            "model_name": "gpt-oss:20b",
+            "litellm_params": {
+                "model": "ollama_chat/gpt-oss:20b",
+                "api_base": "http://ollama-24gib.llm.svc.cluster.local:11434",
+                "weight": 1,
+            },
+        },
+        {
             "model_name": "gemma4:31b",
             "litellm_params": {
                 "model": "ollama_chat/gemma4:31b",
