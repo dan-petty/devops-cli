@@ -9,6 +9,10 @@ The numbers measure regression, not capability. An injection the generator knows
 one a prompt can be tuned to find, and a reviewer tuned against this corpus gets good at these
 defects. Every score carries that caveat.
 
+Identical reviews find different defects, so one run of a prompt says little. An arm is k sessions
+run with the same prompts, scored together: how many runs found each injection, and the mean of
+each figure beside its range across the runs.
+
 A corpus directory holds the mutated files under `files/`, the manifest of injections beside it
 (outside the reviewed tree, so the reviewer cannot read the answers) and copies of the source
 project's conventions and `.devops/review.md`, so the review sees the same conventions as a review
@@ -21,6 +25,7 @@ import ast
 import builtins
 import random
 import re
+import statistics
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
@@ -29,11 +34,15 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, computed_field
 
+from devops_cli.ai.review.profile import ReviewProfile
 from devops_cli.ai.review_schema import LINE_OVERLAP_TOLERANCE, SavedFinding, _parse_location
 from devops_cli.config.constants import (
+    CONST_PERSONA_REPLY_UNPARSED,
     CONST_REVIEW_CONVENTIONS_FILE,
+    CONST_STATUS_INVALIDATED,
     REVIEW_GENERIC_SYMBOL_STOPWORDS,
 )
+from devops_cli.exceptions.validation import ValidationError
 
 CORPUS_MANIFEST = "manifest.json"
 CORPUS_FILES_DIR = "files"
@@ -1393,6 +1402,11 @@ class CorpusScore(BaseModel):
     in_file: int
     dropped: int
     unmatched_findings: int
+    # Every finding the review raised before verification, those the verifier invalidated and
+    # those it kept. The invalidated count is the verifier's opinion, not a label.
+    candidate_findings: int = 0
+    invalidated_findings: int = 0
+    reported_findings: int = 0
     by_template: dict[str, TemplateScore] = Field(default_factory=dict)
     outcomes: list[InjectionOutcome] = Field(default_factory=list)
 
@@ -1487,8 +1501,184 @@ def score_corpus(
         in_file=sum(o.in_file for o in outcomes),
         dropped=sum(o.found and not o.reported for o in outcomes),
         unmatched_findings=len(reported) - len(matched),
+        candidate_findings=len(candidates),
+        invalidated_findings=sum(f.status == CONST_STATUS_INVALIDATED for f in candidates),
+        reported_findings=len(reported),
         by_template=by_template,
         outcomes=outcomes,
+    )
+
+
+class InjectionTally(BaseModel):
+    """How many of an arm's runs found an injection, and how many still reported it."""
+
+    id: str
+    template: str
+    file: str
+    line: int
+    found_in: int = 0
+    reported_in: int = 0
+
+
+class RunsTotal(BaseModel):
+    """Shares of the injections an arm's runs caught: in at least one run, and in every run."""
+
+    pass_at_k: float
+    pass_hat_k: float
+    in_none: int
+
+
+class RunRow(BaseModel):
+    """One run of an arm: its recall, its findings and what its review cost."""
+
+    session_id: str
+    recall_found: float
+    recall_reported: float
+    candidate_findings: int
+    invalidated_findings: int
+    reported_findings: int
+    prompt_tokens: int
+    completion_tokens: int
+    unparsed_replies: int
+
+
+# The per-run figures an arm averages and spreads, and the decimals its mean keeps: ratios to 3,
+# counts to 1. The names match the metrics the run store extracts and compares.
+RUN_FIGURE_DECIMALS: dict[str, int] = {
+    "recall_found": 3,
+    "recall_reported": 3,
+    "candidate_findings": 1,
+    "invalidated_findings": 1,
+    "reported_findings": 1,
+    "prompt_tokens": 1,
+    "completion_tokens": 1,
+}
+
+
+class CorpusRunsScore(BaseModel):
+    """Recall of one arm: k review sessions of a corpus, all run with the same prompts.
+
+    The top-level figures are means across the runs, and `spread` holds each figure's
+    `[min, max]`, so a difference between two arms can be read against the variation within
+    each. A single run measures no variation, and its `spread` is None.
+    """
+
+    caveat: str = SYNTHETIC_CAVEAT
+    runs: int
+    # The review prompts every session ran with (`review_prompt_digest`); empty when unrecorded.
+    prompt_digest: str = ""
+    found: RunsTotal
+    reported: RunsTotal
+    recall_found: float
+    recall_reported: float
+    candidate_findings: float
+    invalidated_findings: float
+    reported_findings: float
+    prompt_tokens: float
+    completion_tokens: float
+    spread: dict[str, tuple[float, float]] | None = None
+    sessions: list[RunRow] = Field(default_factory=list)
+    tallies: list[InjectionTally] = Field(default_factory=list)
+    scores: list[CorpusScore] = Field(default_factory=list)
+
+
+def _run_row(score: CorpusScore, profile: ReviewProfile | None) -> RunRow:
+    """A session's figures; its tokens and unparsed persona replies count 0 without a profile."""
+    profile = profile or ReviewProfile(session_id=score.session_id, target="")
+    return RunRow(
+        session_id=score.session_id,
+        recall_found=score.recall_found,
+        recall_reported=score.recall_reported,
+        candidate_findings=score.candidate_findings,
+        invalidated_findings=score.invalidated_findings,
+        reported_findings=score.reported_findings,
+        prompt_tokens=profile.prompt_tokens,
+        completion_tokens=profile.completion_tokens,
+        unparsed_replies=profile.persona_outcomes.get(CONST_PERSONA_REPLY_UNPARSED, 0),
+    )
+
+
+def _tallies(scores: Sequence[CorpusScore]) -> list[InjectionTally]:
+    """Each injection, in corpus order, with the number of runs that found and reported it."""
+    tallies: dict[str, InjectionTally] = {}
+    for outcome in (outcome for score in scores for outcome in score.outcomes):
+        tally = tallies.setdefault(
+            outcome.id,
+            InjectionTally(
+                id=outcome.id, template=outcome.template, file=outcome.file, line=outcome.line
+            ),
+        )
+        tally.found_in += outcome.found
+        tally.reported_in += outcome.reported
+    return list(tallies.values())
+
+
+def _runs_total(counts: Sequence[int], runs: int) -> RunsTotal:
+    """pass@k, pass^k and misses from how many of k runs caught each injection."""
+    return RunsTotal(
+        pass_at_k=_ratio(sum(count > 0 for count in counts), len(counts)),
+        pass_hat_k=_ratio(sum(count == runs for count in counts), len(counts)),
+        in_none=sum(count == 0 for count in counts),
+    )
+
+
+def _shared_prompt_digest(
+    scores: Sequence[CorpusScore], profiles: Sequence[ReviewProfile | None]
+) -> str:
+    """The prompt digest every session ran with; sessions that ran different prompts are refused."""
+    digests = {
+        score.session_id: profile.prompt_digest if profile else ""
+        for score, profile in zip(scores, profiles, strict=True)
+    }
+    if len(set(digests.values())) > 1:
+        listed = ", ".join(
+            f"{session} {value or 'unrecorded'}" for session, value in digests.items()
+        )
+        raise ValidationError(
+            "The sessions ran different review prompts, so they are not one arm: "
+            f"{listed}. Score each arm's sessions on their own.",
+            field="prompt_digest",
+        )
+    return next(iter(digests.values()))
+
+
+def score_corpus_runs(
+    scores: Sequence[CorpusScore], profiles: Sequence[ReviewProfile | None]
+) -> CorpusRunsScore:
+    """Combine k scores of one corpus, each with its session's profile or None, into one arm.
+
+    Raises ValidationError when there are no scores, when the profiles do not pair with them, or
+    when the sessions' prompt digests differ: one score measures one arm.
+    """
+    if not scores or len(scores) != len(profiles):
+        raise ValidationError(
+            f"An arm needs one profile or None per score; got {len(scores)} score(s) and "
+            f"{len(profiles)} profile(s).",
+            field="profiles",
+        )
+    prompt_digest = _shared_prompt_digest(scores, profiles)
+    rows = [_run_row(score, profile) for score, profile in zip(scores, profiles, strict=True)]
+    figures = {name: [float(getattr(row, name)) for row in rows] for name in RUN_FIGURE_DECIMALS}
+    tallies = _tallies(scores)
+    return CorpusRunsScore.model_validate(
+        {
+            "runs": len(scores),
+            "prompt_digest": prompt_digest,
+            "found": _runs_total([t.found_in for t in tallies], len(scores)),
+            "reported": _runs_total([t.reported_in for t in tallies], len(scores)),
+            **{
+                name: round(statistics.fmean(values), RUN_FIGURE_DECIMALS[name])
+                for name, values in figures.items()
+            },
+            "spread": (
+                {name: (min(values), max(values)) for name, values in figures.items()}
+                if len(scores) > 1
+                else None
+            ),
+            "sessions": rows,
+            "tallies": tallies,
+            "scores": list(scores),
+        }
     )
 
 
@@ -1496,16 +1686,22 @@ __all__ = [
     "CORPUS_CONVENTIONS_FILE",
     "CORPUS_FILES_DIR",
     "CORPUS_MANIFEST",
+    "RUN_FIGURE_DECIMALS",
     "SYNTHETIC_CAVEAT",
     "TEMPLATES",
+    "CorpusRunsScore",
     "CorpusScore",
     "DefectCorpus",
     "DefectTemplate",
     "Injection",
     "InjectionOutcome",
+    "InjectionTally",
+    "RunRow",
+    "RunsTotal",
     "Site",
     "TemplateScore",
     "generate_corpus",
     "score_corpus",
+    "score_corpus_runs",
     "select_templates",
 ]

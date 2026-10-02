@@ -77,6 +77,26 @@ def _load_persona(persona: Persona) -> PersonaDefinition:
     )
 
 
+def review_prompt_digest(tasks_dir: Path = _TASKS_DIR, personas_dir: Path = _PERSONAS_DIR) -> str:
+    """A digest of every prompt a review can load: each `.md` file under the two directories.
+
+    It covers each file's path relative to its directory and its text, so editing, adding or
+    removing a prompt changes it, and nothing else does. Reviews run with one digest form one arm
+    of a prompt benchmark. Prompt text built in code is covered by a run's commit instead.
+    """
+    from devops_cli.ai.run_store import digest
+
+    return digest(
+        {
+            label: {
+                path.relative_to(directory).as_posix(): path.read_text(encoding="utf-8")
+                for path in directory.rglob("*.md")
+            }
+            for label, directory in (("tasks", tasks_dir), ("personas", personas_dir))
+        }
+    )
+
+
 def __getattr__(name: str) -> str:
     if name == "METADATA_SYSTEM_PROMPT":
         return _load(_TASKS_DIR / "metadata.md")

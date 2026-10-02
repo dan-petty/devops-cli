@@ -7,50 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **One Roadmap Store for Releases, Items and Board Fields (`devops_cli.roadmap`)**:
-  - `RoadmapStore` reads and writes Releases, Items, Candidates, board fields and issue-event changes behind one interface, with a GitHub adapter over `gh` and an in-memory adapter for tests. Reads page through every result and raise rather than return an empty or partial result. Each Item write also records the value the store set in the board's `Job record` field (ADR 0002), so a later job can tell a person's change from its own (#768).
-- **Readiness Requires a PR to Close One Issue and Change Its Task File (`devops pr check-readiness`)**:
-  - Every PR except the release PR (`release/vX.Y.Z` from the same repository into the default branch) is blocked unless its body closes exactly one issue, read as `devops gh issues close-merged` reads it, and it adds, modifies or renames that issue's `docs/agent/tasks/task-<issue>-*.md`. Each missing piece is one blocker that names it. A repository whose base has no `docs/agent/tasks/` is not checked (#704).
-  - The changed files come from `pulls/{n}/files?per_page=100`, paged to the end. Where the check applies, a failed read is a blocker that names the failure; elsewhere it is a warning. The read replaces `gh pr diff --name-only`, which returned an empty list on any failure (#704).
-- **GitHub-Sourced Roadmap: One-Time Migration and Generated View (`devops roadmap migrate`, `devops roadmap render`)**:
-  - `devops roadmap migrate` makes GitHub the roadmap's source of truth (ADR 0001). It brings the board in line with `.github/project-template.json`: it moves the cards of options the template replaces, deletes fields the template lacks, and lists the option renames, additions and removals a person makes in the board's field settings, because GitHub's API can't keep an option's id. `--confirm` refuses before any write until the renames and additions are made. It fills unset Status and Priority from `status/*` and `priority/*` labels, closes release epics as not planned and takes them off the board, moves the open items of milestones beyond the planning horizon to the backlog and deletes those milestones, fills unset Value and Effort from the `docs/ROADMAP.md` matrix, and records each rejected or not-building idea as an issue closed as not planned. It edits no issue body and never overwrites a set field. It prints the plan and a four-section report (P0 feature candidates, entries without an issue, entries whose issue is closed, planned writes) and writes only with `--confirm`; a second run plans nothing (#739).
-  - `devops roadmap render` writes `docs/ROADMAP.md` from GitHub: the current release, the planned releases within the horizon, then the backlog by priority, one line per item with its Status, Priority, Value and Effort. Two runs on the same state write the same bytes, and a failed read writes nothing (#739).
-  - `.github/roadmap.toml` names the board and the roadmap jobs' settings (`release_cap`, `discovery_threshold`, `planning_horizon`, `stall_days`), and rejects unknown keys. Both commands read it, the board template and `docs/ROADMAP.md` through the contents API at `--ref` (#739).
-  - MCP tools `roadmap_render` and `roadmap_migrate`, which only previews, in a new lazy `roadmap` domain (#739).
-  - The roadmap store gains board creation from the template, field deletion, card listing, writes and removal, issue creation and closing with a reason and comment, Release deletion, workflow listing and repository file reads, in both adapters (#739).
-  - `docs/VISION.md` holds the design principles and the themes from `docs/ROADMAP.md`, without release numbers (#739).
-- **Branch and PR Reviews Compute Their Own Symbol Delta (`devops review branch`, `devops review pr`)**:
-  - Each review records the symbols that every changed Python file added, removed and kept since the commit its diff starts at, so an earlier `devops ai analyze branch` run is no longer needed. That commit is the merge base for a branch, `HEAD` for uncommitted changes, and the merge base from GitHub's compare endpoint for a pull request, not the base branch's tip. A branch's files are read at its own commit, so reviewing a branch that is not checked out, or one with uncommitted deletions, does not count the checkout's removals as the branch's. A renamed file is compared with its old path, an added file's symbols are all added, and a file whose base or head cannot be read gets no delta (#593).
-  - Verification exempts a finding only when it cites a symbol this review's diff removed, and moves it to the file's diff hunk without asking the model. The summary's Symbol Delta row and `removed_symbol_findings_count` count only the reviewed files (#593).
-
-### Changed
-- **`devops gh milestones edit` and `close` Take a Version (`devops gh milestones`)**:
-  - Both take a version, with or without the leading `v`, and no longer a milestone number. The milestone commands and the milestone close after `devops release tag --push` run on the roadmap store (#768).
-- **A Task File Ticks a Box Only for Work That Is Done (`docs/agent/tasks/`, `AGENTS.md`)**:
-  - `tests/test_agent_task_files.py` fails on an unchecked box outside a code fence. Work not done is a plain bullet naming its follow-up issue, and a check only a person can run is a plain bullet starting "Pending a person:". The 17 task files that held unchecked boxes are brought into line, and `AGENTS.md` no longer asks for typed verification results: the PR's passing checks are the verification (#704).
-- **The PR Template and the Release PR Body Ask Only What No Check Decides (`.github/pull_request_template.md`, `devops release`)**:
-  - The template asks for a summary, the type of change, the base branch, `Closes #<issue>` and the task file. Its 15-box quality-gate checklist is gone, and so is the example closing reference in a comment, which read as closing that issue in any body that kept it (#704).
-  - The release PR body no longer carries the seven quality boxes it ticked on every ready release PR without reading anything (#704).
-- **Board Statuses and Fields Follow ADR 0001 (`.github/project-template.json`, `devops gh project sync`)**:
-  - Status options are New, Ready, In Progress, In Review, Done and Blocked. Category and the Milestone text field are gone, and the Value vs Effort view groups by Value. An unset Status and the `status/backlog` label now read as New, and reconcile no longer writes the Milestone field the board mirrors (#739).
-  - `devops gh project sync` creates missing fields and never edits an existing field's options. GitHub gives every option it is sent a new id, so once the template changed its option request would have cleared Status on every card. No command edits an existing board's options; a person makes the edits `devops roadmap migrate` lists in the board's field settings, which keep ids (#739).
-  - `devops gh project workflows list` expects New on add and reopen and In Review on a linked pull request, and no longer asks for the auto-add, auto-close or auto-archive workflows (#739).
-  - `docs/ROADMAP.md` carries a banner: GitHub is its source, `devops roadmap render` regenerates it at the next cut, and work is added by opening an issue (#739).
-
-### Fixed
-- **Editing a Milestone No Longer Closes It (`devops gh milestones edit`)**:
-  - `edit` sends only the fields it is given. Before, `devops gh milestones edit v0.2.25 --description x` also sent `state=closed` whenever a GitHub token resolved, and closed the milestone (#768).
-  - When GitHub can't be read, `devops gh milestones list` exits 1 and names the failed read, instead of printing "No milestones found" (#768).
-- **Reviews No Longer Use Another Run's Symbol Delta (`devops review`)**:
-  - Pre-analysis kept symbol lists that another review or `devops ai analyze branch` had cached. Verification read the newest cached analysis, whichever run wrote it, and the summary added up that analysis when the reviewed files had no delta. A finding could be exempted for a symbol that a different branch removed. Now only the session's own delta counts (#593).
-- **`devops ai analyze branch` Compares a Renamed File With Its Old Path (`devops ai analyze branch`)**:
-  - A renamed file is analysed at its new path and compared with its old one at the merge base. The plain `--name-status` parser read `old.py<TAB>new.py` as one path that does not exist, so it recorded the file as deleted. A reused file's delta is now computed again, because the cached one may be against an older merge base (#593).
-
-### Removed
-- **ROADMAP-to-GitHub Sync (`devops gh issues sync-roadmap`, `devops gh issues reconcile-roadmap`, `devops gh milestones sync`, `devops release epic`)**:
-  - Removed without shims, with `github/roadmap_sync.py`, `github/release_epics.py`, `--create-release-epics`, the ROADMAP-heading milestone extraction and the MCP tools `gh_sync_roadmap`, `gh_issue_reconcile_roadmap`, `gh_milestone_sync` and `release_epic_sync`. GitHub is the roadmap's source of truth, so nothing pushes `docs/ROADMAP.md` to it any more (#739).
-
 ## [0.2.24] - 2026-10-01
 
 ### Added

@@ -16,6 +16,10 @@ _Avoid_: task, deliverable, card, ticket, work item, tracking issue
 The in-repo implementation record of one item, written in the pull request that delivers it.
 _Avoid_: task, task item
 
+**Changelog fragment**:
+One item's changelog entries, written as `changelog.d/<issue>.md` in the pull request that delivers it and merged into the release's section of `CHANGELOG.md` at the cut.
+_Avoid_: news fragment, changelog snippet
+
 **Priority**:
 An item's rank: P0 (critical), P1 (high), P2 (medium) or P3 (low).
 _Avoid_: severity, category, priority category

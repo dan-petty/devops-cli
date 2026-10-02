@@ -1914,6 +1914,127 @@ def test_grounding_reads_every_page_of_changed_files_through_the_pager() -> None
 
 
 # =============================================================================
+# Grounding: a PR into a release branch leaves CHANGELOG.md and docs/ROADMAP.md to the cut
+# =============================================================================
+
+_FRAGMENT_704 = _file("changelog.d/704.md", "added")
+
+
+@pytest.mark.parametrize(
+    ("files", "named"),
+    [
+        ([_file("CHANGELOG.md")], "changes CHANGELOG.md:"),
+        ([_file("docs/ROADMAP.md")], "changes docs/ROADMAP.md:"),
+        ([_file("CHANGELOG.md", "added")], "changes CHANGELOG.md:"),
+        ([_file("CHANGELOG.md", "removed")], "changes CHANGELOG.md:"),
+        (
+            [
+                {
+                    "filename": "docs/HISTORY.md",
+                    "status": "renamed",
+                    "previous_filename": "CHANGELOG.md",
+                }
+            ],
+            "changes CHANGELOG.md:",
+        ),
+        (
+            [_file("docs/ROADMAP.md"), _file("CHANGELOG.md"), _FRAGMENT_704],
+            "changes CHANGELOG.md and docs/ROADMAP.md:",
+        ),
+    ],
+    ids=["changelog", "roadmap", "added", "removed", "renamed-away", "both-and-a-fragment"],
+)
+def test_a_pr_into_a_release_branch_that_changes_a_release_file_is_blocked_once(
+    files: list[dict[str, str]], named: str
+) -> None:
+    """Each open PR into release/v0.2.25 edited the same CHANGELOG.md lines.
+
+    #928 and #932 each conflicted twice in one hour, and every conflict cost a rebase and a
+    full CI run. The cut writes both files, so a PR that changes either is one blocker that
+    names them and the fragment to add instead.
+    """
+    blockers = _blockers(_ready_pr(), gh=_grounding_gh([_TASK_704, *files]))
+    assert (
+        [named in blocker for blocker in blockers],
+        all("Add its changelog entry as changelog.d/704.md instead." in b for b in blockers),
+    ) == ([True], True), blockers
+
+
+def test_the_same_pr_with_a_fragment_instead_is_ready() -> None:
+    """The rule blocks the shared files only; a fragment and the task file pass."""
+    assert _blockers(_ready_pr(), gh=_grounding_gh([_TASK_704, _FRAGMENT_704])) == []
+
+
+def test_the_release_file_blocker_reads_in_full() -> None:
+    """The blocker names the PR, the files, the base and the fragment path."""
+    blockers = _blockers(_ready_pr(), gh=_grounding_gh([_TASK_704, _file("CHANGELOG.md")]))
+    assert blockers == [
+        "PR #335 changes CHANGELOG.md: a PR into release/v0.2.25 leaves them to the cut, so "
+        "open PRs never conflict on them. Add its changelog entry as changelog.d/704.md instead."
+    ]
+
+
+_RELEASE_FILES = [_file("CHANGELOG.md"), _file("docs/ROADMAP.md")]
+
+
+@pytest.mark.parametrize(
+    ("head", "base"),
+    [
+        ({"ref": "chore/open-v0.2.25", "repo": _REPO}, {"ref": "release/v0.2.25", "repo": _REPO}),
+        (
+            {"ref": "chore/open-v0.2.25-cycle", "repo": _REPO},
+            {"ref": "release/v0.2.25", "repo": _REPO},
+        ),
+        ({"ref": "chore/cut-v0.2.25", "repo": _REPO}, {"ref": "release/v0.2.25", "repo": _REPO}),
+        ({"ref": "release/v0.2.25", "repo": _REPO}, _MAIN_BASE),
+    ],
+    ids=["bootstrap", "bootstrap-with-slug", "cut", "release-pr"],
+)
+def test_release_process_prs_are_exempt_from_grounding(head: dict, base: dict) -> None:
+    """The bootstrap and the cut deliver the release process, not one item.
+
+    They close no issue, keep no task file and write CHANGELOG.md and docs/ROADMAP.md, and are
+    exempt before any lookup, as the release PR is.
+    """
+    gh = _grounding_gh(_RELEASE_FILES, task_dir=_SERVER_ERROR)
+    blockers = _blockers(_ready_pr(body="", head=head, base=base), gh=gh)
+    endpoints = [call.args[0][-1] for call in gh.call_args_list]
+    assert (blockers, ["/contents/" in endpoint for endpoint in endpoints]) == ([], [False])
+
+
+@pytest.mark.parametrize(
+    ("head", "base", "release_file_blockers"),
+    [
+        ("chore/cut-v0.2.26", "release/v0.2.25", 1),
+        ("chore/open-cycle-v0.2.25", "release/v0.2.25", 1),
+        ("feat/open-v0.2.25", "release/v0.2.25", 1),
+        ("chore/open-v0.2.25", "main", 0),
+    ],
+    ids=["other-version", "slug-before-version", "not-chore", "into-the-default-branch"],
+)
+def test_other_branches_are_held_to_grounding(
+    head: str, base: str, release_file_blockers: int
+) -> None:
+    """Only `chore/(open|cut)-vX.Y.Z[-slug]` into `release/vX.Y.Z` of that version is exempt.
+
+    The release-file rule applies only into a `release/*` branch.
+    """
+    pr = _ready_pr(body="", head={"ref": head, "repo": _REPO}, base={"ref": base, "repo": _REPO})
+    blockers = _blockers(pr, gh=_grounding_gh(_RELEASE_FILES))
+    assert (
+        sum("closes no issue" in blocker for blocker in blockers),
+        sum("leaves them to the cut" in blocker for blocker in blockers),
+    ) == (1, release_file_blockers), blockers
+
+
+def test_a_release_process_branch_from_a_fork_is_not_exempt() -> None:
+    """A fork can name its branch anything, so the exemption needs the same repository."""
+    fork = {"ref": "chore/cut-v0.2.25", "repo": {"full_name": "fork/devops-cli"}}
+    blockers = _blockers(_ready_pr(body="", head=fork), gh=_grounding_gh(_RELEASE_FILES))
+    assert ["closes no issue" in blocker for blocker in blockers] == [True, False], blockers
+
+
+# =============================================================================
 # The pull request template asks only for what no check decides
 # =============================================================================
 
@@ -1932,6 +2053,7 @@ def test_pr_template_asks_for_the_issue_and_task_file_and_nothing_a_check_decide
         [line for line in text.splitlines() if _CHECKBOX_LINE.match(line)],
         "Closes #" in text,
         "docs/agent/tasks/task-" in text,
+        "changelog.d/<issue>.md" in text,
         extract_linked_issues(text, "dan-petty/devops-cli"),
         re.search(r"complexity|coverage|quality gate|10/10", text, re.IGNORECASE),
     ) == (
@@ -1943,6 +2065,7 @@ def test_pr_template_asks_for_the_issue_and_task_file_and_nothing_a_check_decide
             "- [ ] `test`: New or updated tests",
             "- [ ] `chore`: Maintenance, dependencies, or tooling updates",
         ],
+        True,
         True,
         True,
         [],
