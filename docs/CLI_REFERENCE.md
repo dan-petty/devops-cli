@@ -891,7 +891,7 @@ devops k8s rbac-audit [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--namespace`, `-n` | `string` | - | - |
+| `--namespace`, `-n` | `string` | - | Audit only this namespace's RoleBindings and Roles; ClusterRoleBindings are always read. |
 
 ### `devops k8s lint`
 

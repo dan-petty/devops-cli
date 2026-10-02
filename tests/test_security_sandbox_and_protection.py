@@ -264,9 +264,15 @@ def test_dive_analysis_refuses_symlink_binary(
         sym_bin.symlink_to(real_bin)
         monkeypatch.setenv("PATH", str(tmp_path))
 
-        res = run_dive_analysis(image_name="test-image:latest")
-        # Should gracefully return synthetic / fallback analysis without calling subprocess
-        assert res.image_name == "test-image:latest"
+        with patch("devops_cli.security.dive.run_subprocess") as never_run:
+            res = run_dive_analysis(image_name="test-image:latest")
+        # Refused without running it, and reported as such rather than as an analysis
+        assert (res.status, res.layers, "symlink" in res.reason, never_run.called) == (
+            "unavailable",
+            [],
+            True,
+            False,
+        )
     except OSError:
         pass
 

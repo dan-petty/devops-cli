@@ -396,6 +396,96 @@ CONST_K8S_NODE_ROLE_LABEL_PREFIX = "node-role.kubernetes.io/"
 CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER: Final[str] = "example.com"
 CONST_K8S_TEMPLATE_DOMAIN_VARS: Final[tuple[str, ...]] = ("DOMAIN", "K8S_DOMAIN")
 CONST_K8S_TEMPLATE_EXTENSIONS: Final[tuple[str, ...]] = (".yaml", ".yml")
+# Where each workload kind keeps its pod spec: Pod; PodTemplate; Deployment, ReplicaSet,
+# StatefulSet, DaemonSet, Job and ReplicationController; CronJob.
+CONST_K8S_POD_SPEC_PATHS: Final[tuple[tuple[str, ...], ...]] = (
+    ("spec",),
+    ("template", "spec"),
+    ("spec", "template", "spec"),
+    ("spec", "jobTemplate", "spec", "template", "spec"),
+)
+# Every container list a pod spec carries.
+CONST_K8S_POD_CONTAINER_KEYS: Final[tuple[str, ...]] = (
+    "containers",
+    "initContainers",
+    "ephemeralContainers",
+)
+# Where a document keeps other resources: a `List` kind, which `kubectl get -o yaml` writes, in
+# `items`; an OpenShift Template in `objects`.
+CONST_K8S_NESTED_RESOURCE_KEYS: Final[tuple[str, ...]] = ("items", "objects")
+# The line match for a manifest that does not parse as YAML, such as a Helm template.
+CONST_K8S_PRIVILEGED_LINE_RE: Final[re.Pattern[str]] = re.compile(
+    r"^\s*privileged:\s*(?:true|yes|on)\b", re.IGNORECASE
+)
+# The tag the YAML resolver gives a plain boolean scalar.
+CONST_YAML_BOOL_TAG: Final[str] = "tag:yaml.org,2002:bool"
+
+# ── Kubernetes RBAC Audit ─────────────────────────────────────────────────────
+# The built-in ClusterRoles that grant everything (cluster-admin) or write access to most of
+# a namespace (admin, edit).
+CONST_K8S_RBAC_PRIVILEGED_CLUSTER_ROLES: Final[frozenset[str]] = frozenset(
+    {"cluster-admin", "admin", "edit"}
+)
+# In a PolicyRule's verbs, resources or apiGroups, grants every value.
+CONST_K8S_RBAC_WILDCARD: Final[str] = "*"
+CONST_K8S_SYSTEM_NAMESPACE: Final[str] = "kube-system"
+CONST_K8S_SYSTEM_SUBJECT_PREFIX: Final[str] = "system:"
+# The username of one ServiceAccount, `system:serviceaccount:<namespace>:<name>`, and the group of
+# every ServiceAccount in a namespace, `system:serviceaccounts:<namespace>`. A User or Group
+# subject with either name is a ServiceAccount, judged by its namespace like one.
+CONST_K8S_SERVICE_ACCOUNT_SUBJECT_PREFIXES: Final[tuple[str, ...]] = (
+    "system:serviceaccount:",
+    "system:serviceaccounts:",
+)
+# The control-plane identities without a `system:` prefix that a distribution binds to a broad
+# or wildcard role on every cluster it installs: k3s's kube-apiserver kubelet client and cloud
+# controller manager (k3s manifests/rolebindings.yaml and manifests/ccm.yaml), and the kubeadm
+# 1.29+ admin.conf group that took over from system:masters.
+CONST_K8S_RBAC_DISTRIBUTION_SUBJECTS: Final[frozenset[tuple[str, str]]] = frozenset(
+    {
+        ("User", "kube-apiserver"),
+        ("User", "k3s-cloud-controller-manager"),
+        ("Group", "kubeadm:cluster-admins"),
+    }
+)
+# The built-in groups and user that stand for every client or every service account. Their
+# `system:` prefix marks them as built in, not as cluster components, so it excuses nothing.
+CONST_K8S_RBAC_BROAD_SUBJECTS: Final[frozenset[str]] = frozenset(
+    {
+        "system:anonymous",
+        "system:unauthenticated",
+        "system:authenticated",
+        "system:serviceaccounts",
+    }
+)
+
+# ── Dockerfile Fallback Checks ────────────────────────────────────────────────
+# A FROM instruction: any `--flag=value` options, the image, and an optional stage name.
+CONST_DOCKERFILE_FROM_RE: Final[re.Pattern[str]] = re.compile(
+    r"^FROM\s+(?:--\S+\s+)*(?P<image>\S+)(?:\s+AS\s+(?P<alias>\S+))?", re.IGNORECASE
+)
+CONST_DOCKERFILE_USER_RE: Final[re.Pattern[str]] = re.compile(r"^USER\s+", re.IGNORECASE)
+# A parser directive, `# name=value`, read only at the top of the file (moby/buildkit
+# frontend/dockerfile/parser). `escape` sets the line-continuation character.
+CONST_DOCKERFILE_PARSER_DIRECTIVE_RE: Final[re.Pattern[str]] = re.compile(
+    r"^#\s*(?P<name>[a-zA-Z][a-zA-Z0-9]*)\s*=\s*(?P<value>.+?)\s*$"
+)
+CONST_DOCKERFILE_ESCAPE_DIRECTIVE: Final[str] = "escape"
+CONST_DOCKERFILE_ESCAPE_CHARACTERS: Final[tuple[str, ...]] = ("\\", "`")
+# A BuildKit heredoc opener word, `<<EOF`, `<<-EOF` (terminator may be tab-indented) or
+# `<<'EOF'`; a RUN, COPY or ADD reads the lines after it up to its terminator.
+CONST_DOCKERFILE_HEREDOC_RE: Final[re.Pattern[str]] = re.compile(
+    r"^\d*<<(?P<chomp>-?)(?P<quote>[\"']?)(?P<word>[^<\"']+)(?P=quote)$"
+)
+CONST_DOCKERFILE_HEREDOC_INSTRUCTIONS: Final[frozenset[str]] = frozenset({"RUN", "COPY", "ADD"})
+# The instruction that defers another, which may then open a heredoc: `ONBUILD RUN <<EOF`.
+CONST_DOCKERFILE_ONBUILD_INSTRUCTION: Final[str] = "ONBUILD"
+# A `$VAR` or `${VAR...}` reference, which stands for text the check cannot see.
+CONST_DOCKERFILE_VARIABLE_RE: Final[re.Pattern[str]] = re.compile(r"\$(?:\{[^}]*\}|\w+)")
+# The reserved empty base image, which has nothing to pin.
+CONST_DOCKERFILE_SCRATCH_IMAGE: Final[str] = "scratch"
+# The tag a registry serves for an image reference that names none.
+CONST_DOCKER_DEFAULT_TAG: Final[str] = "latest"
 
 # ── AI Prompt & Injection Mitigation ──────────────────────────────────────────
 CONST_PROMPT_INJECTION_TAGS_RE: re.Pattern[str] = re.compile(

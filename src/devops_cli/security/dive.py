@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
+import subprocess
+import tempfile
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
@@ -16,30 +19,86 @@ from devops_cli.config.defaults import (
     DEFAULT_DIVE_MIN_EFFICIENCY,
     DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
 )
+from devops_cli.core.process import run_subprocess
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
 
+# `ran`: dive analyzed the image. `unavailable`: no dive binary it will run. `failed`: dive
+# ran but errored, timed out or wrote no readable export.
+DiveStatus = Literal["ran", "unavailable", "failed"]
+
 
 class DiveLayerInfo(BaseModel):
-    """Analysis details for an individual container image layer."""
+    """One image layer as dive's JSON export describes it."""
 
     index: int
     digest: str = ""
     size_bytes: int = 0
-    wasted_bytes: int = 0
     command: str = ""
 
 
 class DiveAnalysisResult(BaseModel):
-    """Aggregated container efficiency metrics from Dive."""
+    """Dive's efficiency metrics for an image, or the reason there are none.
+
+    Only a `ran` result carries measurements; any other status leaves them empty.
+    """
 
     image_name: str
-    efficiency_score: float = 1.0  # 0.0 to 1.0
+    status: DiveStatus
+    reason: str = ""
+    efficiency_score: float = 0.0  # 0.0 to 1.0
     wasted_bytes: int = 0
     total_bytes: int = 0
     layers: list[DiveLayerInfo] = Field(default_factory=list)
+
+
+def _parse_dive_export(image_name: str, export: dict[str, Any]) -> DiveAnalysisResult:
+    """Read the analysis from dive's JSON export (wagoodman/dive `export.Export`)."""
+    image = export["image"]
+    return DiveAnalysisResult(
+        image_name=image_name,
+        status="ran",
+        efficiency_score=image["efficiencyScore"],
+        wasted_bytes=image["inefficientBytes"],
+        total_bytes=image["sizeBytes"],
+        layers=[
+            DiveLayerInfo(
+                index=layer["index"],
+                digest=layer["digestId"],
+                size_bytes=layer["sizeBytes"],
+                command=layer["command"],
+            )
+            for layer in export["layer"]
+        ],
+    )
+
+
+def _run_dive_export(dive_bin: str, image_name: str, timeout: float) -> DiveAnalysisResult:
+    """Run dive with its JSON export pointed at a private file, then read that file.
+
+    `--json` names a file dive writes, never stdout: a `-` would create a file named `-`.
+    """
+    failed = DiveAnalysisResult(image_name=image_name, status="failed")
+    with tempfile.TemporaryDirectory(prefix="devops-dive-") as export_dir:
+        export_path = Path(export_dir) / "dive-export.json"
+        try:
+            proc = run_subprocess(
+                [dive_bin, image_name, "--json", str(export_path)], timeout=timeout, check=False
+            )
+            if proc.returncode != 0:
+                detail = (proc.stderr or proc.stdout or "").strip()[:256]
+                return failed.model_copy(
+                    update={"reason": f"dive exited with code {proc.returncode}: {detail}"}
+                )
+            if not export_path.is_file():
+                return failed.model_copy(update={"reason": "dive wrote no JSON export"})
+            export = json.loads(export_path.read_text(encoding="utf-8"))
+            return _parse_dive_export(image_name, export)
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as exc:
+            logger.debug("Dive analysis of %s failed: %s", image_name, exc)
+            return failed.model_copy(update={"reason": f"dive failed: {str(exc)[:256]}"})
 
 
 @trace_span("docker.dive")
@@ -47,66 +106,19 @@ def run_dive_analysis(
     image_name: str,
     timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
 ) -> DiveAnalysisResult:
-    """Analyze container image layers using Dive CLI or fallback inspect."""
+    """Analyze an image's layers with dive, or say why it could not: never a made-up result."""
     dive_bin = shutil.which("dive")
-    if not dive_bin or Path(dive_bin).is_symlink():
-        logger.debug("Dive CLI not found in PATH or is a symlink; synthesizing layer inspection.")
-        # Fallback inspection
+    if not dive_bin:
+        return DiveAnalysisResult(
+            image_name=image_name, status="unavailable", reason="dive is not on PATH"
+        )
+    if Path(dive_bin).is_symlink():
         return DiveAnalysisResult(
             image_name=image_name,
-            efficiency_score=0.98,
-            wasted_bytes=0,
-            total_bytes=150 * 1024 * 1024,
-            layers=[
-                DiveLayerInfo(
-                    index=0,
-                    size_bytes=80 * 1024 * 1024,
-                    wasted_bytes=0,
-                    command="FROM python:3.14-slim",
-                ),
-                DiveLayerInfo(
-                    index=1,
-                    size_bytes=70 * 1024 * 1024,
-                    wasted_bytes=0,
-                    command="COPY --from=ghcr.io/astral-sh/uv /uv /bin/uv",
-                ),
-            ],
+            status="unavailable",
+            reason=f"dive at {dive_bin} is a symlink, which is not executed",
         )
-
-    try:
-        from devops_cli.core.process import run_json_subprocess
-
-        data = run_json_subprocess(
-            [dive_bin, image_name, "--json", "-"],
-            timeout=timeout,
-            default={},
-        )
-        layer_list: list[DiveLayerInfo] = []
-        for idx, lyr in enumerate(data.get("layer", [])):
-            layer_list.append(
-                DiveLayerInfo(
-                    index=idx,
-                    digest=lyr.get("digest", ""),
-                    size_bytes=lyr.get("sizeBytes", 0),
-                    wasted_bytes=lyr.get("wastedBytes", 0),
-                    command=lyr.get("command", ""),
-                )
-            )
-
-        efficiency = float(data.get("image", {}).get("efficiencyScore", 1.0))
-        wasted = int(data.get("image", {}).get("wastedBytes", 0))
-        total = int(data.get("image", {}).get("sizeBytes", 0))
-
-        return DiveAnalysisResult(
-            image_name=image_name,
-            efficiency_score=efficiency,
-            wasted_bytes=wasted,
-            total_bytes=total,
-            layers=layer_list,
-        )
-    except Exception as exc:
-        logger.debug("Dive execution failed: %s", exc)
-        return DiveAnalysisResult(image_name=image_name)
+    return _run_dive_export(dive_bin, image_name, timeout)
 
 
 class DiveScanner(BaseSecurityScanner):
@@ -138,10 +150,9 @@ class DiveScanner(BaseSecurityScanner):
         return True, ""
 
     def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
-        """Build argument command list for invoking Dive.
+        """Name dive and the image it analyzes, from kwargs ('image' or 'image_name') or the target.
 
-        If target_path is an existing filesystem directory and no explicit image reference
-        is supplied via kwargs ('image' or 'image_name'), returns empty list to skip directory paths.
+        Returns an empty list for a filesystem directory with no image, to skip it.
         """
         image_name = kwargs.get("image") or kwargs.get("image_name")
         if not image_name:
@@ -152,31 +163,39 @@ class DiveScanner(BaseSecurityScanner):
                 )
                 return []
             image_name = str(target_path)
-        return [self.binary_name, str(image_name), "--json", "-"]
+        return [self.binary_name, str(image_name)]
+
+    def _run_scanner_command(
+        self, cmd: list[str], cwd_dir: Path, target_path: Any, timeout: float
+    ) -> ScanOutcome:
+        """Run dive through `run_dive_analysis`, since dive writes its analysis to a file."""
+        analysis = run_dive_analysis(cmd[1], timeout=timeout)
+        if analysis.status != "ran":
+            return ScanOutcome(analysis.status, [], analysis.reason)
+        return ScanOutcome("ran", self.parse_output(analysis, target_path))
 
     def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
-        """Convert Dive layer efficiency metrics into Finding models."""
-        findings: list[Finding] = []
-        if not isinstance(data, dict):
-            return findings
-        image_data = data.get("image", {})
-        efficiency = float(image_data.get("efficiencyScore", 1.0))
-        wasted_bytes = int(image_data.get("wastedBytes", 0))
-        img = str(target_path)
-        if efficiency < DEFAULT_DIVE_MIN_EFFICIENCY or wasted_bytes > DEFAULT_DIVE_MAX_WASTED_BYTES:
-            findings.append(
-                Finding(
-                    severity="MEDIUM",
-                    location=f"{img}:efficiency",
-                    title=f"[DIVE:layer-inefficiency] Efficiency Score {efficiency:.2f}",
-                    description=(
-                        f"Image {img} has an efficiency score of {efficiency:.2f} with "
-                        f"{wasted_bytes} wasted bytes across layers."
-                    ),
-                    fix="Combine consecutive RUN commands and prune build caches to optimize image layers.",
-                )
+        """Flag a completed dive analysis that misses the efficiency or wasted-space threshold."""
+        if not isinstance(data, DiveAnalysisResult):
+            return []
+        efficiency, wasted_bytes, img = data.efficiency_score, data.wasted_bytes, data.image_name
+        if (
+            efficiency >= DEFAULT_DIVE_MIN_EFFICIENCY
+            and wasted_bytes <= DEFAULT_DIVE_MAX_WASTED_BYTES
+        ):
+            return []
+        return [
+            Finding(
+                severity="MEDIUM",
+                location=f"{img}:efficiency",
+                title=f"[DIVE:layer-inefficiency] Efficiency Score {efficiency:.2f}",
+                description=(
+                    f"Image {img} has an efficiency score of {efficiency:.2f} with "
+                    f"{wasted_bytes} wasted bytes across layers."
+                ),
+                fix="Combine consecutive RUN commands and prune build caches to optimize image layers.",
             )
-        return findings
+        ]
 
     def dry_run_scan(self, target_path: Path, **kwargs: Any) -> list[Finding]:
         """Return simulated Dive layer inspection findings."""

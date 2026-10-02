@@ -2,27 +2,33 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Annotated
 
 import typer
+from pydantic import BaseModel, ValidationError
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
+from devops_cli.config.commands import BIN_KUBECTL
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_KUBECONFORM_VERSION,
 )
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
-from devops_cli.lang import HELP, MESSAGES
+from devops_cli.k8s.rbac import RbacBindingList, RbacRoleList, audit_rbac
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     TableColumn,
     TablePayload,
+    escape_text,
     format_json,
     format_k8s_lint_table,
     format_k8s_policy_table,
     format_k8s_rbac_table,
     format_k8s_schema_table,
     print,
+    print_error,
     print_info,
     print_muted,
     print_success,
@@ -30,8 +36,29 @@ from devops_cli.output import (
 )
 
 
+def _read_rbac[ListT: BaseModel](
+    resources: str, namespace: str | None, as_list: type[ListT]
+) -> ListT:
+    """Read RBAC objects with a read-only `kubectl get`; exit 1 when they cannot be read."""
+    scope = ["-n", namespace] if namespace else ["--all-namespaces"]
+    cmd = [BIN_KUBECTL, "get", resources, "-o", "json", *scope]
+    try:
+        proc = runtime._run_cmd(cmd, check=False, capture=True)
+        if proc.returncode == 0:
+            return as_list.model_validate_json(proc.stdout)
+        error = (proc.stderr or proc.stdout or f"exit code {proc.returncode}").strip()
+    except (OSError, subprocess.SubprocessError, ValidationError) as exc:
+        error = str(exc)
+    print_error(
+        ERRORS.k8s.resource_lookup_failed.format(resource=resources, exc=error[:256]), safe=True
+    )
+    raise typer.Exit(1)
+
+
 def rbac_audit(
-    namespace: Annotated[str | None, typer.Option("--namespace", "-n")] = None,
+    namespace: Annotated[
+        str | None, typer.Option("--namespace", "-n", help=HELP.k8s.rbac_namespace)
+    ] = None,
 ) -> None:
     """Audit RBAC RoleBindings and ServiceAccounts for overprivileged access."""
     if namespace:
@@ -45,15 +72,28 @@ def rbac_audit(
         )
         return
 
+    bindings = _read_rbac("clusterrolebindings,rolebindings", namespace, RbacBindingList).items
+    roles = _read_rbac("clusterroles,roles", namespace, RbacRoleList).items
+    violations = audit_rbac(bindings, roles)
+    if not violations:
+        print_success(MESSAGES.k8s.rbac_audit_passed.format(bindings=len(bindings)))
+        return
+
     rows = [
         [
-            namespace or "default",
-            "cluster-admin-binding",
-            "ClusterRole/cluster-admin",
-            "[green]PASS[/green]",
+            escape_text(v.namespace or MESSAGES.k8s.rbac_cluster_scope),
+            escape_text(v.binding),
+            escape_text(v.role),
+            escape_text(v.subject),
+            f"[red]FAIL[/red] {escape_text(v.reason)}",
         ]
+        for v in violations
     ]
     print(format_k8s_rbac_table(rows))
+    print_error(
+        MESSAGES.k8s.rbac_audit_failed.format(violations=len(violations), bindings=len(bindings))
+    )
+    raise typer.Exit(1)
 
 
 def k8s_lint(

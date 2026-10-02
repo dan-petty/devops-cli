@@ -11,6 +11,7 @@ import pytest
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.security.base import BaseSecurityScanner
+from devops_cli.security.dive import DiveAnalysisResult
 from devops_cli.security.registry import ScannerRegistry, global_scanner_registry
 
 
@@ -256,15 +257,6 @@ _SAMPLE_STDOUTS: dict[str, str] = {
             }
         }
     ),
-    "dive": json.dumps(
-        {
-            "image": {
-                "efficiencyScore": 0.80,
-                "wastedBytes": 60000000,
-                "sizeBytes": 200000000,
-            }
-        }
-    ),
     "gitleaks": json.dumps(
         [
             {
@@ -386,10 +378,19 @@ def test_scanner_contract_execution_and_parsing(scanner_name: str, tmp_path: Pat
 
     sample_stdout = _SAMPLE_STDOUTS.get(scanner_name, "[]")
     mock_proc = MagicMock(returncode=0, stdout=sample_stdout, stderr="")
+    # Dive writes its analysis to a file, so its adapter reads it through `run_dive_analysis`.
+    dive_analysis = DiveAnalysisResult(
+        image_name="ubuntu:latest",
+        status="ran",
+        efficiency_score=0.80,
+        wasted_bytes=60_000_000,
+        total_bytes=200_000_000,
+    )
 
     with (
         patch("devops_cli.security.base.check_binary", return_value=True),
         patch("devops_cli.security.base.run_subprocess", return_value=mock_proc),
+        patch("devops_cli.security.dive.run_dive_analysis", return_value=dive_analysis),
     ):
         findings = scanner.scan(test_file, image="ubuntu:latest", context="test-cluster")
         assert isinstance(findings, list)

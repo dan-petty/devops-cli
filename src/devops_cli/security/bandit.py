@@ -2,22 +2,14 @@
 
 from __future__ import annotations
 
-import json
-import logging
 from pathlib import Path
 from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_BANDIT
-from devops_cli.config.defaults import (
-    DEFAULT_BANDIT_SEVERITY,
-    DEFAULT_CURRENT_PATH,
-    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-)
-from devops_cli.core.process import run_subprocess
+from devops_cli.config.defaults import DEFAULT_BANDIT_SEVERITY, DEFAULT_CURRENT_PATH
+from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
-
-logger = logging.getLogger(__name__)
 
 
 def _parse_single_bandit_result(res: dict[str, Any], target_path: str = "") -> Finding:
@@ -119,23 +111,6 @@ class BanditScanner(BaseSecurityScanner):
                 confidence_score=None,
             )
         ]
-
-
-def _execute_bandit_subprocess(
-    scanner: BanditScanner,
-    cmd: list[str],
-    target: Path | list[Path],
-) -> list[Finding]:
-    """Execute Bandit command and parse findings."""
-    try:
-        proc = run_subprocess(cmd, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, check=False)
-        if proc.stdout:
-            data = json.loads(proc.stdout)
-            if isinstance(data, dict):
-                return scanner.parse_output(data, target)
-    except Exception as exc:
-        logger.debug("Bandit scan execution skipped or failed: %s", exc)
-    return []
 
 
 def run_bandit_scan(
