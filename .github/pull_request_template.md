@@ -15,7 +15,7 @@
 ---
 
 ## Base Branch
-<!-- Every pull request except the release pull request targets the active release branch. -->
+<!-- Every pull request except the release pull request targets the active release branch. A release-process pull request, which opens or cuts the release, comes from `chore/open-v<version>` or `chore/cut-v<version>`. -->
 - `release/v<version>` (not `main`)
 
 ---
@@ -25,3 +25,6 @@
 Closes #<issue>
 
 Task file: `docs/agent/tasks/task-<issue>-<slug>.md`
+
+Changelog fragment: `changelog.d/<issue>.md`
+<!-- The entry goes there. Do not edit `CHANGELOG.md` or `docs/ROADMAP.md`: the cut writes both, and `devops pr check-readiness` blocks a pull request into a release branch that changes either. -->

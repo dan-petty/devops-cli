@@ -243,9 +243,12 @@ devops pr close [OPTIONS] <number>
 
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
-Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch):
-its body closes exactly one issue, and it adds, modifies or renames that issue's
-docs/agent/tasks/task-\<issue\>-*.md. A base branch without docs/agent/tasks/ is exempt.
+Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
+and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
+body closes exactly one issue, and it adds, modifies or renames that issue's
+docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves CHANGELOG.md and
+docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. A base branch without
+docs/agent/tasks/ is exempt.
 
 ```bash
 devops pr check-readiness [OPTIONS] <number>

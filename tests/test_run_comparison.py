@@ -7,6 +7,7 @@ baseline setting/getting/listing, and regression checks via library APIs and the
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,7 @@ from devops_cli.ai.run_store import (
     save_run,
     set_baseline,
 )
+from devops_cli.commands import ai_runs
 from devops_cli.main import app
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
@@ -423,3 +425,116 @@ def test_cli_runs_compare_and_check(run_env: Path) -> None:
         1,
         True,
     )
+
+
+def _corpus_arm(run_id: str, **results: Any) -> RunRecord:
+    """A corpus score whose means are fixed and whose `spread`, if any, is given.
+
+    Built directly rather than by `new_run`, which runs git three times for the commit.
+    """
+    return RunRecord(
+        mechanism=Mechanism.CORPUS_SCORE,
+        run_id=run_id,
+        created_at=datetime.now(UTC),
+        version="0",
+        setup={"prompt_digest": "d1", "runs": 3},
+        subject={"corpus_digest": "c"},
+        results={"recall_found": 0.5, "recall_reported": 0.2, **results},
+    )
+
+
+def _table_row(output: str, metric: str) -> str:
+    return next(line for line in output.splitlines() if f" {metric} " in line)
+
+
+# The runs group's own app parses `devops ai runs compare` as the full CLI does, without building
+# every `devops ai` command on each invocation.
+
+
+@pytest.mark.parametrize(
+    ("current_results", "expected"),
+    [
+        ({"spread": {"recall_found": [0.5, 1.0]}}, ((0.25, 0.75), (0.5, 1.0), "overlaps")),
+        ({"spread": {"recall_found": [0.8, 1.0]}}, ((0.25, 0.75), (0.8, 1.0), "apart")),
+        ({"spread": None}, ((0.25, 0.75), None, "—")),
+        ({}, ((0.25, 0.75), None, "—")),
+    ],
+    ids=["overlapping", "apart", "one-run-score", "no-spread"],
+)
+def test_comparing_arms_reads_their_difference_against_each_ranges(
+    run_env: Path, current_results: dict[str, Any], expected: tuple[Any, ...]
+) -> None:
+    """Verify each run's range comes from its `spread`, and the compare table marks whether the
+    ranges overlap; a run without a range, such as a one-run score, reads `—` (#413)."""
+    base = _corpus_arm("20261002T000000Z-base00", spread={"recall_found": [0.25, 0.75]})
+    current = _corpus_arm("20261002T000001Z-curr00", **current_results)
+    save_run(base)
+    save_run(current)
+
+    recall = compare_runs(base, current).metrics["recall_found"]
+    result = cli.invoke(ai_runs.app, ["compare", base.run_id, current.run_id])
+    row = _table_row(result.stdout, "recall_found")
+
+    assert (result.exit_code, (recall.base_range, recall.current_range, row.split()[-1])) == (
+        0,
+        expected,
+    )
+
+
+def test_comparing_arms_compares_their_finding_counts_beside_their_ranges(run_env: Path) -> None:
+    """Verify the compare reads each arm's mean candidate, invalidated and reported findings,
+    each beside its range when the arm's `spread` has one (#413)."""
+    base = _corpus_arm(
+        "20261002T000000Z-base00",
+        candidate_findings=12.3,
+        invalidated_findings=4.0,
+        reported_findings=8.3,
+        spread={"candidate_findings": [10, 14], "reported_findings": [7, 9]},
+    )
+    current = _corpus_arm(
+        "20261002T000001Z-curr00",
+        candidate_findings=15.7,
+        invalidated_findings=2.0,
+        reported_findings=13.7,
+        spread={"candidate_findings": [13, 17], "reported_findings": [12, 15]},
+    )
+    save_run(base)
+    save_run(current)
+
+    metrics = compare_runs(base, current).metrics
+    result = cli.invoke(ai_runs.app, ["compare", base.run_id, current.run_id])
+    counts = ("candidate_findings", "invalidated_findings", "reported_findings")
+
+    assert (
+        result.exit_code,
+        [
+            (m.base_value, m.current_value, m.base_range, m.current_range)
+            for m in (metrics[name] for name in counts)
+        ],
+        [_table_row(result.stdout, name).split()[-1] for name in counts],
+    ) == (
+        0,
+        [
+            (12.3, 15.7, (10.0, 14.0), (13.0, 17.0)),
+            (4.0, 2.0, None, None),
+            (8.3, 13.7, (7.0, 9.0), (12.0, 15.0)),
+        ],
+        ["overlaps", "—", "apart"],
+    )
+
+
+def test_runs_without_a_spread_compare_without_range_columns(run_env: Path) -> None:
+    """Verify runs with no spread have no ranges, and the table adds no range columns (#413)."""
+    base = _corpus_arm("20261002T000000Z-base00")
+    current = _corpus_arm("20261002T000001Z-curr00", spread=None)
+    save_run(base)
+    save_run(current)
+
+    comparison = compare_runs(base, current)
+    result = cli.invoke(ai_runs.app, ["compare", base.run_id, current.run_id])
+
+    assert (
+        result.exit_code,
+        {(m.base_range, m.current_range) for m in comparison.metrics.values()},
+        "Spread" in result.stdout,
+    ) == (0, {(None, None)}, False)

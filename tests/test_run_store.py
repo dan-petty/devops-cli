@@ -35,6 +35,7 @@ from devops_cli.commands import ai_gateway
 from devops_cli.commands import review as review_commands
 from devops_cli.config import settings as settings_module
 from devops_cli.config.settings import (
+    AITaskOverride,
     get_runs_index_password,
     load_settings,
     reset_settings_cache,
@@ -406,3 +407,44 @@ def test_get_run_retrieves_saved_run(tmp_path: Path) -> None:
         prefix_retrieved is not None,
         prefix_retrieved.run_id if prefix_retrieved else "",
     ) == (True, record.run_id, True, record.run_id)
+
+
+def test_a_review_setup_names_the_model_and_sampling_that_verified(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify verification is layered on the analysis task as reviews layer it: with
+    `ai.tasks.verification` unset, the setup records the analysis model, its pool alone and its
+    sampling, not the base `ai` model's (#413)."""
+    settings = load_settings().model_copy(deep=True)
+    settings.ai.provider, settings.ai.model = "gateway", "devops-chat"
+    settings.ai.tasks.analysis = AITaskOverride(
+        provider="gateway", model="devops-coder", temperature=0.3, top_p=0.8
+    )
+    monkeypatch.setattr("devops_cli.config.settings.load_settings", lambda: settings)
+    pool = [{"backend": "backend-a", "model": "ollama_chat/qwen3-coder:30b", "weight": 1}]
+    monkeypatch.setattr(run_store, "gateway_pool", lambda task: pool)
+
+    setup = run_store.review_setup()
+
+    assert (
+        setup["models"]["verification"] == setup["models"]["analysis"],
+        setup["models"]["analysis"],
+        setup["pools"],
+        setup["sampling"],
+    ) == (
+        True,
+        "gateway/devops-coder",
+        {"devops-coder": pool},
+        {
+            "analysis": {"temperature": 0.3, "top_p": 0.8},
+            "verification": {"temperature": 0.3, "top_p": 0.8},
+        },
+    )
+
+
+def test_unpinned_groups_are_those_serving_more_than_one_model() -> None:
+    """Verify a group is unpinned only when its known pool serves two or more models (#413)."""
+    one, other = {"model": "ollama_chat/qwen3-coder:30b"}, {"model": "ollama_chat/gpt-oss:20b"}
+    setup = {"pools": {"mixed": [one, other], "pinned": [one, one], "unknown": None}}
+
+    assert (run_store.unpinned_groups(setup), run_store.unpinned_groups({})) == ({"mixed": 2}, {})

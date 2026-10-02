@@ -259,13 +259,32 @@ def _render_setup_diff(diff: dict[str, tuple[Any, Any]]) -> None:
     )
 
 
+def _range_cell(bounds: tuple[float, float] | None) -> str:
+    return f"{bounds[0]:.4g}–{bounds[1]:.4g}" if bounds else "—"
+
+
+def _spread_cell(m: MetricDiff) -> str:
+    """Whether two runs' ranges overlap; a run without a range has no spread to read against."""
+    if m.base_range is None or m.current_range is None:
+        return "—"
+    (base_low, base_high), (current_low, current_high) = m.base_range, m.current_range
+    return "overlaps" if base_low <= current_high and current_low <= base_high else "apart"
+
+
 def _render_comparison_metrics(metrics: dict[str, MetricDiff]) -> None:
-    """Render numeric metric differences."""
+    """Render numeric metric differences, beside each run's range when either run has one."""
+    ordered = sorted(metrics.values(), key=lambda item: item.name)
+    ranged = any(m.base_range or m.current_range for m in ordered)
     rows = []
-    for m in sorted(metrics.values(), key=lambda item: item.name):
+    for m in ordered:
         change_str = f"{m.absolute_change:+g}"
         pct_str = f"{m.percent_change:+.1f}%" if m.percent_change is not None else "—"
-        rows.append([m.name, f"{m.base_value:.4g}", f"{m.current_value:.4g}", change_str, pct_str])
+        ranges = [_range_cell(m.base_range), _range_cell(m.current_range), _spread_cell(m)]
+        rows.append(
+            [m.name, f"{m.base_value:.4g}", f"{m.current_value:.4g}", change_str, pct_str]
+            + (ranges if ranged else [])
+        )
+    range_columns = [("Base range", "right"), ("Current range", "right"), ("Spread", "")]
     print_table(
         title="Metrics Comparison",
         columns=[
@@ -274,6 +293,7 @@ def _render_comparison_metrics(metrics: dict[str, MetricDiff]) -> None:
             ("Current", "right"),
             ("Change", "right"),
             ("% Change", "right"),
+            *(range_columns if ranged else []),
         ],
         rows=rows,
     )
