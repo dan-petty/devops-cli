@@ -140,12 +140,15 @@ class OTelTyper(typer.Typer):
                 mod_path, _, _ = target.partition(":")
                 _delegate(mod_path, cmd_name, list(ctx.args))
 
+            # Interspersed parsing would consume a `--` while collecting the extra arguments,
+            # and the delegated command would then parse what followed it as options (#980).
             super().command(
                 name=cmd_name,
                 help=help_text,
                 add_help_option=False,
                 context_settings={
                     "allow_extra_args": True,
+                    "allow_interspersed_args": False,
                     "ignore_unknown_options": True,
                 },
             )(_lazy_proxy)

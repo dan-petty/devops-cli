@@ -143,7 +143,7 @@ It never writes. A person reviews the plan and runs `devops roadmap migrate --co
 | [`ssh_audit`](#ssh-audit) | Audit SSH key expiration dates and key file permissions. |
 | [`ssh_status`](#ssh-status) | Inspect age and rotation status of managed SSH keys in ~/.ssh. |
 | [`telemetry_logfire_status`](#telemetry-logfire-status) | Check Logfire structured observability bridge status, token configuration, and recorded metrics. |
-| [`telemetry_profile`](#telemetry-profile) | Run a command, or name a trace, and show its span waterfall as Jaeger recorded it. |
+| [`telemetry_profile`](#telemetry-profile) | Show the span waterfall Jaeger recorded for a trace ID; the tool runs no command. |
 | [`telemetry_status`](#telemetry-status) | Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings. |
 | [`telemetry_test_span`](#telemetry-test-span) | Emit a test OpenTelemetry trace span and metric to verify collector pipeline health. |
 | [`tf_apply`](#tf-apply) | Apply OpenTofu / Terraform Infrastructure-as-Code changes. |
@@ -1585,14 +1585,13 @@ Check Logfire structured observability bridge status, token configuration, and r
 
 ### `telemetry_profile`
 
-Run a command, or name a trace, and show its span waterfall as Jaeger recorded it.
+Show the span waterfall Jaeger recorded for a trace ID; the tool runs no command.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `command` | `string` | No | `` | - |
-| `trace_id` | `string` | No | `` | - |
+| `trace_id` | `string` | Yes | - | - |
 
 ### `telemetry_status`
 

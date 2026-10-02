@@ -1053,7 +1053,8 @@ class TelemetryCommandHelp:
         "Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans."
     )
     command_to_profile: str = (
-        "CLI command string to profile and render waterfall for (e.g. 'devops k8s contexts')."
+        "devops-cli command line to run and profile; its first word must be 'devops' "
+        "(e.g. 'devops k8s contexts'), and any other program is refused."
     )
     trace_id: str = "Trace ID to read from Jaeger and show, instead of running a command."
     logfire: str = "Display Logfire structured observability bridge status and token metrics."

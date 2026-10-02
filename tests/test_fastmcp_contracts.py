@@ -1355,3 +1355,97 @@ def test_the_roadmap_tools_build_the_commands_argv() -> None:
         [*head, "render", *target],
         [*head, "migrate", "--dry-run", *target],
     ]
+
+
+# =============================================================================
+# telemetry_profile names a trace and runs nothing (#980)
+# =============================================================================
+
+_PROFILED_TRACE = "0af7651916cd43dd8448eb211c80319c"
+
+
+async def test_telemetry_profile_publishes_a_trace_id_and_no_command() -> None:
+    """`telemetry_profile(command=...)` ran whatever program an MCP caller named.
+
+    `devops telemetry profile` split the string with `shlex` and ran it with the user's whole
+    environment, so a prompt-injected agent ran anything with every credential in reach. An
+    MCP caller now names a trace already in Jaeger, and the trace ID is all it can send.
+    """
+    import inspect
+
+    from devops_cli.ai.mcp.server import telemetry_profile
+
+    schema = (await _published_schemas())["telemetry_profile"]
+    assert (
+        tuple(inspect.signature(telemetry_profile).parameters),
+        sorted(schema["properties"]),
+        schema.get("required"),
+    ) == (("trace_id",), ["trace_id"], ["trace_id"])
+
+
+async def test_telemetry_profile_refuses_a_command_before_anything_runs(handler_runner) -> None:
+    """The call that profiled `bash -c true` is refused as a parameter the tool never had."""
+    is_error, reply = await _call(
+        "telemetry_profile", {"command": "bash -c true", "trace_id": _PROFILED_TRACE}
+    )
+    assert (
+        is_error,
+        "Parameter: `command`" in reply,
+        "HALLUCINATED_PARAM" in reply,
+        handler_runner.call_count,
+    ) == (True, True, True, 0)
+
+
+def test_telemetry_profile_reads_the_named_trace() -> None:
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import telemetry_profile
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
+        telemetry_profile(trace_id=_PROFILED_TRACE)
+    assert run.call_args.args[0] == [
+        "uv",
+        "run",
+        "devops",
+        "telemetry",
+        "profile",
+        "--trace-id",
+        _PROFILED_TRACE,
+    ]
+
+
+def test_docker_sandbox_hands_its_command_over_after_the_options_end() -> None:
+    """`docker_sandbox` appended `command` straight after its own options (#980).
+
+    `devops docker sandbox` parsed a leading `--root` or `--cpus 64` in that list as its own
+    option, so a caller turned off the rootless default the tool never offered. `--` ends the
+    options, as `sandbox_deploy` and `sandbox_exec` already did.
+    """
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import docker_sandbox
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
+        docker_sandbox(command=["--root", "id"])
+    assert run.call_args.args[0][-3:] == ["--", "--root", "id"]
+
+
+def test_a_delegated_command_receives_the_end_of_options_marker(monkeypatch) -> None:
+    """The lazy proxy in front of each command group dropped `--` (#980).
+
+    Click consumed the marker while collecting the proxy's extra arguments, so the command
+    behind it parsed what followed as options. `sandbox_exec` and `sandbox_deploy` end their
+    options with `--`, and `sandbox_exec(command=["--workdir", "/", "id"])` set the workdir.
+    """
+    from typer.testing import CliRunner
+
+    import devops_cli.main as main_module
+
+    delegated: list[str] = []
+    monkeypatch.setattr(
+        main_module, "_delegate", lambda _module, _name, args: delegated.extend(args)
+    )
+    result = CliRunner().invoke(
+        main_module.app, ["sandbox", "exec", "abc", "--", "--workdir", "/", "id"]
+    )
+    assert (result.exit_code, delegated) == (0, ["exec", "abc", "--", "--workdir", "/", "id"])

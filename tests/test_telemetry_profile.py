@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -127,8 +128,81 @@ def test_profile_refuses_a_command_when_telemetry_export_is_off() -> None:
         patch("devops_cli.commands.telemetry.get_tracer", return_value=_profile_tracer(False)),
         patch("devops_cli.core.process.run_subprocess") as mock_run,
     ):
-        result = runner.invoke(app, ["profile", "echo hello"])
+        result = runner.invoke(app, ["profile", "devops version"])
     assert (result.exit_code, mock_run.called, "export is off" in result.output) == (1, False, True)
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["bash -c true", "/usr/local/bin/devops version", "env devops version", "devops 'version", " "],
+)
+def test_profile_refuses_anything_but_a_devops_command(command: str, no_poll_wait: None) -> None:
+    """`profile` split any command line with `shlex` and ran it with the full environment.
+
+    Reached through the MCP tool, that let a prompt-injected agent run any program with every
+    credential in reach (#980). A command line whose first word is not `devops`, or that does
+    not split, is refused before a process starts.
+    """
+    with (
+        patch("devops_cli.commands.telemetry.get_tracer", return_value=_profile_tracer()),
+        patch("devops_cli.core.process.run_subprocess") as mock_run,
+        patch("devops_cli.commands.telemetry.query_jaeger_trace", return_value=[]),
+    ):
+        result = runner.invoke(app, ["profile", command])
+    assert (
+        result.exit_code,
+        mock_run.called,
+        "only a devops-cli command" in result.output,
+    ) == (1, False, True)
+
+
+def test_profile_runs_a_devops_command_through_the_entry_point(no_poll_wait: None) -> None:
+    """`devops` names the entry point this interpreter runs, not whatever is first on PATH.
+
+    `-P` keeps the working directory off `sys.path`, as it is for the `devops` script.
+    """
+    import sys
+
+    with (
+        patch("devops_cli.commands.telemetry.get_tracer", return_value=_profile_tracer()),
+        patch(
+            "devops_cli.core.process.run_subprocess",
+            return_value=subprocess.CompletedProcess(["devops"], 0),
+        ) as mock_run,
+        patch(
+            "devops_cli.commands.telemetry.query_jaeger_trace",
+            return_value=[_span("a1", "telemetry.profile", None, 0, 10)],
+        ),
+    ):
+        result = runner.invoke(app, ["profile", "devops version"])
+    assert (
+        result.exit_code,
+        mock_run.call_args.args[0],
+        mock_run.call_args.kwargs["isolate_env"],
+    ) == (0, [sys.executable, "-P", "-m", "devops_cli.entry", "version"], False)
+
+
+def test_profile_child_imports_nothing_from_the_working_directory(tmp_path: Path) -> None:
+    """`python -m` put the working directory first on the child's `sys.path`.
+
+    Profiling from a checkout holding a `token.py` ran that file, with the full environment, in
+    place of the standard library module devops-cli imports, where the `devops` script runs
+    devops-cli (#980). The child's interpreter and flags, started from such a directory, import
+    the standard library module. The whole child takes seconds to start, so only the part before
+    `-m` runs here.
+    """
+    from devops_cli.commands.telemetry import _devops_entry_argv
+
+    (tmp_path / "token.py").write_text("raise SystemExit(99)\n", encoding="utf-8")
+    argv = _devops_entry_argv("devops version")
+    proc = subprocess.run(
+        [*argv[: argv.index("-m")], "-c", "import token"],
+        cwd=tmp_path,
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+    assert (proc.returncode, proc.stderr) == (0, b"")
 
 
 def test_profile_shows_the_child_spans_jaeger_recorded(no_poll_wait: None) -> None:

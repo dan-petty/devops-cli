@@ -7514,7 +7514,7 @@ devops telemetry test [OPTIONS]
 
 ### `devops telemetry profile`
 
-**Run a command, or name a trace, and show its span waterfall as Jaeger recorded it.**
+**Run a devops-cli command, or name a trace, and show its span waterfall as Jaeger recorded it.**
 
 ```bash
 devops telemetry profile [OPTIONS] <command>
@@ -7524,7 +7524,7 @@ devops telemetry profile [OPTIONS] <command>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<command>` | `string` | No | CLI command string to profile and render waterfall for (e.g. 'devops k8s contexts'). |
+| `<command>` | `string` | No | devops-cli command line to run and profile; its first word must be 'devops' (e.g. 'devops k8s contexts'), and any other program is refused. |
 
 **Options:**
 
