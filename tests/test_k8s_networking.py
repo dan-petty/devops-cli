@@ -96,6 +96,7 @@ def test_collect_port_forward_services_and_details() -> None:
         "grafana": 8030,
         "prometheus": 8090,
         "jaeger": 16686,
+        "pyroscope": 4040,
         "otel": 4318,
         "ollama": 11434,
         "open_webui": 3000,
@@ -111,11 +112,13 @@ def test_collect_port_forward_services_and_details() -> None:
         len(services_infra),
         len(services_llm),
         details_infra["argocd.url"],
+        details_infra["pyroscope.url"],
         details_llm["ollama.url"],
     ) == (
-        5,
+        6,
         4,
         "http://localhost:8080",
+        "http://localhost:4040",
         "http://localhost:11434",
     )
 

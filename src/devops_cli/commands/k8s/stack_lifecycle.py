@@ -669,6 +669,10 @@ def _post_deploy_credentials(
             "[dim]Jaeger OTLP Traces: localhost:4317 (gRPC) / localhost:4318 (HTTP)[/dim]",
             prefix=False,
         )
+        print_info(
+            "[dim]Pyroscope UI: http://localhost:4040 (namespace: monitoring)[/dim]",
+            prefix=False,
+        )
     if "llm" in selected_stacks:
         from devops_cli.k8s.credentials import sync_k8s_credentials
 

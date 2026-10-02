@@ -47,9 +47,13 @@ def test_k8s_port_forward_jaeger_dry_run(runner: CliRunner) -> None:
             k8s_app,
             ["port-forward", "--stack", "infra"],
         )
-        assert result.exit_code == 0
-        assert "jaeger.url" in result.output
-        assert "16686" in result.output
+        assert (
+            result.exit_code,
+            "jaeger.url" in result.output,
+            "16686" in result.output,
+            "pyroscope.url" in result.output,
+            "4040" in result.output,
+        ) == (0, True, True, True, True)
     finally:
         set_dry_run(False)
 
@@ -65,8 +69,11 @@ def test_k8s_configure_urls_jaeger_dry_run(runner: CliRunner) -> None:
             k8s_app,
             ["configure-urls", "--stack", "infra"],
         )
-        assert result.exit_code == 0
-        assert "jaeger.url" in result.output
+        assert (
+            result.exit_code,
+            "jaeger.url" in result.output,
+            "pyroscope.url" in result.output,
+        ) == (0, True, True)
     finally:
         set_dry_run(False)
 
@@ -94,6 +101,9 @@ def test_k8s_deploy_stack_shows_jaeger_connection_info(runner: CliRunner) -> Non
         mock_run.return_value = mock_proc
 
         result = runner.invoke(k8s_app, ["deploy-stack", "--stack", "infra"])
-        assert result.exit_code == 0
-        assert "Jaeger Query UI: http://localhost:16686 (namespace: otel)" in result.output
-        assert "Jaeger OTLP Traces: localhost:4317 (gRPC) / localhost:4318 (HTTP)" in result.output
+        assert (
+            result.exit_code,
+            "Jaeger Query UI: http://localhost:16686 (namespace: otel)" in result.output,
+            "Jaeger OTLP Traces: localhost:4317 (gRPC) / localhost:4318 (HTTP)" in result.output,
+            "Pyroscope UI: http://localhost:4040 (namespace: monitoring)" in result.output,
+        ) == (0, True, True, True)

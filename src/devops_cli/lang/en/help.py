@@ -309,6 +309,7 @@ class K8sCommandHelp:
     grafana_port: str = "Local port for Grafana."
     prometheus_port: str = "Local port for Prometheus."
     jaeger_port: str = "Local port for Jaeger Query UI."
+    pyroscope_port: str = "Local port for Pyroscope Continuous Profiling UI."
     otel_port: str = "Local port for OpenTelemetry OTLP Traces (HTTP)."
     ollama_port: str = "Local port for Ollama."
     open_webui_port: str = "Local port for Open-WebUI."

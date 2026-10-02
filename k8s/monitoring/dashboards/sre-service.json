@@ -955,6 +955,81 @@
       ],
       "title": "Live Service Logs (Loki)",
       "type": "logs"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 51
+      },
+      "id": 18,
+      "panels": [],
+      "title": "Continuous Profiling & Flamegraphs (Pyroscope)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "pyroscope"
+      },
+      "description": "Continuous CPU profiling flamegraph from Grafana Pyroscope for the selected service.",
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 0,
+        "y": 52
+      },
+      "id": 19,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-pyroscope-datasource",
+            "uid": "pyroscope"
+          },
+          "expr": "process_cpu:cpu:nanoseconds:cpu:nanoseconds{service_name=~\".*$service.*\"}",
+          "groupBy": [],
+          "labelSelector": "{service_name=~\".*$service.*\"}",
+          "profileTypeId": "process_cpu:cpu:nanoseconds:cpu:nanoseconds",
+          "queryType": "profile",
+          "refId": "A"
+        }
+      ],
+      "title": "CPU Profiling Flamegraph (process_cpu)",
+      "type": "flamegraph"
+    },
+    {
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "pyroscope"
+      },
+      "description": "Continuous memory profiling flamegraph (in-use space) from Grafana Pyroscope for the selected service.",
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 12,
+        "y": 52
+      },
+      "id": 20,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-pyroscope-datasource",
+            "uid": "pyroscope"
+          },
+          "expr": "memory:inuse_space:bytes:space:bytes{service_name=~\".*$service.*\"}",
+          "groupBy": [],
+          "labelSelector": "{service_name=~\".*$service.*\"}",
+          "profileTypeId": "memory:inuse_space:bytes:space:bytes",
+          "queryType": "profile",
+          "refId": "A"
+        }
+      ],
+      "title": "Memory Profiling Flamegraph (inuse_space)",
+      "type": "flamegraph"
     }
   ],
   "refresh": "10s",
@@ -965,7 +1040,9 @@
     "services",
     "logs",
     "loki",
-    "prometheus"
+    "prometheus",
+    "pyroscope",
+    "profiling"
   ],
   "templating": {
     "list": [

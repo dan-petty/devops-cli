@@ -31,6 +31,7 @@ PROVISIONED = {
         "llm-stack.json",
         "otel-collector.json",
         "prometheus-server.json",
+        "pyroscope.json",
     ],
 }
 # All dashboards are now provisioned via sidecar ConfigMaps.

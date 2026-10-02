@@ -33,6 +33,7 @@ from devops_cli.config.defaults import (
     DEFAULT_OPEN_WEBUI_PORT,
     DEFAULT_OTEL_PORT,
     DEFAULT_PROMETHEUS_PORT,
+    DEFAULT_PYROSCOPE_PORT,
     DEFAULT_QDRANT_PORT,
     DEFAULT_REST_HOST,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -379,11 +380,13 @@ def _configure_infra_stack_urls(
         "kube-prometheus-kube-prome-prometheus", "monitoring", context=effective_context
     ) or _detect_service_url("prometheus", "monitoring", context=effective_context)
     raw_jaeger = _detect_service_url("jaeger", "otel", context=effective_context)
+    raw_pyro = _detect_service_url("pyroscope", "monitoring", context=effective_context)
 
     argocd_url = _resolve_accessible_url(raw_argocd, preferred_localhost_ports=[8080])
     grafana_url = _resolve_accessible_url(raw_grafana, preferred_localhost_ports=[8030, 8000, 3000])
     prom_url = _resolve_accessible_url(raw_prom, preferred_localhost_ports=[8090, 9090])
     jaeger_url = _resolve_accessible_url(raw_jaeger, preferred_localhost_ports=[16686])
+    pyro_url = _resolve_accessible_url(raw_pyro, preferred_localhost_ports=[4040])
 
     _apply_service_url(
         settings, configured, "argocd.url", argocd_url, getattr(settings.argocd, "url", None)
@@ -393,6 +396,13 @@ def _configure_infra_stack_urls(
     )
     _apply_service_url(
         settings, configured, "prometheus.url", prom_url, getattr(settings.prometheus, "url", None)
+    )
+    _apply_service_url(
+        settings,
+        configured,
+        "pyroscope.url",
+        pyro_url,
+        getattr(getattr(settings, "pyroscope", None), "url", None),
     )
     if jaeger_url and _should_update_url(getattr(settings.jaeger, "url", None), jaeger_url):
         dotted_set(settings, "jaeger.url", jaeger_url)
@@ -486,6 +496,7 @@ _PROXY_TARGETS_INFRA: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], .
     ("grafana.url", "monitoring", ("grafana",), ("80", "http", "service")),
     ("prometheus.url", "monitoring", ("prome-prometheus", "prometheus"), ("9090", "web")),
     ("jaeger.url", "otel", ("jaeger",), ("16686", "query", "http-query")),
+    ("pyroscope.url", "monitoring", ("pyroscope",), ("4040", "http2", "http")),
 )
 _PROXY_TARGETS_LLM: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("open_webui.url", "llm", ("open-webui",), ("80", "http")),
@@ -532,6 +543,7 @@ _NODEPORT_KEYS_INFRA: tuple[str, ...] = (
     "prometheus.url",
     "jaeger.url",
     "otel.endpoint",
+    "pyroscope.url",
 )
 _NODEPORT_KEYS_LLM: tuple[str, ...] = (
     "ai.ollama_urls",
@@ -909,6 +921,7 @@ def _build_port_forward_details(
                 "prometheus.url": f"http://localhost:{ports['prometheus']}",
                 "jaeger.url": f"http://localhost:{ports['jaeger']}",
                 "otel.endpoint": f"http://localhost:{ports['otel']}",
+                "pyroscope.url": f"http://localhost:{ports['pyroscope']}",
             }
         )
     if "llm" in selected_stacks:
@@ -942,6 +955,7 @@ def _collect_port_forward_services(
                 ),
                 ("otel", "svc/jaeger", ports["jaeger"], 16686),
                 ("otel", "svc/jaeger", ports["otel"], 4318),
+                ("monitoring", "svc/pyroscope", ports["pyroscope"], 4040),
             ]
         )
     if "llm" in selected_stacks:
@@ -1030,6 +1044,9 @@ def port_forward(
     jaeger_port: Annotated[
         int, typer.Option("--jaeger-port", help=HELP.k8s.jaeger_port)
     ] = DEFAULT_JAEGER_PORT,
+    pyroscope_port: Annotated[
+        int, typer.Option("--pyroscope-port", help=HELP.k8s.pyroscope_port)
+    ] = DEFAULT_PYROSCOPE_PORT,
     otel_port: Annotated[
         int, typer.Option("--otel-port", help=HELP.k8s.otel_port)
     ] = DEFAULT_OTEL_PORT,
@@ -1069,6 +1086,7 @@ def port_forward(
         "grafana": grafana_port,
         "prometheus": prometheus_port,
         "jaeger": jaeger_port,
+        "pyroscope": pyroscope_port,
         "otel": otel_port,
         "ollama": ollama_port,
         "open_webui": open_webui_port,
