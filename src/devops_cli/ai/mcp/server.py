@@ -1137,17 +1137,16 @@ def config_audit_keys() -> str:
     )
 
 
+# An MCP caller is untrusted, so it names a trace and nothing runs: a command to profile ran
+# whatever program the caller named, with the user's full environment (#980).
 @mcp.tool()
-def telemetry_profile(command: str = "", trace_id: str = "") -> str:
-    """Run a command, or name a trace, and show its span waterfall as Jaeger recorded it."""
-    cmd = ["uv", "run", "devops", "telemetry", "profile"]
-    if command:
-        _validate_mcp_arg("command", command)
-        cmd.append(command)
-    if trace_id:
-        _validate_mcp_arg("trace_id", trace_id)
-        cmd.extend(["--trace-id", trace_id])
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+def telemetry_profile(trace_id: str) -> str:
+    """Show the span waterfall Jaeger recorded for a trace ID; the tool runs no command."""
+    _validate_mcp_arg("trace_id", trace_id)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "telemetry", "profile", "--trace-id", trace_id],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
 
 
 @mcp.tool()
@@ -1348,6 +1347,7 @@ def docker_sandbox(
         cmd.extend(["--local-whitelist", ",".join(local_whitelist)])
     if read_only:
         cmd.append("--read-only")
+    cmd.append("--")
     cmd.extend(command)
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 

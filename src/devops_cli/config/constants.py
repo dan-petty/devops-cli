@@ -181,6 +181,12 @@ CONST_REDACTED_LOG_VALUE: Final[str] = "<redacted>"
 # Root commands whose module app takes the command's own name as its first argument:
 # `devops lint` runs the `lint` subcommand of `devops_cli.commands.ci`.
 CONST_CLI_ROOT_LEVEL_COMMANDS: Final[frozenset[str]] = frozenset({"format", "lint"})
+# The word a devops-cli command line starts with, and the module behind it: the `devops`
+# script calls `devops_cli.entry:main`. `telemetry profile` runs only a command line starting
+# with that word, as `python -P -m` that module under the running interpreter; `-P` keeps the
+# working directory off `sys.path`, which plain `-m` puts first (#980).
+CONST_DEVOPS_CLI_COMMAND: Final[str] = "devops"
+CONST_DEVOPS_CLI_ENTRY_MODULE: Final[str] = "devops_cli.entry"
 CONST_SYSTEM_TEMP_DIRS: tuple[Path, ...] = (Path("/tmp"), Path("/var/tmp"))  # nosec B108
 CONST_FORBIDDEN_SYSTEM_DIRS: tuple[Path, ...] = (
     Path("/etc"),
