@@ -318,6 +318,9 @@ class K8sCommandHelp:
     bind_address: str = "Local address to bind for port-forwarding."
     lint_target: str = "Target K8s manifest file or directory to lint."
     pluto_target: str = "Target manifest file or directory to scan for deprecated APIs."
+    rbac_namespace: str = (
+        "Audit only this namespace's RoleBindings and Roles; ClusterRoleBindings are always read."
+    )
     k8s_version: str = "Target Kubernetes OpenAPI version."
     strict_schema: str = "Disallow additional undeclared properties."
     policy_path: str = "Path to Kyverno policy or OPA rule file."

@@ -578,13 +578,14 @@ def format_k8s_nodes_table(nodes: Sequence[Any]) -> TablePayload:
 
 
 def format_k8s_rbac_table(rows: list[list[str]]) -> TablePayload:
-    """Build a structured TablePayload for Kubernetes RBAC audit findings."""
+    """Build a structured TablePayload for Kubernetes RBAC audit violations."""
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Namespace", style="cyan"),
         TableColumn(header="Binding", style="bold"),
         TableColumn(header="Role"),
-        TableColumn(header="Severity"),
+        TableColumn(header="Subject"),
+        TableColumn(header="Finding"),
     ]
     return TablePayload(
         title=MESSAGES.k8s.table_title_rbac_audit,

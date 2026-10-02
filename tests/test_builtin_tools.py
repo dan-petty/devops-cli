@@ -282,6 +282,7 @@ def test_builtin_security_and_iac_tools(tmp_path: Path) -> None:
 
     mock_dive = DiveAnalysisResult(
         image_name="alpine:latest",
+        status="ran",
         efficiency_score=0.95,
         wasted_bytes=1024 * 1024,
         total_bytes=10 * 1024 * 1024,

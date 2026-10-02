@@ -243,6 +243,14 @@ class K8sMessages:
     popeye_executing: str = "[dim]Executing Popeye K8s cluster health sanitizer...[/dim]"
     popeye_passed: str = "Popeye cluster audit passed: no health warnings."
     pluto_passed: str = "Pluto API check passed: no deprecated K8s APIs."
+    rbac_audit_passed: str = (
+        "RBAC audit passed: no broad or wildcard role granted to a non-system subject "
+        "in {bindings} binding(s)."
+    )
+    rbac_audit_failed: str = (
+        "RBAC audit failed: {violations} overprivileged grant(s) in {bindings} binding(s)."
+    )
+    rbac_cluster_scope: str = "(cluster)"
     generating_homelab_tls: str = "[bold]Generating Homelab TLS certificate bundle...[/bold]"
     applying_tls_secret: str = (
         "[bold]Applying TLS secret '[cyan]{secret}[/cyan]' across cluster namespaces...[/bold]"
@@ -784,6 +792,7 @@ class DockerMessages:
     pushed_success: str = "Pushed."
     pruned_success: str = "Pruned. Space reclaimed: {mb} MB"
     analyzing_layers: str = "Analyzing container image layers for '{image}' via Dive..."
+    layer_analysis_not_run: str = "Dive layer analysis {status}: {reason}"
     efficiency_summary: str = (
         "Efficiency: {eff:.1f}% | Size: {size:.1f} MB | Wasted: {wasted:.1f} MB"
     )

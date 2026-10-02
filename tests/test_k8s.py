@@ -690,7 +690,7 @@ def test_k8s_apply_logs_and_urls(tmp_path: Path) -> None:
 
 
 def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
-    """Verify k8s client error branches, URL detection helpers, and rbac-audit."""
+    """Verify k8s client error branches and URL detection helpers."""
     from devops_cli.commands.k8s import (
         _detect_service_url,
         _extract_first_node_ip,
@@ -735,12 +735,7 @@ def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
         res_svc = _detect_service_url("ollama", "llm")
         assert res_svc == "http://192.0.2.49:31434"
 
-    # 5. rbac-audit
-    res_rbac = runner.invoke(app, ["rbac-audit", "--namespace", "kube-system"])
-    assert res_rbac.exit_code == 0
-    assert "cluster-admin-binding" in res_rbac.output
-
-    # 6. create-tls-secret missing files
+    # 5. create-tls-secret missing files
     res_missing_cert = runner.invoke(
         app,
         [
@@ -754,21 +749,21 @@ def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
     )
     assert res_missing_cert.exit_code == 1
 
-    # 7. contexts failure
+    # 6. contexts failure
     mock_cfg = MagicMock()
     mock_cfg.list_kube_config_contexts.side_effect = Exception("No kubeconfig")
     with patch("devops_cli.commands.k8s._k8s_clients", return_value=(mock_cfg, MagicMock())):
         res_ctx_fail = runner.invoke(app, ["contexts"])
         assert res_ctx_fail.exit_code == 1
 
-    # 8. status failure
+    # 7. status failure
     mock_client = MagicMock()
     mock_client.CoreV1Api.side_effect = Exception("Cluster error")
     with patch("devops_cli.commands.k8s._k8s_clients", return_value=(mock_cfg, mock_client)):
         res_stat_fail = runner.invoke(app, ["status"])
         assert res_stat_fail.exit_code == 1
 
-    # 9. port-forward command execution, recording its forwards under tmp_path rather than in
+    # 8. port-forward command execution, recording its forwards under tmp_path rather than in
     # the real state file of the directory the tests run from
     from devops_cli.k8s.port_forward_daemon import PortForwardDaemonManager
 

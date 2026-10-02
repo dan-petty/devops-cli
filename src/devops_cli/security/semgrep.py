@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import logging
-import subprocess
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -15,16 +12,12 @@ from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
     DEFAULT_SEMGREP_CONFIG,
-    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
-from devops_cli.core.process import run_subprocess
+from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.dry_run.state import is_dry_run  # noqa: F401
 from devops_cli.lang import MESSAGES
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.security.sanitizer import mask_secrets
-
-logger = logging.getLogger(__name__)
-
 
 _SEMGREP_SEVERITY_MAP: dict[str, str] = {
     "ERROR": "HIGH",
@@ -145,21 +138,6 @@ def _build_dry_run_finding(target_str: str) -> Finding:
         fix="Remediate code pattern (dry-run mode)",
         confidence_score=None,
     )
-
-
-def _execute_and_parse_semgrep(cmd: list[str], target_path: str = "") -> list[Finding]:
-    """Execute Semgrep subprocess and parse JSON output."""
-    try:
-        proc = run_subprocess(cmd, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, check=False)
-        if proc.stdout and proc.stdout.strip().startswith("{"):
-            data = json.loads(proc.stdout)
-            if isinstance(data, dict):
-                return parse_semgrep_json(data, target_path=target_path)
-    except (FileNotFoundError, OSError, subprocess.SubprocessError) as exc:
-        logger.debug("Semgrep CLI not available or execution failed: %s", exc)
-    except Exception as exc:
-        logger.debug("Semgrep scan parsing failed: %s", exc)
-    return []
 
 
 class SemgrepScanner(BaseSecurityScanner):

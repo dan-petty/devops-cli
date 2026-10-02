@@ -19,6 +19,8 @@ devops docker analyze-layers my-app:latest
 devops docker analyze-layers ghcr.io/dan-petty/devops-cli/devcontainer:latest --json
 ```
 
+Dive writes its analysis with `--json <file>`, which `run_dive_analysis()` points at a private temporary file and reads back. When no `dive` is on PATH (or the one found is a symlink), or dive fails, there is no analysis: the result's `status` is `unavailable` or `failed` with a `reason`, `analyze-layers` prints that as a warning and exits 1 (`--json` still prints the result, and writes nothing else to stdout), and the `docker_analyze_layers` tool answers `Dive not available: <reason>` or `Dive analysis failed: <reason>`.
+
 ## 4. Native Persona Tool Registration
 - **Registered Tool**: `docker_analyze_layers`
 - **Personas**: `architect`, `qa`

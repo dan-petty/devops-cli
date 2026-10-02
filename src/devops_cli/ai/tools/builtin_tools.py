@@ -525,6 +525,10 @@ def docker_analyze_layers(image: str) -> str:
         from devops_cli.security.dive import run_dive_analysis
 
         result = run_dive_analysis(image_name=image)
+        if result.status == "unavailable":
+            return f"Dive not available: {result.reason}"
+        if result.status == "failed":
+            return f"Dive analysis failed: {result.reason}"
         eff_pct = result.efficiency_score * 100
         wasted_mb = result.wasted_bytes / (1024 * 1024)
         total_mb = result.total_bytes / (1024 * 1024)

@@ -16,7 +16,7 @@
 The **Kubernetes Python Client** is the official programmatic SDK for the Kubernetes REST API. It communicates with the kube-apiserver using kubeconfig contexts or in-cluster ServiceAccount tokens to manage Workloads, Pods, Services, Namespaces, Secrets, and Custom Resource Definitions (CRDs).
 
 In `devops-cli`:
-- **Cluster Diagnostics**: Powers `devops k8s status`, `devops k8s pods`, and `devops k8s rbac-audit`.
+- **Cluster Diagnostics**: Powers `devops k8s status` and `devops k8s pods`.
 - **TLS Secret Management**: Creates and syncs `kubernetes.io/tls` secrets across namespaces (`devops k8s create-tls-secret`).
 - **Context Inspection**: Powers `devops k8s contexts` and `devops k8s switch-context`.
 

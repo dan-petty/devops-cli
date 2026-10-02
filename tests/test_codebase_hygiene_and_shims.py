@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import inspect
+import re
+from collections import Counter
 from pathlib import Path
 
 from pydantic_ai.tools import RunContext as NativeRunContext
@@ -199,3 +201,35 @@ def test_common_hallucinations_mathematical_similarity() -> None:
     res = calculate_hallucination_similarity(finding, entry, file_path=Path("src/test.py"))
     assert res.similarity_score > 0.0
     assert res.matched_keywords
+
+
+def test_security_module_private_functions_all_have_callers() -> None:
+    """Every module-level `_private` function in `security/*.py` is used somewhere in src/ or tests/.
+
+    A private helper nobody calls is a dead copy of a live path, free to drift from it and to
+    mislead whoever reads it. A `def` in column 0 is a module-level definition by Python's
+    indentation grammar, which a regex reads at a fraction of the cost of parsing every module.
+    Most helpers are used in their own module, so only a name that appears there once, at its
+    `def`, is looked for across both trees.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    module_level_private_def = re.compile(r"^(?:async\s+)?def\s+(_[^\W_]\w*)", re.MULTILINE)
+    unused_at_home = [
+        (module.name, name)
+        for module in sorted((repo_root / "src/devops_cli/security").glob("*.py"))
+        for source in [module.read_text(encoding="utf-8")]
+        for identifiers in [Counter(re.findall(r"\b_\w+", source))]
+        for name in module_level_private_def.findall(source)
+        if identifiers[name] < 2
+    ]
+    sources = [
+        path.read_text(encoding="utf-8")
+        for tree in ("src", "tests")
+        for path in (repo_root / tree).rglob("*.py")
+    ]
+    uncalled = [
+        f"{module}:{name}"
+        for module, name in unused_at_home
+        if sum(len(re.findall(rf"\b{name}\b", text)) for text in sources if name in text) < 2
+    ]
+    assert uncalled == []
