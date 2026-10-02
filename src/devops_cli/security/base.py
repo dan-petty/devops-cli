@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
@@ -12,7 +13,7 @@ from typing import Any, ClassVar
 from unittest.mock import NonCallableMock
 
 from devops_cli.ai.review_schema import Finding
-from devops_cli.config.defaults import DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS
+from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import state as dry_run_state
@@ -275,9 +276,15 @@ class BaseSecurityScanner(ABC):
         try:
             if isinstance(target_path, Path) and target_path.exists():
                 return target_path if target_path.is_dir() else target_path.parent
-            if isinstance(target_path, list) and target_path and isinstance(target_path[0], Path):
-                p = target_path[0]
-                return p.parent if p.exists() and p.is_file() else Path.cwd()
+            if isinstance(target_path, list) and target_path:
+                file_strs = [
+                    str(Path(p).resolve())
+                    for p in target_path
+                    if isinstance(p, (str, Path)) and Path(p).exists()
+                ]
+                if file_strs:
+                    common = Path(os.path.commonpath(file_strs))
+                    return common if common.is_dir() else common.parent
         except Exception:
             pass
         return Path.cwd()
@@ -316,7 +323,7 @@ class BaseSecurityScanner(ABC):
     def scan(
         self,
         target_path: Any,
-        timeout: float = DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+        timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
         **kwargs: Any,
     ) -> ScanOutcome:
         """Execute scanner with applicability pre-flight checking, timeouts, and fallback recovery."""

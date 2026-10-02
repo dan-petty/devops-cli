@@ -10,7 +10,7 @@ from typing import Any, ClassVar
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import (
     DEFAULT_KUBECONFORM_VERSION,
-    DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 )
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
@@ -174,7 +174,7 @@ def run_kubeconform_validation(
     manifest_path: Path,
     k8s_version: str = DEFAULT_KUBECONFORM_VERSION,
     strict: bool = True,
-    timeout: float = DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 ) -> ScanOutcome:
     """Validate Kubernetes manifests against target version schema using Kubeconform."""
     scanner = KubeconformScanner()
