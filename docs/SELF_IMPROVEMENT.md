@@ -65,8 +65,9 @@ Review models must follow the **5-Phase Chain-of-Thought Protocol** specified in
 
 ### Phase 1: Context & Target Grounding
 - Ground evaluations in universal software engineering standards (OWASP Top 10, CIS benchmarks, SOLID, DRY) and target project conventions (`AGENTS.md`, `CLAUDE.md`).
-- Respect authoritative lockfiles (`uv.lock`, `package-lock.json`). Never hallucinate CVEs against verified dependencies.
-- Distinguish production code from test fixtures, mocks (`tests/`), documentation, or configuration templates (`*.example.*`).
+- Respect authoritative lockfiles (`uv.lock`, `package-lock.json`). Dependency advisories come from the scanners; a reviewer never cites a CVE or GHSA identifier from memory.
+- Distinguish production code from test fixtures, mocks (`tests/`), documentation, or configuration templates (`*.example.*`). A finding about a test itself is a test that cannot fail, while a real credential or a genuine vulnerability in a test file is still a finding. Roadmaps, changelogs, task files and decision records get no findings.
+- The DevSecOps persona states a threat model. Network and fetched content, model output, PR and issue text, repositories under review, Kubernetes and cloud API data, server requests and MCP or tool-call arguments are untrusted. The operator, their config, environment and arguments, and values the code builds are trusted. A vulnerability is a path the reviewer can quote: the untrusted source, the sink and the missing check between them. When it cannot quote them, it returns no finding.
 
 ### Phase 2: Semantic & AST Inspection
 - **Network Egress & DNS SSRF**: In outbound HTTP requests and web scrapers, verify that both the initial URL and post-redirect response URLs perform DNS resolution and check that all resolved IPs are public (`validate_url_egress`), guarding against DNS rebinding.
@@ -294,15 +295,17 @@ Systemic hardening updates resulting from this session:
 7. **Feedback Dataset Export**: Re-exported feedback dataset via `devops review export-feedback`.
 
 ### Phase 4: Root Cause & Severity Classification
-- Isolate exact failure mechanisms and categorize severity:
-  - **CRITICAL**: Exploitable vulnerability, auth bypass, credential leak, SSRF, arbitrary file write outside root, or fatal crash.
-  - **HIGH**: Preconditioned vulnerability, data corruption, race condition, unvalidated path write, or resource leak.
-  - **MEDIUM**: Bounded flaw, unhandled error state, or incomplete mitigation.
-  - **LOW**: Hardening, observability, defense-in-depth, or maintainability improvement.
+- Isolate exact failure mechanisms. Severity follows who can trigger the defect and what it costs. Trusted and untrusted input are what the project's conventions say; where they give no threat model, `review.md` states a default one for every persona:
+  - **CRITICAL**: an untrusted input reaches code execution, credential disclosure, or a write outside its root, and every step can be quoted.
+  - **HIGH**: an untrusted input reaches harm under a stated precondition, or normal use corrupts or loses data.
+  - **MEDIUM**: wrong behaviour on a path normal use reaches: a crash, an unhandled error, a leak in a long-running process.
+  - **LOW**: hardening, defense in depth, a missing guard on trusted input that the project's conventions require. Without that requirement, it is no finding.
 
 ### Phase 5: Self-Healing Remediation & Verification Synthesis
-- Author drop-in replacements (`fix`) resolving the defect cleanly without breaking API contracts.
-- Define 1–3 concrete `verification_criteria` proving defect presence and 1–3 `invalidation_criteria` proving defect resolution.
+- `fix` is replacement code for the cited lines. A fix that says to verify, review or consider, or that matches the current code, means there is no finding.
+- `observed_value` is copied exactly from the cited lines, so a mechanical check can find it there.
+- Define 1–3 `verification_criteria` that pass only while the defect exists and 1–3 `invalidation_criteria` that pass only when it is absent. An executable check is a `python -c` or `pytest` command that imports the cited code and asserts the outcome; a check that only finds, imports or prints code is written as a sentence with `"executable": false`.
+- The persona agent is shown a reply schema of only the fields a reviewer writes. The fields the pipeline owns (verdicts, criteria results, citations, confidence) are still parsed but never asked for.
 
 ---
 
@@ -401,7 +404,10 @@ Compare benchmarks only when their corpus digests match.
 The shared review and verification prompts hold rules that are true of any project. What is
 intended in one project goes in that project's `.devops/review.md`. Examples include an internal
 connector allowed to reach private networks, output a CLI is meant to print, a type checker the
-project enforces, or house rules for its documentation.
+project enforces, the inputs the project trusts, or house rules for its documentation. Facts about
+one project's code, which the shared prompts once carried as exemptions for every project, belong
+there too (#951). A test keeps this repository's file under the 8,000-character cap below, past
+which a rule is cut before any model reads it.
 
 `devops ai review` reads the nearest `.devops/review.md` from the target up to its repository
 root, in full up to 8,000 characters. It gives the file to the persona reviewers and the verifier,
@@ -539,6 +545,122 @@ both tasks; the second overrides a configured `ai.tasks.verification`. `devops r
 unset, `DEVOPS_CLI_DATA_REVIEWS_DIR` and `DEVOPS_CLI_DATA_ANALYSIS_DIR` give each arm its own
 sessions and pre-analysis metadata, which also keeps its sessions out of `devops review stats`.
 
+#### Measuring the threat-model and evidence-bar prompts (#951)
+
+This change rewrote the review and verifier prompts after session `20261001-224227`, in which 87%
+of 563 reported findings were false. Its effect is measured by a person, because the run needs
+models; the gate never runs it.
+
+1. **Setup.** Check out two arms: A at the commit before the change, B at the change. Point both
+   at one shared `DEVOPS_CLI_CONFIG` that pins the analysis and verification models to
+   single-model gateway groups, or the report says `not model-pinned`. #475's per-model baseline
+   is the model-side control.
+2. **Corpus.** From A, run `devops review corpus generate src/devops_cli/security
+   src/devops_cli/ai/review src/devops_cli/commands/k8s src/devops_cli/server k8s docs/commands
+   tests --seed 413`. Both arms review this one corpus. It copies A's `.devops/review.md`, and a
+   review of `<corpus>/files` reads only that copy. A's file has neither the threat model nor the
+   devops-cli exemptions that B moved out of its prompts and into its own `.devops/review.md`, so
+   B reviewed under A's file would run with those exemptions nowhere.
+3. **A/A first.** Run arm A twice, each run a review of the corpus from A with A's
+   `.devops/review.md` in `<corpus>/.devops/review.md` (`devops review path <corpus>/files`), and
+   compare their scores with `devops ai runs compare`. Their difference is the noise floor a B
+   result is read against. Every review in this protocol runs the default DevSecOps persona, not
+   `--all`: the baseline session ran only that persona, and this change left the other four
+   personas' own prompts as they were, so their findings would blur the counts in step 8.
+4. **Interleave.** Run three reviews per arm, alternating A and B, so the verifier's catalog
+   learning between runs does not favour one arm. Before each review, copy that arm's
+   `.devops/review.md` over `<corpus>/.devops/review.md`, so each arm runs as it ships; each
+   session's `profile.json` then records its arm's `conventions_digest` (#946) beside its
+   `prompt_digest`. Score each arm with explicit sessions:
+   `devops review corpus score <corpus> --session <id> --session <id> --session <id> --json`.
+   `--runs 3` takes the latest sessions and refuses mixed prompt digests, so it cannot pick an
+   interleaved arm.
+5. **Compare.** `devops ai runs baseline set <A>`, then `devops ai runs compare <B>`.
+6. **Read the guards.** `recall_found`, `recall_reported`, `pass_at_k` and `by_template` must
+   overlap A/A or be better. Watch the absence templates (`drop-error-check`,
+   `drop-bounds-check`) and the guard templates on trusted inputs (`drop-path-containment`), since
+   the prompts now say to report only what is visible and to treat operator input as trusted.
+7. **Read the effects.** `candidate_findings`, `invalidated_findings`, `reported_findings`,
+   `prompt_tokens`, and the mean of `scores[].unmatched_findings`, the reported findings that
+   match no injection (the precision proxy).
+8. **Count the failure signatures** in each session's `candidates.json`. The baseline session's
+   values, all from the DevSecOps persona: `cve` 9, `tests` 87, `planning` 23, `masked` 36,
+   `syntax` 97, `no_code_fix` 117, `crit_high` 534, `unverified_reported` 357,
+   `find_only_criteria` 663. `masked` counts findings about the review tool's own markers
+   (`<masked-kind>`). A bare `<masked>` is the file's own text, so the script lists those
+   findings apart as the known-positive check: the baseline had 10, and B should report the
+   `<masked>` default in `docs/commands/tls.md` and keep it through verification.
+
+   ```python
+   import json, re, sys
+   from collections import Counter
+
+
+   def kind(s):
+       s = s.strip()
+       if re.match(r"(git )?grep\b", s) or " grep " in s:
+           return "find"
+       if "pytest" in s:
+           return "test"
+       if not re.search(r"(from|import)\s+(src\.)?\w+", s) or "getsource" in s:
+           return "find"
+       return "test" if re.search(r"\bassert\b|\braise\b|pytest\.raises", s) else "find"
+
+
+   for d in sys.argv[1:]:
+       f = json.load(open(f"{d}/candidates.json"))["findings"]
+       p = lambda x: x["location"].split(":")[0].lstrip("./")
+       print(
+           d,
+           len(f),
+           dict(
+               Counter(
+                   cve=sum(
+                       any(r.upper().startswith(("CVE-", "GHSA-")) for r in x["references"]) for x in f
+                   ),
+                   tests=sum(p(x).startswith("tests/") for x in f),
+                   planning=sum(
+                       bool(re.search(r"ROADMAP|CHANGELOG|docs/agent/tasks", p(x))) for x in f
+                   ),
+                   masked=sum("<masked-" in x["title"] + x["description"] for x in f),
+                   syntax=sum("syntax" in (x["title"] + x["description"]).lower() for x in f),
+                   no_code_fix=sum("`" not in (x["fix"] or "") for x in f),
+                   crit_high=sum(x["severity"] in ("CRITICAL", "HIGH") for x in f),
+                   unverified_reported=sum(x["status"] == "UNVERIFIED" for x in f),
+                   find_only_criteria=sum(
+                       bool(k) and "test" not in k
+                       for k in (
+                           [
+                               kind(v["command"])
+                               for v in x["verification_criteria"]
+                               if v.get("executable") and v.get("command")
+                           ]
+                           for x in f
+                       )
+                   ),
+               )
+           ),
+       )
+       print(
+           d,
+           "bare <masked>:",
+           sorted(
+               f"{x['location']} {x['status']}"
+               for x in f
+               if "<masked>" in x["title"] + x["description"]
+           ),
+       )
+   ```
+
+9. **Planning documents** never enter a corpus, since they have no injection site. Measure them
+   with a known-negative run from each checkout, where every finding is a false positive:
+   `devops review benchmark docs/ROADMAP.md CHANGELOG.md docs/agent/tasks -n 3`.
+
+The prompt digest covers `ai/tasks/` and `ai/personas/`, not `.devops/review.md`, so the
+conventions swap in steps 3 and 4 is part of measuring B, not an option. To isolate the prompt
+change instead, run both arms under B's `.devops/review.md`; to isolate the conventions, run B
+under each file. Score every arm with explicit `--session` ids.
+
 ### Sample Repositories
 
 devops ai is meant for any technical project. `devops review samples list` shows a checked-in
@@ -600,11 +722,13 @@ opt-in flag. The inverse error is identical in shape: help strings were reported
 referencing non-existent commands because the commands are registered in a different module.
 
 **Guardrails**:
-- **Prompt**: a *Segment Boundary Honesty* mandate forbids asserting a missing control —
-  authentication, validation, error handling, bounds checks, cleanup — when the code that
-  would establish it lies outside the provided segment. A matching rule forbids declaring a
-  symbol unused or dangling without locating its consumer. In both cases the model must
-  omit the finding or record the unchecked assumption and lower `confidence_score`.
+- **Prompt**: a *Report What You Can See* rule allows a missing control — authentication,
+  validation, error handling, bounds checks, cleanup — only when the code in front of the
+  model shows the path that needs it. A matching rule forbids declaring a symbol unused or
+  dangling without locating its consumer. In both cases the model omits the finding. An
+  earlier version let it report the unchecked assumption with a lower `confidence_score`
+  instead; in session `20261001-224227` verification left 357 findings unverified and all
+  of them were reported, so #951 reversed it.
 - **Persona**: the DevSecOps persona carries an explicit rule that a server object's
   constructor is not its security boundary; transport, bind address, and loopback
   enforcement live at the launch site.
@@ -650,8 +774,9 @@ review outcomes without changing review output.
 Both CRITICAL findings in session `20260920-124350` carried an empty `fix`. A finding
 without a remediation is a report of unease, not an engineering artifact.
 
-**Guardrail**: `fix` is mandatory and non-empty. A model that cannot articulate a concrete
-remediation does not yet understand the defect well enough to report it.
+**Guardrail**: `fix` is mandatory and holds replacement code for the cited lines. A model that
+cannot write that code does not yet understand the defect well enough to report it, and a fix
+that says to verify, review or consider means there is no finding.
 
 ### 5.6 Calibration Metrics Worth Tracking
 

@@ -1147,7 +1147,7 @@ _VERIFIER_PROMPT_RULES: tuple[str, ...] = (
     "off-by-one",
     "CWE-400",
     "CWE-209",
-    "<masked-secret>",
+    "<masked-kind>",
     "__import__",
     "cacheFrom",
     "192.0.2.0/24",

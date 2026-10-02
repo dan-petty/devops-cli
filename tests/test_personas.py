@@ -83,7 +83,9 @@ _REVIEW_PROMPT_RULES: tuple[str, ...] = (
     "NotImplementedError",
     "verification_criteria",
     "invalidation_criteria",
-    "APPROVE",
+    # The recommendation is derived from the findings, so a reviewer no longer writes `APPROVE`;
+    # with no defect it returns no findings (#951).
+    "empty `findings` array",
 )
 
 

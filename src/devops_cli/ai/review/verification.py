@@ -673,9 +673,9 @@ def _check_scanned_clean_dependency(
 def _check_placeholder_advisory_hallucination(finding: Finding) -> Finding | None:
     """Invalidate a vulnerability claim whose only evidence is a placeholder advisory id.
 
-    A dependency finding stands on the advisory it names. When the identifier is a
-    placeholder, there is nothing to look up, and the surrounding claim was produced by the
-    same step that could not name it.
+    Dependency advisories come from the scanners, which look them up. When the identifier is
+    a placeholder, nothing was looked up, and the surrounding claim was produced by the same
+    step that could not name it.
     """
     text = f"{finding.title} {finding.description or ''} {' '.join(finding.references or [])}"
     match = _PLACEHOLDER_ADVISORY_PATTERN.search(text)
@@ -687,7 +687,7 @@ def _check_placeholder_advisory_hallucination(finding: Finding) -> Finding | Non
         by="deterministic:placeholder_advisory",
         reason=(
             f"Cites the placeholder advisory identifier {match.group(0)!r}, which names "
-            "no published advisory; a dependency claim must cite a real one"
+            "no published advisory; dependency advisories come from the scanners"
         ),
     )
 
