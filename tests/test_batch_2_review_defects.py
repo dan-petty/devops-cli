@@ -180,7 +180,7 @@ def test_pr_review_conventions_loaded_from_base_ref(tmp_path: Path) -> None:
     pull_mock.base.repo.full_name = "org/repo"
     pull_mock.base.ref = "main"
     pull_mock.base.sha = "base123"
-    pull_mock.get_files.return_value = [
+    pr_files = [
         MagicMock(filename="AGENTS.md", status="modified"),
         MagicMock(filename=".devops/review.md", status="added"),
         MagicMock(filename="src/foo.py", status="modified"),
@@ -192,7 +192,7 @@ def test_pr_review_conventions_loaded_from_base_ref(tmp_path: Path) -> None:
     empty_cwd.mkdir()
 
     with patch("pathlib.Path.cwd", return_value=empty_cwd):
-        _materialize_pr_head(mock_gh, "org/repo", pull_mock, dest_dir)
+        _materialize_pr_head(mock_gh, "org/repo", pull_mock, dest_dir, pr_files)
 
     assert (
         (dest_dir / "AGENTS.md").read_text(encoding="utf-8"),

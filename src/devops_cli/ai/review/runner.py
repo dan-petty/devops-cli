@@ -10,12 +10,14 @@ import time
 from collections import Counter
 from collections.abc import Callable, Sequence
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from devops_cli.ai.analyze.cache import _load_file_analysis_metas
+from devops_cli.ai.analyze.symbols import BaseRevision
 from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
@@ -57,6 +59,7 @@ from devops_cli.ai.review_schema import (
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_GIT_MAIN_BRANCH,
+    CONST_GITHUB_PR_FILE_CHANGE_TYPES,
     CONST_REVIEW_GENERATED_FILES,
 )
 from devops_cli.config.defaults import (
@@ -70,6 +73,7 @@ from devops_cli.core.process import run_subprocess as _run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git, is_safe_subpath
 from devops_cli.dry_run import is_dry_run
 from devops_cli.models.ai import FileAnalysisMeta
+from devops_cli.models.git import ChangedFile
 from devops_cli.output import (
     format_duration,
     print_error,
@@ -1782,10 +1786,42 @@ def _resolve_branch_targets(
     return target_branch, effective_base, False
 
 
+def _branch_base_revision(
+    repo_path: Path, effective_base: str, target_branch: str, is_working_tree: bool
+) -> BaseRevision:
+    """Where a branch review's diff starts, the files it changed, and readers for their text.
+
+    A working-tree review starts at `HEAD` and ends at the files on disk. A branch starts at the
+    merge base of the base and the target, as `git diff base...target` does; with none, the
+    review falls back to a two-dot diff from `effective_base`, and so does this. It ends at the
+    target's commit, which is read there: the checkout can be another branch, or carry edits
+    the diff leaves out, and its text would count their removals as the branch's.
+    """
+    from devops_cli.git.operations import (
+        list_changed_files,
+        read_file_at_revision,
+        resolve_merge_base,
+    )
+
+    head = None if is_working_tree else target_branch
+    revision = (
+        "HEAD"
+        if head is None
+        else resolve_merge_base(repo_path, effective_base, head) or effective_base
+    )
+    changes = tuple(list_changed_files(repo_path, revision, head))
+    return BaseRevision(
+        changes=changes,
+        read=partial(read_file_at_revision, repo_path, revision),
+        read_head=None if head is None else partial(read_file_at_revision, repo_path, head),
+    )
+
+
 def _prepare_branch_content(
     branch_name: str | None, base: str, repo_path: Path
-) -> tuple[list[str], str, str, str]:
-    """Prepare paginated diff pages, title, agents_md, and resolved target_branch."""
+) -> tuple[list[str], str, str, str, BaseRevision]:
+    """Prepare paginated diff pages, title, agents_md, resolved target_branch, and the base
+    revision the diff starts from."""
     import typer
 
     from devops_cli.ai.review.chunker import diff_pages
@@ -1853,7 +1889,8 @@ def _prepare_branch_content(
     if not agents_md:
         agents_md = _load_agents_md(repo_path)
     pages = [redact_text(p) for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
-    return pages, title, agents_md, target_branch
+    base_revision = _branch_base_revision(repo_path, effective_base, target_branch, is_working_tree)
+    return pages, title, agents_md, target_branch, base_revision
 
 
 def _prepare_pr_content(
@@ -1861,8 +1898,12 @@ def _prepare_pr_content(
     repo_arg: str | None = None,
     auth: str | None = None,
     **kwargs: Any,
-) -> tuple[list[str], str, str, Any, str]:
-    """Fetch PR details, diff pages, title, and agents_md for PR review target."""
+) -> tuple[list[str], str, str, Any, str, BaseRevision | None]:
+    """Fetch PR details, diff pages, title, and agents_md for PR review target.
+
+    With `head_dir`, the PR head's changed files are written under it, and the base revision
+    they are compared with is returned; without it, there is none.
+    """
     import typer
 
     from devops_cli.ai.review.chunker import diff_pages
@@ -1887,14 +1928,47 @@ def _prepare_pr_content(
     diff = gh.get_pr_diff(repo, number)
     title = f"PR #{number}: {pull.title}"
     head_dir: Path | None = kwargs.get("head_dir")
+    base_revision: BaseRevision | None = None
     if head_dir is not None:
-        _materialize_pr_head(gh, repo, pull, head_dir)
+        pr_files = list(pull.get_files())
+        _materialize_pr_head(gh, repo, pull, head_dir, pr_files)
+        base_revision = _pr_base_revision(gh, repo, pull, pr_files)
     agents_md = _load_agents_md(head_dir or Path.cwd())
     pages = [redact_text(p) for p in diff_pages(diff, _MAX_DIFF_CHARS)]
-    return pages, title, agents_md, pull, repo
+    return pages, title, agents_md, pull, repo, base_revision
 
 
-def _materialize_pr_head(gh: Any, repo: str, pull: Any, dest: Path) -> int:
+def _pr_changed_file(pr_file: Any) -> ChangedFile:
+    """A pull request file as a change: its status, head path and, if renamed, its old path."""
+    return ChangedFile(
+        change_type=CONST_GITHUB_PR_FILE_CHANGE_TYPES.get(str(pr_file.status), "unknown"),
+        path=pr_file.filename,
+        old_path=getattr(pr_file, "previous_filename", None) or None,
+    )
+
+
+def _pr_base_revision(gh: Any, repo: str, pull: Any, pr_files: Sequence[Any]) -> BaseRevision:
+    """The PR's changed files, and a reader for their text at its merge base in the base repo.
+
+    `pull.base.sha` is the base branch's tip, which can be ahead of the merge base: read there,
+    a PR branched earlier would list symbols added on the base since as removed. When the merge
+    base cannot be read, nothing is read, and a modified file's delta stays unknown.
+    """
+    base_obj = getattr(pull, "base", None)
+    base_repo = getattr(getattr(base_obj, "repo", None), "full_name", None) or repo
+    base_sha = getattr(base_obj, "sha", None)
+    head_sha = getattr(getattr(pull, "head", None), "sha", None)
+    merge_base = gh.get_merge_base(base_repo, base_sha, head_sha) if base_sha and head_sha else None
+    if merge_base is None:
+        logger.debug("No merge base for %s...%s in %s", base_sha, head_sha, base_repo)
+
+    def read(path: str) -> str | None:
+        return gh.get_file_at(base_repo, path, merge_base) if merge_base else None
+
+    return BaseRevision(changes=tuple(_pr_changed_file(f) for f in pr_files), read=read)
+
+
+def _materialize_pr_head(gh: Any, repo: str, pull: Any, dest: Path, pr_files: Sequence[Any]) -> int:
     """Write PR head's version of changed files, and base conventions, under `dest`."""
     from devops_cli.ai.review.review_environment import _TARGET_CONVENTIONS_CANDIDATES
     from devops_cli.config.constants import CONST_REVIEW_CONVENTIONS_FILE
@@ -1905,11 +1979,7 @@ def _materialize_pr_head(gh: Any, repo: str, pull: Any, dest: Path) -> int:
     base_repo = getattr(getattr(base_obj, "repo", None), "full_name", None) or repo
     base_ref = getattr(base_obj, "sha", None) or getattr(base_obj, "ref", None) or "main"
     head_sha = getattr(head_obj, "sha", None) or "HEAD"
-    changed = [
-        f.filename
-        for f in (pull.get_files() if hasattr(pull, "get_files") else [])
-        if getattr(f, "status", "") != "removed"
-    ]
+    changed = [f.filename for f in pr_files if getattr(f, "status", "") != "removed"]
     convention_files = set(_TARGET_CONVENTIONS_CANDIDATES) | {CONST_REVIEW_CONVENTIONS_FILE}
     root = dest.resolve()
     written = 0
@@ -2017,6 +2087,7 @@ def _run_profiled_session(
     target_type: Literal["branch", "pr", "path"],
     target_ref: str,
     stage_flags: ReviewStageFlags | None,
+    base_revision: BaseRevision | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]] | None:
     """Run the orchestrated review under a profiler; None when there are no files to review."""
     with profiling() as profiler:
@@ -2026,6 +2097,7 @@ def _run_profiled_session(
                 target_type=target_type,
                 target_ref=target_ref,
                 stage_flags=stage_flags,
+                base_revision=base_revision,
             )
         if not all_files:
             return None
@@ -2072,7 +2144,12 @@ def _run_orchestrator_review(
             )
         candidates = sum(len(p.findings) for p in payloads)
         with review_stage("verification"):
-            orchestrator.execute_finding_verification(payloads, stage_flags=stage_flags)
+            orchestrator.execute_finding_verification(
+                payloads,
+                stage_flags=stage_flags,
+                diff_text_by_file=diff_map,
+                metadata_by_path=metadata_by_path,
+            )
         with review_stage("reranking"):
             orchestrator.execute_finding_reranking(payloads, stage_flags=stage_flags)
         _record_profile_findings(payloads, candidates)
@@ -2128,8 +2205,13 @@ def _execute_review_workflow(
     concurrency: int | None = None,
     parallel: bool = True,
     ground_contracts: bool = True,
+    base_revision: BaseRevision | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
-    """Common review execution workflow for path, branch, and PR reviews."""
+    """Common review execution workflow for path, branch, and PR reviews.
+
+    `base_revision` is where a branch or PR diff starts; pre-analysis records each changed
+    Python file's symbol delta from it. A path review has none.
+    """
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
     from devops_cli.lang import MESSAGES
 
@@ -2178,6 +2260,7 @@ def _execute_review_workflow(
                 target_type,
                 target_ref,
                 stage_flags,
+                base_revision,
             )
             if results is not None:
                 return results

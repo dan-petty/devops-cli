@@ -197,6 +197,7 @@ def test_devops_review_pr_post_publishes_comment(
                 "AGENTS.md",
                 mock_pull,
                 "org/repo",
+                None,
             ),
         ),
         patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_reviews),
@@ -237,7 +238,7 @@ def test_devops_review_pr_post_dry_run_skips_comment(
         patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
         patch(
             "devops_cli.commands.review._prepare_pr_content",
-            return_value=(["diff content"], "PR 42", "AGENTS.md", mock_pull, "org/repo"),
+            return_value=(["diff content"], "PR 42", "AGENTS.md", mock_pull, "org/repo", None),
         ),
         patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_reviews),
         patch("devops_cli.commands.review.load_settings"),

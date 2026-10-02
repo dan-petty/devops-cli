@@ -522,7 +522,9 @@ def branch(
         cache_enabled=False if (no_cache or force) else None,
         append_cache=append_cache,
     )
-    pages, title, agents_md, target_ref = _prepare_branch_content(branch_name, base, repo_path)
+    pages, title, agents_md, target_ref, base_revision = _prepare_branch_content(
+        branch_name, base, repo_path
+    )
     _execute_review_workflow(
         pages,
         title,
@@ -538,6 +540,7 @@ def branch(
         stage_flags=stage_flags,
         concurrency=concurrency,
         parallel=parallel,
+        base_revision=base_revision,
     )
 
 
@@ -734,7 +737,7 @@ def pr(
     )
     # The review reads the PR head's files, not the local checkout's version of them.
     with tempfile.TemporaryDirectory(prefix=f"devops-review-pr-{number}-") as head_dir:
-        pages, title, agents_md, pull, repo_name = _prepare_pr_content(
+        pages, title, agents_md, pull, repo_name, base_revision = _prepare_pr_content(
             number, repo, token, head_dir=Path(head_dir)
         )
         reviews = _execute_review_workflow(
@@ -752,6 +755,7 @@ def pr(
             stage_flags=stage_flags,
             concurrency=concurrency,
             parallel=parallel,
+            base_revision=base_revision,
         )
 
     if post_comment and reviews:

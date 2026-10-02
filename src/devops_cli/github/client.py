@@ -147,6 +147,21 @@ class GitHubClient:
             logger.debug("Could not fetch %s@%s from %s: %s", path, ref, repo, exc)
             return None
 
+    def get_merge_base(self, repo: str, base: str, head: str) -> str | None:
+        """The merge base of two commits from the compare endpoint; None when it cannot be read.
+
+        A pull request's `base.sha` is the base branch's tip, which moves on after the branch
+        point; its diff starts here instead.
+        """
+        try:
+            comparison = self._gh.get_repo(repo, lazy=True).compare(
+                base, head, comparison_commits_per_page=1
+            )
+            return str(comparison.merge_base_commit.sha)
+        except Exception as exc:
+            logger.debug("Could not compare %s...%s in %s: %s", base, head, repo, exc)
+            return None
+
     def get_pr_diff(self, repo: str, number: int) -> str:
         """Fetch the raw unified diff for a pull request."""
         url = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls/{number}"

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, sentinel
 
 import pytest
 from typer.testing import CliRunner
@@ -50,43 +50,59 @@ def test_review_path_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_review_branch_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify devops review branch workflow execution."""
+    """Verify devops review branch workflow execution, handed the base revision its diff
+    starts from (#593)."""
     monkeypatch.setattr(
         "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
     )
 
     mock_wf = [(MagicMock(title="DevSecOps", name="devsecops"), "Security comments")]
+    prepared = (
+        ["diff content"],
+        "Branch Review",
+        "AGENTS.md",
+        "feat/my-feature",
+        sentinel.base_revision,
+    )
     with (
+        patch("devops_cli.commands.review._prepare_branch_content", return_value=prepared),
         patch(
-            "devops_cli.commands.review._prepare_branch_content",
-            return_value=(["diff content"], "Branch Review", "AGENTS.md", "feat/my-feature"),
-        ),
-        patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_wf),
+            "devops_cli.commands.review._execute_review_workflow", return_value=mock_wf
+        ) as workflow,
         patch("devops_cli.commands.review.load_settings"),
     ):
         res = runner.invoke(review_app, ["branch", "feat/my-feature", "--persona", "devsecops"])
-        assert res.exit_code == 0
+
+    assert (res.exit_code, workflow.call_args.kwargs["base_revision"]) == (
+        0,
+        sentinel.base_revision,
+    )
 
 
 def test_review_pr_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify devops review pr workflow execution."""
+    """Verify devops review pr workflow execution, handed the base revision its diff starts
+    from (#593)."""
     monkeypatch.setattr(
         "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
     )
     mock_pull = MagicMock()
     mock_wf = [(MagicMock(title="QA", name="qa"), "QA feedback")]
+    prepared = (["pr diff"], "PR 10", "AGENTS.md", mock_pull, "org/repo", sentinel.base_revision)
 
     with (
         patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
+        patch("devops_cli.commands.review._prepare_pr_content", return_value=prepared),
         patch(
-            "devops_cli.commands.review._prepare_pr_content",
-            return_value=(["pr diff"], "PR 10", "AGENTS.md", mock_pull, "org/repo"),
-        ),
-        patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_wf),
+            "devops_cli.commands.review._execute_review_workflow", return_value=mock_wf
+        ) as workflow,
         patch("devops_cli.commands.review.load_settings"),
     ):
         res = runner.invoke(review_app, ["pr", "10", "--persona", "qa"])
-        assert res.exit_code == 0
+
+    assert (res.exit_code, workflow.call_args.kwargs["base_revision"]) == (
+        0,
+        sentinel.base_revision,
+    )
 
 
 def test_review_findings_stats_export_feedback(tmp_path: Path) -> None:
