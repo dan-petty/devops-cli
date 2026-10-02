@@ -9,12 +9,13 @@ import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, NamedTuple
 
 import typer
 
 from devops_cli.config.constants import (
     CONST_CHANGELOG_FILENAME,
+    CONST_CHANGELOG_FRAGMENTS_DIR,
     CONST_CONVENTIONAL_COMMIT_CATEGORIES,
     CONST_CONVENTIONAL_COMMIT_CATEGORY_ORDER,
     CONST_DOCS_DIR_NAME,
@@ -31,7 +32,12 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
+from devops_cli.release.changelog_fragments import (
+    collect_changelog_fragments,
+    read_changelog_fragments,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -450,6 +456,87 @@ def _update_changelog_header(root: Path, new_version: str, release_date: str | N
     return False
 
 
+class _FragmentCollection(NamedTuple):
+    """The CHANGELOG.md text a cut writes, and the fragments it deletes once that is written."""
+
+    changelog_file: Path
+    text: str
+    fragments: tuple[Path, ...]
+
+
+def _plan_fragment_collection(root: Path, version: str, today: str) -> _FragmentCollection | None:
+    """Read every fragment and the CHANGELOG.md they make, raising before anything is written.
+
+    None when `changelog.d/` holds no fragment, or there is no CHANGELOG.md section to place them
+    by: the version's section is then written as before.
+    """
+    fragments = read_changelog_fragments(
+        _resolve_safe_project_path(root, CONST_CHANGELOG_FRAGMENTS_DIR)
+    )
+    changelog_file = _resolve_safe_project_path(root, CONST_CHANGELOG_FILENAME)
+    if not fragments or not changelog_file.exists():
+        return None
+    content = changelog_file.read_text(encoding="utf-8")
+    text = collect_changelog_fragments(content, version, today, fragments)
+    if text is None:
+        return None
+    return _FragmentCollection(changelog_file, text, tuple(fragment.path for fragment in fragments))
+
+
+def _plan_changelog_or_exit(
+    root: Path, version: str, today: str, update_changelog: bool
+) -> _FragmentCollection | None:
+    """Plan the fragment collection when the changelog is to be written, exiting 1 on a refusal."""
+    if not update_changelog:
+        return None
+    try:
+        return _plan_fragment_collection(root, version, today)
+    except ValidationError as exc:
+        _get("print_error")(str(exc), prefix=False, safe=True)
+        raise typer.Exit(1) from exc
+
+
+def _fragment_names(collection: _FragmentCollection | None) -> list[str]:
+    """The fragments a run collects, as their repository paths."""
+    paths = collection.fragments if collection is not None else ()
+    return [f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{path.name}" for path in paths]
+
+
+def _write_version_changelog(
+    root: Path, version: str, today: str, collection: _FragmentCollection | None
+) -> bool:
+    """Write the version's CHANGELOG.md section, from the fragments when there are any.
+
+    The fragments are deleted in the same run, once the text holding their entries is written.
+    """
+    if collection is None:
+        return _update_changelog_header(root, version, today)
+    from devops_cli.output import write_text_file
+
+    write_text_file(collection.changelog_file, collection.text)
+    for fragment in collection.fragments:
+        fragment.unlink()
+    return True
+
+
+def _release_paths(root: Path) -> list[str]:
+    """The paths a release commit stages.
+
+    `changelog.d/` is among them where it exists, so the commit records the fragments the cut
+    deleted; naming a path that does not exist would fail the whole `git add`.
+    """
+    paths = [
+        CONST_PYPROJECT_FILENAME,
+        str(CONST_INIT_PY_PATH),
+        CONST_CHANGELOG_FILENAME,
+        CONST_README_FILENAME,
+        f"{CONST_DOCS_DIR_NAME}/",
+    ]
+    if (root / CONST_CHANGELOG_FRAGMENTS_DIR).is_dir():
+        paths.append(f"{CONST_CHANGELOG_FRAGMENTS_DIR}/")
+    return paths
+
+
 def _format_release_title(
     version: str, prefix: str = DEFAULT_RELEASE_TYPE, breaking: bool = False
 ) -> str:
@@ -614,6 +701,8 @@ def release_prepare(
         raise typer.Exit(1)
 
     repo_root = _get_project_root(root)
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    collection = _plan_changelog_or_exit(repo_root, clean_version, today, update_changelog)
 
     if is_dry_run():
         render_dry_run_result(
@@ -626,6 +715,7 @@ def release_prepare(
                 "init_target": str(repo_root / "src/devops_cli/__init__.py"),
                 "sync_docs": sync_docs,
                 "update_changelog": update_changelog,
+                "changelog_fragments": _fragment_names(collection),
                 "create_pr": create_pr,
                 "draft": draft,
                 "release_type": release_type,
@@ -666,14 +756,12 @@ def release_prepare(
             MESSAGES.release.updated_init.format(version=clean_version), prefix=False
         )
 
-    # 3. Update CHANGELOG.md
-    if update_changelog:
-        today = datetime.now(UTC).strftime("%Y-%m-%d")
-        if _update_changelog_header(repo_root, clean_version, today):
-            _get("print_info")(
-                MESSAGES.release.updated_changelog.format(version=clean_version, date=today),
-                prefix=False,
-            )
+    # 3. Update CHANGELOG.md, collecting changelog.d/ when it holds fragments
+    if update_changelog and _write_version_changelog(repo_root, clean_version, today, collection):
+        _get("print_info")(
+            MESSAGES.release.updated_changelog.format(version=clean_version, date=today),
+            prefix=False,
+        )
 
     # 4. Regenerate documentation & sync README Command Matrix
     if sync_docs:
@@ -725,18 +813,7 @@ def _commit_and_push_release_branch(
     branch_name: str, release_title: str, push: bool, repo_root: Path
 ) -> None:
     """Stage release files, create release commit, and optionally push to remote."""
-    _get("run_subprocess")(
-        [
-            "git",
-            "add",
-            CONST_PYPROJECT_FILENAME,
-            str(CONST_INIT_PY_PATH),
-            "CHANGELOG.md",
-            CONST_README_FILENAME,
-            f"{CONST_DOCS_DIR_NAME}/",
-        ],
-        cwd=repo_root,
-    )
+    _get("run_subprocess")(["git", "add", *_release_paths(repo_root)], cwd=repo_root)
     commit_proc = _get("run_subprocess")(["git", "commit", "-m", release_title], cwd=repo_root)
     if commit_proc.returncode != 0 and "nothing to commit" not in str(commit_proc.stdout):
         _get("print_warning")(f"Note: {commit_proc.stderr or commit_proc.stdout}", prefix=False)
@@ -1441,6 +1518,7 @@ def release_changelog(
         raise typer.Exit(1)
 
     today = datetime.now(UTC).strftime("%Y-%m-%d")
+    collection = _plan_changelog_or_exit(repo_root, target_ver, today, update)
     compiled_notes = (
         _extract_git_commit_notes(repo_root, target_ver)
         or f"### Changes in v{target_ver}\n\n* Release v{target_ver}"
@@ -1451,12 +1529,18 @@ def release_changelog(
             command="devops release changelog",
             action="compile_release_changelog",
             target=target_ver,
-            details={"version": target_ver, "update": update, "raw": raw, "from_tag": from_tag},
+            details={
+                "version": target_ver,
+                "update": update,
+                "raw": raw,
+                "from_tag": from_tag,
+                "changelog_fragments": _fragment_names(collection),
+            },
         )
         return
 
     if update:
-        if _update_changelog_header(repo_root, target_ver, today):
+        if _write_version_changelog(repo_root, target_ver, today, collection):
             print_success(
                 MESSAGES.release.updated_changelog.format(version=target_ver, date=today),
                 prefix=False,
@@ -1481,18 +1565,7 @@ def release_changelog(
 
 def _commit_release_tag_changes(repo_root: Path, release_title: str) -> None:
     """Stage release files and create commit before tagging."""
-    _get("run_subprocess")(
-        [
-            "git",
-            "add",
-            CONST_PYPROJECT_FILENAME,
-            str(CONST_INIT_PY_PATH),
-            CONST_CHANGELOG_FILENAME,
-            CONST_README_FILENAME,
-            f"{CONST_DOCS_DIR_NAME}/",
-        ],
-        cwd=repo_root,
-    )
+    _get("run_subprocess")(["git", "add", *_release_paths(repo_root)], cwd=repo_root)
     _get("run_subprocess")(
         ["git", "commit", "-m", release_title],
         cwd=repo_root,

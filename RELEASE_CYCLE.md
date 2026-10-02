@@ -53,6 +53,7 @@ flowchart LR
 3. **PR Base Branch Targeting**: When opening Pull Requests, target the active release branch (`--base release/v<version>`). Only release branches target `main`.
 4. **Agent Non-Merge Rule**: Automated agents must update PR branches with new commits without autonomously merging. Merging is reserved for human maintainers.
 5. **No Commits to Merged/Unrelated Branches**: Never commit or push work to a topic branch that has already been merged or is unrelated to the current task. Always branch off fresh from the active release branch (`git checkout -b <type>/<name> origin/release/v<version>`).
+6. **Changelog Fragments**: Add the item's changelog entry as `changelog.d/<issue>.md` (see [`changelog.d/README.md`](changelog.d/README.md)). Do not edit `CHANGELOG.md` or `docs/ROADMAP.md` in an item PR: `devops release prepare` collects the fragments into the version's section at the cut, `devops roadmap render` regenerates the roadmap, and `devops pr check-readiness` blocks a PR into a release branch that changes either file. Only release-process PRs edit them, from `chore/open-vX.Y.Z` or `chore/cut-vX.Y.Z` (optionally followed by `-<slug>`) into `release/vX.Y.Z`.
 
 
 
@@ -133,7 +134,7 @@ The `devops-cli` provides native first-class subcommands to automate every stage
 | Subcommand | Description | Example |
 | :--- | :--- | :--- |
 | `devops release status` | Displays release version consistency, git tag, changelog state, and docs freshness. | `devops release status` |
-| `devops release prepare <ver>` | Bumps versions in `pyproject.toml` and `__init__.py`, updates `CHANGELOG.md`, and syncs docs/README. | `devops release prepare 0.1.10 [-p]` |
+| `devops release prepare <ver>` | Bumps versions in `pyproject.toml` and `__init__.py`, collects `changelog.d/` into `CHANGELOG.md`, and syncs docs/README. | `devops release prepare 0.1.10 [-p]` |
 | `devops release pr [-v <ver>]` | Creates a release branch (`release/vX.Y.Z`), commits bumps, and opens a GitHub Release PR. | `devops release pr -v 0.1.10` |
 | `devops release check` | Authoritative verification gate: asserts version matching, clean git tree, docs freshness, and CI validation. | `devops release check` |
 | `devops release notes [-v <ver>]` | Extracts and renders formatted markdown release notes from `CHANGELOG.md`. | `devops release notes -v 0.1.10` |
