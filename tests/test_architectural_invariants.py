@@ -212,6 +212,32 @@ def test_no_bare_generic_exceptions_in_refactored_modules() -> None:
     )
 
 
+def test_no_module_runs_python_in_process() -> None:
+    """Name every source module that calls the `exec` or `eval` builtin; there must be none.
+
+    Code run by `exec` in this process is not contained by an AST check or a trimmed
+    `__builtins__`: a script handed `typing` reaches `os` through `typing.sys.modules`, and one
+    handed `asyncio` starts processes. The two harness capabilities that ran model-written
+    scripts this way were deleted rather than patched (#947). Model code that has to run
+    belongs in the host sandbox (bwrap) instead.
+    """
+    src = Path(__file__).resolve().parents[1] / "src" / "devops_cli"
+    texts = {path: path.read_text(encoding="utf-8") for path in src.rglob("*.py")}
+    callers = sorted(
+        {
+            path.relative_to(src).as_posix()
+            for path, text in texts.items()
+            if "exec(" in text or "eval(" in text
+            for node in ast.walk(ast.parse(text, filename=str(path)))
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in ("exec", "eval")
+        }
+    )
+
+    assert tuple(callers) == ()
+
+
 def _resolve_import_edge(
     sub: ast.Import,
     mod: str,

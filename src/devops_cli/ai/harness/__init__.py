@@ -85,7 +85,7 @@ from devops_cli.ai.harness.memory import (
     SearchableMemoryStore,
     SqliteMemoryStore,
 )
-from devops_cli.ai.harness.os_access import CodeMode, MountDir, OSAccess, ToolSearch
+from devops_cli.ai.harness.os_access import MountDir, OSAccess, ToolSearch
 from devops_cli.ai.harness.planning import (
     InMemoryPlanStore,
     PlanEvent,
@@ -118,11 +118,9 @@ from devops_cli.ai.harness.workflow import (
     MINIMUM_EFFORT_FLOOR,
     Advisor,
     AgentOverride,
-    DynamicWorkflow,
     ModelOption,
     SubAgent,
     SubAgents,
-    WorkflowAgent,
     clamp_effort,
 )
 
@@ -152,14 +150,12 @@ __all__ = [
     "CacheMark",
     "ClampOversizedMessages",
     "ClearToolResults",
-    "CodeMode",
     "Coder",
     "CompactionReceipt",
     "ContextUsage",
     "ConversationSearch",
     "ConversationSearchMatch",
     "DeduplicateFileReads",
-    "DynamicWorkflow",
     "FallbackCompaction",
     "FileStore",
     "FileSystem",
@@ -225,7 +221,6 @@ __all__ = [
     "TruncationStrategy",
     "WarnNearLimits",
     "WarnOnCacheBusts",
-    "WorkflowAgent",
     "bm25_rank",
     "clamp_effort",
     "coder_agent",

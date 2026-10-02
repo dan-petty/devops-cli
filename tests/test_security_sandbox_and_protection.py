@@ -1,9 +1,8 @@
-"""Unit and integration tests for security sandboxed code execution, symlink protection, and secret redaction.
+"""Unit and integration tests for path and symlink protection, input validation, and secret redaction.
 
 TDD specifications covering:
 
 - Ground-truth importability of DEFAULT_HTTP_BROKER
-- CodeMode sandboxed execution built-in and import safety
 - Path traversal and symlink prevention across prompt_eval, ssh_keys, ast_stream, complexity, tflint, sandbox
 - Secret redaction across agent memory summaries, telemetry error samples, CLI failures, tool errors, helm diff
 - URL and reference validation in difftastic, ollama provider, and create_pydantic_ai_provider
@@ -12,7 +11,6 @@ TDD specifications covering:
 
 from __future__ import annotations
 
-import asyncio
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -31,65 +29,6 @@ def test_default_http_broker_is_defined_and_importable() -> None:
 
     assert isinstance(DEFAULT_HTTP_BROKER, HttpClientBroker)
     assert DEFAULT_HTTP_BROKER is BROKER_FROM_MODULE
-
-
-# 2. CodeMode sandbox builtins and import restriction (Finding 2)
-def test_os_access_codemode_blocks_dangerous_imports_and_builtins() -> None:
-    """Verify CodeMode run_code blocks dangerous imports like os, subprocess, and builtins."""
-    from devops_cli.ai.harness.os_access import CodeMode
-
-    cm = CodeMode(tools=[], max_tool_calls=5)
-    tools = {t.name: t for t in cm.get_tools()}
-    assert "run_code" in tools
-    run_fn = tools["run_code"].function
-
-    # Attempting to import os must fail safely
-    malicious_import = """
-import os
-os.environ.get("HOME")
-"""
-    res = asyncio.run(run_fn(code=malicious_import))
-    assert "ImportError" in str(res) or "RuntimeError" in str(res) or "not permitted" in str(res)
-
-    # Attempting to import subprocess must fail safely
-    malicious_subprocess = """
-import subprocess
-subprocess.run(["echo", "hello"])
-"""
-    res_sub = asyncio.run(run_fn(code=malicious_subprocess))
-    assert (
-        "ImportError" in str(res_sub)
-        or "RuntimeError" in str(res_sub)
-        or "not permitted" in str(res_sub)
-    )
-
-    # Safe imports in whitelist should still work
-    safe_script = """
-import math
-math.sqrt(16)
-"""
-    res_safe = asyncio.run(run_fn(code=safe_script))
-    assert res_safe == 4.0 or res_safe == {"result": 4.0} or "4.0" in str(res_safe)
-
-    # Dangerous reflection builtins (getattr, hasattr, type), sys import, and dunder traversal must be blocked
-    for dangerous_snippet in [
-        "getattr(math, 'sqrt')(16)",
-        "hasattr(math, 'sqrt')",
-        "type(123)",
-        "import sys",
-        "().__class__.__base__.__subclasses__()",
-        "[].__class__.__mro__",
-        "__builtins__",
-    ]:
-        res_dang = asyncio.run(run_fn(code=dangerous_snippet))
-        assert (
-            "NameError" in str(res_dang)
-            or "ImportError" in str(res_dang)
-            or "RuntimeError" in str(res_dang)
-            or "not permitted" in str(res_dang)
-            or "is not defined" in str(res_dang)
-            or "forbidden" in str(res_dang)
-        )
 
 
 # 3. Path traversal prevention in evaluate_persona_prompts (Finding 3)
