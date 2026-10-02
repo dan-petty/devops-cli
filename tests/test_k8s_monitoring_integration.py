@@ -264,15 +264,15 @@ def test_otel_collector_logs_pipeline_exports_to_loki() -> None:
     with open(otel_values_path, encoding="utf-8") as f:
         otel = yaml.safe_load(f)
 
-    loki_exp = otel["config"]["exporters"].get("loki", {})
+    loki_exp = otel["config"]["exporters"].get("otlphttp/loki", {})
     endpoint = loki_exp.get("endpoint")
     log_exporters = otel["config"]["service"]["pipelines"]["logs"]["exporters"]
 
     assert (
         endpoint,
-        "loki" in log_exporters,
+        "otlphttp/loki" in log_exporters,
     ) == (
-        "http://loki.logging.svc.cluster.local:3100/loki/api/v1/push",
+        "http://loki.logging.svc.cluster.local:3100/otlp",
         True,
     )
 
