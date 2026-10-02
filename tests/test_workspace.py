@@ -155,24 +155,73 @@ def test_workspace_edge_cases_and_clean(tmp_path: Path) -> None:
             assert "Cleaned" in res_clean_pruned.output
 
 
+@pytest.mark.parametrize(
+    ("content", "size_limit"),
+    [
+        ('{\n // c\n "folders": [{"path": "/x"},],\n "settings": {"a": 1}\n}', None),
+        ('{"folders": "x"}', None),
+        ('{"folders": [{"path": "/x"}], "settings": {"a": 1}}', 4),
+        (b'{"folders": [{"path": "/\xff"}]}', None),
+    ],
+    ids=["jsonc", "malformed", "oversized", "not-utf8"],
+)
+@pytest.mark.parametrize("command", ["add", "remove"])
+def test_workspace_add_refuses_to_overwrite_unparseable_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    content: str | bytes,
+    size_limit: int | None,
+) -> None:
+    """A workspace file the command cannot read is left byte-for-byte as it was (#961).
+
+    `_load` used to warn and return empty defaults, and `add` then saved over the file,
+    dropping every folder and setting it held. VS Code accepts comments and trailing
+    commas in a `.code-workspace` file, which `json.loads` rejects.
+    """
+    ws = tmp_path / "w.code-workspace"
+    if isinstance(content, bytes):
+        ws.write_bytes(content)
+    else:
+        ws.write_text(content, encoding="utf-8")
+    before = ws.read_bytes()
+    if size_limit is not None:
+        monkeypatch.setattr(
+            "devops_cli.commands.workspace.DEFAULT_MAX_AST_FILE_SIZE_BYTES", size_limit
+        )
+
+    with patch("devops_cli.commands.workspace._PROJECT_ROOT", tmp_path):
+        result = runner.invoke(workspace_app, [command, str(tmp_path), "--workspace", str(ws)])
+
+    assert (result.exit_code, ws.read_bytes(), "left unchanged" in result.output) == (
+        1,
+        before,
+        True,
+    )
+
+
 def test_workspace_load_save_boundaries_and_outside_roots(tmp_path: Path) -> None:
-    """Verify _load size guard, corrupted json, _save boundaries, and add outside roots."""
+    """Verify _load defaults and refusals, _save boundaries, and add outside roots."""
     from devops_cli.commands.workspace import _load, _save
 
-    # 1. _load corrupted JSON
+    # 1. _load starts from empty defaults only when the file does not exist yet
+    assert _load(tmp_path / "absent.code-workspace") == {"folders": [], "settings": {}}
+
+    # 2. _load refuses corrupted JSON, a dict without a list of folders, and an oversized file
     bad_json = tmp_path / "corrupted.code-workspace"
     bad_json.write_text("NOT JSON", encoding="utf-8")
-    assert _load(bad_json) == {"folders": [], "settings": {}}
-
-    # 2. _load malformed JSON (dict without list folders)
     mal_json = tmp_path / "malformed.code-workspace"
     mal_json.write_text('{"folders": "not_a_list"}', encoding="utf-8")
-    assert _load(mal_json) == {"folders": [], "settings": {}}
-
-    # 3. _load oversized file > 10MB
-    with patch.object(Path, "stat") as mock_stat:
-        mock_stat.return_value.st_size = 11 * 1024 * 1024
-        assert _load(bad_json) == {"folders": [], "settings": {}}
+    good_json = tmp_path / "good.code-workspace"
+    good_json.write_text('{"folders": []}', encoding="utf-8")
+    for unreadable in (bad_json, mal_json):
+        with pytest.raises(typer.Exit):
+            _load(unreadable)
+    with (
+        patch("devops_cli.commands.workspace.DEFAULT_MAX_AST_FILE_SIZE_BYTES", 4),
+        pytest.raises(typer.Exit),
+    ):
+        _load(good_json)
 
     # 4. _save unsafe filename extension
     with pytest.raises(typer.Exit):

@@ -88,11 +88,6 @@ def _namespace(namespace: str | None) -> str:
     return namespace
 
 
-def _crd(context: str | None = None) -> ArgoCRDService:
-    """Construct the native Argo custom resource service for a kubeconfig context."""
-    return get_argo_crd_service(context=context)
-
-
 def _load_manifest(path: Path) -> dict[str, Any]:
     """Load and validate a single-document Argo custom resource manifest."""
     import yaml
@@ -403,7 +398,7 @@ def workflows_list(
     ] = None,
 ) -> None:
     """List Argo Workflows."""
-    workflows = _crd(namespace).list_workflows(namespace=_namespace(namespace))
+    workflows = get_argo_crd_service().list_workflows(namespace=_namespace(namespace))
     print_table(
         title=MESSAGES.argo.table_title_workflows,
         columns=[("Name", "cyan"), "Phase", "Progress", "Started", "Finished"],
@@ -424,12 +419,13 @@ def workflows_submit(
 ) -> None:
     """Submit an Argo Workflow from a YAML file."""
     target_ns = _namespace(namespace)
-    submitted = _crd(namespace).submit_workflow(_load_manifest(file.resolve()), namespace=target_ns)
+    service = get_argo_crd_service()
+    submitted = service.submit_workflow(_load_manifest(file.resolve()), namespace=target_ns)
     print_success(
         MESSAGES.argo.workflow_submitted.format(name=submitted.name, phase=submitted.phase)
     )
     if wait:
-        final = _await_workflow(_crd(namespace), submitted.name, target_ns)
+        final = _await_workflow(service, submitted.name, target_ns)
         print_info(MESSAGES.argo.workflow_finished.format(name=final.name, phase=final.phase))
         if final.phase in CONST_ARGO_WORKFLOW_FAILURE_PHASES:
             raise typer.Exit(1)
@@ -447,7 +443,7 @@ def workflows_logs(
     from devops_cli.k8s.service import KubernetesService
 
     target_ns = _namespace(namespace)
-    pods = _crd(namespace).workflow_pod_names(name, namespace=target_ns)
+    pods = get_argo_crd_service().workflow_pod_names(name, namespace=target_ns)
     if not pods:
         print_info(MESSAGES.argo.workflow_no_pods.format(name=name), prefix=False)
         return
@@ -478,7 +474,7 @@ def rollouts_list(
     ] = None,
 ) -> None:
     """List Argo Rollouts."""
-    rollouts = _crd(namespace).list_rollouts(namespace=_namespace(namespace))
+    rollouts = get_argo_crd_service().list_rollouts(namespace=_namespace(namespace))
     print_table(
         title=MESSAGES.argo.table_title_rollouts,
         columns=[("Name", "cyan"), "Strategy", "Phase", "Step", "Ready", "Updated"],
@@ -506,7 +502,7 @@ def rollouts_status(
 ) -> None:
     """Show status for an Argo Rollout."""
     target_ns = _namespace(namespace)
-    service = _crd(namespace)
+    service = get_argo_crd_service()
 
     if watch:
         from devops_cli.watchers.live_resource import LiveResourceWatcher

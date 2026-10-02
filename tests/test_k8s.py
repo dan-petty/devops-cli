@@ -768,8 +768,15 @@ def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
         res_stat_fail = runner.invoke(app, ["status"])
         assert res_stat_fail.exit_code == 1
 
-    # 9. port-forward command execution
+    # 9. port-forward command execution, recording its forwards under tmp_path rather than in
+    # the real state file of the directory the tests run from
+    from devops_cli.k8s.port_forward_daemon import PortForwardDaemonManager
+
     with (
+        patch(
+            "devops_cli.k8s.port_forward_daemon.get_daemon_manager",
+            return_value=PortForwardDaemonManager(state_file=tmp_path / "port_forwards.json"),
+        ),
         patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
         patch("subprocess.Popen") as mock_popen,
         patch("time.sleep"),

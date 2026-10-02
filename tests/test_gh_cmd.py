@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -40,6 +41,41 @@ def test_gh_labels_sync_dry_run() -> None:
         assert (
             "DRY RUN" in result.output or "dry-run" in result.output.lower() or "5" in result.output
         )
+
+
+def test_gh_labels_sync_exits_nonzero_when_unauthenticated(tmp_path: Path) -> None:
+    """`devops gh labels sync` fails when gh cannot list or create labels (#961).
+
+    With no token and gh logged out, the label list came back empty, every create failed
+    unseen, and the command still printed "Label sync complete" and exited 0.
+    """
+    labels_file = tmp_path / "labels.yml"
+    labels_file.write_text("- name: type/bug\n  color: D73A4A\n", encoding="utf-8")
+    failed = MagicMock(returncode=1, stdout="", stderr="gh auth login required")
+
+    with (
+        patch("devops_cli.commands.gh._get_github_client", return_value=None),
+        patch("devops_cli.github.client.run_gh", return_value=failed),
+    ):
+        result = runner.invoke(app, ["labels", "sync", "-f", str(labels_file), "-R", "o/r"])
+
+    assert (
+        result.exit_code,
+        "Label sync complete" in result.output,
+        "gh auth login required" in result.output,
+    ) == (1, False, True)
+
+
+def test_gh_labels_list_asks_for_every_label() -> None:
+    """`devops gh labels list` asks gh for more than its default 30 labels."""
+    from devops_cli.commands.gh import _get_repo_labels
+
+    listed = MagicMock(returncode=0, stdout='[{"name": "type/bug"}]', stderr="")
+    with patch("devops_cli.commands.gh.run_gh", return_value=listed) as run_gh:
+        _get_repo_labels("o/r")
+    argv = run_gh.call_args.args[0]
+    # Without --limit, gh lists 30.
+    assert (int(argv[argv.index("--limit") + 1]) if "--limit" in argv else 30) > 30
 
 
 def test_gh_milestones_list(roadmap_store: InMemoryRoadmapStore) -> None:

@@ -10,8 +10,12 @@ from typing import TYPE_CHECKING, Any
 import httpx2
 from pydantic import BaseModel
 
-from devops_cli.config.constants import CONST_GH_CLI, CONST_URL_GITHUB_API_BASE
-from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
+from devops_cli.config.constants import (
+    CONST_GH_CLI,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
+    CONST_URL_GITHUB_API_BASE,
+)
+from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT, DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.models.ssh import SSHKeyInfo
@@ -344,18 +348,41 @@ class GhCliClient:
     def __init__(self, default_repo: str | None = None) -> None:
         self.default_repo = default_repo
 
+    def _run_label_command(self, cmd: list[str], *, quiet: bool = False) -> str:
+        """Run a `gh label` subcommand and return its output, raising when gh fails."""
+        res = run_gh(cmd, check=False, quiet=quiet)
+        if res.returncode != 0:
+            stderr = res.stderr.strip()[:CONST_MAX_ERROR_DETAIL_LENGTH]
+            raise GitHubOperationError(
+                f"gh label {cmd[2]} failed with exit code {res.returncode}: {stderr}",
+                operation=f"gh_label_{cmd[2]}",
+                details={"stderr": stderr},
+            )
+        return res.stdout
+
     def get_labels(self, repo: str) -> list[dict[str, Any]]:
         target_repo = repo or self.default_repo or ""
-        cmd = [CONST_GH_CLI, "label", "list", "--json", "name,color,description"]
+        cmd = [
+            CONST_GH_CLI,
+            "label",
+            "list",
+            "--json",
+            "name,color,description",
+            "--limit",
+            str(DEFAULT_GH_LABEL_LIST_LIMIT),
+        ]
         if target_repo:
             cmd.extend(["--repo", target_repo])
-        res = run_gh(cmd, check=False, quiet=True)
-        if res.returncode == 0 and res.stdout.strip():
-            try:
-                return json.loads(res.stdout)  # type: ignore[no-any-return]
-            except json.JSONDecodeError:
-                pass
-        return []
+        stdout = self._run_label_command(cmd, quiet=True)
+        if not stdout.strip():
+            return []
+        try:
+            return json.loads(stdout)  # type: ignore[no-any-return]
+        except json.JSONDecodeError as exc:
+            raise GitHubOperationError(
+                f"gh label list returned output that is not JSON: {exc}",
+                operation="gh_label_list",
+            ) from exc
 
     def create_label(self, repo: str, name: str, color: str, description: str = "") -> None:
         target_repo = repo or self.default_repo or ""
@@ -371,7 +398,7 @@ class GhCliClient:
         ]
         if target_repo:
             cmd.extend(["--repo", target_repo])
-        run_gh(cmd, check=False)
+        self._run_label_command(cmd)
 
     def edit_label(self, repo: str, name: str, color: str, description: str = "") -> None:
         target_repo = repo or self.default_repo or ""
@@ -387,7 +414,7 @@ class GhCliClient:
         ]
         if target_repo:
             cmd.extend(["--repo", target_repo])
-        run_gh(cmd, check=False)
+        self._run_label_command(cmd)
 
     def edit_issue(
         self,

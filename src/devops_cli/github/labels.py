@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -109,47 +109,25 @@ def diff_labels(
     return to_create, to_update, unchanged
 
 
-def _extract_labels_from_raw(raw_labels: Any) -> list[dict[str, Any]]:
-    """Extract standard dictionaries from heterogeneous label objects or dicts."""
-    results: list[dict[str, Any]] = []
-    for item in raw_labels or []:
-        if isinstance(item, dict):
-            results.append(item)
-        elif hasattr(item, "name"):
-            results.append(
-                {
-                    "name": item.name,
-                    "color": getattr(item, "color", ""),
-                    "description": getattr(item, "description", "") or "",
-                }
-            )
-    return results
+class LabelClient(Protocol):
+    """The label calls sync makes; `GitHubClient` and `GhCliClient` both provide them."""
 
+    def get_labels(self, repo: str) -> list[dict[str, Any]]: ...
 
-def _apply_label_mutation(client: Any, repo: str, spec: LabelSpec, is_create: bool) -> None:
-    """Safely apply create or edit label mutation on client."""
-    method_name = "create_label" if is_create else "edit_label"
-    func = getattr(client, method_name, None)
-    if not callable(func):
-        return
+    def create_label(self, repo: str, name: str, color: str, description: str = "") -> object: ...
 
-    try:
-        func(repo, name=spec.name, color=spec.color, description=spec.description)
-    except TypeError:
-        func(name=spec.name, color=spec.color, description=spec.description)
+    def edit_label(self, repo: str, name: str, color: str, description: str = "") -> object: ...
 
 
 def sync_repository_labels(
-    client: Any, repo: str, desired: list[LabelSpec], dry_run: bool = False
+    client: LabelClient, repo: str, desired: list[LabelSpec], dry_run: bool = False
 ) -> LabelSyncResult:
-    """Synchronize remote repository labels with desired declarative specifications."""
-    try:
-        raw_existing = client.get_labels(repo)
-    except TypeError:
-        raw_existing = client.get_labels()
+    """Synchronize remote repository labels with desired declarative specifications.
 
-    existing = _extract_labels_from_raw(raw_existing)
-    to_create, to_update, unchanged = diff_labels(desired, existing)
+    A failed client call propagates as raised, so a sync that stopped part way is never
+    reported as done.
+    """
+    to_create, to_update, unchanged = diff_labels(desired, client.get_labels(repo))
 
     result = LabelSyncResult(
         created_count=len(to_create),
@@ -164,10 +142,10 @@ def sync_repository_labels(
         return result
 
     for spec in to_create:
-        _apply_label_mutation(client, repo, spec, is_create=True)
+        client.create_label(repo, spec.name, spec.color, spec.description)
 
     for spec in to_update:
-        _apply_label_mutation(client, repo, spec, is_create=False)
+        client.edit_label(repo, spec.name, spec.color, spec.description)
 
     return result
 

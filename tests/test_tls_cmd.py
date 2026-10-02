@@ -239,3 +239,68 @@ def test_tls_enable_k8s_execution(tmp_path: Path) -> None:
         )
         assert res_fail.exit_code == 0
         assert "Failed" in res_fail.output
+
+
+def test_tls_enable_k8s_leaves_the_live_secret_when_the_new_one_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """`devops tls enable-k8s` never deletes a secret it cannot replace (#961).
+
+    It deleted each namespace's secret and then created the new one, so a certificate and
+    key kubectl rejects left the namespace with no secret at all.
+    """
+    (tmp_path / "tls.crt").write_text("certificate", encoding="utf-8")
+    (tmp_path / "tls.key").write_text("rotated key", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    def kubectl(cmd: list[str], **kwargs: object) -> MagicMock:
+        calls.append(cmd)
+        if {"create", "secret", "tls"} <= set(cmd):
+            return MagicMock(returncode=1, stdout="", stderr="tls: private key does not match")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("devops_cli.commands.tls.run_subprocess", side_effect=kubectl):
+        result = runner.invoke(
+            app, ["enable-k8s", "--tls-dir", str(tmp_path), "--namespace", "web"]
+        )
+
+    changes = [cmd for cmd in calls if {"delete", "apply"} & set(cmd)]
+    assert (result.exit_code, changes, "private key does not match" in result.output) == (
+        0,
+        [],
+        True,
+    )
+
+
+def test_tls_enable_k8s_applies_the_rendered_secret_over_the_live_one(tmp_path: Path) -> None:
+    """`devops tls enable-k8s` renders each secret client-side, then applies it (#961)."""
+    cert_path, key_path = tmp_path / "tls.crt", tmp_path / "tls.key"
+    cert_path.write_text("certificate", encoding="utf-8")
+    key_path.write_text("key", encoding="utf-8")
+    calls: list[tuple[list[str], object]] = []
+
+    def kubectl(cmd: list[str], **kwargs: object) -> MagicMock:
+        calls.append((cmd, kwargs.get("input")))
+        rendered = "kind: Secret\n" if "--dry-run=client" in cmd else ""
+        return MagicMock(returncode=0, stdout=rendered, stderr="")
+
+    with patch("devops_cli.commands.tls.run_subprocess", side_effect=kubectl):
+        result = runner.invoke(
+            app,
+            ["enable-k8s", "--tls-dir", str(tmp_path), "--namespace", "web"]
+            + ["--secret-name", "web-tls"],
+        )
+
+    assert (result.exit_code, calls[1:], "Created" in result.output) == (
+        0,
+        [
+            (
+                ["kubectl", "create", "secret", "tls", "web-tls"]
+                + [f"--cert={cert_path}", f"--key={key_path}", "-n", "web"]
+                + ["--dry-run=client", "-o", "yaml"],
+                None,
+            ),
+            (["kubectl", "apply", "-f", "-", "-n", "web"], "kind: Secret\n"),
+        ],
+        True,
+    )
