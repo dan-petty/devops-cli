@@ -30,6 +30,12 @@ clusterMetrics:
         - container_oom_events_total
         - container_network_receive_errors_total
         - container_network_transmit_errors_total
+        - container_cpu_usage_seconds_total
+        - container_memory_working_set_bytes
+        - container_network_receive_packets_total
+        - container_network_transmit_packets_total
+        - container_network_receive_packets_dropped_total
+        - container_network_transmit_packets_dropped_total
   kube-state-metrics:
     metricsTuning:
       includeMetrics:
@@ -59,7 +65,7 @@ hostMetrics:
   linuxHosts:
     enabled: true
     metricsTuning:
-      useIntegrationAllowList: true
+      useIntegrationAllowList: false
       includeMetrics:
         - node_time_seconds
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 import yaml
@@ -27,6 +28,8 @@ def test_k8s_monitoring_cadvisor_and_ksm_metrics_tuning() -> None:
     ksm_inc = set(
         cm.get("kube-state-metrics", {}).get("metricsTuning", {}).get("includeMetrics", [])
     )
+    hm_tuning = data.get("hostMetrics", {}).get("linuxHosts", {}).get("metricsTuning", {})
+    use_integration_allow_list = hm_tuning.get("useIntegrationAllowList")
 
     required_cadvisor = {
         "machine_cpu_cores",
@@ -34,6 +37,12 @@ def test_k8s_monitoring_cadvisor_and_ksm_metrics_tuning() -> None:
         "container_oom_events_total",
         "container_network_receive_errors_total",
         "container_network_transmit_errors_total",
+        "container_cpu_usage_seconds_total",
+        "container_memory_working_set_bytes",
+        "container_network_receive_packets_total",
+        "container_network_transmit_packets_total",
+        "container_network_receive_packets_dropped_total",
+        "container_network_transmit_packets_dropped_total",
     }
     required_ksm = {
         "kube_deployment_labels",
@@ -60,7 +69,8 @@ def test_k8s_monitoring_cadvisor_and_ksm_metrics_tuning() -> None:
     assert (
         required_cadvisor.issubset(cadvisor_inc),
         required_ksm.issubset(ksm_inc),
-    ) == (True, True)
+        use_integration_allow_list,
+    ) == (True, True, False)
 
 
 def test_k8s_monitoring_ksm_telemetry_service_config() -> None:
@@ -210,3 +220,78 @@ def test_dcgm_exporter_values_timeout_and_capabilities() -> None:
         sm.get("scrapeTimeout"),
         "SYS_ADMIN" in caps,
     ) == (True, "15s", "10s", True)
+
+
+def _has_ingress_port_from_namespace(
+    rules: list[dict[str, Any]], target_ns: str, target_port: int
+) -> bool:
+    """Predicate checking whether an ingress rule allows target_port from target_ns."""
+    for rule in rules:
+        ns_matches = any(
+            src.get("namespaceSelector", {})
+            .get("matchLabels", {})
+            .get("kubernetes.io/metadata.name")
+            == target_ns
+            for src in rule.get("from", [])
+        )
+        port_matches = any(p.get("port") == target_port for p in rule.get("ports", []))
+        if ns_matches and port_matches:
+            return True
+    return False
+
+
+def _has_egress_port_to_namespace(
+    rules: list[dict[str, Any]], target_ns: str, target_port: int
+) -> bool:
+    """Predicate checking whether an egress rule allows target_port to target_ns."""
+    for rule in rules:
+        ns_matches = any(
+            dst.get("namespaceSelector", {})
+            .get("matchLabels", {})
+            .get("kubernetes.io/metadata.name")
+            == target_ns
+            for dst in rule.get("to", [])
+        )
+        port_matches = any(p.get("port") == target_port for p in rule.get("ports", []))
+        if ns_matches and port_matches:
+            return True
+    return False
+
+
+def test_otel_collector_logs_pipeline_exports_to_loki() -> None:
+    """Verify that OTel collector logs pipeline exports to Loki push endpoint."""
+    otel_values_path = K8S_DIR / "otel" / "values.yaml"
+    with open(otel_values_path, encoding="utf-8") as f:
+        otel = yaml.safe_load(f)
+
+    loki_exp = otel["config"]["exporters"].get("loki", {})
+    endpoint = loki_exp.get("endpoint")
+    log_exporters = otel["config"]["service"]["pipelines"]["logs"]["exporters"]
+
+    assert (
+        endpoint,
+        "loki" in log_exporters,
+    ) == (
+        "http://loki.logging.svc.cluster.local:3100/loki/api/v1/push",
+        True,
+    )
+
+
+def test_otel_and_logging_network_policies_allow_telemetry_flow() -> None:
+    """Verify network policies permit OTel collector egress to Loki/Alloy and Loki ingress from OTel."""
+    logging_netpol = K8S_DIR / "logging" / "networkpolicy.yaml"
+    with open(logging_netpol, encoding="utf-8") as f:
+        log_doc = yaml.safe_load(f)
+
+    otel_netpol = K8S_DIR / "otel" / "networkpolicy.yaml"
+    with open(otel_netpol, encoding="utf-8") as f:
+        otel_doc = yaml.safe_load(f)
+
+    log_ingress = log_doc.get("spec", {}).get("ingress", [])
+    otel_egress = otel_doc.get("spec", {}).get("egress", [])
+
+    assert (
+        _has_ingress_port_from_namespace(log_ingress, "otel", 3100),
+        _has_egress_port_to_namespace(otel_egress, "logging", 3100),
+        _has_egress_port_to_namespace(otel_egress, "monitoring", 9090),
+    ) == (True, True, True)
