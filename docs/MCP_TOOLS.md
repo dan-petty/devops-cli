@@ -116,7 +116,7 @@ Pass the domain name alone, for example `k8s`. |
 | [`repos_sync`](#repos-sync) | Fetch and pull tracking branches across workspace repositories. |
 | [`review_branch`](#review-branch) | Run an AI code review on git branch diff against base branch. |
 | [`review_export_feedback`](#review-export-feedback) | Export review findings into JSONL feedback dataset for LLM alignment. |
-| [`review_findings`](#review-findings) | Inspect structured review findings for a session by verification status. |
+| [`review_findings`](#review-findings) | List a session's findings, filtered by status; each keeps the number verify_finding takes. |
 | [`review_path`](#review-path) | Run an AI code review on local files matching pattern using specified persona. |
 | [`review_pr`](#review-pr) | Fetch GitHub PR diff and review using specified persona; optionally post comment. |
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
@@ -164,7 +164,7 @@ It never writes. A person reviews the plan and runs `devops roadmap migrate --co
 | [`vault_set`](#vault-set) | Store secret key-value pairs in HashiCorp Vault KV-v2 engine. |
 | [`vault_status`](#vault-status) | Check HashiCorp Vault cluster health and sealing status. |
 | [`vault_sync`](#vault-sync) | Synchronize secrets from HashiCorp Vault into the local OS Keyring. |
-| [`verify_finding`](#verify-finding) | Validate or invalidate a finding and record human feedback. |
+| [`verify_finding`](#verify-finding) | Record an agent's verdict on the finding `review_findings` numbers `index` (from 1). |
 | [`workspace_list`](#workspace-list) | Show the active VS Code workspace file and configured repository directories. |
 
 ---
@@ -1308,7 +1308,7 @@ Export review findings into JSONL feedback dataset for LLM alignment.
 
 ### `review_findings`
 
-Inspect structured review findings for a session by verification status.
+List a session's findings, filtered by status; each keeps the number verify_finding takes.
 
 **Parameters:**
 
@@ -1799,7 +1799,7 @@ Synchronize secrets from HashiCorp Vault into the local OS Keyring.
 
 ### `verify_finding`
 
-Validate or invalidate a finding and record human feedback.
+Record an agent's verdict on the finding `review_findings` numbers `index` (from 1).
 
 **Parameters:**
 

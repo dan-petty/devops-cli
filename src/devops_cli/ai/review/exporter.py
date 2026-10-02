@@ -36,7 +36,9 @@ class FeedbackRecord(BaseModel):
     fix: str | None = None
     invalidation_reason: str | None = None
     verified_at: str | None = None
-    verified_by: str | None = "human"
+    # Only a finding that says a person judged it is `human`; anything else, `agent` included,
+    # is not ground truth (#949).
+    verified_by: str = CONST_VERIFIED_BY_UNKNOWN
     citation_line: int | None = None
     mitigating_mechanism: str | None = None
 

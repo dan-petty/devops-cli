@@ -258,14 +258,18 @@ def test_review_stats_and_export_empty(tmp_path: Path) -> None:
 def test_review_error_branches_and_patch_failure(tmp_path: Path) -> None:
     """Verify error branches for missing session dirs, missing findings.json, and apply-patch failure."""
     # 1. verify with non-existent session
-    res_no_sess = runner.invoke(review_app, ["verify", "nonexistent_sess_123", "--index", "1"])
+    res_no_sess = runner.invoke(
+        review_app, ["verify", "nonexistent_sess_123", "--index", "1", "--status", "VERIFIED"]
+    )
     assert res_no_sess.exit_code == 1
 
     # 2. verify with missing findings.json
     empty_sess = tmp_path / "empty_sess"
     empty_sess.mkdir()
     with patch("devops_cli.commands.review._find_session_dir", return_value=empty_sess):
-        res_no_find = runner.invoke(review_app, ["verify", "empty_sess", "--index", "1"])
+        res_no_find = runner.invoke(
+            review_app, ["verify", "empty_sess", "--index", "1", "--status", "VERIFIED"]
+        )
         assert res_no_find.exit_code == 1
 
         # findings with missing findings.json

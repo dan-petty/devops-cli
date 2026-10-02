@@ -32,7 +32,7 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 
 ### 7. AI Review False-Positive Detection & Invalidation Feedback Loop
 - **Context**: LLM review personas may occasionally hallucinate legacy syntax (e.g. Python 2 comma-separated exception handling), flag pre-submission secret redaction placeholders (`<masked-*>`, `[REDACTED]`, `{% raw %}${{ secrets.* }}{% endraw %}`), or cite historical research/evidence notes (`evidence/`, `docs/agent/archive/`) as live vulnerabilities.
-- **Mitigation**: Use `devops ai review verify --status INVALIDATED --reason "..."` to record verification feedback. Run `devops ai review export-feedback` to compile invalidation records into `.data/feedback_dataset.jsonl` for prompt benchmarking and tuning.
+- **Mitigation**: Use `devops ai review verify <session> --index <n> --status INVALIDATED --reason "..."`, with the number `devops ai review findings` shows, to record verification feedback. Run `devops ai review export-feedback` to compile invalidation records into `.data/feedback_dataset.jsonl` for prompt benchmarking and tuning.
 
 ### 8. Python 3.14 PEP 758 Multi-Exception Syntax & Pydantic Mutable Default Invariants
 - **Context**: Under Python 3.14+ (PEP 758), `except` and `except*` expressions allow brackets to be omitted when catching multiple exceptions without an `as` clause (e.g., `except Err1, Err2:`), which modern formatters like Ruff format by default. LLM reviewers frequently hallucinate that bracketless multi-exception syntax is legacy Python 2 or a syntax error. Additionally, Pydantic models must use `Field(default_factory=list|dict)` rather than mutable collections (`[]`, `{}`) for field defaults.

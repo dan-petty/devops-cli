@@ -627,6 +627,13 @@ devops ai review pr [OPTIONS] <number>
 
 **Inspect structured findings for a review session.**
 
+Inspect structured findings for a review session.
+
+Each finding keeps its number, its place in findings.json, whatever filter the list
+applies, and `devops review verify --index` takes that number. With `--candidates` the list
+is candidates.json: every finding the review raised, the ones verification invalidated
+included, numbered for `devops review verify --candidate`.
+
 ```bash
 devops ai review findings [OPTIONS] <session>
 ```
@@ -647,11 +654,32 @@ devops ai review findings [OPTIONS] <session>
 | `--invalidated` | `boolean` | - | Show invalidated findings only. |
 | `--verified` | `boolean` | - | Show verified findings only. |
 | `--mitigated` | `boolean` | - | Filter findings by MITIGATED status |
+| `--candidates` | `boolean` | - | List candidates.json: every finding the review raised, with the ones verification dropped. |
 | `--details`, `-d` | `boolean` | - | Display full finding descriptions and fix recommendations. |
 
 ### `devops ai review verify`
 
-**Validate or invalidate a review finding, persisting feedback reasons.**
+**Record a person's or an agent's verdict on a review finding or candidate.**
+
+Record a person's or an agent's verdict on a review finding or candidate.
+
+Name one finding: `--index` takes the number `devops review findings` shows, `--title` a
+substring of exactly one title, and `--candidate` the number `review findings --candidates`
+shows. There is no default verdict, so `--status` is required. A candidate given VERIFIED
+or MITIGATED moves into findings.json, unless findings.json already reports its defect under
+another title: give that finding the verdict instead.
+
+A verdict on a finding in findings.json is recorded on the candidate it reports too, and a
+verdict on a candidate on its copy in findings.json, so both lists agree. When that copy also
+reports another candidate of the same persona, title, location and description, give the
+verdict to the copy with `--index`. Verdicts given on one session at once take turns.
+
+`--adjudicator` records who gave the verdict: `human`, the default, or `agent`, which an AI
+agent passes and the MCP `verify_finding` tool always sends. An agent cannot change a
+person's verdict. Only a person's verdict ranks review history, teaches the learned catalog
+(INVALIDATED) or records a mitigation in the ledger (MITIGATED). A reset to UNVERIFIED
+withdraws what the finding's verdicts recorded there: an entry another verdict also
+recorded stays, and one nothing else recorded is removed.
 
 ```bash
 devops ai review verify [OPTIONS] <session>
@@ -668,9 +696,11 @@ devops ai review verify [OPTIONS] <session>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
-| `--index`, `-i` | `integer` | - | 1-based finding index in session to verify. |
-| `--title`, `-t` | `string` | - | Match finding by substring in title. |
-| `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. |
+| `--index`, `-i` | `integer` | - | Number `review findings` shows for the finding: its place in findings.json, whatever filter the list applied. |
+| `--title`, `-t` | `string` | - | Substring of exactly one finding title in findings.json. |
+| `--candidate` | `integer` | - | Number `review findings --candidates` shows; a VERIFIED or MITIGATED verdict moves the candidate into findings.json. |
+| `--status` | `string` | - | Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. UNVERIFIED also withdraws what a person's verdicts recorded in the catalog and ledger. |
+| `--adjudicator` | `choice (human|agent)` | `human` | Who gives the verdict: human, or agent for an AI agent, which cannot change a person's verdict. Only a person's verdict ranks review history and teaches the learned catalog and mitigations ledger. |
 | `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
 | `--perimeter`, `-p` | `string` | - | Perimeter file path(s) protecting against finding recurrence (repeatable). |
 | `--regression-test` | `string` | - | Path to regression test guarding against finding recurrence. |

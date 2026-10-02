@@ -954,9 +954,27 @@ class ReviewCommandHelp:
     unverified: str = "Show unverified findings only."
     invalidated: str = "Show invalidated findings only."
     verified: str = "Show verified findings only."
-    finding_index: str = "1-based finding index in session to verify."
-    title_match: str = "Match finding by substring in title."
-    status_target: str = "Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED."
+    candidates: str = (
+        "List candidates.json: every finding the review raised, with the ones verification dropped."
+    )
+    finding_index: str = (
+        "Number `review findings` shows for the finding: its place in findings.json, whatever "
+        "filter the list applied."
+    )
+    title_match: str = "Substring of exactly one finding title in findings.json."
+    candidate_index: str = (
+        "Number `review findings --candidates` shows; a VERIFIED or MITIGATED verdict moves the "
+        "candidate into findings.json."
+    )
+    status_target: str = (
+        "Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. "
+        "UNVERIFIED also withdraws what a person's verdicts recorded in the catalog and ledger."
+    )
+    adjudicator: str = (
+        "Who gives the verdict: human, or agent for an AI agent, which cannot change a person's "
+        "verdict. Only a person's verdict ranks review history and teaches the learned catalog "
+        "and mitigations ledger."
+    )
     reason: str = "Explanation or justification for the status change."
     perimeter: str = "Perimeter file path(s) protecting against finding recurrence (repeatable)."
     regression_test: str = "Path to regression test guarding against finding recurrence."

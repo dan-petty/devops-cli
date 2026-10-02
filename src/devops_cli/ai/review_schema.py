@@ -1108,6 +1108,15 @@ class SavedFinding(Finding):
     persona: str = ""
     persona_title: str = ""
     recommendation: str = "REQUEST CHANGES"
+    # One id for each learned-catalog or mitigations-ledger entry a person's verdict on this
+    # finding created or added to, which a reset to UNVERIFIED withdraws (#949). Only
+    # `devops review verify` sets them; `Finding`, the shape a model's reply is parsed into,
+    # has no such fields.
+    learned_catalog_ids: list[str] = Field(default_factory=list)
+    mitigation_ledger_ids: list[str] = Field(default_factory=list)
+    # On a finding a VERIFIED or MITIGATED verdict moved into findings.json, the number of the
+    # candidate in candidates.json it was moved from, which later verdicts on either keep in step.
+    moved_from_candidate: int | None = None
 
 
 class FileReviewPayload(BaseModel):

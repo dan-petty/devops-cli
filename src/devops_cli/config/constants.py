@@ -576,6 +576,9 @@ CONST_REVIEW_FINDINGS_FILENAME = "findings.json"
 # Every finding a review session produced, each with its verification status; findings.json keeps
 # only those still reported.
 CONST_REVIEW_CANDIDATES_FILENAME = "candidates.json"
+# Held while `devops review verify` reads and writes a session's files, so verdicts given on one
+# session at once, as an MCP client's parallel calls give them, wait their turn (#949).
+CONST_REVIEW_VERDICT_LOCK_FILENAME = ".verify.lock"
 CONST_REVIEW_GENERATED_FILES = frozenset(
     {
         "uv.lock",
@@ -2702,9 +2705,12 @@ CONST_TEST_ASSERTION_LINT_RULES: Final[frozenset[str]] = frozenset({"B017", "RUF
 # "human", which routed every finding the verifier never reached into the human
 # ground-truth bucket -- the one part of that dataset trusted because a person wrote it.
 CONST_VERIFIED_BY_UNKNOWN: Final[str] = "unknown"
-# The adjudicator `devops review verify` records: the only verdicts a person wrote, which review
+# A verdict a person gave through `devops review verify`: the only ground truth, which review
 # history ranks above any number of machine verdicts.
 CONST_VERIFIED_BY_HUMAN: Final[str] = "human"
+# A verdict an agent gave through `devops review verify --adjudicator agent` or the MCP
+# `verify_finding` tool. MCP clients are untrusted, so it never counts as a person's.
+CONST_VERIFIED_BY_AGENT: Final[str] = "agent"
 # Marks a finding the verifier never adjudicated because verification itself failed, as
 # opposed to one it considered and declined to confirm.
 CONST_VERIFICATION_UNAVAILABLE: Final[str] = "verification-unavailable"

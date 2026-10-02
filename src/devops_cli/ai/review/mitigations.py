@@ -57,6 +57,9 @@ class MitigatedFindingEntry(BaseModel):
     reason: str = ""
     recorded_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     recorded_by: str = "human"
+    # The person's verdicts that recorded or updated this mitigation. Resetting one of them to
+    # UNVERIFIED withdraws it, and the entry goes with the last (#949).
+    verdict_count: int = 1
 
 
 def load_mitigated_findings(ledger_path: Path | None = None) -> list[MitigatedFindingEntry]:
@@ -146,6 +149,7 @@ def record_mitigated_finding(
         existing.regression_test = test_path
         existing.reason = reason or existing.reason
         existing.recorded_at = datetime.now(UTC).isoformat()
+        existing.verdict_count += 1
         entry = existing
     else:
         entry = MitigatedFindingEntry(
