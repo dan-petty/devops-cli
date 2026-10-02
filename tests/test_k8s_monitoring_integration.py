@@ -214,12 +214,16 @@ def test_dcgm_exporter_values_timeout_and_capabilities() -> None:
     sec = data.get("securityContext", {})
     caps = sec.get("capabilities", {}).get("add", [])
 
+    relabelings = sm.get("relabelings", [])
+    target_labels = [r.get("targetLabel") for r in relabelings]
+
     assert (
         sm.get("enabled"),
         sm.get("interval"),
         sm.get("scrapeTimeout"),
         "SYS_ADMIN" in caps,
-    ) == (True, "15s", "10s", True)
+        target_labels,
+    ) == (True, "15s", "10s", True, ["node", "instance"])
 
 
 def _has_ingress_port_from_namespace(
@@ -264,15 +268,15 @@ def test_otel_collector_logs_pipeline_exports_to_loki() -> None:
     with open(otel_values_path, encoding="utf-8") as f:
         otel = yaml.safe_load(f)
 
-    loki_exp = otel["config"]["exporters"].get("loki", {})
+    loki_exp = otel["config"]["exporters"].get("otlp_http/loki", {})
     endpoint = loki_exp.get("endpoint")
     log_exporters = otel["config"]["service"]["pipelines"]["logs"]["exporters"]
 
     assert (
         endpoint,
-        "loki" in log_exporters,
+        "otlp_http/loki" in log_exporters,
     ) == (
-        "http://loki.logging.svc.cluster.local:3100/loki/api/v1/push",
+        "http://loki.logging.svc.cluster.local:3100/otlp",
         True,
     )
 
