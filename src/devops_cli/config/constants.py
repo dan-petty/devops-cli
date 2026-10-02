@@ -1963,6 +1963,18 @@ CONST_DOC_EXTENSIONS: Final[frozenset[str]] = frozenset(
     }
 )
 
+CONST_LOCKFILE_EXTENSIONS: Final[frozenset[str]] = frozenset(
+    {
+        ".lock",
+        ".lockb",
+    }
+)
+
+CONST_SEMGREP_EXCLUDED_EXTENSIONS: Final[frozenset[str]] = (
+    CONST_DOC_EXTENSIONS | CONST_BINARY_EXTENSIONS | CONST_LOCKFILE_EXTENSIONS
+)
+
+
 CONST_DOC_FILENAMES: Final[frozenset[str]] = frozenset(
     {
         "license",

@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from devops_cli.config.defaults import DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS
+from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ class ScannerRegistry:
         self,
         target_path: Path,
         image: str | None = None,
-        timeout: float = DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+        timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
         **kwargs: Any,
     ) -> dict[str, ScanOutcome]:
         """Run all registered scanners against target_path and collect findings."""

@@ -112,3 +112,52 @@ def test_scan_semgrep_cli(tmp_path: Path) -> None:
 
         res_json = runner.invoke(scan_app, ["sast", str(test_file), "--json"])
         assert (res_json.exit_code, "[]" in res_json.stdout) == (0, True)
+
+
+def test_semgrep_build_scan_command_target_filtering(tmp_path: Path) -> None:
+    """_build_scan_command filters out doc, lockfile, and binary extensions."""
+    from devops_cli.config.defaults import DEFAULT_SEMGREP_CONFIG
+    from devops_cli.security.semgrep import _build_scan_command
+
+    py_file = tmp_path / "service.py"
+    yaml_file = tmp_path / "deploy.yaml"
+    md_file = tmp_path / "README.md"
+    lock_file = tmp_path / "uv.lock"
+    bin_file = tmp_path / "image.png"
+
+    for f in (py_file, yaml_file, md_file, lock_file, bin_file):
+        f.write_text("content", encoding="utf-8")
+
+    cmd = _build_scan_command(
+        [py_file, yaml_file, md_file, lock_file, bin_file], DEFAULT_SEMGREP_CONFIG
+    )
+    assert cmd is not None
+    assert (
+        str(py_file.resolve()) in cmd,
+        str(yaml_file.resolve()) in cmd,
+        str(md_file.resolve()) in cmd,
+        str(lock_file.resolve()) in cmd,
+        str(bin_file.resolve()) in cmd,
+    ) == (True, True, False, False, False)
+
+    none_cmd = _build_scan_command([md_file, lock_file, bin_file], DEFAULT_SEMGREP_CONFIG)
+    assert none_cmd is None
+
+
+def test_resolve_cwd_commonpath(tmp_path: Path) -> None:
+    """BaseSecurityScanner._resolve_cwd returns common ancestor directory for file lists."""
+    from devops_cli.security.semgrep import SemgrepScanner
+
+    scanner = SemgrepScanner()
+    sub_a = tmp_path / "src" / "pkg"
+    sub_b = tmp_path / "tests" / "unit"
+    sub_a.mkdir(parents=True)
+    sub_b.mkdir(parents=True)
+
+    file_a = sub_a / "a.py"
+    file_b = sub_b / "b.py"
+    file_a.write_text("a", encoding="utf-8")
+    file_b.write_text("b", encoding="utf-8")
+
+    resolved_cwd = scanner._resolve_cwd([file_a, file_b])
+    assert resolved_cwd == tmp_path

@@ -12,7 +12,7 @@ from devops_cli.config.commands import BIN_GITLEAKS, build_gitleaks_cmd
 from devops_cli.config.constants import CONST_SECRET_PLACEHOLDER_MARKERS
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
-    DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
@@ -208,7 +208,7 @@ class GitleaksScanner(BaseSecurityScanner):
     def scan(
         self,
         target_path: Any,
-        timeout: float = DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+        timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
         **kwargs: Any,
     ) -> ScanOutcome:
         """Scan a path, or each file of a list, since Gitleaks takes one source per run."""

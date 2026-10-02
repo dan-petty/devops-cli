@@ -10,8 +10,10 @@ from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_SEMGREP, build_semgrep_cmd
+from devops_cli.config.constants import CONST_SEMGREP_EXCLUDED_EXTENSIONS
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
+    DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
     DEFAULT_SEMGREP_CONFIG,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
@@ -98,7 +100,13 @@ def _resolve_target_description(target: Path | list[Path]) -> str:
 def _build_scan_command(target: Path | list[Path], config: str) -> list[str] | None:
     """Construct subprocess command for file list or directory target."""
     if isinstance(target, list):
-        valid_files = [str(p.resolve()) for p in target if p.exists() and p.is_file()]
+        valid_files = [
+            str(p.resolve())
+            for p in target
+            if p.exists()
+            and p.is_file()
+            and p.suffix.lower() not in CONST_SEMGREP_EXCLUDED_EXTENSIONS
+        ]
         if not valid_files:
             return None
         return [
@@ -188,7 +196,8 @@ class SemgrepScanner(BaseSecurityScanner):
 def run_semgrep_scan(
     target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     config: str = DEFAULT_SEMGREP_CONFIG,
+    timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 ) -> ScanOutcome:
     """Execute Semgrep AST pattern scanner and return scan outcome."""
     scanner = SemgrepScanner()
-    return scanner.scan(target, config=config)
+    return scanner.scan(target, config=config, timeout=timeout)
