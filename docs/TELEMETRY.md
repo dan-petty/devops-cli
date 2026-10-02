@@ -22,6 +22,12 @@ points devops-cli at the cluster's collector.
 | `devops_cli_ai_tokens_total` | Counter | `1` | LLM tokens, by type (prompt or completion), provider, model, server and backend. |
 | `devops_cli_ai_spend_usd_total` | Counter | `USD` | Approximate LLM spend, by provider, model, server and backend. |
 | `devops_cli_rag_query_duration_ms` | Histogram | `ms` | RAG retrieval time. |
+| `devops_cli_project_releases_total` | Counter | `1` | Total project releases tracked. |
+| `devops_cli_project_commits_total` | Counter | `1` | Project commits count by release. |
+| `devops_cli_project_prs_total` | Counter | `1` | Project pull requests merged by release. |
+| `devops_cli_project_ci_runs_total` | Counter | `1` | CI workflow runs by name, status and conclusion. |
+| `devops_cli_project_items_total` | Counter | `1` | Project items by milestone, type, priority and state. |
+| `devops_cli_project_release_interval_days` | Histogram | `d` | Days elapsed between consecutive project releases. |
 
 ---
 

@@ -153,6 +153,7 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
             "devops_cli_command_duration_seconds_bucket": {0.5, 0.95, 0.99},
             "devops_cli_review_duration_seconds_bucket": {0.5, 0.95},
             "devops_cli_rag_query_duration_ms_bucket": {0.5, 0.95},
+            "devops_cli_project_release_interval_days_bucket": {0.5, 0.95},
         },
     )
 
