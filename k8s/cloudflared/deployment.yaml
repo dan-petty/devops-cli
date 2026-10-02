@@ -14,6 +14,9 @@ spec:
       app.kubernetes.io/name: cloudflared
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "2000"
       labels:
         app.kubernetes.io/name: cloudflared
         app.kubernetes.io/component: tunnel
