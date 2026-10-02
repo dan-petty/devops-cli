@@ -68,6 +68,7 @@ from devops_cli.config.defaults import (
     DEFAULT_OTEL_ENDPOINT,
     DEFAULT_PORTKEY_GATEWAY_URL,
     DEFAULT_PYROSCOPE_URL,
+    DEFAULT_QDRANT_TIMEOUT_SECONDS,
     DEFAULT_QDRANT_URL,
     DEFAULT_RAG_CHUNK_OVERLAP,
     DEFAULT_RAG_CHUNK_SIZE,
@@ -172,10 +173,20 @@ class ArgoCDConfig(BaseModel):
 
 
 class QdrantConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
+    # Assignments are validated, so an environment override is parsed and checked as the file is.
+    model_config = ConfigDict(frozen=False, validate_assignment=True)
     url: str | None = DEFAULT_QDRANT_URL
     collection_prefix: str = "devops"
     api_key: str | None = None
+    timeout: float = Field(
+        default=DEFAULT_QDRANT_TIMEOUT_SECONDS,
+        gt=0,
+        allow_inf_nan=False,
+        description=(
+            "Seconds each Qdrant request waits per attempt: RAG searches, and indexing's "
+            "upserts and deletes, which share the client"
+        ),
+    )
 
 
 class OpenWebUIConfig(BaseModel):

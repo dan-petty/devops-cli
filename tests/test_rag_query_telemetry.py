@@ -28,7 +28,7 @@ from devops_cli.ai.rag.models import SearchResult
 from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.ai.rag.reranker import SearchReranker
 from devops_cli.ai.rag.retriever import SemanticRetriever
-from devops_cli.config.settings import AIConfig
+from devops_cli.config.settings import AIConfig, load_settings
 from devops_cli.telemetry import tracer as tracer_module
 from devops_cli.telemetry.instruments import RAG_QUERY_DURATION, Instrument
 from devops_cli.telemetry.tracer import OTelTelemetryClient, reset_tracer
@@ -334,8 +334,9 @@ def test_an_interrupted_query_does_not_wait_for_the_other_searches(
     """Verify Ctrl-C during a query's own search raises at once, and leaves no thread to join.
 
     A pool's threads are joined when its `with` block exits and again when the interpreter
-    exits, so an interrupted query waited out the other collection's search, up to three 60 s
-    attempts against a stalled Qdrant, and the process stayed alive until it ended (#975).
+    exits, so an interrupted query waited out the other collection's search, up to three
+    attempts of `qdrant.timeout` against a stalled Qdrant, and the process stayed alive until it
+    ended (#975).
     """
     monkeypatch.setattr(retriever_module, "emit", _recorder([]))
     docs_searching, release, docs_done = threading.Event(), threading.Event(), threading.Event()
@@ -374,7 +375,7 @@ def test_a_retried_qdrant_request_is_counted_by_the_error_behind_it(
 
     qdrant_client raises every transport error as a `ResponseHandlingException`, so labelling
     by that class gave a keep-alive connection the tunnel closed, retried within a second, the
-    same `error_type` as a read that waited out its 60 s (#975). The real client sends through
+    same `error_type` as a read that waited out its timeout (#975). The real client sends through
     an httpx transport that fails each way once, then answers.
     """
     emitted: Emitted = []
@@ -414,8 +415,9 @@ def test_the_rag_histogram_tops_out_past_the_query_paths_timeouts(
 
     A quantile past the top bucket reads as that bucket's bound, so a top bucket below the
     query's own timeouts drew its slow tail as a flat line (#975). The query embeds through the
-    gateway and searches Qdrant with the clients' default timeouts; Qdrant's was an hour, and is
-    now 60 s per attempt. Sub-second buckets stay.
+    gateway with its default timeout and searches Qdrant with the default `qdrant.timeout`, read
+    through the settings as every caller reads it. Qdrant's was an hour, and is now 300 s per
+    attempt. Sub-second buckets stay.
     """
     read_timeouts: list[float] = []
 
@@ -435,7 +437,8 @@ def test_the_rag_histogram_tops_out_past_the_query_paths_timeouts(
         "NativeQdrantClient",
         lambda **kwargs: native_timeouts.append(float(kwargs["timeout"])),
     )
-    QdrantClient("http://127.0.0.1:6333", api_key="test-key")._get_client()
+    configured = load_settings().qdrant.timeout
+    QdrantClient("http://127.0.0.1:6333", api_key="test-key", timeout=configured)._get_client()
 
     longest_ms = 1000 * max(read_timeouts + native_timeouts)
     assert (

@@ -42,9 +42,27 @@ class Instrument:
 
 _SECONDS = (0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600)
 _REVIEW_SECONDS = (30, 60, 120, 300, 600, 900, 1800, 3600, 7200)
-# Up to Qdrant's 60 s request timeout, the longest a RAG query waits on: a quantile past the top
-# bucket comes out as its bound, so a top bucket of 5 s drew the slow tail as a flat line (#975).
-_RAG_MILLISECONDS = (10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 15000, 30000, 60000)
+# Up to 600 s, the top of the 300 to 600 s range set for `qdrant.timeout`, the longest a RAG query
+# waits on: a quantile past the top bucket comes out as its bound, so a top bucket of 5 s drew the
+# slow tail as a flat line (#975).
+_RAG_MILLISECONDS = (
+    10,
+    25,
+    50,
+    100,
+    250,
+    500,
+    1000,
+    2500,
+    5000,
+    10000,
+    15000,
+    30000,
+    60000,
+    120000,
+    300000,
+    600000,
+)
 
 COMMAND_TOTAL = Instrument(
     "devops_cli_command_total", InstrumentKind.COUNTER, "1", "Commands run, by command and status"

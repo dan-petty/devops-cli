@@ -751,6 +751,11 @@ class DocGenerator:
                 "AI code review, multi-agent pipelines, RAG semantic search, and embeddings.",
             ),
             (
+                "Qdrant Vector Store (`qdrant`)",
+                "qdrant",
+                "The vector store that RAG searches query and indexing writes to.",
+            ),
+            (
                 "Data Storage Tier (`data`)",
                 "data",
                 "Local artifact caches, review findings, session histories, and log paths.",

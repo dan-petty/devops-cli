@@ -82,6 +82,7 @@ def _get_rag_components() -> tuple[Any, Any, str, str]:
         base_url=qdrant_url,
         api_key=get_qdrant_api_key(settings),
         allow_private_network=settings.ai.allow_private_network,
+        timeout=settings.qdrant.timeout,
     )
     embedder = EmbeddingsEngine(
         ai_config=settings.ai,

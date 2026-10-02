@@ -63,6 +63,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_PROMETHEUS_URL` | `prometheus.url` | No | Prometheus service URL |
 | `DEVOPS_CLI_QDRANT_API_KEY` | `qdrant.api_key` | 🔒 Yes | Qdrant API key (stored in OS keyring) |
 | `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX` | `qdrant.collection_prefix` | No | Prefix for Qdrant collection names |
+| `DEVOPS_CLI_QDRANT_TIMEOUT` | `qdrant.timeout` | No | Seconds each Qdrant request, a RAG search or an indexing upsert or delete, waits per attempt (default: 300) |
 | `DEVOPS_CLI_QDRANT_URL` | `qdrant.url` | No | Qdrant vector database server URL |
 | `DEVOPS_CLI_REPOS_BASE_DIR` | `repos.base_dir` | No | Base directory for cloned repositories |
 | `DEVOPS_CLI_RUNS_INDEX_PASSWORD` | `runs.index_password` | 🔒 Yes | Run index Valkey password (stored in OS keyring) |

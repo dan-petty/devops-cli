@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 import urllib.parse
@@ -165,7 +166,9 @@ class QdrantClient:
                 )
                 self.api_key = None
         self.allow_private_network = allow_private_network
-        self.timeout = max(timeout, DEFAULT_QDRANT_TIMEOUT_SECONDS)
+        # Each caller passes `qdrant.timeout`, which searches and indexing writes both wait. The
+        # native client takes whole seconds, so it is sent rounded up, never down to 0.
+        self.timeout = timeout
 
         # Validate URL for SSRF protection. A k8s:// address names a Service rather than a
         # host, so there is no host here to validate; what is actually dialled is the API
@@ -207,7 +210,7 @@ class QdrantClient:
                 url=self.base_url,
                 port=port,
                 api_key=self.api_key,
-                timeout=int(self.timeout),
+                timeout=math.ceil(self.timeout),
                 check_compatibility=False,
             )
 
@@ -222,7 +225,7 @@ class QdrantClient:
             headers=connection.headers,
             verify=connection.ssl_context,
             api_key=self.api_key,
-            timeout=int(self.timeout),
+            timeout=math.ceil(self.timeout),
             check_compatibility=False,
         )
 

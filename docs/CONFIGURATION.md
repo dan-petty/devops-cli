@@ -94,6 +94,17 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 | `durable` | `AIDurableConfig` | `engine='sqlite' store_path=PosixPath('.data/durable_runs.db') task_queue='devops-cli-tasks' workflow_id_prefix='devops-run-'` | - | - |
 | `task_name` | `Union` | - | - | - |
 
+## Qdrant Vector Store (`qdrant`)
+
+The vector store that RAG searches query and indexing writes to.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `url` | `Union` | `http://localhost:6333` | `DEVOPS_CLI_QDRANT_URL` | - |
+| `collection_prefix` | `str` | `devops` | `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX` | - |
+| `api_key` | `Union` | - | `DEVOPS_CLI_QDRANT_API_KEY` | - |
+| `timeout` | `float` | `300.0` | `DEVOPS_CLI_QDRANT_TIMEOUT` | Seconds each Qdrant request waits per attempt: RAG searches, and indexing's upserts and deletes, which share the client |
+
 ## Data Storage Tier (`data`)
 
 Local artifact caches, review findings, session histories, and log paths.

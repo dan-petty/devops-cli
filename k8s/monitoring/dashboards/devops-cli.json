@@ -72,7 +72,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Whole RAG query time over the last hour, from embedding the query to the ranked results; RAG Query Stage Latency splits it by stage. Queries sent before #975 carry no stage and are left out: their buckets stopped at 5000 ms. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 60000 ms.",
+      "description": "Whole RAG query time over the last hour, from embedding the query to the ranked results; RAG Query Stage Latency splits it by stage. Queries sent before #975 carry no stage and are left out: their buckets stopped at 5000 ms. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 600000 ms.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -164,7 +164,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "p95 of each RAG query stage over the last hour: embedding the query through the gateway, searching the Qdrant collections, which run at once so the stage takes as long as the slower search, and ranking the results locally. Each line is its own quantile, so the stages' p95 need not add up to the whole query's. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 60000 ms.",
+      "description": "p95 of each RAG query stage over the last hour: embedding the query through the gateway, searching the Qdrant collections, which run at once so the stage takes as long as the slower search, and ranking the results locally. Each line is its own quantile, so the stages' p95 need not add up to the whole query's. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 600000 ms.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -188,7 +188,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Qdrant requests retried per hour after a transient error, by client operation and error type. The error type is the class of the error behind the retry, taken from inside the ResponseHandlingException the Qdrant client wraps transport errors in: RemoteProtocolError for a keep-alive connection the tunnel closed while idle, ConnectError for a refused connection, ReadTimeout for a request that waited out its 60 s. Each retry reconnects after a pause of 0.5 s times the attempt number, which a search spends in the search stage. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "Qdrant requests retried per hour after a transient error, by client operation and error type. The error type is the class of the error behind the retry, taken from inside the ResponseHandlingException the Qdrant client wraps transport errors in: RemoteProtocolError for a keep-alive connection the tunnel closed while idle, ConnectError for a refused connection, ReadTimeout for a request that waited out qdrant.timeout, 300 s by default. Each retry reconnects after a pause of 0.5 s times the attempt number, which a search spends in the search stage. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },

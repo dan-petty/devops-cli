@@ -119,9 +119,9 @@ def _search_collections(
 
     The first collection is searched on the caller's thread and the rest on daemon threads,
     joined before this returns. A pool's threads would be joined however the caller left, so
-    Ctrl-C would wait out the other searches, up to three 60 s attempts each against a
-    stalled Qdrant, and the interpreter would wait for them again on exit. Daemon threads are
-    not, so an interrupt leaves at once and abandons the searches still running.
+    Ctrl-C would wait out the other searches, up to three attempts of `qdrant.timeout` each
+    against a stalled Qdrant, and the interpreter would wait for them again on exit. Daemon
+    threads are not, so an interrupt leaves at once and abandons the searches still running.
     """
     search = functools.partial(
         _search_collection,
