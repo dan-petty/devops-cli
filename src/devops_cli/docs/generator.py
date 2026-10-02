@@ -938,9 +938,12 @@ class DocGenerator:
             "`gen_ai.provider.name` (`anthropic` for the `claude` provider, other provider ids "
             "unchanged) and `gen_ai.request.model`, plus `server.address` and `server.port` when "
             "one backend host served the request. Only `ai.llm.dispatch` carries the reply's "
-            "usage (`gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`), "
-            "`gen_ai.response.model` and `gen_ai.response.finish_reasons`. `ai.llm.stream` "
-            "carries `gen_ai.request.stream` and `gen_ai.response.time_to_first_chunk` in seconds.",
+            "usage (`gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`) and "
+            "`gen_ai.response.model`. `ai.llm.stream` carries `gen_ai.request.stream` and "
+            "`gen_ai.response.time_to_first_chunk` in seconds. Both carry "
+            "`gen_ai.response.finish_reasons` with the reason the provider gave for the reply's "
+            "end (`stop`, `length`, `content_filter` or `tool_call`), and leave it out when the "
+            "provider gave none.",
             "- **Wrapper spans**: `ai.llm.chat`, `ai.client.chat_structured` and "
             "`pydantic_ai.direct.*` are INTERNAL and set no operation, usage or response keys, so "
             "each request is counted once.",

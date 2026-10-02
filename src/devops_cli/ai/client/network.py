@@ -12,7 +12,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 import httpx2
@@ -25,6 +25,9 @@ from devops_cli.config.defaults import (
     DEFAULT_OLLAMA_SLOT_POLL_INTERVAL_SECONDS,
     DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS,
 )
+
+if TYPE_CHECKING:
+    from pydantic_ai.messages import FinishReason
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,12 @@ global_ollama_url_lock = threading.Lock()
 # The backend a gateway named in a streamed response's headers. A stream is a generator consumed
 # in the caller's context, so its spend is recorded after the last chunk, not where headers arrive.
 stream_served_by: ContextVar[str | None] = ContextVar("stream_served_by", default=None)
+# Why a streamed reply ended, set by the stream reader when the provider's final frame arrives.
+# A generator's return value would be lost in the caller's `for` loop and the sanitizer wrapping
+# it, so the reason travels like the serving backend.
+stream_finish_reason: ContextVar[FinishReason | None] = ContextVar(
+    "stream_finish_reason", default=None
+)
 
 # A reply-token cap for the calls made inside `limit_completion_tokens`. It travels with the
 # context, like the request priority, so one call site can bound a reply without every layer

@@ -76,6 +76,9 @@ DEFAULT_OLLAMA_MAX_PARALLEL: int = 2
 DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS: float = 900.0
 DEFAULT_OLLAMA_SLOT_POLL_INTERVAL_SECONDS: float = 2.0
 DEFAULT_AI_MAX_RESPONSE_BYTES: int = 50 * 1024 * 1024  # 50 MiB limit
+# The most one streamed event, or one unterminated stream line, may hold before the stream is
+# refused: httpx2's DEFAULT_MAX_EVENT_SIZE_BYTES. MAX_STREAM_BYTES still bounds the whole stream.
+DEFAULT_AI_STREAM_MAX_EVENT_BYTES: int = 1024 * 1024
 DEFAULT_AI_PREWARM_KEEP_ALIVE: str = "1h"
 DEFAULT_AI_EVICT_KEEP_ALIVE: int = 0
 DEFAULT_AI_MAX_RETRIES: int = 4

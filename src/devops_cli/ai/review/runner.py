@@ -2063,9 +2063,11 @@ def _write_review_profile(
         for s in profile.stages
         if s.wall_seconds >= 1 or s.llm_calls
     )
+    capped = profile.truncated_replies
+    capped_note = f", {capped} hit the reply cap" if capped else ""
     print_info(
         f"[dim]Profile: {format_duration(profile.total_wall_seconds)}, "
-        f"{profile.llm_calls} LLM calls; {stages} -> {path}[/dim]",
+        f"{profile.llm_calls} LLM calls{capped_note}; {stages} -> {path}[/dim]",
         prefix=False,
     )
     return profile

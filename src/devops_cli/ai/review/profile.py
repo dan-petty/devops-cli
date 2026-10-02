@@ -32,7 +32,11 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai.personas import review_prompt_digest
 from devops_cli.ai.spend.ledger import observe_llm_calls
-from devops_cli.config.constants import CONST_PERSONA_REPLY_UNPARSED
+from devops_cli.config.constants import (
+    CONST_FINISH_REASON_LENGTH,
+    CONST_FINISH_REASON_UNKNOWN,
+    CONST_PERSONA_REPLY_UNPARSED,
+)
 
 PROFILE_FILENAME = "profile.json"
 BENCHMARKS_DIRNAME = "benchmarks"
@@ -90,6 +94,10 @@ class StageProfile(BaseModel):
     cost_usd: float = 0.0
     backends: dict[str, int] = Field(default_factory=dict)
     activity: dict[str, BackendActivity] = Field(default_factory=dict)
+    # Replies by why the provider says they ended, `unknown` when it did not say.
+    finish_reasons: dict[str, int] = Field(default_factory=dict)
+    # Replies cut at their token cap (`length`), by serving backend, keyed like `backends`.
+    truncated: dict[str, int] = Field(default_factory=dict)
 
     def busy_share(self, backend: str) -> float:
         """The share of the stage's wall time the backend had a call in flight."""
@@ -124,6 +132,11 @@ class ReviewProfile(BaseModel):
     persona_replies: list[dict[str, Any]] = Field(default_factory=list)
     unparsed_personas: list[str] = Field(default_factory=list)
     stages: list[StageProfile] = Field(default_factory=list)
+
+    @property
+    def truncated_replies(self) -> int:
+        """Replies cut at their token cap, whichever backend served them."""
+        return sum(s.finish_reasons.get(CONST_FINISH_REASON_LENGTH, 0) for s in self.stages)
 
     @property
     def seconds_per_candidate(self) -> float | None:
@@ -202,14 +215,24 @@ class ReviewProfiler:
             stage.prompt_tokens += int(call.get("prompt_tokens") or 0)
             stage.completion_tokens += int(call.get("completion_tokens") or 0)
             stage.cost_usd = round(stage.cost_usd + float(call.get("cost_usd") or 0.0), 6)
+            reason = call.get("finish_reason") or CONST_FINISH_REASON_UNKNOWN
+            stage.finish_reasons[reason] = stage.finish_reasons.get(reason, 0) + 1
             served_by = call.get("served_by")
             if served_by:
-                stage.backends[served_by] = stage.backends.get(served_by, 0) + 1
-                # Observers run as a call finishes, so it started its duration ago.
-                end = time.monotonic()
-                duration = max(0.0, float(call.get("duration_seconds") or 0.0))
-                by_backend = self._intervals.setdefault(name, {})
-                by_backend.setdefault(served_by, []).append((end - duration, end))
+                self._observe_served_call(stage, served_by, call)
+
+    def _observe_served_call(
+        self, stage: StageProfile, served_by: str, call: dict[str, Any]
+    ) -> None:
+        """Credit a call to the backend that served it; the caller holds the lock."""
+        stage.backends[served_by] = stage.backends.get(served_by, 0) + 1
+        if call.get("finish_reason") == CONST_FINISH_REASON_LENGTH:
+            stage.truncated[served_by] = stage.truncated.get(served_by, 0) + 1
+        # Observers run as a call finishes, so it started its duration ago.
+        end = time.monotonic()
+        duration = max(0.0, float(call.get("duration_seconds") or 0.0))
+        by_backend = self._intervals.setdefault(stage.name, {})
+        by_backend.setdefault(served_by, []).append((end - duration, end))
 
     def add_stage_time(self, name: str, seconds: float) -> None:
         with self._lock:
