@@ -727,8 +727,7 @@ class Finding(BaseModel):
     @field_validator("status", mode="before")
     @classmethod
     def _normalize_status(cls, v: object) -> str:
-        s = str(v).upper().strip()
-        return s if s in VALID_STATUSES else DEFAULT_FINDING_STATUS
+        return normalize_finding_status(v)
 
     @field_validator("confidence_score", mode="before")
     @classmethod
@@ -763,6 +762,12 @@ class Finding(BaseModel):
             self.invalidation_reason = f"Observed value '{obs}' is identical to expected value '{exp}' (no defect polarity)"
             return self
         return self
+
+
+def normalize_finding_status(value: object) -> str:
+    """A finding status in upper case; the default status for one that is not a known status."""
+    status = str(value).upper().strip()
+    return status if status in VALID_STATUSES else DEFAULT_FINDING_STATUS
 
 
 def _parse_confidence_score(v: object) -> float | None:
@@ -1124,6 +1129,9 @@ class FileReviewPayload(BaseModel):
 
 class ReviewSessionPayload(BaseModel):
     generated_at: str = ""
+    # What the session reviewed (`history.review_subject`); empty for a session written before
+    # #607, which review history counts on its own.
+    subject: dict[str, str] = Field(default_factory=dict)
     personas: list[str] = Field(default_factory=list)
     findings: list[SavedFinding] = Field(default_factory=list)
     external_dependencies: list[DependencySpec] = Field(default_factory=list)

@@ -1461,9 +1461,12 @@ class ReviewPipelineOrchestrator:
         parallel: bool = True,
         ground_contracts: bool = True,
         verification_client: LLMClient | None = None,
+        subject: dict[str, str] | None = None,
     ) -> None:
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self.target_dir = target_dir
+        # What this session reviews (`history.review_subject`), written with its findings.
+        self.subject = subject or {}
         self.concurrency = concurrency
         self.parallel = parallel
         self.ground_contracts = ground_contracts
@@ -3117,8 +3120,10 @@ class ReviewPipelineOrchestrator:
         findings_to_use = all_findings if all_findings is not None else reportable_findings
         if not findings_to_use:
             return []
-        reviews_dir = self.session_dir.parent if self.session_dir else None
-        return format_category_baseline_markdown(findings_to_use, reviews_dir)
+        # findings.json is already written, so the session leaves itself out of its own history.
+        return format_category_baseline_markdown(
+            findings_to_use, self.session_dir.parent, exclude=self.session_dir
+        )
 
     def _build_verdict_distributions_section(
         self, candidate_findings: list[SavedFinding] | None
@@ -3669,6 +3674,7 @@ class ReviewPipelineOrchestrator:
 
         payload_out = ReviewSessionPayload(
             generated_at=datetime.now(UTC).isoformat(),
+            subject=self.subject,
             personas=resolved_personas,
             findings=all_findings,
             external_dependencies=all_deps,
@@ -3683,6 +3689,7 @@ class ReviewPipelineOrchestrator:
 
         candidates = ReviewSessionPayload(
             generated_at=payload_out.generated_at,
+            subject=self.subject,
             personas=resolved_personas,
             findings=[f for payload in file_payloads for f in payload.findings],
         )

@@ -58,6 +58,7 @@ from devops_cli.ai.review.defects import (
     select_templates,
 )
 from devops_cli.ai.review.exporter import export_invalidated_feedback
+from devops_cli.ai.review.history import HistoryFinding, load_review_history
 from devops_cli.ai.review.profile import (
     BenchmarkSummary,
     ReviewProfile,
@@ -1116,55 +1117,25 @@ def _resolve_verdict_reason(finding: Any, new_status: str, reason: str) -> str:
 # =============================================================================
 
 
-def _tally_single_session_findings(
-    findings_file: Path,
-    by_status: dict[str, int],
-    by_persona_total: dict[str, int],
-    by_persona_invalidated: dict[str, int],
-    all_findings: list[Any],
-) -> int:
-    """Tally findings from a single session findings.json file into running counters."""
-    try:
-        from devops_cli.ai.review_schema import ReviewSessionPayload
+def _tally_findings(
+    findings: Sequence[HistoryFinding],
+) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+    """Count findings by status, and by persona in total and invalidated.
 
-        payload = ReviewSessionPayload.model_validate_json(
-            findings_file.read_text(encoding="utf-8")
-        )
-        count = 0
-        for f in payload.findings:
-            count += 1
-            st = f.status
-            by_status[st] = by_status.get(st, 0) + 1
-            raw_personas = [p.strip() for p in (f.persona or "").split(",") if p.strip()]
-            for persona in raw_personas or ["unknown"]:
-                by_persona_total[persona] = by_persona_total.get(persona, 0) + 1
-                if st == "INVALIDATED":
-                    by_persona_invalidated[persona] = by_persona_invalidated.get(persona, 0) + 1
-            all_findings.append(f)
-        return count
-    except Exception:
-        return 0
-
-
-def _load_sessions_data(
-    session_dirs: list[Path],
-) -> tuple[int, dict[str, int], dict[str, int], dict[str, int], list[Any]]:
-    """Accumulate review metrics across all saved session directories."""
+    A finding several personas raised is joined into one with their names comma-separated, and
+    counts once for each of them.
+    """
     by_status: dict[str, int] = {"VERIFIED": 0, "UNVERIFIED": 0, "INVALIDATED": 0, "MITIGATED": 0}
     by_persona_total: dict[str, int] = {}
     by_persona_invalidated: dict[str, int] = {}
-    all_findings: list[Any] = []
-    total_findings = 0
-
-    for d in session_dirs:
-        total_findings += _tally_single_session_findings(
-            d / "findings.json",
-            by_status,
-            by_persona_total,
-            by_persona_invalidated,
-            all_findings,
-        )
-    return total_findings, by_status, by_persona_total, by_persona_invalidated, all_findings
+    for f in findings:
+        by_status[f.status] = by_status.get(f.status, 0) + 1
+        raw_personas = [p.strip() for p in f.persona.split(",") if p.strip()]
+        for persona in raw_personas or ["unknown"]:
+            by_persona_total[persona] = by_persona_total.get(persona, 0) + 1
+            if f.status == "INVALIDATED":
+                by_persona_invalidated[persona] = by_persona_invalidated.get(persona, 0) + 1
+    return by_status, by_persona_total, by_persona_invalidated
 
 
 def _render_status_breakdown_table(by_status: dict[str, int], total_findings: int) -> None:
@@ -1247,25 +1218,35 @@ def review_stats(
         print_warning(MESSAGES.review.no_review_dir_found, prefix=False)
         raise typer.Exit(0)
 
-    session_dirs = [d for d in r_dir.iterdir() if d.is_dir() and (d / "findings.json").exists()]
-    if not session_dirs:
+    # Each subject counts once. Findings come from findings.json, the only file
+    # `devops review verify` writes human verdicts to.
+    history = load_review_history(r_dir)
+    if not history.sessions:
         print_warning(MESSAGES.review.no_saved_sessions, prefix=False)
         raise typer.Exit(0)
 
-    total_findings, by_status, by_persona_total, by_persona_invalidated, all_findings = (
-        _load_sessions_data(session_dirs)
-    )
+    findings = [f for session in history.counted for f in session.findings]
+    by_status, by_persona_total, by_persona_invalidated = _tally_findings(findings)
 
     print_section(" AI Code Review Accuracy & Verification Stats ", style="bold cyan")
-    print_info(f"[bold]Total Sessions:[/bold]  {len(session_dirs)}", prefix=False)
-    print_info(f"[bold]Total Findings:[/bold]  {total_findings}\n", prefix=False)
+    print_info(
+        MESSAGES.review.sessions_counted.format(
+            total=len(history.sessions),
+            counted=len(history.counted),
+            repeats=history.repeats,
+            target_only=history.target_only,
+            unkeyed=history.unkeyed,
+        ),
+        prefix=False,
+    )
+    print_info(MESSAGES.review.total_findings_count.format(count=len(findings)), prefix=False)
 
-    _render_status_breakdown_table(by_status, total_findings)
+    _render_status_breakdown_table(by_status, len(findings))
     _render_persona_stats_table(by_persona_total, by_persona_invalidated)
 
     from devops_cli.ai.review.category_metrics import compute_category_metrics
 
-    category_metrics = compute_category_metrics(all_findings)
+    category_metrics = compute_category_metrics(findings)
     _render_category_stats_table(category_metrics)
 
 

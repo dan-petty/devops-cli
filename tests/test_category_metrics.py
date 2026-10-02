@@ -2,16 +2,43 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
+from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.ai.review.category_metrics import (
     collect_historical_category_metrics,
     compute_category_metrics,
     format_category_baseline_markdown,
     resolve_finding_category,
 )
+from devops_cli.ai.review.history import review_subject
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
+from devops_cli.ai.review.runner import _save_findings_json
+from devops_cli.ai.review_schema import Finding, ReviewResult, ReviewSessionPayload, SavedFinding
+
+_SUBJECT = review_subject("branch", "feature", ["diff --git a/config.py b/config.py\n"])
+_OLDER = "2026-10-01T09:00:00+00:00"
+_NEWEST = "2026-10-01T12:00:00+00:00"
+
+
+def _finding(status: str, category: str = "secret_scanning") -> SavedFinding:
+    """A finding with a machine verdict, or none when UNVERIFIED."""
+    return SavedFinding(
+        title=f"{status.title()} {category} finding",
+        location="config.py:1",
+        category=category,
+        status=status,
+        verified_by=None if status == "UNVERIFIED" else "llm",
+        reportable=status != "INVALIDATED",
+    )
+
+
+def _baseline(lines: list[str], category: str) -> tuple[str, str]:
+    """The category's Historical Baseline FP Rate cell, and the note line under the table."""
+    row = next(line for line in lines if line.startswith(f"| `{category}` |"))
+    note = next(line for line in lines if line.startswith("_Baseline:"))
+    return row.rstrip(" |").rsplit("| ", 1)[1], note
 
 
 def test_resolve_finding_category_explicit_and_inferred() -> None:
@@ -162,16 +189,20 @@ def test_compute_category_metrics_empty_and_mixed() -> None:
 
 def test_collect_historical_category_metrics(tmp_path: Path) -> None:
     """Verify historical category metric aggregation across session directories."""
-    assert (
-        collect_historical_category_metrics(tmp_path / "nonexistent"),
-        collect_historical_category_metrics(tmp_path),
-    ) == (({}, 0, 0), ({}, 0, 0))
+    missing_metrics, missing_history = collect_historical_category_metrics(tmp_path / "nonexistent")
+    empty_metrics, empty_history = collect_historical_category_metrics(tmp_path)
+    assert (missing_metrics, missing_history.sessions, empty_metrics, empty_history.sessions) == (
+        {},
+        (),
+        {},
+        (),
+    )
 
     sess1 = tmp_path / "sess1"
     sess1.mkdir()
     payload1 = ReviewSessionPayload(
-        target="src/",
-        timestamp="2026-09-25T10:00:00Z",
+        generated_at="2026-09-25T10:00:00Z",
+        subject=review_subject("path", "src/", ["first"]),
         findings=[
             SavedFinding(
                 id=1,
@@ -194,8 +225,8 @@ def test_collect_historical_category_metrics(tmp_path: Path) -> None:
     sess2 = tmp_path / "sess2"
     sess2.mkdir()
     payload2 = ReviewSessionPayload(
-        target="src/",
-        timestamp="2026-09-25T11:00:00Z",
+        generated_at="2026-09-25T11:00:00Z",
+        subject=review_subject("path", "src/", ["second"]),
         findings=[
             SavedFinding(
                 id=3,
@@ -215,17 +246,17 @@ def test_collect_historical_category_metrics(tmp_path: Path) -> None:
     )
     (sess2 / "findings.json").write_text(payload2.model_dump_json(indent=2), encoding="utf-8")
 
-    history, total_sessions, total_findings = collect_historical_category_metrics(tmp_path)
+    metrics, history = collect_historical_category_metrics(tmp_path)
     actual = (
-        set(history.keys()),
-        total_sessions,
-        total_findings,
-        history["secret_scanning"].total,
-        history["secret_scanning"].invalidated,
-        history["secret_scanning"].false_positive_rate,
-        history["syntax_grammar"].total,
-        history["syntax_grammar"].invalidated,
-        history["syntax_grammar"].false_positive_rate,
+        set(metrics.keys()),
+        len(history.counted),
+        sum(len(s.raised) for s in history.counted),
+        metrics["secret_scanning"].total,
+        metrics["secret_scanning"].invalidated,
+        metrics["secret_scanning"].false_positive_rate,
+        metrics["syntax_grammar"].total,
+        metrics["syntax_grammar"].invalidated,
+        metrics["syntax_grammar"].false_positive_rate,
     )
     expected = (
         {"secret_scanning", "syntax_grammar"},
@@ -278,8 +309,8 @@ def test_format_category_baseline_markdown(tmp_path: Path) -> None:
     sess_dir1 = tmp_path / "sess_prior1"
     sess_dir1.mkdir()
     prior_payload1 = ReviewSessionPayload(
-        target="src/",
-        timestamp="2026-09-24T12:00:00Z",
+        generated_at="2026-09-24T12:00:00Z",
+        subject=review_subject("path", "src/", ["first"]),
         findings=[
             SavedFinding(
                 id=10,
@@ -297,8 +328,8 @@ def test_format_category_baseline_markdown(tmp_path: Path) -> None:
     sess_dir2 = tmp_path / "sess_prior2"
     sess_dir2.mkdir()
     prior_payload2 = ReviewSessionPayload(
-        target="src/",
-        timestamp="2026-09-24T13:00:00Z",
+        generated_at="2026-09-24T13:00:00Z",
+        subject=review_subject("path", "src/", ["second"]),
         findings=[
             SavedFinding(
                 id=11,
@@ -358,3 +389,110 @@ def test_pipeline_category_baseline_and_summary_integration(tmp_path: Path) -> N
         "`secret_scanning`" in report_md,
         "`general`" in report_md,
     ) == (True, True, True)
+
+
+def test_the_baseline_leaves_out_the_current_session_and_counts_each_subject_once(
+    tmp_path: Path, write_review_session: Callable[..., Path]
+) -> None:
+    """Verify the current session, written before its report as the pipeline does, is left out
+    of its own baseline, that the baseline reads every finding the earlier session raised, and
+    that repeats of the earlier session's subject count once (#434's figure counted all three)."""
+    reviews = tmp_path / "reviews"
+    current = reviews / "current"
+    current_findings = [_finding("INVALIDATED")]
+    earlier = {
+        "subject": _SUBJECT,
+        "findings": [_finding("VERIFIED")],
+        "candidates": [_finding("INVALIDATED"), _finding("VERIFIED")],
+    }
+    write_review_session(reviews / "earlier", generated_at=_OLDER, **earlier)
+
+    def baseline() -> tuple[str, str]:
+        lines = format_category_baseline_markdown(current_findings, reviews, exclude=current)
+        return _baseline(lines, "secret_scanning")
+
+    before_written = baseline()
+    write_review_session(
+        current, generated_at=_NEWEST, subject=_SUBJECT, candidates=current_findings
+    )
+    written = baseline()
+    for name in ("repeat-1", "repeat-2"):
+        write_review_session(reviews / name, generated_at="2026-10-01T10:00:00+00:00", **earlier)
+    with_repeats = baseline()
+
+    note = (
+        "_Baseline: 1 earlier session(s), {} repeat session(s) collapsed, this session excluded._"
+    )
+    assert (before_written, written, with_repeats) == (
+        ("50.0% (1/2)", note.format(0)),
+        ("50.0% (1/2)", note.format(0)),
+        ("50.0% (1/2)", note.format(2)),
+    )
+
+
+def test_the_baseline_shows_once_an_earlier_session_has_the_category(
+    tmp_path: Path, write_review_session: Callable[..., Path]
+) -> None:
+    """Verify a category no earlier session raised reads `baseline established`, and that a
+    first re-review shows its earlier session's figures: the gate counted the current session,
+    and its replacement must not hide the baseline when the only earlier session shares the
+    current session's subject."""
+    reviews = tmp_path / "reviews"
+    current_findings = [
+        _finding("INVALIDATED"),
+        _finding("VERIFIED", "test_mocks"),
+    ]
+    current = write_review_session(
+        reviews / "current", generated_at=_NEWEST, subject=_SUBJECT, candidates=current_findings
+    )
+
+    def cells() -> tuple[str, str]:
+        lines = format_category_baseline_markdown(current_findings, reviews, exclude=current)
+        return _baseline(lines, "secret_scanning")[0], _baseline(lines, "test_mocks")[0]
+
+    first_review = cells()
+    write_review_session(
+        reviews / "earlier", generated_at=_OLDER, subject=_SUBJECT, findings=[_finding("VERIFIED")]
+    )
+
+    assert (first_review, cells()) == (
+        ("— (baseline established)", "— (baseline established)"),
+        ("0.0% (0/1)", "— (baseline established)"),
+    )
+
+
+def test_a_persona_loop_session_feeds_the_baseline_from_its_findings_json(tmp_path: Path) -> None:
+    """Verify a session the persona loop wrote, with findings.json and no candidates.json,
+    counts its findings.json findings in the baseline."""
+    session = tmp_path / "reviews" / "persona-loop"
+    session.mkdir(parents=True)
+    findings = [
+        Finding(
+            title="Masked token in config",
+            location="config.py:1",
+            category="secret_scanning",
+            status="INVALIDATED",
+            verified_by="llm",
+            reportable=False,
+        ),
+        Finding(
+            title="Hardcoded password in settings",
+            location="settings.py:9",
+            category="secret_scanning",
+            status="VERIFIED",
+            verified=True,
+            verified_by="llm",
+        ),
+    ]
+    _save_findings_json(
+        [(PERSONAS[Persona.DEVSECOPS], ReviewResult(findings=findings))], session, subject=_SUBJECT
+    )
+
+    metrics, history = collect_historical_category_metrics(tmp_path / "reviews")
+
+    assert (
+        (session / "candidates.json").exists(),
+        len(history.counted),
+        metrics["secret_scanning"].invalidated,
+        metrics["secret_scanning"].total,
+    ) == (False, 1, 1, 2)

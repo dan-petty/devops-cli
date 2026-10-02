@@ -55,7 +55,10 @@ class ReviewMessages:
     no_review_dir_found: str = "No review directory found."
     no_saved_sessions: str = "No saved review sessions found."
     updated_finding_status: str = "Updated finding #{index} status → {status}"
-    total_sessions_count: str = "[bold]Total Sessions:[/bold]  {count}"
+    sessions_counted: str = (
+        "[bold]Sessions:[/bold] {total} (counted {counted}: {repeats} repeat sessions collapsed, "
+        "{target_only} target-only, {unkeyed} unkeyed)"
+    )
     total_findings_count: str = "[bold]Total Findings:[/bold]  {count}\n"
     review_posted_pr: str = "Review posted as comment on PR #{number}"
     no_findings_session: str = "No findings.json in session {name}"
