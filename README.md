@@ -346,7 +346,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops release sync-notes [OPTIONS]` | Republish GitHub release descriptions from CHANGELOG.md. |
 |  | `devops release changelog [OPTIONS]` | Compile and generate changelog entries from git commits or PR deliverables. |
 |  | `devops release tag [OPTIONS]` | Create release commit and annotated git tag. |
-|  | `devops release epic [OPTIONS] <version>` | Provision, correlate, and synchronize parent release tracking epics for milestones. |
+| **roadmap** | `devops roadmap migrate [OPTIONS]` | Make GitHub the roadmap's source, once: bring the board in line with its template, fill unset Status, Priority, Value and Effort, retire release epics and milestones beyond the planning horizon, and record rejected roadmap ideas as issues closed as not planned. Prints the plan and a report, which lists the option renames, additions and removals a person makes in the board's field settings; writes only with --confirm, once the renames and additions are made. |
+|  | `devops roadmap render [OPTIONS]` | Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the backlog by priority. |
 | **pr** | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |

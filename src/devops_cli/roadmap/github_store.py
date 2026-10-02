@@ -6,6 +6,13 @@ pages, because `run_gh` pages whatever argument follows `api` and stops at the f
 shorter than it expects. The board comes from `gh project item-list`, which pages itself and
 reports a total, so a short read is caught. Issue events are read a page at a time, newest
 first, so the read stops at the first event older than it needs.
+
+The board's own shape (its fields with their option ids, colors and descriptions, and its
+workflows) comes from GraphQL, because `gh project field-list` gives no option colors or
+descriptions. New fields, and the options of a board just created, are written with a GraphQL
+request on stdin. GitHub's option input takes no id, so the adapter never sends an option list
+to a board that already has cards. A card is edited by its node ids, which reach draft issues
+and other repositories' cards too.
 """
 
 from __future__ import annotations
@@ -13,10 +20,11 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from datetime import date, datetime
 from itertools import takewhile
 from typing import Any, Protocol
+from urllib.parse import quote
 
 from pydantic import AliasPath, BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic import ValidationError as MalformedPayloadError
@@ -25,11 +33,17 @@ from devops_cli.config.constants import (
     CONST_GH_ISSUE_EVENT_CHANGE_KINDS,
     CONST_GH_PROJECT_ITEM_ISSUE_TYPE,
     CONST_GH_PROJECT_JOB_RECORD_FIELD,
+    CONST_GH_PROJECT_SINGLE_SELECT_TYPE,
+    CONST_GH_PROJECT_TEXT_TYPE,
+    CONST_GH_RAW_CONTENT_ACCEPT,
 )
 from devops_cli.config.defaults import (
     DEFAULT_GH_MAX_PAGINATED_PAGES,
     DEFAULT_GH_PROJECT_FIELD_LIMIT,
     DEFAULT_GH_PROJECT_ITEM_LIMIT,
+    DEFAULT_GH_PROJECT_LIST_LIMIT,
+    DEFAULT_GH_PROJECT_OPTION_COLOR,
+    DEFAULT_GH_PROJECT_WORKFLOW_LIMIT,
     DEFAULT_GH_REST_PER_PAGE,
 )
 from devops_cli.exceptions.git import GitHubOperationError
@@ -37,10 +51,17 @@ from devops_cli.github.projects import check_github_rate_limit_error
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.roadmap.store import (
     BOARD_FIELDS,
+    Board,
     BoardEntry,
+    BoardField,
     Candidate,
+    Card,
+    CardKind,
     Change,
     ChangeKind,
+    CloseReason,
+    FieldOption,
+    FieldSpec,
     GitHubState,
     IssueRecord,
     Item,
@@ -48,11 +69,15 @@ from devops_cli.roadmap.store import (
     JobRecord,
     Release,
     RoadmapStore,
+    Workflow,
     as_utc,
+    field_options,
     find_release,
     is_release_title,
     join_items,
     release_edits,
+    require_board_field,
+    require_field,
     require_job_record_field,
     require_new_release,
     require_option,
@@ -67,7 +92,13 @@ class GhRunner(Protocol):
     """Runs one `gh` command the way `run_gh` does, returning the finished process."""
 
     def __call__(
-        self, args: list[str], *, check: bool = ..., quiet: bool = ..., use_cache: bool = ...
+        self,
+        args: list[str],
+        *,
+        input: str | None = ...,
+        check: bool = ...,
+        quiet: bool = ...,
+        use_cache: bool = ...,
     ) -> subprocess.CompletedProcess[str]: ...
 
 
@@ -103,6 +134,7 @@ class _IssuePayload(BaseModel):
     number: int
     title: str
     html_url: str
+    body: str | None = None
     state: GitHubState
     state_reason: str | None = None
     labels: list[_NamedPayload] = Field(default_factory=list)
@@ -114,6 +146,7 @@ class _IssuePayload(BaseModel):
             number=self.number,
             title=self.title,
             url=self.html_url,
+            body=self.body or "",
             state=self.state,
             state_reason=self.state_reason,
             labels=tuple(label.name for label in self.labels),
@@ -153,6 +186,7 @@ class _BoardItemPayload(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    id: str
     content_type: str | None = Field(default=None, validation_alias=AliasPath("content", "type"))
     content_number: int | None = Field(
         default=None, validation_alias=AliasPath("content", "number")
@@ -160,6 +194,7 @@ class _BoardItemPayload(BaseModel):
     content_repository: str | None = Field(
         default=None, validation_alias=AliasPath("content", "repository")
     )
+    content_url: str | None = Field(default=None, validation_alias=AliasPath("content", "url"))
 
     def is_issue_of(self, repo: str) -> bool:
         """Report whether this item is an issue of `repo`, not a pull request, draft or other repo's."""
@@ -169,16 +204,30 @@ class _BoardItemPayload(BaseModel):
             and (self.content_repository or "").lower() == repo.lower()
         )
 
+    def values(self) -> dict[str, Any]:
+        """The card's board fields and job record, keyed as `BoardEntry` and `Card` hold them."""
+        extra = self.model_extra or {}
+        fields = {
+            f.name.lower(): _text_value(extra.get(_item_list_key(f.value))) for f in BOARD_FIELDS
+        }
+        record = extra.get(_item_list_key(CONST_GH_PROJECT_JOB_RECORD_FIELD))
+        return fields | {"job_record": decode_job_record(_text_value(record))}
+
     def entry(self) -> BoardEntry:
         """The board's fields and job record for this issue."""
-        values = self.model_extra or {}
-        fields = {
-            f.name.lower(): _text_value(values.get(_item_list_key(f.value))) for f in BOARD_FIELDS
-        }
-        record = values.get(_item_list_key(CONST_GH_PROJECT_JOB_RECORD_FIELD))
-        return BoardEntry.model_validate(
-            fields
-            | {"number": self.content_number, "job_record": decode_job_record(_text_value(record))}
+        return BoardEntry.model_validate(self.values() | {"number": self.content_number})
+
+    def card(self) -> Card:
+        """The card, whatever it holds."""
+        return Card.model_validate(
+            self.values()
+            | {
+                "id": self.id,
+                "kind": CardKind(self.content_type or CardKind.DRAFT_ISSUE),
+                "number": self.content_number,
+                "url": self.content_url,
+                "repository": self.content_repository,
+            }
         )
 
 
@@ -197,6 +246,73 @@ class _FieldListingPayload(BaseModel):
     total_count: int = Field(alias="totalCount")
 
 
+class _ProjectPayload(BaseModel):
+    id: str
+    number: int
+    title: str
+    url: str
+
+    def board(self) -> Board:
+        return Board.model_validate(self.model_dump())
+
+
+class _ProjectListingPayload(BaseModel):
+    projects: list[_ProjectPayload]
+    total_count: int = Field(alias="totalCount")
+
+
+class _OptionPayload(BaseModel):
+    id: str
+    name: str
+    color: str = DEFAULT_GH_PROJECT_OPTION_COLOR
+    description: str = ""
+
+
+class _FieldNodePayload(BaseModel):
+    """A board field as GraphQL gives it; a field that isn't single-select has no options."""
+
+    id: str
+    name: str
+    data_type: str = Field(alias="dataType")
+    options: list[_OptionPayload] = Field(default_factory=list)
+
+    def field(self) -> BoardField:
+        return BoardField(
+            id=self.id,
+            name=self.name,
+            single_select=self.data_type == CONST_GH_PROJECT_SINGLE_SELECT_TYPE,
+            options=tuple(FieldOption.model_validate(o.model_dump()) for o in self.options),
+        )
+
+
+class _FieldConnectionPayload(BaseModel):
+    nodes: list[_FieldNodePayload]
+    total_count: int = Field(alias="totalCount")
+
+
+class _BoardFieldsPayload(BaseModel):
+    fields: _FieldConnectionPayload = Field(
+        validation_alias=AliasPath("data", "repositoryOwner", "projectV2", "fields")
+    )
+
+
+class _WorkflowConnectionPayload(BaseModel):
+    nodes: list[Workflow]
+    total_count: int = Field(alias="totalCount")
+
+
+class _WorkflowsPayload(BaseModel):
+    workflows: _WorkflowConnectionPayload = Field(
+        validation_alias=AliasPath("data", "repositoryOwner", "projectV2", "workflows")
+    )
+
+
+class _UpdatedFieldPayload(BaseModel):
+    field: _FieldNodePayload = Field(
+        validation_alias=AliasPath("data", "updateProjectV2Field", "projectV2Field")
+    )
+
+
 _MILESTONE = TypeAdapter(_MilestonePayload)
 _MILESTONES = TypeAdapter(list[_MilestonePayload])
 _ISSUE = TypeAdapter(_IssuePayload)
@@ -205,6 +321,37 @@ _EVENTS = TypeAdapter(list[_EventPayload])
 _BOARD = TypeAdapter(_BoardListingPayload)
 _FIELDS = TypeAdapter(_FieldListingPayload)
 _JOB_RECORD = TypeAdapter(JobRecord)
+_PROJECT = TypeAdapter(_ProjectPayload)
+_PROJECTS = TypeAdapter(_ProjectListingPayload)
+_BOARD_FIELDS = TypeAdapter(_BoardFieldsPayload)
+_WORKFLOWS = TypeAdapter(_WorkflowsPayload)
+_UPDATED_FIELD = TypeAdapter(_UpdatedFieldPayload)
+
+# The board is found by its owner's login and number; `ProjectV2Owner` covers users and
+# organizations alike.
+_OWNED_BOARD = (
+    "query($owner: String!, $number: Int!, $first: Int!) {{ repositoryOwner(login: $owner) {{ "
+    "... on ProjectV2Owner {{ projectV2(number: $number) {{ {selection} }} }} }} }}"
+)
+_FIELD_SELECTION = (
+    "... on ProjectV2FieldCommon { id name dataType } "
+    "... on ProjectV2SingleSelectField { options { id name color description } }"
+)
+_FIELDS_QUERY = _OWNED_BOARD.format(
+    selection=f"fields(first: $first) {{ totalCount nodes {{ {_FIELD_SELECTION} }} }}"
+)
+_WORKFLOWS_QUERY = _OWNED_BOARD.format(
+    selection="workflows(first: $first) { totalCount nodes { number name enabled } }"
+)
+_UPDATE_OPTIONS_MUTATION = (
+    "mutation($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) { "
+    "updateProjectV2Field(input: {fieldId: $fieldId, singleSelectOptions: $options}) { "
+    f"projectV2Field {{ {_FIELD_SELECTION} }} }} }}"
+)
+_CREATE_FIELD_MUTATION = (
+    "mutation($input: CreateProjectV2FieldInput!) { createProjectV2Field(input: $input) { "
+    "projectV2Field { ... on ProjectV2FieldCommon { id } } } }"
+)
 
 
 def _item_list_key(field_name: str) -> str:
@@ -235,6 +382,27 @@ def encode_job_record(record: JobRecord) -> str:
 def _wire_value(value: str | date) -> str:
     """A milestone field as GitHub's REST API takes it; a due date becomes a timestamp."""
     return f"{value.isoformat()}T00:00:00Z" if isinstance(value, date) else str(value)
+
+
+def _option_input(option: FieldOption) -> dict[str, str]:
+    """An option as `ProjectV2SingleSelectFieldOptionInput` takes it: name, color, description.
+
+    That input defines no id, and GitHub rejects a request that sends a field it doesn't
+    define, so an option's id never goes out.
+    """
+    return {"name": option.name, "color": option.color, "description": option.description}
+
+
+def option_update_request(field_id: str, options: Sequence[FieldOption]) -> dict[str, Any]:
+    """The GraphQL request that makes `options` the whole option list of the field `field_id`.
+
+    Every option it sends gets a new id, and every card loses its value for the field, so the
+    adapter sends it only to a board it has just created.
+    """
+    return {
+        "query": _UPDATE_OPTIONS_MUTATION,
+        "variables": {"fieldId": field_id, "options": [_option_input(o) for o in options]},
+    }
 
 
 def _releases_among(milestones: list[_MilestonePayload]) -> Iterator[Release]:
@@ -428,6 +596,167 @@ class GitHubRoadmapStore(RoadmapStore):
             ["--text", encode_job_record(entry.job_record | {field: recorded})],
         )
 
+    def delete_release(self, version: str) -> None:
+        """Delete the Release of `version`, raising if there is none."""
+        deleted = require_release(self.releases(), version, "roadmap.release.delete")
+        self._write(
+            ["api", "-X", "DELETE", f"repos/{self._repo}/milestones/{deleted.number}"],
+            f"delete Release {deleted.title}",
+        )
+
+    # ── Issues ──
+
+    def issues(self) -> list[IssueRecord]:
+        """Every issue, open and closed, on the board or not; never pull requests."""
+        return [issue for issue in self._read_issues("state=all") if not issue.pull_request]
+
+    def create_issue(self, title: str, body: str, *, labels: Sequence[str] = ()) -> IssueRecord:
+        """Open an issue with `title`, `body` and `labels`, returning it."""
+        fields = [("title", title), ("body", body), *(("labels[]", label) for label in labels)]
+        flags = [part for name, value in fields for part in ("-f", f"{name}={value}")]
+        written = self._write(
+            ["api", "-X", "POST", f"repos/{self._repo}/issues", *flags],
+            f"open the issue {title[:64]!r}",
+        )
+        return self._validate(written, _ISSUE, "issue after it was opened").record()
+
+    def close_issue(self, number: int, reason: CloseReason, comment: str) -> None:
+        """Comment on issue `number`, then close it for `reason`."""
+        if self._read_issue(number).pull_request is not None:
+            raise GitHubOperationError(
+                f"#{number} in {self._repo} is a pull request, not an issue.",
+                operation="roadmap.issue.close",
+                details={"repo": self._repo[:256], "number": number},
+            )
+        issue = f"repos/{self._repo}/issues/{number}"
+        self._write(
+            ["api", "-X", "POST", f"{issue}/comments", "-f", f"body={comment}"],
+            f"comment on #{number}",
+        )
+        self._write(
+            ["api", "-X", "PATCH", issue, "-f", "state=closed", "-f", f"state_reason={reason}"],
+            f"close #{number}",
+        )
+
+    def repository_file(self, path: str, *, ref: str | None = None) -> str:
+        """The raw text of `path` on `ref` through the contents API, raising when it can't be read."""
+        query = f"?ref={quote(ref, safe='')}" if ref else ""
+        endpoint = f"repos/{self._repo}/contents/{quote(path)}{query}"
+        proc = self._run(["api", "-H", CONST_GH_RAW_CONTENT_ACCEPT, endpoint])
+        if proc.returncode != 0:
+            raise self._failure(
+                proc, f"read {path} at {ref or 'the default branch'}", "roadmap.read"
+            )
+        return proc.stdout or ""
+
+    # ── The board ──
+
+    def board(self) -> Board | None:
+        """The configured board, or None when its owner has no board with that number."""
+        owner, number = self._require_board()
+        listing = self._read(
+            [
+                "project",
+                "list",
+                "--owner",
+                owner,
+                "--closed",
+                "--format",
+                "json",
+                "--limit",
+                str(DEFAULT_GH_PROJECT_LIST_LIMIT),
+            ],
+            _PROJECTS,
+            f"{owner}'s boards",
+        )
+        self._require_whole(len(listing.projects), listing.total_count, f"{owner}'s boards")
+        return next((p.board() for p in listing.projects if p.number == number), None)
+
+    def create_board(self, title: str, fields: Sequence[FieldSpec]) -> Board:
+        """Create a board titled `title`, link it to the repository, then give it `fields`."""
+        owner, _ = self._require_board()
+        written = self._write(
+            ["project", "create", "--owner", owner, "--title", title, "--format", "json"],
+            f"create the board {title[:64]!r}",
+        )
+        created = self._validate(written, _PROJECT, "board after it was created").board()
+        self._write(
+            ["project", "link", str(created.number), "--owner", owner, "--repo", self._repo],
+            f"link board #{created.number}",
+        )
+        current = {
+            board_field.name: board_field for board_field in self._read_fields(created.number)
+        }
+        for spec in fields:
+            self._create_or_align_field(created, current.get(spec.name), spec)
+        return created
+
+    def board_fields(self) -> list[BoardField]:
+        """Every field on the board, with each option's id, color and description."""
+        return self._read_fields(self._require_board()[1])
+
+    def delete_field(self, name: str) -> None:
+        """Delete the board field `name`, raising if the board has none."""
+        deleted = require_field(self.board_fields(), name, "roadmap.board.delete_field")
+        self._write(["project", "field-delete", "--id", deleted.id], f"delete the {name} field")
+
+    def cards(self) -> list[Card]:
+        """Everything on the board, whatever it holds and whichever repository it belongs to."""
+        return [board_item.card() for board_item in self._read_board_listing().items]
+
+    def set_card_field(self, card: Card, field: ItemField, value: str | None) -> None:
+        """Set or clear a board field on any card by its node ids, then record it."""
+        require_board_field(field)
+        board = self._require_existing_board()
+        fields = self.board_fields()
+        require_job_record_field(field_options(fields))
+        require_option(field_options(fields), field, value)
+        current = self._require_card(card, "roadmap.card.set_field")
+        target = require_field(fields, field.value, "roadmap.card.set_field")
+        option_id = next((option.id for option in target.options if option.name == value), None)
+        change = ["--single-select-option-id", option_id] if option_id else ["--clear"]
+        record = require_field(fields, CONST_GH_PROJECT_JOB_RECORD_FIELD, "roadmap.card.set_field")
+        edits = (
+            (target, change),
+            (record, ["--text", encode_job_record(current.job_record | {field: value})]),
+        )
+        for board_field, flags in edits:
+            self._write(
+                [
+                    "project",
+                    "item-edit",
+                    "--id",
+                    card.id,
+                    "--project-id",
+                    board.id,
+                    "--field-id",
+                    board_field.id,
+                    *flags,
+                ],
+                f"set {board_field.name} on card {card.id}",
+            )
+
+    def remove_card(self, card: Card) -> None:
+        """Take `card` off the board, raising if it is not on it."""
+        owner, number = self._require_board()
+        self._require_card(card, "roadmap.card.remove")
+        self._write(
+            ["project", "item-delete", str(number), "--owner", owner, "--id", card.id],
+            f"remove card {card.id} from board #{number}",
+        )
+
+    def workflows(self) -> list[Workflow]:
+        """The board's built-in workflows."""
+        owner, number = self._require_board()
+        payload = self._read(
+            self._board_query(_WORKFLOWS_QUERY, owner, number, DEFAULT_GH_PROJECT_WORKFLOW_LIMIT),
+            _WORKFLOWS,
+            f"board #{number} workflows",
+        )
+        connection = payload.workflows
+        self._require_whole(len(connection.nodes), connection.total_count, "board workflows")
+        return list(connection.nodes)
+
     # ── Writes ──
 
     def _place_in_release(self, item: Item, version: str | None) -> str | None:
@@ -496,8 +825,8 @@ class GitHubRoadmapStore(RoadmapStore):
             )
         return self._board
 
-    def _read_board(self) -> dict[int, BoardEntry]:
-        """The board's issues of this repository, by number, raising on a short read."""
+    def _read_board_listing(self) -> _BoardListingPayload:
+        """Every card on the board, raising on a short read."""
         owner, number = self._require_board()
         listing = self._read(
             [
@@ -515,8 +844,99 @@ class GitHubRoadmapStore(RoadmapStore):
             f"board #{number}",
         )
         self._require_whole(len(listing.items), listing.total_count, f"board #{number} items")
-        entries = (item.entry() for item in listing.items if item.is_issue_of(self._repo))
+        return listing
+
+    def _read_board(self) -> dict[int, BoardEntry]:
+        """The board's issues of this repository, by number."""
+        items = self._read_board_listing().items
+        entries = (item.entry() for item in items if item.is_issue_of(self._repo))
         return {entry.number: entry for entry in entries}
+
+    def _require_existing_board(self) -> Board:
+        found = self.board()
+        if found is None:
+            owner, number = self._require_board()
+            raise GitHubOperationError(
+                f"{owner} has no board #{number}.",
+                operation="roadmap.board",
+                details={"owner": owner[:256], "number": number},
+            )
+        return found
+
+    def _require_card(self, card: Card, operation: str) -> Card:
+        """The card as the board holds it now, raising when it is no longer on the board."""
+        found = next((current for current in self.cards() if current.id == card.id), None)
+        if found is None:
+            raise GitHubOperationError(
+                f"Card {card.id} is not on the board.",
+                operation=operation,
+                details={"repo": self._repo[:256], "card": card.id[:256]},
+            )
+        return found
+
+    def _board_query(self, query: str, owner: str, number: int, first: int) -> list[str]:
+        return [
+            "api",
+            "graphql",
+            "-f",
+            f"query={query}",
+            "-f",
+            f"owner={owner}",
+            "-F",
+            f"number={number}",
+            "-F",
+            f"first={first}",
+        ]
+
+    def _read_fields(self, number: int) -> list[BoardField]:
+        """Board `number`'s fields through GraphQL, which alone gives option colors and descriptions."""
+        owner, _ = self._require_board()
+        payload = self._read(
+            self._board_query(_FIELDS_QUERY, owner, number, DEFAULT_GH_PROJECT_FIELD_LIMIT),
+            _BOARD_FIELDS,
+            f"board #{number} fields",
+        )
+        connection = payload.fields
+        self._require_whole(len(connection.nodes), connection.total_count, "board fields")
+        return [node.field() for node in connection.nodes]
+
+    def _create_or_align_field(
+        self, board: Board, current: BoardField | None, spec: FieldSpec
+    ) -> None:
+        """Create the spec's field, or give a field the new board already has the spec's options.
+
+        The new board holds no cards, so the new option ids its options get cost no value.
+        """
+        if current is None:
+            data_type = (
+                CONST_GH_PROJECT_SINGLE_SELECT_TYPE
+                if spec.single_select
+                else CONST_GH_PROJECT_TEXT_TYPE
+            )
+            options = (
+                {"singleSelectOptions": [_option_input(o) for o in spec.options]}
+                if spec.single_select
+                else {}
+            )
+            created = {"projectId": board.id, "dataType": data_type, "name": spec.name}
+            request = {"query": _CREATE_FIELD_MUTATION, "variables": {"input": created | options}}
+            self._graphql(request, f"create the {spec.name} field")
+        elif current.single_select and spec.single_select:
+            self._replace_options(current, spec.options)
+
+    def _replace_options(self, current: BoardField, options: Sequence[FieldOption]) -> BoardField:
+        written = self._graphql(
+            option_update_request(current.id, options), f"replace the {current.name} options"
+        )
+        updated = self._validate(written, _UPDATED_FIELD, f"{current.name} field after its update")
+        return updated.field.field()
+
+    def _graphql(self, request: dict[str, Any], action: str) -> str:
+        """Send a GraphQL write on stdin, so option lists need no flag encoding."""
+        proc = self._run(["api", "graphql", "--input", "-"], input=json.dumps(request))
+        if proc.returncode != 0:
+            raise self._failure(proc, action, "roadmap.write")
+        return proc.stdout or ""
 
     def _read_board_options(self) -> dict[str, tuple[str, ...]]:
         """Every board field's options by field name; fields that aren't single-select have none."""
@@ -585,8 +1005,8 @@ class GitHubRoadmapStore(RoadmapStore):
                 details={"repo": self._repo[:256], "received": received, "total": total},
             )
 
-    def _run(self, args: list[str]) -> subprocess.CompletedProcess[str]:
-        return self._runner(args, check=False, quiet=True, use_cache=False)
+    def _run(self, args: list[str], input: str | None = None) -> subprocess.CompletedProcess[str]:
+        return self._runner(args, input=input, check=False, quiet=True, use_cache=False)
 
     def _failure(
         self, proc: subprocess.CompletedProcess[str], action: str, operation: str
@@ -601,4 +1021,10 @@ class GitHubRoadmapStore(RoadmapStore):
         )
 
 
-__all__ = ["GhRunner", "GitHubRoadmapStore", "decode_job_record", "encode_job_record"]
+__all__ = [
+    "GhRunner",
+    "GitHubRoadmapStore",
+    "decode_job_record",
+    "encode_job_record",
+    "option_update_request",
+]

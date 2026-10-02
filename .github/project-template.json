@@ -8,17 +8,13 @@
       "name": "Status",
       "type": "single_select",
       "options": [
-        {"name": "Backlog", "color": "GRAY", "description": "Queued backlog items awaiting milestone assignment"},
-        {"name": "Ready", "color": "BLUE", "description": "Scoped and ready for implementation"},
-        {"name": "In Progress", "color": "YELLOW", "description": "Actively under active development (WIP)"},
-        {"name": "In Review", "color": "PURPLE", "description": "Pull Request opened undergoing multi-persona review & CI"},
-        {"name": "Done", "color": "GREEN", "description": "Merged into release branch and verified"}
+        {"name": "New", "color": "GRAY", "description": "An item that is not yet ready", "replaces": ["Backlog", "Todo"]},
+        {"name": "Ready", "color": "BLUE", "description": "A problem statement, acceptance criteria and an answer to every key question"},
+        {"name": "In Progress", "color": "YELLOW", "description": "Actively under development"},
+        {"name": "In Review", "color": "PURPLE", "description": "Its pull request is open for review and CI"},
+        {"name": "Done", "color": "GREEN", "description": "Delivered and closed"},
+        {"name": "Blocked", "color": "RED", "description": "Waiting on something outside the roadmap: hardware, an upstream release or a person's decision"}
       ]
-    },
-    {
-      "name": "Milestone",
-      "type": "iteration_or_text",
-      "description": "Release milestone version matching docs/ROADMAP.md (e.g. v0.2.11, v0.2.12)"
     },
     {
       "name": "Priority",
@@ -28,16 +24,6 @@
         {"name": "P1-High", "color": "ORANGE", "description": "High-priority milestone deliverable"},
         {"name": "P2-Medium", "color": "YELLOW", "description": "Standard release deliverable"},
         {"name": "P3-Low", "color": "GREEN", "description": "Minor optimization or polish"}
-      ]
-    },
-    {
-      "name": "Category",
-      "type": "single_select",
-      "options": [
-        {"name": "Quick Win", "color": "GREEN", "description": "High value, low effort enhancement"},
-        {"name": "Major Project", "color": "PURPLE", "description": "High value, high effort strategic investment"},
-        {"name": "Fill-In", "color": "BLUE", "description": "Medium value, low effort tactical addition"},
-        {"name": "Foundation", "color": "GRAY", "description": "Core architecture, testing, or maintenance"}
       ]
     },
     {
@@ -71,14 +57,14 @@
       "group_by": "Status",
       "visible_fields": ["Title", "Assignees", "Milestone", "Priority", "Labels"],
       "filter": "no:milestone or milestone:\"current\"",
-      "description": "Active sprint board tracking tasks from Backlog to Done."
+      "description": "Active sprint board tracking items from New to Done."
     },
     {
       "name": "Roadmap Timeline",
       "layout": "roadmap",
       "group_by": "Milestone",
       "date_fields": ["Start Date", "Target Date"],
-      "visible_fields": ["Title", "Status", "Priority", "Category", "Assignees"],
+      "visible_fields": ["Title", "Status", "Priority", "Assignees"],
       "description": "Release roadmap timeline grouped chronologically by release version."
     },
     {
@@ -92,10 +78,10 @@
     {
       "name": "Value vs Effort Priority Matrix",
       "layout": "table",
-      "group_by": "Category",
+      "group_by": "Value",
       "sort_by": [{"field": "Value", "direction": "desc"}, {"field": "Effort", "direction": "asc"}],
       "visible_fields": ["Title", "Milestone", "Value", "Effort", "Status"],
-      "description": "Strategic portfolio matrix aligning deliverables with the ROADMAP.md matrix."
+      "description": "Items grouped by Value and sorted by Value, then Effort."
     }
   ]
 }

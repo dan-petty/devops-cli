@@ -1,58 +1,28 @@
-"""Test suite for GitHub Issues and Milestones editing, syncing, and roadmap reconciliation."""
+"""Test suite for GitHub Issues and Milestones editing and progress."""
 
 from __future__ import annotations
 
 import json
 from datetime import date
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
-from devops_cli.ai.mcp.server import (
-    gh_issue_edit,
-    gh_issue_reconcile_roadmap,
-    gh_milestone_edit,
-    gh_milestone_sync,
-)
+from devops_cli.ai.mcp.server import gh_issue_edit, gh_milestone_edit
 from devops_cli.commands.gh import app, milestones_app
 from devops_cli.github.issues import (
-    GitHubIssue,
     _resolve_milestone_number,
     _resolve_updated_labels,
     edit_repository_issue,
 )
-from devops_cli.github.milestones import (
-    MilestoneSpec,
-    calculate_milestone_progress,
-    find_milestones_to_update,
-)
+from devops_cli.github.milestones import calculate_milestone_progress
 from devops_cli.github.projects import (
     _reconcile_single_item,
-)
-from devops_cli.github.roadmap_sync import (
-    IssueMilestoneReconcileResult,
-    reconcile_issue_milestones_from_roadmap,
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, Release
 
 runner = CliRunner()
-
-
-def test_find_milestones_to_update() -> None:
-    """find_milestones_to_update flags milestones when description changed."""
-    desired = [
-        MilestoneSpec(title="v0.2.21", description="New Title Description"),
-        MilestoneSpec(title="v0.2.22", description="Unchanged Description"),
-        MilestoneSpec(title="v0.2.23", description="New Milestone"),
-    ]
-    existing = [
-        Release(number=1, title="v0.2.21", description="Old Title Description"),
-        Release(number=2, title="v0.2.22", description="Unchanged Description"),
-    ]
-    updates = find_milestones_to_update(desired, existing)
-    assert [(release.number, spec.title) for release, spec in updates] == [(1, "v0.2.21")]
 
 
 def test_calculate_milestone_progress() -> None:
@@ -146,60 +116,6 @@ def test_edit_repository_issue_mutation() -> None:
         )
 
 
-def test_reconcile_issue_milestones_from_roadmap(tmp_path: Path) -> None:
-    """reconcile_issue_milestones_from_roadmap updates misaligned issue milestones."""
-    roadmap_content = """# Roadmap
-
-## Release Milestones (Chronological Order)
-
-### Syntopical Research (v0.2.21 - Active)
-- [x] #10 Implement AST analysis (`priority/p1-high`, `scope/ai`)
-
-## Value vs. Effort Prioritization Matrix
-"""
-    roadmap_file = tmp_path / "ROADMAP.md"
-    roadmap_file.write_text(roadmap_content, encoding="utf-8")
-
-    tasks_dir = tmp_path / "tasks"
-    tasks_dir.mkdir(parents=True, exist_ok=True)
-    task_file = tasks_dir / "task-10-implement-ast-analysis.md"
-    task_file.write_text(
-        "---\nissue: 10\nmilestone: v0.2.20\ntitle: Implement AST analysis\n---\nBody",
-        encoding="utf-8",
-    )
-
-    issues = [
-        GitHubIssue(
-            number=10,
-            title="Implement AST analysis",
-            milestone="v0.2.20",
-            state="open",
-            labels=[],
-        )
-    ]
-
-    with (
-        patch("devops_cli.github.roadmap_sync.get_repository_issues", return_value=issues),
-        patch("devops_cli.github.issues.edit_repository_issue") as mock_edit,
-    ):
-        res_dry = reconcile_issue_milestones_from_roadmap(
-            repo="example/repo",
-            roadmap_path=roadmap_file,
-            tasks_dir=tasks_dir,
-            dry_run=True,
-        )
-        assert (res_dry.reconciled_count, mock_edit.called) == (1, False)
-
-        res_live = reconcile_issue_milestones_from_roadmap(
-            repo="example/repo",
-            roadmap_path=roadmap_file,
-            tasks_dir=tasks_dir,
-            dry_run=False,
-        )
-        assert (res_live.reconciled_count, mock_edit.called) == (1, True)
-        assert "milestone: v0.2.21" in task_file.read_text(encoding="utf-8")
-
-
 def test_cli_gh_milestones_edit_leaves_the_release_open(
     roadmap_store: InMemoryRoadmapStore, roadmap_store_repos: list[str]
 ) -> None:
@@ -242,18 +158,6 @@ def test_cli_gh_milestones_edit_changes_only_the_fields_given(
     )
 
 
-def test_cli_gh_milestones_sync_with_epics(roadmap_store: InMemoryRoadmapStore) -> None:
-    """CLI devops gh milestones sync with --create-release-epics invokes release epic sync."""
-    with patch("devops_cli.github.release_epics.sync_all_release_epics") as mock_epic_sync:
-        mock_epic_sync.return_value = MagicMock(
-            created_count=1, updated_count=0, unchanged_count=0, total_milestones=1
-        )
-        result = runner.invoke(
-            milestones_app, ["sync", "--dry-run", "--create-release-epics", "-R", "example/repo"]
-        )
-    assert (result.exit_code, mock_epic_sync.called, roadmap_store.releases()) == (0, True, [])
-
-
 def test_cli_gh_issues_edit() -> None:
     """CLI devops gh issues edit invokes edit_repository_issue."""
     with (
@@ -274,39 +178,8 @@ def test_cli_gh_issues_edit() -> None:
         assert "Issue #42 updated successfully" in result.output
 
 
-def test_cli_gh_issues_reconcile_roadmap() -> None:
-    """CLI devops gh issues reconcile-roadmap calls reconciliation and displays output."""
-    mock_res = IssueMilestoneReconcileResult(
-        total_roadmap_items=10,
-        total_issues_checked=10,
-        reconciled_count=1,
-        dry_run=True,
-        reconciled_issues=[
-            {
-                "number": 10,
-                "title": "Implement AST analysis",
-                "old_milestone": "v0.2.20",
-                "new_milestone": "v0.2.21",
-            }
-        ],
-    )
-    with (
-        patch("devops_cli.commands.gh._resolve_repo", return_value="example/repo"),
-        patch(
-            "devops_cli.github.roadmap_sync.reconcile_issue_milestones_from_roadmap",
-            return_value=mock_res,
-        ),
-    ):
-        result = runner.invoke(app, ["issues", "reconcile-roadmap", "--dry-run"])
-        assert (result.exit_code, "DRY RUN" in result.output, "#10" in result.output) == (
-            0,
-            True,
-            True,
-        )
-
-
-def test_project_custom_field_milestone_reconciliation() -> None:
-    """_reconcile_single_item plans a Milestone change when the board's copy differs."""
+def test_reconcile_never_writes_the_milestone_the_board_mirrors() -> None:
+    """_reconcile_single_item plans no Milestone change though the board's copy differs."""
     item = {
         "url": "https://github.com/example/repo/issues/1",
         "title": "Test Issue",
@@ -315,9 +188,8 @@ def test_project_custom_field_milestone_reconciliation() -> None:
         "milestone": {"title": "v0.2.21"},
     }
     current_fields: dict[str, str | None] = {
-        "status": "Backlog",
+        "status": "New",
         "priority": "P1-High",
-        "category": "CLI",
         "value": "High",
         "effort": "Medium",
         "milestone": "v0.2.20",
@@ -329,16 +201,13 @@ def test_project_custom_field_milestone_reconciliation() -> None:
         dry_run=True,
         current_fields=current_fields,
     )
-    assert [(c.field, c.old, c.new) for c in changes] == [("Milestone", "v0.2.20", "v0.2.21")]
+    assert [(c.field, c.old, c.new) for c in changes] == []
 
 
 def test_fastmcp_gh_tools() -> None:
     """FastMCP tools execute CLI commands."""
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Success") as mock_cmd:
         r1 = gh_milestone_edit("v0.2.21", description="New description")
-        r2 = gh_milestone_sync(dry_run=True, create_release_epics=True)
-        r3 = gh_issue_edit(issue_number=10, milestone="v0.2.21")
-        r4 = gh_issue_reconcile_roadmap(dry_run=True)
+        r2 = gh_issue_edit(issue_number=10, milestone="v0.2.21")
 
-        assert (r1, r2, r3, r4) == ("Success", "Success", "Success", "Success")
-        assert mock_cmd.call_count == 4
+        assert (r1, r2, mock_cmd.call_count) == ("Success", "Success", 2)

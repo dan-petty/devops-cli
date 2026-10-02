@@ -55,12 +55,6 @@ def test_gh_milestones_list(roadmap_store: InMemoryRoadmapStore) -> None:
     )
 
 
-def test_gh_milestones_sync_dry_run(roadmap_store: InMemoryRoadmapStore) -> None:
-    """devops gh milestones sync --dry-run reads the roadmap's milestones and creates none."""
-    result = runner.invoke(milestones_app, ["sync", "--dry-run", "-R", "example/repo"])
-    assert (result.exit_code, "DRY RUN" in result.output, roadmap_store.releases()) == (0, True, [])
-
-
 def test_gh_views_list() -> None:
     """devops gh views list displays all 4 standardized project views."""
     result = runner.invoke(app, ["views", "list"])

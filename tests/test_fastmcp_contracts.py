@@ -135,7 +135,8 @@ def test_fastmcp_tools_registration() -> None:
         "gh_rate_limit",
         "gh_runs_list",
         "gh_run_view",
-        "gh_sync_roadmap",
+        "roadmap_migrate",
+        "roadmap_render",
         "pr_ready",
         "pr_diff",
         "pr_close",
@@ -1294,4 +1295,63 @@ def test_describe_schema_states_what_a_property_accepts() -> None:
         'exactly "json"',
         "string or null",
         "any JSON value",
+    ]
+
+
+# ── Roadmap tools (#739) ──────────────────────────────────────────────────────
+
+
+def _roadmap_tool_parameters(name: str) -> dict[str, object]:
+    import asyncio
+
+    from devops_cli.ai.mcp import server as mcp_server
+
+    tool = asyncio.run(mcp_server.mcp.get_tool(name))
+    assert tool is not None
+    return dict(tool.parameters["properties"])
+
+
+def test_the_roadmap_tools_are_registered_and_migrate_only_previews() -> None:
+    """`roadmap_migrate` has no confirm parameter: a bulk change is never one tool call away."""
+    render = _roadmap_tool_parameters("roadmap_render")
+    migrate = _roadmap_tool_parameters("roadmap_migrate")
+    assert (
+        sorted(render),
+        render["dry_run"].get("default"),  # type: ignore[attr-defined]
+        sorted(migrate),
+    ) == (["dry_run", "ref", "repo"], True, ["ref", "repo"])
+
+
+def test_the_roadmap_tools_resolve_to_the_roadmap_domain_and_hydrate() -> None:
+    from devops_cli.ai.mcp import server as mcp_server
+    from devops_cli.ai.mcp.dispatcher import resolve_tool_domain
+
+    before = mcp_server._is_advertised("roadmap_render")
+    hydrated = mcp_server.hydrate_tool_domain("roadmap")["hydrated"]
+    after = mcp_server._is_advertised("roadmap_migrate")
+    mcp_server.reset_hydrated_domains()
+    assert (
+        resolve_tool_domain("roadmap_render"),
+        resolve_tool_domain("roadmap_migrate"),
+        before,
+        hydrated,
+        after,
+    ) == ("roadmap", "roadmap", False, True, True)
+
+
+def test_the_roadmap_tools_build_the_commands_argv() -> None:
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import roadmap_migrate, roadmap_render
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
+        roadmap_render()
+        roadmap_render(repo="dan-petty/devops-cli", ref="release/v0.2.25", dry_run=False)
+        roadmap_migrate(repo="dan-petty/devops-cli", ref="release/v0.2.25")
+    head = ["uv", "run", "devops", "roadmap"]
+    target = ["--repo", "dan-petty/devops-cli", "--ref", "release/v0.2.25"]
+    assert [call.args[0] for call in run.call_args_list] == [
+        [*head, "render", "--dry-run"],
+        [*head, "render", *target],
+        [*head, "migrate", "--dry-run", *target],
     ]

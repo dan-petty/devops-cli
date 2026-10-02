@@ -2,11 +2,13 @@
 
 An Item is an issue of this repository that is on the board. A Release is a milestone whose
 title parses as a version. A Candidate is an open issue of this repository that is not on the
-board yet. Both adapters keep the same promises: reads page through every result, a read that
-can't complete raises instead of returning an empty or partial result, and no read is cached.
+board yet. A Card is anything on the board: an Item, a pull request, a draft issue or another
+repository's issue. Both adapters keep the same promises: reads page through every result, a
+read that can't complete raises instead of returning an empty or partial result, and no read is
+cached.
 
-Every Item write also records the value it set in the Item's job record, so a job can tell a
-person's change from its own by comparing a field with its record (ADR 0002).
+Every Item and Card field write also records the value it set in the card's job record, so a
+job can tell a person's change from its own by comparing a field with its record (ADR 0002).
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.constants import CONST_GH_PROJECT_JOB_RECORD_FIELD
+from devops_cli.config.defaults import DEFAULT_GH_PROJECT_OPTION_COLOR
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.validation import InvalidVersionError
 
@@ -49,6 +52,21 @@ class ItemField(StrEnum):
 
 
 BOARD_FIELDS: tuple[ItemField, ...] = tuple(f for f in ItemField if f is not ItemField.RELEASE)
+
+
+class CardKind(StrEnum):
+    """What a board card holds, named as `gh project item-list` names it."""
+
+    ISSUE = "Issue"
+    PULL_REQUEST = "PullRequest"
+    DRAFT_ISSUE = "DraftIssue"
+
+
+class CloseReason(StrEnum):
+    """Why an issue was closed, named as GitHub's `state_reason` names it."""
+
+    COMPLETED = "completed"
+    NOT_PLANNED = "not_planned"
 
 
 class ChangeKind(StrEnum):
@@ -169,6 +187,7 @@ class IssueRecord(BaseModel):
     number: int
     title: str
     url: str
+    body: str = ""
     state: GitHubState = GitHubState.OPEN
     state_reason: str | None = None
     labels: tuple[str, ...] = ()
@@ -187,6 +206,79 @@ class BoardEntry(BaseModel):
     value: str | None = None
     effort: str | None = None
     job_record: JobRecord = Field(default_factory=dict)
+
+
+class Card(BaseModel):
+    """Anything on the board, with its board fields and job record.
+
+    A draft issue has no number or URL, and `repository` names the repository an issue or pull
+    request belongs to, which need not be this one.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    kind: CardKind
+    number: int | None = None
+    url: str | None = None
+    repository: str | None = None
+    status: str | None = None
+    priority: str | None = None
+    value: str | None = None
+    effort: str | None = None
+    job_record: JobRecord = Field(default_factory=dict)
+
+    def field_value(self, field: ItemField) -> str | None:
+        """The card's current value for a board field."""
+        return cast(str | None, getattr(self, field.name.lower()))
+
+
+class Board(BaseModel):
+    """The project board: its node id, number, title and URL."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    number: int
+    title: str
+    url: str
+
+
+class FieldOption(BaseModel):
+    """One option of a single-select board field. A new option has no id until the board gives it one."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str | None = None
+    name: str
+    color: str = DEFAULT_GH_PROJECT_OPTION_COLOR
+    description: str = ""
+
+
+class FieldSpec(BaseModel):
+    """A board field to create: its name, and its options when it is single-select."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    single_select: bool = False
+    options: tuple[FieldOption, ...] = ()
+
+
+class BoardField(FieldSpec):
+    """A field the board has, with its node id."""
+
+    id: str
+
+
+class Workflow(BaseModel):
+    """One of the board's built-in workflows and whether it is on."""
+
+    model_config = ConfigDict(frozen=True)
+
+    number: int
+    name: str
+    enabled: bool
 
 
 # ── Rules both adapters apply ─────────────────────────────────────────────────
@@ -271,6 +363,31 @@ def require_option(
             f"the options are {', '.join(options[field.value])}.",
             operation="roadmap.item.set_field",
             details={"field": field.value, "value": value[:256]},
+        )
+
+
+def field_options(fields: Iterable[BoardField]) -> dict[str, tuple[str, ...]]:
+    """Each board field's option names by field name; a field that isn't single-select has none."""
+    return {field.name: tuple(option.name for option in field.options) for field in fields}
+
+
+def require_field(fields: Iterable[BoardField], name: str, operation: str) -> BoardField:
+    """The board field named `name`, raising when the board has none."""
+    found = next((field for field in fields if field.name == name), None)
+    if found is None:
+        raise GitHubOperationError(
+            f"The board has no {name!r} field.", operation=operation, details={"field": name[:256]}
+        )
+    return found
+
+
+def require_board_field(field: ItemField) -> None:
+    """Refuse a card write to the Release, which is an issue's milestone and not a board field."""
+    if field is ItemField.RELEASE:
+        raise GitHubOperationError(
+            "The Release is an issue's milestone, not a board field; set it on an Item.",
+            operation="roadmap.card.set_field",
+            details={"field": field.value},
         )
 
 
@@ -380,6 +497,58 @@ class RoadmapStore(Protocol):
         when `item` was read before an earlier write.
         """
 
+    def delete_release(self, version: str) -> None:
+        """Delete the Release of `version`, raising if there is none. Its issues lose their Release."""
+
+    def issues(self) -> list[IssueRecord]:
+        """Every issue of the repository, open and closed, on the board or not; never pull requests."""
+
+    def create_issue(self, title: str, body: str, *, labels: Sequence[str] = ()) -> IssueRecord:
+        """Open an issue with `title`, `body` and `labels`, returning it."""
+
+    def close_issue(self, number: int, reason: CloseReason, comment: str) -> None:
+        """Comment on issue `number`, then close it for `reason`, raising if it is not an issue."""
+
+    def repository_file(self, path: str, *, ref: str | None = None) -> str:
+        """The text of the repository file at `path` on `ref` (the default branch when None)."""
+
+    # ── The board itself ──
+    # No operation edits an existing board's options. GitHub's option input takes no id, so
+    # any option list sent gives every option a new id and clears it from every card. A person
+    # renames, adds and removes options in the board's field settings, which keep the ids.
+
+    def board(self) -> Board | None:
+        """The configured board, or None when its owner has no board with that number."""
+
+    def create_board(self, title: str, fields: Sequence[FieldSpec]) -> Board:
+        """Create a board titled `title` with `fields`, linked to the repository, and return it.
+
+        A field the new board already has, such as Status, takes the spec's options in place
+        of its own. Those options get new ids, which costs nothing on a board no card is on.
+        """
+
+    def board_fields(self) -> list[BoardField]:
+        """Every field on the board, with each single-select option's id, color and description."""
+
+    def delete_field(self, name: str) -> None:
+        """Delete the board field `name`, raising if the board has none."""
+
+    def cards(self) -> list[Card]:
+        """Everything on the board: Items, pull requests, draft issues and other repositories' issues."""
+
+    def set_card_field(self, card: Card, field: ItemField, value: str | None) -> None:
+        """Set or clear a board field on any card, then record the value in its job record.
+
+        The Release is not a board field and raises; so do a value that is not one of the
+        field's options and a card no longer on the board, before the store changes anything.
+        """
+
+    def remove_card(self, card: Card) -> None:
+        """Take `card` off the board, raising if it is not on it."""
+
+    def workflows(self) -> list[Workflow]:
+        """The board's built-in workflows."""
+
 
 def get_roadmap_store(
     repo: str, *, board_owner: str | None = None, board_number: int | None = None
@@ -397,10 +566,17 @@ def get_roadmap_store(
 
 __all__ = [
     "BOARD_FIELDS",
+    "Board",
     "BoardEntry",
+    "BoardField",
     "Candidate",
+    "Card",
+    "CardKind",
     "Change",
     "ChangeKind",
+    "CloseReason",
+    "FieldOption",
+    "FieldSpec",
     "GitHubState",
     "IssueRecord",
     "Item",
@@ -408,7 +584,9 @@ __all__ = [
     "JobRecord",
     "Release",
     "RoadmapStore",
+    "Workflow",
     "as_utc",
+    "field_options",
     "find_release",
     "get_roadmap_store",
     "in_release",
@@ -417,6 +595,8 @@ __all__ = [
     "parse_release_version",
     "release_edits",
     "release_title",
+    "require_board_field",
+    "require_field",
     "require_job_record_field",
     "require_new_release",
     "require_option",
