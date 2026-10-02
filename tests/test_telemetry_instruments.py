@@ -336,6 +336,40 @@ def test_ai_calls_count_requests_tokens_and_spend_by_backend(
     )
 
 
+def test_local_ai_calls_emit_equivalent_spend_instrument(
+    captured: Captured, tmp_path: Path
+) -> None:
+    """Verify local AI calls emit devops_cli_ai_local_cost_equivalent_usd_total and zero direct spend."""
+    ledger = SpendLedger(db_path=tmp_path / "spend.db")
+    track_request_spend(
+        provider="ollama",
+        model="qwen2.5-coder:7b",
+        server="http://localhost:11434",
+        served_by="http://ollama-0.ollama:11434",
+        prompt_tokens=1000,
+        completion_tokens=200,
+        cached=False,
+        ledger=ledger,
+    )
+
+    equiv = captured.points("devops_cli_ai_local_cost_equivalent_usd_total")
+    spend = captured.points("devops_cli_ai_spend_usd_total")
+
+    assert (
+        len(equiv),
+        equiv[0][1] > 0,
+        equiv[0][0]["backend"],
+        equiv[0][0]["provider"],
+        len(spend),
+    ) == (
+        1,
+        True,
+        "ollama-0",
+        "ollama",
+        0,
+    )
+
+
 def test_a_review_sends_its_duration_and_findings_by_persona_severity_and_status(
     captured: Captured,
 ) -> None:
