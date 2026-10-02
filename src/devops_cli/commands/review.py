@@ -34,6 +34,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, set_dry_run
+from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output.serialization import emit_serialized, normalize_format
 
@@ -45,13 +46,15 @@ __all__ = [
 from devops_cli.ai.review import runner
 from devops_cli.ai.review.defects import (
     CORPUS_FILES_DIR,
+    RUN_FIGURE_DECIMALS,
     TEMPLATES,
+    CorpusRunsScore,
     CorpusScore,
     DefectCorpus,
     DefectTemplate,
-    InjectionOutcome,
     generate_corpus,
     score_corpus,
+    score_corpus_runs,
     select_templates,
 )
 from devops_cli.ai.review.exporter import export_invalidated_feedback
@@ -110,6 +113,7 @@ from devops_cli.ai.run_store import (
     new_run,
     record_run,
     review_setup,
+    unpinned_groups,
 )
 from devops_cli.commands.ai_runs import announce_run, announce_runs
 from devops_cli.config.settings import load_settings
@@ -1476,13 +1480,11 @@ def corpus_generate(
     print_info(f"[dim]{corpus.caveat}[/dim]", prefix=False)
 
 
-def _corpus_session_dir(files_dir: Path, session: str | None) -> Path | None:
-    """The named session, or the latest one whose profile shows it reviewed the corpus."""
-    if session:
-        return _find_session_dir(session)
+def _corpus_session_dirs(files_dir: Path) -> list[Path]:
+    """Every session whose profile shows it reviewed the corpus, oldest first."""
     reviews_dir = runner._get_reviews_base_dir()
     if not reviews_dir.exists():
-        return None
+        return []
     target = str(files_dir.resolve())
     reviews = [
         d
@@ -1491,103 +1493,251 @@ def _corpus_session_dir(files_dir: Path, session: str | None) -> Path | None:
         and (profile := ReviewProfile.load(d)) is not None
         and profile.target == target
     ]
-    return max(reviews, key=lambda d: d.name, default=None)
+    return sorted(reviews, key=lambda d: d.name)
+
+
+def _named_session_dirs(sessions: list[str]) -> list[Path]:
+    """The named sessions, oldest first; a name that matches no reviewed session exits 1."""
+    found = {name: _find_session_dir(name) for name in dict.fromkeys(sessions)}
+    dirs = {d: None for d in found.values() if d is not None and (d / "findings.json").exists()}
+    if missing := [name for name, d in found.items() if d not in dirs]:
+        print_error(f"No review session with findings matches: {', '.join(missing)}")
+        raise typer.Exit(1)
+    return sorted(dirs, key=lambda d: d.name)
+
+
+def _arm_session_dirs(files_dir: Path, sessions: list[str] | None, runs: int | None) -> list[Path]:
+    """The sessions of one arm: those named, the latest `runs` reviews of the corpus, or the
+    latest one."""
+    if sessions and runs is not None:
+        print_error("Name sessions with --session or take the latest with --runs, not both.")
+        raise typer.Exit(1)
+    if sessions:
+        return _named_session_dirs(sessions)
+    reviews = _corpus_session_dirs(files_dir)
+    if runs is not None and len(reviews) < runs:
+        print_error(
+            f"Only {len(reviews)} review(s) of {files_dir} exist, and --runs asks for {runs}; "
+            f"run: devops review benchmark {files_dir} --runs {runs}"
+        )
+        raise typer.Exit(1)
+    if not reviews:
+        print_error(f"No review of {files_dir} found; run: devops review path {files_dir}")
+        raise typer.Exit(1)
+    return reviews[-(runs or 1) :]
 
 
 def _session_findings(path: Path) -> list[SavedFinding]:
     return ReviewSessionPayload.model_validate_json(path.read_text(encoding="utf-8")).findings
 
 
-def _injection_outcome(outcome: InjectionOutcome) -> str:
-    if outcome.reported:
-        return "reported"
-    if outcome.found:
-        return "found, then " + "/".join(sorted(set(outcome.statuses))).lower()
-    return "named the file elsewhere" if outcome.in_file else "missed"
-
-
-def _render_corpus_score(score: CorpusScore) -> None:
-    print_section(f" Synthetic Defect Recall: {score.session_id} ", style="bold cyan")
-    print_info(
-        f"Found: [bold]{score.found}/{score.injections}[/bold] ({score.recall_found:.0%}; "
-        f"{score.found_by_line} at their line); still reported after verification: "
-        f"[bold]{score.reported}/{score.injections}[/bold] ({score.recall_reported:.0%}); "
-        f"found then dropped: {score.dropped}; reported findings beyond the injections: "
-        f"{score.unmatched_findings}",
-        prefix=False,
+def _replied_personas(profiles: list[ReviewProfile | None]) -> list[str]:
+    """Every persona that replied in any of the sessions."""
+    return sorted(
+        {
+            reply["persona"]
+            for p in profiles
+            if p
+            for reply in p.persona_replies
+            if "persona" in reply
+        }
     )
+
+
+def _out_of(count: int, whole: int, share: float) -> str:
+    return f"{count}/{whole} ({share:.0%})"
+
+
+def _render_arm_totals(arm: CorpusRunsScore) -> None:
+    """How many injections the arm's runs caught: in at least one run, in every run, in none."""
+    whole, k = len(arm.tallies), arm.runs
+    rows = []
+    for label, total, counts in (
+        ("Found", arm.found, [t.found_in for t in arm.tallies]),
+        ("Still reported after verification", arm.reported, [t.reported_in for t in arm.tallies]),
+    ):
+        rows.append(
+            [
+                label,
+                _out_of(sum(c > 0 for c in counts), whole, total.pass_at_k),
+                _out_of(sum(c == k for c in counts), whole, total.pass_hat_k),
+                str(total.in_none),
+            ]
+        )
+    print_table(
+        title=f"Injections Caught Across {k} Run(s)",
+        columns=[
+            ("Outcome", "cyan"),
+            (f"In at least one run (pass@{k})", "right"),
+            (f"In every run (pass^{k})", "right"),
+            ("In no run", "right"),
+        ],
+        rows=rows,
+    )
+
+
+def _render_arm_means(arm: CorpusRunsScore) -> None:
+    """The mean of each figure across the runs, beside its range; one run has no range."""
+    spread = arm.spread or {}
+    print_table(
+        title="Mean per Run",
+        columns=[("Figure", "cyan"), ("Mean", "right"), ("Range across runs", "right")],
+        rows=[
+            [
+                name,
+                f"{getattr(arm, name):g}",
+                f"{spread[name][0]:g}–{spread[name][1]:g}" if name in spread else "—",
+            ]
+            for name in RUN_FIGURE_DECIMALS
+        ],
+    )
+
+
+def _render_arm_sessions(arm: CorpusRunsScore) -> None:
+    print_table(
+        title="Runs",
+        columns=[
+            ("Session", "magenta"),
+            ("Recall found", "right"),
+            ("Recall reported", "right"),
+            ("Candidates", "right"),
+            ("Invalidated by the verifier", "right"),
+            ("Reported", "right"),
+            ("Prompt tokens", "right"),
+            ("Completion tokens", "right"),
+            ("Unparsed persona replies", "right"),
+        ],
+        rows=[
+            [
+                row.session_id,
+                f"{row.recall_found:.0%}",
+                f"{row.recall_reported:.0%}",
+                str(row.candidate_findings),
+                str(row.invalidated_findings),
+                str(row.reported_findings),
+                str(row.prompt_tokens),
+                str(row.completion_tokens),
+                str(row.unparsed_replies),
+            ]
+            for row in arm.sessions
+        ],
+    )
+
+
+def _render_arm_templates(arm: CorpusRunsScore) -> None:
+    by_template: dict[str, list[int]] = {}
+    for tally in arm.tallies:
+        counts = by_template.setdefault(tally.template, [0, 0, 0])
+        counts[0] += 1
+        counts[1] += tally.found_in > 0
+        counts[2] += tally.found_in == arm.runs
     print_table(
         title="By Template",
         columns=[
             ("Template", "cyan"),
             ("Injections", "right"),
-            ("Found", "right"),
-            ("Reported", "right"),
+            ("Found in any run", "right"),
+            ("Found in every run", "right"),
         ],
-        rows=[
-            [name, str(t.injections), str(t.found), str(t.reported)]
-            for name, t in sorted(score.by_template.items())
-        ],
+        rows=[[name, *map(str, counts)] for name, counts in sorted(by_template.items())],
     )
+
+
+def _render_arm_injections(arm: CorpusRunsScore) -> None:
+    """Each injection: in how many runs it was found and reported, and every finding matched."""
+    titles: dict[str, dict[str, None]] = {}
+    for outcome in (outcome for score in arm.scores for outcome in score.outcomes):
+        titles.setdefault(outcome.id, {}).update(dict.fromkeys(outcome.titles))
     print_table(
         title="Injections",
         columns=[
             ("Injection", "magenta"),
             ("Template", "cyan"),
-            ("Outcome", ""),
-            ("Matched Findings", "dim"),
+            ("Found", "right"),
+            ("Reported", "right"),
+            ("Matched findings (any run)", "dim"),
         ],
         rows=[
             [
-                escape_text(f"{o.file}:{o.line}"),
-                o.template,
-                _injection_outcome(o),
-                escape_text("; ".join(dict.fromkeys(o.titles))),
+                escape_text(f"{t.file}:{t.line}"),
+                t.template,
+                f"found in {t.found_in}/{arm.runs}",
+                f"reported in {t.reported_in}/{arm.runs}",
+                escape_text("; ".join(titles.get(t.id, {}))),
             ]
-            for o in score.outcomes
+            for t in arm.tallies
         ],
     )
-    print_info(f"[dim]{score.caveat}[/dim]", prefix=False)
+
+
+def _render_corpus_runs(arm: CorpusRunsScore) -> None:
+    print_section(
+        f" Synthetic Defect Recall: {arm.runs} run(s), prompts {arm.prompt_digest or 'unrecorded'} ",
+        style="bold cyan",
+    )
+    _render_arm_totals(arm)
+    _render_arm_means(arm)
+    _render_arm_sessions(arm)
+    _render_arm_templates(arm)
+    _render_arm_injections(arm)
+    print_info(f"[dim]{arm.caveat}[/dim]", prefix=False)
+
+
+def _warn_unpinned(setup: dict[str, Any], *, to_stderr: bool) -> None:
+    """Say when a gateway group the review used serves several models, so runs mix models."""
+    for group, models in unpinned_groups(setup).items():
+        print_warning(
+            f"not model-pinned: {group} serves {models} models, so its runs mix them; pin one "
+            "model with a single-model gateway group to compare prompts.",
+            prefix=False,
+            to_stderr=to_stderr,
+        )
 
 
 @corpus_app.command("score")
 def corpus_score(
     corpus_dir: Annotated[Path, typer.Argument(help=HELP.review.corpus_dir)],
     session: Annotated[
-        str | None,
+        list[str] | None,
         typer.Option("--session", "-s", help=HELP.review.corpus_session),
+    ] = None,
+    runs: Annotated[
+        int | None,
+        typer.Option("--runs", "-n", min=1, help=HELP.review.corpus_runs),
     ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
 ) -> None:
-    """Score a review of a corpus: which injected defects it found, and what verification kept."""
+    """Score one arm of reviews of a corpus: which injected defects each run found, and what verification kept."""
     try:
         corpus = DefectCorpus.load(corpus_dir)
     except (OSError, ValueError) as exc:
         print_error(f"No corpus manifest in {corpus_dir}: {exc}")
         raise typer.Exit(1) from exc
-    files_dir = corpus_dir / CORPUS_FILES_DIR
-    session_dir = _corpus_session_dir(files_dir, session)
-    if session_dir is None or not (session_dir / "findings.json").exists():
-        print_error(f"No review of {files_dir} found; run: devops review path {files_dir}")
-        raise typer.Exit(1)
-    reported = _session_findings(session_dir / "findings.json")
-    candidates_file = session_dir / CONST_REVIEW_CANDIDATES_FILENAME
-    candidates = _session_findings(candidates_file) if candidates_file.exists() else reported
-    score = score_corpus(corpus, candidates, reported, session_id=session_dir.name)
+    session_dirs = _arm_session_dirs(corpus_dir / CORPUS_FILES_DIR, session, runs)
+    profiles = [ReviewProfile.load(d) for d in session_dirs]
+    try:
+        arm = score_corpus_runs([_scored_session(corpus, d.name) for d in session_dirs], profiles)
+    except ValidationError as exc:
+        print_error(exc.message)
+        raise typer.Exit(1) from exc
     # The setup is read when scoring, so score a review before changing its models or pool.
+    setup = review_setup(
+        prompt_digest=arm.prompt_digest, runs=arm.runs, personas=_replied_personas(profiles)
+    )
     saved = record_run(
         Mechanism.CORPUS_SCORE,
-        setup=review_setup(),
+        setup=setup,
         subject={"corpus_digest": digest(corpus.model_dump(mode="json", exclude={"created_at"}))},
-        results=score.model_dump(mode="json"),
+        results=arm.model_dump(mode="json"),
     )
     if json_output:
-        write_stdout(score.model_dump_json(indent=2) + "\n")
+        write_stdout(arm.model_dump_json(indent=2) + "\n")
     else:
-        _render_corpus_score(score)
+        _render_corpus_runs(arm)
+    _warn_unpinned(setup, to_stderr=json_output)
     announce_run(saved, to_stderr=json_output)
 
 

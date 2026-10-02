@@ -170,6 +170,19 @@ class ReleaseErrorMessages:
     tag_push_failed: str = "Failed to push tag {tag} to origin: {error}"
     invalid_label: str = "Invalid label '{label}'."
     invalid_version_format: str = "Invalid semver version format: '{version}'."
+    changelog_fragment_misnamed: str = (
+        "{path} is not a changelog fragment: a fragment is a file named <issue>.md, the issue "
+        "number only, and changelog.d/ holds nothing else but its README.md. Nothing was written."
+    )
+    changelog_fragment_empty: str = "{path} holds no changelog entry. Nothing was written."
+    changelog_text_outside_category: str = (
+        "{path}:{line} is outside a category: every entry sits under one of {categories}. "
+        "Nothing was written."
+    )
+    changelog_unknown_category: str = (
+        "{path}:{line} '{heading}' is not a changelog category: use one of {categories}. "
+        "Nothing was written."
+    )
 
 
 @dataclass(frozen=True)

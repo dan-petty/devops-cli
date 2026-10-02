@@ -451,8 +451,11 @@ so the reviewer cannot read the answers. After `devops review path <corpus>/file
 
 - how many injections some finding matched, before verification;
 - how many were still reported after verification;
-- how many were found and then dropped;
-- the reported findings that match no injection.
+- how many findings the review raised, how many the verifier invalidated and how many it kept.
+  The invalidated count is the verifier's opinion, not a label.
+
+`--json` also gives, per session, the injections found and then dropped and the reported findings
+that match no injection.
 
 A finding matches an injection when it names the file and either:
 
@@ -469,6 +472,43 @@ leaves out.
 
 The score measures regression, not capability. A prompt can be tuned to find exactly the defects
 this generator knows how to inject, so every score carries that caveat.
+
+### Prompt Benchmarking
+
+Identical reviews find different defects, so one run of a prompt says little. An arm is k reviews
+of one corpus run with the same prompts, and `devops review corpus score <corpus> --runs k` scores
+the latest k reviews of the corpus together (`--session` names sessions instead, and is repeatable).
+The score gives:
+
+- for each injection, how many of the k runs found it and how many still reported it;
+- pass@k, the share of injections found in at least one run, and pass^k, the share found in every
+  run, before and after verification;
+- each run's recall, findings, tokens and unparsed persona replies;
+- the mean of each figure (`recall_found`, `recall_reported`, `candidate_findings`,
+  `invalidated_findings`, `reported_findings`, `prompt_tokens`, `completion_tokens`), and its
+  `[min, max]` across the runs as `spread`. One run measures no spread, so its `spread` is null.
+
+Each review's `profile.json` records `prompt_digest`, a digest of every `.md` file under the
+package's `ai/tasks/` and `ai/personas/`. Prompts load only from the package, so each arm runs from
+its own checkout, and the digest says which prompts a session ran. Sessions with different digests
+are refused rather than scored as one arm. The run record's setup names the prompt digest, k, the
+personas that replied, each task's model, temperature and `top_p`, and the gateway pool of each
+group the review used. Verification is recorded as reviews resolve it, layered on the analysis
+task, so with `ai.tasks.verification` unset the setup names the analysis model. When a group
+serves more than one model, the report says `not model-pinned`: pin one model with a single-model
+gateway group before comparing prompts.
+
+Two arms are compared with `devops ai runs baseline set <A>` and `devops ai runs compare <B>`.
+Beside each mean, the table shows each arm's range and whether the ranges `overlaps` or are
+`apart`, or `—` when either run has no range. With k = 3 that is all the data supports: no
+significance test is run. `devops ai runs check` still compares the means.
+
+Both arms must read one configuration file. `config.yaml` is git-ignored and the config lookup
+stops at a worktree's `.git`, so point both checkouts at a shared copy with `DEVOPS_CLI_CONFIG`,
+and pin the analysis and verification models there. Run the base arm twice first: the A/A ranges
+are the noise floor a prompt change is read against. Verification learns false-positive catalog
+entries from deterministic invalidations, so an earlier run can change a later run's verdicts; an
+A/A pair whose ranges read `apart` shows that effect.
 
 ### Sample Repositories
 
