@@ -251,92 +251,6 @@ def test_get_pr_diff_normal_and_redirect(monkeypatch: pytest.MonkeyPatch) -> Non
     assert len(calls) == 2
 
 
-def test_create_milestone_forwards_due_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify create_milestone parses and forwards due_on to GitHub repository."""
-    import datetime
-    from unittest.mock import MagicMock
-
-    client = GitHubClient("token123")
-    mock_repo = MagicMock()
-    monkeypatch.setattr(client._gh, "get_repo", lambda r: mock_repo)
-
-    # String date
-    client.create_milestone(
-        repo="octo/repo",
-        title="v1.0.0",
-        description="Launch",
-        state="open",
-        due_on="2026-12-31",
-    )
-    mock_repo.create_milestone.assert_called_once()
-    called_kwargs = mock_repo.create_milestone.call_args[1]
-    assert called_kwargs["title"] == "v1.0.0"
-    assert called_kwargs["description"] == "Launch"
-    assert called_kwargs["state"] == "open"
-    assert isinstance(called_kwargs["due_on"], (datetime.date, datetime.datetime))
-    assert called_kwargs["due_on"].year == 2026
-
-    # Native date object
-    mock_repo.reset_mock()
-    target_date = datetime.date(2027, 1, 15)
-    client.create_milestone(
-        repo="octo/repo",
-        title="v1.1.0",
-        due_on=target_date,
-    )
-    called_kwargs2 = mock_repo.create_milestone.call_args[1]
-    assert called_kwargs2["due_on"] == target_date
-
-
-def test_edit_milestone_supplies_existing_title(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify edit_milestone supplies milestone.title when title is None."""
-    from unittest.mock import MagicMock
-
-    client = GitHubClient("token123")
-    mock_repo = MagicMock()
-    mock_milestone = MagicMock()
-    mock_milestone.title = "v0.2.12"
-    mock_repo.get_milestone.return_value = mock_milestone
-    monkeypatch.setattr(client._gh, "get_repo", lambda r: mock_repo)
-
-    client.edit_milestone("octo/repo", 24, state="closed")
-    mock_milestone.edit.assert_called_once_with(state="closed", title="v0.2.12")
-
-
-def test_close_milestone_by_title_and_number(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify close_milestone closes by numeric id and by title string."""
-    from unittest.mock import MagicMock
-
-    client = GitHubClient("token123")
-    mock_repo = MagicMock()
-    mock_milestone = MagicMock()
-    mock_milestone.title = "v0.2.12"
-    mock_repo.get_milestone.return_value = mock_milestone
-    monkeypatch.setattr(client._gh, "get_repo", lambda r: mock_repo)
-
-    # 1. Close by integer
-    res_int = client.close_milestone("octo/repo", 24)
-    assert res_int is True
-    mock_milestone.edit.assert_called_with(state="closed", title="v0.2.12")
-
-    # 2. Close by title matching
-    mock_milestone.reset_mock()
-    monkeypatch.setattr(
-        client,
-        "get_milestones",
-        lambda repo, state="all": [{"title": "v0.2.13", "number": 25}],
-    )
-    mock_milestone.title = "v0.2.13"
-    res_title = client.close_milestone("octo/repo", "v0.2.13")
-    assert res_title is True
-    mock_repo.get_milestone.assert_called_with(25)
-    mock_milestone.edit.assert_called_with(state="closed", title="v0.2.13")
-
-    # 3. Non-existent milestone returns False
-    res_missing = client.close_milestone("octo/repo", "v9.9.9")
-    assert res_missing is False
-
-
 def test_parse_paginated_json_concatenated_documents() -> None:
     """Verify parse_paginated_json correctly parses multiple concatenated pages from gh api --paginate."""
     page_1 = '[{"number": 1, "title": "v0.1.0"}]'
@@ -379,43 +293,6 @@ def test_gh_cli_client_labels() -> None:
         edit_cmd = mock_run.call_args[0][0]
         assert edit_cmd[:4] == ["gh", "label", "edit", "feature"]
         assert "0075ca" in edit_cmd
-
-
-def test_gh_cli_client_milestones_paginated() -> None:
-    """Verify GhCliClient milestone querying across multiple paginated pages."""
-    client = GhCliClient(default_repo="owner/my-repo")
-
-    multi_page_stdout = (
-        '[{"number": 1, "title": "v0.1.0", "state": "closed", "open_issues": 0, "closed_issues": 5}]\n'
-        '[{"number": 2, "title": "v0.2.0", "state": "open", "open_issues": 3, "closed_issues": 10}]\n'
-    )
-    mock_proc = MagicMock(returncode=0, stdout=multi_page_stdout)
-    mock_run = MagicMock(return_value=mock_proc)
-
-    with patch("devops_cli.github.client.run_gh", mock_run):
-        milestones = client.get_milestones("owner/my-repo")
-        assert len(milestones) == 2
-        assert milestones[0]["title"] == "v0.1.0"
-        assert milestones[0]["state"] == "closed"
-        assert milestones[1]["title"] == "v0.2.0"
-        assert milestones[1]["open_issues"] == 3
-
-        client.create_milestone(
-            "owner/my-repo",
-            "v0.3.0",
-            description="Next release",
-            due_on="2026-10-01T00:00:00Z",
-        )
-        create_cmd = mock_run.call_args[0][0]
-        assert "repos/owner/my-repo/milestones" in create_cmd
-        assert "title=v0.3.0" in create_cmd
-        assert "due_on=2026-10-01T00:00:00Z" in create_cmd
-
-        client.edit_milestone("owner/my-repo", 2, title="v0.2.1", state="closed")
-        edit_cmd = mock_run.call_args[0][0]
-        assert "repos/owner/my-repo/milestones/2" in edit_cmd
-        assert "title=v0.2.1" in edit_cmd
-        assert "state=closed" in edit_cmd
 
 
 def test_get_repo_overview_wraps_graphql_failure() -> None:

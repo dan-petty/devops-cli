@@ -8,7 +8,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.commands.gh import app
+from devops_cli.commands.gh import app, milestones_app
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.store import GitHubState
 
 runner = CliRunner()
 
@@ -40,32 +42,23 @@ def test_gh_labels_sync_dry_run() -> None:
         )
 
 
-def test_gh_milestones_list() -> None:
-    """devops gh milestones list prints milestones and progress rates."""
-    mock_milestones = [
-        {
-            "title": "v0.2.11",
-            "state": "open",
-            "open_issues": 1,
-            "closed_issues": 9,
-            "due_on": "2026-09-10",
-        },
-    ]
-    with patch("devops_cli.commands.gh._get_repo_milestones", return_value=mock_milestones):
-        result = runner.invoke(app, ["milestones", "list"])
-        assert result.exit_code == 0
-        assert "v0.2.11" in result.output
+def test_gh_milestones_list(roadmap_store: InMemoryRoadmapStore) -> None:
+    """devops gh milestones list prints each Release with its progress rate."""
+    roadmap_store.create_release("v0.2.11")
+    roadmap_store.seed_issue("Shipped", state=GitHubState.CLOSED, release="v0.2.11")
+
+    result = runner.invoke(milestones_app, ["list", "-R", "example/repo"])
+    assert (result.exit_code, "v0.2.11" in result.output, "100.0%" in result.output) == (
+        0,
+        True,
+        True,
+    )
 
 
-def test_gh_milestones_sync_dry_run() -> None:
-    """devops gh milestones sync --dry-run extracts roadmap milestones and simulates create."""
-    with (
-        patch("devops_cli.commands.gh._get_repo_milestones", return_value=[]),
-        patch("devops_cli.commands.gh.sync_repository_milestones") as mock_sync,
-    ):
-        mock_sync.return_value = MagicMock(created_count=4, dry_run=True)
-        result = runner.invoke(app, ["milestones", "sync", "--dry-run"])
-        assert result.exit_code == 0
+def test_gh_milestones_sync_dry_run(roadmap_store: InMemoryRoadmapStore) -> None:
+    """devops gh milestones sync --dry-run reads the roadmap's milestones and creates none."""
+    result = runner.invoke(milestones_app, ["sync", "--dry-run", "-R", "example/repo"])
+    assert (result.exit_code, "DRY RUN" in result.output, roadmap_store.releases()) == (0, True, [])
 
 
 def test_gh_views_list() -> None:
@@ -96,27 +89,6 @@ def test_get_github_client_env_override(monkeypatch: pytest.MonkeyPatch) -> None
         client = _get_github_client()
         assert client is not None
         assert client._token == "test-env-token-12345"
-
-
-def test_get_repo_milestones_paginated() -> None:
-    """_get_repo_milestones passes --paginate and per_page=100 to gh api."""
-    from devops_cli.commands.gh import _get_repo_milestones
-
-    mock_res = MagicMock()
-    mock_res.returncode = 0
-    mock_res.stdout = '[{"title": "v0.2.12", "number": 1, "state": "open"}]'
-
-    with (
-        patch("devops_cli.commands.gh._get_github_client", return_value=None),
-        patch("devops_cli.commands.gh.run_gh", return_value=mock_res) as mock_run,
-    ):
-        milestones = _get_repo_milestones("org/test-repo", state="all")
-        assert len(milestones) == 1
-        assert milestones[0]["title"] == "v0.2.12"
-        mock_run.assert_called_once()
-        cmd = mock_run.call_args[0][0]
-        assert "--paginate" in cmd
-        assert any("per_page=100" in arg for arg in cmd)
 
 
 def test_gh_pages_status() -> None:

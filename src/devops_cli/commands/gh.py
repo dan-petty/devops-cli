@@ -6,23 +6,30 @@ import datetime
 import json
 import logging
 import urllib.parse
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 
 from devops_cli.commands.pr import app as pr_app
-from devops_cli.config.constants import CONST_PROJECT_WORKFLOW_EXPECTATIONS
+from devops_cli.config.constants import (
+    CONST_GH_MILESTONE_STATE_ALL,
+    CONST_GH_MILESTONE_STATE_FILTERS,
+    CONST_PROJECT_WORKFLOW_EXPECTATIONS,
+)
 from devops_cli.config.env import ENV_GITHUB_TOKEN
 from devops_cli.config.settings import get_keyring_secret
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import get_repo_origin_name
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.github.branch_protection import (
     audit_branch_protection,
     load_branch_protection_policies,
     sync_branch_protection,
 )
-from devops_cli.github.client import GhCliClient, GitHubClient, parse_paginated_json
+from devops_cli.github.client import GhCliClient, GitHubClient
 from devops_cli.github.issue_closure import (
     close_issues_for_merged_pull_requests,
     close_issues_for_pull_request,
@@ -39,8 +46,8 @@ from devops_cli.github.labels import (
     sync_repository_labels,
 )
 from devops_cli.github.milestones import (
+    MilestoneProgress,
     calculate_milestone_progress,
-    close_repository_milestone,
     extract_roadmap_milestones,
     sync_repository_milestones,
 )
@@ -80,6 +87,8 @@ from devops_cli.output import (
     print_warning,
     write_stdout,
 )
+from devops_cli.roadmap import store as roadmap_store
+from devops_cli.roadmap.store import GitHubState
 
 logger = logging.getLogger(__name__)
 
@@ -161,41 +170,6 @@ def _get_repo_labels(repo: str | None = None) -> list[dict[str, Any]]:
             return client.get_labels(target_repo)
         except Exception as exc:
             logger.warning("Failed to fetch labels via GitHubClient for %s: %s", target_repo, exc)
-    return []
-
-
-def _get_repo_milestones(repo: str | None = None, state: str = "all") -> list[dict[str, Any]]:
-    """Retrieve repository milestones via GitHubClient or gh api."""
-    target_repo = _resolve_repo(repo)
-    client = _get_github_client()
-    if client and target_repo != "unknown/repo":
-        try:
-            return client.get_milestones(target_repo, state=state)
-        except Exception as exc:
-            logger.warning(
-                "Failed to fetch milestones via GitHubClient for %s: %s", target_repo, exc
-            )
-
-    cmd = [
-        "api",
-        "--paginate",
-        f"repos/{target_repo}/milestones?state={state}&per_page=100",
-    ]
-    res = run_gh(cmd, check=False, quiet=True, use_cache=True, cache_ttl=30.0)
-    if res.returncode == 0 and res.stdout.strip():
-        raw = parse_paginated_json(res.stdout)
-        return [
-            {
-                "title": m.get("title", ""),
-                "number": m.get("number", 0),
-                "state": m.get("state", "open"),
-                "description": m.get("description", "") or "",
-                "open_issues": m.get("open_issues", 0),
-                "closed_issues": m.get("closed_issues", 0),
-                "due_on": m.get("due_on"),
-            }
-            for m in raw
-        ]
     return []
 
 
@@ -301,31 +275,62 @@ def audit_labels(
 # =============================================================================
 
 
+@contextmanager
+def _exit_on_roadmap_error(action: str) -> Iterator[None]:
+    """Report a refused or failed roadmap store call as `action` failing, and exit 1."""
+    try:
+        yield
+    except DevOpsCLIError as exc:
+        print_error(f"{action}: {exc}", safe=True)
+        raise typer.Exit(1) from exc
+
+
+def _parse_release_edits(
+    state: str | None, due_on: str | None
+) -> tuple[GitHubState | None, datetime.date | None]:
+    """The `--state` and `--due-date` values as the store takes them, exiting 1 on a bad value."""
+    try:
+        return (
+            GitHubState(state) if state else None,
+            datetime.date.fromisoformat(due_on) if due_on else None,
+        )
+    except ValueError as exc:
+        print_error(f"Invalid --state or --due-date: {exc}", safe=True)
+        raise typer.Exit(1) from exc
+
+
+def _progress_row(prog: MilestoneProgress) -> list[str]:
+    return [
+        prog.title,
+        prog.state.upper(),
+        f"{prog.percent_complete:.1f}%",
+        str(prog.open_issues),
+        str(prog.closed_issues),
+        prog.due_on or "—",
+    ]
+
+
 @milestones_app.command("list")
 def list_milestones(
-    state: Annotated[str, typer.Option("--state", "-s", help="Milestone state filter")] = "all",
+    state: Annotated[
+        str, typer.Option("--state", "-s", help="Milestone state filter (open, closed or all)")
+    ] = CONST_GH_MILESTONE_STATE_ALL,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
 ) -> None:
     """List repository milestones and track issue completion rates."""
-    milestones = _get_repo_milestones(repo, state=state)
-    if not milestones:
+    if state not in CONST_GH_MILESTONE_STATE_FILTERS:
+        print_error(f"Unsupported state '{state}'. Supported states: open, closed, all.")
+        raise typer.Exit(1)
+    target_repo = _resolve_repo(repo)
+    with _exit_on_roadmap_error(f"Failed to list milestones in {target_repo}"):
+        releases = roadmap_store.get_roadmap_store(target_repo).releases()
+    shown = [r for r in releases if state in (CONST_GH_MILESTONE_STATE_ALL, r.state)]
+    if not shown:
         print_info("No milestones found in repository.")
         return
 
     columns = ["Milestone", "State", "Progress", "Open", "Closed", "Due Date"]
-    rows: list[list[str]] = []
-    for m in milestones:
-        prog = calculate_milestone_progress(m)
-        rows.append(
-            [
-                prog.title,
-                prog.state.upper(),
-                f"{prog.percent_complete:.1f}%",
-                str(prog.open_issues),
-                str(prog.closed_issues),
-                prog.due_on or "—",
-            ]
-        )
+    rows = [_progress_row(calculate_milestone_progress(release)) for release in shown]
     print_table("Release Milestones", columns, rows)
 
 
@@ -358,8 +363,9 @@ def sync_milestones(
         print_error(f"Failed to extract milestones from roadmap: {exc}")
         raise typer.Exit(1) from exc
 
-    client = _get_github_client() or GhCliClient(target_repo)
-    result = sync_repository_milestones(client, target_repo, desired, dry_run=dry_run)
+    with _exit_on_roadmap_error(f"Failed to synchronize milestones in {target_repo}"):
+        store = roadmap_store.get_roadmap_store(target_repo)
+        result = sync_repository_milestones(store, desired, dry_run=dry_run)
     mode_text = "[yellow][DRY RUN][/yellow] " if result.dry_run else ""
     print_success(
         f"{mode_text}Milestone synchronization for {target_repo}: "
@@ -368,7 +374,8 @@ def sync_milestones(
     if create_release_epics:
         from devops_cli.github.release_epics import sync_all_release_epics
 
-        epic_res = sync_all_release_epics(target_repo, roadmap_path=roadmap, dry_run=dry_run)
+        with _exit_on_roadmap_error(f"Failed to synchronize release epics in {target_repo}"):
+            epic_res = sync_all_release_epics(target_repo, roadmap_path=roadmap, dry_run=dry_run)
         print_success(
             f"{mode_text}Release Epics synchronized: "
             f"{epic_res.created_count} created, {epic_res.updated_count} updated, "
@@ -378,13 +385,16 @@ def sync_milestones(
 
 @milestones_app.command("status")
 def status_milestone(
-    name: Annotated[str, typer.Argument(help="Milestone version or title (e.g. v0.2.11)")],
+    name: Annotated[
+        str, typer.Argument(help="Release version, with or without the v (e.g. v0.2.11)")
+    ],
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
 ) -> None:
     """Inspect detailed progress and issue health for a specific milestone."""
-    milestones = _get_repo_milestones(repo)
-    matched = next((m for m in milestones if m.get("title") == name), None)
-    if not matched:
+    target_repo = _resolve_repo(repo)
+    with _exit_on_roadmap_error(f"Failed to read milestone '{name}' in {target_repo}"):
+        matched = roadmap_store.get_roadmap_store(target_repo).release(name)
+    if matched is None:
         print_error(f"Milestone '{name}' not found in repository.")
         raise typer.Exit(1)
 
@@ -401,55 +411,24 @@ def status_milestone(
     )
 
 
-def _close_milestone_gh_cli(target_repo: str, name: str) -> bool:
-    """Close milestone using gh CLI when GitHubClient is unavailable."""
-    milestones = _get_repo_milestones(target_repo, state="all")
-    target = name.strip()
-    candidates = {target, target.lstrip("v"), f"v{target.lstrip('v')}"}
-    matched = next((m for m in milestones if m.get("title") in candidates), None)
-    if matched and "number" in matched:
-        num = matched["number"]
-        cmd = [
-            "api",
-            "-X",
-            "PATCH",
-            f"repos/{target_repo}/milestones/{num}",
-            "-f",
-            "state=closed",
-        ]
-        proc = run_gh(cmd, check=False)
-        return proc.returncode == 0
-    return False
-
-
 @milestones_app.command("close", help=HELP.gh.milestones_close)
 def close_milestone(
-    name: Annotated[str, typer.Argument(help="Milestone version or title (e.g. v0.2.11)")],
+    name: Annotated[
+        str, typer.Argument(help="Release version, with or without the v (e.g. v0.2.11)")
+    ],
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
 ) -> None:
-    """Close a repository release milestone matching the given version or title."""
-    target_repo = repo or _resolve_repo()
-    client = _get_github_client()
-    success = (
-        close_repository_milestone(client, target_repo, name)
-        if client
-        else _close_milestone_gh_cli(target_repo, name)
-    )
-
-    if success:
-        print_success(f"Successfully closed milestone '{name}' in {target_repo}.")
-    else:
-        print_error(
-            f"Failed to close milestone '{name}' in {target_repo} (not found or permission denied)."
-        )
-        raise typer.Exit(1)
+    """Close the repository release milestone of the given version."""
+    target_repo = _resolve_repo(repo)
+    with _exit_on_roadmap_error(f"Failed to close milestone '{name}' in {target_repo}"):
+        roadmap_store.get_roadmap_store(target_repo).close_release(name)
+    print_success(f"Successfully closed milestone '{name}' in {target_repo}.")
 
 
 @milestones_app.command("edit", help=HELP.gh.milestones_edit)
 def edit_milestone_cmd(
     name: Annotated[
-        str,
-        typer.Argument(help="Milestone version, title, or number (e.g. v0.2.21 or 34)"),
+        str, typer.Argument(help="Release version, with or without the v (e.g. v0.2.21)")
     ],
     title: Annotated[
         str | None,
@@ -469,30 +448,18 @@ def edit_milestone_cmd(
     ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
 ) -> None:
-    """Edit an existing repository milestone title, description, state, or due date."""
-    from devops_cli.github.milestones import edit_repository_milestone
-
-    target_repo = repo or _resolve_repo()
-    client = _get_github_client() or GhCliClient(target_repo)
-
-    if not any([title, description, state, due_on]):
+    """Edit an existing milestone's title, description, state, or due date; nothing else changes."""
+    if all(change is None for change in (title, description, state, due_on)):
         print_warning("No changes specified.")
         return
 
-    ok = edit_repository_milestone(
-        client=client,
-        repo=target_repo,
-        version_or_title_or_number=name,
-        title=title,
-        description=description,
-        state=state,
-        due_on=due_on,
-    )
-    if ok:
-        print_success(f"Milestone '{name}' updated successfully in {target_repo}.")
-    else:
-        print_error(f"Failed to update milestone '{name}' in {target_repo}.")
-        raise typer.Exit(1)
+    new_state, new_due_on = _parse_release_edits(state, due_on)
+    target_repo = _resolve_repo(repo)
+    with _exit_on_roadmap_error(f"Failed to update milestone '{name}' in {target_repo}"):
+        roadmap_store.get_roadmap_store(target_repo).edit_release(
+            name, title=title, description=description, due_on=new_due_on, state=new_state
+        )
+    print_success(f"Milestone '{name}' updated successfully in {target_repo}.")
 
 
 # =============================================================================

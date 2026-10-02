@@ -117,7 +117,7 @@ devops gh milestones list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--state`, `-s` | `string` | `all` | Milestone state filter |
+| `--state`, `-s` | `string` | `all` | Milestone state filter (open, closed or all) |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 ### `devops gh milestones sync`
@@ -149,7 +149,7 @@ devops gh milestones status [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Milestone version or title (e.g. v0.2.11) |
+| `<name>` | `string` | Yes | Release version, with or without the v (e.g. v0.2.11) |
 
 **Options:**
 
@@ -159,7 +159,7 @@ devops gh milestones status [OPTIONS] <name>
 
 ### `devops gh milestones close`
 
-**Close a repository release milestone by title or version.**
+**Close the release milestone of a version, with or without its v.**
 
 ```bash
 devops gh milestones close [OPTIONS] <name>
@@ -169,7 +169,7 @@ devops gh milestones close [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Milestone version or title (e.g. v0.2.11) |
+| `<name>` | `string` | Yes | Release version, with or without the v (e.g. v0.2.11) |
 
 **Options:**
 
@@ -179,7 +179,7 @@ devops gh milestones close [OPTIONS] <name>
 
 ### `devops gh milestones edit`
 
-**Edit an existing milestone title, description, state, or due date.**
+**Edit a release milestone's title, description, state, or due date; fields left out stay as they are.**
 
 ```bash
 devops gh milestones edit [OPTIONS] <name>
@@ -189,7 +189,7 @@ devops gh milestones edit [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Milestone version, title, or number (e.g. v0.2.21 or 34) |
+| `<name>` | `string` | Yes | Release version, with or without the v (e.g. v0.2.21) |
 
 **Options:**
 

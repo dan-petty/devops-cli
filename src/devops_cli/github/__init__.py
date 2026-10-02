@@ -61,10 +61,8 @@ from devops_cli.github.milestones import (
     MilestoneSpec,
     MilestoneSyncResult,
     calculate_milestone_progress,
-    close_repository_milestone,
     diff_milestones,
     extract_roadmap_milestones,
-    sync_repository_milestones,
 )
 from devops_cli.github.pages import (
     GitHubPagesBuildInfo,
@@ -182,7 +180,6 @@ __all__ = [
     "build_protection_payload",
     "calculate_milestone_progress",
     "classify_check_item",
-    "close_repository_milestone",
     "create_repository_issue",
     "diff_branch_protection",
     "diff_labels",
@@ -221,7 +218,6 @@ __all__ = [
     "sync_branch_protection",
     "sync_remote_project",
     "sync_repository_labels",
-    "sync_repository_milestones",
     "sync_repository_secrets",
     "unresolve_pr_review_thread",
     "verify_pages_configuration",

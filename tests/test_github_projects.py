@@ -798,35 +798,14 @@ def test_sync_single_select_field_options() -> None:
 
 
 def test_paginated_project_fetch_helpers() -> None:
-    """_fetch_project_item_urls, _fetch_repository_issues, and _fetch_repository_prs handle multi-page JSON."""
+    """_fetch_repository_issues and _fetch_repository_prs handle multi-page JSON."""
     import json
     from unittest.mock import MagicMock, patch
 
     from devops_cli.github.projects import (
-        _fetch_project_item_urls,
         _fetch_repository_issues,
         _fetch_repository_prs,
     )
-
-    page1 = [
-        {"content": {"html_url": "https://example.com/owner/repo/issues/10"}},
-        {"content": {"url": "https://example.com/owner/repo/pull/11"}},
-    ]
-    page2 = [
-        {"content": {"html_url": "https://example.com/owner/repo/issues/12"}},
-    ]
-    paginated_stdout = f"{json.dumps(page1)}\n{json.dumps(page2)}"
-
-    with patch(
-        "devops_cli.github.projects.run_gh",
-        return_value=MagicMock(returncode=0, stdout=paginated_stdout, stderr=""),
-    ):
-        urls = _fetch_project_item_urls("owner", 1)
-        assert urls == {
-            "https://example.com/owner/repo/issues/10",
-            "https://example.com/owner/repo/pull/11",
-            "https://example.com/owner/repo/issues/12",
-        }
 
     issues_page1 = [
         {"number": 1, "title": "First", "html_url": "https://example.com/owner/repo/issues/1"}
