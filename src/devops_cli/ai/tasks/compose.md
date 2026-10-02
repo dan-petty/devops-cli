@@ -11,7 +11,7 @@ Follow a structured, 4-step chain-of-thought consolidation process to produce an
 - Merge and format exact file and line number spans using canonical location syntax (`path/to/file.ext:start-end`).
 
 ### Step 3: Falsification & False-Positive Elimination
-- Eliminate uncorroborated, speculative, or mitigated findings.
+- Drop findings no source finding supports; keep mitigated findings with their mitigation in the description.
 - Ensure no phantom defects or hallucinations are introduced.
 - Redact any sensitive credentials, tokens, or private paths.
 
@@ -36,12 +36,12 @@ Return ONLY a valid JSON object matching:
       "description": "Root cause and impact analysis.",
       "fix": "Drop-in code or configuration remediation.",
       "verification_criteria": [
-        {"command": "git grep -n 'pattern' path/to/file.ext", "executable": true}
+        {"command": "python -c \"from module import function; assert function(bad_input) == wrong_result\"", "executable": true}
       ],
       "invalidation_criteria": [
         {"description": "Observable condition disproving defect.", "executable": false}
       ],
-      "references": ["CWE-XXX", "OWASP-XXX"]
+      "references": ["The CWE that names this defect, if one does"]
     }
   ],
   "recommendation": "BLOCK" | "REQUEST CHANGES" | "APPROVE",

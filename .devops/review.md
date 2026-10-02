@@ -21,11 +21,24 @@ purpose, not defects.
   `allow_private_network=True` (Valkey, the Vault broker, the Kubernetes API, Prometheus, Grafana,
   a local Ollama) are not defects. SSRF applies to user-supplied external URLs: web fetchers,
   document retrievers, user webhooks.
+- **Internal HTTP**: the model backends (`http://ollama:*`, `http://vllm:*`, `http://qdrant:*`)
+  and the loopback defaults (`http://localhost:*`, `127.0.0.1`) are plain HTTP by design.
 - **Console output**: information-exposure (CWE-200) claims about terminal output, debug logging
   of paths under inspection, or progress indicators are not defects.
 - **Local input**: CWE-400 claims about reading repository files (`pyproject.toml`, schemas,
   markdown, lockfiles, local config) or building output collections during a CLI run are not
   defects.
+
+## Threat model
+
+- **Trusted here**: `config.yaml`, `DEVOPS_*` and provider environment variables, keyring
+  entries, command-line arguments, and the user's workspace and repositories where devops-cli
+  acts on them for the user (`ci`, `workspace`, `git`).
+- **Untrusted here**: a tree devops-cli reviews, scans, analyzes or ingests, even when it is the
+  user's own, since an agent or contributor writes the branch (#946); pages and documents fetched
+  by web fetch or docs ingestion, model replies and tool-call arguments, GitHub PR, issue and
+  comment text, Kubernetes API data (logs, events, Popeye and scanner output), MCP client calls,
+  and HTTP requests to the local server (`src/devops_cli/server`).
 
 ## Documentation and configuration
 
@@ -55,7 +68,7 @@ purpose, not defects.
   are masked before rendering, and a read cache never stores the result of an invocation carrying
   a token, password, cookie or authorization header.
 - **Pre-1.0 hygiene**: until 1.0 the codebase carries no legacy shims, vestigial fallbacks or
-  compatibility workarounds.
+  compatibility workarounds, and a changed flag or schema is intended, not a breaking defect.
 
 ## Settled claims
 
@@ -71,11 +84,30 @@ These resolve claims that recur against this codebase.
 - GitHub Actions reports `mergeable_state` as `"blocked"` while checks are in flight, so
   `--allow-blocked-state` in `.github/workflows/ci.yml` accommodates a transient state rather than
   bypassing a gate.
-- Prometheus exposition parsing that conforms to OpenMetrics is not an unvalidated metric name.
+- Prometheus exposition parsing that conforms to OpenMetrics is not an unvalidated metric name, and
+  instant queries (`/api/v1/query`) are well formed.
 - JSON response repair lives in `response_repair.py`. There is no `ai/fixer.py`.
-- `docs/ROADMAP.md` and task files under `docs/agent/tasks/` record aspirational planning and historical logs; unimplemented items or feature statements in them are not defects.
-- Structural tuple comparisons in test assertions (`assert (a, b) == (x, y)`) are deliberate architectural invariants to cap McCabe cyclomatic complexity M <= 10; they are not assertion bugs.
-- `tests/golden/*`, `tests/fixtures/*`, and mock test files intentionally contain synthetic vulnerability exemplars (SQL injection, plaintext tokens, auth bypasses) to verify parser and analyzer detection; they are test fixtures, not defects.
-- Internal Kubernetes cluster overlay networking (`http://*.svc.cluster.local`, `http://*.svc`, `http://*.internal`) standardly uses plaintext HTTP across pod/namespace boundaries without service mesh; it is not insecure HTTP communication.
-- NodePort services in local development / devcontainer manifests (`k8s/llm/gateway/service.yaml`, `k8s/valkey-runs.yaml`) are required to expose cluster services to the host workstation and are not insecure external exposure.
-- Calling private methods or helper functions (`_tool_func`, `_private_*`) from unit tests under `tests/` is standard white-box testing, not private API exposure.
+- `docs/ROADMAP.md` and task files under `docs/agent/tasks/` record plans and history.
+- Structural tuple comparisons in test assertions (`assert (a, b) == (x, y)`) cap McCabe
+  complexity at 10; they are not assertion bugs.
+- `tests/golden/*` and `tests/fixtures/*` hold synthetic vulnerability exemplars on purpose.
+- NodePort services in the `k8s/` manifests and Helm values are how workstations reach a
+  minikube or homelab cluster; that exposure is intended, not a finding.
+- `httpx2`, `pydantic` and `pytest`, declared in `pyproject.toml` and `uv.lock`, are approved.
+- Pricing ledgers and token estimators split URLs (`urlsplit`) without a request: not SSRF.
+- Audit and mitigation ledgers start empty (`mitigations = []`) and fill as checks run.
+- GraphQL requests send `json.dumps()` of the query and variables; that is not double encoding.
+- `ast.parse` of reviewed files ignores `SyntaxWarning` on purpose; invalid syntax still raises.
+- `common_hallucinations.json`, the review prompts and exemplar datasets quote bad patterns to
+  detect them.
+- Hardware daemonsets (NVIDIA GPU Feature Discovery, DCGM Exporter, device plugins) need
+  privileged host access (`privileged: true`, `runAsUser: 0`, `SYS_ADMIN`, `/dev/nvidia*`).
+- LLM profile NetworkPolicies allow egress to `0.0.0.0/0` to pull model weights and block
+  `169.254.169.254/32`. Egress rules scope by pod and namespace selectors without `ports:`,
+  because kube-router drops traffic for rules that combine them.
+- LightLLM and other removed backends are decommissioned, not missing.
+- Jaeger v2 ships as `jaegertracing/jaeger`; `jaegertracing/all-in-one` is v1.
+- Metric labels holding an exception class name (`type(exc).__name__`) expose nothing.
+- Tenacity retries pass `HTTPStatusError` through `is_retryable_status_code`, so 4xx client
+  errors are not retried.
+- `aclose_shared_clients()` clears `_ASYNC_CLIENTS` under its lock before awaiting the closes.

@@ -2837,6 +2837,9 @@ def get_mcp_catalog_resource() -> str:
 
 
 _CODE_REVIEW_PROMPT_TEMPLATE = load_task_prompt("code_review_prompt.md")
+# The review pipeline sends `code_review_prompt.md` with the persona's reply schema; served here
+# alone, it needs a reply format of its own, which the pipeline's pages must not carry.
+_CODE_REVIEW_OUTPUT_FORMAT = load_task_prompt("mcp_code_review_output.md")
 _SECURITY_AUDIT_PROMPT_TEMPLATE = load_task_prompt("security_audit_prompt.md")
 _K8S_DIAGNOSTICS_PROMPT_TEMPLATE = load_task_prompt("k8s_diagnostics_prompt.md")
 _ARCHITECTURE_ANALYSIS_PROMPT_TEMPLATE = load_task_prompt("architecture_analysis_prompt.md")
@@ -2845,7 +2848,9 @@ _ARCHITECTURE_ANALYSIS_PROMPT_TEMPLATE = load_task_prompt("architecture_analysis
 @mcp.prompt()
 def code_review_prompt(persona: str = "devsecops", target: str = ".") -> str:
     """Prompt template for performing an AI code review with a specialized persona."""
-    rendered = _CODE_REVIEW_PROMPT_TEMPLATE.format(target=target)
+    rendered = (
+        f"{_CODE_REVIEW_PROMPT_TEMPLATE.format(target=target)}\n\n{_CODE_REVIEW_OUTPUT_FORMAT}"
+    )
     if persona:
         return f"Persona: {persona}\n\n{rendered}"
     return rendered

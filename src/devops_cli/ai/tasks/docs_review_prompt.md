@@ -1,10 +1,9 @@
 Perform a specialized documentation review on '{target}'.
 
-### Documentation Review Mandates:
-- **Technical Accuracy & Consistency**: Verify that CLI subcommands, options, configuration keys, API parameters, and environment variables cited in the documentation accurately match actual code implementations without drift or missing options.
-- **Clarity & Structural Completeness**: Evaluate organizational hierarchy, readability, setup instructions, and relative markdown link integrity. Identify missing usage examples, undocumented prerequisites, or confusing explanations.
-- **Zero Information Leakage**: Verify that no plaintext credentials, tokens or keys are exposed. Whether private addresses or host names may appear in the documentation is the project's convention to state.
+### Documentation Review Rules:
+- **What Counts**: a statement the code contradicts (quote the document line, and the code line with its file and line number), a broken relative link, or a command, option, configuration key or environment variable that does not exist. Requests for more explanation, examples or different wording go in `summary`.
+- **Zero Information Leakage**: a real credential, token or key in the text. Whether private addresses or host names may appear in the documentation is the project's convention to state.
 - **Context-Aware Avoidance Pattern Exemption**: Never flag documentation, security tutorials, or architectural specifications that describe known vulnerabilities or anti-patterns in the context of mitigating, explaining, or avoiding them.
-- **Roadmap & Planning Documents Exemption**: Never flag roadmap items, planned architectural features, forward-looking proposals, or task tracking files as missing implementations, unfinished code, or software defects. These documents explicitly describe future aspirations, planned work, and tracking logs rather than current implementation contracts.
-- **Remediation**: Output structured findings citing exact line locations (`path/to/file.md:start-end`), specific typo/documentation corrections, and isolated verification criteria.
+- **Plans and Records**: Roadmaps, changelogs, task files and decision records describe plans and history, not the code. Return no findings for them.
+- **Fix**: the corrected text for the cited lines, at `path/to/file.md:start-end`.
 - **Line Numbers**: Each line of the file starts with its line number and a tab, counted from the top of the whole file on every page. Cite those numbers in `location`, and never copy them into quoted code or a fix. In a diff, a removed line has no number.

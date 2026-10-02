@@ -108,6 +108,81 @@ def test_devops_cli_keeps_its_own_rules_in_its_review_conventions() -> None:
     )
 
 
+# Facts about devops-cli that `review.md` and the verifier carried as exemptions, sent to every
+# project's review on every call (#951).
+_MOVED_EXEMPTIONS: tuple[str, ...] = (
+    "http://ollama",
+    "urlsplit",
+    "mitigations = []",
+    "httpx2",
+    "GraphQL",
+    "/api/v1/query",
+    "DCGM",
+    "169.254.169.254/32",
+    "kube-router",
+    "LightLLM",
+    "Jaeger",
+    "type(exc).__name__",
+    "Tenacity",
+    "aclose_shared_clients",
+    "SyntaxWarning",
+    "common_hallucinations.json",
+    "NodePort",
+)
+
+
+def test_devops_cli_exemptions_live_in_its_review_conventions() -> None:
+    """Verify the project's exemptions moved to its conventions, and the false one is gone.
+
+    The shared rule that GitHub logins need no case folding is wrong (logins are
+    case-insensitive), so it hid real bugs and was dropped rather than moved.
+    """
+    own = _OWN_CONVENTIONS.read_text(encoding="utf-8")
+    shared = {
+        p.relative_to(_AI_DIR).as_posix(): p.read_text("utf-8") for p in _SHARED_REVIEW_PROMPTS
+    }
+
+    assert (
+        sorted(
+            (phrase, name)
+            for phrase in _MOVED_EXEMPTIONS
+            for name, text in shared.items()
+            if phrase in text
+        ),
+        [phrase for phrase in _MOVED_EXEMPTIONS if phrase not in own],
+        [
+            name
+            for name, text in {**shared, ".devops/review.md": own}.items()
+            if "GitHub login" in text
+        ],
+    ) == ([], [], [])
+
+
+def test_the_nodeport_rule_covers_every_nodeport_manifest() -> None:
+    """Verify the NodePort exemption moved here whole when the verifier's was dropped (#951).
+
+    The verifier exempted NodePorts in every local manifest. The rule left here named two
+    manifests, one at a path that does not exist, and missed the Helm values and the registry
+    and Argo CD services that expose a NodePort for minikube.
+    """
+    root = _OWN_CONVENTIONS.parents[1]
+    rule = next(
+        item for item in _OWN_CONVENTIONS.read_text("utf-8").split("\n- ") if "NodePort" in item
+    )
+    named = [name.rstrip("/") for name in rule.split("`")[1::2]]
+    nodeports = sorted(
+        path.relative_to(root).as_posix()
+        for path in (root / "k8s").rglob("*.yaml")
+        if any(line.strip() == "type: NodePort" for line in path.read_text("utf-8").splitlines())
+    )
+
+    assert (
+        [name for name in named if not (root / name).exists()],
+        [p for p in nodeports if not any(p == n or p.startswith(f"{n}/") for n in named)],
+        bool(nodeports),
+    ) == ([], [], True)
+
+
 def test_the_nearest_review_conventions_win(tmp_path: Path) -> None:
     """Verify a subproject's `.devops/review.md` overrides its repository's."""
     root = _repo(tmp_path)

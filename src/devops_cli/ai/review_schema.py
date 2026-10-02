@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from devops_cli.ai.text_utils import (
     normalize_unicode_text as normalize_unicode_text,
@@ -544,10 +545,15 @@ def _parse_finding_criteria(raw: Any) -> list[VerificationCriterion]:
     return result
 
 
+# A finding's JSON schema is the reply format a persona agent is shown, so it lists only the
+# fields a reviewer writes. The fields the pipeline owns (verdicts, criteria results, citations,
+# confidence) are `SkipJsonSchema`: still parsed, so saved findings reload, but never asked of a
+# reviewer, which invites it to fill them in. No docstring: pydantic would send it as the
+# schema's description.
 class Finding(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    finding_id: int | None = Field(
+    finding_id: SkipJsonSchema[int | None] = Field(
         default=None,
         validation_alias=AliasChoices("finding_id", "id", "index"),
         description="Structural positional oracle identifier for deterministic verification binding",
@@ -584,41 +590,44 @@ class Finding(BaseModel):
     invalidation_criteria: list[VerificationCriterion] = Field(
         default_factory=list, validation_alias=AliasChoices("invalidation_criteria", "invalidation")
     )
-    criteria_execution_results: list[CriterionExecutionResult] = Field(default_factory=list)
-    verified_criteria_matched: list[str] = Field(default_factory=list)
-    invalidated_criteria_matched: list[str] = Field(default_factory=list)
-    reportable: bool = True
-    verified: bool = False
+    criteria_execution_results: SkipJsonSchema[list[CriterionExecutionResult]] = Field(
+        default_factory=list
+    )
+    verified_criteria_matched: SkipJsonSchema[list[str]] = Field(default_factory=list)
+    invalidated_criteria_matched: SkipJsonSchema[list[str]] = Field(default_factory=list)
+    reportable: SkipJsonSchema[bool] = True
+    verified: SkipJsonSchema[bool] = False
 
-    mitigated: bool = False
-    status: str = DEFAULT_FINDING_STATUS  # UNVERIFIED | VERIFIED | INVALIDATED | MITIGATED
-    invalidation_reason: str | None = None
-    verified_by: str | None = None  # "llm" | "human"
-    verified_at: str | None = None
-    confidence_score: float | None = None
+    mitigated: SkipJsonSchema[bool] = False
+    # UNVERIFIED | VERIFIED | INVALIDATED | MITIGATED
+    status: SkipJsonSchema[str] = DEFAULT_FINDING_STATUS
+    invalidation_reason: SkipJsonSchema[str | None] = None
+    verified_by: SkipJsonSchema[str | None] = None  # "llm" | "human"
+    verified_at: SkipJsonSchema[str | None] = None
+    confidence_score: SkipJsonSchema[float | None] = None
     # Why this finding carries no verdict, when the reason is that verification could not
     # run at all. Set only by the verification pipeline; `parse_review_response` clears
     # whatever a model supplies, because a model that could write here could announce its
     # own verification outage and tell a reader to discard the findings below.
-    verification_note: str | None = None
-    relocated_from: str | None = None
-    citation_line: int | None = Field(
+    verification_note: SkipJsonSchema[str | None] = None
+    relocated_from: SkipJsonSchema[str | None] = None
+    citation_line: SkipJsonSchema[int | None] = Field(
         default=None,
         validation_alias=AliasChoices("citation_line", "cited_line", "line", "refutation_line"),
     )
-    mitigating_mechanism: str | None = Field(
+    mitigating_mechanism: SkipJsonSchema[str | None] = Field(
         default=None,
         validation_alias=AliasChoices("mitigating_mechanism", "mechanism", "mitigation"),
     )
-    perimeter_files: list[str] = Field(
+    perimeter_files: SkipJsonSchema[list[str]] = Field(
         default_factory=list,
         validation_alias=AliasChoices("perimeter_files", "perimeter", "perimeters"),
     )
-    regression_test: str | None = Field(
+    regression_test: SkipJsonSchema[str | None] = Field(
         default=None,
         validation_alias=AliasChoices("regression_test", "test", "regression"),
     )
-    category: str | None = Field(
+    category: SkipJsonSchema[str | None] = Field(
         default=None,
         validation_alias=AliasChoices("category", "type", "classification", "defect_class"),
     )
@@ -630,7 +639,7 @@ class Finding(BaseModel):
         default=None,
         validation_alias=AliasChoices("expected_value", "expected"),
     )
-    thinking: str | None = None
+    thinking: SkipJsonSchema[str | None] = None
 
     @property
     def is_empty(self) -> bool:
@@ -1177,16 +1186,17 @@ def derive_recommendation(findings: list[Finding]) -> str:
     return "REQUEST CHANGES"
 
 
+# A review's reply. Its JSON schema, like `Finding`'s, holds only what a reviewer writes.
 class ReviewResult(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
-    recommendation: str = "REQUEST CHANGES"
+    recommendation: SkipJsonSchema[str] = "REQUEST CHANGES"
     summary: str = ""
-    thinking: str | None = None
-    confidence_score: float | None = None
-    external_dependencies: list[DependencySpec] = Field(default_factory=list)
-    network_references: list[NetworkReference] = Field(default_factory=list)
-    report_markdown: str | None = None
-    static_analyzers: dict[str, str] = Field(default_factory=dict)
+    thinking: SkipJsonSchema[str | None] = None
+    confidence_score: SkipJsonSchema[float | None] = None
+    external_dependencies: SkipJsonSchema[list[DependencySpec]] = Field(default_factory=list)
+    network_references: SkipJsonSchema[list[NetworkReference]] = Field(default_factory=list)
+    report_markdown: SkipJsonSchema[str | None] = None
+    static_analyzers: SkipJsonSchema[dict[str, str]] = Field(default_factory=dict)
 
     @field_validator("findings", mode="before")
     @classmethod

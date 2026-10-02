@@ -2,7 +2,7 @@
 Analyze candidate review findings against code context, target runtime, and project conventions:
 - Challenge phantom findings:
   - Is the finding based on a misinterpreted comment, mock, test fixture, or documentation example?
-  - Does the finding match a known false-positive pattern (e.g. valid language idioms, prompt redaction markers `<masked-*>`, synthetic test credentials, or verified dependencies pinned in lockfiles)?
+  - Does the finding match a known false-positive pattern (e.g. valid language idioms, synthetic test credentials, or verified dependencies pinned in lockfiles)?
   - Does the finding allege a CVE or vulnerability without factual evidence or CVSS basis?
   - Does the finding claim a syntax error on code satisfying the target runtime parser?
 - Invalidate non-actionable findings:
