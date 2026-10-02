@@ -27,6 +27,7 @@ PROVISIONED = {
     "grafana-devops-cli-dashboards": ["devops-cli.json", "ai-spend.json"],
     "grafana-stack-dashboards": [
         "sre-service.json",
+        "ingress-tunnel.json",
         "llm-stack.json",
         "otel-collector.json",
         "prometheus-server.json",

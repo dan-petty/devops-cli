@@ -34,6 +34,7 @@ configMapGenerator:
   - name: grafana-stack-dashboards
     files:
       - sre-service.json
+      - ingress-tunnel.json
       - llm-stack.json
       - otel-collector.json
       - prometheus-server.json

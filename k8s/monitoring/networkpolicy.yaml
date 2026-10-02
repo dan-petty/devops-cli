@@ -114,7 +114,15 @@ spec:
           port: 8888
         - protocol: TCP
           port: 16686
-    # 5. Allow egress to logging namespace for Loki log shipping
+    # 5. Allow egress to cloudflared namespace for Cloudflare Tunnel metrics scraping
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cloudflared
+      ports:
+        - protocol: TCP
+          port: 2000
+    # 6. Allow egress to logging namespace for Loki log shipping
     - to:
         - namespaceSelector:
             matchLabels:
@@ -122,7 +130,7 @@ spec:
       ports:
         - protocol: TCP
           port: 3100
-    # 6. Outbound external egress (e.g. Grafana plugins/alerts) with cloud metadata SSRF strictly blocked
+    # 7. Outbound external egress (e.g. Grafana plugins/alerts) with cloud metadata SSRF strictly blocked
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
