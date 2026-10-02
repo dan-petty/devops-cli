@@ -20,7 +20,7 @@ from devops_cli.config.defaults import (
     DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess
-from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
+from devops_cli.security.base import BaseSecurityScanner, ScanOutcome, masked_reason
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,9 @@ def _parse_dive_export(image_name: str, export: dict[str, Any]) -> DiveAnalysisR
 def _run_dive_export(dive_bin: str, image_name: str, timeout: float) -> DiveAnalysisResult:
     """Run dive with its JSON export pointed at a private file, then read that file.
 
-    `--json` names a file dive writes, never stdout: a `-` would create a file named `-`.
+    `--json` names a file dive writes, never stdout: a `-` would create a file named `-`. A failure
+    reason quotes dive's output or error, and `analyze-layers` and the `docker_analyze_layers` tool
+    print it, so it is masked before it is cut.
     """
     failed = DiveAnalysisResult(image_name=image_name, status="failed")
     with tempfile.TemporaryDirectory(prefix="devops-dive-") as export_dir:
@@ -88,17 +90,16 @@ def _run_dive_export(dive_bin: str, image_name: str, timeout: float) -> DiveAnal
                 [dive_bin, image_name, "--json", str(export_path)], timeout=timeout, check=False
             )
             if proc.returncode != 0:
-                detail = (proc.stderr or proc.stdout or "").strip()[:256]
-                return failed.model_copy(
-                    update={"reason": f"dive exited with code {proc.returncode}: {detail}"}
-                )
+                detail = (proc.stderr or proc.stdout or "").strip()
+                reason = masked_reason(f"dive exited with code {proc.returncode}: {detail}")
+                return failed.model_copy(update={"reason": reason})
             if not export_path.is_file():
                 return failed.model_copy(update={"reason": "dive wrote no JSON export"})
             export = json.loads(export_path.read_text(encoding="utf-8"))
             return _parse_dive_export(image_name, export)
         except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as exc:
             logger.debug("Dive analysis of %s failed: %s", image_name, exc)
-            return failed.model_copy(update={"reason": f"dive failed: {str(exc)[:256]}"})
+            return failed.model_copy(update={"reason": masked_reason(f"dive failed: {exc}")})
 
 
 @trace_span("docker.dive")

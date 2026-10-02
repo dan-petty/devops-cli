@@ -11,7 +11,7 @@ import pytest
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.constants import (
-    CONST_SCANNER_FAILURE_REASON_CHARS,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_SCANNER_STDOUT_EXCERPT_CHARS,
 )
 from devops_cli.security.base import BaseSecurityScanner
@@ -156,9 +156,21 @@ def test_a_failed_scan_quotes_a_bounded_start_of_its_output(tmp_path: Path) -> N
 
     assert (status, len(reason), reason.partition('"')[2].partition('"')[0], reason[-12:]) == (
         "failed",
-        CONST_SCANNER_FAILURE_REASON_CHARS,
+        CONST_MAX_ERROR_DETAIL_LENGTH,
         "x" * (CONST_SCANNER_STDOUT_EXCERPT_CHARS - 1) + "…",
         "e" * 11 + "…",
+    )
+
+
+def test_a_failed_scan_masks_its_output_before_cutting_the_quote(tmp_path: Path) -> None:
+    """Verify a token the quote's cut would split is masked whole, so no part of it remains."""
+    token = "ghp_" + "Q7rT2xW9yB4nM6kP1sD8fG3hJ5lZ0cV2aE7u"
+    status, reason = _failed_reason(tmp_path, stdout="x" * 87 + " " + token, stderr="")
+
+    assert (status, token[:11] in reason, reason.partition('"')[2].partition('"')[0]) == (
+        "failed",
+        False,
+        "x" * 87 + " <masked-git…",
     )
 
 
@@ -180,10 +192,19 @@ def test_scanner_registry_lifecycle(tmp_path: Path) -> None:
         assert "mock_tool" in results
         assert results["mock_tool"] == []
 
-    # Scanner raises exception in scan_all
+    # A scanner that raises is recorded as failed; only named, registered scanners run
+    other = MagicMock()
+    other.name = "other_tool"
+    registry.register(other)
     with patch.object(scanner, "scan", side_effect=RuntimeError("Scanner crashed")):
-        err_results = registry.scan_all(tmp_path)
-        assert err_results["mock_tool"] == []
+        err_results = registry.scan_all(tmp_path, names=["mock_tool", "unregistered"])
+    assert (
+        {name: (o.status, o.reason) for name, o in err_results.items()},
+        other.scan.call_count,
+    ) == (
+        {"mock_tool": ("failed", "Scanner crashed")},
+        0,
+    )
 
 
 ALL_EXPECTED_SCANNER_NAMES = [

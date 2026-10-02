@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -70,18 +71,27 @@ class ScannerRegistry:
     def scan_all(
         self,
         target_path: Path,
-        image: str | None = None,
+        *,
+        names: Sequence[str] | None = None,
         timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
         **kwargs: Any,
     ) -> dict[str, ScanOutcome]:
-        """Run all registered scanners against target_path and collect findings."""
+        """Run the named scanners, or every registered one, against target_path.
+
+        A scanner that raises is recorded as failed with the error as its reason, which
+        `ScanOutcome` masks and bounds, so one crash does not discard every other scanner's
+        findings. Names that are not registered are skipped; callers check them first.
+        """
         results: dict[str, ScanOutcome] = {}
-        for name, scanner in self._scanners.items():
+        for name in self.list_scanners() if names is None else names:
+            scanner = self.get(name)
+            if scanner is None:
+                continue
             try:
-                results[name] = scanner.scan(target_path, image=image, timeout=timeout, **kwargs)
+                results[name] = scanner.scan(target_path, timeout=timeout, **kwargs)
             except Exception as exc:
-                logger.debug("Error running scanner '%s': %s", name, exc)
-                results[name] = ScanOutcome(status="failed", findings=[], reason=str(exc))
+                logger.debug("Scanner '%s' failed: %s", name, exc)
+                results[name] = ScanOutcome("failed", [], str(exc))
         return results
 
 

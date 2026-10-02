@@ -10,8 +10,10 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from typer.testing import CliRunner
 
 from devops_cli.ai.tools.builtin_tools import docker_analyze_layers
+from devops_cli.commands.docker import app as docker_app
 from devops_cli.security.dive import DiveScanner, run_dive_analysis
 
 # Dive's JSON export (`dive <image> --json <file>`), keyed as wagoodman/dive writes it.
@@ -130,6 +132,78 @@ def test_dive_failures_report_failed_with_the_reason() -> None:
         True,
     ]
     assert results[2].reason == "dive wrote no JSON export"
+
+
+# A private key dive quotes in its error, long enough that a cut at the shared cap would drop its
+# END marker, which the masking pattern needs (#915).
+_KEY_BODY = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7" + "A" * 1000
+# Joined at runtime so this file holds no key marker for the detect-private-key commit hook.
+_PEM_LABEL = "PRIVATE" + " KEY"
+_KEY_ERROR = (
+    "cannot load registry credentials from "
+    f"-----BEGIN {_PEM_LABEL}-----\n{_KEY_BODY}\n-----END {_PEM_LABEL}-----"
+)
+
+
+def _exits_quoting_the_key(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """A dive that exits 1 with the key in its stderr."""
+    return subprocess.CompletedProcess(cmd, 1, stdout="", stderr=f"error: {_KEY_ERROR}\n")
+
+
+def _raises_quoting_the_key(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """A dive that cannot be run, with the key in the error."""
+    raise OSError(_KEY_ERROR)
+
+
+@pytest.mark.parametrize(
+    ("dive", "reason"),
+    [
+        (
+            _exits_quoting_the_key,
+            "dive exited with code 1: error: cannot load registry credentials from "
+            "<masked-private-key>\n\n",
+        ),
+        (
+            _raises_quoting_the_key,
+            "dive failed: cannot load registry credentials from <masked-private-key>\n\n",
+        ),
+    ],
+    ids=["dive exits non-zero", "dive cannot be run"],
+)
+def test_a_dive_failure_masks_a_secret_before_it_is_cut(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dive: DiveStub, reason: str
+) -> None:
+    """Verify a key in dive's error is masked whole wherever its reason goes.
+
+    That is the analysis, the `devops scan` adapter, the `docker_analyze_layers` tool and
+    `devops docker analyze-layers`, whose output is read with whitespace removed so that a wrapped
+    line cannot hide the key.
+    """
+    monkeypatch.chdir(tmp_path)
+    with (
+        patch("shutil.which", return_value="/usr/local/bin/dive"),
+        patch("subprocess.run", side_effect=_subprocess_run(dive, [])),
+    ):
+        analysis = run_dive_analysis("org/img:1")
+        outcome = DiveScanner().scan(tmp_path, image="org/img:1")
+        tool_reply = docker_analyze_layers("org/img:1")
+        cli = CliRunner().invoke(docker_app, ["analyze-layers", "org/img:1"])
+
+    places = (
+        ("analysis", analysis.reason),
+        ("scan", outcome.reason),
+        ("tool", tool_reply),
+        ("cli", "".join(cli.output.split())),
+    )
+    assert (
+        analysis.status,
+        outcome.status,
+        [place for place, text in places if _KEY_BODY[:20] in text],
+        analysis.reason,
+        outcome.reason,
+        tool_reply,
+        cli.exit_code,
+    ) == ("failed", "failed", [], reason, reason, f"Dive analysis failed: {reason}", 1)
 
 
 def test_dive_scanner_reads_the_export_and_flags_an_inefficient_image(

@@ -7,7 +7,9 @@ Gitleaks fell back to its built-in patterns. A reader took that for a clean scan
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -173,4 +175,32 @@ def test_the_report_says_why_an_analyzer_failed_and_the_console_points_there(
         '"a \\| b" next |',
         "    [yellow]! Failed during execution: Bandit "
         "(the report's Static Analyzers table says why)[/yellow]",
+    )
+
+
+@pytest.mark.usefixtures("only_bandit")
+def test_the_report_masks_a_secret_in_a_failed_analyzer_s_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a token a failing scanner printed instead of JSON never reaches review.md (#915)."""
+    token = "ghp_" + "Q7rT2xW9yB4nM6kP1sD8fG3hJ5lZ0cV2aE7u"
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+    failed = subprocess.CompletedProcess(
+        ["bandit"], 1, stdout=f"fatal: could not authenticate with {token}\n", stderr=""
+    )
+    monkeypatch.setattr("devops_cli.security.bandit.run_subprocess", MagicMock(return_value=failed))
+    for scan in ("_scan_kubernetes_manifests", "_scan_container_and_lockfiles"):
+        monkeypatch.setattr(pipeline, scan, lambda paths: [])
+    monkeypatch.setattr(pipeline, "_scan_gitleaks_and_semgrep", lambda paths: [])
+    monkeypatch.setattr(pipeline, "print_info", lambda text, **_: None)
+    orchestrator = ReviewPipelineOrchestrator(session_id="s915", target_dir=tmp_path)
+
+    orchestrator._run_static_scanners(["app.py"])
+    report = orchestrator._build_consolidated_markdown_report("s915", "now", [], [], [])
+
+    section = report.split("## Static Analyzers\n", 1)[1].split("\n\n", 1)[0]
+    assert (token in report, section.splitlines()[2]) == (
+        False,
+        "| Bandit | failed: Scanner exited with code 1; output was not JSON, starting "
+        '"fatal: could not authenticate with <masked-github-token>" |',
     )
