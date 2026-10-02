@@ -6,7 +6,11 @@ import ast
 import functools
 import json
 import logging
+import os
 import re
+import sys
+import tempfile
+import threading
 import warnings
 from collections.abc import Sequence
 from datetime import datetime
@@ -23,12 +27,15 @@ from devops_cli.config.constants import (
     CONST_AUTH_DISPATCH_PATTERNS,
     CONST_AUTH_HEADER_CLAIM_KEYWORDS,
     CONST_AUTH_HEADER_CODE_PATTERNS,
+    CONST_CACHE_DIR_NAME,
     CONST_COMPLIMENT_NEGATIONS,
     CONST_COMPLIMENT_PHRASES,
     CONST_FIXTURE_CREDENTIAL_KEYWORDS,
     CONST_MASKED_SYNTAX_ERROR_PHRASES,
     CONST_MONOLOGUE_PREFIXES,
     CONST_PLACEHOLDER_VALUES,
+    CONST_TYPECHECK_PROBE_CACHE_DIR_NAME,
+    CONST_TYPECHECK_PROBE_MYPY_CONFIG,
     CONST_UNINITIALIZED_CLAIM_KEYWORDS,
     CONST_VERIFICATION_UNAVAILABLE,
 )
@@ -1105,22 +1112,77 @@ _NONE_DEREFERENCE_CLAIM = re.compile(
 )
 
 
+# One probe at a time: concurrent verification workers would each make a cold pass over the
+# same imports, where the first warms the shared cache for the rest.
+_TYPECHECK_PROBE_LOCK = threading.Lock()
+
+
+def _typecheck_probe_cache_dir() -> Path:
+    """Where the probe keeps mypy's cache: devops-cli's cache directory, one per interpreter
+    and probe config.
+
+    A cold `mypy --strict` pass over a large module's imports takes about a minute, near the
+    probe's timeout, and the cache carries it across probes and reviews. It is data mypy reads,
+    never code it runs.
+    """
+    from devops_cli.ai.run_store import digest
+    from devops_cli.config.env import ENV_DATA_DIR
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
+
+    env_data_dir = os.environ.get(ENV_DATA_DIR)
+    cache_dir = (
+        Path(env_data_dir) / CONST_CACHE_DIR_NAME
+        if env_data_dir
+        else load_settings().data.cache_dir
+    )
+    key = digest([sys.executable, CONST_TYPECHECK_PROBE_MYPY_CONFIG])
+    return resolve_data_path(cache_dir) / CONST_TYPECHECK_PROBE_CACHE_DIR_NAME / key
+
+
 @functools.lru_cache(maxsize=256)
 def _module_typechecks_clean(path_str: str, mtime: float) -> bool:
     """Report whether a module passes strict type checking.
+
+    The module belongs to the tree under review, which is untrusted, so nothing of that tree
+    may run (#946). `uv run` would sync the target's project and run its build backend, mypy
+    would load the config and plugins of the directory it starts in, and `python -m` would
+    import from there, or from a `PYTHONPATH` naming the target. So this interpreter's own mypy
+    checks the module in isolated mode (`-I`, which ignores `PYTHON*` variables and keeps the
+    working directory off `sys.path`), from an empty temporary directory, with devops-cli's
+    own config and its own cache.
 
     Cached on path and mtime: verification examines many findings against the same few
     files, and a type check per finding would dominate the run.
     """
     from devops_cli.core.process import run_subprocess
 
+    module = str(Path(path_str).absolute())
     try:
-        result = run_subprocess(
-            ["uv", "run", "mypy", "--strict", path_str],
-            check=False,
-            quiet=True,
-            timeout=DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS,
-        )
+        with (
+            _TYPECHECK_PROBE_LOCK,
+            tempfile.TemporaryDirectory(prefix="devops-typecheck-") as probe_dir,
+        ):
+            config = Path(probe_dir) / "mypy.ini"
+            config.write_text(CONST_TYPECHECK_PROBE_MYPY_CONFIG, encoding="utf-8")
+            result = run_subprocess(
+                [
+                    sys.executable,
+                    "-I",
+                    "-m",
+                    "mypy",
+                    "--strict",
+                    "--config-file",
+                    str(config),
+                    "--cache-dir",
+                    str(_typecheck_probe_cache_dir()),
+                    module,
+                ],
+                cwd=Path(probe_dir),
+                check=False,
+                quiet=True,
+                timeout=DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS,
+            )
     except Exception as exc:
         logger.debug("Type check probe failed for %s: %s", path_str, exc)
         return False
@@ -1131,10 +1193,10 @@ def _check_none_dereference_hallucination(finding: Finding, file_path: Path) -> 
     """Invalidate a claimed None dereference in a module that type checks strictly.
 
     A finding asserting an AttributeError on a possibly-None attribute is a claim about
-    types, and this repository already runs `mypy --strict` over the whole package. If the
-    cited module passes, the attribute is not Optional and the runtime failure described
-    cannot occur; if mypy cannot type check it cleanly for any reason, nothing is claimed
-    and the finding proceeds to the model verifier as before.
+    types. If the cited module passes `mypy --strict`, the attribute is not Optional and the
+    runtime failure described cannot occur; if mypy cannot type check it cleanly for any
+    reason, such as a target whose imports this interpreter cannot resolve, nothing is
+    claimed and the finding proceeds to the model verifier as before.
 
     This exists because two findings of exactly this shape were marked VERIFIED at 0.94
     confidence against fields the schema declares as plain `str`.

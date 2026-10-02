@@ -199,6 +199,11 @@ CONST_LOGS_DIR_NAME = "logs"
 CONST_MODELS_DIR_NAME = "models"
 CONST_CACHE_DIR_NAME = "cache"
 CONST_CI_CACHE_FILENAME = "ci_cache.json"
+# mypy's cache for the type-check probe of review verification, under the cache directory.
+CONST_TYPECHECK_PROBE_CACHE_DIR_NAME = "typecheck-probe"
+# The probe's mypy config: devops-cli's own, never the reviewed tree's (#946). It loads only the
+# plugin devops-cli's `[tool.mypy]` loads, without which its pydantic models fail `--strict`.
+CONST_TYPECHECK_PROBE_MYPY_CONFIG = "[mypy]\nplugins = pydantic.mypy\n"
 # Click context meta key the `devops ci` group sets when a subcommand only prints its help,
 # so the gate does not announce the root it would check.
 CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_shows_help"
@@ -499,7 +504,8 @@ CONST_STATUS_SUCCESS = "SUCCESS"
 
 CONST_GIT_MAIN_BRANCH = "main"
 CONST_SAFE_GIT_REF_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9_\-/.^~@]+$")
-CONST_SAFE_GIT_RELPATH_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9_\-/.@+]+$")
+# The mode `git ls-tree` gives a link, whose blob is the path it points to.
+CONST_GIT_SYMLINK_MODE: Final[str] = "120000"
 # How a file changed, by the status letter `git diff --name-status` prints (every letter
 # git-diff(1) documents for --diff-filter). Copies and renames print the old path, then the new.
 CONST_GIT_NAME_STATUS_CHANGE_TYPES: Final[dict[str, str]] = {

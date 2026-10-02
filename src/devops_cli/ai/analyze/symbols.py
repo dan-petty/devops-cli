@@ -29,11 +29,15 @@ class BaseRevision:
     `read_head` does the same where the diff ends, when that is a commit rather than the files
     on disk: a branch that is not checked out, or one whose checkout has uncommitted edits the
     diff leaves out. Without it the reviewed files on disk are the head.
+
+    `revision` names the base in the local repository, when `read` reads it there; a pull
+    request's base, read from its repository on GitHub, has none.
     """
 
     changes: tuple[ChangedFile, ...]
     read: Callable[[str], str | None]
     read_head: Callable[[str], str | None] | None = None
+    revision: str | None = None
 
 
 def extract_python_source_symbols(content: str | None) -> set[str]:

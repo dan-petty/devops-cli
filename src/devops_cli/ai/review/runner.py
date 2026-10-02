@@ -38,9 +38,6 @@ from devops_cli.ai.review.profile import (
 from devops_cli.ai.review.review_environment import (
     _get_reviews_base_dir as _get_reviews_base_dir,
 )
-from devops_cli.ai.review.review_environment import (
-    _read_candidate_conventions_file as _read_candidate_conventions_file,
-)
 from devops_cli.ai.review.verdicts import apply_verdict, assert_verdict_invariants
 from devops_cli.ai.review.verification import (
     _merge_segment_results,
@@ -1368,16 +1365,18 @@ def _print_review(persona: PersonaDefinition, review: ReviewResult | str) -> Non
     print_markdown(review)
 
 
-def _nearest_conventions(start: Path) -> str:
-    """Return the nearest project conventions file, from the start directory up to its repo root."""
+def _nearest_conventions(start: Path, revision: str | None = None) -> str:
+    """Return the nearest project conventions file, from the start directory up to its repo root,
+    as it was at `revision` when one is given."""
     from devops_cli.ai.review.review_environment import nearest_conventions
 
-    return nearest_conventions(start)
+    return nearest_conventions(start, revision)
 
 
-def _load_agents_md(start: Path) -> str:
-    """Return the sanitized nearest project conventions for a review target."""
-    raw_content = _nearest_conventions(start)
+def _load_agents_md(start: Path, revision: str | None = None) -> str:
+    """Return the sanitized nearest project conventions for a review target, as they were at
+    `revision` when one is given."""
+    raw_content = _nearest_conventions(start, revision)
     if not raw_content:
         return ""
 
@@ -1600,7 +1599,7 @@ def _is_allowed_review_boundary(target: Path, settings: Settings) -> bool:
 
 
 def _detect_remote_default_branch(repo_path: Path) -> str:
-    """Detect origin default branch from symbolic-ref or HEAD."""
+    """The origin's default branch as `origin/<name>`, or empty when the clone records none."""
     res_sym = _run_subprocess(
         ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
         capture_output=True,
@@ -1608,29 +1607,18 @@ def _detect_remote_default_branch(repo_path: Path) -> str:
         cwd=repo_path,
         check=False,
     )
-    if res_sym.returncode == 0 and res_sym.stdout:
-        if target_str := res_sym.stdout.strip().removeprefix("origin/"):
-            return target_str
-
-    head_proc = _run_subprocess(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        capture_output=True,
-        text=True,
-        cwd=repo_path,
-        check=False,
-    )
-    if (
-        head_proc.returncode == 0
-        and (head_name := str(head_proc.stdout).strip())
-        and head_name != "HEAD"
-    ):
-        return head_name
-
-    return ""
+    return res_sym.stdout.strip() if res_sym.returncode == 0 and res_sym.stdout else ""
 
 
 def _detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BRANCH) -> str:
-    """Return preferred_base if it exists, otherwise detect master/main/origin default."""
+    """The branch a review diffs against: `preferred_base`, else main, master or trunk, else the
+    origin's default branch, each local or else as `origin/<name>`.
+
+    The base is never the checked-out branch for want of another. A single-branch clone or a
+    CI checkout of a feature has no local `main`, and taking the feature as its own base
+    reviewed only its last commit, under conventions its earlier commits set (#946). With no
+    base found, `preferred_base` is returned and the diff against it fails.
+    """
     res = _run_subprocess(
         ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{preferred_base}"],
         capture_output=True,
@@ -1642,27 +1630,33 @@ def _detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BR
         return preferred_base
 
     branches_proc = _run_subprocess(
-        ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+        ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/", "refs/remotes/origin/"],
         capture_output=True,
         text=True,
         cwd=repo_path,
         check=False,
     )
-    local_branches = (
-        [b.strip() for b in branches_proc.stdout.splitlines() if b.strip()]
+    branches = (
+        {b.strip() for b in branches_proc.stdout.splitlines() if b.strip()}
         if branches_proc.returncode == 0
-        else []
+        else set()
     )
 
-    if preferred_base in local_branches:
-        return preferred_base
+    def local_or_remote(name: str) -> str | None:
+        if name in branches:
+            return name
+        return f"origin/{name}" if f"origin/{name}" in branches else None
 
+    if base := local_or_remote(preferred_base):
+        return base
     for alt in ("main", "master", "trunk"):
-        if alt in local_branches:
+        if alt in branches:
             return alt
-
-    if remote_branch := _detect_remote_default_branch(repo_path):
-        return remote_branch
+    if remote_default := _detect_remote_default_branch(repo_path):
+        return local_or_remote(remote_default.removeprefix("origin/")) or remote_default
+    for alt in ("main", "master", "trunk"):
+        if f"origin/{alt}" in branches:
+            return f"origin/{alt}"
 
     return str(preferred_base)
 
@@ -1827,6 +1821,7 @@ def _branch_base_revision(
         changes=changes,
         read=partial(read_file_at_revision, repo_path, revision),
         read_head=None if head is None else partial(read_file_at_revision, repo_path, head),
+        revision=revision,
     )
 
 
@@ -1834,7 +1829,7 @@ def _prepare_branch_content(
     branch_name: str | None, base: str, repo_path: Path
 ) -> tuple[list[str], str, str, str, BaseRevision]:
     """Prepare paginated diff pages, title, agents_md, resolved target_branch, and the base
-    revision the diff starts from."""
+    revision the diff starts from, where agents_md is read."""
     import typer
 
     from devops_cli.ai.review.chunker import diff_pages
@@ -1889,20 +1884,11 @@ def _prepare_branch_content(
         raise typer.Exit(0)
 
     title = f"Branch `{target_branch}` vs `{effective_base}`"
-    agents_md = ""
-    if effective_base:
-        show_proc = _run_subprocess(
-            ["git", "--no-pager", "show", f"{effective_base}:AGENTS.md"],
-            capture_output=True,
-            text=True,
-            cwd=repo_path,
-        )
-        if show_proc.returncode == 0 and show_proc.stdout.strip():
-            agents_md = show_proc.stdout.strip()
-    if not agents_md:
-        agents_md = _load_agents_md(repo_path)
     pages = [redact_text(p) for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
     base_revision = _branch_base_revision(repo_path, effective_base, target_branch, is_working_tree)
+    # The conventions are read where the diff starts, as a pull request's are read at its base,
+    # so a branch cannot loosen its own review.
+    agents_md = _load_agents_md(repo_path, base_revision.revision)
     return pages, title, agents_md, target_branch, base_revision
 
 
@@ -2225,8 +2211,9 @@ def _execute_review_workflow(
     """Common review execution workflow for path, branch, and PR reviews.
 
     `base_revision` is where a branch or PR diff starts; pre-analysis records each changed
-    Python file's symbol delta from it. A path review has none. Both findings.json writers record
-    the session's subject, which review history counts once.
+    Python file's symbol delta from it. A path review has none. When it is a local revision,
+    the target's conventions are read there rather than from disk. Both findings.json writers
+    record the session's subject, which review history counts once.
     """
     from devops_cli.ai.review.history import review_subject
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
@@ -2247,6 +2234,7 @@ def _execute_review_workflow(
         parallel=parallel,
         ground_contracts=ground_contracts,
         subject=subject,
+        conventions_revision=base_revision.revision if base_revision else None,
     )
 
     if type(clients.analysis).__name__ == "LLMClient":

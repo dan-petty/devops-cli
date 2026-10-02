@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Generator
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import git as gitlib
 
@@ -19,6 +19,7 @@ from devops_cli.config.constants import (
     CONST_GIT_DIR_NAME,
     CONST_GIT_NAME_STATUS_CHANGE_TYPES,
     CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS,
+    CONST_GIT_SYMLINK_MODE,
     CONST_GITHUB_HOST,
     CONST_GITHUB_HTTP_PREFIX,
     CONST_GITHUB_HTTPS_PREFIX,
@@ -26,7 +27,6 @@ from devops_cli.config.constants import (
     CONST_GITHUB_SSH_URL_PREFIX,
     CONST_PERM_DIR,
     CONST_SAFE_GIT_REF_PATTERN,
-    CONST_SAFE_GIT_RELPATH_PATTERN,
     CONST_URL_SCHEME_HTTP,
     CONST_URL_SCHEME_HTTPS,
 )
@@ -296,26 +296,57 @@ def _is_safe_revision(revision: str) -> bool:
 
 
 def _is_safe_relpath(rel_path: str) -> bool:
-    """Whether a repository-relative path stays inside the repository and reads as no option."""
+    """Whether a path is relative to the repository, stays inside it, and reads as no option.
+
+    It reaches git as one argument, a literal pathspec after `--`, so any other character, such
+    as a space or one outside ASCII, is harmless.
+    """
+    path = PurePosixPath(rel_path)
     return (
-        not rel_path.startswith("-")
-        and CONST_SAFE_GIT_RELPATH_PATTERN.match(rel_path) is not None
-        and ".." not in Path(rel_path).parts
+        bool(rel_path)
+        and not rel_path.startswith("-")
+        and not path.is_absolute()
+        and ".." not in path.parts
     )
 
 
-def read_file_at_revision(repo_dir: Path, revision: str, rel_path: str) -> str | None:
-    """A file's text at a revision; None when git cannot show it or refuses either argument.
+def _regular_file_object(repo_dir: Path, revision: str, rel_path: str) -> str | None:
+    """The object id of the regular file at `rel_path` in `revision`, or None.
 
-    Both parts are validated rather than set off with `--`: `git show -- <rev>:<path>` reads
-    its argument as a pathspec and prints the head commit's header instead (#787).
+    A link's blob is the path it points to, not its text, and a directory or a submodule is no
+    file. `--full-tree` reads the path from the repository root, as `<rev>:<path>` does, and
+    the entry must name the path itself, since `dir/` lists the files in `dir`.
+    """
+    proc = run_subprocess(
+        ["git", "--literal-pathspecs", "ls-tree", "-z", "--full-tree", revision, "--", rel_path],
+        cwd=repo_dir,
+        quiet=True,
+    )
+    if proc.returncode != 0:
+        return None
+    for entry in proc.stdout.split("\0"):
+        meta, _, path = entry.partition("\t")
+        match meta.split():
+            case [mode, "blob", object_id] if path == rel_path and mode != CONST_GIT_SYMLINK_MODE:
+                return object_id
+    return None
+
+
+def read_file_at_revision(repo_dir: Path, revision: str, rel_path: str) -> str | None:
+    """A regular file's text at a revision; None when there is none at the path or either
+    argument is refused.
+
+    The revision comes before `--`, so it is validated rather than set off: `git show --
+    <rev>:<path>` read its argument as a pathspec and printed the head commit's header (#787).
+    The path is looked up with `ls-tree`, whose mode tells a regular file from a link, a
+    directory or a submodule, and the blob is read by its object id.
     """
     if not (_is_safe_revision(revision) and _is_safe_relpath(rel_path)):
         return None
     try:
-        proc = run_subprocess(
-            ["git", "--no-pager", "show", f"{revision}:{rel_path}"], cwd=repo_dir, quiet=True
-        )
+        if (object_id := _regular_file_object(repo_dir, revision, rel_path)) is None:
+            return None
+        proc = run_subprocess(["git", "cat-file", "blob", object_id], cwd=repo_dir, quiet=True)
     except Exception as exc:
         logger.debug("Could not read %s at %s: %s", rel_path, revision, exc)
         return None
