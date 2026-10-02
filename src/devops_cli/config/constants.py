@@ -559,6 +559,16 @@ CONST_PR_API_STATE_MAP: Final[dict[str, str]] = {
     "closed": "closed",
     "merged": "closed",
 }
+CONST_GH_PROJECT_ITEM_ISSUE_TYPE: Final[str] = "Issue"
+CONST_GH_PROJECT_JOB_RECORD_FIELD: Final[str] = "Job record"
+CONST_GH_ISSUE_EVENT_CHANGE_KINDS: Final[dict[str, str]] = {
+    "milestoned": "joined_release",
+    "demilestoned": "left_release",
+    "labeled": "labeled",
+    "unlabeled": "unlabeled",
+    "closed": "closed",
+    "reopened": "reopened",
+}
 CONST_BRANCH_PREFIXES: tuple[str, ...] = (
     "feat/",
     "fix/",
@@ -2331,6 +2341,10 @@ CONST_ISSUE_CLOSING_KEYWORDS: Final[frozenset[str]] = frozenset(
 )
 CONST_ISSUE_STATE_OPEN: Final[str] = "open"
 CONST_ISSUE_STATE_CLOSED: Final[str] = "closed"
+CONST_GH_MILESTONE_STATE_ALL: Final[str] = "all"
+CONST_GH_MILESTONE_STATE_FILTERS: Final[frozenset[str]] = frozenset(
+    {CONST_ISSUE_STATE_OPEN, CONST_ISSUE_STATE_CLOSED, CONST_GH_MILESTONE_STATE_ALL}
+)
 # Series listed in the telemetry panel. A Prometheus instance exposes thousands of metric
 # names; rendering all of them costs more than it tells the reader.
 CONST_TELEMETRY_PANEL_MAX_SERIES: Final[int] = 50

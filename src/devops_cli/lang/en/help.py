@@ -749,8 +749,11 @@ class GHCommandHelp:
     milestones_list: str = "List milestones and progress rates."
     milestones_sync: str = "Extract milestones from ROADMAP.md and sync to repository."
     milestones_status: str = "Inspect progress and health for a specific milestone."
-    milestones_close: str = "Close a repository release milestone by title or version."
-    milestones_edit: str = "Edit an existing milestone title, description, state, or due date."
+    milestones_close: str = "Close the release milestone of a version, with or without its v."
+    milestones_edit: str = (
+        "Edit a release milestone's title, description, state, or due date; "
+        "fields left out stay as they are."
+    )
     project_app: str = "Manage GitHub Projects v2 templates and task item synchronization."
     project_list: str = "List available GitHub Projects v2 boards for user or organization."
     project_status: str = "Inspect project template structure and configured views."

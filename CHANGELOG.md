@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **One Roadmap Store for Releases, Items and Board Fields (`devops_cli.roadmap`)**:
+  - `RoadmapStore` reads and writes Releases, Items, Candidates, board fields and issue-event changes behind one interface, with a GitHub adapter over `gh` and an in-memory adapter for tests. Reads page through every result and raise rather than return an empty or partial result. Each Item write also records the value the store set in the board's `Job record` field (ADR 0002), so a later job can tell a person's change from its own (#768).
+
+### Changed
+- **`devops gh milestones edit` and `close` Take a Version (`devops gh milestones`)**:
+  - Both take a version, with or without the leading `v`, and no longer a milestone number. The milestone commands and the milestone close after `devops release tag --push` run on the roadmap store (#768).
+
+### Fixed
+- **Editing a Milestone No Longer Closes It (`devops gh milestones edit`)**:
+  - `edit` sends only the fields it is given. Before, `devops gh milestones edit v0.2.25 --description x` also sent `state=closed` whenever a GitHub token resolved, and closed the milestone (#768).
+  - When GitHub can't be read, `devops gh milestones list` exits 1 and names the failed read, instead of printing "No milestones found" (#768).
+
 ## [0.2.24] - 2026-10-01
 
 ### Added

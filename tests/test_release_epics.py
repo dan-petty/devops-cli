@@ -5,10 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.mcp.server import release_epic_sync
 from devops_cli.commands.release import app
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.issues import GitHubIssue
 from devops_cli.github.release_epics import (
     ReleaseEpicDeliverable,
@@ -23,6 +25,8 @@ from devops_cli.github.release_epics import (
     sync_single_release_epic,
 )
 from devops_cli.github.roadmap_sync import RoadmapItem
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.store import GitHubState
 
 runner = CliRunner()
 
@@ -289,7 +293,7 @@ def test_sync_single_release_epic_create() -> None:
         assert (action_live, num_live, mock_create.called) == ("created", 99, True)
 
 
-def test_sync_all_release_epics(tmp_path: Path) -> None:
+def test_sync_all_release_epics(tmp_path: Path, roadmap_store: InMemoryRoadmapStore) -> None:
     """Verify sync_all_release_epics aggregates counts and respects version filter."""
     roadmap_content = """# Roadmap
 
@@ -308,7 +312,6 @@ def test_sync_all_release_epics(tmp_path: Path) -> None:
 
     with (
         patch("devops_cli.github.release_epics.get_repository_issues", return_value=[]),
-        patch("devops_cli.github.release_epics._closed_milestone_titles", return_value=set()),
         patch("devops_cli.github.release_epics.create_repository_issue") as mock_create,
     ):
         mock_create.return_value = GitHubIssue(
@@ -398,7 +401,9 @@ def test_fastmcp_release_epic_sync() -> None:
         ) == (True, True, True, True, True)
 
 
-def test_a_shipped_release_closes_its_epic_while_the_roadmap_header_lags(tmp_path: Path) -> None:
+def test_a_shipped_release_closes_its_epic_while_the_roadmap_header_lags(
+    tmp_path: Path, roadmap_store: InMemoryRoadmapStore
+) -> None:
     """A closed milestone marks its release completed, whatever the roadmap header says (#521).
 
     v0.2.22 shipped with its milestone closed while its header still read "Active Release",
@@ -412,6 +417,7 @@ def test_a_shipped_release_closes_its_epic_while_the_roadmap_header_lags(tmp_pat
         "## Value vs. Effort Prioritization Matrix\n",
         encoding="utf-8",
     )
+    roadmap_store.create_release("0.2.22", state=GitHubState.CLOSED)
     epic = GitHubIssue(
         number=297,
         title="Release Epic: v0.2.22 — Deep Integration",
@@ -422,7 +428,6 @@ def test_a_shipped_release_closes_its_epic_while_the_roadmap_header_lags(tmp_pat
 
     with (
         patch("devops_cli.github.release_epics.get_repository_issues", return_value=[epic]),
-        patch("devops_cli.github.release_epics._closed_milestone_titles", return_value={"v0.2.22"}),
         patch("devops_cli.github.release_epics.edit_repository_issue") as mock_edit,
         patch("devops_cli.github.issues.close_repository_issue") as mock_close,
     ):
@@ -434,3 +439,22 @@ def test_a_shipped_release_closes_its_epic_while_the_roadmap_header_lags(tmp_pat
         "**Status**: `Completed`" in body,
         result.epics[0]["action"],
     ) == (("example/repo", 297), True, "updated")
+
+
+def test_epic_sync_raises_when_the_releases_cannot_be_read(
+    tmp_path: Path, unreadable_github_roadmap: list[list[str]]
+) -> None:
+    """A failed read of the closed Releases raises instead of treating every release as unshipped."""
+    roadmap_file = tmp_path / "ROADMAP.md"
+    roadmap_file.write_text(
+        "# Roadmap\n\n## Release Milestones (Chronological Order)\n\n"
+        "### Deep Integration (v0.2.22 - Active Release)\n"
+        "- [x] Shipped work (`priority/p1-high`, `scope/cli`)\n",
+        encoding="utf-8",
+    )
+
+    with (
+        patch("devops_cli.github.release_epics.get_repository_issues", return_value=[]),
+        pytest.raises(GitHubOperationError, match="Could not read milestones in example/repo"),
+    ):
+        sync_all_release_epics(repo="example/repo", roadmap_path=roadmap_file, dry_run=True)

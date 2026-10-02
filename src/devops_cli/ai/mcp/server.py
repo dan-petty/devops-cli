@@ -1573,7 +1573,7 @@ def gh_project_status() -> str:
 
 @mcp.tool()
 def gh_milestone_close(version: str, repo: str | None = None) -> str:
-    """Close a repository milestone matching the given version or title."""
+    """Close the release milestone of a version, with or without its v."""
     _validate_mcp_arg("version", version)
     cmd = ["uv", "run", "devops", "gh", "milestones", "close", version]
     if repo:
@@ -1591,7 +1591,7 @@ def gh_milestone_edit(
     due_on: str | None = None,
     repo: str | None = None,
 ) -> str:
-    """Edit an existing milestone title, description, state, or due date."""
+    """Edit a release milestone's title, description, state, or due date; others stay as they are."""
     _validate_mcp_arg("version", version)
     cmd = ["uv", "run", "devops", "gh", "milestones", "edit", version]
     if title:

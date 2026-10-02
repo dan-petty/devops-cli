@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -27,6 +28,8 @@ from devops_cli.commands.release import (
     app,
 )
 from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.store import GitHubState
 
 runner = CliRunner()
 
@@ -480,8 +483,19 @@ def test_release_notes_raw_and_missing(sample_project_dir: Path) -> None:
     assert res_no_notes.exit_code == 1
 
 
-def test_release_tag_push_and_errors(sample_project_dir: Path) -> None:
-    """Verify devops release tag push and error branches."""
+def test_release_tag_push_and_errors(
+    sample_project_dir: Path,
+    roadmap_store: InMemoryRoadmapStore,
+    roadmap_store_repos: list[str],
+    git: Callable[..., None],
+) -> None:
+    """Verify devops release tag push and error branches; a pushed tag closes its Release.
+
+    The Release closes in the tagged repository, which is not the checkout the tests run in.
+    """
+    git(sample_project_dir, "init", "--quiet")
+    git(sample_project_dir, "remote", "add", "origin", "https://github.com/example/tagged.git")
+    roadmap_store.create_release("v0.1.7")
     # Dry run
     from devops_cli.dry_run import set_dry_run
 
@@ -507,7 +521,13 @@ def test_release_tag_push_and_errors(sample_project_dir: Path) -> None:
         res_push = runner.invoke(
             app, ["tag", "--version", "0.1.7", "--push", "--root", str(sample_project_dir)]
         )
-        assert res_push.exit_code == 0
+    closed = roadmap_store.release("0.1.7")
+    assert (
+        res_push.exit_code,
+        "Closed release milestone for v0.1.7" in res_push.output,
+        closed.state if closed else None,
+        roadmap_store_repos,
+    ) == (0, True, GitHubState.CLOSED, ["example/tagged"])
 
 
 def test_release_pr_labels_and_draft(sample_project_dir: Path) -> None:
@@ -643,7 +663,9 @@ def test_release_pr_error_branches_and_breaking(sample_project_dir: Path) -> Non
         )
 
 
-def test_release_notes_tag_and_check_extended(sample_project_dir: Path) -> None:
+def test_release_notes_tag_and_check_extended(
+    sample_project_dir: Path, roadmap_store: InMemoryRoadmapStore
+) -> None:
     """Verify release notes formatting, tag creation/pushing, and check mismatch errors."""
     # 1. release notes raw and formatted
     res_notes_raw = runner.invoke(
@@ -689,6 +711,8 @@ def test_release_notes_tag_and_check_extended(sample_project_dir: Path) -> None:
         assert res_tag_ok.exit_code == 0
         assert any("tag" in c and "-a" in c and "v0.1.8" in c for c in called_cmds)
         assert any("push" in c and "--tags" in c for c in called_cmds)
+        # No Release v0.1.8 exists, so the pushed tag only warns that it closed none.
+        assert "Could not close milestone for v0.1.8: No Release '0.1.8'" in res_tag_ok.output
 
     # 4. release check version mismatch
     pyproject_file = sample_project_dir / "pyproject.toml"

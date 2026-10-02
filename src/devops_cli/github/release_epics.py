@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any
 
@@ -19,8 +18,8 @@ from devops_cli.github.roadmap_sync import (
     _is_issue_matching_item,
     extract_roadmap_items,
 )
-
-logger = logging.getLogger(__name__)
+from devops_cli.roadmap import store as roadmap_store
+from devops_cli.roadmap.store import GitHubState, release_title
 
 
 class ReleaseEpicDeliverable(BaseModel):
@@ -280,14 +279,9 @@ def sync_single_release_epic(
 
 
 def _closed_milestone_titles(repo: str) -> set[str]:
-    """Titles of the repository's closed milestones; none when they cannot be read."""
-    from devops_cli.github.client import GhCliClient
-
-    try:
-        return {m["title"] for m in GhCliClient(repo).get_milestones(repo, state="closed")}
-    except Exception as exc:
-        logger.warning("Failed to fetch closed milestones: %s", exc)
-        return set()
+    """Titles of the repository's closed Releases, as `v` and the version; a failed read raises."""
+    releases = roadmap_store.get_roadmap_store(repo).releases()
+    return {release_title(r.title) for r in releases if r.state is GitHubState.CLOSED}
 
 
 def _mark_shipped_releases(specs: list[ReleaseEpicSpec], closed_milestones: set[str]) -> None:

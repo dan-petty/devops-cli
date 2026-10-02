@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
+from typer.testing import CliRunner
+
+from devops_cli.commands.gh import milestones_app
 from devops_cli.github.milestones import (
-    MilestoneProgress,
     MilestoneSpec,
-    MilestoneSyncResult,
     calculate_milestone_progress,
     diff_milestones,
     extract_roadmap_milestones,
     sync_repository_milestones,
 )
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.store import GitHubState, Release
+
+runner = CliRunner()
+# Not this checkout's origin, so a command that ignored `--repo` would open the wrong store.
+REPO = "example/scratch"
 
 
 def test_extract_roadmap_milestones(tmp_path: Path) -> None:
@@ -46,108 +52,90 @@ def test_extract_roadmap_milestones(tmp_path: Path) -> None:
 
 
 def test_diff_milestones() -> None:
-    """diff_milestones correctly detects new, existing, and closed milestones."""
+    """diff_milestones matches desired milestones to Releases by version, with or without the v."""
     desired = [
         MilestoneSpec(title="v0.2.12", description="Valkey"),
         MilestoneSpec(title="v0.2.13", description="Library"),
     ]
-    existing = [
-        {"title": "v0.2.12", "number": 1, "state": "open", "description": "Valkey"},
-    ]
+    existing = [Release(number=1, title="0.2.12", description="Valkey")]
 
     to_create, existing_matches = diff_milestones(desired, existing)
-    assert len(to_create) == 1
-    assert to_create[0].title == "v0.2.13"
-    assert len(existing_matches) == 1
-    assert existing_matches[0]["title"] == "v0.2.12"
+    assert (
+        [spec.title for spec in to_create],
+        [release.number for release in existing_matches],
+    ) == (
+        ["v0.2.13"],
+        [1],
+    )
 
 
 def test_sync_repository_milestones_dry_run() -> None:
-    """Dry-run milestone synchronization simulates creates without sending mutating requests."""
-    desired = [
-        MilestoneSpec(title="v0.2.15", description="Scanner Framework"),
-    ]
-    mock_client = MagicMock()
-    mock_client.get_milestones.return_value = []
+    """A dry-run sync counts the Releases it would create and creates none."""
+    store = InMemoryRoadmapStore()
+    desired = [MilestoneSpec(title="v0.2.15", description="Scanner Framework")]
 
-    res = sync_repository_milestones(mock_client, "dan-petty/devops-cli", desired, dry_run=True)
-    assert isinstance(res, MilestoneSyncResult)
-    assert res.created_count == 1
-    assert res.dry_run is True
-    mock_client.create_milestone.assert_not_called()
+    res = sync_repository_milestones(store, desired, dry_run=True)
+    assert (res.created_count, res.dry_run, store.releases()) == (1, True, [])
+
+
+def test_sync_repository_milestones_creates_missing_and_updates_changed_releases() -> None:
+    """A sync creates the missing Releases and edits those whose description or state differs."""
+    store = InMemoryRoadmapStore()
+    store.create_release("v0.2.14", description="Old name")
+    store.create_release("v0.2.16", description="Same")
+    desired = [
+        MilestoneSpec(title="v0.2.14", description="Scanner Framework", state=GitHubState.CLOSED),
+        MilestoneSpec(title="v0.2.15", description="Next"),
+        MilestoneSpec(title="v0.2.16", description="Same"),
+    ]
+
+    res = sync_repository_milestones(store, desired)
+    assert (
+        res.created,
+        res.updated,
+        res.existing_count,
+        [(r.title, r.description, r.state) for r in store.releases()],
+    ) == (
+        ["v0.2.15"],
+        ["v0.2.14"],
+        2,
+        [
+            ("v0.2.14", "Scanner Framework", GitHubState.CLOSED),
+            ("v0.2.15", "Next", GitHubState.OPEN),
+            ("v0.2.16", "Same", GitHubState.OPEN),
+        ],
+    )
 
 
 def test_calculate_milestone_progress() -> None:
     """calculate_milestone_progress computes closed ratio and health metrics."""
-    data = {
-        "title": "v0.2.11",
-        "open_issues": 2,
-        "closed_issues": 8,
-        "state": "open",
-    }
-    progress = calculate_milestone_progress(data)
-    assert isinstance(progress, MilestoneProgress)
-    assert progress.total_issues == 10
-    assert progress.percent_complete == 80.0
-    assert progress.is_complete is False
+    release = Release(number=11, title="v0.2.11", open_issues=2, closed_issues=8)
+
+    progress = calculate_milestone_progress(release)
+    assert (progress.total_issues, progress.percent_complete, progress.is_complete) == (
+        10,
+        80.0,
+        False,
+    )
 
 
-def test_close_repository_milestone() -> None:
-    """close_repository_milestone closes the specified milestone via client."""
-    from devops_cli.github.milestones import close_repository_milestone
+def test_cli_milestones_close_command(
+    roadmap_store: InMemoryRoadmapStore, roadmap_store_repos: list[str]
+) -> None:
+    """devops gh milestones close closes the Release of a version, and exits 1 for an unknown one."""
+    roadmap_store.create_release("v0.2.11")
 
-    mock_client = MagicMock()
-    mock_client.close_milestone.return_value = True
-
-    ok = close_repository_milestone(mock_client, "dan-petty/devops-cli", "v0.2.11")
-    assert ok is True
-    mock_client.close_milestone.assert_called_once_with("dan-petty/devops-cli", "v0.2.11")
-
-
-def test_close_repository_milestone_single_arg_signature() -> None:
-    """close_repository_milestone supports client whose close_milestone takes 1 positional arg."""
-    from devops_cli.github.milestones import close_repository_milestone
-
-    class SingleArgClient:
-        def close_milestone(self, version_or_title: str) -> bool:
-            return version_or_title == "v0.2.11"
-
-    ok = close_repository_milestone(SingleArgClient(), "dan-petty/devops-cli", "v0.2.11")
-    assert ok is True
-
-
-def test_close_repository_milestone_fallback() -> None:
-    """close_repository_milestone falls back to get_milestones + edit_milestone."""
-    from devops_cli.github.milestones import close_repository_milestone
-
-    mock_client = MagicMock()
-    del mock_client.close_milestone
-    mock_client.get_milestones.return_value = [{"title": "v0.2.11", "number": 23, "state": "open"}]
-
-    ok = close_repository_milestone(mock_client, "dan-petty/devops-cli", "v0.2.11")
-    assert ok is True
-    mock_client.edit_milestone.assert_called_once_with("dan-petty/devops-cli", 23, state="closed")
-
-
-def test_cli_milestones_close_command() -> None:
-    """CLI devops gh milestones close executes successfully."""
-    from unittest.mock import patch
-
-    from typer.testing import CliRunner
-
-    from devops_cli.commands.gh import app
-
-    runner = CliRunner()
-    with patch("devops_cli.commands.gh._get_github_client") as mock_get_client:
-        mock_client = MagicMock()
-        mock_client.close_milestone.return_value = True
-        mock_get_client.return_value = mock_client
-
-        res = runner.invoke(
-            app, ["milestones", "close", "v0.2.11", "--repo", "dan-petty/devops-cli"]
-        )
-        assert res.exit_code == 0
-        assert "Successfully closed milestone" in res.output
+    closed = runner.invoke(milestones_app, ["close", "0.2.11", "--repo", REPO])
+    missing = runner.invoke(milestones_app, ["close", "v9.9.9", "--repo", REPO])
+    release = roadmap_store.release("v0.2.11")
+    assert (
+        closed.exit_code,
+        f"Successfully closed milestone '0.2.11' in {REPO}" in closed.output,
+        release.state if release else None,
+        missing.exit_code,
+        "No Release 'v9.9.9' exists" in missing.output,
+        roadmap_store_repos,
+    ) == (0, True, GitHubState.CLOSED, 1, True, [REPO, REPO])
 
 
 def test_validate_roadmap_path_helpers(tmp_path: Path) -> None:
@@ -267,122 +255,94 @@ def test_cli_labels_audit() -> None:
         assert "Pull Request Taxonomy Audit Findings" in res.output
 
 
-def test_cli_milestones_list() -> None:
-    """devops gh milestones list shows empty info or formatted table."""
-    from unittest.mock import patch
+def test_cli_milestones_list(roadmap_store: InMemoryRoadmapStore) -> None:
+    """devops gh milestones list shows an empty notice, then the Releases in the state asked for."""
+    empty = runner.invoke(milestones_app, ["list", "--repo", REPO])
+    roadmap_store.create_release("v0.2.13")
+    roadmap_store.create_release("v0.2.12", state=GitHubState.CLOSED)
 
-    from typer.testing import CliRunner
-
-    from devops_cli.commands.gh import app
-
-    runner = CliRunner()
-    with patch("devops_cli.commands.gh._get_repo_milestones", return_value=[]):
-        res = runner.invoke(app, ["milestones", "list"])
-        assert res.exit_code == 0
-        assert "No milestones found" in res.output
-
-    with patch(
-        "devops_cli.commands.gh._get_repo_milestones",
-        return_value=[{"title": "v0.2.13", "state": "open", "open_issues": 1, "closed_issues": 3}],
-    ):
-        res = runner.invoke(app, ["milestones", "list"])
-        assert res.exit_code == 0
-        assert "v0.2.13" in res.output
+    listed = runner.invoke(milestones_app, ["list", "--repo", REPO])
+    open_only = runner.invoke(milestones_app, ["list", "--state", "open", "--repo", REPO])
+    assert (
+        (empty.exit_code, "No milestones found" in empty.output),
+        (listed.exit_code, listed.output.index("v0.2.12") < listed.output.index("v0.2.13")),
+        ("v0.2.13" in open_only.output, "v0.2.12" in open_only.output),
+    ) == ((0, True), (0, True), (True, False))
 
 
-def test_cli_milestones_status() -> None:
-    """devops gh milestones status inspects specific milestone."""
-    from unittest.mock import patch
-
-    from typer.testing import CliRunner
-
-    from devops_cli.commands.gh import app
-
-    runner = CliRunner()
-    with patch(
-        "devops_cli.commands.gh._get_repo_milestones",
-        return_value=[
-            {
-                "title": "v0.2.13",
-                "state": "open",
-                "open_issues": 2,
-                "closed_issues": 8,
-                "due_on": "2026-09-30",
-            }
-        ],
-    ):
-        res = runner.invoke(app, ["milestones", "status", "v0.2.13"])
-        assert res.exit_code == 0
-        assert "80.0%" in res.output
-
-    with patch("devops_cli.commands.gh._get_repo_milestones", return_value=[]):
-        res = runner.invoke(app, ["milestones", "status", "v0.2.13"])
-        assert res.exit_code == 1
-        assert "not found" in res.output
+def test_cli_milestones_list_refuses_an_unknown_state(roadmap_store: InMemoryRoadmapStore) -> None:
+    """devops gh milestones list exits 1 for a state filter that is not open, closed or all."""
+    res = runner.invoke(milestones_app, ["list", "--state", "merged", "--repo", REPO])
+    assert (res.exit_code, "Unsupported state 'merged'" in res.output) == (1, True)
 
 
-def test_cli_milestones_sync(tmp_path: Path) -> None:
-    """devops gh milestones sync reconciles milestones with roadmap."""
-    from unittest.mock import MagicMock, patch
+def test_cli_milestones_list_names_a_failed_read(
+    unreadable_github_roadmap: list[list[str]],
+) -> None:
+    """When GitHub can't be read, list exits 1 and names the read instead of finding nothing."""
+    res = runner.invoke(milestones_app, ["list", "--repo", REPO])
+    assert (
+        res.exit_code,
+        f"Could not read milestones in {REPO} (exit 1)" in res.output,
+        "No milestones found" in res.output,
+        unreadable_github_roadmap,
+    ) == (
+        1,
+        True,
+        False,
+        [["api", "--paginate", f"repos/{REPO}/milestones?state=all&per_page=100"]],
+    )
 
-    from typer.testing import CliRunner
 
-    from devops_cli.commands.gh import app
+def test_cli_milestones_status(
+    roadmap_store: InMemoryRoadmapStore, roadmap_store_repos: list[str]
+) -> None:
+    """devops gh milestones status shows a Release's progress, and exits 1 for an unknown one."""
+    roadmap_store.create_release("v0.2.13")
+    for state in [GitHubState.OPEN] * 2 + [GitHubState.CLOSED] * 8:
+        roadmap_store.seed_issue("Work", state=state, release="v0.2.13")
 
+    found = runner.invoke(milestones_app, ["status", "0.2.13", "--repo", REPO])
+    missing = runner.invoke(milestones_app, ["status", "v9.9.9", "--repo", REPO])
+    assert (
+        found.exit_code,
+        "80.0%" in found.output,
+        missing.exit_code,
+        "not found" in missing.output,
+        roadmap_store_repos,
+    ) == (0, True, 1, True, [REPO, REPO])
+
+
+def test_cli_milestones_sync(
+    tmp_path: Path, roadmap_store: InMemoryRoadmapStore, roadmap_store_repos: list[str]
+) -> None:
+    """devops gh milestones sync previews with --dry-run, then creates the roadmap's Releases."""
     roadmap = tmp_path / "ROADMAP.md"
     roadmap.write_text("# Roadmap\n### Test Milestone (v0.9.0 - Scheduled)\n", encoding="utf-8")
 
-    runner = CliRunner()
-    mock_client = MagicMock()
-    mock_client.get_milestones.return_value = []
-    with (
-        patch("devops_cli.commands.gh._get_github_client", return_value=mock_client),
-        patch("devops_cli.commands.gh._get_repo_milestones", return_value=[]),
-    ):
-        res = runner.invoke(app, ["milestones", "sync", "--roadmap", str(roadmap), "--dry-run"])
-        assert res.exit_code == 0
-        assert "Milestone synchronization" in res.output
-
-
-def test_close_milestone_gh_cli() -> None:
-    """_close_milestone_gh_cli handles CLI fallback to close milestone."""
-    from unittest.mock import MagicMock, patch
-
-    from devops_cli.commands.gh import _close_milestone_gh_cli
-
-    with (
-        patch(
-            "devops_cli.commands.gh._get_repo_milestones",
-            return_value=[{"title": "v0.2.11", "number": 42}],
-        ),
-        patch("devops_cli.commands.gh.run_gh") as mock_sub,
-    ):
-        mock_sub.return_value = MagicMock(returncode=0)
-        ok = _close_milestone_gh_cli("dan-petty/devops-cli", "v0.2.11")
-        assert ok is True
-
-    with patch("devops_cli.commands.gh._get_repo_milestones", return_value=[]):
-        ok = _close_milestone_gh_cli("dan-petty/devops-cli", "v9.9.9")
-        assert ok is False
+    dry = runner.invoke(
+        milestones_app, ["sync", "--roadmap", str(roadmap), "--dry-run", "-R", REPO]
+    )
+    dry_releases = roadmap_store.releases()
+    live = runner.invoke(milestones_app, ["sync", "--roadmap", str(roadmap), "-R", REPO])
+    assert (
+        (dry.exit_code, "1 created" in dry.output, dry_releases),
+        (live.exit_code, [(r.title, r.description) for r in roadmap_store.releases()]),
+        roadmap_store_repos,
+    ) == ((0, True, []), (0, [("v0.9.0", "Test Milestone")]), [REPO, REPO])
 
 
 def test_gh_helper_subprocess_fallbacks() -> None:
-    """Test _get_repo_labels, _get_repo_milestones, _get_repo_prs with subprocess JSON output."""
+    """Test _get_repo_labels and _get_repo_prs with subprocess JSON output."""
     import json
     from unittest.mock import MagicMock, patch
 
-    from devops_cli.commands.gh import _get_repo_labels, _get_repo_milestones, _get_repo_prs
+    from devops_cli.commands.gh import _get_repo_labels, _get_repo_prs
 
     with patch("devops_cli.commands.gh.run_gh") as mock_sub:
         # labels
         mock_sub.return_value = MagicMock(returncode=0, stdout=json.dumps([{"name": "test"}]))
         assert len(_get_repo_labels("dan-petty/devops-cli")) == 1
-
-        # milestones
-        mock_sub.return_value = MagicMock(
-            returncode=0, stdout=json.dumps([{"title": "v1.0", "number": 1}])
-        )
-        assert len(_get_repo_milestones("dan-petty/devops-cli")) == 1
 
         # prs
         mock_sub.return_value = MagicMock(

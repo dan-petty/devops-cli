@@ -1603,30 +1603,21 @@ def release_tag(
 
 
 def _close_release_milestone_safe(repo_root: Path, version: str) -> None:
-    """Attempt to close the repository release milestone without raising on network or auth failure."""
-    try:
-        from devops_cli.commands.gh import (
-            _close_milestone_gh_cli,
-            _get_github_client,
-            _resolve_repo,
-        )
-        from devops_cli.github.milestones import close_repository_milestone
+    """Close the Release of `version` in the tagged repository, warning when GitHub can't."""
+    from devops_cli.commands.gh import _resolve_repo
+    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.exceptions import DevOpsCLIError
+    from devops_cli.roadmap import store as roadmap_store
 
-        target_repo = _resolve_repo()
-        client = _get_github_client()
-        ok = (
-            close_repository_milestone(client, target_repo, version)
-            if client
-            else _close_milestone_gh_cli(target_repo, version)
-        )
-        if ok:
-            _get("print_success")(
-                f"Closed release milestone for v{version.lstrip('v')}.", prefix=False
-            )
-    except Exception as exc:
+    target_repo = _resolve_repo(get_repo_origin_name(repo_root))
+    try:
+        closed = roadmap_store.get_roadmap_store(target_repo).close_release(version)
+    except DevOpsCLIError as exc:
         _get("print_warning")(
-            f"Note: Could not close milestone for v{version}: {exc}", prefix=False
+            f"Note: Could not close milestone for v{version}: {exc}", prefix=False, safe=True
         )
+        return
+    _get("print_success")(f"Closed release milestone for {closed.title}.", prefix=False)
 
 
 def _display_release_epic_results(res: Any, mode_text: str, repo: str) -> None:

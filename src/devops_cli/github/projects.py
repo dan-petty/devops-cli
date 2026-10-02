@@ -18,7 +18,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_GRAPHQL_SAFETY_THRESHOLD,
     DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC,
 )
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.github.client import parse_paginated_json
 from devops_cli.github.rate_limiter import (
     extract_json_payload,
@@ -294,7 +294,7 @@ class ProjectSyncResult(BaseModel):
 
 
 def check_github_rate_limit_error(output: str, operation: str = "github_operation") -> None:
-    """Check if subprocess output indicates a GitHub API rate limit exhaustion."""
+    """Raise `GitHubRateLimitError` if subprocess output indicates a GitHub API rate limit exhaustion."""
     clean = output.lower()
     rate_limit_indicators = (
         "unknown owner type",
@@ -303,8 +303,8 @@ def check_github_rate_limit_error(output: str, operation: str = "github_operatio
         "rate limit exceeded",
     )
     if any(ind in clean for ind in rate_limit_indicators):
-        raise GitHubOperationError(
-            "GitHub GraphQL API rate limit is currently exhausted. Please wait for quota reset.",
+        raise GitHubRateLimitError(
+            "GitHub API rate limit is currently exhausted. Please wait for quota reset.",
             operation=operation,
             details={"output": output.strip()},
         )
@@ -753,51 +753,6 @@ def provision_remote_project_fields(
         if _provision_single_field(owner_arg, project_number, field):
             provisioned.append(field.name)
     return provisioned
-
-
-def _extract_urls_from_project_items(items: list[dict[str, Any]]) -> set[str]:
-    """Extract item URLs from parsed project items."""
-    urls: set[str] = set()
-    for it in items:
-        if isinstance(it, dict):
-            content = it.get("content") or {}
-            url = content.get("html_url") or content.get("url")
-            if url:
-                urls.add(url)
-    return urls
-
-
-def _fetch_project_item_urls_with_status(owner: str, project_number: int) -> tuple[set[str], bool]:
-    """Retrieve URLs of items currently present on the project board with success flag."""
-    endpoints = [
-        f"users/{owner}/projectsV2/{project_number}/items",
-        f"orgs/{owner}/projectsV2/{project_number}/items",
-    ]
-    for endpoint in endpoints:
-        res = run_gh(
-            [
-                CONST_GH_CLI,
-                "api",
-                "--paginate",
-                endpoint,
-                "-H",
-                "Accept: application/vnd.github+json",
-            ],
-            check=False,
-            quiet=True,
-        )
-        if res.returncode == 0:
-            if res.stdout.strip():
-                items = parse_paginated_json(res.stdout)
-                return _extract_urls_from_project_items(items), True
-            return set(), True
-    return set(), False
-
-
-def _fetch_project_item_urls(owner: str, project_number: int) -> set[str]:
-    """Retrieve URLs of items currently present on the project board."""
-    urls, _ = _fetch_project_item_urls_with_status(owner, project_number)
-    return urls
 
 
 def _extract_item_url(it: dict[str, Any]) -> str | None:

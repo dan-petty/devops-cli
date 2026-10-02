@@ -57,6 +57,11 @@
         {"name": "Medium", "color": "YELLOW"},
         {"name": "High", "color": "RED"}
       ]
+    },
+    {
+      "name": "Job record",
+      "type": "text",
+      "description": "JSON the roadmap jobs write: the last value they set for each field (Release, Status, Priority, Value, Effort). No view shows it."
     }
   ],
   "views": [

@@ -54,8 +54,8 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_issue_triage`](#gh-issue-triage) | Audit open issues for mandatory taxonomy labels and milestone linkage. |
 | [`gh_label_list`](#gh-label-list) | List declarative repository labels and descriptions. |
 | [`gh_label_sync`](#gh-label-sync) | Synchronize repository labels against .github/labels.yml schema. |
-| [`gh_milestone_close`](#gh-milestone-close) | Close a repository milestone matching the given version or title. |
-| [`gh_milestone_edit`](#gh-milestone-edit) | Edit an existing milestone title, description, state, or due date. |
+| [`gh_milestone_close`](#gh-milestone-close) | Close the release milestone of a version, with or without its v. |
+| [`gh_milestone_edit`](#gh-milestone-edit) | Edit a release milestone's title, description, state, or due date; others stay as they are. |
 | [`gh_milestone_list`](#gh-milestone-list) | List repository milestones and progress rates. |
 | [`gh_milestone_sync`](#gh-milestone-sync) | Synchronize repository milestones from docs/ROADMAP.md. |
 | [`gh_pages_build`](#gh-pages-build) | Trigger a new deployment build for GitHub Pages. |
@@ -716,7 +716,7 @@ Synchronize repository labels against .github/labels.yml schema.
 
 ### `gh_milestone_close`
 
-Close a repository milestone matching the given version or title.
+Close the release milestone of a version, with or without its v.
 
 **Parameters:**
 
@@ -727,7 +727,7 @@ Close a repository milestone matching the given version or title.
 
 ### `gh_milestone_edit`
 
-Edit an existing milestone title, description, state, or due date.
+Edit a release milestone's title, description, state, or due date; others stay as they are.
 
 **Parameters:**
 
