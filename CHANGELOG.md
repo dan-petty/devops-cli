@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - MCP tools `roadmap_render` and `roadmap_migrate`, which only previews, in a new lazy `roadmap` domain (#739).
   - The roadmap store gains board creation from the template, field deletion, card listing, writes and removal, issue creation and closing with a reason and comment, Release deletion, workflow listing and repository file reads, in both adapters (#739).
   - `docs/VISION.md` holds the design principles and the themes from `docs/ROADMAP.md`, without release numbers (#739).
+- **Branch and PR Reviews Compute Their Own Symbol Delta (`devops review branch`, `devops review pr`)**:
+  - Each review records the symbols that every changed Python file added, removed and kept since the commit its diff starts at, so an earlier `devops ai analyze branch` run is no longer needed. That commit is the merge base for a branch, `HEAD` for uncommitted changes, and the merge base from GitHub's compare endpoint for a pull request, not the base branch's tip. A branch's files are read at its own commit, so reviewing a branch that is not checked out, or one with uncommitted deletions, does not count the checkout's removals as the branch's. A renamed file is compared with its old path, an added file's symbols are all added, and a file whose base or head cannot be read gets no delta (#593).
+  - Verification exempts a finding only when it cites a symbol this review's diff removed, and moves it to the file's diff hunk without asking the model. The summary's Symbol Delta row and `removed_symbol_findings_count` count only the reviewed files (#593).
 
 ### Changed
 - **`devops gh milestones edit` and `close` Take a Version (`devops gh milestones`)**:
@@ -39,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Editing a Milestone No Longer Closes It (`devops gh milestones edit`)**:
   - `edit` sends only the fields it is given. Before, `devops gh milestones edit v0.2.25 --description x` also sent `state=closed` whenever a GitHub token resolved, and closed the milestone (#768).
   - When GitHub can't be read, `devops gh milestones list` exits 1 and names the failed read, instead of printing "No milestones found" (#768).
+- **Reviews No Longer Use Another Run's Symbol Delta (`devops review`)**:
+  - Pre-analysis kept symbol lists that another review or `devops ai analyze branch` had cached. Verification read the newest cached analysis, whichever run wrote it, and the summary added up that analysis when the reviewed files had no delta. A finding could be exempted for a symbol that a different branch removed. Now only the session's own delta counts (#593).
+- **`devops ai analyze branch` Compares a Renamed File With Its Old Path (`devops ai analyze branch`)**:
+  - A renamed file is analysed at its new path and compared with its old one at the merge base. The plain `--name-status` parser read `old.py<TAB>new.py` as one path that does not exist, so it recorded the file as deleted. A reused file's delta is now computed again, because the cached one may be against an older merge base (#593).
 
 ### Removed
 - **ROADMAP-to-GitHub Sync (`devops gh issues sync-roadmap`, `devops gh issues reconcile-roadmap`, `devops gh milestones sync`, `devops release epic`)**:

@@ -458,6 +458,20 @@ def nested_worktree(tmp_path: Path, git: Callable[..., None]) -> tuple[Path, Pat
 
 
 @pytest.fixture
+def symbol_removal_repo(tmp_path: Path, git: Callable[..., None]) -> Path:
+    """A real repository whose `main` defines two functions and whose `feature` branch
+    removes one of them and adds another."""
+    git(tmp_path, "init", "--quiet", "-b", "main")
+    (tmp_path / "mod.py").write_text("def kept(): pass\ndef gone(): pass\n", encoding="utf-8")
+    git(tmp_path, "add", "mod.py")
+    git(tmp_path, "commit", "--quiet", "-m", "base")
+    git(tmp_path, "switch", "--quiet", "-c", "feature")
+    (tmp_path / "mod.py").write_text("def kept(): pass\ndef added(): pass\n", encoding="utf-8")
+    git(tmp_path, "commit", "--quiet", "-am", "remove gone")
+    return tmp_path
+
+
+@pytest.fixture
 def tmp_ssh_dir(tmp_path: Path) -> Path:
     ssh_dir = tmp_path / ".ssh"
     ssh_dir.mkdir()

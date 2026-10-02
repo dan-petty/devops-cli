@@ -476,6 +476,38 @@ CONST_STATUS_SUCCESS = "SUCCESS"
 CONST_GIT_MAIN_BRANCH = "main"
 CONST_SAFE_GIT_REF_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9_\-/.^~@]+$")
 CONST_SAFE_GIT_RELPATH_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9_\-/.@+]+$")
+# How a file changed, by the status letter `git diff --name-status` prints (every letter
+# git-diff(1) documents for --diff-filter). Copies and renames print the old path, then the new.
+CONST_GIT_NAME_STATUS_CHANGE_TYPES: Final[dict[str, str]] = {
+    "A": "added",
+    "B": "broken",
+    "C": "copied",
+    "D": "deleted",
+    "M": "modified",
+    "R": "renamed",
+    "T": "type-changed",
+    "U": "unmerged",
+    "X": "unknown",
+}
+CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS: Final[frozenset[str]] = frozenset({"C", "R"})
+# The same, from a pull request file's `status` in the GitHub REST API (its documented enum).
+CONST_GITHUB_PR_FILE_CHANGE_TYPES: Final[dict[str, str]] = {
+    "added": "added",
+    "changed": "modified",
+    "copied": "copied",
+    "modified": "modified",
+    "removed": "deleted",
+    "renamed": "renamed",
+    "unchanged": "unchanged",
+}
+# Changes whose symbol delta compares the file with its text at the base revision.
+CONST_SYMBOL_DELTA_BASE_CHANGE_TYPES: Final[frozenset[str]] = frozenset(
+    {"deleted", "modified", "renamed"}
+)
+# Changes a review records a symbol delta for: those whose file exists at head.
+CONST_REVIEW_SYMBOL_DELTA_CHANGE_TYPES: Final[frozenset[str]] = frozenset(
+    {"added", "modified", "renamed"}
+)
 CONST_DEFAULT_LINE_NUMBER = 1
 CONST_MARKDOWN_HEADING_LEVEL = 3
 
@@ -1488,6 +1520,7 @@ CONST_SOURCE_ROOT_DIR: Final[str] = "src"
 CONST_TESTS_ROOT_DIR: Final[str] = "tests"
 CONST_TEST_FILE_PREFIX: Final[str] = "test_"
 CONST_PYTHON_FILE_SUFFIX: Final[str] = ".py"
+CONST_PYTHON_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset({".py", ".pyi"})
 
 # ── Terraform / OpenTofu HCL AST Analysis ────────────────────────────────────
 # HCL configuration file extensions recognised by Terraform and OpenTofu.

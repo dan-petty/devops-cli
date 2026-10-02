@@ -4,6 +4,7 @@ Functionality:
 - URL normalization: forces HTTPS for web URLs while leaving SSH URLs intact.
 - SSH known_hosts management: ensures GitHub host key presence in `~/.ssh/known_hosts` (mode 0600).
 - Branch management: listing, tracking branch pull, and merged branch deletion.
+- Revisions: a file's text at a revision, the merge base of two refs, and the files a diff changed.
 """
 
 from __future__ import annotations
@@ -16,12 +17,16 @@ import git as gitlib
 
 from devops_cli.config.constants import (
     CONST_GIT_DIR_NAME,
+    CONST_GIT_NAME_STATUS_CHANGE_TYPES,
+    CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS,
     CONST_GITHUB_HOST,
     CONST_GITHUB_HTTP_PREFIX,
     CONST_GITHUB_HTTPS_PREFIX,
     CONST_GITHUB_SSH_PREFIX,
     CONST_GITHUB_SSH_URL_PREFIX,
     CONST_PERM_DIR,
+    CONST_SAFE_GIT_REF_PATTERN,
+    CONST_SAFE_GIT_RELPATH_PATTERN,
     CONST_URL_SCHEME_HTTP,
     CONST_URL_SCHEME_HTTPS,
 )
@@ -40,7 +45,7 @@ from devops_cli.exceptions import (
     GitOperationError,
     InvalidBranchNameError,
 )
-from devops_cli.models.git import BranchListing
+from devops_cli.models.git import BranchListing, ChangedFile
 
 logger = logging.getLogger(__name__)
 
@@ -283,3 +288,81 @@ def get_latest_git_tag(repo_dir: Path) -> str | None:
     except Exception:
         pass
     return None
+
+
+def _is_safe_revision(revision: str) -> bool:
+    """Whether a revision can be passed to git as one: no option prefix, ref characters only."""
+    return not revision.startswith("-") and CONST_SAFE_GIT_REF_PATTERN.match(revision) is not None
+
+
+def _is_safe_relpath(rel_path: str) -> bool:
+    """Whether a repository-relative path stays inside the repository and reads as no option."""
+    return (
+        not rel_path.startswith("-")
+        and CONST_SAFE_GIT_RELPATH_PATTERN.match(rel_path) is not None
+        and ".." not in Path(rel_path).parts
+    )
+
+
+def read_file_at_revision(repo_dir: Path, revision: str, rel_path: str) -> str | None:
+    """A file's text at a revision; None when git cannot show it or refuses either argument.
+
+    Both parts are validated rather than set off with `--`: `git show -- <rev>:<path>` reads
+    its argument as a pathspec and prints the head commit's header instead (#787).
+    """
+    if not (_is_safe_revision(revision) and _is_safe_relpath(rel_path)):
+        return None
+    try:
+        proc = run_subprocess(
+            ["git", "--no-pager", "show", f"{revision}:{rel_path}"], cwd=repo_dir, quiet=True
+        )
+    except Exception as exc:
+        logger.debug("Could not read %s at %s: %s", rel_path, revision, exc)
+        return None
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def resolve_merge_base(repo_dir: Path, base: str, head: str = "HEAD") -> str | None:
+    """The merge base of `base` and `head`; `base` itself when git finds none, None if refused."""
+    if not (_is_safe_revision(base) and _is_safe_revision(head)):
+        return None
+    try:
+        proc = run_subprocess(["git", "merge-base", "--", base, head], cwd=repo_dir, quiet=True)
+    except Exception as exc:
+        logger.debug("Could not resolve the merge base of %s and %s: %s", base, head, exc)
+        return base
+    return proc.stdout.strip() if proc.returncode == 0 and proc.stdout.strip() else base
+
+
+def list_changed_files(repo_dir: Path, base: str, head: str | None = None) -> list[ChangedFile]:
+    """The files `git diff <base> [<head>]` changes, renames detected; without `head`, the
+    working tree's changes. A refused revision or a failed diff lists nothing.
+
+    `-z` leaves paths unquoted and gives a rename's old and new path as separate fields. The
+    plain format prints `R088<TAB>old.py<TAB>new.py`, which split once reads as one path.
+    """
+    revisions = [base] if head is None else [base, head]
+    if not all(_is_safe_revision(revision) for revision in revisions):
+        return []
+    cmd = ["git", "diff", "--name-status", "-z", "--find-renames", *revisions, "--"]
+    try:
+        proc = run_subprocess(cmd, cwd=repo_dir, quiet=True)
+    except Exception as exc:
+        logger.debug("Could not list the files changed since %s: %s", base, exc)
+        return []
+    return _parse_name_status(proc.stdout) if proc.returncode == 0 else []
+
+
+def _parse_name_status(output: str) -> list[ChangedFile]:
+    """Read `--name-status -z` output: a status, then one path, or the old and new for a copy or
+    rename, every field ending in NUL."""
+    fields = iter(output.split("\0"))
+    changes: list[ChangedFile] = []
+    for status in filter(None, fields):
+        letter = status[0]
+        old_path = next(fields, "") if letter in CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS else None
+        change_type = CONST_GIT_NAME_STATUS_CHANGE_TYPES.get(letter, "unknown")
+        changes.append(
+            ChangedFile(change_type=change_type, path=next(fields, ""), old_path=old_path)
+        )
+    return changes

@@ -1948,13 +1948,13 @@ def _run_deterministic_pre_verification_on_findings(
     repo_root: Path | None,
     dependencies: Sequence[Any] | None,
     analysis_metas: dict[str, Any] | None,
-    all_segments: list[str],
+    diff_segments: list[str],
 ) -> list[Finding]:
     """Apply deterministic pre-verification with removed symbol detection and diff hunk re-anchoring."""
     from devops_cli.ai.review.chunker import extract_diff_hunks, extract_file_diff_hunks
 
-    file_hunks = extract_file_diff_hunks(all_segments)
-    all_hunks = extract_diff_hunks("\n".join(all_segments))
+    file_hunks = extract_file_diff_hunks(diff_segments)
+    all_hunks = extract_diff_hunks("\n".join(diff_segments))
     return [
         _deterministic_pre_verification(
             f,
@@ -2021,18 +2021,20 @@ def _validate_segment_findings(
     repo_root: Path | None = None,
     enable_thinking: bool = True,
     conventions: str = "",
+    diff_text: str | None = None,
 ) -> tuple[ReviewResult, float | None, str | None]:
-    """Ask the LLM to verify each finding using enhanced analysis metadata of related files."""
+    """Ask the LLM to verify each finding using enhanced analysis metadata of related files.
+
+    `analysis_metas` is the review session's own metadata, whose removed symbols exempt a
+    finding from invalidation. Hunks to re-anchor such a finding come from `diff_text` when the
+    segments are not the diff itself, such as a file's numbered source.
+    """
     if not result.findings:
         return result, None, None
 
-    if analysis_metas is None and repo_root is not None:
-        from devops_cli.ai.analyze.cache import _load_file_analysis_metas
-
-        analysis_metas = _load_file_analysis_metas(None, repo_root=repo_root)
-
+    diff_segments = [diff_text] if diff_text is not None else all_segments
     pre_validated_findings = _run_deterministic_pre_verification_on_findings(
-        result.findings, repo_root, result.external_dependencies, analysis_metas, all_segments
+        result.findings, repo_root, result.external_dependencies, analysis_metas, diff_segments
     )
     result = result.model_copy(update={"findings": pre_validated_findings})
 

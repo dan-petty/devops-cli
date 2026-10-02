@@ -24,6 +24,7 @@ import re
 import time
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
@@ -33,6 +34,12 @@ from devops_cli.ai.agents.pipeline import MultiAgentPipeline
 from devops_cli.ai.agents.pydantic_agent import PydanticAgent
 from devops_cli.ai.analyze.cache import load_cached_analysis
 from devops_cli.ai.analyze.outlines import analyze_single_file
+from devops_cli.ai.analyze.symbols import (
+    BaseRevision,
+    SymbolDelta,
+    change_symbol_delta,
+    with_symbol_delta,
+)
 from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.personas import PERSONAS
@@ -94,6 +101,7 @@ from devops_cli.config.constants import (
     CONST_PROBE_MANIFEST_NAMES,
     CONST_REVIEW_CANDIDATES_FILENAME,
     CONST_REVIEW_GENERATED_FILES,
+    CONST_REVIEW_SYMBOL_DELTA_CHANGE_TYPES,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
@@ -106,6 +114,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.binaries import check_binary
 from devops_cli.exceptions import SecurityError
 from devops_cli.models.ai import FileAnalysisMeta
+from devops_cli.models.git import ChangedFile
 from devops_cli.models.vulnerability import (
     DependencySpec,
     NetworkReference,
@@ -956,7 +965,6 @@ def _collect_paths_to_analyze(
     existing_file_metas: dict[str, FileAnalysisMeta],
     force_refresh: bool,
     file_metas: list[FileAnalysisMeta],
-    metadata_by_path: dict[str, FileAnalysisMeta],
 ) -> list[tuple[Path, str]]:
     """Filter candidate paths and reuse existing analysis metadata where available."""
     paths_to_analyze: list[tuple[Path, str]] = []
@@ -973,12 +981,59 @@ def _collect_paths_to_analyze(
                 and (reused := _try_reuse_cached_analysis_meta(old_meta, p, file_mtime))
             ):
                 file_metas.append(reused)
-                metadata_by_path[rel_str] = reused
             else:
                 paths_to_analyze.append((p, rel_str))
         except Exception as exc:
             logger.debug("Failed preparing path %s for analysis: %s", p, exc)
     return paths_to_analyze
+
+
+def _read_reviewed_file(repo: Path, rel_path: str) -> str | None:
+    """A reviewed file's text on disk; None when it cannot be read."""
+    try:
+        return (repo / rel_path).read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        logger.debug("Failed reading %s for its symbol delta: %s", rel_path, exc)
+        return None
+
+
+def _changed_file_symbol_delta(
+    meta: FileAnalysisMeta,
+    change: ChangedFile | None,
+    read_base: Callable[[str], str | None],
+    read_head: Callable[[str], str | None],
+) -> SymbolDelta:
+    """A reviewed file's delta from the review's base; none for a file the diff left alone or
+    whose head text cannot be read, since comparing with nothing would list every base symbol
+    as removed."""
+    if change is None:
+        return [], [], []
+    head_content = read_head(meta.path)
+    if head_content is None:
+        return [], [], []
+    return change_symbol_delta(change, head_content, read_base)
+
+
+def _record_symbol_deltas(
+    file_metas: list[FileAnalysisMeta], repo: Path, base_revision: BaseRevision | None
+) -> list[FileAnalysisMeta]:
+    """The session's metadata with each changed Python file's delta and none on any other file,
+    so a delta cached by another review or `devops ai analyze branch` never rides along. The
+    head is read where the diff ends, or from the reviewed files on disk."""
+    if base_revision is None:
+        return [with_symbol_delta(m, ([], [], [])) for m in file_metas]
+    changes = {
+        c.path: c
+        for c in base_revision.changes
+        if c.change_type in CONST_REVIEW_SYMBOL_DELTA_CHANGE_TYPES
+    }
+    read_head = base_revision.read_head or partial(_read_reviewed_file, repo)
+    return [
+        with_symbol_delta(
+            m, _changed_file_symbol_delta(m, changes.get(m.path), base_revision.read, read_head)
+        )
+        for m in file_metas
+    ]
 
 
 # How a static analyzer took part in a review. A scan that found nothing is clean only for the
@@ -1493,8 +1548,13 @@ class ReviewPipelineOrchestrator:
         target_ref: str = ".",
         force_refresh: bool = False,
         stage_flags: ReviewStageFlags | None = None,
+        base_revision: BaseRevision | None = None,
     ) -> dict[str, FileAnalysisMeta]:
-        """Scan workspace and refresh metadata if files were edited or missing."""
+        """Scan workspace and refresh metadata if files were edited or missing.
+
+        With `base_revision`, each Python file the reviewed diff changed records its symbol delta
+        from that base before the session metadata is saved.
+        """
         from devops_cli.ai.analyze.cache import save_analysis_metadata
         from devops_cli.core.repo import find_repo_root
         from devops_cli.dry_run.state import is_dry_run
@@ -1527,7 +1587,6 @@ class ReviewPipelineOrchestrator:
             existing_file_metas = self._load_pre_analysis_cache(repo, force_refresh)
             collected_paths = self._resolve_paths_for_pre_analysis(target_abs, repo)
 
-            metadata_by_path: dict[str, FileAnalysisMeta] = {}
             file_metas: list[FileAnalysisMeta] = []
 
             config = getattr(self.llm_client, "_config", None)
@@ -1548,7 +1607,6 @@ class ReviewPipelineOrchestrator:
                 existing_file_metas,
                 force_refresh,
                 file_metas,
-                metadata_by_path,
             )
 
             updated_any = False
@@ -1556,11 +1614,11 @@ class ReviewPipelineOrchestrator:
                 new_metas = _execute_pre_analysis_batch(
                     paths_to_analyze, repo, self.llm_client, batch_capacity
                 )
-                for meta in new_metas:
-                    file_metas.append(meta)
-                    metadata_by_path[meta.path] = meta
-                    updated_any = True
+                file_metas.extend(new_metas)
+                updated_any = bool(new_metas)
 
+            file_metas = _record_symbol_deltas(file_metas, repo, base_revision)
+            metadata_by_path = {meta.path: meta for meta in file_metas}
             if file_metas:
                 title = f"{repo.name} pre-analysis: {target_ref}"
                 save_analysis_metadata(
@@ -2526,6 +2584,8 @@ class ReviewPipelineOrchestrator:
         total_files: int,
         payload: FileReviewPayload,
         server_info: str,
+        diff_text: str | None = None,
+        metadata_by_path: dict[str, FileAnalysisMeta] | None = None,
     ) -> None:
         """Safely execute finding verification on single file payload with error capture."""
         if payload.file_path in self.errored_files:
@@ -2536,6 +2596,8 @@ class ReviewPipelineOrchestrator:
                 total_files=total_files,
                 payload=payload,
                 server_info=server_info,
+                diff_text=diff_text,
+                metadata_by_path=metadata_by_path,
             )
         except Exception as exc:
             logger.error("Error verifying file %s: %s", payload.file_path, exc)
@@ -2555,8 +2617,14 @@ class ReviewPipelineOrchestrator:
         total_files: int,
         payload: FileReviewPayload,
         server_info: str,
+        diff_text: str | None = None,
+        metadata_by_path: dict[str, FileAnalysisMeta] | None = None,
     ) -> None:
-        """Verify findings for a single file using cross-referencing and LLM reasoning."""
+        """Verify findings for a single file using cross-referencing and LLM reasoning.
+
+        The session's own metadata says which symbols the diff removed, and the file's diff text
+        gives the hunks a finding citing one is moved to; the numbered source stays the context.
+        """
         fpath = payload.file_path
         ext = Path(fpath).suffix.lower()
         with trace_span(
@@ -2590,8 +2658,10 @@ class ReviewPipelineOrchestrator:
                 result=ReviewResult(findings=findings_to_verify),
                 all_segments=[context],
                 client=self.verification_client,
+                analysis_metas=metadata_by_path or {},
                 repo_root=self.target_dir,
                 conventions=self._read_target_conventions(),
+                diff_text=diff_text or "",
             )
             elapsed_sec = proc_sec if proc_sec is not None else (time.monotonic() - t_start)
             verified_list = review_res.findings
@@ -2666,8 +2736,15 @@ class ReviewPipelineOrchestrator:
         self,
         file_payloads: list[FileReviewPayload],
         stage_flags: ReviewStageFlags | None = None,
+        diff_text_by_file: dict[str, str] | None = None,
+        metadata_by_path: dict[str, FileAnalysisMeta] | None = None,
     ) -> None:
-        """Verify findings against file contents and linked files in parallel."""
+        """Verify findings against file contents and linked files in parallel.
+
+        `metadata_by_path` is the session metadata pre-analysis returned, and `diff_text_by_file`
+        the diff text persona review was given; without them no finding is exempted as citing
+        a removed symbol.
+        """
         if stage_flags is not None and not stage_flags.verification:
             print_info(
                 "[dim]Finding verification skipped (disabled via flag)[/dim]",
@@ -2729,9 +2806,18 @@ class ReviewPipelineOrchestrator:
             s4_span.set_attribute("review.workers", n_workers)
             s4_span.set_attribute("review.batch_capacity", batch_capacity)
 
+            diffs = diff_text_by_file or {}
+
             def _verify_task(arg: tuple[int, FileReviewPayload]) -> None:
                 idx, payload = arg
-                self._safe_verify_file_payload(idx, total_files, payload, server_info)
+                self._safe_verify_file_payload(
+                    idx,
+                    total_files,
+                    payload,
+                    server_info,
+                    diff_text=diffs.get(payload.file_path, ""),
+                    metadata_by_path=metadata_by_path,
+                )
 
             if self.parallel and n_workers > 1:
                 from devops_cli.ai.review.pool import ReviewWorkerPool
@@ -3531,7 +3617,7 @@ class ReviewPipelineOrchestrator:
     def _compute_symbol_delta_summary(
         self, file_payloads: list[FileReviewPayload]
     ) -> dict[str, int]:
-        """Aggregate base-vs-head symbol delta counts across reviewed files."""
+        """Aggregate base-vs-head symbol delta counts across the reviewed files only."""
         added = sum(len(p.metadata.symbols_added) for p in file_payloads if p.metadata is not None)
         removed = sum(
             len(p.metadata.symbols_removed) for p in file_payloads if p.metadata is not None
@@ -3539,11 +3625,6 @@ class ReviewPipelineOrchestrator:
         retained = sum(
             len(p.metadata.symbols_retained) for p in file_payloads if p.metadata is not None
         )
-        if added == 0 and removed == 0 and retained == 0:
-            cached_metas = self._load_pre_analysis_cache(self.target_dir, force_refresh=False)
-            added = sum(len(m.symbols_added) for m in cached_metas.values())
-            removed = sum(len(m.symbols_removed) for m in cached_metas.values())
-            retained = sum(len(m.symbols_retained) for m in cached_metas.values())
         return {"added": added, "removed": removed, "retained": retained}
 
     def generate_consolidated_report(

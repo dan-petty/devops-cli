@@ -208,6 +208,43 @@ def test_create_pr_review_comment() -> None:
     assert called_kwargs["line"] == 15
 
 
+def test_get_merge_base_reads_the_compare_endpoint() -> None:
+    """Verify the merge base comes from comparing base and head in the named repository, and a
+    failed comparison gives None rather than a ref to read at (#593)."""
+    client = GitHubClient("token")
+    compared: list[tuple[str, str, str, int | None]] = []
+
+    class _FakeRepo:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def compare(
+            self, base: str, head: str, comparison_commits_per_page: int | None = None
+        ) -> SimpleNamespace:
+            compared.append((self.name, base, head, comparison_commits_per_page))
+            if head == "unknown":
+                raise UnknownObjectException(404, "Not Found", None)
+            return SimpleNamespace(merge_base_commit=SimpleNamespace(sha="merge-base-sha"))
+
+    class _FakeGithub:
+        def get_repo(self, repo: str, lazy: bool = False) -> _FakeRepo:
+            return _FakeRepo(f"{repo} lazy={lazy}")
+
+    client._gh = _FakeGithub()  # type: ignore[assignment]
+
+    found = client.get_merge_base("octo/repo", "base-tip", "head-sha")
+    missing = client.get_merge_base("octo/repo", "base-tip", "unknown")
+
+    assert (found, missing, compared) == (
+        "merge-base-sha",
+        None,
+        [
+            ("octo/repo lazy=True", "base-tip", "head-sha", 1),
+            ("octo/repo lazy=True", "base-tip", "unknown", 1),
+        ],
+    )
+
+
 def test_get_pr_diff_normal_and_redirect(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify get_pr_diff fetches unified diff with and without redirect."""
     import httpx2
