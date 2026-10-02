@@ -47,6 +47,27 @@ devops gh rate-limit [OPTIONS]
 
 ---
 
+## `devops gh metrics`
+
+**Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, and milestones.**
+
+```bash
+devops gh metrics [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--limit`, `-l` | `integer` | `10` | Number of recent releases to inspect |
+| `--ci-limit` | `integer` | `50` | Number of recent CI workflow runs to inspect |
+| `--milestone`, `-m` | `string` | - | Filter metrics to a specific milestone |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--json` | `boolean` | - | Emit structured JSON metrics report |
+| `--emit-telemetry` | `boolean` | - | Emit project and velocity metrics over OpenTelemetry to Prometheus |
+
+---
+
 ## `devops gh labels`
 
 ```bash

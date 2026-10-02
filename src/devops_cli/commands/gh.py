@@ -45,6 +45,14 @@ from devops_cli.github.labels import (
     load_label_specs,
     sync_repository_labels,
 )
+from devops_cli.github.metrics import (
+    LabelTaxonomyMetric,
+    MilestoneMetric,
+    ReleaseCadenceMetric,
+    WorkflowRunMetric,
+    collect_project_metrics_report,
+    emit_project_metrics_telemetry,
+)
 from devops_cli.github.milestones import (
     MilestoneProgress,
     calculate_milestone_progress,
@@ -1972,3 +1980,129 @@ def list_secrets_cmd(
     columns = ["#", "Secret Name"]
     rows = [[str(idx + 1), s] for idx, s in enumerate(secrets)]
     print_table(f"Repository Secrets ({target_repo})", columns, rows)
+
+
+# =============================================================================
+# Project Metrics Subcommand
+# =============================================================================
+
+
+def _render_releases_table(releases: list[ReleaseCadenceMetric], repo: str) -> None:
+    """Render release frequency, cadence, and volume table."""
+    columns = ["Release", "Published Date", "Cadence", "Commits", "Merged PRs"]
+    rows = [
+        [
+            r.tag,
+            r.published_at,
+            f"{r.days_since_prev:g}d" if r.days_since_prev > 0 else "—",
+            str(r.commit_count),
+            str(r.pr_count),
+        ]
+        for r in releases
+    ]
+    print_table(f"Release Cadence & Velocity ({repo})", columns, rows)
+
+
+def _render_workflows_table(workflows: list[WorkflowRunMetric], repo: str) -> None:
+    """Render CI workflow checks and pass rates table."""
+    columns = ["Workflow", "Total Runs", "Passed", "Failed", "Other", "Pass Rate"]
+    rows = [
+        [
+            w.workflow,
+            str(w.total_runs),
+            str(w.passed),
+            str(w.failed),
+            str(w.other),
+            f"{w.pass_rate:.1f}%",
+        ]
+        for w in workflows
+    ]
+    print_table(f"CI Quality Gates & Checks Pass Rates ({repo})", columns, rows)
+
+
+def _render_milestones_table(milestones: list[MilestoneMetric], repo: str) -> None:
+    """Render milestone item progress table."""
+    columns = ["Milestone", "State", "Open", "Closed", "Total", "Completion"]
+    rows = [
+        [
+            m.milestone,
+            m.state.upper(),
+            str(m.open_items),
+            str(m.closed_items),
+            str(m.total_items),
+            f"{m.completion_rate:.1f}%",
+        ]
+        for m in milestones
+    ]
+    print_table(f"Milestone Progress ({repo})", columns, rows)
+
+
+def _render_labels_table(labels: list[LabelTaxonomyMetric], repo: str) -> None:
+    """Render open issues breakdown by taxonomy label."""
+    columns = ["Category", "Taxonomy Label", "Open Items"]
+    rows = [[lbl.category, lbl.label, str(lbl.count)] for lbl in labels[:15]]
+    print_table(f"Taxonomy Labels Breakdown ({repo})", columns, rows)
+
+
+@app.command("metrics")
+def project_metrics_cmd(
+    limit: Annotated[
+        int,
+        typer.Option("--limit", "-l", help="Number of recent releases to inspect"),
+    ] = 10,
+    ci_limit: Annotated[
+        int,
+        typer.Option("--ci-limit", help="Number of recent CI workflow runs to inspect"),
+    ] = 50,
+    milestone: Annotated[
+        str | None,
+        typer.Option("--milestone", "-m", help="Filter metrics to a specific milestone"),
+    ] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit structured JSON metrics report"),
+    ] = False,
+    emit_telemetry: Annotated[
+        bool,
+        typer.Option(
+            "--emit-telemetry",
+            help="Emit project and velocity metrics over OpenTelemetry to Prometheus",
+        ),
+    ] = False,
+) -> None:
+    """Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, and milestones."""
+    target_repo = _resolve_repo(repo)
+    report = collect_project_metrics_report(
+        repo=target_repo,
+        release_limit=limit,
+        ci_limit=ci_limit,
+        milestone_filter=milestone,
+    )
+
+    if emit_telemetry:
+        emit_project_metrics_telemetry(report)
+
+    if json_output:
+        write_stdout(format_json(report.model_dump()))
+        return
+
+    summary_text = (
+        f"Repository: [bold]{report.repo}[/bold]\n"
+        f"Generated: [cyan]{report.generated_at}[/cyan]\n"
+        f"Total Releases Tracked: [bold]{report.total_releases}[/bold]\n"
+        f"Average Release Cadence: [bold]{report.average_cadence_days} days[/bold]"
+    )
+    print_panel(summary_text, title="Engineering Velocity & Project Metrics")
+
+    if report.releases:
+        _render_releases_table(report.releases, target_repo)
+    if report.workflow_runs:
+        _render_workflows_table(report.workflow_runs, target_repo)
+    if report.milestones:
+        _render_milestones_table(report.milestones, target_repo)
+    if report.taxonomy_labels:
+        _render_labels_table(report.taxonomy_labels, target_repo)
+
+    if emit_telemetry:
+        print_success("✓ Emitted project velocity metrics over OpenTelemetry to Prometheus.")

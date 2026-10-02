@@ -93,6 +93,46 @@ RAG_QUERY_DURATION = Instrument(
     _MILLISECONDS,
 )
 
+_DAYS = (1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 14.0, 21.0, 30.0, 60.0, 90.0)
+
+PROJECT_RELEASES_TOTAL = Instrument(
+    "devops_cli_project_releases_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Total project releases tracked",
+)
+PROJECT_COMMITS_TOTAL = Instrument(
+    "devops_cli_project_commits_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Project commits count by release",
+)
+PROJECT_PRS_TOTAL = Instrument(
+    "devops_cli_project_prs_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Project pull requests merged by release",
+)
+PROJECT_CI_RUNS_TOTAL = Instrument(
+    "devops_cli_project_ci_runs_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "CI workflow runs by name, status and conclusion",
+)
+PROJECT_ITEMS_TOTAL = Instrument(
+    "devops_cli_project_items_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Project items by milestone, type, priority and state",
+)
+PROJECT_RELEASE_INTERVAL_DAYS = Instrument(
+    "devops_cli_project_release_interval_days",
+    InstrumentKind.HISTOGRAM,
+    "d",
+    "Days elapsed between consecutive project releases",
+    _DAYS,
+)
+
 INSTRUMENTS: tuple[Instrument, ...] = (
     COMMAND_TOTAL,
     COMMAND_DURATION,
@@ -102,6 +142,12 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     AI_TOKENS_TOTAL,
     AI_SPEND_USD_TOTAL,
     RAG_QUERY_DURATION,
+    PROJECT_RELEASES_TOTAL,
+    PROJECT_COMMITS_TOTAL,
+    PROJECT_PRS_TOTAL,
+    PROJECT_CI_RUNS_TOTAL,
+    PROJECT_ITEMS_TOTAL,
+    PROJECT_RELEASE_INTERVAL_DAYS,
 )
 
 
@@ -140,6 +186,12 @@ __all__ = [
     "COMMAND_TOTAL",
     "FINDINGS_TOTAL",
     "INSTRUMENTS",
+    "PROJECT_CI_RUNS_TOTAL",
+    "PROJECT_COMMITS_TOTAL",
+    "PROJECT_ITEMS_TOTAL",
+    "PROJECT_PRS_TOTAL",
+    "PROJECT_RELEASES_TOTAL",
+    "PROJECT_RELEASE_INTERVAL_DAYS",
     "RAG_QUERY_DURATION",
     "REVIEW_DURATION",
     "Instrument",

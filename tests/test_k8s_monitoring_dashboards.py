@@ -24,7 +24,7 @@ DASHBOARDS_DIR = MONITORING_DIR / "dashboards"
 PROVISIONED = {
     "grafana-k8s-global-dashboards": ["k8s-views-global.json", "k8s-views-pods.json"],
     "grafana-k8s-node-dashboards": ["k8s-views-nodes.json", "k8s-views-namespaces.json"],
-    "grafana-devops-cli-dashboards": ["devops-cli.json", "ai-spend.json"],
+    "grafana-devops-cli-dashboards": ["devops-cli.json", "ai-spend.json", "project-metrics.json"],
     "grafana-stack-dashboards": [
         "sre-service.json",
         "ingress-tunnel.json",

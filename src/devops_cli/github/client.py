@@ -406,3 +406,18 @@ class GhCliClient:
             return True
         except Exception:
             return False
+
+    def api(self, endpoint: str, paginate: bool = False) -> str:
+        """Execute a GitHub API request via rate-managed run_gh."""
+        cmd = [CONST_GH_CLI, "api"]
+        if paginate:
+            cmd.append("--paginate")
+        cmd.append(endpoint)
+        res = run_gh(cmd, check=False, quiet=True)
+        if res.returncode != 0:
+            raise GitHubOperationError(
+                f"gh api call failed with exit code {res.returncode}: {res.stderr.strip()}",
+                operation="gh_api",
+                details={"endpoint": endpoint, "stderr": res.stderr[:256]},
+            )
+        return res.stdout
