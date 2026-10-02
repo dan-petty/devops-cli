@@ -87,6 +87,11 @@ devops ai review branch --no-verification
 
 # Pipeline debugging: Run pre-analysis metadata refresh only
 devops ai review path src/ --pre-analysis-only
+
+# Print the whole report to the terminal. By default the terminal lists CRITICAL to MEDIUM
+# findings, details CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and
+# network references one line each that points at review.md.
+devops ai review branch --full
 ```
 
 ### Findings Management & Closed-Loop Feedback Commands
@@ -96,6 +101,9 @@ devops review findings --session latest --details
 
 # Filter findings by status (VERIFIED, UNVERIFIED, INVALIDATED, MITIGATED)
 devops review findings --status VERIFIED
+
+# List the LOW and INFO findings a review only counted on the terminal
+devops review findings 20260910-143644 --severity LOW --severity INFO --details
 
 # Mark finding #1 as MITIGATED after applying a fix (the number `review findings` shows)
 devops review verify 20260910-143644 --index 1 --status MITIGATED --reason "Service type changed to ClusterIP and NetworkPolicy jaeger-ingress created"

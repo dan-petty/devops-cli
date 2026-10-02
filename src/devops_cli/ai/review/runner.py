@@ -2207,13 +2207,15 @@ def _execute_review_workflow(
     parallel: bool = True,
     ground_contracts: bool = True,
     base_revision: BaseRevision | None = None,
+    full_output: bool = False,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Common review execution workflow for path, branch, and PR reviews.
 
     `base_revision` is where a branch or PR diff starts; pre-analysis records each changed
     Python file's symbol delta from it. A path review has none. When it is a local revision,
     the target's conventions are read there rather than from disk. Both findings.json writers
-    record the session's subject, which review history counts once.
+    record the session's subject, which review history counts once. `full_output` prints the
+    whole report to the terminal rather than the findings that matter and a summary of the rest.
     """
     from devops_cli.ai.review.history import review_subject
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
@@ -2235,6 +2237,7 @@ def _execute_review_workflow(
         ground_contracts=ground_contracts,
         subject=subject,
         conventions_revision=base_revision.revision if base_revision else None,
+        full_output=full_output,
     )
 
     if type(clients.analysis).__name__ == "LLMClient":

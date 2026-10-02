@@ -728,10 +728,7 @@ class Finding(BaseModel):
     @field_validator("severity", mode="before")
     @classmethod
     def _normalize_severity(cls, v: object) -> str:
-        s = str(v).upper().replace("SEVERITY", "").strip(" :-_")
-        if s in VALID_SEVERITIES:
-            return s
-        return _SEVERITY_SYNONYMS.get(s, "MEDIUM")
+        return severity_named(v) or "MEDIUM"
 
     @field_validator("status", mode="before")
     @classmethod
@@ -771,6 +768,13 @@ class Finding(BaseModel):
             self.invalidation_reason = f"Observed value '{obs}' is identical to expected value '{exp}' (no defect polarity)"
             return self
         return self
+
+
+def severity_named(value: object) -> str | None:
+    """The finding severity a spelling names, `informational` or `Severity: Major` among them;
+    None for one it does not name."""
+    name = str(value).upper().replace("SEVERITY", "").strip(" :-_")
+    return name if name in VALID_SEVERITIES else _SEVERITY_SYNONYMS.get(name)
 
 
 def normalize_finding_status(value: object) -> str:

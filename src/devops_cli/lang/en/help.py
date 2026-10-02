@@ -998,6 +998,15 @@ class ReviewCommandHelp:
     no_cache: str = "Bypass LLM response cache and force fresh inference."
     force_review: str = "Force fresh review execution without cache."
     details: str = "Display full finding descriptions and fix recommendations."
+    severity_filter: str = (
+        "Show only findings of this severity: CRITICAL, HIGH, MEDIUM, LOW or INFO (repeatable)."
+    )
+    full_output: str = (
+        "Print the whole report to the terminal: every finding with its details, every "
+        "dependency and every network reference. By default the terminal lists CRITICAL to "
+        "MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, "
+        "dependencies and network references one line each that points at review.md."
+    )
     concurrency: str = "Max concurrent workers for parallel review and verification."
     parallel: str = "Execute multi-file review stages concurrently using async worker pool."
     logfire: str = "Enable or disable Logfire structured observability and agent turn tracing."

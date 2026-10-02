@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch, sentinel
@@ -10,7 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.review.history import review_subject
-from devops_cli.ai.review_schema import ReviewSessionPayload
+from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
 from devops_cli.commands.review import app as review_app
 
 runner = CliRunner()
@@ -468,3 +469,147 @@ def test_tally_findings_splits_comma_joined_personas() -> None:
     expected_total = {"devsecops": 1, "architect": 2, "performance": 1, "unknown": 1}
     expected_invalidated = {"devsecops": 1, "architect": 1}
     assert _tally_findings(findings) == (expected_status, expected_total, expected_invalidated)
+
+
+_PREPARED_REVIEWS = {
+    "path": ("_prepare_path_content", ["path", "app.py"], (["page"], "Path Review", "")),
+    "branch": (
+        "_prepare_branch_content",
+        ["branch", "feat/x"],
+        (["diff"], "Branch Review", "", "feat/x", sentinel.base_revision),
+    ),
+    "pr": (
+        "_prepare_pr_content",
+        ["pr", "10"],
+        (["diff"], "PR 10", "", MagicMock(), "org/repo", sentinel.base_revision),
+    ),
+}
+
+
+@pytest.mark.parametrize("target", sorted(_PREPARED_REVIEWS))
+@pytest.mark.parametrize(("flags", "full_output"), [(["--full"], True), ([], False)])
+def test_review_full_flag_reaches_the_review_workflow(
+    target: str, flags: list[str], full_output: bool
+) -> None:
+    """`--full` asks the review to print its whole report to the terminal (#987)."""
+    prepare, command, prepared = _PREPARED_REVIEWS[target]
+    with (
+        patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
+        patch(f"devops_cli.commands.review.{prepare}", return_value=prepared),
+        patch("devops_cli.commands.review._make_review_clients"),
+        patch("devops_cli.commands.review._init_logfire_if_enabled"),
+        patch("devops_cli.commands.review._execute_review_workflow", return_value=[]) as workflow,
+        patch("devops_cli.commands.review.load_settings"),
+    ):
+        result = runner.invoke(review_app, [*command, *flags])
+
+    assert (result.exit_code, workflow.call_args.kwargs["full_output"]) == (0, full_output)
+
+
+def _listed_numbers(output: str, titles: tuple[str, ...]) -> tuple[str, ...]:
+    """The number in the first column of the table row naming each title; "" when not listed."""
+    rows = output.splitlines()
+    return tuple(next((row.split()[0] for row in rows if title in row), "") for title in titles)
+
+
+def _saved_finding(title: str, severity: str, status: str = "UNVERIFIED") -> SavedFinding:
+    return SavedFinding(
+        severity=severity, location="src/app.py:4", title=title, persona="qa", status=status
+    )
+
+
+def test_review_findings_filters_by_severity_and_keeps_each_number_in_findings_json(
+    isolate_data_dir: Path, write_review_session: Callable[..., Path]
+) -> None:
+    """`--severity` is repeatable and takes any spelling of a severity, which is how a review
+    names its LOW and INFO findings. Each finding keeps its number in findings.json, the one
+    `review verify --index` takes, and titles print as written, brackets included (#987)."""
+    titles = (
+        "Hardcoded token",
+        "Closing tag [/{status_color}] in format string",
+        "Second hardcoded token",
+        "Pin uvicorn[standard]",
+    )
+    session = write_review_session(
+        isolate_data_dir / "reviews" / "20261002-180320",
+        generated_at="2026-10-02T18:03:20+00:00",
+        findings=[
+            _saved_finding(title, severity)
+            for title, severity in zip(titles, ("HIGH", "LOW", "HIGH", "INFO"), strict=True)
+        ],
+    )
+
+    result = runner.invoke(
+        review_app,
+        ["findings", session.name, "--severity", "low", "--severity", "informational"],
+        env={"COLUMNS": "200"},
+    )
+
+    assert (result.exit_code, _listed_numbers(result.output, titles)) == (0, ("", "2", "", "4"))
+
+
+def test_review_findings_severity_lists_candidates_by_their_numbers_in_candidates_json(
+    isolate_data_dir: Path, write_review_session: Callable[..., Path]
+) -> None:
+    """`--severity` combines with `--candidates` and a status filter: candidates.json's LOW
+    candidates that verification invalidated, under their numbers there (#987, #949)."""
+    titles = ("Dropped nit", "Dropped traversal", "Open nit", "Another dropped nit")
+    session = write_review_session(
+        isolate_data_dir / "reviews" / "20261002-180320",
+        generated_at="2026-10-02T18:03:20+00:00",
+        findings=[_saved_finding("Open nit", "LOW")],
+        candidates=[
+            _saved_finding(title, severity, status)
+            for title, severity, status in zip(
+                titles,
+                ("LOW", "HIGH", "LOW", "LOW"),
+                ("INVALIDATED", "INVALIDATED", "UNVERIFIED", "INVALIDATED"),
+                strict=True,
+            )
+        ],
+    )
+
+    result = runner.invoke(
+        review_app,
+        ["findings", session.name, "--candidates", "--invalidated", "--severity", "LOW"],
+        env={"COLUMNS": "200"},
+    )
+
+    assert (
+        result.exit_code,
+        f"Candidates: {session.name}" in result.output,
+        _listed_numbers(result.output, titles),
+    ) == (0, True, ("1", "", "", "4"))
+
+
+def test_review_findings_prints_untrusted_text_as_written(
+    isolate_data_dir: Path, write_review_session: Callable[..., Path]
+) -> None:
+    """A finding's title, location, persona and verdict reason come from a model or the code
+    under review, so `devops review findings` prints them as written: a closing tag no longer
+    stops the command with a MarkupError, and a lowercase bracket no longer vanishes (#987)."""
+    finding = SavedFinding(
+        severity="MEDIUM",
+        location="src/[bold]app.py:4",
+        title="Closing tag [/{status_color}] in format string",
+        persona="qa[ops]",
+        status="INVALIDATED",
+        reportable=False,
+        verified_by="human",
+        invalidation_reason="Pinned as uvicorn[standard] already",
+    )
+    session = write_review_session(
+        isolate_data_dir / "reviews" / "20261002-180320",
+        generated_at="2026-10-02T18:03:20+00:00",
+        findings=[finding],
+    )
+
+    result = runner.invoke(review_app, ["findings", session.name], env={"COLUMNS": "200"})
+
+    assert (
+        result.exit_code,
+        "Closing tag [/{status_color}] in format string" in result.output,
+        "src/[bold]app.py:4" in result.output,
+        "qa[ops]" in result.output,
+        "human: Pinned as uvicorn[standard] already" in result.output,
+    ) == (0, True, True, True, True)

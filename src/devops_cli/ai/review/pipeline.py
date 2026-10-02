@@ -22,7 +22,8 @@ import os
 import random
 import re
 import time
-from collections.abc import Callable, Sequence
+from collections import Counter
+from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -93,6 +94,8 @@ from devops_cli.config.commands import (
     BIN_TRIVY,
 )
 from devops_cli.config.constants import (
+    CONST_DEPENDENCY_SEVERITY_CLEAN,
+    CONST_DEPENDENCY_VULNERABLE_SEVERITIES,
     CONST_MAX_FILE_SIZE_BYTES,
     CONST_MAX_PROBE_FILE_SIZE_BYTES,
     CONST_PERSONA_REPLY_EMPTY,
@@ -100,8 +103,13 @@ from devops_cli.config.constants import (
     CONST_PERSONA_REPLY_UNPARSED,
     CONST_PROBE_MANIFEST_NAMES,
     CONST_REVIEW_CANDIDATES_FILENAME,
+    CONST_REVIEW_CONSOLE_PANEL_SEVERITIES,
+    CONST_REVIEW_CONSOLE_TABLE_SEVERITIES,
     CONST_REVIEW_GENERATED_FILES,
+    CONST_REVIEW_STATUS_ORDER,
     CONST_REVIEW_SYMBOL_DELTA_CHANGE_TYPES,
+    CONST_SEVERITY_INFO,
+    CONST_SEVERITY_ORDER,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
@@ -125,6 +133,7 @@ from devops_cli.models.vulnerability import (
 from devops_cli.output import (
     escape_text,
     format_duration,
+    get_console,
     print_info,
     print_panel,
     print_success,
@@ -1189,31 +1198,168 @@ _DEFAULT_DEP_SEV_STYLE: tuple[str, str] = ("[dim]UNCHECKED[/dim]", "[dim]{status
 
 
 def _format_dependency_table_row(d: DependencySpec) -> list[str]:
-    """Format a single dependency specification into table cell strings."""
+    """Format a single dependency specification into table cell strings, its text escaped."""
     sev_str, status_template = _DEP_SEV_STYLES.get(d.severity.upper(), _DEFAULT_DEP_SEV_STYLE)
-    status_str = status_template.format(status=d.security_status)
+    status_str = status_template.format(status=escape_text(d.security_status))
 
     return [
         sev_str,
-        d.name,
-        d.version_range,
-        d.ecosystem,
+        escape_text(d.name),
+        escape_text(d.version_range),
+        escape_text(d.ecosystem),
         status_str,
-        d.location or "—",
+        escape_text(d.location) or "—",
     ]
 
 
 def _format_network_ref_table_row(n: NetworkReference) -> list[str]:
-    """Format a single network reference into table cell strings."""
+    """Format a single network reference into table cell strings, its text escaped."""
     scope_str = "[dim]Local[/dim]" if n.is_local else "[bold cyan]External[/bold cyan]"
     color = "red" if "⚠️" in n.security_status else ("cyan" if n.is_local else "green")
     return [
-        n.target,
-        n.reference_type,
+        escape_text(n.target),
+        escape_text(n.reference_type),
         scope_str,
-        f"[{color}]{n.security_status}[/{color}]",
-        n.location or "—",
+        f"[{color}]{escape_text(n.security_status)}[/{color}]",
+        escape_text(n.location) or "—",
     ]
+
+
+# The review.md sections the terminal points at for what it only summarizes (#987).
+_REPORT_DEPENDENCIES_SECTION = "External Dependencies"
+_REPORT_NETWORK_SECTION = "Network References & Endpoints"
+
+_CONSOLE_FINDING_COLUMNS: list[Any] = [
+    ("#", "dim"),
+    ("Severity", "center"),
+    ("Location", "bold cyan"),
+    "Title",
+    ("Status", "center"),
+    ("Persona", "dim"),
+    ("Conf", "dim"),
+]
+_CONSOLE_SEVERITY_BADGES: dict[str, str] = {
+    "CRITICAL": "[bold red]CRITICAL[/bold red]",
+    "HIGH": "[red]HIGH[/red]",
+    "MEDIUM": "[yellow]MEDIUM[/yellow]",
+    "LOW": "[cyan]LOW[/cyan]",
+    "INFO": "[green]INFO[/green]",
+}
+_CONSOLE_STATUS_BADGES: dict[str, str] = {
+    "VERIFIED": "[green]VERIFIED[/green]",
+    "FLAGGED": "[yellow]FLAGGED[/yellow]",
+    "MITIGATED": "[cyan]MITIGATED[/cyan]",
+    "INVALIDATED": "[red]INVALIDATED[/red]",
+}
+_CONSOLE_DEPENDENCY_COLUMNS: list[Any] = [
+    ("Severity", "center"),
+    ("Dependency", "bold cyan"),
+    "Version Range",
+    "Ecosystem",
+    "Security Status",
+    ("Location", "dim"),
+]
+_CONSOLE_NO_DEPENDENCIES_ROW = [
+    "[green]CLEAN[/green]",
+    "No external package dependencies declared in reviewed files",
+    "—",
+    "—",
+    "[green]✓ Clean (0 dependencies)[/green]",
+    "—",
+]
+_CONSOLE_NETWORK_COLUMNS: list[Any] = [
+    ("Target", "bold cyan"),
+    "Type",
+    "Scope",
+    "Security Status",
+    ("Location", "dim"),
+]
+_CONSOLE_NO_NETWORK_ROW = [
+    "No network endpoints or remote addresses referenced in reviewed files",
+    "—",
+    "—",
+    "[green]✓ Clean (0 endpoints)[/green]",
+    "—",
+]
+
+
+def _format_console_finding_row(finding_index: int, finding: SavedFinding) -> list[str]:
+    """Format a finding into findings-table cells, its text escaped."""
+    sev_upper = (finding.severity or "INFORMATIONAL").upper()
+    confidence = finding.confidence_score
+    return [
+        str(finding_index),
+        _CONSOLE_SEVERITY_BADGES.get(sev_upper, f"[white]{sev_upper}[/white]"),
+        escape_text(finding.location),
+        escape_text(finding.title.strip()),
+        _CONSOLE_STATUS_BADGES.get(finding.status.upper(), f"[dim]{finding.status}[/dim]"),
+        escape_text(finding.persona_title or finding.persona),
+        f"{int(confidence * 100)}%" if confidence is not None else "—",
+    ]
+
+
+def _console_severity(finding: SavedFinding) -> str:
+    """The severity the terminal sorts a finding by: table, panel, or the summary line."""
+    return (finding.severity or CONST_SEVERITY_INFO).upper()
+
+
+def _in_order(labels: Iterable[str], order: Sequence[str]) -> list[str]:
+    """`labels` in `order`, followed alphabetically by any that `order` does not name."""
+    rank = {label: index for index, label in enumerate(order)}
+    return sorted(labels, key=lambda label: (rank.get(label, len(rank)), label))
+
+
+def _format_counts(counts: Counter[str], order: Sequence[str]) -> str:
+    """`1 CRITICAL, 2 HIGH`: each label's count, in `order`."""
+    return ", ".join(f"{counts[label]} {label}" for label in _in_order(counts, order))
+
+
+def _is_vulnerable_dependency(dependency: DependencySpec) -> bool:
+    return dependency.severity.upper() in CONST_DEPENDENCY_VULNERABLE_SEVERITIES
+
+
+def _is_flagged_network_reference(reference: NetworkReference) -> bool:
+    return reference.reputation is not None and reference.reputation.is_malicious
+
+
+def _format_dependency_console_line(
+    dependencies: list[DependencySpec], vulnerable: list[DependencySpec]
+) -> str:
+    """One line for the dependency scan: scanned, vulnerable by severity, and not checked."""
+    if not dependencies:
+        return "Dependencies: none declared in the reviewed files."
+    by_severity = _format_counts(
+        Counter(d.severity.upper() for d in vulnerable), CONST_SEVERITY_ORDER
+    )
+    unchecked = sum(
+        1
+        for d in dependencies
+        if not _is_vulnerable_dependency(d)
+        and d.severity.upper() != CONST_DEPENDENCY_SEVERITY_CLEAN
+    )
+    counts = [
+        f"{len(dependencies)} scanned",
+        f"{len(vulnerable)} vulnerable" + (f" ({by_severity})" if vulnerable else ""),
+        *([f"{unchecked} not checked"] if unchecked else []),
+    ]
+    return (
+        f"Dependencies: {', '.join(counts)}. "
+        f'All are listed under "{_REPORT_DEPENDENCIES_SECTION}" in review.md.'
+    )
+
+
+def _format_network_console_line(
+    references: list[NetworkReference], flagged: list[NetworkReference]
+) -> str:
+    """One line for the network references: found, local and external, and flagged."""
+    if not references:
+        return "Network references: none in the reviewed files."
+    local = sum(1 for r in references if r.is_local)
+    return (
+        f"Network references: {len(references)} found ({local} local, "
+        f"{len(references) - local} external), {len(flagged)} flagged by reputation. "
+        f'All are listed under "{_REPORT_NETWORK_SECTION}" in review.md.'
+    )
 
 
 def _format_error_detail(stage: str, exc: Exception, max_len: int = 256) -> str:
@@ -1463,9 +1609,13 @@ class ReviewPipelineOrchestrator:
         verification_client: LLMClient | None = None,
         subject: dict[str, str] | None = None,
         conventions_revision: str | None = None,
+        full_output: bool = False,
     ) -> None:
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self.target_dir = target_dir
+        # Print every finding, dependency and network reference to the terminal, as review.md
+        # holds them, rather than the findings that matter and one line for the rest (#987).
+        self.full_output = full_output
         # The git revision the target's conventions are read at, or None to read them on disk.
         # A branch review reads them where its diff starts, so the branch cannot loosen its own
         # review (#946).
@@ -3054,7 +3204,7 @@ class ReviewPipelineOrchestrator:
     @staticmethod
     def _build_dependencies_table(all_deps: list[DependencySpec]) -> list[str]:
         """Render external dependencies audit table."""
-        lines = ["## External Dependencies (OSV.dev & NVD)"]
+        lines = [f"## {_REPORT_DEPENDENCIES_SECTION} (OSV.dev & NVD)"]
         if not all_deps:
             lines.extend(["✅ **No external dependencies declared in review scope.**", ""])
             return lines
@@ -3098,7 +3248,7 @@ class ReviewPipelineOrchestrator:
         ]
         sorted_md_nets = sort_network_references(deduplicate_network_references(filtered_md_nets))
 
-        lines = ["## Network References & Endpoints (Shodan InternetDB & Cloudflare Radar)"]
+        lines = [f"## {_REPORT_NETWORK_SECTION} (Shodan InternetDB & Cloudflare Radar)"]
         if not sorted_md_nets:
             lines.extend(
                 [
@@ -3252,60 +3402,72 @@ class ReviewPipelineOrchestrator:
     def _render_console_findings_table(
         self, console: Any, reportable_findings: list[SavedFinding]
     ) -> None:
-        """Render findings table to console."""
+        """Render the findings table and detail panels to console.
+
+        Unless `full_output`, the table lists MEDIUM and above, panels follow for HIGH and
+        above, and the rest are counted on one line naming review.md and the command that
+        lists them. Each finding keeps its number in review.md.
+        """
         if not reportable_findings:
-            print_success("No reportable findings across reviewed files.")
+            print_success("No reportable findings across reviewed files.", console=console)
             return
 
-        columns = [
-            ("#", "dim"),
-            ("Severity", "center"),
-            ("Location", "bold cyan"),
-            "Title",
-            ("Status", "center"),
-            ("Persona", "dim"),
-            ("Conf", "dim"),
-        ]
-        rows: list[list[str]] = []
-        sev_badges = {
-            "CRITICAL": "[bold red]CRITICAL[/bold red]",
-            "HIGH": "[red]HIGH[/red]",
-            "MEDIUM": "[yellow]MEDIUM[/yellow]",
-            "LOW": "[cyan]LOW[/cyan]",
-            "INFO": "[green]INFO[/green]",
-        }
-        st_badges = {
-            "VERIFIED": "[green]VERIFIED[/green]",
-            "FLAGGED": "[yellow]FLAGGED[/yellow]",
-            "MITIGATED": "[cyan]MITIGATED[/cyan]",
-            "INVALIDATED": "[red]INVALIDATED[/red]",
-        }
-
-        for finding_index, finding in enumerate(reportable_findings, 1):
-            sev_upper = (finding.severity or "INFORMATIONAL").upper()
-            sev_str = sev_badges.get(sev_upper, f"[white]{sev_upper}[/white]")
-            st_str = st_badges.get(finding.status.upper(), f"[dim]{finding.status}[/dim]")
-            conf_str = (
-                f"{int(finding.confidence_score * 100)}%"
-                if finding.confidence_score is not None
-                else "—"
+        tabled, panelled, minor = self._select_console_findings(reportable_findings)
+        if tabled:
+            print_table(
+                title="Code Review Findings",
+                columns=_CONSOLE_FINDING_COLUMNS,
+                rows=[_format_console_finding_row(index, finding) for index, finding in tabled],
+                console=console,
             )
-
-            rows.append(
-                [
-                    str(finding_index),
-                    sev_str,
-                    escape_text(finding.location),
-                    escape_text(finding.title.strip()),
-                    st_str,
-                    escape_text(finding.persona_title or finding.persona),
-                    conf_str,
-                ]
+        if minor:
+            summary, command = self._format_minor_findings_line(minor)
+            print_info(summary, prefix=False, console=console, safe=True)
+            # Soft wrap keeps the command on one line at any width, so it copies as is.
+            (console or get_console()).print(
+                f"  {command}", markup=False, highlight=False, soft_wrap=True
             )
-        print_table(title="Code Review Findings", columns=columns, rows=rows, console=console)
-
-        for finding_index, finding in enumerate(reportable_findings, 1):
+        for finding_index, finding in panelled:
             self._render_single_finding_panel(console, finding, finding_index)
+
+    def _select_console_findings(
+        self, reportable_findings: list[SavedFinding]
+    ) -> tuple[list[tuple[int, SavedFinding]], list[tuple[int, SavedFinding]], list[SavedFinding]]:
+        """The numbered findings for the table and for detail panels, and those only counted."""
+        numbered = list(enumerate(reportable_findings, 1))
+        if self.full_output:
+            return numbered, numbered, []
+        tabled = [
+            (index, finding)
+            for index, finding in numbered
+            if _console_severity(finding) in CONST_REVIEW_CONSOLE_TABLE_SEVERITIES
+        ]
+        panelled = [
+            (index, finding)
+            for index, finding in tabled
+            if _console_severity(finding) in CONST_REVIEW_CONSOLE_PANEL_SEVERITIES
+        ]
+        minor = [
+            finding
+            for finding in reportable_findings
+            if _console_severity(finding) not in CONST_REVIEW_CONSOLE_TABLE_SEVERITIES
+        ]
+        return tabled, panelled, minor
+
+    def _format_minor_findings_line(self, minor: list[SavedFinding]) -> tuple[str, str]:
+        """Count the findings left out of the table by status and name review.md; return that
+        line and the command that lists them."""
+        severities = _in_order({_console_severity(f) for f in minor}, CONST_SEVERITY_ORDER)
+        statuses = _format_counts(
+            Counter(f.status.upper() for f in minor), CONST_REVIEW_STATUS_ORDER
+        )
+        filters = " ".join(f"--severity {severity}" for severity in severities)
+        command = f"devops review findings {self.session_dir.name} {filters} --details"
+        return (
+            f"Not shown: {len(minor)} {' and '.join(severities)} finding(s) ({statuses}). "
+            f"They are in {self.session_dir / 'review.md'}; list them with:",
+            command,
+        )
 
     def _render_single_finding_panel(
         self, console: Any, finding: SavedFinding, finding_index: int
@@ -3348,39 +3510,36 @@ class ReviewPipelineOrchestrator:
     def _render_console_dependencies_table(
         self, console: Any, all_deps: list[DependencySpec]
     ) -> None:
-        """Render external dependencies security audit table to console."""
-        columns = [
-            ("Severity", "center"),
-            ("Dependency", "bold cyan"),
-            "Version Range",
-            "Ecosystem",
-            "Security Status",
-            ("Location", "dim"),
-        ]
-        rows: list[list[str]] = []
-        if all_deps:
-            for d in all_deps:
-                rows.append(_format_dependency_table_row(d))
-        else:
-            rows.append(
-                [
-                    "[green]CLEAN[/green]",
-                    "No external package dependencies declared in reviewed files",
-                    "—",
-                    "—",
-                    "[green]✓ Clean (0 dependencies)[/green]",
-                    "—",
-                ]
-            )
+        """Render the dependency security audit to console.
+
+        Unless `full_output`, one summary line and then only the vulnerable packages.
+        """
+        if not self.full_output:
+            vulnerable = [d for d in all_deps if _is_vulnerable_dependency(d)]
+            line = _format_dependency_console_line(all_deps, vulnerable)
+            print_info(line, prefix=False, console=console, safe=True)
+            if vulnerable:
+                print_table(
+                    title="Vulnerable Dependencies (OSV.dev & NVD)",
+                    columns=_CONSOLE_DEPENDENCY_COLUMNS,
+                    rows=[_format_dependency_table_row(d) for d in vulnerable],
+                    console=console,
+                )
+            return
         print_table(
             title="External Dependencies Security Audit (OSV.dev & NVD)",
-            columns=columns,
-            rows=rows,
+            columns=_CONSOLE_DEPENDENCY_COLUMNS,
+            rows=[_format_dependency_table_row(d) for d in all_deps]
+            or [_CONSOLE_NO_DEPENDENCIES_ROW],
             console=console,
         )
 
     def _render_console_network_table(self, console: Any, all_nets: list[NetworkReference]) -> None:
-        """Render network references and endpoints audit table to console."""
+        """Render the network references audit to console.
+
+        Unless `full_output`, one summary line and then only the endpoints flagged by
+        reputation.
+        """
         from devops_cli.security.reference_extractor import (
             deduplicate_network_references,
             is_example_or_invalid_network_target,
@@ -3394,32 +3553,23 @@ class ReviewPipelineOrchestrator:
             and not is_example_or_invalid_network_target(getattr(n, "target", ""))
         ]
         sorted_nets = sort_network_references(deduplicate_network_references(filtered))
-
-        columns = [
-            ("Target", "bold cyan"),
-            "Type",
-            "Scope",
-            "Security Status",
-            ("Location", "dim"),
-        ]
-        rows: list[list[str]] = []
-        if sorted_nets:
-            for n in sorted_nets:
-                rows.append(_format_network_ref_table_row(n))
-        else:
-            rows.append(
-                [
-                    "No network endpoints or remote addresses referenced in reviewed files",
-                    "—",
-                    "—",
-                    "[green]✓ Clean (0 endpoints)[/green]",
-                    "—",
-                ]
-            )
+        if not self.full_output:
+            flagged = [n for n in sorted_nets if _is_flagged_network_reference(n)]
+            line = _format_network_console_line(sorted_nets, flagged)
+            print_info(line, prefix=False, console=console, safe=True)
+            if flagged:
+                print_table(
+                    title="Flagged Network References (Shodan & Cloudflare Radar)",
+                    columns=_CONSOLE_NETWORK_COLUMNS,
+                    rows=[_format_network_ref_table_row(n) for n in flagged],
+                    console=console,
+                )
+            return
         print_table(
             title="Network References & Endpoints Security Audit (Shodan & Cloudflare Radar)",
-            columns=columns,
-            rows=rows,
+            columns=_CONSOLE_NETWORK_COLUMNS,
+            rows=[_format_network_ref_table_row(n) for n in sorted_nets]
+            or [_CONSOLE_NO_NETWORK_ROW],
             console=console,
         )
 
@@ -3744,9 +3894,12 @@ class ReviewPipelineOrchestrator:
             symbol_delta_summary=symbol_delta,
         )
 
+        session_path = escape_text(str(self.session_dir))
+        report_path = escape_text(str(self.session_dir / "review.md"))
         print_success(
-            f"Consolidated review completed for session {self.session_id} "
-            f"([bold]{len(all_findings)}[/bold] finding(s) saved to [dim]{self.session_dir}[/dim])"
+            f"Consolidated review completed for session {escape_text(self.session_id)} "
+            f"([bold]{len(all_findings)}[/bold] finding(s) saved to [dim]{session_path}[/dim]; "
+            f"full report: [dim]{report_path}[/dim])"
         )
         return payload_out.model_dump(), report_md
 
