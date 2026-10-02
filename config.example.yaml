@@ -87,6 +87,14 @@ ai:
   model: qwen3.8:27b
   # reasoning_effort: low  # Reasoning effort level: low | medium | high
 
+  # Reference model used for counterfactual cloud spend calculations and hardware payoff.
+  # Defaults to gpt-4o.
+  reference_model: gpt-4o
+
+  # Total hardware investment cost in USD (e.g. GPU workstation or cluster node purchases).
+  # Used by `devops ai cost` to calculate payback progress and amortization against local LLM usage.
+  hardware_cost_usd: 0.0
+
   # Ollama server URLs (list or comma-separated string).
   # AI request loops automatically failover across configured servers if one is unreachable.
   # Use DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true for remote/private IP hosts.

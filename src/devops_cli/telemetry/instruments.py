@@ -85,6 +85,12 @@ AI_SPEND_USD_TOTAL = Instrument(
     "USD",
     "Approximate LLM spend, by provider, model, server and backend",
 )
+AI_LOCAL_COST_EQUIVALENT_USD_TOTAL = Instrument(
+    "devops_cli_ai_local_cost_equivalent_usd_total",
+    InstrumentKind.COUNTER,
+    "USD",
+    "Equivalent hosted cloud spend avoided by local model execution",
+)
 RAG_QUERY_DURATION = Instrument(
     "devops_cli_rag_query_duration_ms",
     InstrumentKind.HISTOGRAM,
@@ -141,6 +147,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     AI_REQUESTS_TOTAL,
     AI_TOKENS_TOTAL,
     AI_SPEND_USD_TOTAL,
+    AI_LOCAL_COST_EQUIVALENT_USD_TOTAL,
     RAG_QUERY_DURATION,
     PROJECT_RELEASES_TOTAL,
     PROJECT_COMMITS_TOTAL,
@@ -179,6 +186,7 @@ def backend_name(served_by: str | None) -> str:
 
 
 __all__ = [
+    "AI_LOCAL_COST_EQUIVALENT_USD_TOTAL",
     "AI_REQUESTS_TOTAL",
     "AI_SPEND_USD_TOTAL",
     "AI_TOKENS_TOTAL",

@@ -48,6 +48,45 @@ def _is_local_provider(provider: str | None) -> bool:
     return bool(provider and provider.strip().lower() in CONST_LOCAL_PROVIDER_NAMES)
 
 
+def _is_configured_cluster_host(host: str) -> bool:
+    """Check if host matches configured Kubernetes or Cloudflare cluster domain."""
+    try:
+        settings = load_settings()
+    except Exception:
+        return False
+    for domain in (settings.k8s.domain, settings.cloudflare.domain):
+        if domain and (host == domain or host.endswith(f".{domain}")):
+            return True
+    return False
+
+
+def _is_configured_ai_server_host(host: str) -> bool:
+    """Check if host matches any configured AI endpoints in settings."""
+    try:
+        settings = load_settings()
+    except Exception:
+        return False
+    candidates = (
+        settings.ai.gateway_url,
+        settings.ai.api_base_url,
+        settings.ai.vllm_url,
+        settings.ai.portkey_url,
+        *settings.ai.ollama_urls,
+    )
+    for cand in candidates:
+        if not cand:
+            continue
+        clean_cand = cand.strip().lower()
+        cand_target = clean_cand if "://" in clean_cand else f"http://{clean_cand}"
+        try:
+            cand_parsed = urlsplit(cand_target)
+            if cand_parsed.hostname and cand_parsed.hostname == host:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _is_local_host(host: str) -> bool:
     if host in CONST_LOCAL_HOSTNAMES:
         return True
@@ -55,18 +94,18 @@ def _is_local_host(host: str) -> bool:
         return True
     try:
         ip = ipaddress.ip_address(host)
-        return ip.is_loopback or ip.is_private
+        if ip.is_loopback or ip.is_private:
+            return True
     except ValueError:
-        return False
+        pass
+    return _is_configured_cluster_host(host) or _is_configured_ai_server_host(host)
 
 
-def _is_local_server(server: str | None) -> bool:
-    if not server:
-        return False
+def _is_single_server_local(server: str) -> bool:
     clean = server.strip().lower()
-    if clean in CONST_LOCAL_TRANSPORT_LABELS:
-        return True
-    if clean.startswith("http+unix://"):
+    if not clean:
+        return False
+    if clean in CONST_LOCAL_TRANSPORT_LABELS or clean.startswith("http+unix://"):
         return True
     target = clean if "://" in clean else f"http://{clean}"
     try:
@@ -78,9 +117,37 @@ def _is_local_server(server: str | None) -> bool:
     return False
 
 
+def _is_local_server(server: str | None) -> bool:
+    if not server:
+        return False
+    clean = server.strip().lower()
+    if "," in clean:
+        parts = [p.strip() for p in clean.split(",") if p.strip()]
+        return bool(parts) and all(_is_single_server_local(p) for p in parts)
+    return _is_single_server_local(clean)
+
+
+def _is_local_gateway_configured() -> bool:
+    """Check if configured AI gateway endpoint resolves to local/cluster infrastructure."""
+    try:
+        settings = load_settings()
+        gw_url = settings.ai.gateway_url or settings.ai.api_base_url
+        if gw_url and _is_local_server(gw_url):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def is_local(server: str | None = None, provider: str | None = None) -> bool:
     """Return True if the backend server or provider indicates local execution."""
-    return _is_local_provider(provider) or _is_local_server(server)
+    if _is_local_provider(provider):
+        return True
+    if _is_local_server(server):
+        return True
+    if provider and provider.strip().lower() == "gateway" and not server:
+        return _is_local_gateway_configured()
+    return False
 
 
 _is_local = is_local

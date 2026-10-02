@@ -578,6 +578,25 @@ def _notify_call_observers(call: dict[str, Any]) -> None:
         observer(call)
 
 
+def _emit_local_cost_equivalent(
+    source: dict[str, str],
+    server: str | None,
+    provider: str | None,
+    prompt_tokens: int,
+    completion_tokens: int,
+) -> None:
+    from devops_cli.ai.spend.pricing import get_pricing_registry, is_local
+    from devops_cli.telemetry.instruments import AI_LOCAL_COST_EQUIVALENT_USD_TOTAL, emit
+
+    if not is_local(server=server, provider=provider):
+        return
+    ref_model = SpendLedger._resolve_reference_model()
+    ref_pricing = get_pricing_registry().get_pricing(ref_model)
+    local_equiv = ref_pricing.calculate_cost(prompt_tokens, completion_tokens)
+    if local_equiv > 0:
+        emit(AI_LOCAL_COST_EQUIVALENT_USD_TOTAL, local_equiv, source)
+
+
 def track_request_spend(
     *,
     provider: str,
@@ -662,4 +681,12 @@ def track_request_spend(
     emit(AI_TOKENS_TOTAL, completion_tokens, source | {"type": "completion"})
     if cost:
         emit(AI_SPEND_USD_TOTAL, cost, source)
+    elif not cached:
+        _emit_local_cost_equivalent(
+            source=source,
+            server=server,
+            provider=provider,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
     return rec

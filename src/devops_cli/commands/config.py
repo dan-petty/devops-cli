@@ -129,6 +129,8 @@ def show() -> None:
     _secret_row(opt.ARGOCD_TOKEN, _is_secret_configured(opt.ARGOCD_TOKEN))
     _row(opt.AI_PROVIDER, settings.ai.provider)
     _row(opt.AI_MODEL, settings.ai.model)
+    _row(opt.AI_REFERENCE_MODEL, settings.ai.reference_model)
+    _row(opt.AI_HARDWARE_COST_USD, settings.ai.hardware_cost_usd)
     _row(opt.AI_REASONING_EFFORT, settings.ai.reasoning_effort)
     _row(opt.AI_OLLAMA_URLS, settings.ai.ollama_urls)
     _row(opt.AI_API_BASE_URL, settings.ai.api_base_url)
