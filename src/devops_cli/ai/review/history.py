@@ -3,8 +3,11 @@
 Every session records its subject: the target type and ref it reviewed, and a digest of the
 review pages. A re-review, or each run of `devops review benchmark`, is a repeat of one subject,
 and the figures that compare sessions count one session per subject. That session is the one
-with the most human verdicts, then the most findings with any verdict, then the newest. A machine
-re-run, or a run whose verification was skipped, never displaces verdicts a person wrote.
+with the most human verdicts, then the most findings with a person's or the machine's verdict,
+then the newest. A machine re-run, or a run whose verification was skipped, never displaces
+verdicts a person wrote, including those on candidates that stay out of findings.json. An
+agent's verdict (`verified_by="agent"`, #949) counts in neither tier, so it never raises its
+session above another.
 
 The session being compared is left out before repeats collapse, so it is never part of its own
 history, and earlier sessions of its subject still count once. Sessions written before subjects
@@ -33,6 +36,7 @@ from devops_cli.config.constants import (
     CONST_REVIEW_CANDIDATES_FILENAME,
     CONST_REVIEW_FINDINGS_FILENAME,
     CONST_STATUS_UNVERIFIED,
+    CONST_VERIFIED_BY_AGENT,
     CONST_VERIFIED_BY_HUMAN,
 )
 from devops_cli.config.defaults import DEFAULT_FINDING_STATUS
@@ -95,17 +99,31 @@ class ReviewSessionRecord:
     # The profile.json target of a session that has one.
     target: str | None
     generated_at: datetime | None
-    # findings.json: the reported findings, and the only file human verdicts are written to.
+    # findings.json: the reported findings with the verdicts `devops review verify` gave them,
+    # and the candidates a VERIFIED or MITIGATED verdict moved there (#949).
     findings: tuple[HistoryFinding, ...]
     # Every finding the session raised: candidates.json, or findings.json without one.
     raised: tuple[HistoryFinding, ...]
 
     @property
     def rank(self) -> tuple[int, int, datetime, str]:
-        """Orders the sessions of one subject; the highest is the one history counts."""
-        human = sum(1 for f in self.findings if f.verified_by == CONST_VERIFIED_BY_HUMAN)
-        judged = sum(1 for f in self.raised if f.status != CONST_STATUS_UNVERIFIED)
+        """Orders the sessions of one subject; the highest is the one history counts.
+
+        A person's verdict on a finding in findings.json is recorded on the candidate it reports
+        too, and a verdict on a candidate kept out of findings.json is only in candidates.json,
+        so the larger of the two files' counts is the session's count of a person's verdicts.
+        """
+        human = max(_human_verdicts(self.findings), _human_verdicts(self.raised))
+        judged = sum(
+            1
+            for f in self.raised
+            if f.status != CONST_STATUS_UNVERIFIED and f.verified_by != CONST_VERIFIED_BY_AGENT
+        )
         return human, judged, self.generated_at or _UNDATED, self.path.name
+
+
+def _human_verdicts(findings: Sequence[HistoryFinding]) -> int:
+    return sum(1 for f in findings if f.verified_by == CONST_VERIFIED_BY_HUMAN)
 
 
 @dataclass(frozen=True, slots=True)

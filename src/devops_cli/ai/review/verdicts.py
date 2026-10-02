@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any, Literal
 
 from devops_cli.ai.review_schema import Finding, SavedFinding
+from devops_cli.config.constants import CONST_VERIFIED_BY_AGENT, CONST_VERIFIED_BY_HUMAN
 
 VerifiedBy = Literal[
     "criteria",
     "llm",
     "debate",
     "human",
+    "agent",
     "deterministic:syntax_error",
     "deterministic:missing_symbol",
     "deterministic:missing_header",
@@ -34,6 +37,18 @@ VerifiedBy = Literal[
     "deterministic:dry_run",
     "deterministic:vulnerable_dependency",
 ]
+
+
+class Adjudicator(StrEnum):
+    """Who gives a verdict through `devops review verify`: a person, or an agent.
+
+    Only a person's verdict is ground truth. Review history ranks sessions by it, and only it
+    teaches the learned catalog or records a mitigation in the ledger.
+    """
+
+    HUMAN = CONST_VERIFIED_BY_HUMAN
+    AGENT = CONST_VERIFIED_BY_AGENT
+
 
 _VALID_STATUSES: frozenset[str] = frozenset({"VERIFIED", "INVALIDATED", "MITIGATED", "UNVERIFIED"})
 

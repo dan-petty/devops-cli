@@ -48,13 +48,35 @@ class ReviewMessages:
     )
     no_review_sessions_found: str = "No review sessions found in .data/reviews/"
     no_findings_to_update: str = "Session has no findings to update."
-    specify_index_or_title: str = "Must specify --index <N> or --title <pattern>"
+    specify_one_finding: str = "Name one finding: --index <N>, --title <pattern> or --candidate <N>"
+    title_matches_none: str = "No finding title contains '{pattern}'."
+    title_matches_several: str = (
+        "Findings {numbers} all contain '{pattern}' in their titles; name one with --index."
+    )
     invalid_status_choices: str = (
         "Status must be one of: VERIFIED, INVALIDATED, MITIGATED, UNVERIFIED"
     )
     no_review_dir_found: str = "No review directory found."
     no_saved_sessions: str = "No saved review sessions found."
     updated_finding_status: str = "Updated finding #{index} status → {status}"
+    updated_candidate_status: str = "Updated candidate #{index} status → {status}"
+    candidate_moved: str = "Candidate #{index} added to findings.json as finding #{number}"
+    candidate_already_reported: str = (
+        "findings.json already reports candidate #{index}'s defect as finding #{number}; "
+        "give the verdict there with --index {number}."
+    )
+    candidate_copy_ambiguous: str = (
+        "Finding #{number} in findings.json reports candidates {candidates}, which share a "
+        "persona, title, location and description; give the verdict there with --index {number}, "
+        "which records it on each."
+    )
+    session_write_failed: str = (
+        "Cannot write the session's files, so the verdict was not recorded: {error}"
+    )
+    agent_over_person: str = (
+        "A person gave this finding its verdict, and an agent cannot change it; "
+        "only --adjudicator human can."
+    )
     sessions_counted: str = (
         "[bold]Sessions:[/bold] {total} (counted {counted}: {repeats} repeat sessions collapsed, "
         "{target_only} target-only, {unkeyed} unkeyed)"

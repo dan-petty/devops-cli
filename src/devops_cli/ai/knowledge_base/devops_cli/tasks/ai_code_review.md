@@ -56,7 +56,7 @@ graph TD
     - `Key Bad Patterns Observed`: Dynamically aggregates recurring defect classes and themes derived directly from identified reportable findings or confirms a clean assessment when zero findings are reported.
   - **Prompt Sanitization Marker Protection**: Guarantees that pre-prompt secret redaction markers (`<masked-*>`, `***REDACTED***`, `<secret-placeholder>`) are never hallucinated or verified as `NameError`, undefined placeholders, or runtime missing variables.
   - **Autonomous Common Hallucinations Registry & Ground-Truth Safety**: Centralized declarative catalog (`src/devops_cli/ai/review/common_hallucinations.json`) tracking recurring false positives (PEP 758 exceptions, masked secret placeholders `<masked-*>`, test mock credentials, HTTPX parameter conventions, false `ImportError` claims on imported symbols, unverified missing header claims, false CWE-400 resource exhaustion claims on bounded local file reads, and documentation anti-patterns). Automatically records invalidated findings into `.data/common_hallucinations.json` and enforces strict category-aligned guards (preventing syntax rules from over-matching security defects like path traversal or SSRF), comprehensive stop-word filtering, and ground-truth verification (`verify_ground_truth_hallucination`) before invalidation to ensure real security defects and genuine bugs are never suppressed.
-  - **Self-Improvement Feedback Loop (Export & Autonomous Learning)**: Invalidated findings and human feedback are captured through `devops review verify <session> <index> --status INVALIDATED --reason "..."`. The reason and finding attributes are automatically converted to new or updated entries in `.data/common_hallucinations.json` and exported to streaming JSONL datasets (`devops review export-feedback`) for continuous offline prompt fine-tuning, benchmark evaluation, and RAG retrieval.
+  - **Self-Improvement Feedback Loop (Verdicts & Export)**: Verdicts are recorded through `devops review verify <session> --index <n> --status <STATUS> --reason "..."`, where `<n>` is the number `devops review findings` shows whatever filter it applies. `--candidate <n>` judges a finding from `devops review findings --candidates`, including one verification invalidated, and a VERIFIED or MITIGATED verdict moves it into findings.json; when findings.json already reports its defect under another title, the command names that finding to judge instead. A verdict on a finding is recorded on the candidate it reports as well, and a verdict on a candidate on its copy in findings.json, so both lists agree; a candidate that its copy cannot tell apart from another of the same persona, title, location and description is judged through the copy with `--index`. Verdicts given on one session at once, as parallel MCP calls give them, take turns under a lock on the session. Each verdict records its adjudicator: `human`, or `agent` (`--adjudicator agent`; the MCP `verify_finding` tool always sends it), and an agent cannot change a person's verdict. Only a person's verdict ranks review history, on a reported finding or on a candidate kept out of findings.json, and history counts an agent's verdict in neither of its tiers. A person's INVALIDATED verdict adds or updates an entry in `.data/common_hallucinations.json` and a MITIGATED one records the mitigation in the ledger. Resetting the finding to UNVERIFIED withdraws what its verdicts recorded: an entry another verdict also recorded stays, and one nothing else recorded is removed. When the session's files cannot be written, the verdict is not recorded and the catalog and ledger are left as they were. Verdicts are exported with `devops review export-feedback`, which labels a record `human` only when a person gave it.
   - **Cross-Module Imported Symbol & AST Grounding**: The review verification engine inspects imported modules and definitions (`from X import Y`) across the repository tree to deterministically falsify claims that an imported function, variable, or class is missing or causes an `ImportError`.
   - **Dynamic Header & Configuration Mutation Grounding**: Traces dynamic dictionary mutations (e.g. `headers['Authorization'] = ...`) across enclosing function blocks, deterministically invalidating false claims of missing request headers or unauthenticated dispatches when keys are populated prior to network calls.
 
@@ -97,11 +97,18 @@ devops review findings --session latest --details
 # Filter findings by status (VERIFIED, UNVERIFIED, INVALIDATED, MITIGATED)
 devops review findings --status VERIFIED
 
-# Mark finding as MITIGATED after applying a fix
-devops review verify 20260910-143644 1 --status MITIGATED --reason "Service type changed to ClusterIP and NetworkPolicy jaeger-ingress created"
+# Mark finding #1 as MITIGATED after applying a fix (the number `review findings` shows)
+devops review verify 20260910-143644 --index 1 --status MITIGATED --reason "Service type changed to ClusterIP and NetworkPolicy jaeger-ingress created"
 
-# Mark finding as INVALIDATED if proven to be a false positive
-devops review verify 20260910-143644 2 --status INVALIDATED --reason "Symbol is re-exported via __all__ in target module"
+# Mark finding #2 as INVALIDATED if proven to be a false positive
+devops review verify 20260910-143644 --index 2 --status INVALIDATED --reason "Symbol is re-exported via __all__ in target module"
+
+# List the candidates verification invalidated, and restore a real defect it dropped
+devops review findings 20260910-143644 --candidates --invalidated
+devops review verify 20260910-143644 --candidate 7 --status VERIFIED --reason "The join takes the raw upload name"
+
+# An AI agent records its own verdict as an agent's, never a person's
+devops review verify 20260910-143644 --index 3 --status INVALIDATED --reason "..." --adjudicator agent
 
 # Export review report to markdown
 devops review branch --export-md .data/reviews/review-report.md
@@ -127,7 +134,7 @@ devops review export-feedback --status INVALIDATED --output .data/invalidated_fe
 8. **Closed-Loop Finding Remediation Workflow**: When remediating reported review findings:
    - **Step 1 (Test-First Specification)**: Author unit/regression tests asserting the defect and desired behavior before modifying source files.
    - **Step 2 (Clean Implementation & Architectural Invariants)**: Implement fixes adhering strictly to cyclomatic complexity $\le 10$ and maximum nesting depth $\le 5$ project-wide. Ruthlessly prune zombie code.
-   - **Step 3 (Status Verification & Invalidation Calibration)**: Update finding records in `.data/reviews/<session>/findings.json` to `MITIGATED` or `INVALIDATED` with explicit step-by-step causal rationale via `devops review verify`.
+   - **Step 3 (Status Verification & Invalidation Calibration)**: Record the verdict, `MITIGATED` or `INVALIDATED` with explicit step-by-step causal rationale, via `devops review verify <session> --index <n> --status <STATUS> --reason "..."`; an AI agent adds `--adjudicator agent`.
    - **Step 4 (Feedback Dataset Continuous Grounding)**: Run `devops review export-feedback --status ALL --output .data/reviews/feedback_dataset.jsonl` to synchronize the curated verdicts, completing the self-improvement feedback loop for multi-agent reasoning, benchmark evaluation (`devops benchmark suite`), and prompt fine-tuning.
 
 ---

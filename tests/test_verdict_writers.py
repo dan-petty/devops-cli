@@ -39,6 +39,7 @@ _ALL_WRITERS: list[tuple[str, VerifiedBy | None]] = [
     ("llm", "llm"),
     ("debate", "debate"),
     ("human", "human"),
+    ("agent", "agent"),
     ("syntax_error", "deterministic:syntax_error"),
     ("missing_symbol", "deterministic:missing_symbol"),
     ("missing_header", "deterministic:missing_header"),
