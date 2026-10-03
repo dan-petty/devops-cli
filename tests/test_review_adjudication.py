@@ -481,7 +481,7 @@ def test_the_exporter_labels_a_record_human_only_when_a_person_judged_it(tmp_pat
 
 
 _PREPARED = {
-    "path": ("_prepare_path_content", (["page"], "Path Review", "")),
+    "path": ("_prepare_path_content", (["page"], "Path Review", "", [])),
     "branch": (
         "_prepare_branch_content",
         (["diff"], "Branch Review", "", "feature", sentinel.base_revision),

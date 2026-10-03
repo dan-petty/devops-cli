@@ -22,7 +22,7 @@ import os
 import random
 import re
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
 from functools import partial
@@ -44,6 +44,7 @@ from devops_cli.ai.analyze.symbols import (
 from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.personas import PERSONAS
+from devops_cli.ai.review.calibration import calibrate_findings
 from devops_cli.ai.review.category_metrics import format_category_baseline_markdown
 from devops_cli.ai.review.chunker import (
     _split_source_file_blocks,
@@ -85,6 +86,7 @@ from devops_cli.ai.review_schema import (
     is_field_discriminating,
     parse_review_response,
     reset_verification_state,
+    strip_model_set_state,
     strip_outer_markdown_bold,
 )
 from devops_cli.ai.spend import stage_scope
@@ -112,12 +114,14 @@ from devops_cli.config.constants import (
     CONST_REVIEW_GENERATED_FILES,
     CONST_REVIEW_STATUS_ORDER,
     CONST_REVIEW_SYMBOL_DELTA_CHANGE_TYPES,
+    CONST_SEVERITY_CRITICAL,
     CONST_SEVERITY_INFO,
     CONST_SEVERITY_ORDER,
     CONST_VERIFICATION_UNAVAILABLE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
+    DEFAULT_LOCATION_CONTEXT_LINES,
     DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS,
     DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
     DEFAULT_REVIEW_RETRY_ATTEMPTS,
@@ -249,10 +253,14 @@ def _record_step_backend(step: Any, actual_servers: list[str]) -> None:
 
 
 def _resolve_step_parsed_data(step: Any) -> ReviewResult | None:
-    """Extract or parse ReviewResult from step parsed_data or text content."""
+    """Extract or parse ReviewResult from step parsed_data or text content.
+
+    A result the agent framework parsed is the model's text as much as one parsed here, so it
+    loses the same pipeline-only fields (#948).
+    """
     parsed_data = getattr(step, "parsed_data", None)
     if isinstance(parsed_data, ReviewResult):
-        return parsed_data
+        return strip_model_set_state(parsed_data)
     return parse_review_response(getattr(step, "content", "") or "")
 
 
@@ -1065,7 +1073,8 @@ _STATIC_ANALYZERS: tuple[tuple[str, str, str], ...] = (
     ("Pluto", BIN_PLUTO, "yaml"),
     ("Trivy", BIN_TRIVY, "container"),
     ("Semgrep", BIN_SEMGREP, "any"),
-    ("Gitleaks", BIN_GITLEAKS, "any"),
+    # Gitleaks also reads the files kept off persona pages (#948).
+    ("Gitleaks", BIN_GITLEAKS, "secrets"),
 )
 _ANALYZERS_WITH_BUILTIN_PATTERNS = frozenset({"Gitleaks"})
 
@@ -1151,27 +1160,72 @@ def _static_analyzer_summary(states: dict[str, str], findings: int) -> list[str]
     return lines
 
 
-def _scan_gitleaks_and_semgrep(
-    all_resolved: list[Path],
+# The analyzer line's lists after those that ran, in order.
+_ANALYZER_LINE_LISTS: tuple[tuple[str, str], ...] = (
+    (ANALYZER_BUILTIN_PATTERNS, "Built-in patterns only"),
+    (ANALYZER_FAILED, "Failed"),
+    (ANALYZER_NOT_INSTALLED, "Not installed"),
+)
+
+
+def _static_analysis_line(states: dict[str, str], severities: Counter[str]) -> str | None:
+    """The executive summary's analyzer line, computed from the scan (#948).
+
+    An analyzer counts as run only when it ran; one on built-in patterns, one that failed and
+    one not installed are named apart, and the critical findings are counted. The line was a
+    literal, "with 0 critical findings", while Bandit, Semgrep and Pluto had failed.
+    """
+    if not states:
+        return None
+    named: defaultdict[str, list[str]] = defaultdict(list)
+    for name, state in sorted(states.items()):
+        named[state].append(name)
+    ran = named[ANALYZER_RAN]
+    sentences = [
+        f"**Static Security Analysis**: {len(ran)} analyzer(s) ran ({', '.join(ran)})."
+        if ran
+        else "**Static Security Analysis**: no analyzer ran."
+    ]
+    if ran or named[ANALYZER_BUILTIN_PATTERNS]:
+        sentences.append(
+            f"Static analyzers reported {severities[CONST_SEVERITY_CRITICAL]} critical finding(s)."
+        )
+    sentences.extend(
+        f"{label}: {', '.join(named[state])}."
+        for state, label in _ANALYZER_LINE_LISTS
+        if named[state]
+    )
+    return " ".join(sentences)
+
+
+def _scan_secrets(
+    paths: list[Path],
     outcomes: dict[str, Any] | None = None,
 ) -> list[SavedFinding]:
-    """Run Gitleaks secret and Semgrep AST static analysis."""
-    if not all_resolved:
+    """Run the Gitleaks secret scan."""
+    if not paths:
         return []
     from devops_cli.security.gitleaks import run_gitleaks_scan
-    from devops_cli.security.semgrep import run_semgrep_scan
 
-    findings: list[SavedFinding] = []
-    gl = run_gitleaks_scan(all_resolved, ignore_tests=True)
+    gl = run_gitleaks_scan(paths, ignore_tests=True)
     if outcomes is not None:
         outcomes["Gitleaks"] = gl
-    findings.extend(_wrap_static_findings(gl))
+    return _wrap_static_findings(gl)
 
-    sg = run_semgrep_scan(all_resolved)
+
+def _scan_semgrep(
+    paths: list[Path],
+    outcomes: dict[str, Any] | None = None,
+) -> list[SavedFinding]:
+    """Run Semgrep AST static analysis."""
+    if not paths:
+        return []
+    from devops_cli.security.semgrep import run_semgrep_scan
+
+    sg = run_semgrep_scan(paths)
     if outcomes is not None:
         outcomes["Semgrep"] = sg
-    findings.extend(_wrap_static_findings(sg))
-    return findings
+    return _wrap_static_findings(sg)
 
 
 def _call_scanner_helper(
@@ -1627,6 +1681,100 @@ def _log_reviewed_file_completion(
         print_info(msg, prefix=False)
 
 
+def _status_rows(reportable_findings: list[SavedFinding]) -> list[list[str]]:
+    """The terminal summary's row counting the findings by status, as the report does (#948)."""
+    from devops_cli.ai.review.stages.reporting import status_counts
+
+    if not reportable_findings:
+        return []
+    counted, apart = status_counts(reportable_findings)
+    listed_apart = f"; listed apart: {', '.join(apart)}" if apart else ""
+    return [["By Status", f"{', '.join(counted) or 'none'}{listed_apart}"]]
+
+
+def _scanned_routed_files(
+    orchestrator: ReviewPipelineOrchestrator, findings_by_file: dict[str, list[SavedFinding]]
+) -> list[str]:
+    """The files kept off persona pages in which the secret scan found something."""
+    return [f for f in orchestrator.secret_scan_files if findings_by_file.get(f)]
+
+
+def _session_dependencies(file_payloads: Sequence[FileReviewPayload]) -> list[DependencySpec]:
+    """Every dependency the session scanned, each once, whichever file declared it."""
+    unique = {
+        (dep.name, dep.version_range, dep.ecosystem): dep
+        for payload in file_payloads
+        for dep in payload.external_dependencies
+    }
+    return list(unique.values())
+
+
+# A static analyzer's finding titled with the advisory it looked up: Trivy's `[CVE-2020-11111] ...`.
+_SCANNER_ADVISORY_TITLE = re.compile(
+    r"^\[((?:CVE-\d{4}-\d+|GHSA(?:-[0-9a-z]{4}){3}))\]", re.IGNORECASE
+)
+
+
+def _scanner_advisories(findings: Iterable[Finding]) -> list[DependencySpec]:
+    """The advisories the static analyzers looked up, each as a record of its package (#948).
+
+    Trivy matches a lockfile's pins against its database, so an advisory it names is one this
+    session's scan found, as an OSV record is. Verification takes these records with the
+    session's dependencies: the placeholder check invalidated Trivy's own finding of
+    CVE-2020-11111, and a package Trivy found vulnerable is not one the scan found clean.
+    """
+    records: list[DependencySpec] = []
+    for finding in findings:
+        if (match := _SCANNER_ADVISORY_TITLE.match(finding.title)) is None:
+            continue
+        target, _, package = finding.location.partition(":")
+        records.append(
+            DependencySpec(
+                name=package,
+                source_file=target,
+                severity=finding.severity,
+                queried=True,
+                vulnerabilities=[
+                    VulnerabilityRecord(
+                        id=match[1], package=package, severity=finding.severity, source="Trivy"
+                    )
+                ],
+            )
+        )
+    return records
+
+
+def _cited_line_number(location: str, lines: Sequence[str]) -> int | None:
+    """The line a location cites: its number or, for a location naming a package as Trivy's
+    `uv.lock:requests` does, the line declaring that package, else the first naming it."""
+    cited = location.partition(":")[2].strip()
+    if (number := re.match(r"\d+", cited)) is not None:
+        return int(number[0])
+    if not cited:
+        return None
+    declared = f'name = "{cited}"'
+    return next((n for n, line in enumerate(lines, 1) if line.strip() == declared), None) or next(
+        (n for n, line in enumerate(lines, 1) if cited in line), None
+    )
+
+
+def _cited_lines(text: str, findings: Sequence[Finding]) -> str:
+    """The numbered lines around what each finding cites, for the verifier of a file kept off
+    persona pages (#948).
+
+    Such a file is a lockfile or a planning document, kept off the pages for its size or its
+    noise, and its findings are the scanners'. A Trivy location such as `uv.lock:requests` has no
+    line, so the verifier was sent the whole file: this repository's uv.lock is 558 kB.
+    """
+    lines = text.splitlines()
+    wanted: set[int] = set()
+    for finding in findings:
+        if (center := _cited_line_number(finding.location, lines)) is not None:
+            low = max(1, center - DEFAULT_LOCATION_CONTEXT_LINES)
+            wanted.update(range(low, min(len(lines), center + DEFAULT_LOCATION_CONTEXT_LINES) + 1))
+    return "".join(f"{n}\t{lines[n - 1]}\n" for n in sorted(wanted))
+
+
 class ReviewPipelineOrchestrator:
     """Orchestrates 6-stage multi-agent code reviews with per-file payloads and AI scratchpads."""
 
@@ -1643,8 +1791,13 @@ class ReviewPipelineOrchestrator:
         subject: dict[str, str] | None = None,
         conventions_revision: str | None = None,
         full_output: bool = False,
+        secret_scan_files: Sequence[str] = (),
     ) -> None:
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        # Files kept off persona pages that the secret scan still reads: planning documents,
+        # generated references and lockfiles (#948). Neither persona review nor its payloads
+        # take them, except to carry what the scan found.
+        self.secret_scan_files = list(secret_scan_files)
         self.target_dir = target_dir
         # Print every finding, dependency and network reference to the terminal, as review.md
         # holds them, rather than the findings that matter and one line for the rest (#987).
@@ -1670,6 +1823,10 @@ class ReviewPipelineOrchestrator:
         self.errored_files: dict[str, str] = {}
         self.static_analyzers: dict[str, str] = {}
         self.static_analyzer_reasons: dict[str, str] = {}
+        # The static analyzers' findings by severity, for the report's analyzer line.
+        self.static_severities: Counter[str] = Counter()
+        # The advisories the static analyzers looked up, which verification counts as scanned.
+        self.scanner_advisories: list[DependencySpec] = []
         self._conventions_by_dir: dict[Path, str] = {}
         self.personas: list[str] = []
 
@@ -1887,11 +2044,16 @@ class ReviewPipelineOrchestrator:
                     )
                 )
 
-                # 4. Gitleaks & Semgrep scans
+                # 4. Gitleaks over the reviewed files and those kept off persona pages; Semgrep
+                # over the reviewed files
+                secret_paths = all_resolved + [
+                    self._resolve_file_path(f) for f in self.secret_scan_files
+                ]
                 all_static_findings.extend(
-                    _call_scanner_helper(
-                        _scan_gitleaks_and_semgrep, all_resolved, observed_outcomes
-                    )
+                    _call_scanner_helper(_scan_secrets, secret_paths, observed_outcomes)
+                )
+                all_static_findings.extend(
+                    _call_scanner_helper(_scan_semgrep, all_resolved, observed_outcomes)
                 )
                 self._record_static_analyzers(
                     {
@@ -1899,12 +2061,15 @@ class ReviewPipelineOrchestrator:
                         "yaml": yaml_paths,
                         "container": docker_lock_paths,
                         "any": all_resolved,
+                        "secrets": secret_paths,
                     },
                     observed_outcomes=observed_outcomes,
                 )
+                self.static_severities = Counter(f.severity for f in all_static_findings)
+                self.scanner_advisories = _scanner_advisories(all_static_findings)
 
                 static_findings_by_file = _match_static_findings_to_files(
-                    all_static_findings, file_paths
+                    all_static_findings, [*file_paths, *self.secret_scan_files]
                 )
 
                 sc_attrs = {
@@ -2321,9 +2486,10 @@ class ReviewPipelineOrchestrator:
                 unique_deps, unique_nets
             )
 
-            # Assemble and persist FileReviewPayload objects
+            # Assemble and persist FileReviewPayload objects; a file kept off persona pages
+            # gets one only to carry what the secret scan found in it
             payloads = self._assemble_and_persist_payloads(
-                file_paths=file_paths,
+                file_paths=[*file_paths, *_scanned_routed_files(self, static_findings_by_file)],
                 metadata_by_path=metadata_by_path,
                 static_findings_by_file=static_findings_by_file,
                 raw_file_data=raw_file_data,
@@ -2336,6 +2502,23 @@ class ReviewPipelineOrchestrator:
                 prefix=False,
             )
             return payloads
+
+    def scan_routed_files(
+        self, stage_flags: ReviewStageFlags | None = None
+    ) -> list[FileReviewPayload]:
+        """Secret-scan the files kept off persona pages, with nothing else to review, and give
+        each with a finding its payload (#948). No model is called."""
+        if stage_flags is not None and not stage_flags.static_scan:
+            return []
+        findings_by_file = self._run_static_scanners([])
+        return self._assemble_and_persist_payloads(
+            file_paths=_scanned_routed_files(self, findings_by_file),
+            metadata_by_path={},
+            static_findings_by_file=findings_by_file,
+            raw_file_data={},
+            dep_cache={},
+            net_cache={},
+        )
 
     # ── Multi-Persona Code Content Review ──────────────────────────────────────
     def _read_target_conventions(self) -> str:
@@ -2647,6 +2830,8 @@ class ReviewPipelineOrchestrator:
 
         active_personas = personas or ["devsecops", "architect", "qa"]
         self.personas = list(active_personas)
+        # A file kept off persona pages has a payload only to carry its secret-scan findings.
+        file_payloads = [p for p in file_payloads if p.file_path not in self.secret_scan_files]
         total_files = len(file_payloads)
         server_info = self._get_server_info()
 
@@ -2789,6 +2974,7 @@ class ReviewPipelineOrchestrator:
         server_info: str,
         diff_text: str | None = None,
         metadata_by_path: dict[str, FileAnalysisMeta] | None = None,
+        dependencies: Sequence[DependencySpec] = (),
     ) -> None:
         """Safely execute finding verification on single file payload with error capture."""
         if payload.file_path in self.errored_files:
@@ -2801,6 +2987,7 @@ class ReviewPipelineOrchestrator:
                 server_info=server_info,
                 diff_text=diff_text,
                 metadata_by_path=metadata_by_path,
+                dependencies=dependencies,
             )
         except Exception as exc:
             logger.error("Error verifying file %s: %s", payload.file_path, exc)
@@ -2815,6 +3002,19 @@ class ReviewPipelineOrchestrator:
                 prefix=False,
             )
 
+    def _verification_context(self, payload: FileReviewPayload, file_code: str) -> str:
+        """What the verifier of a file's findings reads.
+
+        A reviewed file is numbered as the reviewers saw it, so a finding's lines can be checked
+        against it, with its linked files. A file kept off persona pages gives only the lines
+        its findings cite (#948).
+        """
+        if payload.file_path in self.secret_scan_files:
+            return _cited_lines(file_code, payload.findings)
+        linked_snippets = _collect_linked_snippets(payload.linked_files, self._resolve_file_path)
+        linked_str = "\n\n".join(linked_snippets) if linked_snippets else ""
+        return number_source_lines(file_code) + ("\n\n" + linked_str if linked_str else "")
+
     def _verify_single_file_payload(
         self,
         idx: int,
@@ -2823,11 +3023,14 @@ class ReviewPipelineOrchestrator:
         server_info: str,
         diff_text: str | None = None,
         metadata_by_path: dict[str, FileAnalysisMeta] | None = None,
+        dependencies: Sequence[DependencySpec] = (),
     ) -> None:
         """Verify findings for a single file using cross-referencing and LLM reasoning.
 
         The session's own metadata says which symbols the diff removed, and the file's diff text
         gives the hunks a finding citing one is moved to; the numbered source stays the context.
+        `dependencies` are every dependency the session scanned, which a claim about one, or an
+        advisory a finding cites, is checked against (#948).
         """
         fpath = payload.file_path
         ext = Path(fpath).suffix.lower()
@@ -2849,17 +3052,14 @@ class ReviewPipelineOrchestrator:
                 except Exception as exc:
                     logger.debug("Failed reading target file %s for verification: %s", fpath, exc)
 
-            linked_snippets = _collect_linked_snippets(
-                payload.linked_files, self._resolve_file_path
-            )
-            linked_str = "\n\n".join(linked_snippets) if linked_snippets else ""
-            # Numbered as the reviewers saw it, so a finding's lines can be checked against it.
-            context = number_source_lines(file_code) + ("\n\n" + linked_str if linked_str else "")
+            context = self._verification_context(payload, file_code)
             findings_to_verify = [Finding(**f.model_dump()) for f in payload.findings]
 
             t_start = time.monotonic()
             review_res, proc_sec, actual_backend = _validate_segment_findings(
-                result=ReviewResult(findings=findings_to_verify),
+                result=ReviewResult(
+                    findings=findings_to_verify, external_dependencies=list(dependencies)
+                ),
                 all_segments=[context],
                 client=self.verification_client,
                 analysis_metas=metadata_by_path or {},
@@ -2991,6 +3191,7 @@ class ReviewPipelineOrchestrator:
             s4_span.set_attribute("review.batch_capacity", batch_capacity)
 
             diffs = diff_text_by_file or {}
+            dependencies = [*_session_dependencies(file_payloads), *self.scanner_advisories]
 
             def _verify_task(arg: tuple[int, FileReviewPayload]) -> None:
                 idx, payload = arg
@@ -3001,6 +3202,7 @@ class ReviewPipelineOrchestrator:
                     server_info,
                     diff_text=diffs.get(payload.file_path, ""),
                     metadata_by_path=metadata_by_path,
+                    dependencies=dependencies,
                 )
 
             if self.parallel and n_workers > 1:
@@ -3351,7 +3553,10 @@ class ReviewPipelineOrchestrator:
         removed_symbol_findings_count: int = 0,
         symbol_delta_summary: dict[str, int] | None = None,
     ) -> str:
-        from devops_cli.ai.review.stages.reporting import synthesize_report_executive_summary
+        from devops_cli.ai.review.stages.reporting import (
+            status_summary_lines,
+            synthesize_report_executive_summary,
+        )
 
         lines = [
             f"# Code Review Report (Session `{session_id}`)",
@@ -3364,12 +3569,13 @@ class ReviewPipelineOrchestrator:
                 all_deps=all_deps,
                 all_nets=all_nets,
                 errored_files=self.errored_files,
-                static_analyzers=self.static_analyzers,
+                analyzer_line=_static_analysis_line(self.static_analyzers, self.static_severities),
             )
         )
         summary_lines = [
             "## Summary of Reportable Findings",
             f"Total Findings: **{len(reportable_findings)}**",
+            *status_summary_lines(reportable_findings),
         ]
         if symbol_delta_summary and any(symbol_delta_summary.values()):
             summary_lines.append(
@@ -3767,6 +3973,7 @@ class ReviewPipelineOrchestrator:
         rows.extend(
             [
                 ["Reportable Findings", findings_str],
+                *_status_rows(reportable_findings),
                 ["Verification Rate", ver_rate_str],
                 ["False Positive Rate", fp_rate_str],
             ]
@@ -3834,10 +4041,11 @@ class ReviewPipelineOrchestrator:
             )
             return {}, ""
 
+        # An empty list is a review no persona ran, such as one of routed files alone (#948).
         resolved_personas = (
             personas
-            or (self.personas if self.personas else None)
-            or ["devsecops", "architect", "qa"]
+            if personas is not None
+            else (self.personas or ["devsecops", "architect", "qa"])
         )
 
         with trace_span(
@@ -3848,6 +4056,13 @@ class ReviewPipelineOrchestrator:
                 f"[dim]Generating report for session '{self.session_id}'...[/dim]",
                 prefix=False,
             )
+            # Verdicts are final here, so each finding's severity is capped by its evidence
+            # before candidates.json, findings.json and the report are written (#948).
+            from devops_cli.core.repo import find_repo_root
+
+            repo_root = find_repo_root(self.target_dir)
+            for payload in file_payloads:
+                payload.findings = calibrate_findings(payload.findings, root=repo_root)
             all_findings = self._collect_and_deduplicate_findings(file_payloads)
             report_span.set_attribute("review.final_findings_count", len(all_findings))
             report_span.add_event(

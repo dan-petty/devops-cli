@@ -21,9 +21,11 @@ from devops_cli.ai.analyze.symbols import BaseRevision
 from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
+from devops_cli.ai.review.calibration import calibrate_findings
 from devops_cli.ai.review.chunker import (
     _extract_header_filenames,
     _split_source_file_blocks,
+    skips_persona_review,
 )
 from devops_cli.ai.review.classification import _persona_system_prompt
 from devops_cli.ai.review.flags import ReviewStageFlags
@@ -56,8 +58,8 @@ from devops_cli.ai.review_schema import (
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_GIT_MAIN_BRANCH,
+    CONST_GIT_NAME_STATUS_CHANGE_TYPES,
     CONST_GITHUB_PR_FILE_CHANGE_TYPES,
-    CONST_REVIEW_GENERATED_FILES,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
@@ -125,6 +127,13 @@ def _personas_to_run(all_personas: bool, persona: Persona | None) -> list[Person
     if all_personas:
         return list(PERSONAS.values())
     return [PERSONAS[persona or Persona.DEVSECOPS]]
+
+
+def _orchestrator_personas(all_personas: bool, persona: Persona | None) -> list[str]:
+    """The personas the orchestrated review runs: the one named, all of them, or devsecops."""
+    if persona:
+        return [persona.value]
+    return ["devsecops", "architect", "qa", "auditor", "pm"] if all_personas else ["devsecops"]
 
 
 def _debug_block(title: str, payload: dict[str, Any]) -> None:
@@ -445,7 +454,7 @@ def _save_findings_json(
                     **f.model_dump(),
                 )
             )
-    findings = consolidate_duplicate_findings(findings)
+    findings = consolidate_duplicate_findings(calibrate_findings(findings))
     assert_verdict_invariants(findings)
     removed_count = sum(1 for f in findings if f.verification_note == "cites removed symbol")
     delta_summary = _compute_delta_summary(analysis_metas)
@@ -1446,8 +1455,6 @@ def _is_candidate_file_included(
     """Predicate determining if candidate file should be included in review scope."""
     if not candidate_path.is_file():
         return False
-    if candidate_path.name in CONST_REVIEW_GENERATED_FILES:
-        return False
     effective_root = repo_root or find_repo_root(candidate_path)
     if not is_from_git and not root_ignored and is_ignored_by_git(effective_root, candidate_path):
         return False
@@ -1459,38 +1466,63 @@ def _is_candidate_file_included(
     return rel.match(pattern)
 
 
-def _review_candidate_files(root: Path, pattern: str) -> list[Path]:
-    """The files under root that a path review reads, in review order."""
+def _review_label(path: Path, root: Path, repo_root: Path | None) -> Path:
+    """A collected file's name in review pages: relative to its repository, else to the root."""
+    if repo_root is not None and path.is_relative_to(repo_root):
+        return path.relative_to(repo_root)
+    return path.relative_to(root) if path.is_relative_to(root) else path
+
+
+def _partition_candidate_files(root: Path, pattern: str) -> tuple[list[Path], list[Path]]:
+    """The files under root a path review reads, in review order, and those it routes past the
+    personas to the secret scan alone (`skips_persona_review`, #948)."""
     repo_root = _git_repo_root(root)
     candidates, is_from_git, root_ignored = _list_git_tracked_candidates(root, repo_root)
+    reviewed: list[Path] = []
+    routed: list[Path] = []
+    for p in sorted(candidates):
+        if _is_candidate_file_included(p, root, repo_root, is_from_git, root_ignored, pattern):
+            skipped = skips_persona_review(_review_label(p, root, repo_root))
+            (routed if skipped else reviewed).append(p)
+    return reviewed, routed
+
+
+def _review_candidate_files(root: Path, pattern: str) -> list[Path]:
+    """The files under root that a path review reads, in review order."""
+    return _partition_candidate_files(root, pattern)[0]
+
+
+def _routed_changes(base_revision: BaseRevision | None) -> list[str]:
+    """The files a branch or pull request changed that persona review skips, for the secret
+    scan; a deleted file has nothing left to scan."""
+    if base_revision is None:
+        return []
+    deleted = CONST_GIT_NAME_STATUS_CHANGE_TYPES["D"]
     return [
-        p
-        for p in sorted(candidates)
-        if _is_candidate_file_included(p, root, repo_root, is_from_git, root_ignored, pattern)
+        change.path
+        for change in base_revision.changes
+        if change.change_type != deleted and skips_persona_review(change.path)
     ]
 
 
-def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
+def _file_blocks(root: Path, files: Sequence[Path]) -> list[str]:
+    """The review blocks of files collected under root, each under its review label."""
     blocks: list[str] = []
     repo_root = _git_repo_root(root)
 
-    for p in _review_candidate_files(root, pattern):
+    for p in files:
         try:
             text = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        try:
-            rel = p.relative_to(root)
-        except ValueError:
-            rel = p
-        file_label = (
-            p.relative_to(repo_root)
-            if repo_root is not None and p.is_relative_to(repo_root)
-            else rel
-        )
-        suffix = rel.suffix.lstrip(".") or "text"
+        file_label = _review_label(p, root, repo_root)
+        suffix = file_label.suffix.lstrip(".") or "text"
         blocks.extend(_split_source_file_blocks(file_label, suffix, text, _MAX_DIFF_CHARS))
     return blocks
+
+
+def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
+    return _file_blocks(root, _review_candidate_files(root, pattern))
 
 
 def _corpus_digest(targets: list[Path], pattern: str) -> str:
@@ -1661,8 +1693,9 @@ def _detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BR
     return str(preferred_base)
 
 
-def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, str]:
-    """Prepare paginated pages, title, and agents_md for path review target."""
+def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, str, list[str]]:
+    """Prepare paginated pages, title, agents_md, and the files kept off the pages for the
+    secret scan alone, for a path review target."""
     import typer
 
     from devops_cli.config.constants import CONST_MAX_FILE_SIZE_BYTES
@@ -1692,15 +1725,20 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
         content = target_resolved.read_text(encoding="utf-8", errors="replace")
         blocks = _split_source_file_blocks(Path(file_label), suffix, content, _MAX_DIFF_CHARS)
         title = str(file_label)
+        # A file named as the target is reviewed as asked.
+        routed: list[str] = []
     else:
         collecting_msg = MESSAGES.review.collecting_files.format(
             pattern=f"[cyan]{pattern}[/cyan]", target=f"[dim]{target_resolved}[/dim]"
         )
         print_info(collecting_msg, prefix=False)
-        blocks = _collect_file_blocks(target_resolved, pattern)
+        reviewed, routed_paths = _partition_candidate_files(target_resolved, pattern)
+        blocks = _file_blocks(target_resolved, reviewed)
+        repo_root = _git_repo_root(target_resolved)
+        routed = [_review_label(p, target_resolved, repo_root).as_posix() for p in routed_paths]
         title = str(target_resolved)
 
-    if not blocks:
+    if not blocks and not routed:
         print_warning(MESSAGES.review.no_files_found, prefix=False)
         raise typer.Exit(0)
 
@@ -1708,7 +1746,7 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
     agents_md = _load_agents_md(
         target_resolved if target_resolved.is_dir() else target_resolved.parent
     )
-    return pages, title, agents_md
+    return pages, title, agents_md, routed
 
 
 def _get_current_git_branch(repo_path: Path) -> str:
@@ -2156,9 +2194,20 @@ def _run_orchestrator_review(
         _record_profile_findings(payloads, candidates)
 
     with review_stage("report"):
-        payload_data, report_md = orchestrator.generate_consolidated_report(
-            payloads, stage_flags=stage_flags, personas=active_p
-        )
+        return _report_review(orchestrator, payloads, active_p, persona, stage_flags)
+
+
+def _report_review(
+    orchestrator: Any,
+    payloads: list[Any],
+    active_p: list[str],
+    persona: Persona | None,
+    stage_flags: ReviewStageFlags | None,
+) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
+    """Write the session's report and findings, and return them as the review's result."""
+    payload_data, report_md = orchestrator.generate_consolidated_report(
+        payloads, stage_flags=stage_flags, personas=active_p
+    )
     p_def = PERSONAS[persona or Persona.DEVSECOPS]
     raw_findings = payload_data.get("findings", []) if isinstance(payload_data, dict) else []
     findings_list = [Finding(**f) if isinstance(f, dict) else f for f in raw_findings]
@@ -2171,6 +2220,30 @@ def _run_orchestrator_review(
         summary="",
     )
     return [(p_def, result)]
+
+
+def _review_routed_files_only(
+    orchestrator: Any,
+    persona: Persona | None,
+    stage_flags: ReviewStageFlags | None,
+) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
+    """A review whose every file is routed past the personas: the secret scan reads them, the
+    report says what it found, and no model is called (#948).
+
+    The page builder yielded one empty page for such a diff, the orchestrator found no files,
+    and the legacy engine sent that empty page to the model.
+    """
+    from devops_cli.lang import MESSAGES
+
+    scanned = stage_flags is None or stage_flags.static_scan
+    message = (
+        MESSAGES.review.nothing_for_personas
+        if scanned
+        else MESSAGES.review.nothing_for_personas_unscanned
+    )
+    print_info(message.format(count=len(orchestrator.secret_scan_files)), prefix=False)
+    payloads = orchestrator.scan_routed_files(stage_flags=stage_flags)
+    return _report_review(orchestrator, payloads, [], persona, stage_flags)
 
 
 def _check_and_warn_perimeter_changes(target_type: str, changed_files: Sequence[str]) -> None:
@@ -2208,6 +2281,7 @@ def _execute_review_workflow(
     ground_contracts: bool = True,
     base_revision: BaseRevision | None = None,
     full_output: bool = False,
+    routed_files: Sequence[str] = (),
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Common review execution workflow for path, branch, and PR reviews.
 
@@ -2216,6 +2290,10 @@ def _execute_review_workflow(
     the target's conventions are read there rather than from disk. Both findings.json writers
     record the session's subject, which review history counts once. `full_output` prints the
     whole report to the terminal rather than the findings that matter and a summary of the rest.
+
+    The files kept off the pages still reach the secret scan: a path review names them in
+    `routed_files`, and a branch or PR's are the changes in `base_revision` they match (#948).
+    When no page is left, no model is called.
     """
     from devops_cli.ai.review.history import review_subject
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
@@ -2238,13 +2316,15 @@ def _execute_review_workflow(
         subject=subject,
         conventions_revision=base_revision.revision if base_revision else None,
         full_output=full_output,
+        secret_scan_files=sorted({*routed_files, *_routed_changes(base_revision)}),
     )
+    if not all_files:
+        return _review_routed_files_only(orchestrator, persona, stage_flags)
 
     if type(clients.analysis).__name__ == "LLMClient":
         server_info = orchestrator._get_server_info()
         n_af = len(all_files)
-        all_p = ["devsecops", "architect", "qa", "auditor", "pm"]
-        active_p = [persona.value] if persona else (all_p if all_personas else ["devsecops"])
+        active_p = _orchestrator_personas(all_personas, persona)
         with trace_span(
             "review.session",
             attributes={

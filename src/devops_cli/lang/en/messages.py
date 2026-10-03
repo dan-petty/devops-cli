@@ -33,6 +33,15 @@ class ReviewMessages:
     no_files_found: str = "No files found."
     diffing_branches: str = "Diffing {branch} against {base}..."
     no_diff_found: str = "No differences found between branches."
+    nothing_for_personas: str = (
+        "Nothing is left for the personas: every file under review is a lockfile, a planning "
+        "document or a generated reference. The secret scan still reads {count} of them."
+    )
+    nothing_for_personas_unscanned: str = (
+        "Nothing is left for the personas: every file under review is a lockfile, a planning "
+        "document or a generated reference. The static scan is off, so none of the {count} "
+        "is read."
+    )
     fetching_pr: str = "Fetching PR #{number} from {repo}..."
     findings_saved: str = "  ✓ findings saved → {path}"
     review_saved: str = "Review saved → {path}"

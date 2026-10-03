@@ -227,10 +227,13 @@ flowchart LR
   - `auditor`: Verifies license compliance, supply chain provenance, and invariant gate conformance.
 - **Knowledge Base Fact Grounding**: Review personas cross-reference findings against the DevOps CLI Knowledge Base (`src/devops_cli/ai/knowledge_base/`) to eliminate hallucinations (such as flagging verified dependencies like `httpx2` as suspicious).
 - **Finding Verification Engine & Feedback Loop**: `devops review verify` inspects findings using AST analysis, prompt sanitization marker protection (`<masked-*>`), and git diff validation before presenting recommendations to developers. Invalidated items are automatically ingested into `.data/common_hallucinations.json` and feedback datasets (`feedback_dataset.jsonl`) to continuously improve future reviews.
+- **Path Routing**: Path, branch and pull request reviews keep lockfiles, planning documents (`docs/ROADMAP.md`, `CHANGELOG.md`, `changelog.d/`, `docs/agent/tasks/`, `docs/adr/`) and generated references (`docs/commands/*.md`, `docs/CLI_REFERENCE.md`) off persona pages. The secret scan still reads them, and a secret it finds there is not capped as a document finding; a change made only of such files calls no model.
 - **Executive Summary & Pattern Synthesis**: Review reports (`review.md`) lead with an Executive Summary statement detailing:
-  - High-level synthesis of code health and risk distribution across evaluated files.
-  - **Key Good Patterns Observed**: Verified tool observations (dependencies queried with 0 CVEs, network endpoints, static analyzers); omitted when unqueried.
-  - **Key Anti-Patterns / Bad Patterns Observed**: Categorized breakdown of recurring defect classes and themes derived directly from identified findings, or confirmation of a clean assessment.
+  - The reported findings counted by status, each with its severities: verified and unverified, then, listed apart, those verification never reached and the mitigated ones. Findings rank verified first, then by severity, location and title; a model's confidence plays no part.
+  - The defect classes that recur among verified findings, most severe first. A finding's category is the CWE it cites or a class from a closed taxonomy, and severities are capped by their evidence when the report is written: CRITICAL requires VERIFIED, hedged titles are MEDIUM at most unless executed criteria verified them, and findings in tests and documents LOW at most unless they concern a verified secret or a secret scanner's match.
+  - **Static Security Analysis**: which analyzers ran, the critical findings they reported, and those on built-in patterns, failed or not installed.
+  - **Key Good Patterns Observed**: Verified tool observations (dependencies queried with 0 CVEs, network endpoints); omitted when unqueried.
+  - **Key Anti-Patterns / Bad Patterns Observed**: The defect classes that recur among verified findings, or confirmation that none recurs.
 
 ---
 

@@ -22,6 +22,7 @@ VerifiedBy = Literal[
     "deterministic:pathlib_resolve",
     "deterministic:scanned_clean_dependency",
     "deterministic:placeholder_advisory",
+    "deterministic:unbacked_advisory",
     "deterministic:unsupported_runtime",
     "deterministic:operational_protocol",
     "deterministic:test_fixture_credential",
@@ -54,7 +55,8 @@ _VALID_STATUSES: frozenset[str] = frozenset({"VERIFIED", "INVALIDATED", "MITIGAT
 
 # Every field verification owns on a finding: the verdict `apply_verdict` writes, the criteria
 # evidence it rests on, and what the verifier rewrites (the severity it rates on the reviewer's
-# bands, the location it re-anchors, the values it quotes). The pipeline copies each of them
+# bands and the band the reviewer gave, the location it re-anchors, the values it quotes, and the
+# advisories it strips with their note). The pipeline copies each of them
 # from the verified copy back onto the saved finding; the hand-kept list it had dropped the
 # verifier's severity.
 VERDICT_FIELDS: tuple[str, ...] = (
@@ -75,6 +77,9 @@ VERDICT_FIELDS: tuple[str, ...] = (
     "invalidated_criteria_matched",
     "criteria_execution_results",
     "severity",
+    "severity_raw",
+    "references",
+    "reference_note",
     "location",
     "relocated_from",
     "observed_value",

@@ -21,7 +21,7 @@ from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.review.chunker import page_line_number
 from devops_cli.ai.review.construct_validator import validate_construct_location
 from devops_cli.ai.review.verdicts import apply_verdict
-from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, extract_json_block
+from devops_cli.ai.review_schema import Finding, ReviewResult, extract_json_block, less_severe
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_AUTH_DISPATCH_PATTERNS,
@@ -626,13 +626,73 @@ def _check_pathlib_resolve_hallucination(finding: Finding) -> Finding | None:
     return None
 
 
-# A real advisory identifier is all digits after the year. A finding that cites
-# `CVE-2023-xxxx` has named no advisory at all -- the model wrote the shape of evidence
-# where the evidence belongs. Matching the placeholder is cheaper and more certain than
-# asking a second model whether the vulnerability is real.
-_PLACEHOLDER_ADVISORY_PATTERN = re.compile(
-    r"\b(?:CVE-\d{4}-|GHSA-)[0-9a-z]*[xn?]{3,}", re.IGNORECASE
+# An advisory id as written: `CVE-<year>-<number>` or `GHSA-xxxx-xxxx-xxxx`, placeholder
+# characters included, so a placeholder is caught as the id it pretends to be.
+_ADVISORY_ID = re.compile(
+    r"\b(?:CVE-\d{4}-[0-9a-z?]+|GHSA-[0-9a-z?]+(?:-[0-9a-z?]+)*)", re.IGNORECASE
 )
+_ADVISORY_PLACEHOLDER_RUN = re.compile(r"[xn?]{3,}", re.IGNORECASE)
+_ASCENDING_DIGITS = "0123456789"
+_MIN_SEQUENTIAL_ADVISORY_DIGITS = 4
+
+
+def _is_placeholder_advisory(advisory: str) -> bool:
+    """Whether an advisory id is written as a placeholder: an `x`, `n` or `?` run, or a run of
+    ascending digits.
+
+    A model that cites `CVE-2023-xxxx`, or the sequence `CVE-2023-1234`, has written the shape of
+    evidence where the evidence belongs. A sequence can still be a published id (CVE-2016-1234
+    is a glibc advisory), so the check spares one this session's scan carries.
+    """
+    number = advisory.split("-", 2)[-1] if advisory.upper().startswith("CVE-") else advisory[5:]
+    sequential = len(number) >= _MIN_SEQUENTIAL_ADVISORY_DIGITS and (
+        _ASCENDING_DIGITS.startswith(number) or _ASCENDING_DIGITS[1:].startswith(number)
+    )
+    return sequential or _ADVISORY_PLACEHOLDER_RUN.search(number) is not None
+
+
+def _backed_advisories(dependencies: Sequence[Any]) -> frozenset[str]:
+    """Every advisory id, and every alias of one, this session's dependency scan found."""
+    return frozenset(
+        advisory.upper()
+        for dep in dependencies
+        for vulnerability in getattr(dep, "vulnerabilities", None) or ()
+        for advisory in (vulnerability.id, *getattr(vulnerability, "aliases", ()))
+    )
+
+
+def _strip_unbacked_advisories(finding: Finding, dependencies: Sequence[Any]) -> Finding:
+    """The finding without the advisories in its references no scanned dependency carries.
+
+    The CVEs a model cites come from its training, not from the code: session
+    `20261001-224227` cited Log4j, polkit and OpenSSH advisories against a Python CLI whose
+    dependencies the same run scanned clean, and the report headlined one. An advisory stays
+    only when a vulnerability record of this session carries it, by id or alias; a note says
+    which left. A finding left with no reference had that advisory as its only evidence.
+    """
+    backed = _backed_advisories(dependencies)
+
+    def unbacked_in(reference: str) -> set[str]:
+        return {advisory.upper() for advisory in _ADVISORY_ID.findall(reference)} - backed
+
+    unbacked = sorted(set().union(*map(unbacked_in, finding.references)))
+    if not unbacked:
+        return finding
+    listed = ", ".join(unbacked)
+    stripped = finding.model_copy(
+        update={
+            "references": [ref for ref in finding.references if not unbacked_in(ref)],
+            "reference_note": f"Removed {listed}: no dependency this session scanned carries it",
+        }
+    )
+    if stripped.references:
+        return stripped
+    return apply_verdict(
+        stripped,
+        "INVALIDATED",
+        by="deterministic:unbacked_advisory",
+        reason=f"Its only evidence was {listed}, which no dependency this session scanned carries",
+    )
 
 
 def _check_scanned_clean_dependency(
@@ -679,24 +739,36 @@ def _check_scanned_clean_dependency(
     )
 
 
-def _check_placeholder_advisory_hallucination(finding: Finding) -> Finding | None:
+def _check_placeholder_advisory_hallucination(
+    finding: Finding, dependencies: Sequence[Any] = ()
+) -> Finding | None:
     """Invalidate a vulnerability claim whose only evidence is a placeholder advisory id.
 
     Dependency advisories come from the scanners, which look them up. When the identifier is
     a placeholder, nothing was looked up, and the surrounding claim was produced by the same
-    step that could not name it.
+    step that could not name it. An id a record of `dependencies`, this session's scan, carries
+    was looked up, whatever its digits: the check invalidated Trivy's own finding of
+    CVE-2020-11111 (#948).
     """
     text = f"{finding.title} {finding.description or ''} {' '.join(finding.references or [])}"
-    match = _PLACEHOLDER_ADVISORY_PATTERN.search(text)
-    if match is None:
+    backed = _backed_advisories(dependencies)
+    placeholder = next(
+        (
+            advisory
+            for advisory in _ADVISORY_ID.findall(text)
+            if _is_placeholder_advisory(advisory) and advisory.upper() not in backed
+        ),
+        None,
+    )
+    if placeholder is None:
         return None
     return apply_verdict(
         finding,
         "INVALIDATED",
         by="deterministic:placeholder_advisory",
         reason=(
-            f"Cites the placeholder advisory identifier {match.group(0)!r}, which names "
-            "no published advisory; dependency advisories come from the scanners"
+            f"Cites {placeholder!r}, an advisory id written as a placeholder that no dependency "
+            "this session scanned carries; dependency advisories come from the scanners"
         ),
     )
 
@@ -1314,7 +1386,7 @@ def _check_early_hallucinations(
         _check_conversational_monologue(title_lower, finding),
         _check_benign_compliment(title_lower, finding),
         _check_masked_placeholder_syntax_error(finding, title_lower, desc_lower),
-        _check_placeholder_advisory_hallucination(finding),
+        _check_placeholder_advisory_hallucination(finding, dependencies or ()),
         _check_scanned_clean_dependency(finding, dependencies or ()),
     ]
     for res in early_results:
@@ -1365,6 +1437,10 @@ def _deterministic_pre_verification(
     early_res = _check_early_hallucinations(finding, dependencies)
     if early_res:
         return early_res
+    if finding.status == "UNVERIFIED":
+        finding = _strip_unbacked_advisories(finding, dependencies or ())
+        if finding.status == "INVALIDATED":
+            return finding
 
     loc_file = finding.location.split(":")[0].strip()
     if not loc_file or _is_secret_path(loc_file):
@@ -1770,9 +1846,12 @@ def _check_finding_polarity(
 def _resolve_finding_attributes(
     f: Finding, item: dict[str, Any]
 ) -> tuple[str, str, str | None, str | None]:
-    """Resolve updated severity, location, observed value, and expected value."""
-    new_sev = str(item.get("severity", "")).upper().strip()
-    sev = new_sev if new_sev and new_sev in _SEVERITY_RANK else f.severity
+    """Resolve updated severity, location, observed value, and expected value.
+
+    The verifier may only lower a severity (#948): it raised findings it had no more evidence
+    for than the persona.
+    """
+    sev = less_severe(f.severity, item.get("severity", ""))
     raw_loc = item.get("location")
     if raw_loc is None or str(raw_loc).strip().lower() in ("none", "null", ""):
         loc = f.location
@@ -1873,6 +1952,7 @@ def _apply_single_finding_verification(
         confidence_score=conf,
         verified_at=now_iso if status_val != "UNVERIFIED" else None,
         severity=sev,
+        severity_raw=(f.severity_raw or f.severity) if sev != f.severity else None,
         location=loc,
         observed_value=final_obs,
         expected_value=final_exp,

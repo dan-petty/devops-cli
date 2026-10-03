@@ -7,6 +7,7 @@ import json
 import re
 from collections import defaultdict
 from collections.abc import Hashable, Iterable, Sequence
+from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -27,6 +28,8 @@ from devops_cli.config import (
     DEFAULT_REVIEW_TITLE_SIMILARITY_THRESHOLD,
 )
 from devops_cli.config.constants import (
+    CONST_REVIEW_CWE_DEFECT_CLASSES,
+    CONST_REVIEW_DEFECT_KEYWORDS,
     CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES,
     CONST_REVIEW_TITLE_FILLER_WORDS,
     CONST_VERIFICATION_NOTE_KINDS,
@@ -70,6 +73,8 @@ _SEVERITY_SYNONYMS: dict[str, str] = {
     "NOTE": "INFO",
 }
 VALID_STATUSES: frozenset[str] = frozenset({"UNVERIFIED", "VERIFIED", "INVALIDATED", "MITIGATED"})
+# Report order: what verification confirmed first, what it dismissed last.
+_STATUS_RANK: dict[str, int] = {"VERIFIED": 0, "UNVERIFIED": 1, "MITIGATED": 2, "INVALIDATED": 3}
 VALID_RECOMMENDATIONS: frozenset[str] = frozenset({"APPROVE", "REQUEST CHANGES", "BLOCK"})
 
 LINE_OVERLAP_TOLERANCE: int = DEFAULT_REVIEW_LINE_OVERLAP_TOLERANCE
@@ -150,7 +155,7 @@ def _tokenize_title(title: str) -> set[str]:
     return {w for w in words if len(w) > 2 and w not in _TITLE_FILLER_WORDS}
 
 
-def _parse_finding_references(raw_ref: Any) -> list[str]:
+def parse_finding_references(raw_ref: Any) -> list[str]:
     """Parse references from list, string, or literal representation."""
     if isinstance(raw_ref, list):
         return [normalize_unicode_text(str(r)).strip() for r in raw_ref if str(r).strip()]
@@ -551,6 +556,118 @@ def _parse_finding_criteria(raw: Any) -> list[VerificationCriterion]:
 # confidence) are `SkipJsonSchema`: still parsed, so saved findings reload, but never asked of a
 # reviewer, which invites it to fill them in. No docstring: pydantic would send it as the
 # schema's description.
+class DefectClass(StrEnum):
+    """The closed set of defect classes a review groups its findings by (#948).
+
+    A finding's `category` is the CWE it names or, naming none, the class its words name. Its
+    theme, the class the report and the category metrics group it under, is always a member:
+    a CWE maps here through `CONST_REVIEW_CWE_DEFECT_CLASSES`.
+    """
+
+    INJECTION = "injection"
+    PATH_TRAVERSAL = "path_traversal"
+    SSRF = "ssrf"
+    SECRET_EXPOSURE = "secret_exposure"
+    INFORMATION_EXPOSURE = "information_exposure"
+    ACCESS_CONTROL = "access_control"
+    AUTHENTICATION = "authentication"
+    CRYPTOGRAPHY = "cryptography"
+    INSECURE_TRANSPORT = "insecure_transport"
+    NETWORK_EXPOSURE = "network_exposure"
+    SECURITY_MISCONFIGURATION = "security_misconfiguration"
+    SUPPLY_CHAIN = "supply_chain"
+    RESOURCE_EXHAUSTION = "resource_exhaustion"
+    RACE_CONDITION = "race_condition"
+    ERROR_HANDLING = "error_handling"
+    INPUT_VALIDATION = "input_validation"
+    PROCESS_SAFETY = "process_safety"
+    DATA_INTEGRITY = "data_integrity"
+    RELIABILITY = "reliability"
+    SYNTAX_ERROR = "syntax_error"
+    TESTING = "testing"
+    DOCUMENTATION = "documentation"
+    LOGIC_ERROR = "logic_error"
+    CONFIGURATION = "configuration"
+    CODE_QUALITY = "code_quality"
+    # Names security and no narrower class.
+    SECURITY = "security"
+    OTHER = "other"
+
+    @property
+    def label(self) -> str:
+        """How a report names the class: `Path traversal`, `SSRF`."""
+        return "SSRF" if self is DefectClass.SSRF else self.value.replace("_", " ").capitalize()
+
+
+_DEFECT_CLASS_VALUES: frozenset[str] = frozenset(DefectClass)
+_CWE_ID = re.compile(r"\bCWE[-_: ]?(\d{1,5})\b", re.IGNORECASE)
+_CANONICAL_CWE = re.compile(r"CWE-\d+")
+_NON_ALPHANUMERIC = re.compile(r"[^a-z0-9]+")
+
+
+def _cwe_number(text: str) -> int | None:
+    """The number of the first CWE a text names."""
+    match = _CWE_ID.search(text)
+    return int(match.group(1)) if match else None
+
+
+def _keyword_defect_class(text: str) -> DefectClass | None:
+    """The class the first keyword found among the text's words names."""
+    words = f" {_NON_ALPHANUMERIC.sub(' ', text.lower()).strip()} "
+    return next(
+        (DefectClass(cls) for kw, cls in CONST_REVIEW_DEFECT_KEYWORDS if f" {kw} " in words),
+        None,
+    )
+
+
+def defect_class(*texts: str | None) -> DefectClass:
+    """The class the first text naming one names; `other` when none does.
+
+    A text names a class as its value (`path_traversal`), as a CWE the table maps (`CWE-22`,
+    `CWE-22 Path Traversal`), or in its words (`Path Traversal`). Callers pass a finding's
+    category, then its raw category, then its title.
+    """
+    for text in filter(None, texts):
+        if text in _DEFECT_CLASS_VALUES:
+            return DefectClass(text)
+        cwe = _cwe_number(text)
+        if cwe in CONST_REVIEW_CWE_DEFECT_CLASSES:
+            return DefectClass(CONST_REVIEW_CWE_DEFECT_CLASSES[cwe])
+        if (named := _keyword_defect_class(text)) is not None:
+            return named
+    return DefectClass.OTHER
+
+
+def assign_category(
+    category: str | None, references: Sequence[str], title: str
+) -> tuple[str, str | None]:
+    """A finding's category, and the raw category it replaces (#948).
+
+    A CWE named in the category or, failing that, in the references becomes `CWE-<n>`.
+    Otherwise the category's words, then the title's, name a defect class: since #951 the
+    persona writes no category, so the pipeline assigns one. A category already in either form
+    is kept as it is.
+    """
+    raw = (category or "").strip() or None
+    if raw is not None and (raw in _DEFECT_CLASS_VALUES or _CANONICAL_CWE.fullmatch(raw)):
+        return raw, None
+    cwe = next(
+        (n for text in (raw, *references) if text and (n := _cwe_number(text)) is not None),
+        None,
+    )
+    if cwe is not None:
+        return f"CWE-{cwe}", raw
+    return defect_class(raw, title).value, raw
+
+
+def less_severe(current: str, proposed: object) -> str:
+    """The less severe of a severity and the one `proposed` names; `current` when it names none."""
+    named = severity_named(proposed)
+    if named is None or _SEVERITY_RANK[named] <= _SEVERITY_RANK.get(current, -1):
+        return current
+    return named
+
+
 class Finding(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -628,10 +745,17 @@ class Finding(BaseModel):
         default=None,
         validation_alias=AliasChoices("regression_test", "test", "regression"),
     )
+    # `CWE-<n>` or a `DefectClass` value, which validation assigns (#948).
     category: SkipJsonSchema[str | None] = Field(
         default=None,
         validation_alias=AliasChoices("category", "type", "classification", "defect_class"),
     )
+    # The category a reviewer or scanner wrote, when validation replaced it.
+    category_raw: SkipJsonSchema[str | None] = None
+    # The severity the persona or scanner gave, when the verifier or calibration lowered it.
+    severity_raw: SkipJsonSchema[str | None] = None
+    # Why advisory ids left `references`: no dependency this session scanned carries them.
+    reference_note: SkipJsonSchema[str | None] = None
     observed_value: str | None = Field(
         default=None,
         validation_alias=AliasChoices("observed_value", "observed", "actual_value", "actual"),
@@ -715,7 +839,7 @@ class Finding(BaseModel):
     )
     @classmethod
     def _clean_references(cls, v: object) -> list[str]:
-        return _parse_finding_references(v)
+        return parse_finding_references(v)
 
     @field_validator(
         "verification_criteria",
@@ -748,6 +872,13 @@ class Finding(BaseModel):
             return None
         text = str(v).strip()
         return text if text else None
+
+    @model_validator(mode="after")
+    def _assign_category(self) -> Finding:
+        """One taxonomy for every finding: 148 free-text categories came out of one session."""
+        self.category, raw = assign_category(self.category, self.references, self.title)
+        self.category_raw = self.category_raw or raw
+        return self
 
     @model_validator(mode="after")
     def _validate_polarity(self) -> Finding:
@@ -969,15 +1100,19 @@ def _share_title_symbol_and_word(primary: Finding, candidate: Finding) -> bool:
     return len(shared_words | shared_symbols) >= 2
 
 
+def _first_set(base: Finding, other: Finding, names: Sequence[str]) -> dict[str, Any]:
+    """Each named field's value on `base`, or on `other` where `base` has none."""
+    return {name: getattr(base, name) or getattr(other, name) for name in names}
+
+
 def _merge_two_findings[F: Finding](base: F, other: F) -> F:
     """Merge duplicate finding `other` into `base`, taking highest severity and confidence."""
     base_sev = base.severity.upper().strip()
     other_sev = other.severity.upper().strip()
-    best_sev = (
-        base_sev
-        if _SEVERITY_RANK.get(base_sev, 99) <= _SEVERITY_RANK.get(other_sev, 99)
-        else other_sev
+    severest = (
+        base if _SEVERITY_RANK.get(base_sev, 99) <= _SEVERITY_RANK.get(other_sev, 99) else other
     )
+    best_sev = severest.severity.upper().strip()
 
     base_conf = base.confidence_score
     other_conf = other.confidence_score
@@ -989,10 +1124,9 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
     else:
         best_conf = other_conf
 
-    status_order = {"VERIFIED": 0, "UNVERIFIED": 1, "MITIGATED": 2, "INVALIDATED": 3}
     best_status = (
         base.status
-        if status_order.get(base.status, 99) <= status_order.get(other.status, 99)
+        if _STATUS_RANK.get(base.status, 99) <= _STATUS_RANK.get(other.status, 99)
         else other.status
     )
     verified_by: str | None
@@ -1036,6 +1170,7 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
 
     updates: dict[str, Any] = {
         "severity": best_sev,
+        "severity_raw": severest.severity_raw,
         "confidence_score": best_conf,
         "status": best_status,
         "verified": verified,
@@ -1052,6 +1187,7 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         "invalidated_criteria_matched": inv_match,
         "relocated_from": base.relocated_from or other.relocated_from,
         "category": base.category or other.category,
+        **_first_set(base, other, ("category_raw", "reference_note")),
         "observed_value": base.observed_value or other.observed_value,
         "expected_value": base.expected_value or other.expected_value,
         "finding_id": base.finding_id if base.finding_id is not None else other.finding_id,
@@ -1105,15 +1241,27 @@ def consolidate_duplicate_findings[F: Finding](findings: list[F]) -> list[F]:
     return sort_findings(consolidated)
 
 
+def _location_key(location: str) -> tuple[str, int]:
+    """A location as its file and first line, so line 9 sorts before line 12."""
+    file_part, start, _ = _parse_location(location)
+    return file_part, start or 0
+
+
 def sort_findings[F: Finding](findings: list[F]) -> list[F]:
-    """Sort findings by reportability, severity rank, confidence score descending, then verified."""
+    """Sort reportable findings first, then VERIFIED, UNVERIFIED and MITIGATED, then by severity,
+    location and title.
+
+    A model's confidence plays no part: ranked before verification, it put UNVERIFIED findings
+    at 1.0 above VERIFIED ones at 0.95 (#948).
+    """
     return sorted(
         findings,
         key=lambda f: (
             not f.reportable,
-            _SEVERITY_RANK.get(f.severity.upper().strip(), 99),
-            -(f.confidence_score if f.confidence_score is not None else -1.0),
-            not f.verified,
+            _STATUS_RANK.get(f.status, len(_STATUS_RANK)),
+            _SEVERITY_RANK.get((f.severity or "").upper().strip(), 99),
+            _location_key(f.location),
+            f.title,
         ),
     )
 
@@ -1316,17 +1464,23 @@ def reset_verification_state[F: Finding](finding: F) -> F:
     )
 
 
-def _strip_model_set_verification_state(result: ReviewResult) -> ReviewResult:
-    """Clear any verification note a model supplied in its own output.
+def strip_model_set_state(result: ReviewResult) -> ReviewResult:
+    """Clear every field only the pipeline may write that a model supplied in its own output.
 
-    `ReviewResult` is parsed directly from untrusted model text, so every field on it is
-    model-writable. `verification_note` exists to tell a reader the verifier never ran; a
-    model able to set it could announce a fabricated outage over findings that were
-    verified normally. Only the verification pipeline may write it, so it is cleared here
-    on the way in.
+    `ReviewResult` is parsed from untrusted model text, by `parse_review_response` or by the
+    agent framework, so every field on it is model-writable. `verification_note` exists to tell
+    a reader the verifier never ran; a model able to set it could announce a fabricated outage
+    over findings that were verified normally. The dependencies and network references are the scans' own: a reply
+    that declared a dependency scanned clean, or listed an endpoint, would be trusted by the
+    checks that read them (#948). The raw severity and the reference note record what the
+    pipeline changed.
     """
     for finding in result.findings:
         finding.verification_note = None
+        finding.severity_raw = None
+        finding.reference_note = None
+    result.external_dependencies = []
+    result.network_references = []
     return result
 
 
@@ -1398,7 +1552,7 @@ def parse_review_response(response: str | Any) -> ReviewResult | None:
         return None
     if fixed.thinking and not result.thinking:
         result.thinking = fixed.thinking
-    return _strip_model_set_verification_state(result)
+    return strip_model_set_state(result)
 
 
 def compute_verdict_distributions(

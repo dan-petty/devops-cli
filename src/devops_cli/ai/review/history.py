@@ -27,10 +27,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from devops_cli.ai.review.profile import ReviewProfile
-from devops_cli.ai.review_schema import normalize_finding_status
+from devops_cli.ai.review_schema import (
+    assign_category,
+    normalize_finding_status,
+    parse_finding_references,
+)
 from devops_cli.ai.run_store import digest
 from devops_cli.config.constants import (
     CONST_REVIEW_CANDIDATES_FILENAME,
@@ -66,12 +70,16 @@ def subject_key(subject: dict[str, str]) -> str | None:
 
 
 class HistoryFinding(BaseModel):
-    """The fields of a saved finding that history's figures read."""
+    """The fields of a saved finding that history's figures read.
+
+    Its category is assigned as a `Finding`'s is, so a finding saved before the taxonomy
+    existed (#948) counts under the class a full parse would give it.
+    """
 
     title: str = ""
-    description: str = ""
     category: str | None = None
-    invalidation_reason: str | None = None
+    category_raw: str | None = None
+    references: list[str] = Field(default_factory=list)
     status: str = DEFAULT_FINDING_STATUS
     verified_by: str | None = None
     persona: str = ""
@@ -80,6 +88,17 @@ class HistoryFinding(BaseModel):
     @classmethod
     def _normalize_status(cls, v: object) -> str:
         return normalize_finding_status(v)
+
+    @field_validator("references", mode="before")
+    @classmethod
+    def _clean_references(cls, v: object) -> list[str]:
+        return parse_finding_references(v)
+
+    @model_validator(mode="after")
+    def _assign_category(self) -> HistoryFinding:
+        self.category, raw = assign_category(self.category, self.references, self.title)
+        self.category_raw = self.category_raw or raw
+        return self
 
 
 class _HistoryPayload(BaseModel):

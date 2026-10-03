@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from devops_cli.ai.review_schema import defect_class
+
 if TYPE_CHECKING:
     from devops_cli.ai.review.history import HistoryFinding, ReviewHistory
     from devops_cli.ai.review_schema import Finding, SavedFinding
@@ -33,19 +35,13 @@ class CategoryMetric:
 
 
 def resolve_finding_category(finding: Finding | SavedFinding | HistoryFinding) -> str:
-    """Determine the canonical category for a finding.
+    """A finding's theme: the `DefectClass` value its category, raw category or title names.
 
-    Honors explicit finding category when present; otherwise infers the category
-    from title, invalidation reason, and description.
+    One function serves the category metrics and the report's themes (#948). A finding saved
+    before the taxonomy existed, read back from history with its free-text category, gets the
+    class that text names.
     """
-    if finding.category and finding.category.strip():
-        return finding.category.strip().lower()
-
-    from devops_cli.ai.review.common_hallucinations import _infer_hallucination_category
-
-    reason_or_desc = finding.invalidation_reason or finding.description or ""
-    inferred = _infer_hallucination_category(finding.title, reason_or_desc)
-    return inferred.value
+    return defect_class(finding.category, finding.category_raw, finding.title).value
 
 
 def _build_category_metric(category: str, counts: dict[str, int]) -> CategoryMetric:
