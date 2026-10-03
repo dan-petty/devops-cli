@@ -2,7 +2,9 @@
 # Tiers: 16gib, 24gib, 32gib, 48gib, 64gib, 72gib, 96gib, 128gib.
 # Each tier keeps one model loaded and serves one request at a time. Ollama reserves KV cache for
 # OLLAMA_CONTEXT_LENGTH x OLLAMA_NUM_PARALLEL tokens, and four slots left a dense ~30B model too
-# little VRAM to load (#1061).
+# little VRAM to load (#1061). The exception is ollama-48gib-slow, the background tier: it keeps
+# its embedding model and one background model loaded, since with one loaded each evicted the
+# other on every switch (#1064).
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -465,9 +467,11 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "128000"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "1"
+              value: "2"    # its embedding model and qwen3-coder:30b stay loaded together
             - name: OLLAMA_NUM_PARALLEL
               value: "1"
+            - name: OLLAMA_KEEP_ALIVE
+              value: "-1"   # no reload after 5 idle minutes; the gateway sends it no third model
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD
