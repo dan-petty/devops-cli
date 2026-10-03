@@ -21,7 +21,7 @@ def _validate_langchain_kwargs(kwargs: dict[str, Any]) -> str | None:
     return None
 
 
-def tool_from_langchain(
+def tool_from_langchain(  # noqa: C901
     langchain_tool: Any,
     *,
     name: str | None = None,

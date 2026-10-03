@@ -211,7 +211,7 @@ class SubAgents(BaseCapability):
             call_counts=defaultdict(int),
         )
 
-    def load_disk_agents(self) -> list[SubAgent]:
+    def load_disk_agents(self) -> list[SubAgent]:  # noqa: C901
         """Auto-load markdown agent definitions from conventional or configured folders."""
         if self.agent_folders is None:
             return []
@@ -259,11 +259,11 @@ class SubAgents(BaseCapability):
             return target.models[0]
         return next(iter(self.models.keys()))
 
-    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:  # noqa: C901
         all_sub_agents = self.get_all_agents()
         agent_map = {sa.name: sa for sa in all_sub_agents}
 
-        def delegate_task(
+        def delegate_task(  # noqa: C901
             ctx: NativeRunContext[Any] = None,  # type: ignore[assignment]
             agent_name: str = "",
             task: str = "",

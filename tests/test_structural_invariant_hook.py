@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
+
+from devops_cli.security.structural_invariants import breaches, measure
 
 
 def _run(*paths: Path) -> subprocess.CompletedProcess[str]:
@@ -42,20 +47,6 @@ def test_shallow_nesting_passes(tmp_path: Path) -> None:
     assert _run(module).returncode == 0
 
 
-def test_complexity_is_reported_without_blocking(tmp_path: Path) -> None:
-    """240 functions in `src/` breach the complexity cap and nothing enforces it.
-
-    Failing here would block work on any of those files rather than hold a line the
-    codebase is already on, so the breach is reported and the commit proceeds.
-    """
-    module = tmp_path / "complex.py"
-    body = "def f(x):\n" + "".join(f"    if x == {i}:\n        return {i}\n" for i in range(14))
-    module.write_text(body + "    return None\n", encoding="utf-8")
-
-    result = _run(module)
-    assert (result.returncode, "complexity" in result.stderr) == (0, True)
-
-
 def test_the_metric_matches_the_projects_own_scanner() -> None:
     """A hook stricter than the scanner rejects code the project accepts.
 
@@ -79,3 +70,32 @@ def test_an_unparseable_file_is_reported_rather_than_skipped(tmp_path: Path) -> 
     module = tmp_path / "broken.py"
     module.write_text("def f(:\n", encoding="utf-8")
     assert _run(module).returncode == 1
+
+
+def test_a_long_expression_is_measured_rather_than_overflowing(tmp_path: Path) -> None:
+    """`1 + 1 + ... + 1` parses one node deeper per term.
+
+    A recursive walk spending two frames per node raised RecursionError from 600 terms on, a
+    traceback where the hook before it passed; the walk now keeps its own stack (#586).
+    """
+    module = tmp_path / "long.py"
+    expression = " + ".join(["1"] * 3000)
+    module.write_text(f"def f(x):\n    if x:\n        return {expression}\n", encoding="utf-8")
+    function = ast.parse(module.read_text(encoding="utf-8")).body[0]
+
+    assert (measure(function), breaches(module)) == (1, [])
+
+
+def test_a_parser_overflow_is_reported_rather_than_raised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`ast.parse` raises RecursionError on an expression too deep for its own stack."""
+
+    def overflow(source: str) -> ast.Module:
+        raise RecursionError("Stack overflow during compilation")
+
+    module = tmp_path / "deep.py"
+    module.write_text("x = 1\n", encoding="utf-8")
+    monkeypatch.setattr(ast, "parse", overflow)
+
+    assert breaches(module) == [f"{module}: could not parse (Stack overflow during compilation)"]

@@ -374,7 +374,7 @@ class PlaywrightBrowser(BaseCapability):
             guidance=guidance,
         )
 
-    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:  # noqa: C901
         def navigate(url: str, timeout_ms: int | None = None) -> str:
             """Navigate to a URL and return title, URL, and visible page text."""
             from urllib.parse import urlparse

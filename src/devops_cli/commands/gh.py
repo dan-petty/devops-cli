@@ -1070,7 +1070,7 @@ def issues_status_cmd(
 
 
 @issues_app.command("edit", help=HELP.gh.issues_edit)
-def edit_issue_cmd(
+def edit_issue_cmd(  # noqa: C901
     number: Annotated[int, typer.Argument(help="Issue number to edit.")],
     title: Annotated[
         str | None,

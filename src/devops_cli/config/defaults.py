@@ -689,6 +689,9 @@ DEFAULT_PROJECT_NAME: str = "devops-cli"
 DEFAULT_DEPENDENCY_MIN_SEVERITY: str = "HIGH"
 DEFAULT_SBOM_FORMAT: str = "cyclonedx"
 DEFAULT_MAX_COMPLEXITY: int = 10
+# The C901 markers src/ and tests/ may carry: the functions over the cap when Ruff began
+# enforcing it (#586). It only goes down; a function over the cap is decomposed instead.
+DEFAULT_C901_SUPPRESSION_CEILING: int = 66
 DEFAULT_MAX_NESTING_DEPTH: int = 5
 DEFAULT_QUANTIZATION_BITS: int = 16
 

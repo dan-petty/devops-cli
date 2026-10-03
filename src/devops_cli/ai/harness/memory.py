@@ -626,7 +626,7 @@ class Memory(BaseCapability):
                     raise
         return additions
 
-    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:  # noqa: C901
         prefix = f"{self.tool_prefix}_" if self.tool_prefix else ""
         store = self.store
 

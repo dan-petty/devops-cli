@@ -47,8 +47,8 @@ repos:
       # Pure-stdlib AST walk over the staged files: no devops_cli import, because loading
       # the package costs about five seconds before a single file is read, and a
       # commit-time gate has to cost less than the commit. Blocks on nesting depth, which
-      # the tree currently satisfies; complexity is reported without blocking, since 240
-      # functions breach that cap today and nothing enforces it.
+      # the tree currently satisfies. Complexity is not checked here: it is Ruff's C901,
+      # run by the ruff-check hook above.
       - id: structural-invariants
         name: AST structural invariants (nesting depth)
         entry: uv run python3 -m devops_cli.security.structural_invariants

@@ -437,7 +437,7 @@ class Planning(BaseCapability):
         _render_node(None)
         return "\n".join(lines)
 
-    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:  # noqa: C901
         all_tools: list[AgentTool | Callable[..., Any]] = []
 
         def write_plan(items: list[dict[str, Any] | PlanItem | str]) -> str:

@@ -169,8 +169,8 @@ def test_one_error_code_maps_to_one_exit_status() -> None:
     `EmbeddingsError` reused `LLM_INFERENCE_ERROR` while exiting 1 rather than 10, so the
     generated catalog listed the same code against both.
     """
-    import devops_cli.ai.client.models  # noqa: F401
-    import devops_cli.ai.rag.embeddings  # noqa: F401
+    import devops_cli.ai.client.models
+    import devops_cli.ai.rag.embeddings
     import devops_cli.exceptions.ai  # noqa: F401
 
     def descendants(cls: type[DevOpsCLIError]) -> list[type[DevOpsCLIError]]:

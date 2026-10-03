@@ -368,7 +368,7 @@ class Shell(BaseCapability):
                 self.stop_grace_seconds,
             )
 
-    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:  # noqa: C901
         bg_commands: dict[str, _BackgroundCommand] = {}
 
         def run_command(command: str, timeout_seconds: float | None = None) -> str:

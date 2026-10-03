@@ -251,7 +251,7 @@ class FileSystem(BaseCapability):
 
         return "\n".join(matches) or f"No files matching pattern '{pattern}' found."
 
-    def _search_files(self, query: str, path: str = ".", include_glob: str | None = None) -> str:
+    def _search_files(self, query: str, path: str = ".", include_glob: str | None = None) -> str:  # noqa: C901
         """Regex or text search across file contents."""
         safe_p = self._resolve_safe_path(path)
         if not safe_p.is_dir():

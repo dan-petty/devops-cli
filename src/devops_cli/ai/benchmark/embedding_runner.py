@@ -311,7 +311,7 @@ class EmbeddingBenchmarkRunner:
             endpoint = self.servers[0] if self.servers else "default"
         return self.evaluate_model_on_server(model_name, endpoint, pairs, corpus)
 
-    def evaluate_model_on_server(
+    def evaluate_model_on_server(  # noqa: C901
         self,
         model_name: str,
         server_url: str,

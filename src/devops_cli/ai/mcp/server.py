@@ -511,7 +511,7 @@ def docker_stats() -> str:
 
 
 @mcp.tool()
-def docker_sign(
+def docker_sign(  # noqa: C901
     image: str,
     key: str | None = None,
     keyless: bool = True,
@@ -549,7 +549,7 @@ def docker_sign(
 
 
 @mcp.tool()
-def docker_verify(
+def docker_verify(  # noqa: C901
     image: str,
     key: str | None = None,
     certificate_identity: str | None = None,
@@ -1362,7 +1362,7 @@ def docker_sandbox(
 
 
 @mcp.tool()
-def sandbox_deploy(
+def sandbox_deploy(  # noqa: C901
     image: str = "python:3.14-slim",
     name: str | None = None,
     ports: list[int] | None = None,

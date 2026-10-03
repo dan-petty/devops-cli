@@ -223,7 +223,7 @@ class PydanticAgent[T, DepsT = Any]:
             tools=tools,
         )
 
-    def __init__(
+    def __init__(  # noqa: C901
         self,
         model: str | Any | None = None,
         system_prompt: str | None = None,
@@ -606,7 +606,7 @@ class PydanticAgent[T, DepsT = Any]:
             include_type_defs=include_type_defs,
         )
 
-    def _build_system_prompt_with_tools(
+    def _build_system_prompt_with_tools(  # noqa: C901
         self, ctx: RunContext[Any] | None = None, *, skip_memory_summary: bool = False
     ) -> str:
         base_prompt: str = str(self.system_prompt)
@@ -676,7 +676,7 @@ class PydanticAgent[T, DepsT = Any]:
 
         return "\n\n".join(prompt_parts)
 
-    def _dispatch_tool_calls(
+    def _dispatch_tool_calls(  # noqa: C901
         self,
         tool_calls_info: list[Any],
         tool_calls: list[ToolCall],
@@ -797,7 +797,7 @@ class PydanticAgent[T, DepsT = Any]:
                 messages.append(ChatMessage(role="user", content=extra_content))
         return executed_any, already_called, deferred_requests
 
-    def run(
+    def run(  # noqa: C901
         self,
         user_prompt: str,
         *,
