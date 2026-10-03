@@ -1,0 +1,15 @@
+{
+  "enabledPlugins": {
+    "mattpocock-skills@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true,
+    "mcp-server-dev@claude-plugins-official": true,
+    "cloudflare@claude-plugins-official": true,
+    "pydantic-ai@claude-plugins-official": true,
+    "grafana-mcp@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(uv run devops *)"
+    ]
+  }
+}

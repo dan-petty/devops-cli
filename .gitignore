@@ -67,8 +67,9 @@ secrets/
 .data/*
 !.data/.gitkeep
 
-# Claude
-.claude/
+# Claude: the shared project settings are committed; local settings, scratch and worktrees are not
+.claude/*
+!.claude/settings.json
 
 # Kilo Code
 .kilo/
