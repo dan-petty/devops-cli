@@ -267,7 +267,7 @@ sequenceDiagram
    - Creates topic branch `release/v<version>`, commits bumps, and opens a GitHub Release PR targeting `main` titled `feat(release): v<version>`.
 3. **Run Authoritative Release Check**: Run `uv run devops release check` to verify tree cleanliness, version matching, and CI validation.
 4. **Human Maintainer Merge**: The maintainer reviews and squash-merges the Release PR into `main`.
-5. **Automated Publishing & Milestone Closure**: GitHub Actions (`release.yml`) cuts the git tag, extracts release notes with `devops release notes`, creates the GitHub Release, closes the release milestone via `devops gh milestones close <version>`, and publishes the pre-built DevContainer image to GHCR.
+5. **Automated Publishing & Milestone Closure**: GitHub Actions (`release.yml`) cuts the git tag, extracts release notes with `devops release notes` (over GitHub's 125,000-character Release body limit, each entry's title alone and a link to the version's section of `CHANGELOG.md` at its tag), creates the GitHub Release, closes the release milestone via `devops gh milestones close <version>`, and publishes the pre-built DevContainer image to GHCR.
 6. **Post-Release DevContainer Validation**: Run `uv run devops devcontainer run-lifecycle --all` to verify container lifecycle tasks.
 7. **Next Active Milestone Initialization & Issue/Views Population**:
    - Cut and push the next release branch (`release/vX.Y.Z`) from `main`.

@@ -403,6 +403,11 @@ class ReleaseMessages:
     notes_republish_failed: str = "✗ Could not update {tag}"
     notes_unreadable: str = "Skipped {tag}: the published description could not be read"
     notes_no_changelog: str = "Skipped {tag}: no changelog entry"
+    notes_details_left_out: str = "Each entry's details are left out to fit GitHub's size limit."
+    notes_full_notes: str = "The full notes are in {full_notes}."
+    notes_full_notes_linked: str = "[`CHANGELOG.md` at v{version}]({url})"
+    notes_full_notes_unlinked: str = "`CHANGELOG.md` at v{version}"
+    notes_entries_left_out: str = "Entries left out to fit: {count}."
     dry_run_prepare: str = (
         "[yellow][dry-run][/yellow] Would bump version to {version} and sync docs/README"
     )
