@@ -265,6 +265,7 @@ def test_run_review_and_persona_loop(tmp_path: Path) -> None:
             agents_md="",
             build_prompt=_build_path_prompt,
             session_dir=tmp_path,
+            target_dir=tmp_path,
         )
         assert result is not None
         assert isinstance(result, ReviewResult)
@@ -278,6 +279,7 @@ def test_run_review_and_persona_loop(tmp_path: Path) -> None:
             agents_md="",
             all_personas=False,
             persona=Persona.DEVSECOPS,
+            target_dir=tmp_path,
         )
         assert len(completed_list) == 1
 
@@ -845,18 +847,21 @@ def test_execute_findings_validation_parallel_and_error_handling() -> None:
             segment_results=[res1, res2],
             clients=clients,
             analysis_suffix="",
+            target_dir=Path("."),
         )
         assert (len(validated), validated[0], validated[1]) == (2, res1, None)
 
 
-def test_run_persona_loop_parallel_and_error_handling() -> None:
+def test_run_persona_loop_parallel_and_error_handling(tmp_path: Path) -> None:
     """Verify _run_persona_loop executes personas in parallel and isolates errors."""
     clients = MagicMock()
     clients.analysis._config.ollama_max_parallel = 2
     clients.analysis._config.ollama_urls = ["http://example.com:11434"]
     pages = ["diff content"]
 
-    def _mock_run(pages, title, pd, cl, agents, build_p, prebuilt_metadata=None, session_dir=None):
+    def _mock_run(
+        pages, title, pd, cl, agents, build_p, prebuilt_metadata=None, session_dir=None, **_
+    ):
         if pd.name == "qa":
             raise RuntimeError("QA Persona crashed")
         return f"Completed review for {pd.title}"
@@ -876,6 +881,7 @@ def test_run_persona_loop_parallel_and_error_handling() -> None:
             agents_md="",
             all_personas=True,
             persona=None,
+            target_dir=tmp_path,
         )
         completed_names = [pd.name for pd, _ in completed]
         assert ("qa" not in completed_names, "devsecops" in completed_names) == (

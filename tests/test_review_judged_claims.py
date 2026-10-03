@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 from pathlib import Path
 from unittest.mock import patch
 
@@ -284,3 +285,120 @@ def test_a_pull_request_review_is_shown_and_suppresses_its_checkouts_judged_clai
         judged.title in block,
         isinstance(raised, Finding) and raised.verified_by,
     ) == (0, True, True, "deterministic:person_verdict")
+
+
+def test_a_review_outside_the_working_directory_is_shown_only_its_targets_judged_claims(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify the personas of a review whose target is not the working directory are shown the
+    claims disproved in the target's project, and none disproved in the working directory's
+    (#1100). The persona loop built its system prompt without the target, so the working
+    directory's judged claims entered the prompt and could suppress a valid finding."""
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.personas import Persona
+    from devops_cli.ai.review.runner import ReviewClients, _execute_review_workflow
+
+    here = _checkout(tmp_path / "here", {"runner.py": _RUNNER})
+    target = _checkout(tmp_path / "target", {"runner.py": _RUNNER})
+    monkeypatch.chdir(here)
+    _judged(_finding("runner.py:6", title="`exec` claim disproved in the target"), target)
+    _judged(_finding("runner.py:6", title="`exec` claim disproved in the working directory"), here)
+    systems: list[str] = []
+    from devops_cli.ai.review.runner import _execute_review_segments
+
+    signature = inspect.signature(_execute_review_segments)
+
+    def segments(*args: object, **kwargs: object) -> list[str]:
+        systems.append(str(signature.bind(*args, **kwargs).arguments["analysis_system"]))
+        return [""]
+
+    with patch("devops_cli.ai.review.runner._execute_review_segments", side_effect=segments):
+        _execute_review_workflow(
+            [f"### File: runner.py\n{_RUNNER}"],
+            "Path review",
+            MagicMock(),
+            "",
+            False,
+            Persona.DEVSECOPS,
+            False,
+            ReviewClients(analysis=MagicMock(), compose=MagicMock()),
+            target_type="path",
+            target_ref=str(target),
+            target_dir=target,
+        )
+
+    assert [
+        ("claim disproved in the target" in s, "claim disproved in the working directory" in s)
+        for s in systems
+    ] == [(True, False)]
+
+
+def test_no_review_layer_falls_back_to_the_working_directory_for_its_target() -> None:
+    """Verify every layer that carries a review's target down to the personas requires it
+    (#1100). A default of the working directory let a new caller that left the target out
+    type-check and show the working directory's judged claims, one layer above the fix."""
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.ai.review.runner import (
+        _execute_review_workflow,
+        _run_persona_loop,
+        _run_review,
+    )
+
+    layers = {
+        "_execute_review_workflow": _execute_review_workflow,
+        "ReviewPipelineOrchestrator": ReviewPipelineOrchestrator.__init__,
+        "_run_persona_loop": _run_persona_loop,
+        "_run_review": _run_review,
+    }
+    targets = {name: inspect.signature(fn).parameters["target_dir"] for name, fn in layers.items()}
+    refresh = inspect.signature(ReviewPipelineOrchestrator.run_pre_analysis_refresh)
+
+    assert {
+        name: (p.kind, p.default is inspect.Parameter.empty) for name, p in targets.items()
+    } == dict.fromkeys(layers, (inspect.Parameter.KEYWORD_ONLY, True))
+    assert refresh.parameters["target_dir"].default is inspect.Parameter.empty
+
+
+@pytest.mark.parametrize("summary_only", [True, False])
+def test_a_review_outside_the_working_directory_reads_its_targets_analysis_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, summary_only: bool
+) -> None:
+    """Verify a review whose target is not the working directory loads analysis metadata from
+    the target's repository, in the summary and down the persona loop (#1100). Both read the
+    repository the working directory belongs to, so another checkout's files were described
+    by this one's metadata."""
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.personas import Persona
+    from devops_cli.ai.review.runner import ReviewClients, _execute_review_workflow
+
+    here = _checkout(tmp_path / "here", {"runner.py": _RUNNER})
+    target = _checkout(tmp_path / "target", {"runner.py": _RUNNER})
+    monkeypatch.chdir(here)
+    roots: list[object] = []
+
+    def metas(_files: object, repo_root: object = None) -> dict[str, object]:
+        roots.append(repo_root)
+        return {}
+
+    with (
+        patch("devops_cli.ai.review.runner._load_file_analysis_metas", side_effect=metas),
+        patch("devops_cli.ai.review.runner._execute_review_segments", return_value=[""]),
+        patch("devops_cli.ai.review.runner._print_analysis_metadata"),
+    ):
+        _execute_review_workflow(
+            [f"### File: runner.py\n{_RUNNER}"],
+            "Path review",
+            MagicMock(),
+            "",
+            False,
+            Persona.DEVSECOPS,
+            summary_only,
+            ReviewClients(analysis=MagicMock(), compose=MagicMock()),
+            target_type="path",
+            target_ref=str(target),
+            target_dir=target,
+        )
+
+    assert (len(roots) > 0, set(roots)) == (True, {target.resolve()})

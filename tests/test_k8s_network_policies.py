@@ -181,3 +181,66 @@ def test_readme_proxy_caveat_names_every_monitoring_proxy_target() -> None:
     ]
 
     assert unnamed == []
+
+
+OTEL_COLLECTOR_PEER = {
+    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "otel"}},
+    "podSelector": {
+        "matchLabels": {
+            "app.kubernetes.io/name": "opentelemetry-collector",
+            "app.kubernetes.io/instance": "otel-collector",
+        }
+    },
+}
+MONITORING_NAMESPACE_PEER = {
+    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "monitoring"}}
+}
+
+
+def test_loki_ingress_from_otel_admits_only_the_collector() -> None:
+    """Verify Loki's 3100 ingress names the collector's pods in `otel`, not the whole namespace (#1100).
+
+    Loki runs with `auth_enabled: false`, so a namespace-only `otel` peer let Jaeger, or any
+    workload later deployed to `otel`, push and query logs. A peer that combines the namespace
+    selector with the collector release's pod labels, with `ports` in the same rule, was
+    checked against this cluster's kube-router before the change: the labelled pod connected
+    and an unlabelled pod in the same namespace was refused, from the same node and another.
+    """
+    doc = yaml.safe_load((K8S_DIR / "logging" / "networkpolicy.yaml").read_text("utf-8"))
+    loki_rules = [
+        (rule["from"], rule.get("ports"))
+        for rule in doc["spec"]["ingress"]
+        if {"protocol": "TCP", "port": 3100} in rule.get("ports", [])
+    ]
+
+    assert loki_rules == [
+        (
+            [MONITORING_NAMESPACE_PEER, OTEL_COLLECTOR_PEER],
+            [{"protocol": "TCP", "port": 3100}],
+        )
+    ]
+
+
+def test_loki_otel_peer_names_the_collector_release_the_stack_installs() -> None:
+    """Verify the `otel` peer's pod labels are the ones the collector release is installed with
+    (#1100). The chart labels its pods `app.kubernetes.io/instance` with the release name and
+    `app.kubernetes.io/name` with the chart name unless the values override it, so renaming the
+    release or overriding the name would cut the collector off from Loki without a failure."""
+    from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
+
+    collectors = [
+        release
+        for releases in _HELM_RELEASES_BY_STACK.values()
+        for release in releases
+        if release["chart"] == "open-telemetry/opentelemetry-collector"
+    ]
+    values = yaml.safe_load(Path(collectors[0]["values"]).read_text("utf-8")) or {}
+    labels = OTEL_COLLECTOR_PEER["podSelector"]["matchLabels"]
+
+    assert [(c["namespace"], c["name"]) for c in collectors] == [
+        ("otel", labels["app.kubernetes.io/instance"])
+    ]
+    assert (values.get("nameOverride"), collectors[0]["chart"].rsplit("/", 1)[1]) == (
+        None,
+        labels["app.kubernetes.io/name"],
+    )

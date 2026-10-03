@@ -120,12 +120,16 @@ def test_review_session_dir_outside_root_is_refused(tmp_path: Path) -> None:
     `..`, is refused before anything is written there."""
     with pytest.raises(SecurityError, match="outside allowed root"):
         ReviewPipelineOrchestrator(
-            session_id="20260904-999999", session_dir=Path("/opt/unauthorized_reviews/session_1")
+            session_id="20260904-999999",
+            session_dir=Path("/opt/unauthorized_reviews/session_1"),
+            target_dir=tmp_path,
         )
 
     with pytest.raises(SecurityError, match="Path traversal detected"):
         ReviewPipelineOrchestrator(
-            session_id="20260904-999999", session_dir=tmp_path / ".." / "traversal_reviews"
+            session_id="20260904-999999",
+            session_dir=tmp_path / ".." / "traversal_reviews",
+            target_dir=tmp_path,
         )
 
 

@@ -45,14 +45,13 @@ _UNTRUSTED_CONTEXT_PREAMBLE: Final[str] = (
 )
 
 
-def _persona_system_prompt(
-    persona: PersonaDefinition, agents_md: str, target: Path | None = None
-) -> str:
+def _persona_system_prompt(persona: PersonaDefinition, agents_md: str, target: Path) -> str:
     """Compose the per-file/segment system prompt for this persona.
 
-    The false positives a person disproved in reviews of `target` (the working directory by
-    default) are appended, so a persona sees what it has already got wrong against this
-    codebase before a model is paid to produce it again (#950).
+    The false positives a person disproved in reviews of `target`, the directory the review
+    reads, are appended, so a persona sees what it has already got wrong against that codebase
+    before a model is paid to produce it again (#950). The working directory is never assumed:
+    a review of another checkout must not be shown claims judged against this one (#1100).
     """
     from devops_cli.ai.review.common_hallucinations import render_negative_exemplars
 

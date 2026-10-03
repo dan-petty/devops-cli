@@ -211,8 +211,12 @@ def test_build_page_review_prompt_with_grounding() -> None:
 
 
 def test_orchestrator_ground_contracts_flag(tmp_path: Path) -> None:
-    orch_enabled = ReviewPipelineOrchestrator(session_dir=tmp_path / "s1", ground_contracts=True)
+    orch_enabled = ReviewPipelineOrchestrator(
+        session_dir=tmp_path / "s1", ground_contracts=True, target_dir=tmp_path
+    )
     assert orch_enabled.ground_contracts is True
 
-    orch_disabled = ReviewPipelineOrchestrator(session_dir=tmp_path / "s2", ground_contracts=False)
+    orch_disabled = ReviewPipelineOrchestrator(
+        session_dir=tmp_path / "s2", ground_contracts=False, target_dir=tmp_path
+    )
     assert orch_disabled.ground_contracts is False

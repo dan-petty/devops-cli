@@ -211,7 +211,8 @@ def test_logging_stack_security_and_scoping() -> None:
     # Ingress rule 1: intra-namespace
     assert ingress_rules[0].get("from") == [{"podSelector": {}}]
 
-    # Ingress rule 2: monitoring and otel namespaces port 3100
+    # Ingress rule 2: monitoring and the otel collector on port 3100; the otel peer's pod
+    # selector is pinned in tests/test_k8s_network_policies.py (#1100)
     rule_telemetry = ingress_rules[1]
     from_telemetry = rule_telemetry.get("from", [])
     allowed_namespaces = {

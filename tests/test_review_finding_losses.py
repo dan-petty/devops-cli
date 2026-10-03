@@ -31,7 +31,7 @@ def _orchestrator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reply: object
     llm = MagicMock()
     for method in ("chat_messages", "chat_complete", "chat", "complete"):
         getattr(llm, method).side_effect = reply
-    return ReviewPipelineOrchestrator(session_id="losses", llm_client=llm)
+    return ReviewPipelineOrchestrator(session_id="losses", llm_client=llm, target_dir=tmp_path)
 
 
 def _scanner_finding() -> SavedFinding:

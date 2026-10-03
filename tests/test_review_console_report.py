@@ -45,6 +45,7 @@ def _orchestrator(tmp_path: Path, name: str, **options: Any) -> ReviewPipelineOr
         session_id=_SESSION,
         session_dir=tmp_path / name / _SESSION,
         llm_client=MagicMock(),
+        target_dir=tmp_path,
         **options,
     )
 

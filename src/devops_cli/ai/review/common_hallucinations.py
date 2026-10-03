@@ -1030,24 +1030,23 @@ def remove_learned_hallucinations(
 
 
 def render_negative_exemplars(
-    target: Path | None = None,
+    target: Path,
     limit: int = DEFAULT_HALLUCINATION_EXEMPLAR_COUNT,
     max_chars: int = DEFAULT_HALLUCINATION_EXEMPLAR_CHARS,
 ) -> str:
     """Render the false positives a persona is told not to raise again, as a prompt block.
 
-    These are the claims people disproved in reviews of the target, the repository `target` (the
-    working directory by default) belongs to, the most often judged first: recurrence a person
-    confirmed is what a reviewer should stop repeating. Until a person has judged one there, the
-    curated builtin entries are shown instead, under a heading that does not claim they were
-    reported against this codebase. Another repository's judged claims are never shown: they
-    describe code this review cannot see.
+    These are the claims people disproved in reviews of the target, the repository `target`
+    belongs to, the most often judged first: recurrence a person confirmed is what a reviewer
+    should stop repeating. Until a person has judged one there, the curated builtin entries are
+    shown instead, under a heading that does not claim they were reported against this codebase.
+    Another repository's judged claims are never shown: they describe code this review cannot see.
 
     Showing a persona what has been disproved costs a few hundred tokens once per segment;
     re-deriving those findings costs a generation and a verification each. Only the head of the
     distribution is shown, because recurrence is concentrated there.
     """
-    project = project_of(target or Path.cwd())
+    project = project_of(target)
     judged = sorted(
         (
             e

@@ -63,7 +63,6 @@ from devops_cli.config.constants import (
     CONST_GITHUB_PR_FILE_CHANGE_TYPES,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_CURRENT_PATH,
     DEFAULT_REVIEW_MAX_DIFF_CHARS,
     DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
@@ -845,8 +844,9 @@ def _prepare_review_metadata(
     pages: list[str],
     prebuilt_metadata: dict[str, FileAnalysisMeta] | None,
     analysis_suffix: str,
+    target_dir: Path,
 ) -> dict[str, FileAnalysisMeta]:
-    """Resolve AST and AI metadata for files in scope."""
+    """Resolve AST and AI metadata for files in scope, from the repository `target_dir` is in."""
     total = len(pages)
     if prebuilt_metadata is not None:
         count = len(prebuilt_metadata)
@@ -857,9 +857,7 @@ def _prepare_review_metadata(
         return prebuilt_metadata
 
     try:
-        from devops_cli.core.repo import find_repo_root
-
-        repo_target = find_repo_root(Path.cwd())
+        repo_target = find_repo_root(target_dir)
     except Exception:
         repo_target = None
 
@@ -1044,8 +1042,10 @@ def _execute_findings_validation(
     segment_results: list[ReviewResult | None],
     clients: ReviewClients,
     analysis_suffix: str,
+    target_dir: Path,
 ) -> list[ReviewResult | None]:
-    """Execute Step 3: Validate and filter hallucinated findings."""
+    """Execute Step 3: Validate and filter hallucinated findings against the repository
+    `target_dir` is in."""
     total = len(pages)
     if is_dry_run():
         return segment_results
@@ -1056,9 +1056,7 @@ def _execute_findings_validation(
     )
     t3 = time.monotonic()
     try:
-        from devops_cli.core.repo import find_repo_root
-
-        repo_target = find_repo_root(Path.cwd())
+        repo_target = find_repo_root(target_dir)
     except Exception:
         repo_target = None
     file_analysis_metas = _load_file_analysis_metas(None, repo_root=repo_target)
@@ -1183,9 +1181,13 @@ def _run_review(
     context_lines: int = _DEFAULT_CONTEXT_LINES,
     prebuilt_metadata: dict[str, FileAnalysisMeta] | None = None,
     session_dir: Path | None = None,
+    *,
+    target_dir: Path,
 ) -> ReviewResult | str:
+    """Review `pages` as `persona`; `target_dir` is the directory the review reads, whose
+    project's judged claims the persona is shown (#1100)."""
     total = len(pages)
-    analysis_system = _persona_system_prompt(persona, agents_md)
+    analysis_system = _persona_system_prompt(persona, agents_md, target_dir)
     compose_system = persona.compose_prompt
 
     analysis_info = getattr(clients.analysis, "backend_info", "")
@@ -1193,7 +1195,7 @@ def _run_review(
     compose_info = getattr(clients.compose, "backend_info", "")
     compose_suffix = f" [{compose_info}]" if compose_info else ""
 
-    metadata = _prepare_review_metadata(pages, prebuilt_metadata, analysis_suffix)
+    metadata = _prepare_review_metadata(pages, prebuilt_metadata, analysis_suffix, target_dir)
     responses = _execute_review_segments(
         pages,
         title,
@@ -1210,7 +1212,9 @@ def _run_review(
         return ""
 
     segment_results = [parse_review_response(r) for r in responses]
-    segment_results = _execute_findings_validation(pages, segment_results, clients, analysis_suffix)
+    segment_results = _execute_findings_validation(
+        pages, segment_results, clients, analysis_suffix, target_dir
+    )
 
     if total == 1:
         return segment_results[0] if segment_results[0] is not None else responses[0]
@@ -1244,12 +1248,13 @@ def _maybe_preload_ollama_models(clients: ReviewClients) -> None:
         clients.analysis.preload_models(blocking=False)
 
 
-def _load_shared_metadata_for_pages(pages: list[str]) -> dict[str, FileAnalysisMeta]:
-    """Load AST / AI analysis metadata for all files referenced in pages."""
+def _load_shared_metadata_for_pages(
+    pages: list[str], target_dir: Path
+) -> dict[str, FileAnalysisMeta]:
+    """Load AST / AI analysis metadata for all files referenced in pages, from the repository
+    `target_dir` is in."""
     try:
-        from devops_cli.core.repo import find_repo_root
-
-        repo_target = find_repo_root(Path.cwd())
+        repo_target = find_repo_root(target_dir)
     except Exception:
         repo_target = None
     all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
@@ -1284,10 +1289,13 @@ def _run_persona_loop(  # noqa: C901
     all_personas: bool,
     persona: Persona | None,
     subject: dict[str, str] | None = None,
+    *,
+    target_dir: Path,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Run full persona review loop using analysis metadata exclusively.
 
-    `subject` is what the session reviews, written to its findings.json.
+    `subject` is what the session reviews, written to its findings.json. `target_dir` is the
+    directory the review reads; each persona is shown its project's judged claims (#1100).
     """
     personas = _personas_to_run(all_personas, persona)
     session_dir = _review_session_dir(title) if not is_dry_run() else None
@@ -1304,7 +1312,7 @@ def _run_persona_loop(  # noqa: C901
         prefix=False,
     )
 
-    shared_meta = _load_shared_metadata_for_pages(pages)
+    shared_meta = _load_shared_metadata_for_pages(pages, target_dir)
     if session_dir and shared_meta:
         _write_summary(title, session_dir, pages, [], shared_meta, subject=subject)
 
@@ -1322,6 +1330,7 @@ def _run_persona_loop(  # noqa: C901
                 build_prompt,
                 prebuilt_metadata=shared_meta,
                 session_dir=session_dir,
+                target_dir=target_dir,
             )
             return (pd, review_text)
 
@@ -2268,9 +2277,10 @@ def _execute_review_workflow(
     persona: Persona | None,
     summary_only: bool,
     clients: ReviewClients,
+    *,
+    target_dir: Path,
     target_type: Literal["branch", "pr", "path"] = "path",
     target_ref: str = ".",
-    target_dir: Path = DEFAULT_CURRENT_PATH,
     stage_flags: ReviewStageFlags | None = None,
     concurrency: int | None = None,
     parallel: bool = True,
@@ -2354,9 +2364,7 @@ def _execute_review_workflow(
     if summary_only:
         print_info(f"[dim]{MESSAGES.review.generating_metadata}[/dim]", prefix=False)
         try:
-            from devops_cli.core.repo import find_repo_root
-
-            repo_target = find_repo_root(Path.cwd())
+            repo_target = find_repo_root(target_dir)
         except Exception:
             repo_target = None
         analysis_metas = _load_file_analysis_metas(all_files, repo_root=repo_target)
@@ -2364,5 +2372,13 @@ def _execute_review_workflow(
         return []
 
     return _run_persona_loop(
-        pages, title, prompt_builder, clients, agents_md, all_personas, persona, subject=subject
+        pages,
+        title,
+        prompt_builder,
+        clients,
+        agents_md,
+        all_personas,
+        persona,
+        subject=subject,
+        target_dir=target_dir,
     )
