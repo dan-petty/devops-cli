@@ -66,7 +66,11 @@ from devops_cli.ai.review.sanitization import (
     balance_markdown_fences,
     escape_markdown_title,
 )
-from devops_cli.ai.review.verdicts import apply_verdict, assert_verdict_invariants
+from devops_cli.ai.review.verdicts import (
+    VERDICT_FIELDS,
+    apply_verdict,
+    assert_verdict_invariants,
+)
 from devops_cli.ai.review.verification import _validate_segment_findings
 from devops_cli.ai.review_schema import (
     FileReviewPayload,
@@ -110,6 +114,7 @@ from devops_cli.config.constants import (
     CONST_REVIEW_SYMBOL_DELTA_CHANGE_TYPES,
     CONST_SEVERITY_INFO,
     CONST_SEVERITY_ORDER,
+    CONST_VERIFICATION_UNAVAILABLE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
@@ -1384,6 +1389,18 @@ def _format_error_detail(stage: str, exc: Exception, max_len: int = 256) -> str:
     if len(msg) > max_len:
         return msg[: max_len - 3] + "..."
     return msg
+
+
+def _note_verification_unavailable(findings: list[SavedFinding], exc: Exception) -> None:
+    """Note on each unverified finding of a file whose verification raised why it has no verdict.
+
+    The file's findings are still reported. One the copy-back already gave a verdict or a note,
+    when the error came after it, keeps them.
+    """
+    note = f"{CONST_VERIFICATION_UNAVAILABLE}: {type(exc).__name__}"
+    for f in findings:
+        if f.status == "UNVERIFIED" and f.verification_note is None:
+            f.verification_note = note
 
 
 def _resolve_rag_and_contract_context(
@@ -2791,6 +2808,7 @@ class ReviewPipelineOrchestrator:
             payload.ai_scratchpad["stage"] = "failed"
             payload.ai_scratchpad["error"] = err_desc
             self.errored_files[payload.file_path] = err_desc
+            _note_verification_unavailable(payload.findings, exc)
             print_info(
                 f"[yellow][{idx}/{total_files}][/yellow] [bold red]Skipped verification on errored file:[/bold red] "
                 f"[bold]{payload.file_path}[/bold] [dim]({err_desc})[/dim]",
@@ -2854,28 +2872,8 @@ class ReviewPipelineOrchestrator:
 
             updated_saved: list[SavedFinding] = []
             for orig, v in zip(payload.findings, verified_list):
-                orig.status = v.status
-                orig.verified = v.verified
-                orig.mitigated = v.mitigated
-                orig.reportable = v.reportable
-                orig.invalidation_reason = v.invalidation_reason
-                orig.confidence_score = v.confidence_score
-                orig.verification_criteria = v.verification_criteria
-                orig.invalidation_criteria = v.invalidation_criteria
-                orig.verified_criteria_matched = v.verified_criteria_matched
-                orig.invalidated_criteria_matched = v.invalidated_criteria_matched
-                orig.criteria_execution_results = v.criteria_execution_results
-                orig.observed_value = v.observed_value
-                orig.expected_value = v.expected_value
-                orig.location = v.location
-                orig.relocated_from = v.relocated_from
-                orig.verification_note = v.verification_note
-                orig.citation_line = v.citation_line
-                orig.mitigating_mechanism = v.mitigating_mechanism
-                orig.perimeter_files = v.perimeter_files
-                orig.regression_test = v.regression_test
-                orig.verified_by = v.verified_by
-                orig.verified_at = v.verified_at
+                for field in VERDICT_FIELDS:
+                    setattr(orig, field, getattr(v, field))
                 updated_saved.append(orig)
 
             assert_verdict_invariants(updated_saved)
@@ -3023,6 +3021,7 @@ class ReviewPipelineOrchestrator:
                         payload.ai_scratchpad["stage"] = "failed"
                         payload.ai_scratchpad["error"] = err_desc
                         self.errored_files[payload.file_path] = err_desc
+                        _note_verification_unavailable(payload.findings, res)
             else:
                 for idx, payload in payloads_with_findings:
                     try:
@@ -3037,6 +3036,7 @@ class ReviewPipelineOrchestrator:
                         payload.ai_scratchpad["stage"] = "failed"
                         payload.ai_scratchpad["error"] = err_desc
                         self.errored_files[payload.file_path] = err_desc
+                        _note_verification_unavailable(payload.findings, exc)
 
             from devops_cli.ai.review.stages.adversarial_debate import (
                 run_adversarial_debate_stage,

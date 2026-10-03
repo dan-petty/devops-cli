@@ -30,6 +30,8 @@ from devops_cli.config.constants import (
     CONST_CACHE_DIR_NAME,
     CONST_COMPLIMENT_NEGATIONS,
     CONST_COMPLIMENT_PHRASES,
+    CONST_CRITERIA_NON_DISCRIMINATING,
+    CONST_FINISH_REASON_LENGTH,
     CONST_FIXTURE_CREDENTIAL_KEYWORDS,
     CONST_MASKED_SYNTAX_ERROR_PHRASES,
     CONST_MONOLOGUE_PREFIXES,
@@ -38,6 +40,12 @@ from devops_cli.config.constants import (
     CONST_TYPECHECK_PROBE_MYPY_CONFIG,
     CONST_UNINITIALIZED_CLAIM_KEYWORDS,
     CONST_VERIFICATION_UNAVAILABLE,
+    CONST_VERIFIER_FINDING_FIELDS,
+    CONST_VERIFIER_INCONCLUSIVE,
+    CONST_VERIFIER_NO_VERDICT,
+    CONST_VERIFIER_REPLY_CUT,
+    CONST_VERIFIER_REPLY_UNPARSED,
+    CONST_VERIFIER_SELF_REFUTATION,
 )
 from devops_cli.config.defaults import (
     DEFAULT_DIFF_CONTEXT_LINES,
@@ -311,12 +319,13 @@ def _build_validation_prompt(
             + "\n</untrusted_rag_context>\n\n"
         )
 
+    # Only the claim as the reviewer wrote it. The reviewer's own confidence and status anchored
+    # the verdict, and the criteria results carried their run times, so a prompt for a finding
+    # whose criteria ran was never sent twice, and the release/v0.2.25 branch reviews replayed
+    # only 3 and 6 verifier replies from the response cache.
     findings_json = sanitize_prompt_boundary_tags(
         json.dumps(
-            [
-                {k: v for k, v in f.model_dump().items() if k not in {"verified", "mitigated"}}
-                for f in findings
-            ],
+            [f.model_dump(include=set(CONST_VERIFIER_FINDING_FIELDS)) for f in findings],
             indent=2,
             ensure_ascii=True,
         )
@@ -1464,6 +1473,13 @@ def _is_placeholder(val: Any) -> bool:
     return not s or s in CONST_PLACEHOLDER_VALUES
 
 
+def _refutes(item: dict[str, Any], inv_matched: list[str]) -> bool:
+    """Whether a verdict refutes its finding: it matched invalidation criteria or says so."""
+    status = str(item.get("status") or "").strip().upper()
+    flagged = _verdict_bool(item.get("invalidated")) is True
+    return bool(inv_matched) or flagged or status == "INVALIDATED"
+
+
 def _verdict_status(item: dict[str, Any], inv_matched: list[str]) -> tuple[str, bool]:
     """The status and reportability a verdict supports.
 
@@ -1473,7 +1489,7 @@ def _verdict_status(item: dict[str, Any], inv_matched: list[str]) -> tuple[str, 
     """
     verified = _verdict_bool(item.get("verified"))
     status = str(item.get("status") or "").strip().upper()
-    refuted = bool(inv_matched) or _verdict_bool(item.get("invalidated")) or status == "INVALIDATED"
+    refuted = _refutes(item, inv_matched)
     confirmed = verified is True or status == "VERIFIED"
     if refuted and confirmed:
         return "UNVERIFIED", True
@@ -1547,28 +1563,37 @@ def _reason_confirms(reason: str, f: Finding) -> bool:
     )
 
 
-def _without_self_refutation(f: Finding, item: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
-    """The verdict with its invalidation withdrawn when it rests only on the finding's own claim.
+def _without_self_refutation(
+    f: Finding, item: dict[str, Any]
+) -> tuple[dict[str, Any], list[str], bool]:
+    """The verdict with its invalidation withdrawn when it rests only on the finding's own claim,
+    the invalidation criteria it still matches, and whether an invalidation was withdrawn.
 
     An invalidation whose matched criteria all restate the defect or its fix, or whose reason
     confirms the claimed condition, names no evidence against the finding; it leaves the
     finding unverified and in the report.
     """
     inv_matched = _verdict_list(item.get("invalidated_criteria_matched"))
+    if not _refutes(item, inv_matched):
+        return item, inv_matched, False
     genuine = [c for c in inv_matched if not _restates_the_finding(c, f)]
     reason = str(item.get("reason") or "").strip()
     if genuine and not _reason_confirms(reason, f):
-        return item, inv_matched
+        return item, inv_matched, False
     if not inv_matched and not _reason_confirms(reason, f):
-        return item, inv_matched
+        return item, inv_matched, False
     withdrawn = {**item, "invalidated": False}
     if str(item.get("status") or "").strip().upper() == "INVALIDATED":
         withdrawn["status"] = ""
-    return withdrawn, []
+    return withdrawn, [], True
 
 
-def _extract_citation_line(item: dict[str, Any], reason: str) -> int | None:
-    """Extract cited line number from verdict item or reason."""
+def _extract_citation_line(item: dict[str, Any]) -> int | None:
+    """The line a verdict cites under an explicit citation key.
+
+    The `location` a verdict echoes is the finding's own, and a number in its reason may be any
+    line, so neither cites the line that settles the claim.
+    """
     for key in ("citation_line", "cited_line", "line", "refutation_line"):
         val = item.get(key)
         if val is not None:
@@ -1576,18 +1601,6 @@ def _extract_citation_line(item: dict[str, Any], reason: str) -> int | None:
                 return int(val)
             except ValueError, TypeError:
                 pass
-    if reason:
-        m = re.search(r"\b(?:lines?|l)\s*#?\s*(\d+)\b", reason, re.IGNORECASE)
-        if m:
-            return int(m.group(1))
-        m2 = re.search(r":(\d+)\b", reason)
-        if m2:
-            return int(m2.group(1))
-    loc = item.get("location")
-    if loc and ":" in str(loc):
-        digits = re.findall(r"\d+", str(loc).split(":", 1)[1])
-        if digits:
-            return int(digits[0])
     return None
 
 
@@ -1671,6 +1684,14 @@ def _validate_citation_line(
         return True, citation_line, None
 
 
+# A refutation of the finding's criteria ("tautological", "the criteria only check that it
+# exists"), not of its claim. Without a cited line it says nothing about the code.
+_REFUTES_THE_CRITERIA = re.compile(r"tautolog|criteri\w+ (?:only|merely)|only confirms", re.I)
+_CRITERIA_REFUTATION_NOTE = (
+    "Refutation is about the criteria, not the code, and cites no line; downgraded to UNVERIFIED"
+)
+
+
 def _extract_finding_confidence(conf_val: Any, default: float | None) -> float | None:
     """Normalize confidence score to bounded float in [0.0, 1.0]."""
     if conf_val is None:
@@ -1707,6 +1728,8 @@ def _resolve_status_and_verification_note(
 ) -> tuple[str, str, int | None, str | None, bool]:
     """Resolve validated status, reason, citation line, verification note, and reportability."""
     if status_val == "INVALIDATED":
+        if citation_line is None and _REFUTES_THE_CRITERIA.search(reason):
+            return "UNVERIFIED", "", None, _CRITERIA_REFUTATION_NOTE, True
         is_valid, cit_line, note = _validate_citation_line(f, citation_line, repo_root)
         if not is_valid:
             return "UNVERIFIED", "", None, note, True
@@ -1778,6 +1801,21 @@ def _build_finding_verdict_kwargs(
     return extra_kw
 
 
+def _no_verdict_note(f: Finding, withdrawn: bool) -> str:
+    """Why a finding the verifier judged has no verdict, when no check of the verdict said.
+
+    A withdrawn self-refutation says so. Criteria that passed both ways sent the finding to the
+    verifier, and when it cannot decide either, that is still why. Otherwise the verifier was
+    inconclusive: it neither confirmed, refuted nor found a mitigation, or it both confirmed
+    and refuted.
+    """
+    if withdrawn:
+        return CONST_VERIFIER_SELF_REFUTATION
+    if f.verification_note == CONST_CRITERIA_NON_DISCRIMINATING:
+        return CONST_CRITERIA_NON_DISCRIMINATING
+    return CONST_VERIFIER_INCONCLUSIVE
+
+
 def _apply_single_finding_verification(
     f: Finding,
     item: dict[str, Any] | None,
@@ -1789,7 +1827,7 @@ def _apply_single_finding_verification(
         return f
 
     ver_matched = _verdict_list(item.get("verified_criteria_matched"))
-    item, inv_matched = _without_self_refutation(f, item)
+    item, inv_matched, withdrawn = _without_self_refutation(f, item)
     status_val, is_rep = _verdict_status(item, inv_matched)
     conf = _extract_finding_confidence(item.get("confidence_score"), f.confidence_score)
 
@@ -1797,7 +1835,7 @@ def _apply_single_finding_verification(
     merged_inv_matched = list(dict.fromkeys(f.invalidated_criteria_matched + inv_matched))
 
     raw_reason = str(item.get("reason") or "").strip()
-    raw_citation = _extract_citation_line(item, raw_reason)
+    raw_citation = _extract_citation_line(item)
     mitigating_mechanism = _extract_mitigating_mechanism(item, raw_reason)
     perimeter_files = _extract_perimeter_files(item, raw_reason)
     regression_test = _extract_regression_test(item)
@@ -1819,6 +1857,8 @@ def _apply_single_finding_verification(
     sev, loc, final_obs, final_exp = _resolve_finding_attributes(f, item)
     status_val, by, reason = _check_finding_polarity(final_obs, final_exp, status_val, reason)
     extra_kw = _build_finding_verdict_kwargs(status_val, item, final_rep)
+    if status_val == "UNVERIFIED" and verification_note is None:
+        verification_note = _no_verdict_note(f, withdrawn)
 
     return apply_verdict(
         f,
@@ -2033,46 +2073,60 @@ def _run_deterministic_pre_verification_on_findings(
     ]
 
 
+def _awaits_verdict(f: Finding) -> bool:
+    """Whether the verifier is shown the finding: one no deterministic check settled."""
+    return f.status == "UNVERIFIED" and f.verification_note != "cites removed symbol"
+
+
+def _without_verdict(findings: list[Finding], note: str) -> list[Finding]:
+    """The findings, each one the verifier was shown carrying `note` for why it has no verdict."""
+    return [
+        f.model_copy(update={"verification_note": note}) if _awaits_verdict(f) else f
+        for f in findings
+    ]
+
+
 def _apply_bound_verdicts_to_findings(
     findings: list[Finding],
     bound: dict[int, dict[str, Any]],
     repo_root: Path | None,
 ) -> list[Finding]:
-    """Apply bound verification verdicts to findings in order."""
+    """Apply bound verification verdicts to findings in order.
+
+    A finding the reply gave no verdict on is noted as such, apart from one the verifier
+    judged and left unverified, whose note says why its verdict settled nothing.
+    """
     now_iso = datetime.now().isoformat()
     validated: list[Finding] = []
     unresolved_idx = 0
     for f in findings:
-        if f.status != "UNVERIFIED" or f.verification_note == "cites removed symbol":
+        if not _awaits_verdict(f):
             validated.append(f)
             continue
         item = bound.get(unresolved_idx)
         unresolved_idx += 1
+        if item is None:
+            validated.append(f.model_copy(update={"verification_note": CONST_VERIFIER_NO_VERDICT}))
+            continue
         validated.append(_apply_single_finding_verification(f, item, now_iso, repo_root=repo_root))
     return validated
 
 
 def _parse_verifier_payload(response: str) -> list[Any] | None:
-    """Parse JSON block from verifier model reply."""
+    """The verdicts of a verifier reply; None when it holds no list of verdicts."""
     data = extract_json_block(response)
     if isinstance(data, dict):
         if "findings" in data and isinstance(data["findings"], list):
             data = data["findings"]
         elif "items" in data and isinstance(data["items"], list):
             data = data["items"]
-    return data if isinstance(data, list) and data else None
+    return data if isinstance(data, list) else None
 
 
 def _mark_degraded_findings(findings: list[Finding], exc: Exception) -> list[Finding]:
     """Annotate unverified findings with unavailable reason when verifier fails."""
     logger.warning("Verification did not complete: %s: %s", type(exc).__name__, exc)
-    reason = f"{CONST_VERIFICATION_UNAVAILABLE}: {type(exc).__name__}"
-    return [
-        f.model_copy(update={"verification_note": reason})
-        if f.status == "UNVERIFIED" and not f.verification_note
-        else f
-        for f in findings
-    ]
+    return _without_verdict(findings, f"{CONST_VERIFICATION_UNAVAILABLE}: {type(exc).__name__}")
 
 
 def _validate_segment_findings(
@@ -2103,11 +2157,7 @@ def _validate_segment_findings(
     unresolved_findings = [
         f.model_copy(update={"finding_id": i})
         for i, f in enumerate(
-            (
-                f
-                for f in pre_validated_findings
-                if f.status == "UNVERIFIED" and f.verification_note != "cites removed symbol"
-            ),
+            (f for f in pre_validated_findings if _awaits_verdict(f)),
             start=1,
         )
     ]
@@ -2130,14 +2180,21 @@ def _validate_segment_findings(
             )
         proc_sec = getattr(res_obj, "processing_seconds", None)
         b_info = getattr(res_obj, "backend_info", None)
-        if data := _parse_verifier_payload(str(res_obj)):
-            bound = _bind_verdicts_to_findings(unresolved_findings, data)
-            validated = _apply_bound_verdicts_to_findings(result.findings, bound, repo_root)
-            return result.model_copy(update={"findings": validated}), proc_sec, b_info
+        if getattr(res_obj, "finish_reason", None) == CONST_FINISH_REASON_LENGTH:
+            # A reply cut at its cap can still parse: JSON repair closes a verdict cut
+            # mid-reason, and in session 20261002-214641 such a fragment refuted a finding.
+            cut = _without_verdict(result.findings, CONST_VERIFIER_REPLY_CUT)
+            return result.model_copy(update={"findings": cut}), proc_sec, b_info
+        data = _parse_verifier_payload(str(res_obj))
+        if data is None:
+            unparsed = _without_verdict(result.findings, CONST_VERIFIER_REPLY_UNPARSED)
+            return result.model_copy(update={"findings": unparsed}), proc_sec, b_info
+        bound = _bind_verdicts_to_findings(unresolved_findings, data)
+        validated = _apply_bound_verdicts_to_findings(result.findings, bound, repo_root)
+        return result.model_copy(update={"findings": validated}), proc_sec, b_info
     except Exception as exc:
         degraded = _mark_degraded_findings(result.findings, exc)
         return result.model_copy(update={"findings": degraded}), proc_sec, b_info
-    return result, proc_sec, b_info
 
 
 def _merge_segment_results(results: list[ReviewResult | None]) -> ReviewResult | None:

@@ -20,10 +20,14 @@ import tokenize
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from devops_cli.ai.agents.pydantic_agent import PydanticAgent
 from devops_cli.ai.mcp.server import code_review_prompt
 from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.ai.review.classification import FileContextType, build_context_review_prompt
+from devops_cli.ai.review.criteria_evidence import is_tautological_criterion
+from devops_cli.ai.review.review_environment import validate_criteria_command
 from devops_cli.ai.review.verification import _check_placeholder_advisory_hallucination
 from devops_cli.ai.review_schema import (
     Finding,
@@ -489,6 +493,56 @@ def test_no_example_reply_anchors_high_severity_or_confidence() -> None:
     )
 
     assert anchors == []
+
+
+_FENCED_JSON = re.compile(r"```json\n(.*?)```", re.DOTALL)
+_JSON_STRING = r'"(?:[^"\\]|\\.)*"'
+_CRITERION_COMMAND = re.compile(rf'"command":\s*({_JSON_STRING})')
+_CRITERIA_LIST = re.compile(r'"(?:verification|invalidation)_criteria":\s*\[(.*?)\]', re.DOTALL)
+
+
+def _example_criteria() -> list[tuple[str, str]]:
+    """Every executable criterion the example replies in the task and persona prompts show.
+
+    A criterion is an object's `command`, or a bare string in a criteria list that the allowlist
+    accepts, which the reply parser runs as a command too. The examples are not all valid JSON
+    (`compose.md` lists severities as `"CRITICAL" | "HIGH"`), so they are read by pattern.
+    """
+    names = [
+        name
+        for name in _prompt_names()
+        if (name.startswith("tasks/") and name.count("/") == 1) or name.endswith("/prompt.md")
+    ]
+    found: list[tuple[str, str]] = []
+    for name in names:
+        for block in _FENCED_JSON.findall(_read(name)):
+            found += [(name, json.loads(s)) for s in _CRITERION_COMMAND.findall(block)]
+            for items in _CRITERIA_LIST.findall(block):
+                bare = re.findall(_JSON_STRING, re.sub(r"\{.*?\}", "", items, flags=re.DOTALL))
+                found += [
+                    (name, text)
+                    for text in map(json.loads, bare)
+                    if validate_criteria_command(text)[0]
+                ]
+    return found
+
+
+def test_the_example_replies_show_executable_criteria() -> None:
+    """The reviewer's example replies teach the criterion format; an empty scan proves nothing."""
+    assert sorted({name for name, _ in _example_criteria()}) == [
+        "tasks/compose.md",
+        "tasks/review_output_instruction.md",
+    ]
+
+
+@pytest.mark.parametrize(("name", "command"), _example_criteria())
+def test_every_example_criterion_can_settle_a_verdict(name: str, command: str) -> None:
+    """An example criterion the executor rejects or never counts teaches criteria that prove
+    nothing: `review_output_instruction.md` and `compose.md` showed `git grep` (#846)."""
+    assert (validate_criteria_command(command)[0], is_tautological_criterion(command)) == (
+        True,
+        False,
+    ), f"{name}: {command}"
 
 
 def test_the_persona_reply_schema_holds_only_what_a_reviewer_writes() -> None:

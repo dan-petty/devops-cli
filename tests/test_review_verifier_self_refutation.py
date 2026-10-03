@@ -84,11 +84,13 @@ def test_an_invalidation_that_restates_the_defect_keeps_the_finding(
             "status": "INVALIDATED",
             "reason": "The image is pinned by digest on line 6: `FROM alpine@sha256:4bc...`.",
             "invalidated_criteria_matched": ["The base image is pinned to a version or digest"],
+            "citation_line": 6,
         },
         {
             "invalidated": True,
             "reason": "This Dockerfile is a test fixture that is never built on line 6.",
             "invalidated_criteria_matched": ["The file is a test fixture"],
+            "citation_line": 6,
         },
         # A genuine refutation beside a restatement still refutes.
         {
@@ -98,6 +100,7 @@ def test_an_invalidation_that_restates_the_defect_keeps_the_finding(
                 "The FROM directive still uses 'latest' as the image tag.",
                 "The base image is pinned to a version or digest",
             ],
+            "citation_line": 6,
         },
     ],
 )

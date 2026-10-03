@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 from devops_cli.ai.review_schema import Finding, parse_review_response
 
 
@@ -58,26 +55,18 @@ def test_finding_collapses_repeating_multiline_cycles() -> None:
 
 
 def test_parse_review_response_rejects_cached_thinking_monologue() -> None:
-    """parse_review_response rejects raw thinking monologue from session 20260905-035954."""
-    cache_path = Path(
-        ".data/cache/llm/llm_6c1e77e1578309cca407f361cbf63744545fbb5da2ab0851669e2934e0024717.json"
-    )
-    if not cache_path.exists():
-        # Fallback raw monologue if cache is cleaned
-        raw_text = (
-            "We need to review this file for security vulnerabilities.\n"
-            "1. _format_param_default_str: It uses try/except with 'except ValueError, AttributeError:' which is Python 2 syntax.\n"
-            "The location: 'src/devops_cli/docs/generator.py:??'.\n"
-            "The description: The except clause uses Python 2 syntax...\n"
-            "The fix: Replace with 'except (ValueError, AttributeError):'...\n"
-            + (
-                "- In _format_param_default_str, the code uses 'except ValueError, AttributeError:' incorrectly. That is a bug.\n"
-                * 50
-            )
+    """parse_review_response rejects a raw thinking monologue like session 20260905-035954's."""
+    raw_text = (
+        "We need to review this file for security vulnerabilities.\n"
+        "1. _format_param_default_str: It uses try/except with 'except ValueError, AttributeError:' which is Python 2 syntax.\n"
+        "The location: 'src/devops_cli/docs/generator.py:??'.\n"
+        "The description: The except clause uses Python 2 syntax...\n"
+        "The fix: Replace with 'except (ValueError, AttributeError):'...\n"
+        + (
+            "- In _format_param_default_str, the code uses 'except ValueError, AttributeError:' incorrectly. That is a bug.\n"
+            * 50
         )
-    else:
-        raw_data = json.loads(cache_path.read_text(encoding="utf-8"))
-        raw_text = raw_data.get("content", "")
+    )
 
     # A raw thinking monologue must NOT be parsed as valid findings
     result = parse_review_response(raw_text)

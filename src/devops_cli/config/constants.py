@@ -1142,6 +1142,10 @@ CONST_ALLOWED_CRITERIA_BINARIES: Final[frozenset[str]] = frozenset(
     }
 )
 
+# The allowlisted criteria binaries that run Python, which take a `-c` or `-m` argument and
+# run under the Python criteria time limit.
+CONST_PYTHON_CRITERIA_BINARIES: Final[frozenset[str]] = frozenset({"python", "python3"})
+
 # Read-only git subcommands permitted in verification criteria.
 CONST_ALLOWED_GIT_SUBCOMMANDS: Final[frozenset[str]] = frozenset(
     {
@@ -1189,29 +1193,61 @@ CONST_FORBIDDEN_PYTHON_CRITERIA_MODULES: Final[frozenset[str]] = frozenset(
     }
 )
 
-# Substrings indicating that a criteria command is tautological (testing symbol existence or reflection only).
-CONST_TAUTOLOGICAL_CRITERIA_SUBSTRINGS: Final[tuple[str, ...]] = (
-    "co_varnames",
-    "__code__",
-    "hasattr(",
-    "getattr(",
-    "isinstance(",
-    "type(",
-    "syntax error",
-    "no syntax errors",
-    "successfully",
-    "method exists",
-    "function exists",
-    "class exists",
-    "symbol exists",
-    "validates input",
-    "exists and validates",
-    "is defined",
-    "defined successfully",
-    "imported successfully",
-    "import successfully",
-    "imports successfully",
+# Calls and attributes that make a `python -c` criterion reflection: it inspects that code
+# exists, or what it is called, instead of running it and checking what it does.
+CONST_REFLECTION_CRITERIA_CALLS: Final[frozenset[str]] = frozenset(
+    {
+        "callable",
+        "dir",
+        "getattr",
+        "getfullargspec",
+        "getmembers",
+        "getsource",
+        "hasattr",
+        "isinstance",
+        "signature",
+        "type",
+        "vars",
+    }
 )
+CONST_REFLECTION_CRITERIA_ATTRIBUTES: Final[frozenset[str]] = frozenset(
+    {"__annotations__", "__code__", "__dict__", "__signature__", "__wrapped__", "co_varnames"}
+)
+# Calls by which a `python -c` criterion reads a file's text (`Path(...).read_text()`), parses
+# text into values (`json.loads`, `yaml.safe_load`, `tomllib.loads`), tests only that a path
+# exists, or ends the interpreter with a status (`sys.exit`, `exit`, `raise SystemExit`).
+CONST_READING_CRITERIA_CALLS: Final[frozenset[str]] = frozenset({"open", "read_bytes", "read_text"})
+CONST_PARSING_CRITERIA_CALLS: Final[frozenset[str]] = frozenset(
+    {"full_load", "literal_eval", "load", "load_all", "loads", "safe_load", "safe_load_all"}
+)
+CONST_EXISTENCE_CRITERIA_CALLS: Final[frozenset[str]] = frozenset(
+    {"exists", "is_dir", "is_file", "isdir", "isfile", "lexists"}
+)
+CONST_EXIT_CRITERIA_CALLS: Final[frozenset[str]] = frozenset(
+    {"_exit", "exit", "quit", "SystemExit"}
+)
+# pytest options that make it exit 0 without running a test: it lists, describes or plans them.
+CONST_PYTEST_NON_RUNNING_OPTIONS: Final[frozenset[str]] = frozenset(
+    {
+        "--cache-show",
+        "--co",
+        "--collect-only",
+        "--collectonly",
+        "--fixtures",
+        "--fixtures-per-test",
+        "--funcargs",
+        "--help",
+        "--markers",
+        "--setup-only",
+        "--setup-plan",
+        "--version",
+        "-V",
+        "-h",
+    }
+)
+# pytest's short options that take a value: in a cluster such as `-qh`, the letters after one
+# of them are its value, not flags.
+CONST_PYTEST_SHORT_OPTIONS_WITH_VALUE: Final[frozenset[str]] = frozenset("Wckmnopr")
 
 # ── Review Schemas & Deterministic Verification Constants ─────────────────────
 CONST_ABSENCE_FINDING_MARKERS: Final[tuple[str, ...]] = (
@@ -2740,6 +2776,51 @@ CONST_VERIFIED_BY_AGENT: Final[str] = "agent"
 # Marks a finding the verifier never adjudicated because verification itself failed, as
 # opposed to one it considered and declined to confirm.
 CONST_VERIFICATION_UNAVAILABLE: Final[str] = "verification-unavailable"
+# Marks a finding the verifier was shown and its reply gave no verdict on.
+CONST_VERIFIER_NO_VERDICT: Final[str] = "verifier-no-verdict"
+# Marks a finding the verifier was shown and whose reply held no verdicts that could be read.
+CONST_VERIFIER_REPLY_UNPARSED: Final[str] = "verifier-reply-unparsed"
+# Marks a finding the verifier was shown and whose reply was cut at its token cap (finish
+# reason `length`): what JSON repair salvages from a cut reply is not a verdict.
+CONST_VERIFIER_REPLY_CUT: Final[str] = "verifier-reply-cut"
+# Marks a finding whose invalidation the verifier based only on the finding's own claim or fix,
+# and which was withdrawn.
+CONST_VERIFIER_SELF_REFUTATION: Final[str] = "verifier-self-refutation"
+# Marks a finding the verifier judged without confirming, refuting or finding it mitigated.
+CONST_VERIFIER_INCONCLUSIVE: Final[str] = "verifier-inconclusive"
+# Marks a finding whose verification and invalidation criteria both passed as evidence: the
+# pair cannot tell the defect from its absence, so the finding goes to the verifier.
+CONST_CRITERIA_NON_DISCRIMINATING: Final[str] = "criteria-non-discriminating"
+# The notes that say why a finding has no verdict, each counted in a review's profile.json. A
+# note names its kind before any `: ` detail.
+CONST_VERIFICATION_NOTE_KINDS: Final[tuple[str, ...]] = (
+    CONST_VERIFICATION_UNAVAILABLE,
+    CONST_VERIFIER_NO_VERDICT,
+    CONST_VERIFIER_REPLY_UNPARSED,
+    CONST_VERIFIER_REPLY_CUT,
+    CONST_VERIFIER_SELF_REFUTATION,
+    CONST_VERIFIER_INCONCLUSIVE,
+    CONST_CRITERIA_NON_DISCRIMINATING,
+)
+# The fields of a finding the verifier is shown: its number in the call and the claim as the
+# reviewer wrote it, criteria included. Nothing the pipeline writes (status, confidence,
+# criteria results and their run times, notes) is among them, so verifying a finding again
+# sends the same prompt and the response cache can replay the reply. A field added to `Finding`
+# stays out of the verifier prompt until it is listed here.
+CONST_VERIFIER_FINDING_FIELDS: Final[tuple[str, ...]] = (
+    "finding_id",
+    "severity",
+    "location",
+    "title",
+    "description",
+    "fix",
+    "references",
+    "category",
+    "verification_criteria",
+    "invalidation_criteria",
+    "observed_value",
+    "expected_value",
+)
 
 # Persona review reply outcomes: a persona returns valid findings, a clean empty findings list,
 # or an unparsed reply (malformed response or extraction failure).

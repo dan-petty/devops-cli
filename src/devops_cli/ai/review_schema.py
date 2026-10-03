@@ -29,6 +29,7 @@ from devops_cli.config import (
 from devops_cli.config.constants import (
     CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES,
     CONST_REVIEW_TITLE_FILLER_WORDS,
+    CONST_VERIFICATION_NOTE_KINDS,
     REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD,
     REVIEW_GENERIC_SYMBOL_STOPWORDS,
     REVIEW_STRONG_SYMBOL_MIN_LENGTH,
@@ -1288,7 +1289,9 @@ def reset_verification_state[F: Finding](finding: F) -> F:
 
     A reviewer's reply is untrusted text parsed into the full finding schema, so it can mark
     its own finding INVALIDATED or MITIGATED, which skips verification and drops the finding
-    from the report, or VERIFIED, which reports it unchecked.
+    from the report, or VERIFIED, which reports it unchecked. It can also bring its own
+    confidence, citation, mitigation or criteria results, which the verifier would otherwise
+    keep or be shown as the pipeline's.
     """
     return finding.model_copy(
         update={
@@ -1300,9 +1303,15 @@ def reset_verification_state[F: Finding](finding: F) -> F:
             "invalidation_reason": None,
             "verified_criteria_matched": [],
             "invalidated_criteria_matched": [],
+            "criteria_execution_results": [],
             "verified_by": None,
             "verified_at": None,
             "verification_note": None,
+            "confidence_score": None,
+            "citation_line": None,
+            "mitigating_mechanism": None,
+            "perimeter_files": [],
+            "regression_test": None,
         }
     )
 
@@ -1437,7 +1446,24 @@ def compute_verdict_distributions(
         "verified": verified_counts,
         "mitigated": mitigated_counts,
         "citation_rates": citation_rates,
+        "verification_note": _unverified_note_counts(findings),
     }
+
+
+def _unverified_note_counts(findings: Sequence[Finding | SavedFinding]) -> dict[str, int]:
+    """Why each UNVERIFIED finding has no verdict, by the kind its note names.
+
+    `none` counts findings with no note, which verification never reached: the verifier notes
+    every finding it was shown and left unverified. `other` counts free-text notes, such as a
+    refutation downgraded for citing no line.
+    """
+    counts: dict[str, int] = defaultdict(int)
+    for f in findings:
+        if f.status != "UNVERIFIED":
+            continue
+        kind = (f.verification_note or "none").split(":", 1)[0].strip()
+        counts[kind if kind in CONST_VERIFICATION_NOTE_KINDS or kind == "none" else "other"] += 1
+    return dict(counts)
 
 
 def is_field_discriminating(counts: dict[str, int]) -> bool:
