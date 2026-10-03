@@ -14,13 +14,14 @@ from unittest.mock import NonCallableMock
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.constants import (
-    CONST_SCANNER_FAILURE_REASON_CHARS,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_SCANNER_STDOUT_EXCERPT_CHARS,
 )
 from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import state as dry_run_state
+from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -57,8 +58,26 @@ def _parse_json_or_ndjson(raw_stdout: str) -> tuple[bool, Any]:
     return True, records
 
 
+def _cut(text: str, limit: int) -> str:
+    """Return text cut to limit characters, ending in … when it was cut."""
+    return text if len(text) <= limit else f"{text[: limit - 1]}…"
+
+
+def masked_reason(reason: str) -> str:
+    """Return a failure reason masked, then cut to `CONST_MAX_ERROR_DETAIL_LENGTH`.
+
+    Masking comes first: cutting first can leave part of a secret the masking patterns no longer
+    match.
+    """
+    return _cut(mask_secrets(reason), CONST_MAX_ERROR_DETAIL_LENGTH)
+
+
 class ScanOutcome(list[Finding]):
-    """The outcome of executing a security scanner."""
+    """The outcome of executing a security scanner.
+
+    The reason reaches SARIF notifications, the CLI and review.md, and often quotes a scanner's
+    output or an exception, so `masked_reason` masks and bounds it here, for every producer.
+    """
 
     def __init__(
         self,
@@ -70,7 +89,7 @@ class ScanOutcome(list[Finding]):
         super().__init__(items)
         self.status: str = status
         self.findings: list[Finding] = items
-        self.reason: str = reason
+        self.reason: str = masked_reason(reason)
         # When the scanner started and finished, in UTC; set by `BaseSecurityScanner.scan`.
         self.started_utc: str | None = None
         self.ended_utc: str | None = None
@@ -139,23 +158,26 @@ def _evaluate_preflight(
 
 def _one_line(text: str, limit: int) -> str:
     """Return text on one line, each run of whitespace a single space, cut to limit characters."""
-    flat = " ".join(text.split())
-    return flat if len(flat) <= limit else f"{flat[: limit - 1]}…"
+    return _cut(" ".join(text.split()), limit)
 
 
 def _non_json_failure_reason(proc: Any) -> str:
-    """Say how the scanner exited, and when it printed something other than JSON, quote its start."""
+    """Say how the scanner exited, and when it printed something other than JSON, quote its start.
+
+    The output is masked before the quote is cut from it, so the cut cannot split a secret;
+    `ScanOutcome` masks and bounds the whole reason.
+    """
     stdout = (proc.stdout or "").strip()
+    stderr = (proc.stderr or "").strip()
     if not stdout:
-        err_msg = (proc.stderr or "").strip()[:256]
-        return f"Scanner exited with code {proc.returncode}: {err_msg}"
+        return f"Scanner exited with code {proc.returncode}: {stderr}"
     reason = (
         f"Scanner exited with code {proc.returncode}; output was not JSON, starting "
-        f'"{_one_line(stdout, CONST_SCANNER_STDOUT_EXCERPT_CHARS)}"'
+        f'"{_one_line(mask_secrets(stdout), CONST_SCANNER_STDOUT_EXCERPT_CHARS)}"'
     )
-    if stderr := (proc.stderr or "").strip():
+    if stderr:
         reason = f"{reason}; stderr: {stderr}"
-    return _one_line(reason, CONST_SCANNER_FAILURE_REASON_CHARS)
+    return " ".join(reason.split())
 
 
 def _handle_non_json_output(
@@ -200,8 +222,7 @@ def _handle_json_output(
                     fb,
                     f"Scanner exited with code {returncode}; used built-in patterns",
                 )
-        err_msg = stderr.strip()[:256]
-        return ScanOutcome("failed", [], f"Scanner exited with code {returncode}: {err_msg}")
+        return ScanOutcome("failed", [], f"Scanner exited with code {returncode}: {stderr.strip()}")
     return ScanOutcome("ran", findings)
 
 
@@ -336,7 +357,7 @@ class BaseSecurityScanner(ABC):
                         self.fallback_scan(target_path),
                         f"Scanner error: {exc}; used built-in patterns",
                     )
-                return ScanOutcome("failed", [], f"Scanner execution failed: {str(exc)[:256]}")
+                return ScanOutcome("failed", [], f"Scanner execution failed: {exc}")
 
         return _run()
 
