@@ -44,6 +44,12 @@ loki:
 
 singleBinary:
   replicas: 1
+  # The Prometheus server's kubernetes-pods job scrapes Loki's own metrics through these, for the
+  # Loki alert rules in monitoring/prometheus-values.yaml (#549). The scrape comes and goes with
+  # this stack, so an infra-only cluster has no Loki target to report down.
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "3100"
   resources:
     requests:
       cpu: 100m

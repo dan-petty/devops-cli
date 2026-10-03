@@ -6,7 +6,7 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 
 | Stack | Components | Namespaces | Default Ports |
 | :--- | :--- | :--- | :--- |
-| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Grafana, Prometheus, Grafana K8s Monitoring Stack (Alloy + exporters), Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector | `argocd`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope) |
+| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Grafana, Prometheus, Alertmanager, Grafana K8s Monitoring Stack (Alloy + exporters), Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector | `argocd`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope) |
 | **`llm`** | Ollama, Open-WebUI, Qdrant Vector DB, Valkey Cache, Valkey Run Index | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
 | **`all`** | All components from both stacks | `argocd`, `monitoring`, `otel`, `llm` | All ports above |
 
@@ -208,7 +208,9 @@ Two alerts in `serverFiles.alerting_rules.yml` (`monitoring/prometheus-values.ya
 - `LogOrMetricVolumeDiskLow`: the root filesystem of the node holding `storage-loki-0` or `prometheus-server` has had less than 10% free for 30 minutes.
 - `PrometheusNearRetentionSizeCap`: the TSDB has used over 80% of `server.retentionSize` for an hour, before the cap would delete blocks younger than 30 days.
 
-Prometheus evaluates them and Grafana's alert list shows them. No Alertmanager is deployed yet, so they notify no one.
+They route like every other rule (Alerting, below), and are listed there with the rest.
+
+Loki's compactor retention takes effect once #550's Loki migration has been applied, a step a person runs: the volume rebind above, then the Loki upgrade. Until then Loki deletes no logs by age. The same upgrade adds the pod annotations through which Prometheus scrapes Loki, so `LokiRetentionNotRunning` has no series before it; after it, the alert fires if the compactor stops applying retention.
 
 ## Host Journals and Health Metrics
 
@@ -224,6 +226,74 @@ Each node sends its journal to Loki and its health series to Prometheus through 
 changes(node_boot_time_seconds[30d])                                       # PromQL: reboots per node
 node_systemd_unit_state{state="failed"} == 1                               # PromQL: failed host units
 ```
+
+## Alerting
+
+Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prometheus-values.yaml`), and Grafana reads it as the `Alertmanager` datasource. The rules are in the same file, under `serverFiles.alerting_rules.yml`; `tests/test_k8s_monitoring_alerting.py` pins them and checks that each selects only series a scrape in `k8s/` serves. No rule watches the controller manager, scheduler or proxy: k3s runs them inside its server process, so nothing scrapes them and such a rule would fire on the missing target.
+
+| Alert | Fires when | For | Severity |
+| :--- | :--- | :--- | :--- |
+| `NodeNotReady` | Kubernetes reports a node not Ready | 5m | critical |
+| `TargetDown` | A scrape target is down (`up == 0`) | 10m | warning |
+| `NodeRebooted` | A node has been up for under 30 minutes | — | warning |
+| `K3sServiceNotActive` | A node's `k3s.service` or `k3s-agent.service` is not active | 5m | critical |
+| `GpuPowerLimitServiceNotActive` | `nvidia-power-limit.service` is not active, so the GPU power caps may not be applied | 10m | critical |
+| `GpuTemperatureHigh` | A GPU is over 85 °C (warning) or at 90 °C or more (critical) | 10m, 2m | warning, critical |
+| `GpuPowerOverSiteBudget` | All GPUs together draw more than the site budget in the rule (1000 W) | 5m | critical |
+| `HostFilesystemSpaceLow` | A node filesystem has under 10% (warning) or 5% (critical) free | 15m, 5m | warning, critical |
+| `PersistentVolumeSpaceLow` | A volume that reports kubelet volume stats has under 10% free; no volume on this cluster reports them yet | 15m | warning |
+| `LogOrMetricVolumeDiskLow` | The root filesystem of the node holding `storage-loki-0` or `prometheus-server` has under 10% free; names the claim at risk | 30m | warning |
+| `PrometheusNearRetentionSizeCap` | Prometheus's data uses over 80% of `server.retentionSize`, before the cap deletes blocks younger than 30 days | 1h | warning |
+| `PrometheusSizeLimitCutHistory` | Prometheus deleted blocks to stay under its size cap | — | warning |
+| `PrometheusStorageNearClaim` | Prometheus's data uses over 80% of the `prometheus-server` claim, which with the cap at 80% of the claim means the cap is not holding it | 1h | warning |
+| `LokiRetentionNotRunning` | Loki's compactor has not applied retention for over an hour; silent until #550's Loki migration, whose upgrade turns retention on and starts the Loki scrape | 30m | warning |
+| `LokiRequestErrors` | Over 5% of a Loki route's requests return 5xx | 15m | warning |
+| `ClusterMetricsMissing` | `kube_node_status_condition` is absent, so the node rules cannot fire | 10m | critical |
+| `PrometheusConfigReloadFailed`, `PrometheusRuleEvaluationFailures`, `PrometheusNotConnectedToAlertmanager`, `PrometheusDroppingAlerts`, `PrometheusCompactionsFailing` | Prometheus's own health | 0–15m | warning |
+| `AlertmanagerConfigReloadFailed`, `AlertmanagerNotificationsFailing` | Alertmanager's own health; the second only once the webhook Secret exists | 10m, 15m | warning |
+
+Retention, volume sizes and what `LogOrMetricVolumeDiskLow` and `PrometheusNearRetentionSizeCap` watch are in Log and Metric Retention, above.
+
+The local-path volumes are host directories. They report no kubelet volume stats and do not enforce their claim's size, so the host filesystem under them is what fills. `HostFilesystemSpaceLow` watches every filesystem of every node; `LogOrMetricVolumeDiskLow` watches the same 10% on the root filesystem of the node holding Loki's and Prometheus's claims and names the claim at risk, so on that node both fire. For Prometheus, `PrometheusNearRetentionSizeCap` warns before its size cap deletes anything, `PrometheusSizeLimitCutHistory` once it has, and `PrometheusStorageNearClaim` if the data outgrows the claim with no cap holding it.
+
+The GPU power budget is one number for the whole site, from the GPUs' draw before a breaker trip on the circuit every node shared. Once the power layout is settled, it should become one budget per circuit.
+
+### Receiver
+
+Alerts without a routed severity go to the `null` receiver, which sends nowhere. `critical` and `warning` alerts go to `webhook`, which posts Alertmanager's webhook JSON to the URL in the `url` key of the Secret `alertmanager-webhook` in `monitoring`. The Secret is mounted optional, as a directory, at `/etc/alertmanager-webhook`, so Alertmanager starts without it and the running pod sees the file about a minute after the Secret is created. Until then each webhook notification fails, Alertmanager logs `Notify for alerts failed`, and nothing leaves the cluster.
+
+To wire a channel, write its URL to a file (so it stays out of shell history) and create the Secret:
+
+```bash
+kubectl -n monitoring create secret generic alertmanager-webhook --from-file=url=<file-holding-the-url>
+```
+
+The monitoring perimeter lets Alertmanager reach ports 80 and 443 outside the cluster; a receiver on another port needs an egress rule in `monitoring/networkpolicy.yaml`.
+
+### Planned maintenance
+
+Silence the node, then drain it. Every alert about one node carries a `node` label: node-exporter's rules copy it from `instance`, the kubernetes-pods job sets it on the pods it scrapes, and `LogOrMetricVolumeDiskLow` takes it from the pod holding the claim. So one silence covers the node, its scrape targets, its units and the `NodeRebooted` that follows. Make it last the work plus 30 minutes:
+
+```bash
+kubectl -n monitoring exec statefulset/prometheus-alertmanager -c alertmanager -- \
+  amtool --alertmanager.url=http://localhost:9093 silence add 'node="<node>"' \
+  --duration=3h --author=<name> --comment="<reason>"
+kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
+```
+
+The drain matters because a few cluster-wide alerts have no `node` label. One pod, `k8s-monitoring-alloy-metrics-0`, forwards every series from kube-state-metrics, node-exporter and the DCGM exporter. Drained, it starts again on another node. Left on a node that powers off, it stays bound there until the node returns. Those series stop, no other node's `NodeNotReady` can fire, and after about 15 minutes `ClusterMetricsMissing` (critical, no `node` label) pages, because the node silence does not match it. Pods on `local-path` volumes (Prometheus, Loki, Grafana, Pyroscope and Alertmanager) cannot move and wait for their node. While the node holding Prometheus or Alertmanager is down, no alert is evaluated or sent at all.
+
+After the work, let pods back onto the node, and expire the silence if the work ended early:
+
+```bash
+kubectl uncordon <node>
+kubectl -n monitoring exec statefulset/prometheus-alertmanager -c alertmanager -- \
+  amtool --alertmanager.url=http://localhost:9093 silence query
+kubectl -n monitoring exec statefulset/prometheus-alertmanager -c alertmanager -- \
+  amtool --alertmanager.url=http://localhost:9093 silence expire <silence-id>
+```
+
+In Grafana, Alerting > Silences with the `Alertmanager` datasource selected does the same; anonymous viewers can only list silences. Alertmanager keeps silences on its volume, so they survive a restart.
 
 ## Teardown
 
@@ -342,7 +412,7 @@ k8s/
 │   ├── grafana-values.yaml   # Helm values for grafana/grafana (datasources, dashboard sidecar)
 │   ├── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, node journals, and gateway monitors)
 │   ├── prometheus-operator-crds-values.yaml # Helm values for prometheus-community/prometheus-operator-crds (ServiceMonitor and other monitoring.coreos.com CRDs)
-│   ├── prometheus-values.yaml # Helm values for prometheus-community/prometheus (server only)
+│   ├── prometheus-values.yaml # Helm values for prometheus-community/prometheus (server, Alertmanager and alert rules)
 │   └── dashboards/
 │       ├── kustomization.yaml # configMapGenerator: sidecar-labelled ConfigMaps for six dashboards
 │       ├── k8s-views-global.json, k8s-views-pods.json # ConfigMap grafana-k8s-global-dashboards
