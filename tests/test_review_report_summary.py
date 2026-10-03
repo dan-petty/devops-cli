@@ -185,10 +185,19 @@ def test_queried_dependencies_clean_yields_good_pattern(tmp_path: Path) -> None:
     ) == (True, True, True)
 
 
-def test_static_analyzers_ran_yields_good_pattern(tmp_path: Path) -> None:
-    """When static analyzers ran with zero critical findings, an executive summary pattern records it."""
+def test_static_analyzers_line_counts_only_the_analyzers_that_ran(tmp_path: Path) -> None:
+    """The executive summary's analyzer line counts an analyzer as run only when its state is
+    `ran`, names those on built-in patterns, failed or not installed apart, and is no good
+    pattern: a failed scan is not one (#948)."""
     pipeline = _make_dummy_pipeline(tmp_path)
-    pipeline.static_analyzers = {"Bandit": "ran", "Semgrep": "ran"}
+    pipeline.static_analyzers = {
+        "Bandit": "ran",
+        "Kube-linter": "no files",
+        "Pluto": "not installed",
+        "Trivy": "failed",
+        "Semgrep": "ran",
+        "Gitleaks": "built-in patterns",
+    }
     report_md = pipeline._build_consolidated_markdown_report(
         session_id="test-analyzers-session",
         generated_at="2026-09-06T12:00:00Z",
@@ -198,9 +207,10 @@ def test_static_analyzers_ran_yields_good_pattern(tmp_path: Path) -> None:
     )
     assert (
         "### Key Good Patterns Observed" in report_md,
-        "Static Security Analysis" in report_md,
-        "2 static analyzer(s) executed (Bandit, Semgrep) with 0 critical findings." in report_md,
-    ) == (True, True, True)
+        "**Static Security Analysis**: 2 analyzer(s) ran (Bandit, Semgrep). Static analyzers "
+        "reported 0 critical finding(s). Built-in patterns only: Gitleaks. Failed: Trivy. "
+        "Not installed: Pluto." in report_md,
+    ) == (False, True)
 
 
 def test_network_references_states_counts(tmp_path: Path) -> None:
@@ -321,60 +331,22 @@ def test_escape_markdown_title_and_heading_asterisks() -> None:
     )
 
 
-def test_derive_finding_theme_strips_scanner_prefixes_and_avoids_word_hyphens() -> None:
-    """Ensure finding themes strip bracketed scanner tags and do not split internal hyphens/backticks."""
-    from devops_cli.ai.review.stages.reporting import _derive_finding_theme
+def test_a_theme_is_a_defect_class_never_a_title() -> None:
+    """A finding's theme is its defect class, so a scanner tag or a title never becomes one (#948)."""
+    from devops_cli.ai.review.category_metrics import resolve_finding_category
 
-    f_dry = SavedFinding(
-        id=1,
-        severity="HIGH",
-        location="a.py:1",
-        title="[DRY-RUN] Simulated Pluto Deprecated K8s API Detection",
-    )
-    f_gitleaks = SavedFinding(
-        id=2,
-        severity="CRITICAL",
-        location="b.py:1",
-        title="[GITLEAKS:simulated-secret] [DRY-RUN] Simulated Secret Detection",
-    )
-    f_flag = SavedFinding(
-        id=3,
-        severity="HIGH",
-        location="c.py:1",
-        title="Potential bypass of PR merge readiness check due to `--allow-blocked-state` flag",
-    )
-    f_kwargs = SavedFinding(
-        id=4,
-        severity="LOW",
-        location="d.py:1",
-        title="Unused **kwargs in resolve_stage_flags",
-    )
-    f_proto = SavedFinding(
-        id=5,
-        severity="HIGH",
-        location="e.py:1",
-        title="Insecure git:// protocol used for ArgoCD repoURL",
-    )
-
-    t_dry = _derive_finding_theme(f_dry)
-    t_gitleaks = _derive_finding_theme(f_gitleaks)
-    t_flag = _derive_finding_theme(f_flag)
-    t_kwargs = _derive_finding_theme(f_kwargs)
-    t_proto = _derive_finding_theme(f_proto)
-
-    assert (
-        t_dry,
-        t_gitleaks,
-        t_flag.count("`") % 2,
-        "**" in t_kwargs,
-        t_proto,
-    ) == (
-        "Simulated Pluto Deprecated K8s API Detection",
-        "Simulated Secret Detection",
-        0,
-        False,
+    titles = (
+        "[DRY-RUN] Simulated Pluto Deprecated K8s API Detection",
+        "[GITLEAKS:simulated-secret] [DRY-RUN] Simulated Secret Detection",
+        "Potential bypass of PR merge readiness check due to `--allow-blocked-state` flag",
         "Insecure git:// protocol used for ArgoCD repoURL",
     )
+    themes = [
+        resolve_finding_category(SavedFinding(id=i, severity="HIGH", location="a.py:1", title=t))
+        for i, t in enumerate(titles, 1)
+    ]
+
+    assert themes == ["code_quality", "secret_exposure", "other", "security"]
 
 
 def _find_table_column_mismatches(markdown_lines: list[str]) -> list[str]:

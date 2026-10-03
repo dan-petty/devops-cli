@@ -43,7 +43,13 @@ def only_bandit(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_each_analyzer_is_marked_ran_missing_fallback_or_without_files() -> None:
     """Verify every analyzer gets the state it actually had."""
     states = _static_analyzer_states(
-        {"python": [Path("a.py")], "yaml": [], "container": [], "any": [Path("a.py")]}
+        {
+            "python": [Path("a.py")],
+            "yaml": [],
+            "container": [],
+            "any": [Path("a.py")],
+            "secrets": [Path("a.py")],
+        }
     )
 
     assert states == {
@@ -87,7 +93,8 @@ def test_a_review_with_only_bandit_is_not_reported_as_a_clean_scan(
     monkeypatch.setattr("devops_cli.security.bandit.run_bandit_scan", lambda paths: [])
     for scan in ("_scan_kubernetes_manifests", "_scan_container_and_lockfiles"):
         monkeypatch.setattr(pipeline, scan, lambda paths: [])
-    monkeypatch.setattr(pipeline, "_scan_gitleaks_and_semgrep", lambda paths: [])
+    for scan in ("_scan_secrets", "_scan_semgrep"):
+        monkeypatch.setattr(pipeline, scan, lambda paths: [])
     printed: list[str] = []
     monkeypatch.setattr(pipeline, "print_info", lambda text, **_: printed.append(text))
     orchestrator = ReviewPipelineOrchestrator(session_id="s516", target_dir=tmp_path)
@@ -191,7 +198,8 @@ def test_the_report_masks_a_secret_in_a_failed_analyzer_s_output(
     monkeypatch.setattr("devops_cli.security.bandit.run_subprocess", MagicMock(return_value=failed))
     for scan in ("_scan_kubernetes_manifests", "_scan_container_and_lockfiles"):
         monkeypatch.setattr(pipeline, scan, lambda paths: [])
-    monkeypatch.setattr(pipeline, "_scan_gitleaks_and_semgrep", lambda paths: [])
+    for scan in ("_scan_secrets", "_scan_semgrep"):
+        monkeypatch.setattr(pipeline, scan, lambda paths: [])
     monkeypatch.setattr(pipeline, "print_info", lambda text, **_: None)
     orchestrator = ReviewPipelineOrchestrator(session_id="s915", target_dir=tmp_path)
 

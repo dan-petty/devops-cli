@@ -41,7 +41,7 @@ def test_review_path_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     with (
         patch(
             "devops_cli.commands.review._prepare_path_content",
-            return_value=(["code page"], "Path Review", "AGENTS.md"),
+            return_value=(["code page"], "Path Review", "AGENTS.md", []),
         ),
         patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_wf),
         patch("devops_cli.commands.review.load_settings"),
@@ -472,7 +472,7 @@ def test_tally_findings_splits_comma_joined_personas() -> None:
 
 
 _PREPARED_REVIEWS = {
-    "path": ("_prepare_path_content", ["path", "app.py"], (["page"], "Path Review", "")),
+    "path": ("_prepare_path_content", ["path", "app.py"], (["page"], "Path Review", "", [])),
     "branch": (
         "_prepare_branch_content",
         ["branch", "feat/x"],

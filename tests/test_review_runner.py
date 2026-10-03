@@ -195,9 +195,8 @@ def test_prepare_content_helpers(tmp_path: Path) -> None:
     """Verify content preparation for paths, branches, and PRs."""
     test_file = Path("src/devops_cli/main.py")
 
-    pages, title, agents_md = _prepare_path_content(test_file, "*")
-    assert len(pages) >= 1
-    assert "main.py" in title
+    pages, title, agents_md, routed = _prepare_path_content(test_file, "*")
+    assert (len(pages) >= 1, "main.py" in title, routed) == (True, True, [])
 
     import subprocess
 

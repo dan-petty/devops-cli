@@ -328,7 +328,7 @@ def path(
     def _execute_current_review() -> None:
         if len(path_targets) == 1:
             target = path_targets[0]
-            pages, title, agents_md = _prepare_path_content(target, pattern)
+            pages, title, agents_md, routed_files = _prepare_path_content(target, pattern)
             target_resolved = target.resolve()
             target_dir = target_resolved if target_resolved.is_dir() else target_resolved.parent
             target_ref = str(target_resolved)
@@ -336,11 +336,13 @@ def path(
             all_pages: list[str] = []
             agents_md = ""
             target_names: list[str] = []
+            routed_files = []
             first_target_dir = Path.cwd().resolve()
             for t in path_targets:
                 t_resolved = t.resolve()
-                t_pages, _, t_agents = _prepare_path_content(t, pattern)
+                t_pages, _, t_agents, t_routed = _prepare_path_content(t, pattern)
                 all_pages.extend(t_pages)
+                routed_files.extend(t_routed)
                 if not agents_md and t_agents:
                     agents_md = t_agents
                 target_names.append(str(t_resolved))
@@ -374,6 +376,7 @@ def path(
             concurrency=concurrency,
             parallel=parallel,
             full_output=full,
+            routed_files=routed_files,
         )
 
     if watch:

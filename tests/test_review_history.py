@@ -49,7 +49,7 @@ def _secret(status: str, verified_by: str | None = None) -> SavedFinding:
     return SavedFinding(
         title=f"{status.title()} token in config",
         location="config.py:1",
-        category="secret_scanning",
+        category="secret_exposure",
         status=status,
         verified_by=verified_by,
         reportable=status != "INVALIDATED",
@@ -104,7 +104,7 @@ def test_the_pipeline_records_its_subject_and_leaves_itself_out_of_its_baseline(
     assert (
         json.loads((session / "findings.json").read_text(encoding="utf-8"))["subject"],
         json.loads((session / "candidates.json").read_text(encoding="utf-8"))["subject"],
-        "| `secret_scanning` | 1 | 1 | 100.0% | 50.0% (1/2) |" in report,
+        "| `secret_exposure` | 1 | 1 | 100.0% | 50.0% (1/2) |" in report,
         "_Baseline: 1 earlier session(s), 0 repeat session(s) collapsed, this session excluded._"
         in report,
     ) == (subject, subject, True, True)
@@ -300,8 +300,8 @@ def test_the_slim_parse_gives_the_figures_of_a_full_parse(tmp_path: Path) -> Non
         ]
     )
 
-    assert (slim, list(slim), slim["secret_scanning"].invalidated) == (
+    assert (slim, list(slim), slim["secret_exposure"].invalidated) == (
         full,
-        ["secret_scanning", "boundary_errors", "general"],
+        ["other", "resource_exhaustion", "secret_exposure"],
         1,
     )

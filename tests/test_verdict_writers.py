@@ -46,6 +46,7 @@ _ALL_WRITERS: list[tuple[str, VerifiedBy | None]] = [
     ("pathlib_resolve", "deterministic:pathlib_resolve"),
     ("scanned_clean", "deterministic:scanned_clean_dependency"),
     ("placeholder", "deterministic:placeholder_advisory"),
+    ("unbacked_advisory", "deterministic:unbacked_advisory"),
     ("unsupported_runtime", "deterministic:unsupported_runtime"),
     ("operational_protocol", "deterministic:operational_protocol"),
     ("fixture_cred", "deterministic:test_fixture_credential"),
