@@ -226,7 +226,7 @@ class AICommandHelp:
     read_path: str = "Target file path to read or inspect."
     read_inspect: str = "Enable multi-scale semantic outline and inspection scanner."
     read_level: str = (
-        "Focal zoom level: 0 (Topology: <200 tokens), "
+        "Focal zoom level: 0 (Topology: classes, functions, exports & hotspots), "
         "1 (Structural Outline: control flow & signatures), "
         "2 (Deep Focal Window: line slice)."
     )

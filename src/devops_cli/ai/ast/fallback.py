@@ -14,6 +14,25 @@ def _make_span(line_start: int, line_end: int) -> CodeSpan:
     return CodeSpan(line_start=line_start, line_end=line_end)
 
 
+def _declared(
+    name: str,
+    kind: SymbolKind,
+    line: str,
+    idx: int,
+    language: str,
+    parent_scope: str | None = None,
+) -> PolyglotSymbol:
+    """A symbol declared on line `idx`, signed with that line as tree-sitter signs its symbols."""
+    return PolyglotSymbol(
+        name=name,
+        kind=kind,
+        span=_make_span(idx, idx),
+        signature=line.strip(),
+        language=language,
+        parent_scope=parent_scope,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Python AST Parsing
 # ---------------------------------------------------------------------------
@@ -29,18 +48,14 @@ def _extract_py_docstring(
     return lines[0][:100] if lines else ""
 
 
-def _extract_py_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
-    args: list[str] = []
-    for arg in node.args.args:
-        if arg.arg in ("self", "cls"):
-            continue
-        ann = ast.unparse(arg.annotation) if arg.annotation else ""
-        args.append(f"{arg.arg}: {ann}" if ann else arg.arg)
-    ret = ast.unparse(node.returns) if node.returns else "None"
-    return f"({', '.join(args)}) -> {ret}"
+def _py_declaration_line(
+    node: ast.AsyncFunctionDef | ast.FunctionDef | ast.ClassDef, lines: list[str]
+) -> str:
+    """The line a definition starts on, after its decorators, as tree-sitter signs it."""
+    return lines[node.lineno - 1].strip()
 
 
-def _parse_py_class_members(cls_node: ast.ClassDef) -> list[PolyglotSymbol]:
+def _parse_py_class_members(cls_node: ast.ClassDef, lines: list[str]) -> list[PolyglotSymbol]:
     methods: list[PolyglotSymbol] = []
     for item in cls_node.body:
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -49,7 +64,7 @@ def _parse_py_class_members(cls_node: ast.ClassDef) -> list[PolyglotSymbol]:
                     name=item.name,
                     kind=SymbolKind.METHOD,
                     span=_make_span(item.lineno, getattr(item, "end_lineno", item.lineno)),
-                    signature=_extract_py_signature(item),
+                    signature=_py_declaration_line(item, lines),
                     docstring=_extract_py_docstring(item),
                     language="python",
                     parent_scope=cls_node.name,
@@ -66,6 +81,7 @@ def _parse_python_symbols(code: str) -> list[PolyglotSymbol]:
     except Exception:
         return []
 
+    lines = code.splitlines()
     symbols: list[PolyglotSymbol] = []
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
@@ -74,18 +90,19 @@ def _parse_python_symbols(code: str) -> list[PolyglotSymbol]:
                     name=node.name,
                     kind=SymbolKind.CLASS,
                     span=_make_span(node.lineno, getattr(node, "end_lineno", node.lineno)),
+                    signature=_py_declaration_line(node, lines),
                     docstring=_extract_py_docstring(node),
                     language="python",
                 )
             )
-            symbols.extend(_parse_py_class_members(node))
+            symbols.extend(_parse_py_class_members(node, lines))
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             symbols.append(
                 PolyglotSymbol(
                     name=node.name,
                     kind=SymbolKind.FUNCTION,
                     span=_make_span(node.lineno, getattr(node, "end_lineno", node.lineno)),
-                    signature=_extract_py_signature(node),
+                    signature=_py_declaration_line(node, lines),
                     docstring=_extract_py_docstring(node),
                     language="python",
                 )
@@ -99,8 +116,10 @@ def _parse_python_symbols(code: str) -> list[PolyglotSymbol]:
 
 RE_TS_INTERFACE = re.compile(r"^\s*(?:export\s+)?interface\s+([A-Za-z0-9_]+)", re.MULTILINE)
 RE_TS_CLASS = re.compile(r"^\s*(?:export\s+)?class\s+([A-Za-z0-9_]+)", re.MULTILINE)
+# `export default function main()`, and generics before the parameters: `function f<T>(x: T)`.
 RE_TS_FUNC = re.compile(
-    r"^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*\((.*?)\)", re.MULTILINE
+    r"^\s*(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*(?:<.*?>)?\s*\(",
+    re.MULTILINE,
 )
 RE_TS_METHOD = re.compile(
     r"^\s+(?:(?:public|private|protected|async)\s+)*([A-Za-z0-9_]+)\s*\((.*?)\)\s*[:{]",
@@ -115,52 +134,22 @@ def _parse_typescript_symbols(code: str, lang: str = "typescript") -> list[Polyg
     for idx, line in enumerate(lines, 1):
         m_iface = RE_TS_INTERFACE.match(line)
         if m_iface:
-            symbols.append(
-                PolyglotSymbol(
-                    name=m_iface.group(1),
-                    kind=SymbolKind.INTERFACE,
-                    span=_make_span(idx, idx),
-                    language=lang,
-                )
-            )
+            symbols.append(_declared(m_iface.group(1), SymbolKind.INTERFACE, line, idx, lang))
             continue
 
         m_cls = RE_TS_CLASS.match(line)
         if m_cls:
-            symbols.append(
-                PolyglotSymbol(
-                    name=m_cls.group(1),
-                    kind=SymbolKind.CLASS,
-                    span=_make_span(idx, idx),
-                    language=lang,
-                )
-            )
+            symbols.append(_declared(m_cls.group(1), SymbolKind.CLASS, line, idx, lang))
             continue
 
         m_fn = RE_TS_FUNC.match(line)
         if m_fn:
-            symbols.append(
-                PolyglotSymbol(
-                    name=m_fn.group(1),
-                    kind=SymbolKind.FUNCTION,
-                    span=_make_span(idx, idx),
-                    signature=f"({m_fn.group(2)})",
-                    language=lang,
-                )
-            )
+            symbols.append(_declared(m_fn.group(1), SymbolKind.FUNCTION, line, idx, lang))
             continue
 
         m_m = RE_TS_METHOD.match(line)
         if m_m and m_m.group(1) not in ("if", "for", "while", "switch", "catch"):
-            symbols.append(
-                PolyglotSymbol(
-                    name=m_m.group(1),
-                    kind=SymbolKind.METHOD,
-                    span=_make_span(idx, idx),
-                    signature=f"({m_m.group(2)})",
-                    language=lang,
-                )
-            )
+            symbols.append(_declared(m_m.group(1), SymbolKind.METHOD, line, idx, lang))
     return symbols
 
 
@@ -179,33 +168,18 @@ RE_GO_METHOD = re.compile(
 def _match_go_line(line: str, idx: int) -> PolyglotSymbol | None:
     m_meth = RE_GO_METHOD.match(line)
     if m_meth:
-        return PolyglotSymbol(
-            name=m_meth.group(2),
-            kind=SymbolKind.METHOD,
-            span=_make_span(idx, idx),
-            signature=f"({m_meth.group(3)})",
-            language="go",
-            parent_scope=m_meth.group(1),
+        return _declared(
+            m_meth.group(2), SymbolKind.METHOD, line, idx, "go", parent_scope=m_meth.group(1)
         )
     m_fn = RE_GO_FUNC.match(line)
     if m_fn:
-        return PolyglotSymbol(
-            name=m_fn.group(1),
-            kind=SymbolKind.FUNCTION,
-            span=_make_span(idx, idx),
-            signature=f"({m_fn.group(2)})",
-            language="go",
-        )
+        return _declared(m_fn.group(1), SymbolKind.FUNCTION, line, idx, "go")
     m_str = RE_GO_STRUCT.match(line)
     if m_str:
-        return PolyglotSymbol(
-            name=m_str.group(1), kind=SymbolKind.STRUCT, span=_make_span(idx, idx), language="go"
-        )
+        return _declared(m_str.group(1), SymbolKind.STRUCT, line, idx, "go")
     m_if = RE_GO_IFACE.match(line)
     if m_if:
-        return PolyglotSymbol(
-            name=m_if.group(1), kind=SymbolKind.INTERFACE, span=_make_span(idx, idx), language="go"
-        )
+        return _declared(m_if.group(1), SymbolKind.INTERFACE, line, idx, "go")
     return None
 
 
@@ -222,7 +196,13 @@ def _parse_go_symbols(code: str) -> list[PolyglotSymbol]:
 # Rust Regex Parsing
 # ---------------------------------------------------------------------------
 
-RE_RS_FN = re.compile(r"^\s*(?:pub(?:\(.*?\))?\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)\s*\((.*?)\)")
+# Rust's function qualifiers, in the reference's grammar: `const`, `async`, `safe` or `unsafe`, and
+# `extern` with an optional ABI; then generics before the parameters: `fn process<T: Clone>(x: T)`.
+RE_RS_FN = re.compile(
+    r"^\s*(?:pub(?:\([^)]*\))?\s+)?"
+    r'(?:(?:const|async|safe|unsafe|extern(?:\s+"[^"]*")?)\s+)*'
+    r"fn\s+([A-Za-z0-9_]+)\s*(?:<.*?>)?\s*\("
+)
 RE_RS_STRUCT = re.compile(r"^\s*(?:pub(?:\(.*?\))?\s+)?struct\s+([A-Za-z0-9_]+)")
 RE_RS_TRAIT = re.compile(r"^\s*(?:pub(?:\(.*?\))?\s+)?trait\s+([A-Za-z0-9_]+)")
 RE_RS_IMPL = re.compile(r"^\s*impl(?:\s+.*?)?\s+([A-Za-z0-9_]+)\s*\{")
@@ -231,26 +211,13 @@ RE_RS_IMPL = re.compile(r"^\s*impl(?:\s+.*?)?\s+([A-Za-z0-9_]+)\s*\{")
 def _match_rust_line(line: str, idx: int) -> PolyglotSymbol | None:
     m_fn = RE_RS_FN.match(line)
     if m_fn:
-        return PolyglotSymbol(
-            name=m_fn.group(1),
-            kind=SymbolKind.FUNCTION,
-            span=_make_span(idx, idx),
-            signature=f"({m_fn.group(2)})",
-            language="rust",
-        )
+        return _declared(m_fn.group(1), SymbolKind.FUNCTION, line, idx, "rust")
     m_str = RE_RS_STRUCT.match(line)
     if m_str:
-        return PolyglotSymbol(
-            name=m_str.group(1), kind=SymbolKind.STRUCT, span=_make_span(idx, idx), language="rust"
-        )
+        return _declared(m_str.group(1), SymbolKind.STRUCT, line, idx, "rust")
     m_tr = RE_RS_TRAIT.match(line)
     if m_tr:
-        return PolyglotSymbol(
-            name=m_tr.group(1),
-            kind=SymbolKind.INTERFACE,
-            span=_make_span(idx, idx),
-            language="rust",
-        )
+        return _declared(m_tr.group(1), SymbolKind.INTERFACE, line, idx, "rust")
     return None
 
 
@@ -279,26 +246,13 @@ RE_JAVA_METHOD = re.compile(
 def _match_java_line(line: str, idx: int) -> PolyglotSymbol | None:
     m_cls = RE_JAVA_CLASS.match(line)
     if m_cls:
-        return PolyglotSymbol(
-            name=m_cls.group(1), kind=SymbolKind.CLASS, span=_make_span(idx, idx), language="java"
-        )
+        return _declared(m_cls.group(1), SymbolKind.CLASS, line, idx, "java")
     m_if = RE_JAVA_IFACE.match(line)
     if m_if:
-        return PolyglotSymbol(
-            name=m_if.group(1),
-            kind=SymbolKind.INTERFACE,
-            span=_make_span(idx, idx),
-            language="java",
-        )
+        return _declared(m_if.group(1), SymbolKind.INTERFACE, line, idx, "java")
     m_meth = RE_JAVA_METHOD.match(line)
     if m_meth and m_meth.group(1) not in ("if", "for", "while", "switch", "catch", "new"):
-        return PolyglotSymbol(
-            name=m_meth.group(1),
-            kind=SymbolKind.METHOD,
-            span=_make_span(idx, idx),
-            signature=f"({m_meth.group(2)})",
-            language="java",
-        )
+        return _declared(m_meth.group(1), SymbolKind.METHOD, line, idx, "java")
     return None
 
 
@@ -324,36 +278,18 @@ RE_HCL_OUT = re.compile(r'^\s*output\s+"([^"]+)"')
 def _match_hcl_line(line: str, idx: int) -> PolyglotSymbol | None:
     m_res = RE_HCL_RESOURCE.match(line)
     if m_res:
-        return PolyglotSymbol(
-            name=f'resource "{m_res.group(1)}" "{m_res.group(2)}"',
-            kind=SymbolKind.STRUCT,
-            span=_make_span(idx, idx),
-            language="hcl",
-        )
+        name = f'resource "{m_res.group(1)}" "{m_res.group(2)}"'
+        return _declared(name, SymbolKind.STRUCT, line, idx, "hcl")
     m_data = RE_HCL_DATA.match(line)
     if m_data:
-        return PolyglotSymbol(
-            name=f'data "{m_data.group(1)}" "{m_data.group(2)}"',
-            kind=SymbolKind.STRUCT,
-            span=_make_span(idx, idx),
-            language="hcl",
-        )
+        name = f'data "{m_data.group(1)}" "{m_data.group(2)}"'
+        return _declared(name, SymbolKind.STRUCT, line, idx, "hcl")
     m_var = RE_HCL_VAR.match(line)
     if m_var:
-        return PolyglotSymbol(
-            name=f'variable "{m_var.group(1)}"',
-            kind=SymbolKind.CONSTANT,
-            span=_make_span(idx, idx),
-            language="hcl",
-        )
+        return _declared(f'variable "{m_var.group(1)}"', SymbolKind.CONSTANT, line, idx, "hcl")
     m_out = RE_HCL_OUT.match(line)
     if m_out:
-        return PolyglotSymbol(
-            name=f'output "{m_out.group(1)}"',
-            kind=SymbolKind.CONSTANT,
-            span=_make_span(idx, idx),
-            language="hcl",
-        )
+        return _declared(f'output "{m_out.group(1)}"', SymbolKind.CONSTANT, line, idx, "hcl")
     return None
 
 
@@ -438,13 +374,7 @@ def _match_line_patterns(language: str, line: str, idx: int) -> PolyglotSymbol |
     for pattern, kind in _LINE_PATTERNS[language]:
         match = pattern.match(line)
         if match and match.group(1) not in _CONTROL_WORDS:
-            return PolyglotSymbol(
-                name=match.group(1),
-                kind=kind,
-                span=_make_span(idx, idx),
-                signature=line.strip(),
-                language=language,
-            )
+            return _declared(match.group(1), kind, line, idx, language)
     return None
 
 
@@ -487,15 +417,7 @@ def _parse_markdown_symbols(code: str) -> list[PolyglotSymbol]:
             continue
         match = None if fence else RE_MD_HEADING.match(line)
         if match:
-            symbols.append(
-                PolyglotSymbol(
-                    name=match.group(1),
-                    kind=SymbolKind.HEADING,
-                    span=_make_span(idx, idx),
-                    signature=line.strip(),
-                    language="markdown",
-                )
-            )
+            symbols.append(_declared(match.group(1), SymbolKind.HEADING, line, idx, "markdown"))
     return symbols
 
 
