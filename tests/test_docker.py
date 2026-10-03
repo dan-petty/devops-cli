@@ -242,3 +242,38 @@ def test_docker_images_and_build_formatting(tmp_path: Path, docker_engine: Any) 
         res_build = runner.invoke(docker_app, ["build", str(tmp_path)])
         assert res_build.exit_code == 0
         assert "Successfully built image" in res_build.output or "sha256:5678" in res_build.output
+
+
+def test_docker_push_registry_error_prints_as_written_and_exits_1(docker_engine: Any) -> None:
+    """A push error is the registry's text: `[/v2/repo]` in it is text, not a Rich closing tag
+    that ends the command in a MarkupError traceback instead of a clean exit 1 (#955)."""
+    mock_client = MagicMock()
+    mock_client.images.push.return_value = [{"error": "denied: [/v2/repo] access"}]
+    with docker_engine(mock_client):
+        res = runner.invoke(docker_app, ["push", "registry/app:1"])
+
+    assert (res.exit_code, isinstance(res.exception, SystemExit)) == (1, True)
+    assert "denied: [/v2/repo] access" in res.output
+
+
+def test_docker_push_status_and_build_output_print_as_written(
+    tmp_path: Path, docker_engine: Any
+) -> None:
+    """Push status comes from the registry and build lines from the build: their brackets print
+    as written, so no word vanishes and no style or link is added. Control characters are still
+    stripped (#955)."""
+    status = "[link=https://example.com]Pushed[/link] [internal]"
+    build_lines = ["Step [/x] done", "[internal] load build definition from Dockerfile"]
+    mock_client = MagicMock()
+    mock_client.images.build.return_value = (
+        MagicMock(short_id="sha256:1234"),
+        [{"stream": f"{line}\x07\n"} for line in build_lines],
+    )
+    mock_client.images.push.return_value = [{"status": status}]
+    with docker_engine(mock_client):
+        res_build = runner.invoke(docker_app, ["build", str(tmp_path)])
+        res_push = runner.invoke(docker_app, ["push", "registry/app:1"])
+
+    assert (res_build.exit_code, res_push.exit_code) == (0, 0)
+    assert [line in res_build.output for line in build_lines] == [True, True]
+    assert (status in res_push.output, "\x07" in res_build.output) == (True, False)
