@@ -85,7 +85,6 @@ from devops_cli.ai.harness.memory import (
     SearchableMemoryStore,
     SqliteMemoryStore,
 )
-from devops_cli.ai.harness.os_access import MountDir, OSAccess, ToolSearch
 from devops_cli.ai.harness.planning import (
     InMemoryPlanStore,
     PlanEvent,
@@ -175,8 +174,6 @@ __all__ = [
     "MemoryStore",
     "ModelOption",
     "ModelSlot",
-    "MountDir",
-    "OSAccess",
     "OverflowStore",
     "ParsedSkill",
     "Passthrough",
@@ -214,7 +211,6 @@ __all__ = [
     "TieredCompaction",
     "TieredExecutionResult",
     "ToolOutputLimits",
-    "ToolSearch",
     "ToolSlot",
     "TranscriptHandleProvider",
     "Truncate",

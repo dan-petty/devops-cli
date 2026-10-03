@@ -20,7 +20,7 @@ Compare disparate security scanning tools (`trivy`, `bandit`, `kube-linter`, `pl
 
 | Action / Goal | Original Command / Manual Workflow | `devops-cli` Command | Key Enhancements in `devops-cli` |
 | :--- | :--- | :--- | :--- |
-| **OSV / NVD CVE Lookup** | Manual search on `osv.dev` and `nvd.nist.gov` | `devops ai review path <file>` | Automatically extracts Python, Node, Rust, and Go dependencies and audits against live OSV.dev and NVD APIs. |
+| **OSV CVE Lookup** | Manual search on `osv.dev` | `devops ai review path <file>` | Automatically extracts Python, Node, Rust, and Go dependencies and audits them against the live OSV.dev API. |
 | **Network Host Reputation** | Manual search on Shodan / Cloudflare Radar | `devops ai review path <file>` | Automatically extracts external public IPs/domains and queries Shodan InternetDB and Cloudflare Radar. |
 
 ---

@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -627,6 +628,114 @@ def test_function_toolset_and_instructions() -> None:
     assert "get_date" in agent._tools
 
 
+def _deployment_target(ctx: RunContext[str]) -> str:
+    return f"Deploy to {ctx.deps}."
+
+
+def _release_source(ctx: RunContext[str]) -> str:
+    return f"Release from {ctx.deps}."
+
+
+def test_toolset_instructions_reach_run_system_prompt() -> None:
+    """Toolset instructions reach the prompt that run and iter build with their RunContext (#958).
+
+    With a context, devops-cli's toolsets answered with a coroutine that was closed unread, and
+    pydantic-ai's own toolsets were dropped with or without one. The first fix asked devops-cli's
+    FunctionToolset without a context, which left out its dynamic instructions without a word.
+    """
+    from pydantic_ai.toolsets import FunctionToolset as NativeFunctionToolset
+
+    from devops_cli.ai.toolsets import FunctionToolset
+
+    native = NativeFunctionToolset[str](
+        instructions=["Pin every image digest.", _deployment_target]
+    )
+    mock_client = MagicMock(model="test-model")
+    mock_client.chat_messages.return_value = "done"
+    agent = PydanticAgent(
+        client=mock_client,
+        name="R",
+        system_prompt="Base.",
+        toolsets=[
+            FunctionToolset[str](instructions=["Always follow semver.", _release_source]),
+            native,
+        ],
+    )
+
+    agent.run("hi", deps="staging", max_turns=1, skip_rag=True)
+    run_prompt = mock_client.chat_messages.call_args_list[0].args[0]
+    iter_prompt = next(
+        node.payload["system"]
+        for node in agent.iter("hi", deps="staging", max_turns=1)
+        if node.kind == "model_request"
+    )
+    unbound_prompt = agent._build_system_prompt_with_tools()
+
+    expected = (
+        "Always follow semver.",
+        "Release from staging.",
+        "Pin every image digest.",
+        "Deploy to staging.",
+    )
+    assert (
+        [text in run_prompt for text in expected],
+        [text in iter_prompt for text in expected],
+        [text in unbound_prompt for text in expected],
+    ) == ([True, True, True, True], [True, True, True, True], [True, False, True, False])
+
+
+async def test_native_toolset_instructions_skipped_in_running_loop_are_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Inside a running event loop the async instructions cannot run, and saying so is logged (#958)."""
+    from pydantic_ai.toolsets import FunctionToolset as NativeFunctionToolset
+
+    from devops_cli.ai.agents.agent import _extract_single_toolset_instructions
+
+    with caplog.at_level(logging.DEBUG, logger="devops_cli.ai.agents"):
+        texts = _extract_single_toolset_instructions(
+            NativeFunctionToolset[Any](instructions="Pin every image digest."), RunContext()
+        )
+
+    assert (
+        texts,
+        [r.getMessage() for r in caplog.records if "instructions" in r.getMessage()],
+    ) == (
+        [],
+        [
+            "Skipped the instructions of toolset 'FunctionToolset': a coroutine cannot be run inside the running event loop"
+        ],
+    )
+
+
+async def test_function_toolset_in_a_running_loop_keeps_its_static_text_and_logs_the_rest(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Inside a running loop devops-cli's FunctionToolset gives its static text and logs the rest (#958).
+
+    Its dynamic instructions render only through the context path, whose coroutine cannot run in
+    the loop, and they were left out without a log record.
+    """
+    from devops_cli.ai.agents.agent import _extract_single_toolset_instructions
+    from devops_cli.ai.toolsets import FunctionToolset
+
+    with caplog.at_level(logging.DEBUG, logger="devops_cli.ai"):
+        texts = _extract_single_toolset_instructions(
+            FunctionToolset[str](instructions=["Always follow semver.", _release_source]),
+            RunContext(deps="staging"),
+        )
+
+    assert (
+        texts,
+        [r.getMessage() for r in caplog.records if "instruction" in r.getMessage()],
+    ) == (
+        ["Always follow semver."],
+        [
+            "Skipped a dynamic instruction of toolset 'FunctionToolset': only get_instructions(ctx) renders it"
+        ],
+    )
+
+
 def test_deferred_tools_approval_required_and_handler() -> None:
     """Verify requires_approval flag, ApprovalRequired exception, and HandleDeferredToolCalls capability."""
     from devops_cli.ai.agents import (
@@ -687,6 +796,90 @@ def test_deferred_tools_approval_required_and_handler() -> None:
     assert len(res.tool_calls) == 2
     assert "blocked by policy" in str(res.tool_calls[0].result)
     assert "Config secret=sanitized_secret applied" in str(res.tool_calls[1].result)
+
+
+def test_deferred_handler_two_arg_receives_run_context_in_agent_run() -> None:
+    """A (ctx, requests) deferred handler gets the run's own RunContext during agent.run (#958).
+
+    The loop looked the handler up without its context, so the handler was called with the
+    requests alone and the run died with a TypeError.
+    """
+    from devops_cli.ai.agents import (
+        DeferredToolRequests,
+        DeferredToolResults,
+        HandleDeferredToolCalls,
+    )
+
+    contexts: list[RunContext[Any]] = []
+
+    def two(ctx: RunContext[Any], reqs: DeferredToolRequests) -> DeferredToolResults:
+        contexts.append(ctx)
+        return reqs.build_results(approve_all=True)
+
+    def delete_prod_cluster(cluster_name: str) -> str:
+        return f"Cluster {cluster_name} deleted"
+
+    mock_client = MagicMock(model="test-model")
+    mock_client.chat_messages.side_effect = [
+        '{"tool": "delete_prod_cluster", "arguments": {"cluster_name": "x"}}',
+        "done",
+    ]
+    agent = PydanticAgent(
+        client=mock_client, name="R", capabilities=[HandleDeferredToolCalls(handler=two)]
+    )
+    agent.tool_plain(delete_prod_cluster, requires_approval=True)
+
+    res = agent.run("hi", deps="ops", max_turns=3, skip_rag=True)
+
+    assert (
+        res.content,
+        [str(call.result) for call in res.tool_calls],
+        [(isinstance(ctx, RunContext), ctx.deps, ctx.session_id) for ctx in contexts],
+    ) == ("done", ["Cluster x deleted"], [(True, "ops", "R")])
+
+
+async def test_deny_hook_skipped_in_a_running_loop_does_not_let_a_later_handler_approve() -> None:
+    """agent.run inside an event loop leaves an approval to the caller when a hook cannot run (#958).
+
+    The async deny hook was skipped and the approving handler after it decided, so the
+    approval-required tool ran.
+    """
+    from devops_cli.ai.agents import (
+        BaseCapability,
+        DeferredToolRequests,
+        DeferredToolResults,
+        HandleDeferredToolCalls,
+    )
+
+    class DenyAll(BaseCapability):
+        async def handle_deferred_tool_calls(
+            self, ctx: Any, *, requests: DeferredToolRequests
+        ) -> DeferredToolResults | None:
+            return requests.build_results(deny_all=True)
+
+    deleted: list[str] = []
+
+    def delete_prod_cluster(cluster_name: str) -> str:
+        deleted.append(cluster_name)
+        return f"Cluster {cluster_name} deleted"
+
+    mock_client = MagicMock(model="test-model")
+    mock_client.chat_messages.side_effect = [
+        '{"tool": "delete_prod_cluster", "arguments": {"cluster_name": "x"}}',
+        "done",
+    ]
+    approve = HandleDeferredToolCalls(lambda reqs: reqs.build_results(approve_all=True))
+    agent = PydanticAgent(client=mock_client, name="R", capabilities=[DenyAll(), approve])
+    agent.tool_plain(delete_prod_cluster, requires_approval=True)
+
+    res = agent.run("hi", max_turns=3, skip_rag=True)
+
+    assert (
+        deleted,
+        [part.tool_name for part in res.data.approvals]
+        if isinstance(res.data, DeferredToolRequests)
+        else None,
+    ) == ([], ["delete_prod_cluster"])
 
 
 def test_deferred_tools_stop_the_world_and_resume() -> None:

@@ -832,6 +832,20 @@ CONST_STANDARD_HTML_TAGS: Final[frozenset[str]] = frozenset(
     }
 )
 
+# The generated CLI reference masks a text default when the parameter's name or envvar names a
+# credential. The name is split on "_" and "-" and matched word by word, so TOKENS (a count),
+# VALKEY and a bare KEY (a key size, a config key, a field key) name none (#956).
+CONST_DOC_CREDENTIAL_NAME_WORDS: Final[frozenset[str]] = frozenset(
+    {"APIKEY", "AUTH", "CREDENTIAL", "PASSPHRASE", "PASSWORD", "SECRET", "TOKEN"}
+)
+# Adjacent words that name a credential where neither does alone.
+CONST_DOC_CREDENTIAL_NAME_WORD_PAIRS: Final[frozenset[tuple[str, str]]] = frozenset(
+    {("API", "KEY")}
+)
+# A name ending in this word holds what a credential is called, such as a Kubernetes Secret's
+# name, not the credential.
+CONST_DOC_CREDENTIAL_NAMING_WORD: Final[str] = "NAME"
+
 CONST_RECOMMENDATION_APPROVE = "APPROVE"
 CONST_RECOMMENDATION_REQUEST_CHANGES = "REQUEST CHANGES"
 CONST_RECOMMENDATION_BLOCK = "BLOCK"
@@ -963,6 +977,10 @@ CONST_OTEL_METRIC_UNIT_ONE = "1"
 CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA = 1
 CONST_OTEL_SERVICE_NAME = "devops-cli"
 CONST_OTEL_OTLP_HTTP_PORT = 4318
+# Every type a `# TYPE` line of the Prometheus text exposition format (0.0.4) may give a metric.
+CONST_PROMETHEUS_EXPOSITION_METRIC_TYPES: Final[frozenset[str]] = frozenset(
+    {"counter", "gauge", "histogram", "summary", "untyped"}
+)
 # The GenAI semantic conventions, which have no tagged release, are pinned to a commit and
 # resolved by weaver (the version the conventions repository pins in its versions.env).
 CONST_SEMCONV_GENAI_REPO: Final[str] = "open-telemetry/semantic-conventions-genai"
@@ -3412,3 +3430,10 @@ CONST_RETRYABLE_HTTP_STATUS_CODES: Final[tuple[int, ...]] = (
     529,  # Site Is Overloaded (Anthropic / OpenAI)
     530,  # Site Is Frozen / Origin DNS Error (Cloudflare)
 )
+
+# ── SQLite Database Names ────────────────────────────────────────────────────
+# The names `sqlite3.connect` opens as a database private to that one connection (#958):
+# `:memory:` is held in memory and the empty name is a temporary file, and each is gone when the
+# connection closes. Without `uri=True` no other name does that, so the set is complete. A store
+# that opens a connection per call loses every write to either.
+CONST_SQLITE_PER_CONNECTION_DATABASES: Final[frozenset[str]] = frozenset({":memory:", ""})

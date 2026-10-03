@@ -27,6 +27,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git, is_safe_subpath
 from devops_cli.lang import ERRORS, MESSAGES
+from devops_cli.models.vulnerability import VulnerabilityRecord
 
 logger = logging.getLogger(__name__)
 
@@ -407,24 +408,32 @@ def rag_search(
         return f"RAG search error: {exc}"
 
 
+def _osv_records_reply(
+    package_name: str, ecosystem: str, records: list[VulnerabilityRecord]
+) -> str:
+    """The reply to a lookup OSV answered: its advisory records, or that it has none."""
+    if not records:
+        return f"No known vulnerabilities found in OSV for {package_name} ({ecosystem})."
+    lines = [f"Found {len(records)} vulnerability record(s) for {package_name}:"]
+    for record in records:
+        fixed = record.fixed_version or "None"
+        lines.append(f"- [{record.id}] Severity: {record.severity} | Fixed: {fixed}")
+        if record.summary:
+            lines.append(f"  Summary: {record.summary[:150]}")
+    return "\n".join(lines)
+
+
 def scan_osv(
     package_name: str, version: str = "", ecosystem: str = DEFAULT_PACKAGE_ECOSYSTEM
 ) -> str:
-    """Query OSV.dev and NVD vulnerability databases for known package security flaws."""
+    """Query the OSV.dev vulnerability database for known package security flaws."""
     try:
         from devops_cli.security.vulnerability_lookup import OSVClient
 
-        client = OSVClient()
-        vulns = client.query_package(package_name, version=version, ecosystem=ecosystem)
-        if not vulns:
-            return f"No known vulnerabilities found in OSV/NVD for {package_name} ({ecosystem})."
-        lines = [f"Found {len(vulns)} vulnerability record(s) for {package_name}:"]
-        for record in vulns:
-            fixed = record.fixed_version or "None"
-            lines.append(f"- [{record.id}] Severity: {record.severity} | Fixed: {fixed}")
-            if record.summary:
-                lines.append(f"  Summary: {record.summary[:150]}")
-        return "\n".join(lines)
+        lookup = OSVClient().query_package(package_name, version=version, ecosystem=ecosystem)
+        if lookup.status != "ok":
+            return f"OSV lookup failed: {lookup.reason}"
+        return _osv_records_reply(package_name, ecosystem, lookup.vulnerabilities)
     except Exception as exc:
         return f"OSV vulnerability query error: {exc}"
 

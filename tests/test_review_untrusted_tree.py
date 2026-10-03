@@ -151,10 +151,10 @@ def test_a_review_exports_no_span_to_an_endpoint_the_repository_names(
     (hostile_repo / ".devops" / "config.yaml").write_text(
         f"telemetry:\n  enabled: true\n  endpoint: {planted_endpoint}\n", encoding="utf-8"
     )
-    for name in ("DEVOPS_OTEL_ENDPOINT", "OTEL_EXPORTER_OTLP_ENDPOINT", "DEVOPS_CLI_OTEL_ENDPOINT"):
+    for name in ("DEVOPS_CLI_TELEMETRY_ENDPOINT", "OTEL_EXPORTER_OTLP_ENDPOINT"):
         monkeypatch.delenv(name, raising=False)
     # Nothing is exported: the endpoint is still read from config, and the test reads it back.
-    monkeypatch.setenv("DEVOPS_TELEMETRY_ENABLED", "false")
+    monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENABLED", "false")
     monkeypatch.chdir(hostile_repo)
     reset_tracer()
     outside_a_review = get_tracer().endpoint

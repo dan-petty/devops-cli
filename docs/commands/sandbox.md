@@ -213,8 +213,8 @@ devops sandbox logs [OPTIONS] <identifier>
 | `--follow`, `-f` | `boolean` | - | Follow log output continuously in live stream mode. |
 | `--tail`, `-n` | `integer` | `100` | Number of lines to show from the end of the logs (default: 100). |
 | `--timestamps`, `-t` | `boolean` | `True` | Show timestamps in log output. |
-| `--detect-panics`, `--no-detect-panics` | `boolean` | `True` | Automatically detect panics, stacktraces, and segfaults. |
-| `--archive-incidents`, `--no-archive-incidents` | `boolean` | `True` | Archive incident records to JSON files |
+| `--detect-panics` / `--no-detect-panics` | `boolean` | `True` | Automatically detect panics, stacktraces, and segfaults. |
+| `--archive-incidents` / `--no-archive-incidents` | `boolean` | `True` | Archive incident records to JSON files |
 | `--incident-dir` | `path` | - | Directory path to persist structured panic incident records. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |

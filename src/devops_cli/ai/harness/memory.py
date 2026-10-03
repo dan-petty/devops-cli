@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import time
 import uuid
@@ -10,7 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from devops_cli.ai.agents.pydantic_agent import (
     AgentTool,
@@ -18,6 +19,7 @@ from devops_cli.ai.agents.pydantic_agent import (
     RunContext,
     Tool,
 )
+from devops_cli.config.constants import CONST_SQLITE_PER_CONNECTION_DATABASES
 from devops_cli.exceptions.ai import HarnessExecutionError, HarnessValidationError
 
 logger = logging.getLogger(__name__)
@@ -337,11 +339,29 @@ class FileStore(BaseModel):
 
 
 class SqliteMemoryStore(BaseModel):
-    """Durable SQLite database-backed memory notebook store."""
+    """Durable memory notebook store kept in a SQLite database file.
+
+    Every call opens its own connection, so ``database`` must name a file all of them share.
+    ``:memory:`` and the empty name give each connection a private database that is gone once it
+    closes, so a write reported success that no later read could see; both are refused.
+    ``InMemoryStore`` keeps memory for the life of the process.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
-    database: str = Field(default=":memory:")
+    database: str | Path
+
+    @field_validator("database")
+    @classmethod
+    def _require_shared_database_file(cls, database: str | Path) -> str | Path:
+        if os.fspath(database) in CONST_SQLITE_PER_CONNECTION_DATABASES:
+            raise HarnessValidationError(
+                f"SqliteMemoryStore needs a database file; {os.fspath(database)!r} gives every "
+                "connection its own database, which loses each write. Use InMemoryStore for "
+                "memory that lasts only as long as the process.",
+                field_name="database",
+            )
+        return database
 
     def _get_conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.database, check_same_thread=False)

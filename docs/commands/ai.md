@@ -78,7 +78,7 @@ devops ai prewarm [OPTIONS]
 |---|---|---|---|
 | `--model`, `-m` | `string` | - | Model name to prewarm or evict (defaults to configured AI model). |
 | `--keep-alive`, `-k` | `string` | `1h` | Keep-alive duration for loaded model (e.g. 1h, 24h, forever, or 0 for eviction). |
-| `--all-nodes`, `-a`, `--single-node` | `boolean` | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
+| `--all-nodes`, `-a` / `--single-node` | `boolean` | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
 | `--evict` | `boolean` | - | Evict the model from GPU VRAM immediately (sets keep_alive to 0). |
 | `--url`, `-u` | `string` | - | Specific Ollama node URL to target instead of all candidate nodes. |
 | `--json` | `boolean` | - | Output results as structured JSON. |
@@ -118,11 +118,11 @@ devops ai chat [OPTIONS]
 | `--persona`, `-p` | `string` | `architect` | Persona to chat with: devsecops, architect, pm, auditor, qa, challenger |
 | `--model`, `-m` | `string` | - | AI model identifier. |
 | `--context`, `-c` | `path` | - | Optional file to inject as background context (e.g. AGENTS.md). |
-| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
-| `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens. |
-| `--tools`, `--no-tools` | `boolean` | `True` | Enable DevOps agent tools. |
-| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
-| `--prewarm`, `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat. |
+| `--rag` / `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
+| `--stream` / `--no-stream` | `boolean` | `True` | Stream response tokens. |
+| `--tools` / `--no-tools` | `boolean` | `True` | Enable DevOps agent tools. |
+| `--thinking` / `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
+| `--prewarm` / `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat. |
 | `--explain`, `-e` | `boolean` | - | Explain chat personas, tools, and reasoning modes. |
 
 ---
@@ -163,8 +163,8 @@ devops ai pipeline [OPTIONS] <prompt>
 |---|---|---|---|
 | `--personas`, `-p` | `string` | `devsecops,architect,qa` | Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa). |
 | `--max-turns` | `integer` | `5` | Maximum tool turns per agent stage. |
-| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
-| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
+| `--rag` / `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
+| `--thinking` / `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
 
 ---
 
@@ -277,9 +277,9 @@ devops ai pack-context [OPTIONS] <target_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--referenced`, `-r` | `string` | - | Comma-separated list of symbols referenced by caller to prioritize during pruning. |
-| `--max-tokens` | `integer` | `<masked>` | Maximum token budget for packed context output. |
-| `--strip-private`, `--no-strip-private` | `boolean` | `True` | Strip unreferenced private functions, methods, and attributes. |
-| `--skeletonize`, `--no-skeletonize` | `boolean` | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
+| `--max-tokens` | `integer` | `1500` | Maximum token budget for packed context output. |
+| `--strip-private` / `--no-strip-private` | `boolean` | `True` | Strip unreferenced private functions, methods, and attributes. |
+| `--skeletonize` / `--no-skeletonize` | `boolean` | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -304,7 +304,7 @@ devops ai read [OPTIONS] <target_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--inspect`, `-i` | `boolean` | - | Enable multi-scale semantic outline and inspection scanner. |
-| `--level`, `-l` | `integer` | - | Focal zoom level: 0 (Topology: <200 tokens), 1 (Structural Outline: control flow & signatures), 2 (Deep Focal Window: line slice). |
+| `--level`, `-l` | `integer` | - | Focal zoom level: 0 (Topology: classes, functions, exports & hotspots), 1 (Structural Outline: control flow & signatures), 2 (Deep Focal Window: line slice). |
 | `--lines`, `-L` | `string` | - | Line range for Level 2 focal window (e.g. '40:80'). |
 | `--symbol`, `-s` | `string` | - | Target symbol name to inspect or focus on. |
 | `--format`, `-f` | `string` | `markdown` | Output format: 'text', 'markdown', or 'json'. |
@@ -539,8 +539,8 @@ devops ai review path [OPTIONS] <targets>
 | `--watch`, `-w` | `boolean` | - | Continuously watch target paths for changes and re-run reviews. |
 | `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `devops ai review branch`
 
@@ -584,8 +584,8 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `devops ai review pr`
 
@@ -629,8 +629,8 @@ devops ai review pr [OPTIONS] <number>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `devops ai review findings`
 
@@ -928,7 +928,7 @@ devops ai review templates sweep [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 #### `devops ai review templates check`
@@ -946,7 +946,7 @@ devops ai review templates check [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops ai review hallucinations`
@@ -1025,7 +1025,7 @@ devops ai analyze path [OPTIONS] <target>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
@@ -1048,7 +1048,7 @@ devops ai analyze branch [OPTIONS] <branch>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
@@ -1070,7 +1070,7 @@ devops ai analyze pr [OPTIONS] <pr_number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
@@ -1110,7 +1110,7 @@ devops ai rag index [OPTIONS] <path>
 |---|---|---|---|
 | `--project`, `-p` | `string` | - | Project / repository name override. |
 | `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
-| `--include-kb`, `--no-include-kb` | `boolean` | `True` | Include bundled DevOps CLI Knowledge Base in docs collection. |
+| `--include-kb` / `--no-include-kb` | `boolean` | `True` | Include bundled DevOps CLI Knowledge Base in docs collection. |
 | `--collection`, `-c` | `string` | - | Target collection override. |
 | `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
 
@@ -1558,7 +1558,7 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--simulate`, `--no-simulate` | `boolean` | `True` | Simulate failover without altering active routing table. |
+| `--simulate` / `--no-simulate` | `boolean` | `True` | Simulate failover without altering active routing table. |
 | `--force` | `boolean` | - | Bypass model capability tier minimum checks during failover. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
@@ -1576,7 +1576,7 @@ devops ai gateway scale [OPTIONS]
 |---|---|---|---|
 | `--replicas`, `-r` | `integer` | - | Replica count for backend deployment. |
 | `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree for vLLM (e.g. 2). |
-| `--apply`, `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
+| `--apply` / `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops ai gateway probe-backend`
@@ -1622,7 +1622,7 @@ devops ai gateway tune [OPTIONS]
 | `--concurrency`, `-c` | `string` | `1,4,8` | Comma-separated concurrency levels to measure. |
 | `--rounds` | `integer` | `2` | Requests per worker at each concurrency level. |
 | `--prompt-tokens` | `integer` | - | Prompt size in tokens (default: one review page for the analysis task). |
-| `--max-tokens` | `integer` | `<masked>` | Completion tokens requested per call. |
+| `--max-tokens` | `integer` | `200` | Completion tokens requested per call. |
 | `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
 | `--namespace`, `-n` | `string` | `llm` | Namespace of the gateway deployment. |
 | `--deployment` | `string` | `llm-gateway` | Gateway deployment to run the sweep in. |
@@ -1689,7 +1689,7 @@ devops ai runs connect [OPTIONS]
 | `--context` | `string` | - | Kubernetes context (default: current). |
 | `--namespace`, `-n` | `string` | `llm` | Namespace of the run index. |
 | `--service` | `string` | `valkey-runs` | Service of the run index's Valkey. |
-| `--secret` | `string` | `<masked>` | Secret holding the Valkey password. |
+| `--secret-name` | `string` | `valkey-runs-auth` | Name of the Secret holding the Valkey password. |
 
 ### `devops ai runs list`
 
@@ -1770,7 +1770,7 @@ devops ai runs check [OPTIONS] <run_id>
 | `--baseline`, `-b` | `string` | - | Override baseline run ID to compare against. |
 | `--max-recall-drop` | `float` | `0.0` | Maximum allowable relative drop in recall (e.g. 0.05 for 5%). |
 | `--max-duration-increase` | `float` | `0.15` | Maximum allowable relative increase in duration (e.g. 0.15 for 15%). |
-| `--max-tokens-increase` | `float` | `<masked>` | Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%). |
+| `--max-tokens-increase` | `float` | `0.2` | Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops ai runs baseline`

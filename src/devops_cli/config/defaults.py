@@ -882,3 +882,7 @@ DEFAULT_CITED_EXCERPT_MAX_LINES: Final[int] = 40
 # the pipe before its output is reported. `poll()` returns an exit status before the
 # readers have necessarily drained, so rendering immediately truncated the output.
 DEFAULT_SHELL_DRAIN_TIMEOUT_SECONDS: Final[float] = 2.0
+# How long a stopped background command's process group has to exit after SIGTERM before its
+# remaining members get SIGKILL, and how often the group is probed meanwhile (#958).
+DEFAULT_SHELL_STOP_GRACE_SECONDS: Final[float] = 3.0
+DEFAULT_SHELL_STOP_POLL_SECONDS: Final[float] = 0.05

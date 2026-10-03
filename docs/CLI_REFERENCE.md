@@ -68,8 +68,8 @@ devops repos clone-org [OPTIONS] <org>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
-| `--private`, `--no-private` | `boolean` | `True` | - |
-| `--forks`, `--no-forks` | `boolean` | - | - |
+| `--private` / `--no-private` | `boolean` | `True` | - |
+| `--forks` / `--no-forks` | `boolean` | - | - |
 
 ### `devops repos clone`
 
@@ -118,7 +118,7 @@ devops repos update [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
-| `--pull`, `--no-pull` | `boolean` | `True` | - |
+| `--pull` / `--no-pull` | `boolean` | `True` | - |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops repos sync`
@@ -134,7 +134,7 @@ devops repos sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
-| `--pull`, `--no-pull` | `boolean` | `True` | - |
+| `--pull` / `--no-pull` | `boolean` | `True` | - |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -351,7 +351,7 @@ devops devcontainer init [OPTIONS] <repo_path>
 | `--python` | `string` | `3.14` | Python version for base template. |
 | `--image`, `-i` | `string` | - | Base container image (defaults to published devops-cli image). |
 | `--published`, `-p` | `boolean` | `True` | Use published GHCR image (defaults to True). |
-| `--minikube`, `--no-minikube` | `boolean` | `True` | Install the kubectl, helm and minikube devcontainer feature. |
+| `--minikube` / `--no-minikube` | `boolean` | `True` | Install the kubectl, helm and minikube devcontainer feature. |
 | `--home-volume` | `string` | - | Custom volume name for /home/vscode (defaults to `<project_name>-home`). |
 | `--force`, `-f` | `boolean` | - | Overwrite existing devcontainer.json and configurations. |
 
@@ -476,7 +476,7 @@ devops devcontainer bootstrap-k8s [OPTIONS]
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
 | `--stack`, `-s` | `string` | `infra` | Kubernetes stack to deploy (e.g. infra, llm, monitoring, all). |
-| `--deploy`, `--no-deploy` | `boolean` | `True` | Auto-deploy Kubernetes stack after cluster startup. |
+| `--deploy` / `--no-deploy` | `boolean` | `True` | Auto-deploy Kubernetes stack after cluster startup. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -715,7 +715,7 @@ devops k8s bootstrap [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--dir`, `-d` | `path` | `k8s` | Directory containing Kubernetes manifests. |
-| `--auto-start`, `--no-auto-start` | `boolean` | `True` | Auto-start minikube if stopped. |
+| `--auto-start` / `--no-auto-start` | `boolean` | `True` | Auto-start minikube if stopped. |
 | `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | all. |
 
 ### `devops k8s bootstrap-openwebui`
@@ -751,10 +751,10 @@ devops k8s deploy-stack [OPTIONS]
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
-| `--wait`, `--no-wait` | `boolean` | `True` | Wait for Helm releases and workloads to become ready before returning. |
+| `--wait` / `--no-wait` | `boolean` | `True` | Wait for Helm releases and workloads to become ready before returning. |
 | `--timeout`, `-t` | `string` | `10m` | Timeout for Helm operations when waiting. |
-| `--port-forward`, `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
-| `--configure-urls`, `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
+| `--port-forward` / `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
+| `--configure-urls` / `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
 
 ### `devops k8s sync-secrets`
 
@@ -837,9 +837,9 @@ devops k8s port-forward [OPTIONS]
 | `--ollama-port` | `integer` | `11434` | Local port for Ollama. |
 | `--open-webui-port` | `integer` | `3000` | Local port for Open-WebUI. |
 | `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP. |
-| `--valkey-port` | `integer` | `<masked>` | Local port for Valkey. |
+| `--valkey-port` | `integer` | `6379` | Local port for Valkey. |
 | `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding. |
-| `--update-config`, `--no-update-config` | `boolean` | - | Update devops-cli configuration with port-forwarded service URLs. |
+| `--update-config` / `--no-update-config` | `boolean` | - | Update devops-cli configuration with port-forwarded service URLs. |
 
 ### `devops k8s port-forward-status`
 
@@ -967,7 +967,7 @@ devops k8s create-tls-secret [OPTIONS] <secret_name>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
 | `--cert` | `path` | `~/.config/devops-cli/tls/tls.crt` | Path to TLS certificate file (.crt or .pem). |
-| `--key` | `path` | `<masked>` | Path to TLS private key file (.key or .pem). |
+| `--key` | `path` | `~/.config/devops-cli/tls/tls.key` | Path to TLS private key file (.key or .pem). |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 
 ### `devops k8s enable-tls`
@@ -984,7 +984,7 @@ devops k8s enable-tls [OPTIONS]
 |---|---|---|---|
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates. |
-| `--secret-name` | `string` | `<masked>` | Name of the Kubernetes TLS secret to create or update. |
+| `--secret-name` | `string` | `homelab-tls` | Name of the Kubernetes TLS secret to create or update. |
 | `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | all. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files or resources if they exist. |
 
@@ -1007,7 +1007,7 @@ devops k8s validate [OPTIONS] <manifest_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--kubernetes-version`, `-v` | `string` | `master` | Target Kubernetes OpenAPI version. |
-| `--strict`, `--no-strict` | `boolean` | `True` | Disallow additional undeclared properties. |
+| `--strict` / `--no-strict` | `boolean` | `True` | Disallow additional undeclared properties. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
@@ -1055,7 +1055,7 @@ devops k8s stream-logs [OPTIONS] <pod_query>
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--container`, `-c` | `string` | - | Specific container name within the pod. |
 | `--tail`, `-t` | `integer` | `100` | Number of historical log lines to stream. |
-| `--follow`, `-f`, `--no-follow` | `boolean` | - | Continuously stream live log output. |
+| `--follow`, `-f` / `--no-follow` | `boolean` | - | Continuously stream live log output. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s diff-helm`
@@ -1141,7 +1141,7 @@ devops k8s security-stream [OPTIONS]
 | `--severity`, `-s` | `string` | - | Minimum severity filter threshold (Notice, Warning, Error, Critical). |
 | `--duration`, `-d` | `integer` | `30` | Observation streaming window duration in seconds. |
 | `--tail`, `-t` | `integer` | `100` | Number of historical log lines to stream. |
-| `--follow`, `-f`, `--no-follow` | `boolean` | - | Continuously stream live log output. |
+| `--follow`, `-f` / `--no-follow` | `boolean` | - | Continuously stream live log output. |
 | `--simulate` | `boolean` | - | Generate simulated kernel eBPF security anomalies for testing. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
@@ -1380,7 +1380,7 @@ devops docker sandbox [OPTIONS] <command>
 | `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
 | `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
 | `--read-only` | `boolean` | - | Mount workspace as read-only |
-| `--rootless`, `--root` | `boolean` | `True` | Run container with host user UID/GID |
+| `--rootless` / `--root` | `boolean` | `True` | Run container with host user UID/GID |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops docker sign`
@@ -1402,10 +1402,10 @@ devops docker sign [OPTIONS] <image>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--key`, `-k` | `string` | - | Path to private key or keyring:\<name\> |
-| `--keyless`, `--keyed` | `boolean` | `True` | Sign keylessly using OIDC/Fulcio |
+| `--keyless` / `--keyed` | `boolean` | `True` | Sign keylessly using OIDC/Fulcio |
 | `--oidc-token` | `string` | - | OIDC identity token or keyring:\<name\> for keyless signing |
 | `--annotation`, `-a` | `string` | - | Custom supply chain key=value annotations |
-| `--upload`, `--no-upload` | `boolean` | `True` | Upload signature to remote registry |
+| `--upload` / `--no-upload` | `boolean` | `True` | Upload signature to remote registry |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops docker verify`
@@ -2051,7 +2051,7 @@ devops argo rollouts analyze [OPTIONS] <name>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
 | `--error-rate-threshold`, `-e` | `float` | `1.0` | Maximum allowable HTTP 5xx error rate percentage before triggering automated rollback |
-| `--auto-abort`, `--no-auto-abort` | `boolean` | `True` | Automatically trigger rollout abort when metric analysis violates threshold |
+| `--auto-abort` / `--no-auto-abort` | `boolean` | `True` | Automatically trigger rollout abort when metric analysis violates threshold |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops argo fleet`
@@ -2322,7 +2322,7 @@ devops ci test [OPTIONS] <paths>
 | `-k` | `string` | - | Filter tests by keyword expression. |
 | `-x` | `boolean` | - | Stop after first failure. |
 | `-n`, `--numprocesses` | `string` | `auto` | Number of parallel worker processes. |
-| `--fallback`, `--no-fallback` | `boolean` | `True` | Run the full suite when a changed source has no covering tests, rather than reporting success without verifying it. |
+| `--fallback` / `--no-fallback` | `boolean` | `True` | Run the full suite when a changed source has no covering tests, rather than reporting success without verifying it. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci coverage`
@@ -2354,7 +2354,7 @@ devops ci lint [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
+| `--fix` / `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
 | `--check` | `boolean` | - | Check linting without applying automated fixes. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -2371,7 +2371,7 @@ devops ci format [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--check` | `boolean` | - | Check formatting without writing changes to files. |
-| `--fix`, `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
+| `--fix` / `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci typecheck`
@@ -2515,7 +2515,7 @@ devops ci run [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status. |
+| `--fix` / `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -2887,7 +2887,7 @@ devops ai prewarm [OPTIONS]
 |---|---|---|---|
 | `--model`, `-m` | `string` | - | Model name to prewarm or evict (defaults to configured AI model). |
 | `--keep-alive`, `-k` | `string` | `1h` | Keep-alive duration for loaded model (e.g. 1h, 24h, forever, or 0 for eviction). |
-| `--all-nodes`, `-a`, `--single-node` | `boolean` | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
+| `--all-nodes`, `-a` / `--single-node` | `boolean` | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
 | `--evict` | `boolean` | - | Evict the model from GPU VRAM immediately (sets keep_alive to 0). |
 | `--url`, `-u` | `string` | - | Specific Ollama node URL to target instead of all candidate nodes. |
 | `--json` | `boolean` | - | Output results as structured JSON. |
@@ -2923,11 +2923,11 @@ devops ai chat [OPTIONS]
 | `--persona`, `-p` | `string` | `architect` | Persona to chat with: devsecops, architect, pm, auditor, qa, challenger |
 | `--model`, `-m` | `string` | - | AI model identifier. |
 | `--context`, `-c` | `path` | - | Optional file to inject as background context (e.g. AGENTS.md). |
-| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
-| `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens. |
-| `--tools`, `--no-tools` | `boolean` | `True` | Enable DevOps agent tools. |
-| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
-| `--prewarm`, `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat. |
+| `--rag` / `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
+| `--stream` / `--no-stream` | `boolean` | `True` | Stream response tokens. |
+| `--tools` / `--no-tools` | `boolean` | `True` | Enable DevOps agent tools. |
+| `--thinking` / `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
+| `--prewarm` / `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat. |
 | `--explain`, `-e` | `boolean` | - | Explain chat personas, tools, and reasoning modes. |
 
 ### `devops ai bundle-models`
@@ -2964,8 +2964,8 @@ devops ai pipeline [OPTIONS] <prompt>
 |---|---|---|---|
 | `--personas`, `-p` | `string` | `devsecops,architect,qa` | Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa). |
 | `--max-turns` | `integer` | `5` | Maximum tool turns per agent stage. |
-| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
-| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
+| `--rag` / `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
+| `--thinking` / `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
 
 ### `devops ai token-count`
 
@@ -3068,9 +3068,9 @@ devops ai pack-context [OPTIONS] <target_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--referenced`, `-r` | `string` | - | Comma-separated list of symbols referenced by caller to prioritize during pruning. |
-| `--max-tokens` | `integer` | `<masked>` | Maximum token budget for packed context output. |
-| `--strip-private`, `--no-strip-private` | `boolean` | `True` | Strip unreferenced private functions, methods, and attributes. |
-| `--skeletonize`, `--no-skeletonize` | `boolean` | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
+| `--max-tokens` | `integer` | `1500` | Maximum token budget for packed context output. |
+| `--strip-private` / `--no-strip-private` | `boolean` | `True` | Strip unreferenced private functions, methods, and attributes. |
+| `--skeletonize` / `--no-skeletonize` | `boolean` | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -3093,7 +3093,7 @@ devops ai read [OPTIONS] <target_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--inspect`, `-i` | `boolean` | - | Enable multi-scale semantic outline and inspection scanner. |
-| `--level`, `-l` | `integer` | - | Focal zoom level: 0 (Topology: <200 tokens), 1 (Structural Outline: control flow & signatures), 2 (Deep Focal Window: line slice). |
+| `--level`, `-l` | `integer` | - | Focal zoom level: 0 (Topology: classes, functions, exports & hotspots), 1 (Structural Outline: control flow & signatures), 2 (Deep Focal Window: line slice). |
 | `--lines`, `-L` | `string` | - | Line range for Level 2 focal window (e.g. '40:80'). |
 | `--symbol`, `-s` | `string` | - | Target symbol name to inspect or focus on. |
 | `--format`, `-f` | `string` | `markdown` | Output format: 'text', 'markdown', or 'json'. |
@@ -3310,8 +3310,8 @@ devops ai review path [OPTIONS] <targets>
 | `--watch`, `-w` | `boolean` | - | Continuously watch target paths for changes and re-run reviews. |
 | `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 #### `devops ai review branch`
 
@@ -3355,8 +3355,8 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 #### `devops ai review pr`
 
@@ -3400,8 +3400,8 @@ devops ai review pr [OPTIONS] <number>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 #### `devops ai review findings`
 
@@ -3699,7 +3699,7 @@ devops ai review templates sweep [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ##### `devops ai review templates check`
@@ -3717,7 +3717,7 @@ devops ai review templates check [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 #### `devops ai review hallucinations`
@@ -3794,7 +3794,7 @@ devops ai analyze path [OPTIONS] <target>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
@@ -3817,7 +3817,7 @@ devops ai analyze branch [OPTIONS] <branch>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
@@ -3839,7 +3839,7 @@ devops ai analyze pr [OPTIONS] <pr_number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
@@ -3877,7 +3877,7 @@ devops ai rag index [OPTIONS] <path>
 |---|---|---|---|
 | `--project`, `-p` | `string` | - | Project / repository name override. |
 | `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
-| `--include-kb`, `--no-include-kb` | `boolean` | `True` | Include bundled DevOps CLI Knowledge Base in docs collection. |
+| `--include-kb` / `--no-include-kb` | `boolean` | `True` | Include bundled DevOps CLI Knowledge Base in docs collection. |
 | `--collection`, `-c` | `string` | - | Target collection override. |
 | `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
 
@@ -4313,7 +4313,7 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--simulate`, `--no-simulate` | `boolean` | `True` | Simulate failover without altering active routing table. |
+| `--simulate` / `--no-simulate` | `boolean` | `True` | Simulate failover without altering active routing table. |
 | `--force` | `boolean` | - | Bypass model capability tier minimum checks during failover. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
@@ -4331,7 +4331,7 @@ devops ai gateway scale [OPTIONS]
 |---|---|---|---|
 | `--replicas`, `-r` | `integer` | - | Replica count for backend deployment. |
 | `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree for vLLM (e.g. 2). |
-| `--apply`, `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
+| `--apply` / `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 #### `devops ai gateway probe-backend`
@@ -4377,7 +4377,7 @@ devops ai gateway tune [OPTIONS]
 | `--concurrency`, `-c` | `string` | `1,4,8` | Comma-separated concurrency levels to measure. |
 | `--rounds` | `integer` | `2` | Requests per worker at each concurrency level. |
 | `--prompt-tokens` | `integer` | - | Prompt size in tokens (default: one review page for the analysis task). |
-| `--max-tokens` | `integer` | `<masked>` | Completion tokens requested per call. |
+| `--max-tokens` | `integer` | `200` | Completion tokens requested per call. |
 | `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
 | `--namespace`, `-n` | `string` | `llm` | Namespace of the gateway deployment. |
 | `--deployment` | `string` | `llm-gateway` | Gateway deployment to run the sweep in. |
@@ -4442,7 +4442,7 @@ devops ai runs connect [OPTIONS]
 | `--context` | `string` | - | Kubernetes context (default: current). |
 | `--namespace`, `-n` | `string` | `llm` | Namespace of the run index. |
 | `--service` | `string` | `valkey-runs` | Service of the run index's Valkey. |
-| `--secret` | `string` | `<masked>` | Secret holding the Valkey password. |
+| `--secret-name` | `string` | `valkey-runs-auth` | Name of the Secret holding the Valkey password. |
 
 #### `devops ai runs list`
 
@@ -4523,7 +4523,7 @@ devops ai runs check [OPTIONS] <run_id>
 | `--baseline`, `-b` | `string` | - | Override baseline run ID to compare against. |
 | `--max-recall-drop` | `float` | `0.0` | Maximum allowable relative drop in recall (e.g. 0.05 for 5%). |
 | `--max-duration-increase` | `float` | `0.15` | Maximum allowable relative increase in duration (e.g. 0.15 for 15%). |
-| `--max-tokens-increase` | `float` | `<masked>` | Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%). |
+| `--max-tokens-increase` | `float` | `0.2` | Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 #### `devops ai runs baseline`
@@ -4880,8 +4880,8 @@ devops review path [OPTIONS] <targets>
 | `--watch`, `-w` | `boolean` | - | Continuously watch target paths for changes and re-run reviews. |
 | `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `devops review branch`
 
@@ -4925,8 +4925,8 @@ devops review branch [OPTIONS] <branch_name>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `devops review pr`
 
@@ -4970,8 +4970,8 @@ devops review pr [OPTIONS] <number>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `devops review findings`
 
@@ -5269,7 +5269,7 @@ devops review templates sweep [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 #### `devops review templates check`
@@ -5287,7 +5287,7 @@ devops review templates check [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops review hallucinations`
@@ -5396,7 +5396,7 @@ devops docs generate [OPTIONS]
 |---|---|---|---|
 | `--output-dir`, `-o` | `path` | - | Target directory for generated documentation files (default: docs/). |
 | `--format`, `-f` | `string` | `markdown` | Output format type (table, json, yaml, markdown). |
-| `--sync-readme`, `--no-sync-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
+| `--sync-readme` / `--no-sync-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
 | `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
 
 ### `devops docs check`
@@ -5412,7 +5412,7 @@ devops docs check [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--output-dir`, `-o` | `path` | - | Target directory for generated documentation files (default: docs/). |
-| `--check-readme`, `--no-check-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
+| `--check-readme` / `--no-check-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
 
 ### `devops docs sync-readme`
 
@@ -5490,12 +5490,12 @@ devops release prepare [OPTIONS] <version>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--sync-docs`, `--no-sync-docs` | `boolean` | `True` | Regenerate CLI reference docs and sync README matrix. |
-| `--changelog`, `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date. |
+| `--sync-docs` / `--no-sync-docs` | `boolean` | `True` | Regenerate CLI reference docs and sync README matrix. |
+| `--changelog` / `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date. |
 | `--create-pr`, `-p` | `boolean` | - | Create release branch, commit changes, and open a GitHub Release PR. |
 | `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
-| `--draft`, `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
+| `--draft` / `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
 
 ### `devops release pr`
@@ -5512,9 +5512,9 @@ devops release pr [OPTIONS]
 |---|---|---|---|
 | `--version`, `-v` | `string` | - | Target version string. |
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--draft`, `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
+| `--draft` / `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
 | `--labels`, `-l` | `string` | `release` | Comma-separated labels to attach. |
-| `--push`, `--no-push` | `boolean` | `True` | Push commits or tags to git remote. |
+| `--push` / `--no-push` | `boolean` | `True` | Push commits or tags to git remote. |
 | `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
@@ -5735,7 +5735,7 @@ devops pr wait [OPTIONS] <number>
 | `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
 | `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
-| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
@@ -5760,7 +5760,7 @@ devops pr monitor [OPTIONS] <number>
 | `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
 | `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
-| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
@@ -6024,7 +6024,7 @@ devops pr threads resolve-all [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
+| `--only-replied` / `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---
@@ -6261,8 +6261,8 @@ devops gh project sync [OPTIONS]
 | `--task-file`, `-f` | `path` | `docs/agent/tasks` | Path to docs/agent/tasks directory |
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 | `--repo`, `-R` | `string` | - | Target repository |
-| `--dry-run`, `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
-| `--reconcile-fields`, `--no-reconcile-fields` | `boolean` | `True` | Also reconcile Status, Priority and Milestone from issue state and labels. |
+| `--dry-run` / `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
+| `--reconcile-fields` / `--no-reconcile-fields` | `boolean` | `True` | Also reconcile Status, Priority and Milestone from issue state and labels. |
 
 #### `devops gh project reconcile`
 
@@ -6816,7 +6816,7 @@ devops gh pr wait [OPTIONS] <number>
 | `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
 | `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
-| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
@@ -6841,7 +6841,7 @@ devops gh pr monitor [OPTIONS] <number>
 | `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
 | `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
-| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
@@ -7105,7 +7105,7 @@ devops gh pr threads resolve-all [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
+| `--only-replied` / `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---
@@ -7446,7 +7446,7 @@ devops tls ca [OPTIONS]
 | `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name. |
 | `--country`, `-c` | `string` | `US` | 2-letter country code. |
 | `--validity-days`, `-d` | `integer` | `3650` | Validity period in days. |
-| `--key-size`, `-k` | `integer` | `<masked>` | RSA key size in bits (2048 or 4096). |
+| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096). |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 
 ### `devops tls cert`
@@ -7467,7 +7467,7 @@ devops tls cert [OPTIONS]
 | `--ca-key` | `path` | - | Path to signing CA private key (ca.key). |
 | `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificate and key files. |
 | `--validity-days`, `-d` | `integer` | `365` | Validity period in days. |
-| `--key-size`, `-k` | `integer` | `<masked>` | RSA key size in bits (2048 or 4096). |
+| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096). |
 | `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 
@@ -7536,7 +7536,7 @@ devops tls enable-k8s [OPTIONS]
 |---|---|---|---|
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates. |
-| `--secret-name` | `string` | `<masked>` | Kubernetes TLS secret name to create. |
+| `--secret-name` | `string` | `homelab-tls` | Kubernetes TLS secret name to create. |
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 
@@ -7569,7 +7569,7 @@ devops telemetry connect [OPTIONS]
 | `--context` | `string` | - | Kubernetes context of the cluster running the collector (default: current). |
 | `--namespace`, `-n` | `string` | `otel` | Namespace of the collector service. |
 | `--service` | `string` | `otel-collector-opentelemetry-collector` | Name of the collector service. |
-| `--save`, `--no-save` | `boolean` | `True` | Save the endpoint as telemetry.endpoint (default) or only check it. |
+| `--save` / `--no-save` | `boolean` | `True` | Save the endpoint as telemetry.endpoint (default) or only check it. |
 
 ### `devops telemetry logfire`
 
@@ -7864,7 +7864,7 @@ devops serve [OPTIONS]
 | `--reload`, `-r` | `boolean` | - | Enable auto-reload on code changes (development mode). |
 | `--workers`, `-w` | `integer` | `1` | Number of worker processes. |
 | `--log-level`, `-l` | `string` | `info` | Logging level (debug, info, warning, error). |
-| `--docs`, `--no-docs` | `boolean` | `True` | Enable or disable Swagger UI (/docs) and ReDoc (/redoc). |
+| `--docs` / `--no-docs` | `boolean` | `True` | Enable or disable Swagger UI (/docs) and ReDoc (/redoc). |
 
 ---
 
@@ -7947,7 +7947,7 @@ devops test sandbox [OPTIONS] <command>
 | `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
 | `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
 | `--read-only` | `boolean` | - | Mount workspace as read-only |
-| `--rootless`, `--root` | `boolean` | `True` | Run container with host user UID/GID |
+| `--rootless` / `--root` | `boolean` | `True` | Run container with host user UID/GID |
 | `--dry-run` | `boolean` | - | Simulate test execution. |
 
 ### `devops test profile-memory`
@@ -7971,7 +7971,7 @@ devops test profile-memory [OPTIONS] <target>
 | `--iterations`, `-i` | `integer` | `10` | Number of iterations to execute during profiling. |
 | `--top`, `-t` | `integer` | `10` | Number of top memory allocation lines to display. |
 | `--max-peak-mb` | `float` | `50.0` | Maximum acceptable peak memory threshold in megabytes. |
-| `--fail-on-leak`, `--ignore-leak` | `boolean` | `True` | Exit with non-zero status if socket leaks are detected. |
+| `--fail-on-leak` / `--ignore-leak` | `boolean` | `True` | Exit with non-zero status if socket leaks are detected. |
 | `--output`, `-o` | `path` | - | File path to export structured memory profiling report. |
 | `--json` | `boolean` | - | Format report output as JSON. |
 | `--dry-run` | `boolean` | - | Simulate test execution. |
@@ -8109,7 +8109,7 @@ devops vault login [OPTIONS]
 | `--role` | `string` | - | Vault role name (kubernetes method) |
 | `--role-id` | `string` | - | AppRole role_id |
 | `--secret-id` | `string` | - | AppRole secret_id |
-| `--store`, `--no-store` | `boolean` | `True` | Persist the issued token to the OS keyring |
+| `--store` / `--no-store` | `boolean` | `True` | Persist the issued token to the OS keyring |
 
 ### `devops vault leases`
 
@@ -8520,8 +8520,8 @@ devops sandbox logs [OPTIONS] <identifier>
 | `--follow`, `-f` | `boolean` | - | Follow log output continuously in live stream mode. |
 | `--tail`, `-n` | `integer` | `100` | Number of lines to show from the end of the logs (default: 100). |
 | `--timestamps`, `-t` | `boolean` | `True` | Show timestamps in log output. |
-| `--detect-panics`, `--no-detect-panics` | `boolean` | `True` | Automatically detect panics, stacktraces, and segfaults. |
-| `--archive-incidents`, `--no-archive-incidents` | `boolean` | `True` | Archive incident records to JSON files |
+| `--detect-panics` / `--no-detect-panics` | `boolean` | `True` | Automatically detect panics, stacktraces, and segfaults. |
+| `--archive-incidents` / `--no-archive-incidents` | `boolean` | `True` | Archive incident records to JSON files |
 | `--incident-dir` | `path` | - | Directory path to persist structured panic incident records. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -8613,7 +8613,7 @@ devops format [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--check` | `boolean` | - | Check formatting without writing changes to files. |
-| `--fix`, `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
+| `--fix` / `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -8636,7 +8636,7 @@ devops lint [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
+| `--fix` / `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
 | `--check` | `boolean` | - | Check linting without applying automated fixes. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

@@ -37,7 +37,7 @@ points devops-cli at the cluster's collector.
 
 - **Root Trace Context**: CLI delegate sets up root spans (`cli.<subcommand>`) with execution metadata.
 - **W3C `traceparent` Injection**: Subprocess calls inject standard W3C `traceparent` headers into child process environments.
-- **OTLP Exporter**: Spans are emitted to OpenTelemetry Collector via `DEVOPS_CLI_OTEL_ENDPOINT` (`http://localhost:4318/v1/traces`).
+- **OTLP Exporter**: Spans and metrics go to the OpenTelemetry Collector at `telemetry.endpoint` (`DEVOPS_CLI_TELEMETRY_ENDPOINT`). When devops-cli's configuration names none, OpenTelemetry's own `OTEL_EXPORTER_OTLP_ENDPOINT` names it, else `http://localhost:4318`. `telemetry.enabled` (`DEVOPS_CLI_TELEMETRY_ENABLED`) turns export off. When the configuration cannot load, those two variables alone decide, and export stays off unless `DEVOPS_CLI_TELEMETRY_ENABLED` turns it on.
 
 ---
 

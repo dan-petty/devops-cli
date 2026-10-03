@@ -3442,7 +3442,7 @@ class ReviewPipelineOrchestrator:
     @staticmethod
     def _build_dependencies_table(all_deps: list[DependencySpec]) -> list[str]:
         """Render external dependencies audit table."""
-        lines = [f"## {_REPORT_DEPENDENCIES_SECTION} (OSV.dev & NVD)"]
+        lines = [f"## {_REPORT_DEPENDENCIES_SECTION} (OSV.dev)"]
         if not all_deps:
             lines.extend(["✅ **No external dependencies declared in review scope.**", ""])
             return lines
@@ -3793,14 +3793,14 @@ class ReviewPipelineOrchestrator:
             print_info(line, prefix=False, console=console, safe=True)
             if vulnerable:
                 print_table(
-                    title="Vulnerable Dependencies (OSV.dev & NVD)",
+                    title="Vulnerable Dependencies (OSV.dev)",
                     columns=_CONSOLE_DEPENDENCY_COLUMNS,
                     rows=[_format_dependency_table_row(d) for d in vulnerable],
                     console=console,
                 )
             return
         print_table(
-            title="External Dependencies Security Audit (OSV.dev & NVD)",
+            title="External Dependencies Security Audit (OSV.dev)",
             columns=_CONSOLE_DEPENDENCY_COLUMNS,
             rows=[_format_dependency_table_row(d) for d in all_deps]
             or [_CONSOLE_NO_DEPENDENCIES_ROW],

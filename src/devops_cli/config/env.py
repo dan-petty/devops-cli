@@ -7,8 +7,12 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 import devops_cli.config.options as opt
+from devops_cli.config.defaults import DEFAULT_OTEL_ENDPOINT
 
 ENV_DEVOPS_CLI_CONFIG = "DEVOPS_CLI_CONFIG"
+# OpenTelemetry's own name for the collector. devops-cli reads it only when its configuration
+# names no `telemetry.endpoint`.
+ENV_OTEL_EXPORTER_OTLP_ENDPOINT = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
 ENV_GITHUB_TOKEN = "DEVOPS_CLI_GITHUB_TOKEN"
 ENV_GITHUB_DEFAULT_ORG = "DEVOPS_CLI_GITHUB_DEFAULT_ORG"
@@ -83,6 +87,8 @@ ENV_CLOUDFLARE_TUNNEL = "DEVOPS_CLI_CLOUDFLARE_TUNNEL"
 ENV_CLOUDFLARE_ACCOUNT_ID = "DEVOPS_CLI_CLOUDFLARE_ACCOUNT_ID"
 ENV_CLOUDFLARE_ZONE_ID = "DEVOPS_CLI_CLOUDFLARE_ZONE_ID"
 ENV_CLOUDFLARE_API_TOKEN = "DEVOPS_CLI_CLOUDFLARE_API_TOKEN"
+ENV_TELEMETRY_ENABLED = "DEVOPS_CLI_TELEMETRY_ENABLED"
+ENV_TELEMETRY_ENDPOINT = "DEVOPS_CLI_TELEMETRY_ENDPOINT"
 
 
 # Data Storage & Artifact Path environment variables
@@ -169,6 +175,8 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.CLOUDFLARE_ACCOUNT_ID: ENV_CLOUDFLARE_ACCOUNT_ID,
     opt.CLOUDFLARE_ZONE_ID: ENV_CLOUDFLARE_ZONE_ID,
     opt.CLOUDFLARE_API_TOKEN: ENV_CLOUDFLARE_API_TOKEN,
+    opt.TELEMETRY_ENABLED: ENV_TELEMETRY_ENABLED,
+    opt.TELEMETRY_ENDPOINT: ENV_TELEMETRY_ENDPOINT,
     opt.DATA_DIR: ENV_DATA_DIR,
     opt.DATA_ANALYSIS_DIR: ENV_DATA_ANALYSIS_DIR,
     opt.DATA_REVIEWS_DIR: ENV_DATA_REVIEWS_DIR,
@@ -583,6 +591,26 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.CLOUDFLARE_API_TOKEN,
             True,
             "Cloudflare API Token (stored in OS keyring)",
+        ),
+        EnvVarSpec(
+            ENV_TELEMETRY_ENABLED,
+            opt.TELEMETRY_ENABLED,
+            False,
+            "Export OpenTelemetry traces and metrics: true or false (default: true)",
+        ),
+        EnvVarSpec(
+            ENV_TELEMETRY_ENDPOINT,
+            opt.TELEMETRY_ENDPOINT,
+            False,
+            "OpenTelemetry collector that traces and metrics are exported to "
+            f"(default: {ENV_OTEL_EXPORTER_OTLP_ENDPOINT}, else {DEFAULT_OTEL_ENDPOINT})",
+        ),
+        EnvVarSpec(
+            ENV_OTEL_EXPORTER_OTLP_ENDPOINT,
+            None,
+            False,
+            "OpenTelemetry's standard collector variable, read only when `telemetry.endpoint` "
+            "is unset",
         ),
         EnvVarSpec(
             ENV_DATA_DIR,

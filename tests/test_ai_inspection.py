@@ -13,6 +13,8 @@ from typer.testing import CliRunner
 from devops_cli.ai.analyze.outlines import analyze_single_file
 from devops_cli.ai.inspection import (
     FocalLevel,
+    _render_topology_markdown,
+    estimate_tokens,
     generate_semantic_outline,
 )
 from devops_cli.exceptions import DevOpsCLIError, ValidationError
@@ -103,6 +105,98 @@ def sync_workflow(data: list[str], dry_run: bool = False) -> int:
     return count
 '''
 
+SAMPLE_TYPESCRIPT_SERVICE = """export interface UserPayload {
+  id: string;
+}
+
+export class AuthService {
+  login(payload: UserPayload): boolean {
+    return true;
+  }
+
+  logout(): void {}
+}
+
+export function validateEmail(email: string): boolean {
+  return email.includes("@");
+}
+
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+"""
+
+SAMPLE_RUST_QUALIFIED_FNS = """pub fn plain(x: i32) -> i32 { x }
+pub fn process<T: Clone>(x: T) -> T { x }
+pub const fn c() -> u8 { 1 }
+unsafe fn u() {}
+"""
+
+# Server is declared in another file of the package.
+SAMPLE_GO_RECEIVERS = """package pool
+
+type WorkerPool struct {
+\tworkers int
+}
+
+func NewWorkerPool(workers int) *WorkerPool {
+\treturn &WorkerPool{workers: workers}
+}
+
+func (w *WorkerPool) Start() error {
+\treturn nil
+}
+
+func (w WorkerPool) Stop() {}
+
+func (s *Server) Close() {}
+"""
+
+SAMPLE_CPP_OUT_OF_CLASS = """class Widget {
+ public:
+  void draw();
+  int width() const { return 1; }
+};
+
+void Widget::draw() {}
+
+int helper() { return 0; }
+"""
+
+SAMPLE_CPP_HEADER = """namespace fmt {
+class writer {
+ public:
+  void write(const char* s);
+  int size() const { return 0; }
+};
+}
+"""
+
+SAMPLE_C_HEADER = """struct point { int x; int y; };
+int add(int a, int b);
+static inline int twice(int a) { return a * 2; }
+"""
+
+SAMPLE_JAVA_ANNOTATED = """public class OrderService {
+    @Override
+    public String toString() { return ""; }
+
+    @Transactional @Deprecated
+    public Order placeOrder(Cart cart) throws OrderException { return null; }
+}
+"""
+
+SAMPLE_CSHARP_ATTRIBUTED = """[ApiController]
+public class UsersController : ControllerBase
+{
+    [HttpGet("{id}")]
+    public ActionResult<User> Get(int id)
+    {
+        return null;
+    }
+}
+"""
+
 
 def test_focal_level_enum_values() -> None:
     """Verify FocalLevel enum values match the 3 discrete zoom specifications."""
@@ -146,9 +240,9 @@ def test_level_0_topology_outline(tmp_path: Path) -> None:
     hot = next(h for h in top.cyclomatic_hotspots if h.name == "complex_decision_tree")
     assert hot.cyclomatic_complexity >= 10
 
-    # Verify token constraints (< 200 tokens)
+    # The rendered outline measures 149 tokens; the symbol-count guess it replaced said 33 (#959).
     assert (
-        outline.outline_tokens < 200,
+        100 < outline.outline_tokens < 200,
         outline.token_reduction_pct > 20.0,
     ) == (True, True)
 
@@ -309,6 +403,178 @@ def test_polyglot_structural_outlines(tmp_path: Path) -> None:
         sh_outline.language == "bash",
         sh_outline.topology is not None,
     ) == (True, True)
+
+
+def test_polyglot_structural_skeleton_keeps_names_and_return_types(tmp_path: Path) -> None:
+    """Verify a TypeScript skeleton line is the declaration, with its name and return type; the
+    regex fallback rendered only the parameter list, `  (x: string, y: number)` (#959)."""
+    ts_file = tmp_path / "service.ts"
+    ts_file.write_text(
+        "export function a(x: string, y: number): Promise<void> {}\n", encoding="utf-8"
+    )
+
+    outline = generate_semantic_outline(ts_file, level=FocalLevel.STRUCTURAL, repo_root=tmp_path)
+    skeleton = outline.structural.raw_skeleton if outline.structural else ""
+
+    assert ("a(" in skeleton, "Promise<void>" in skeleton) == (True, True)
+
+
+def test_rust_outline_finds_generic_const_unsafe_fns(tmp_path: Path) -> None:
+    """Verify generic, const and unsafe Rust functions are outlined and can be focused on; the
+    regex fallback found only `plain`, and `--symbol process` fell back to lines 1-4 (#959)."""
+    rs_file = tmp_path / "lib.rs"
+    rs_file.write_text(SAMPLE_RUST_QUALIFIED_FNS, encoding="utf-8")
+
+    topology = generate_semantic_outline(
+        rs_file, level=FocalLevel.TOPOLOGY, repo_root=tmp_path
+    ).topology
+    focal = generate_semantic_outline(
+        rs_file, level=FocalLevel.DEEP_FOCAL, symbol="process", repo_root=tmp_path
+    ).focal_window
+
+    assert (
+        {f.name for f in topology.functions} if topology else set(),
+        focal.line_start if focal else None,
+        "process" in (focal.scope_breadcrumbs if focal else ""),
+    ) == ({"plain", "process", "c", "u"}, 2, True)
+
+
+def test_polyglot_outlines_come_from_tree_sitter(tmp_path: Path) -> None:
+    """Verify a TypeScript class lists its methods at Level 0 and `--symbol` spans the whole
+    function, which only tree-sitter gives: the regex fallback scopes no TypeScript method to
+    its class and spans each symbol by its declaration line alone (#959)."""
+    ts_file = tmp_path / "service.ts"
+    ts_file.write_text(SAMPLE_TYPESCRIPT_SERVICE, encoding="utf-8")
+
+    topology = generate_semantic_outline(
+        ts_file, level=FocalLevel.TOPOLOGY, repo_root=tmp_path
+    ).topology
+    focal = generate_semantic_outline(
+        ts_file, level=FocalLevel.DEEP_FOCAL, symbol="validateEmail", repo_root=tmp_path
+    ).focal_window
+
+    assert (
+        [(c.name, c.methods) for c in topology.classes] if topology else [],
+        [f.name for f in topology.functions] if topology else [],
+        (focal.line_start, focal.line_end) if focal else None,
+    ) == (
+        [("UserPayload", []), ("AuthService", ["login", "logout"])],
+        ["validateEmail", "normalizeEmail"],
+        (13, 15),
+    )
+
+
+def test_polyglot_topology_keeps_go_receiver_and_cpp_out_of_class_methods(
+    tmp_path: Path,
+) -> None:
+    """Verify a Go method is listed under its receiver's struct, or as `Type.Method` when the
+    type is declared in another file, and a C++ out-of-class definition among the functions;
+    tree-sitter gave both no owner, and Level 0 dropped every method without one (#959)."""
+    (tmp_path / "pool.go").write_text(SAMPLE_GO_RECEIVERS, encoding="utf-8")
+    (tmp_path / "widget.cpp").write_text(SAMPLE_CPP_OUT_OF_CLASS, encoding="utf-8")
+
+    def level_0(name: str) -> tuple[list[tuple[str, list[str]]], list[str]]:
+        top = generate_semantic_outline(
+            tmp_path / name, level=FocalLevel.TOPOLOGY, repo_root=tmp_path
+        ).topology
+        return (
+            ([(c.name, c.methods) for c in top.classes], [f.name for f in top.functions])
+            if top
+            else ([], [])
+        )
+
+    focal = generate_semantic_outline(
+        tmp_path / "pool.go", level=FocalLevel.DEEP_FOCAL, symbol="Start", repo_root=tmp_path
+    ).focal_window
+
+    assert (
+        level_0("pool.go"),
+        level_0("widget.cpp"),
+        focal.scope_breadcrumbs if focal else "",
+    ) == (
+        ([("WorkerPool", ["Start", "Stop"])], ["NewWorkerPool", "Server.Close"]),
+        ([("Widget", ["width"])], ["Widget::draw", "helper"]),
+        "WorkerPool > Start",
+    )
+
+
+def test_polyglot_outline_reads_a_header_as_cpp_only_when_its_content_is(tmp_path: Path) -> None:
+    """Verify a `.h` header is outlined in the language `devops ai ast parse` reads it in: C++
+    when its content uses C++, C otherwise. Inspection took every `.h` for C, so a C++ header's
+    namespace and class were listed as functions and `--symbol size` was not found (#959)."""
+    (tmp_path / "fmt.h").write_text(SAMPLE_CPP_HEADER, encoding="utf-8")
+    (tmp_path / "point.h").write_text(SAMPLE_C_HEADER, encoding="utf-8")
+
+    def level_0(name: str) -> tuple[str, list[tuple[str, list[str]]], list[str]]:
+        outline = generate_semantic_outline(
+            tmp_path / name, level=FocalLevel.TOPOLOGY, repo_root=tmp_path
+        )
+        top = outline.topology
+        return (
+            outline.language,
+            [(c.name, c.methods) for c in top.classes] if top else [],
+            [f.name for f in top.functions] if top else [],
+        )
+
+    focal = generate_semantic_outline(
+        tmp_path / "fmt.h", level=FocalLevel.DEEP_FOCAL, symbol="size", repo_root=tmp_path
+    ).focal_window
+
+    assert (
+        level_0("fmt.h"),
+        level_0("point.h"),
+        (focal.line_start, focal.scope_breadcrumbs) if focal else None,
+    ) == (
+        ("cpp", [("writer", ["size"])], []),
+        ("c", [("point", [])], ["add", "twice"]),
+        (5, "writer > size"),
+    )
+
+
+def test_polyglot_skeleton_signs_annotated_methods_with_their_declaration(tmp_path: Path) -> None:
+    """Verify a Java or C# method's skeleton line is its declaration, not the annotation or
+    attribute above it; tree-sitter signed a symbol with the line it starts on, so the skeleton
+    read `  @Override` (#959)."""
+    (tmp_path / "OrderService.java").write_text(SAMPLE_JAVA_ANNOTATED, encoding="utf-8")
+    (tmp_path / "UsersController.cs").write_text(SAMPLE_CSHARP_ATTRIBUTED, encoding="utf-8")
+
+    def skeleton(name: str) -> list[str]:
+        structural = generate_semantic_outline(
+            tmp_path / name, level=FocalLevel.STRUCTURAL, repo_root=tmp_path
+        ).structural
+        return structural.raw_skeleton.splitlines() if structural else []
+
+    assert (skeleton("OrderService.java"), skeleton("UsersController.cs")) == (
+        [
+            "class OrderService",
+            '  public String toString() { return ""; }',
+            "  public Order placeOrder(Cart cart) throws OrderException { return null; }",
+        ],
+        ["class UsersController", "  public ActionResult<User> Get(int id)"],
+    )
+
+
+@pytest.mark.parametrize(
+    ("file_name", "content"),
+    [("order_service.py", SAMPLE_HOTSPOT_PYTHON), ("service.ts", SAMPLE_TYPESCRIPT_SERVICE)],
+    ids=["python", "polyglot"],
+)
+def test_topology_outline_tokens_match_rendered_markdown(
+    tmp_path: Path, file_name: str, content: str
+) -> None:
+    """Verify a Level 0 outline reports the tokens of the markdown it renders, for Python and
+    through the polyglot path; a guess from the symbol count left out the docstrings, bases,
+    methods, exports and hotspots, and reported 279 tokens for inspection.py's 1317 (#959)."""
+    target = tmp_path / file_name
+    target.write_text(content, encoding="utf-8")
+
+    outline = generate_semantic_outline(target, level=FocalLevel.TOPOLOGY, repo_root=tmp_path)
+    rendered_tokens = estimate_tokens(_render_topology_markdown(outline))
+
+    assert (
+        outline.outline_tokens,
+        outline.topology.estimated_tokens if outline.topology else None,
+    ) == (rendered_tokens, rendered_tokens)
 
 
 def test_cli_ai_read_raw_and_lines(tmp_path: Path) -> None:

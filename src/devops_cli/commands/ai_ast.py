@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 import typer
 
@@ -31,6 +31,11 @@ def _render_symbols_text(file_path: Path, symbols: list[Any]) -> str:
     return "\n".join(lines)
 
 
+def _exit_unparsable(file_path: Path) -> NoReturn:
+    print_error(f"Unsupported language or file size exceeded for {file_path}")
+    raise typer.Exit(code=1)
+
+
 @app.command(name="parse")
 def ast_parse_cmd(
     file_path: Annotated[Path, typer.Argument(help=HELP.ai.ast_parse)],
@@ -53,15 +58,15 @@ def ast_parse_cmd(
 
     engine = TreeSitterEngine()
     if query:
-        code = file_path.read_text(encoding="utf-8", errors="replace")
-        matches = engine.query_code(code, file_path.suffix, query)
+        matches = engine.query_file(file_path, query)
+        if matches is None:
+            _exit_unparsable(file_path)
         write_stdout(json.dumps(matches, indent=2) + "\n")
         return
 
     file_map = engine.parse_file(file_path)
     if not file_map:
-        print_error(f"Unsupported language or file size exceeded for {file_path}")
-        raise typer.Exit(code=1)
+        _exit_unparsable(file_path)
 
     if json_output:
         write_stdout(json.dumps(file_map.to_dict(), indent=2) + "\n")

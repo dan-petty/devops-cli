@@ -4,18 +4,29 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import itertools
 import re
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 
 import click
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import (
+    CONST_DOC_CREDENTIAL_NAME_WORD_PAIRS,
+    CONST_DOC_CREDENTIAL_NAME_WORDS,
+    CONST_DOC_CREDENTIAL_NAMING_WORD,
     CONST_MARKDOWN_HEADING_LEVEL,
     CONST_STANDARD_HTML_TAGS,
 )
-from devops_cli.config.env import EnvVarSpec, get_all_env_var_specs
+from devops_cli.config.defaults import DEFAULT_OTEL_ENDPOINT
+from devops_cli.config.env import (
+    ENV_OTEL_EXPORTER_OTLP_ENDPOINT,
+    ENV_TELEMETRY_ENABLED,
+    ENV_TELEMETRY_ENDPOINT,
+    EnvVarSpec,
+    get_all_env_var_specs,
+)
 from devops_cli.docs.command_resolver import module_click_command
 from devops_cli.output import write_text_file
 from devops_cli.telemetry import trace_span
@@ -78,6 +89,8 @@ class ParamDoc(BaseModel):
     name: str
     kind: str  # "argument", "option", or "flag"
     flags: list[str] = Field(default_factory=list)
+    # The switches that turn a boolean option off, such as `--root` for `--rootless/--root`.
+    off_flags: list[str] = Field(default_factory=list)
     type_name: str = "string"
     description: str = ""
     default: str | None = None
@@ -191,9 +204,39 @@ def _render_mcp_param_row(p: dict[str, Any]) -> str:
     return f"| `{p_name}` | `{p_type}` | {req_str} | {def_str} | {p_desc} |"
 
 
-_SENSITIVE_PARAM_KEYWORDS: frozenset[str] = frozenset(
-    {"SECRET", "TOKEN", "PASSWORD", "KEY", "AUTH", "CREDENTIAL", "APIKEY", "PASSPHRASE"}
-)
+def _option_flags_cell(opt: ParamDoc) -> str:
+    """An option's switches: its aliases joined by commas, then its off switches after a slash."""
+    groups = [opt.flags, opt.off_flags] if opt.off_flags else [opt.flags]
+    return " / ".join(", ".join(f"`{flag}`" for flag in group) for group in groups)
+
+
+def _names_a_credential(name: str | None) -> bool:
+    """Whether a parameter or environment variable name says its value is a credential.
+
+    The name's words, split on `_` and `-`, are matched whole, so MAX_TOKENS and VALKEY_PORT name
+    none. A name ending in NAME holds what a credential is called, not the credential.
+    """
+    words = tuple(word for word in (name or "").upper().replace("-", "_").split("_") if word)
+    if not words or words[-1] == CONST_DOC_CREDENTIAL_NAMING_WORD:
+        return False
+    return not (
+        CONST_DOC_CREDENTIAL_NAME_WORDS.isdisjoint(words)
+        and CONST_DOC_CREDENTIAL_NAME_WORD_PAIRS.isdisjoint(itertools.pairwise(words))
+    )
+
+
+def _masks_default(param: click.Parameter, envvar: str | None, default_val: Any) -> bool:
+    """Whether the reference withholds a parameter's default as a possible credential.
+
+    An option that hides its input, Click's own marker for a secret, always does. Otherwise the
+    name or envvar must name a credential, and the default must be something a credential can
+    be: a number, a boolean or a path is not.
+    """
+    if getattr(param, "hide_input", False):
+        return True
+    if isinstance(default_val, bool | int | float | PurePath):
+        return False
+    return _names_a_credential(param.name) or _names_a_credential(envvar)
 
 
 class DocGenerator:
@@ -209,8 +252,9 @@ class DocGenerator:
         is_option = any(opt.startswith("-") for opt in raw_opts)
 
         flags: list[str] = []
+        off_flags: list[str] = []
         if is_option:
-            flags = raw_opts + sec_opts
+            flags, off_flags = raw_opts, sec_opts
             kind = "flag" if getattr(param, "is_flag", False) else "option"
         else:
             flags = [f"<{param.name}>"]
@@ -226,17 +270,14 @@ class DocGenerator:
         if default_val is not None and not (kind == "flag" and default_val is False):
             default_str = _format_param_default_str(default_val, self.root_dir)
 
-        is_sensitive = any(
-            kw in (param.name or "").upper() or (envvar is not None and kw in envvar.upper())
-            for kw in _SENSITIVE_PARAM_KEYWORDS
-        )
-        if is_sensitive and default_str and default_str not in ("None", "False", "True", "0", ""):
+        if default_str and _masks_default(param, envvar, default_val):
             default_str = "<masked>"
 
         return ParamDoc(
             name=param.name or "",
             kind=kind,
             flags=flags,
+            off_flags=off_flags,
             type_name=type_str,
             description=desc,
             default=default_str,
@@ -478,7 +519,7 @@ class DocGenerator:
             lines.append("| Option / Flag | Type | Default | Description |")
             lines.append("|---|---|---|---|")
             for opt in opts:
-                flags_str = ", ".join(f"`{f}`" for f in opt.flags)
+                flags_str = _option_flags_cell(opt)
                 default_str = f"`{opt.default}`" if opt.default is not None else "-"
                 env_str = f" *(Env: `{opt.envvar}`)*" if opt.envvar else ""
                 desc = f"{opt.description or '-'}{env_str}"
@@ -933,7 +974,12 @@ class DocGenerator:
             "",
             "- **Root Trace Context**: CLI delegate sets up root spans (`cli.<subcommand>`) with execution metadata.",
             "- **W3C `traceparent` Injection**: Subprocess calls inject standard W3C `traceparent` headers into child process environments.",
-            "- **OTLP Exporter**: Spans are emitted to OpenTelemetry Collector via `DEVOPS_CLI_OTEL_ENDPOINT` (`http://localhost:4318/v1/traces`).",
+            "- **OTLP Exporter**: Spans and metrics go to the OpenTelemetry Collector at "
+            f"`telemetry.endpoint` (`{ENV_TELEMETRY_ENDPOINT}`). When devops-cli's configuration "
+            f"names none, OpenTelemetry's own `{ENV_OTEL_EXPORTER_OTLP_ENDPOINT}` names it, else "
+            f"`{DEFAULT_OTEL_ENDPOINT}`. `telemetry.enabled` (`{ENV_TELEMETRY_ENABLED}`) turns "
+            "export off. When the configuration cannot load, those two variables alone decide, "
+            f"and export stays off unless `{ENV_TELEMETRY_ENABLED}` turns it on.",
             "",
             *self._llm_span_attribute_lines(),
         ]

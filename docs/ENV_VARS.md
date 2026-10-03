@@ -71,12 +71,15 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_SSH_KEY_DIR` | `ssh.key_dir` | No | Directory for SSH key pairs |
 | `DEVOPS_CLI_SSH_KEY_PREFIX` | `ssh.key_prefix` | No | Prefix for generated SSH keys (defaults to devcontainer name or basename pwd) |
 | `DEVOPS_CLI_SSH_ROTATION_DAYS` | `ssh.rotation_days` | No | SSH key rotation interval in days |
+| `DEVOPS_CLI_TELEMETRY_ENABLED` | `telemetry.enabled` | No | Export OpenTelemetry traces and metrics: true or false (default: true) |
+| `DEVOPS_CLI_TELEMETRY_ENDPOINT` | `telemetry.endpoint` | No | OpenTelemetry collector that traces and metrics are exported to (default: OTEL_EXPORTER_OTLP_ENDPOINT, else http://localhost:4318) |
 | `DEVOPS_CLI_VALKEY_DB` | `valkey.db` | No | Valkey database index (default: 0) |
 | `DEVOPS_CLI_VALKEY_HOST` | `valkey.host` | No | Valkey workstation caching server host (default: 127.0.0.1) |
 | `DEVOPS_CLI_VALKEY_PASSWORD` | `valkey.password` | 🔒 Yes | Valkey authentication password (stored in OS keyring) |
 | `DEVOPS_CLI_VALKEY_PORT` | `valkey.port` | No | Valkey workstation caching server port (default: 6379) |
 | `DEVOPS_CLI_VALKEY_TIMEOUT` | `valkey.timeout` | No | Valkey network socket connection/read timeout in seconds (default: 5.0) |
 | `DEVOPS_CLI_WORKSPACE_FILE` | `workspace.file` | No | Path to VS Code workspace file |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *None* | No | OpenTelemetry's standard collector variable, read only when `telemetry.endpoint` is unset |
 
 ## Usage Notes
 

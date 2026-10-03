@@ -757,22 +757,3 @@ async def test_mcp_toolset_and_capability() -> None:
         with agent.override(model=TestModel(custom_output_text="MCP processed")):
             res = agent.run("Run mcp tool")
             assert res.content == "MCP processed"
-
-    # 7. MCPSamplingModel delegation
-    from unittest.mock import MagicMock
-
-    from devops_cli.ai.agents import MCPSamplingModel
-
-    mock_session = MagicMock()
-    mock_msg = MagicMock()
-    mock_msg.content = "Poem from MCP sampling client"
-    mock_session.create_message.return_value = mock_msg
-
-    sampling_model = MCPSamplingModel(session=mock_session)
-    sample_res = sampling_model.chat("Write a poem")
-    assert sample_res == "Poem from MCP sampling client"
-    assert sampling_model.chat_messages("System", ["User query"]) == "Poem from MCP sampling client"
-
-    # Fallback when no session is attached
-    fallback_model = MCPSamplingModel()
-    assert "MCP sampling" in fallback_model.chat("Test")

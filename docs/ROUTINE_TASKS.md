@@ -136,7 +136,7 @@ flowchart TD
 
 ---
 
-### Cadence B: Final Pre-Commit / Pre-PR Validation Stage
+### Cadence A (final stage): Pre-Commit / Pre-PR Validation
 
 Executed at the final stage of work after all iterative feature modifications and targeted tests pass:
 

@@ -88,7 +88,7 @@ Pass the domain name alone, for example `k8s`. |
 | [`k8s_lint`](#k8s-lint) | Lint Kubernetes manifests against security best practices and deprecated APIs. |
 | [`k8s_logs_query`](#k8s-logs-query) | Execute LogQL query across Kubernetes and cluster log streams (e.g. {app="web"} |= "error"). |
 | [`k8s_logs_tail`](#k8s-logs-tail) | Tail recent log lines matching LogQL stream selector (e.g. {app="web"}). |
-| [`k8s_pods`](#k8s-pods) | List Kubernetes pod status for the specified namespace. |
+| [`k8s_pods`](#k8s-pods) | List the pods of a Kubernetes namespace, or of every namespace when it is empty. |
 | [`k8s_security_stream`](#k8s-security-stream) | Stream runtime security anomaly events and syscall alerts from Kubernetes Falco eBPF probes. |
 | [`k8s_status`](#k8s-status) | Display pod status across infrastructure namespaces. |
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | Uninstall Kubernetes infrastructure or LLM stack and delete namespaces. |
@@ -138,7 +138,7 @@ It never writes. A person reviews the plan and runs `devops roadmap migrate --co
 | [`scan_trivy`](#scan-trivy) | Run container, filesystem, or repository vulnerability scanning via Trivy. |
 | [`scan_uv_audit`](#scan-uv-audit) | Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs. |
 | [`security_intel_network`](#security-intel-network) | Check IP or domain threat intelligence via Shodan and Cloudflare Radar. |
-| [`security_intel_package`](#security-intel-package) | Query OSV.dev and NVD vulnerability databases for package CVE intelligence. |
+| [`security_intel_package`](#security-intel-package) | Query the OSV.dev vulnerability database for package CVE intelligence. |
 | [`ssh_audit`](#ssh-audit) | Audit SSH key expiration dates and key file permissions. |
 | [`ssh_status`](#ssh-status) | Inspect age and rotation status of managed SSH keys in ~/.ssh. |
 | [`telemetry_logfire_status`](#telemetry-logfire-status) | Check Logfire structured observability bridge status, token configuration, and recorded metrics. |
@@ -1005,7 +1005,7 @@ Tail recent log lines matching LogQL stream selector (e.g. {app="web"}).
 
 ### `k8s_pods`
 
-List Kubernetes pod status for the specified namespace.
+List the pods of a Kubernetes namespace, or of every namespace when it is empty.
 
 **Parameters:**
 
@@ -1541,7 +1541,7 @@ Check IP or domain threat intelligence via Shodan and Cloudflare Radar.
 
 ### `security_intel_package`
 
-Query OSV.dev and NVD vulnerability databases for package CVE intelligence.
+Query the OSV.dev vulnerability database for package CVE intelligence.
 
 **Parameters:**
 

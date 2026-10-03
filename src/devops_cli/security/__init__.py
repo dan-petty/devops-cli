@@ -43,7 +43,6 @@ from devops_cli.security.tflint import TflintScanner, run_tflint_scan
 from devops_cli.security.trivy import TrivyScanner, run_trivy_scan
 from devops_cli.security.vulnerability_lookup import (
     CloudflareRadarClient,
-    NVDClient,
     OSVClient,
     ShodanInternetDBClient,
 )
@@ -57,7 +56,6 @@ __all__ = [
     "GitleaksScanner",
     "KubeconformScanner",
     "KubelinterScanner",
-    "NVDClient",
     "OSVClient",
     "PlutoScanner",
     "PopeyeScanner",

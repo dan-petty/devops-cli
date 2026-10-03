@@ -107,7 +107,7 @@ devops vault login [OPTIONS]
 | `--role` | `string` | - | Vault role name (kubernetes method) |
 | `--role-id` | `string` | - | AppRole role_id |
 | `--secret-id` | `string` | - | AppRole secret_id |
-| `--store`, `--no-store` | `boolean` | `True` | Persist the issued token to the OS keyring |
+| `--store` / `--no-store` | `boolean` | `True` | Persist the issued token to the OS keyring |
 
 ---
 
