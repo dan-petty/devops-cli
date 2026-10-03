@@ -13,7 +13,9 @@ run without a model:
 5. the report's own filter.
 
 It must come out reported. A change that makes any layer discard a real finding fails here. Each
-known false alarm must still be invalidated by the deterministic layer.
+known false alarm must still be invalidated by the deterministic layer, and a verifier verdict
+that points at evidence the golden files do not hold, or that its own reason contradicts, must
+leave its defect reported (#845).
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from typing import Any
 import pytest
 
 from devops_cli.ai.review import ReviewPipelineOrchestrator
+from devops_cli.ai.review.verdicts import assert_verdict_invariants
 from devops_cli.ai.review.verification import (
     _apply_single_finding_verification,
     _deterministic_pre_verification,
@@ -34,6 +37,7 @@ from devops_cli.ai.review_schema import (
     Finding,
     SavedFinding,
     consolidate_duplicate_findings,
+    derive_recommendation,
     parse_review_response,
     reset_verification_state,
 )
@@ -127,3 +131,46 @@ def test_a_verdict_restating_the_defect_does_not_remove_it(case: dict[str, Any])
     result = _apply_single_finding_verification(finding, case["verdict"], "2026-09-25T00:00:00Z")
 
     assert (result.status in _DISMISSED, result.reportable) == (False, True)
+
+
+@pytest.mark.parametrize("case", _GOLDEN["fabricated_verdicts"], ids=lambda c: c["id"])
+def test_a_verdict_pointing_at_no_evidence_leaves_the_defect_reported(
+    case: dict[str, Any], project: Path
+) -> None:
+    """Verify a mitigation or confirmation the golden files do not back keeps the finding (#845)."""
+    finding = Finding(**case["finding"])
+
+    result = _apply_single_finding_verification(
+        finding, case["verdict"], "2026-10-03T00:00:00Z", repo_root=project
+    )
+    assert_verdict_invariants([result])
+
+    assert (
+        result.status,
+        result.reportable,
+        (result.verification_note or "").split(":", 1)[0],
+        derive_recommendation([result]),
+    ) == (case["status"], True, case["note"], case["recommendation"])
+
+
+@pytest.mark.parametrize("case", _GOLDEN["contradicting_verdicts"], ids=lambda c: c["id"])
+def test_a_verdict_its_own_reason_contradicts_is_not_applied(
+    case: dict[str, Any], project: Path
+) -> None:
+    """Verify a cached confirmation or mitigation whose reason denies the claim, or says a failed
+    criterion passed, leaves its finding unverified and reported (#845)."""
+    finding = Finding(**case["finding"])
+
+    result = _apply_single_finding_verification(
+        finding, case["verdict"], "2026-10-03T00:00:00Z", repo_root=project
+    )
+    assert_verdict_invariants([result])
+
+    assert (
+        result.status,
+        result.reportable,
+        result.verified_by,
+        result.citation_line,
+        (result.verification_note or "").split(":", 1)[0],
+        derive_recommendation([result]),
+    ) == (case["status"], True, None, None, case["note"], case["recommendation"])

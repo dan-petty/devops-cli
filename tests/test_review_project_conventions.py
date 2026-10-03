@@ -522,10 +522,15 @@ def test_the_verifier_prompt_shows_conventions_only_when_there_are_some() -> Non
     ) == (True, False)
 
 
-def test_a_mitigated_finding_is_reported_with_its_mitigation() -> None:
+def test_a_mitigated_finding_is_reported_with_its_mitigation(tmp_path: Path) -> None:
     """Verify a confirmed defect the verifier calls mitigated stays in the report, reason shown."""
     from devops_cli.ai.review.verification import _apply_single_finding_verification
 
+    (tmp_path / "paths.py").write_text(
+        "def safe_resolve_subpath(base, name):\n    if (base / name).is_symlink():\n"
+        "        raise PermissionError(name)\n",
+        encoding="utf-8",
+    )
     finding = Finding(
         severity="HIGH",
         location="paths.py:40",
@@ -535,12 +540,12 @@ def test_a_mitigated_finding_is_reported_with_its_mitigation() -> None:
     verdict = {
         "title": finding.title,
         "mitigated": True,
-        "mitigating_mechanism": "SymlinkCheck",
+        "mitigating_mechanism": "The `is_symlink` check",
         "perimeter_files": ["paths.py"],
         "reason": "Symlinks are rejected at line 31, which limits but does not stop `../`.",
     }
 
-    result = _apply_single_finding_verification(finding, verdict, "t")
+    result = _apply_single_finding_verification(finding, verdict, "t", repo_root=tmp_path)
     saved = SavedFinding(**result.model_dump(), persona="devsecops")
     section = ReviewPipelineOrchestrator._build_detailed_findings_section([saved])
 
