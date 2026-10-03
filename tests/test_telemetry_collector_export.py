@@ -84,7 +84,7 @@ def own_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path
     config = tmp_path / "config.yaml"
     config.write_text("telemetry:\n  enabled: false\n", encoding="utf-8")
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(config))
-    monkeypatch.delenv("DEVOPS_OTEL_ENDPOINT", raising=False)
+    monkeypatch.delenv("DEVOPS_CLI_TELEMETRY_ENDPOINT", raising=False)
     monkeypatch.setattr("devops_cli.config.settings.CONFIG_PATH", config)
     reset_settings_cache()
     yield config

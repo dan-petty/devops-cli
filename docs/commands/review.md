@@ -47,8 +47,8 @@ devops review path [OPTIONS] <targets>
 | `--watch`, `-w` | `boolean` | - | Continuously watch target paths for changes and re-run reviews. |
 | `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ---
 
@@ -94,8 +94,8 @@ devops review branch [OPTIONS] <branch_name>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ---
 
@@ -141,8 +141,8 @@ devops review pr [OPTIONS] <number>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ---
 
@@ -456,7 +456,7 @@ devops review templates sweep [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops review templates check`
@@ -474,7 +474,7 @@ devops review templates check [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ---

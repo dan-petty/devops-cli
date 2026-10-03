@@ -39,7 +39,7 @@ Emitted = list[tuple[str, float, dict[str, Any] | None]]
 @pytest.fixture(autouse=True)
 def telemetry_off(monkeypatch: pytest.MonkeyPatch) -> None:
     """Export no spans or metrics, so no exporter thread starts while a query runs."""
-    monkeypatch.setenv("DEVOPS_TELEMETRY_ENABLED", "false")
+    monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENABLED", "false")
     reset_tracer()
 
 

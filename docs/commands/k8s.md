@@ -132,7 +132,7 @@ devops k8s bootstrap [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--dir`, `-d` | `path` | `k8s` | Directory containing Kubernetes manifests. |
-| `--auto-start`, `--no-auto-start` | `boolean` | `True` | Auto-start minikube if stopped. |
+| `--auto-start` / `--no-auto-start` | `boolean` | `True` | Auto-start minikube if stopped. |
 | `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | all. |
 
 ---
@@ -172,10 +172,10 @@ devops k8s deploy-stack [OPTIONS]
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
-| `--wait`, `--no-wait` | `boolean` | `True` | Wait for Helm releases and workloads to become ready before returning. |
+| `--wait` / `--no-wait` | `boolean` | `True` | Wait for Helm releases and workloads to become ready before returning. |
 | `--timeout`, `-t` | `string` | `10m` | Timeout for Helm operations when waiting. |
-| `--port-forward`, `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
-| `--configure-urls`, `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
+| `--port-forward` / `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
+| `--configure-urls` / `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
 
 ---
 
@@ -266,9 +266,9 @@ devops k8s port-forward [OPTIONS]
 | `--ollama-port` | `integer` | `11434` | Local port for Ollama. |
 | `--open-webui-port` | `integer` | `3000` | Local port for Open-WebUI. |
 | `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP. |
-| `--valkey-port` | `integer` | `<masked>` | Local port for Valkey. |
+| `--valkey-port` | `integer` | `6379` | Local port for Valkey. |
 | `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding. |
-| `--update-config`, `--no-update-config` | `boolean` | - | Update devops-cli configuration with port-forwarded service URLs. |
+| `--update-config` / `--no-update-config` | `boolean` | - | Update devops-cli configuration with port-forwarded service URLs. |
 
 ---
 
@@ -412,7 +412,7 @@ devops k8s create-tls-secret [OPTIONS] <secret_name>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
 | `--cert` | `path` | `~/.config/devops-cli/tls/tls.crt` | Path to TLS certificate file (.crt or .pem). |
-| `--key` | `path` | `<masked>` | Path to TLS private key file (.key or .pem). |
+| `--key` | `path` | `~/.config/devops-cli/tls/tls.key` | Path to TLS private key file (.key or .pem). |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 
 ---
@@ -431,7 +431,7 @@ devops k8s enable-tls [OPTIONS]
 |---|---|---|---|
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates. |
-| `--secret-name` | `string` | `<masked>` | Name of the Kubernetes TLS secret to create or update. |
+| `--secret-name` | `string` | `homelab-tls` | Name of the Kubernetes TLS secret to create or update. |
 | `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | all. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files or resources if they exist. |
 
@@ -456,7 +456,7 @@ devops k8s validate [OPTIONS] <manifest_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--kubernetes-version`, `-v` | `string` | `master` | Target Kubernetes OpenAPI version. |
-| `--strict`, `--no-strict` | `boolean` | `True` | Disallow additional undeclared properties. |
+| `--strict` / `--no-strict` | `boolean` | `True` | Disallow additional undeclared properties. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
@@ -508,7 +508,7 @@ devops k8s stream-logs [OPTIONS] <pod_query>
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--container`, `-c` | `string` | - | Specific container name within the pod. |
 | `--tail`, `-t` | `integer` | `100` | Number of historical log lines to stream. |
-| `--follow`, `-f`, `--no-follow` | `boolean` | - | Continuously stream live log output. |
+| `--follow`, `-f` / `--no-follow` | `boolean` | - | Continuously stream live log output. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -602,7 +602,7 @@ devops k8s security-stream [OPTIONS]
 | `--severity`, `-s` | `string` | - | Minimum severity filter threshold (Notice, Warning, Error, Critical). |
 | `--duration`, `-d` | `integer` | `30` | Observation streaming window duration in seconds. |
 | `--tail`, `-t` | `integer` | `100` | Number of historical log lines to stream. |
-| `--follow`, `-f`, `--no-follow` | `boolean` | - | Continuously stream live log output. |
+| `--follow`, `-f` / `--no-follow` | `boolean` | - | Continuously stream live log output. |
 | `--simulate` | `boolean` | - | Generate simulated kernel eBPF security anomalies for testing. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |

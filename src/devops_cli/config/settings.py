@@ -9,6 +9,7 @@ import os
 import subprocess
 import threading
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -89,7 +90,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VLLM_URL,
     DEFAULT_WORKSPACE_FILE,
 )
-from devops_cli.config.env import OPTION_TO_ENV_VAR
+from devops_cli.config.env import ENV_OTEL_EXPORTER_OTLP_ENDPOINT, OPTION_TO_ENV_VAR
 from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
 
@@ -97,6 +98,8 @@ logger = logging.getLogger(__name__)
 
 _SECRET_FIELDS: frozenset[str] = opt.SECRET_CONFIG_OPTIONS
 _KEYRING_KEYS: dict[str, str] = opt.KEYRING_KEYS
+# The options that still decide telemetry when the rest of the settings cannot load (#956).
+_TELEMETRY_ENV_OPTIONS: tuple[str, ...] = (opt.TELEMETRY_ENABLED, opt.TELEMETRY_ENDPOINT)
 
 
 class SecretStorageError(RuntimeError):
@@ -279,8 +282,14 @@ class PyroscopeConfig(BaseModel):
 
 class TelemetryConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
-    enabled: bool = True
-    endpoint: str = DEFAULT_OTEL_ENDPOINT
+    enabled: bool = Field(default=True, description="Export OpenTelemetry traces and metrics")
+    # Unset rather than the built-in endpoint, so OpenTelemetry's own variable can name the
+    # collector when devops-cli's configuration does not.
+    endpoint: str | None = Field(
+        default=None,
+        description="OpenTelemetry collector that traces and metrics go to; unset, "
+        f"`{ENV_OTEL_EXPORTER_OTLP_ENDPOINT}` names it, else `{DEFAULT_OTEL_ENDPOINT}`",
+    )
     logfire: bool = False
     logfire_token: str | None = None
     logfire_send_to_logfire: bool | str = "if-token-present"
@@ -607,7 +616,6 @@ class DataConfig(BaseModel):
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="DEVOPS_CLI_",
-        env_nested_delimiter="__",
         extra="ignore",
         frozen=False,
     )
@@ -731,15 +739,18 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
             base[key] = value
 
 
-def _apply_env_overrides(settings: Settings) -> None:
+def _apply_env_overrides(
+    settings: Settings, option_keys: Iterable[str] = OPTION_TO_ENV_VAR
+) -> None:
     """Allow devcontainer and shell environment variables to override file config."""
     env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     if env_data_dir:
         settings.data.dir = Path(env_data_dir)
 
-    for option_key, env_var in OPTION_TO_ENV_VAR.items():
+    for option_key in option_keys:
         if option_key in _SECRET_FIELDS:
             continue
+        env_var = OPTION_TO_ENV_VAR[option_key]
         env_value = os.environ.get(env_var)
         if env_value in (None, ""):
             continue
@@ -882,6 +893,18 @@ def load_settings() -> Settings:
     settings.data = _resolve_data_config(raw_data, settings.data.dir)
 
     return settings
+
+
+def telemetry_from_environment() -> TelemetryConfig:
+    """The telemetry section from its registered variables alone, for settings that cannot load.
+
+    An unreadable configuration layer, or a registered variable that cannot apply, may be the one
+    turning export off, so export stays off unless `DEVOPS_CLI_TELEMETRY_ENABLED` turns it on: an
+    opt-out never fails open to the default (#956).
+    """
+    fallback = Settings.model_validate({"telemetry": {"enabled": False}})
+    _apply_env_overrides(fallback, _TELEMETRY_ENV_OPTIONS)
+    return fallback.telemetry
 
 
 def _match_dir_candidate(d: Path, candidate_names: tuple[str, ...]) -> Path | None:

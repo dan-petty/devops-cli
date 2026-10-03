@@ -629,7 +629,7 @@ def test_generate_consolidated_report_with_intelligence_tables(
 
     data_out, report_md = orchestrator.generate_consolidated_report([payload])
 
-    assert "## External Dependencies (OSV.dev & NVD)" in report_md
+    assert "## External Dependencies (OSV.dev)" in report_md
     assert (
         "| Severity | Dependency | Version Range | Ecosystem | "
         "Security Status | Location |" in report_md

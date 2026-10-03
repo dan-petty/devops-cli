@@ -404,7 +404,7 @@ def isolate_devops_cli_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         encoding="utf-8",
     )
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(test_config))
-    monkeypatch.setenv("DEVOPS_OTEL_ENDPOINT", "http://localhost:4318")
+    monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENDPOINT", "http://localhost:4318")
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
     with patch("devops_cli.config.settings.CONFIG_PATH", test_config):
         yield test_config

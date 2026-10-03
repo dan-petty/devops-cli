@@ -5,10 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.scan import app as scan_app
+from devops_cli.exceptions import SecurityError
 from devops_cli.models.vulnerability import (
+    PackageLookupResult,
     VulnerabilityFixAction,
     VulnerabilityRecord,
     VulnerabilityRemediationResult,
@@ -269,12 +272,32 @@ def test_scan_and_plan_with_osv(tmp_path: Path) -> None:
 
     with patch(
         "devops_cli.security.vulnerability_lookup.OSVClient.query_package",
-        return_value=[mock_record],
+        return_value=PackageLookupResult(status="ok", vulnerabilities=[mock_record]),
     ):
         result = remediator.scan_and_plan(package_filter="vulnerable-pkg")
         assert len(result.actions) == 1
         assert result.actions[0].package == "vulnerable-pkg"
         assert result.actions[0].fixed_version == "2.0.0"
+
+
+def test_scan_and_plan_fails_when_the_osv_lookup_fails(tmp_path: Path) -> None:
+    """A lookup that failed is not a package with nothing to fix: planning stops with the reason
+    rather than offering an empty plan (#956)."""
+    remediator = DependencyRemediator(target_dir=tmp_path)
+
+    with (
+        patch(
+            "devops_cli.security.vulnerability_lookup.OSVClient.query_package",
+            return_value=PackageLookupResult(status="failed", reason="OSV returned status 503"),
+        ),
+        pytest.raises(SecurityError) as failure,
+    ):
+        remediator.scan_and_plan(package_filter="vulnerable-pkg")
+
+    assert (failure.value.message, failure.value.details) == (
+        "OSV lookup failed for vulnerable-pkg: OSV returned status 503",
+        {"package": "vulnerable-pkg", "reason": "OSV returned status 503"},
+    )
 
 
 def test_remediator_filter_mismatch_and_fallback_cmd() -> None:

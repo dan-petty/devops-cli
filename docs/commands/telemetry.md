@@ -29,7 +29,7 @@ devops telemetry connect [OPTIONS]
 | `--context` | `string` | - | Kubernetes context of the cluster running the collector (default: current). |
 | `--namespace`, `-n` | `string` | `otel` | Namespace of the collector service. |
 | `--service` | `string` | `otel-collector-opentelemetry-collector` | Name of the collector service. |
-| `--save`, `--no-save` | `boolean` | `True` | Save the endpoint as telemetry.endpoint (default) or only check it. |
+| `--save` / `--no-save` | `boolean` | `True` | Save the endpoint as telemetry.endpoint (default) or only check it. |
 
 ---
 

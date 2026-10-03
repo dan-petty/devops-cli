@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+import ast
+import importlib
+import importlib.util
+import textwrap
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
+
+import tree_sitter
+import tree_sitter_markdown
 
 from devops_cli.ai.kb import (
     get_knowledge_base_dir,
@@ -136,3 +144,79 @@ def test_kb_missing_directory_and_invalid_category(tmp_path: Path, monkeypatch) 
     stats = get_knowledge_base_stats()
     assert stats.exists is False
     assert stats.total_articles == 0
+
+
+def _child(node: Any, kind: str) -> Any | None:
+    """The first child of a tree-sitter node that has the given type."""
+    return next((child for child in node.children if child.type == kind), None)
+
+
+def _python_fences(article: Path) -> list[tuple[int, str]]:
+    """Each Python fence in a Markdown article, as the line its code starts on and the code."""
+    parser = tree_sitter.Parser(tree_sitter.Language(tree_sitter_markdown.language()))
+    fences: list[tuple[int, str]] = []
+    stack = [parser.parse(article.read_bytes()).root_node]
+    while stack:
+        node = stack.pop()
+        stack.extend(node.children)
+        info = _child(node, "info_string") if node.type == "fenced_code_block" else None
+        language = _child(info, "language") if info is not None else None
+        content = _child(node, "code_fence_content")
+        if language is None or language.text != b"python" or content is None:
+            continue
+        # A fence in a list item keeps the item's indent on every line but its first.
+        indent = " " * content.start_point.column
+        fences.append(
+            (content.start_point.row + 1, textwrap.dedent(indent + content.text.decode()))
+        )
+    return fences
+
+
+def _resolves(dotted: str) -> bool:
+    """Whether `a.b.c` is an attribute of the module `a.b`, or a module itself."""
+    module_name, _, attribute = dotted.rpartition(".")
+    try:
+        if module_name and hasattr(importlib.import_module(module_name), attribute):
+            return True
+        return importlib.util.find_spec(dotted) is not None
+    except ImportError:
+        return False
+
+
+def _devops_cli_imports(node: ast.AST) -> list[str]:
+    """The dotted devops_cli names an import statement brings in."""
+    if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "devops_cli":
+        return [f"{node.module}.{alias.name}" for alias in node.names]
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names if alias.name.split(".")[0] == "devops_cli"]
+    return []
+
+
+def _unresolved_imports(code: str) -> list[tuple[int, str]]:
+    """Each devops_cli name the code imports that does not exist, with its line in the code."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        return [(exc.lineno or 1, f"does not parse: {exc.msg}")]
+    return [
+        (node.lineno, name)
+        for node in ast.walk(tree)
+        for name in _devops_cli_imports(node)
+        if not _resolves(name)
+    ]
+
+
+def test_kb_python_examples_import_real_symbols() -> None:
+    """Every name a knowledge-base Python example imports from devops_cli exists. `devops ai chat`
+    and the harness retrieve these examples, and `from devops_cli.commands.k8s import pods`
+    taught agents an import that fails (#956)."""
+    kb_dir = get_knowledge_base_dir()
+    missing = [
+        f"{article.relative_to(kb_dir)}:{start + line - 1}: {name}"
+        for article in sorted(kb_dir.rglob("*.md"))
+        if "devops_cli" in article.read_text(encoding="utf-8")
+        for start, code in _python_fences(article)
+        for line, name in _unresolved_imports(code)
+    ]
+
+    assert missing == []
