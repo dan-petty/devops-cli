@@ -3286,10 +3286,10 @@ devops ai review path [OPTIONS] <targets>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
@@ -3332,11 +3332,11 @@ devops ai review branch [OPTIONS] <branch_name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--repo` | `path` | `.` | Repository root directory (default: current directory). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
@@ -3377,11 +3377,11 @@ devops ai review pr [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
@@ -3431,7 +3431,7 @@ devops ai review findings [OPTIONS] <session>
 | `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
 | `--status` | `string` | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED. |
 | `--unverified` | `boolean` | - | Show unverified findings only. |
-| `--invalidated` | `boolean` | - | Show invalidated findings only. |
+| `--invalidated` | `boolean` | - | Show INVALIDATED findings only. findings.json holds only those a later verdict invalidated; add --candidates for the ones verification invalidated. |
 | `--verified` | `boolean` | - | Show verified findings only. |
 | `--mitigated` | `boolean` | - | Filter findings by MITIGATED status |
 | `--candidates` | `boolean` | - | List candidates.json: every finding the review raised, with the ones verification dropped. |
@@ -3522,21 +3522,22 @@ devops ai review benchmark [OPTIONS] <targets>
 |---|---|---|---|
 | `--runs`, `-n` | `integer` | `3` | Number of reviews to run; the report takes medians across them. |
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
 
 #### `devops ai review export-feedback`
 
-**Append review verdicts to the JSONL feedback dataset for prompt tuning and fine-tuning.**
+**Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.**
 
-Append review verdicts to the JSONL feedback dataset for prompt tuning and fine-tuning.
+Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.
 
 Each session's findings.json and candidates.json are read, and only the findings whose
 verdict the dataset does not hold yet are appended. An export that finds none leaves the
-dataset as it was.
+dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset
+changes no prompt and no later review.
 
 ```bash
 devops ai review export-feedback [OPTIONS]
@@ -3661,7 +3662,7 @@ devops ai review samples validate [OPTIONS] <names>
 |---|---|---|---|
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--review` | `boolean` | - | Also review each category's synthetic defect corpus and score it (calls the configured LLM). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
 
 #### `devops ai review templates`
@@ -4856,10 +4857,10 @@ devops review path [OPTIONS] <targets>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
@@ -4902,11 +4903,11 @@ devops review branch [OPTIONS] <branch_name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--repo` | `path` | `.` | Repository root directory (default: current directory). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
@@ -4947,11 +4948,11 @@ devops review pr [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
@@ -5001,7 +5002,7 @@ devops review findings [OPTIONS] <session>
 | `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
 | `--status` | `string` | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED. |
 | `--unverified` | `boolean` | - | Show unverified findings only. |
-| `--invalidated` | `boolean` | - | Show invalidated findings only. |
+| `--invalidated` | `boolean` | - | Show INVALIDATED findings only. findings.json holds only those a later verdict invalidated; add --candidates for the ones verification invalidated. |
 | `--verified` | `boolean` | - | Show verified findings only. |
 | `--mitigated` | `boolean` | - | Filter findings by MITIGATED status |
 | `--candidates` | `boolean` | - | List candidates.json: every finding the review raised, with the ones verification dropped. |
@@ -5092,21 +5093,22 @@ devops review benchmark [OPTIONS] <targets>
 |---|---|---|---|
 | `--runs`, `-n` | `integer` | `3` | Number of reviews to run; the report takes medians across them. |
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
 
 ### `devops review export-feedback`
 
-**Append review verdicts to the JSONL feedback dataset for prompt tuning and fine-tuning.**
+**Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.**
 
-Append review verdicts to the JSONL feedback dataset for prompt tuning and fine-tuning.
+Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.
 
 Each session's findings.json and candidates.json are read, and only the findings whose
 verdict the dataset does not hold yet are appended. An export that finds none leaves the
-dataset as it was.
+dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset
+changes no prompt and no later review.
 
 ```bash
 devops review export-feedback [OPTIONS]
@@ -5231,7 +5233,7 @@ devops review samples validate [OPTIONS] <names>
 |---|---|---|---|
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--review` | `boolean` | - | Also review each category's synthetic defect corpus and score it (calls the configured LLM). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
 
 ### `devops review templates`

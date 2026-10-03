@@ -2333,11 +2333,12 @@ def export_feedback(
         ),
     ] = CONST_STATUS_INVALIDATED,
 ) -> None:
-    """Append review verdicts to the JSONL feedback dataset for prompt tuning and fine-tuning.
+    """Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.
 
     Each session's findings.json and candidates.json are read, and only the findings whose
     verdict the dataset does not hold yet are appended. An export that finds none leaves the
-    dataset as it was.
+    dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset
+    changes no prompt and no later review.
     """
     status_filter = None if status.upper() == "ALL" else status.upper()
     from devops_cli.ai.review.exporter import export_invalidated_feedback

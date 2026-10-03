@@ -18,8 +18,11 @@ class MainHelp:
 @dataclass(frozen=True)
 class OptionHelp:
     repo: str = "Repository root directory (default: current directory)."
-    persona: str = "Reviewer persona to activate (devsecops, architect, pm, auditor, qa)."
-    all_personas: str = "Run all reviewer personas in sequence."
+    persona: str = (
+        "Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins "
+        "over --all. Without it or --all, devsecops reviews alone."
+    )
+    all_personas: str = "Review with devsecops, architect, qa, auditor and pm (not challenger)."
     base_branch: str = "Base git branch to diff against (default: main)."
     format_type: str = "Output format type (table, json, yaml, markdown)."
     dry_run: str = "Preview execution plan without mutating external state."
@@ -952,7 +955,8 @@ class ReviewCommandHelp:
     )
     templates_save: str = "Save sweep results into the evaluation run store (default: true)."
     hallucinations: str = (
-        "Inspect and prune the hallucinations catalog that deterministic verification learns from."
+        "Inspect and prune the false-positive catalog verification matches: the builtin entries, "
+        "and the claims a person's INVALIDATED verdict recorded."
     )
     hallucinations_list: str = "List catalog entries: builtin ones shipped with the tool, and learned ones from this workspace."
     hallucinations_remove: str = (
@@ -967,11 +971,14 @@ class ReviewCommandHelp:
     target_branch: str = "Branch to review (default: current branch)."
     pr_number: str = "Pull request number."
     post_pr: str = "Post the review as a comment on the GitHub PR."
-    summary: str = "Show segment metadata without running a full review."
+    summary: str = "Has no effect: every review runs the staged pipeline, which does not read it."
     session: str = "Session ID or substring (default: latest)."
     status_filter: str = "Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED."
     unverified: str = "Show unverified findings only."
-    invalidated: str = "Show invalidated findings only."
+    invalidated: str = (
+        "Show INVALIDATED findings only. findings.json holds only those a later verdict "
+        "invalidated; add --candidates for the ones verification invalidated."
+    )
     verified: str = "Show verified findings only."
     candidates: str = (
         "List candidates.json: every finding the review raised, with the ones verification dropped."

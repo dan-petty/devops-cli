@@ -129,7 +129,7 @@ A reviewer's claim that something in the code is wrong, with where it is and the
 _Avoid_: issue, alert, problem
 
 **Verdict**:
-The decision on a finding: verified (real), invalidated (a false positive) or mitigated (fixed).
+The decision on a finding: verified (the defect is there), invalidated (a false positive), mitigated (the defect is there, but a named guard in named files limits it) or unverified (no decision yet). It records who gave it: a check, the verifier model, an agent or a person.
 _Avoid_: status, resolution
 
 **Review session**:
