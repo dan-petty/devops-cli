@@ -45,8 +45,8 @@ devops ai chat --prompt "Explain the Kubernetes Pod lifecycle."
 # Execute local AI code review with static scan only (fast 2s pass)
 devops ai review path . --static-scan-only
 
-# Execute local AI code review on the active repository branch
-devops ai review branch --provider ollama --model qwen3.8:27b
+# Execute local AI code review on the active repository branch, on a local model
+DEVOPS_CLI_AI_TASK_ANALYSIS_PROVIDER=ollama DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL=qwen3.8:27b devops ai review branch
 ```
 
 ### Standard `ollama` CLI Commands

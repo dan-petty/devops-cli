@@ -129,9 +129,6 @@ devops ai curate-model --model qwen/qwen2.5-coder-32b --check-safety --generate-
 devops review corpus score <corpus> --session <id> --json
 devops ai runs compare <run>
 
-# Execute Sub-Agent Local Offloading review (Local explore/code + Frontier plan/verify)
-devops ai review branch --orchestration-shape big-small-big --local-model ollama/granite-code:8b
-
 # Run Model Dependency Chaos Engineering drill ("Chaos Monkey for Models")
 devops ai chaos-model --fallback-model ollama/qwen2.5-coder:14b --test-suite regression
 
