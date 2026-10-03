@@ -135,7 +135,7 @@ def build(
         if "stream" in chunk:
             line = re.sub(r"[\x00-\x1f\x7f]", "", chunk["stream"]).rstrip()
             if line:
-                print_info(line, prefix=False)
+                print_info(line, prefix=False, safe=True)
     tag_suffix = f" ({tag})" if tag else ""
     print_success(MESSAGES.docker.built_image.format(short_id=image.short_id, suffix=tag_suffix))
 
@@ -166,10 +166,10 @@ def push(
     for chunk in client.images.push(image, stream=True, decode=True):
         if "status" in chunk and "progressDetail" not in chunk:
             clean_status = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["status"]))
-            print_info(clean_status, prefix=False)
+            print_info(clean_status, prefix=False, safe=True)
         elif "error" in chunk:
             clean_err = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["error"]))
-            print_error(clean_err, prefix=False)
+            print_error(clean_err, prefix=False, safe=True)
             raise typer.Exit(1)
     print_success(MESSAGES.docker.pushed_success)
 

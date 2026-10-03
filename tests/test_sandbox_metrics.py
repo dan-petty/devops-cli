@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import threading
 from collections.abc import Generator
@@ -11,6 +12,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from rich.console import Console
 from typer.testing import CliRunner
 
 from devops_cli.exceptions.sandbox import SandboxNotFoundError
@@ -1090,3 +1092,125 @@ def test_is_forbidden_cgroup_path_boundaries() -> None:
     assert _is_forbidden_cgroup_path(Path("/sys/kernel"))
     assert _is_forbidden_cgroup_path(Path("/etc"))
     assert _is_forbidden_cgroup_path(Path("/var/log"))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scraped Text Prints As Written (#955)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def terminal(monkeypatch: pytest.MonkeyPatch) -> Console:
+    """The shared stdout and stderr consoles, recording everything the metrics view prints."""
+    import devops_cli.output.console as console_module
+
+    # Wide enough that no line wraps, so each printed line is one recorded line.
+    recording = Console(record=True, width=400, color_system=None, file=io.StringIO())
+    monkeypatch.setattr(console_module, "_CONSOLE", recording)
+    monkeypatch.setattr(console_module, "_STDERR_CONSOLE", recording)
+    return recording
+
+
+def test_prom_table_prints_scraped_labels_and_types_as_written(terminal: Console) -> None:
+    """Label values and types come from the scraped endpoint: their brackets print as written
+    instead of raising MarkupError or styling the table. The metric name is escaped too, though
+    the parser admits no bracket in one. A long label string is cut before it is escaped, so the
+    cut never lands inside an escape (#955)."""
+    from devops_cli.commands.sandbox import _render_prom_table
+
+    long_labels = {"path": "a" * 30 + "[/b]tail"}
+    metrics = [
+        *parse_prometheus_exposition('# TYPE up [/]\nup{job="[/]",x="[bold red]FAKE[/]"} 1'),
+        PrometheusMetric(name="hits[/h]", metric_type="[/x]gauge", labels=long_labels, value=2.0),
+    ]
+    _render_prom_table("localhost:9100/[x]", metrics)
+
+    text = terminal.export_text()
+    assert [
+        literal in text
+        for literal in (
+            "Prometheus Application Metrics: localhost:9100/[x]",
+            "job=[/]",
+            "[bold red]FAKE",
+            "hits[/h]",
+            "[/X]GAUGE",
+            "path=" + "a" * 30 + "[/...",
+        )
+    ] == [True] * 6
+
+
+def test_prometheus_type_lines_keep_only_a_known_type_for_a_metric_name() -> None:
+    """A `# TYPE` line counts only when it names a metric and gives a type the exposition format
+    defines; any other line is ignored and the sample's type is inferred from its name (#955)."""
+    from devops_cli.sandbox.metrics import _record_type
+
+    exposition = "\n".join(
+        [
+            "# TYPE up [/]",
+            "# TYPE errors_total gauge extra",
+            "# TYPE queue_depth COUNTER",
+            "up 1",
+            "errors_total 3",
+            "queue_depth 7",
+        ]
+    )
+    types = {m.name: m.metric_type for m in parse_prometheus_exposition(exposition)}
+    type_map: dict[str, str] = {}
+    _record_type("# TYPE [/x] counter", type_map)
+
+    assert (types, type_map) == (
+        {"up": "gauge", "errors_total": "counter", "queue_depth": "counter"},
+        {},
+    )
+
+
+def test_metrics_snapshot_prints_scrape_errors_and_target_as_written(terminal: Console) -> None:
+    """A scrape error carries the HTTP client's exception text, which can quote the endpoint's own
+    bytes, as a malformed header line does: it prints as written in the warning and in the error
+    line, instead of raising MarkupError. So does the target in the table title (#955)."""
+    from devops_cli.commands.sandbox import _render_metrics_snapshot
+
+    target = "localhost:8080/[x]"
+    error = (
+        f"Scrape request failed for http://{target}/metrics: "
+        "illegal header line: bytearray(b'[/x] [link=https://example.com]y')"
+    )
+    _render_metrics_snapshot(
+        SandboxMetricsSnapshot(
+            target=target, cgroup=CgroupV2Metrics(cpu_percent=10.0), scrape_error=error
+        )
+    )
+
+    text = terminal.export_text()
+    assert [
+        literal in text
+        for literal in (
+            f"Cgroup v2 Resource Telemetry: {target}",
+            f"SCRAPE WARNING: {error}",
+            f"Workload '{target}' encountered telemetry collection error: {error}",
+        )
+    ] == [True] * 3
+
+
+def test_metrics_snapshot_prints_the_target_as_written_in_every_summary_line(
+    terminal: Console,
+) -> None:
+    """The target is the instance name or the URL the user gave, and a URL can hold brackets: it
+    prints as written in the healthy line and in the threshold-exceeded line. A threshold alert is
+    the CLI's own text and holds no markup, so its line prints it as written too (#955)."""
+    from devops_cli.commands.sandbox import _render_metrics_snapshot
+
+    target = "localhost:8080/[x]"
+    alert = "latency [/x] over budget"
+    _render_metrics_snapshot(SandboxMetricsSnapshot(target=target))
+    _render_metrics_snapshot(SandboxMetricsSnapshot(target=target, warnings=[alert]))
+
+    text = terminal.export_text()
+    assert [
+        literal in text
+        for literal in (
+            f"Workload '{target}' operating within normal performance bounds.",
+            f"THRESHOLD ALERT: {alert}",
+            f"Workload '{target}' exceeded 1 operating threshold(s).",
+        )
+    ] == [True] * 3

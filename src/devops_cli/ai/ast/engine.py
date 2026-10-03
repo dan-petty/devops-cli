@@ -90,10 +90,24 @@ def _header_language(code: str) -> str:
     return "cpp" if _CPP_HEADER.search(code) else "c"
 
 
-def detect_language(path: Path | str) -> str | None:
-    """Infer canonical programming language identifier from file extension."""
+def detect_language(path: Path | str, content: str | None = None) -> str | None:
+    """The file's language from its extension, or None for an unknown one. Given the content, a
+    .h header is C++ when that content uses C++ (see _header_language), otherwise C."""
     suffix = Path(path).suffix.lower()
+    if suffix == ".h" and content is not None:
+        return _header_language(content)
     return EXT_TO_LANG.get(suffix)
+
+
+def _read_source(file_path: Path) -> tuple[str, str] | None:
+    """The file's text and language, a header's read from its content, or None when the file
+    cannot be read or its language is unknown."""
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    lang = detect_language(file_path, content)
+    return None if lang is None else (content, lang)
 
 
 NATIVE_KIND_MAP: dict[str, SymbolKind] = {
@@ -163,6 +177,23 @@ def _go_type_spec(node: Any) -> tuple[SymbolKind, str] | None:
     )
     name = _text(node.child_by_field_name("name"))
     return (kind, name) if name else None
+
+
+# What wraps the type a Go receiver names: `*List[T]` and `(*List[T])` name List.
+_GO_RECEIVER_WRAPPERS = frozenset({"pointer_type", "generic_type", "parenthesized_type"})
+
+
+def _go_receiver_type(node: Any) -> str | None:
+    """The type a Go method's receiver names, which owns the method as the regex fallback has it:
+    `func (w *WorkerPool) Start()` is WorkerPool's. None for a node with no receiver."""
+    receiver = node.child_by_field_name("receiver")
+    params = [
+        c for c in getattr(receiver, "named_children", []) if c.type == "parameter_declaration"
+    ]
+    type_node = params[0].child_by_field_name("type") if params else None
+    while type_node is not None and type_node.type in _GO_RECEIVER_WRAPPERS:
+        type_node = type_node.named_children[0] if type_node.named_children else None
+    return _text(type_node) or None
 
 
 def _hcl_block(node: Any) -> tuple[SymbolKind, str] | None:
@@ -414,7 +445,11 @@ class TreeSitterEngine:
                 if name:
                     start_pt = getattr(curr, "start_point", (0, 0))
                     end_pt = getattr(curr, "end_point", (0, 0))
-                    sig = lines[start_pt[0]].strip() if start_pt[0] < len(lines) else ""
+                    # Signed with the line holding its name, so an annotation, attribute or
+                    # decorator above it (`@Override`, `[HttpGet]`) is not taken for it.
+                    name_node = curr.child_by_field_name("name")
+                    sig_row = name_node.start_point[0] if name_node is not None else start_pt[0]
+                    sig = lines[sig_row].strip() if sig_row < len(lines) else ""
                     symbols.append(
                         PolyglotSymbol(
                             name=name,
@@ -422,7 +457,7 @@ class TreeSitterEngine:
                             span=CodeSpan(line_start=start_pt[0] + 1, line_end=end_pt[0] + 1),
                             signature=sig,
                             language=lang,
-                            parent_scope=scope,
+                            parent_scope=_go_receiver_type(curr) or scope,
                         )
                     )
                     if kind in (SymbolKind.CLASS, SymbolKind.INTERFACE, SymbolKind.STRUCT):
@@ -470,19 +505,21 @@ class TreeSitterEngine:
             parse_engine="tree-sitter",
         )
 
-    def parse_file(self, file_path: Path) -> PolyglotFileMap | None:
-        """Parse source file with mtime-indexed in-memory caching."""
-        lang = detect_language(file_path)
-        if not lang:
-            return None
-        is_header = file_path.suffix.lower() == ".h"
+    def _mtime_within_cap(self, file_path: Path) -> float | None:
+        """The file's mtime, or None when it cannot be stat'ed or exceeds the size cap.
 
+        Checked before the file is read, so an oversized file never reaches memory or a parser.
+        """
         try:
             stat = file_path.stat()
-            if stat.st_size > self.max_file_size_bytes:
-                return None
-            mtime = stat.st_mtime
         except OSError:
+            return None
+        return None if stat.st_size > self.max_file_size_bytes else stat.st_mtime
+
+    def parse_file(self, file_path: Path) -> PolyglotFileMap | None:
+        """Parse source file with mtime-indexed in-memory caching."""
+        mtime = self._mtime_within_cap(file_path) if detect_language(file_path) else None
+        if mtime is None:
             return None
 
         with self._lock:
@@ -490,18 +527,22 @@ class TreeSitterEngine:
             if cached and cached[0] == mtime:
                 return cached[1]
 
-        try:
-            content = file_path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+        source = _read_source(file_path)
+        if source is None:
             return None
-
-        if is_header:
-            lang = _header_language(content)
-        file_map = self.parse_code(content, lang, path=str(file_path))
+        file_map = self.parse_code(source[0], source[1], path=str(file_path))
 
         with self._lock:
             self._file_cache[file_path] = (mtime, file_map)
         return file_map
+
+    def query_file(self, file_path: Path, query_sexpr: str) -> list[dict[str, Any]] | None:
+        """Query a source file, or None when its language is unknown, it cannot be read, or it
+        exceeds the size cap, which parse_file shares."""
+        if detect_language(file_path) is None or self._mtime_within_cap(file_path) is None:
+            return None
+        source = _read_source(file_path)
+        return None if source is None else self.query_code(source[0], source[1], query_sexpr)
 
     def query_code(
         self,

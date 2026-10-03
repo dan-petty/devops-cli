@@ -7,6 +7,7 @@ protocols, schemas, and high-level domain helpers for workstation automation.
 from __future__ import annotations
 
 import inspect
+import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import (
     Any,
@@ -44,6 +45,8 @@ from pydantic_ai.toolsets.abstract import AgentDepsT  # type: ignore[attr-define
 
 from devops_cli.ai.agents.context import RunContext
 from devops_cli.ai.tools import Tool
+
+logger = logging.getLogger(__name__)
 
 DepsT = TypeVar("DepsT", default=Any)
 
@@ -352,24 +355,25 @@ class FunctionToolset(NativeFunctionToolset[DepsT], Generic[DepsT]):
     def get_instructions(self, ctx: Any = None) -> Any:
         """Return instructions configured for this toolset.
 
-        If ctx is None, returns a synchronous list of string instructions.
+        If ctx is None, returns a synchronous list of the static string instructions. pydantic-ai
+        keeps each instruction as a string or as a function wrapped to render with a context, so
+        a function is left out, with a debug record.
         If ctx is provided, returns native coroutine resolving to instructions.
         """
         if ctx is not None:
             return super().get_instructions(ctx)
 
-        instructions = self._instructions
-        if isinstance(instructions, str):
-            stripped = instructions.strip()
-            return [stripped] if stripped else []
-        if isinstance(instructions, (list, tuple)):
-            res: list[str] = []
-            for inst in instructions:
-                val = inst if isinstance(inst, str) else getattr(inst, "content", None)
-                if val and (clean := str(val).strip()):
-                    res.append(clean)
-            return res
-        return []
+        texts: list[str] = []
+        for instruction in self._instructions:
+            if not isinstance(instruction, str):
+                logger.debug(
+                    "Skipped a dynamic instruction of toolset %r: only get_instructions(ctx) "
+                    "renders it",
+                    type(self).__name__,
+                )
+            elif text := instruction.strip():
+                texts.append(text)
+        return texts
 
 
 def create_function_toolset(

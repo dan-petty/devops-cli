@@ -977,6 +977,10 @@ CONST_OTEL_METRIC_UNIT_ONE = "1"
 CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA = 1
 CONST_OTEL_SERVICE_NAME = "devops-cli"
 CONST_OTEL_OTLP_HTTP_PORT = 4318
+# Every type a `# TYPE` line of the Prometheus text exposition format (0.0.4) may give a metric.
+CONST_PROMETHEUS_EXPOSITION_METRIC_TYPES: Final[frozenset[str]] = frozenset(
+    {"counter", "gauge", "histogram", "summary", "untyped"}
+)
 # The GenAI semantic conventions, which have no tagged release, are pinned to a commit and
 # resolved by weaver (the version the conventions repository pins in its versions.env).
 CONST_SEMCONV_GENAI_REPO: Final[str] = "open-telemetry/semantic-conventions-genai"
@@ -3403,3 +3407,10 @@ CONST_RETRYABLE_HTTP_STATUS_CODES: Final[tuple[int, ...]] = (
     529,  # Site Is Overloaded (Anthropic / OpenAI)
     530,  # Site Is Frozen / Origin DNS Error (Cloudflare)
 )
+
+# ── SQLite Database Names ────────────────────────────────────────────────────
+# The names `sqlite3.connect` opens as a database private to that one connection (#958):
+# `:memory:` is held in memory and the empty name is a temporary file, and each is gone when the
+# connection closes. Without `uri=True` no other name does that, so the set is complete. A store
+# that opens a connection per call loses every write to either.
+CONST_SQLITE_PER_CONNECTION_DATABASES: Final[frozenset[str]] = frozenset({":memory:", ""})

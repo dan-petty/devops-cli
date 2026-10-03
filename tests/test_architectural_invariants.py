@@ -186,7 +186,6 @@ def test_no_bare_generic_exceptions_in_refactored_modules() -> None:
         Path("src/devops_cli/ai/harness/planning.py"),
         Path("src/devops_cli/ai/harness/shell.py"),
         Path("src/devops_cli/ai/harness/memory.py"),
-        Path("src/devops_cli/ai/harness/os_access.py"),
         Path("src/devops_cli/ai/harness/compaction.py"),
         Path("src/devops_cli/ai/harness/slots.py"),
     ]

@@ -519,11 +519,11 @@ def _render_cgroup_table(target: str, cgroup: CgroupV2Metrics) -> None:
             ],
         ]
     )
-    print_table(f"Cgroup v2 Resource Telemetry: {target}", columns, rows)
+    print_table(f"Cgroup v2 Resource Telemetry: {escape_text(target)}", columns, rows)
 
 
 def _render_prom_table(target: str, metrics: list[PrometheusMetric]) -> None:
-    """Render Prometheus application metrics table."""
+    """Render Prometheus application metrics table, the scraped text escaped."""
     columns = [
         ("Metric Name", "cyan"),
         ("Type", "magenta"),
@@ -533,9 +533,17 @@ def _render_prom_table(target: str, metrics: list[PrometheusMetric]) -> None:
     rows = []
     for m in metrics[:15]:
         lbl_str = ", ".join(f"{k}={v}" for k, v in m.labels.items()) if m.labels else "-"
+        # Cut before escaping, so the cut never lands inside an escape.
         lbl_truncated = lbl_str if len(lbl_str) <= 40 else lbl_str[:37] + "..."
-        rows.append([m.name, m.metric_type.upper(), lbl_truncated, f"{m.value:.2f}"])
-    print_table(f"Prometheus Application Metrics: {target}", columns, rows)
+        rows.append(
+            [
+                escape_text(m.name),
+                escape_text(m.metric_type.upper()),
+                escape_text(lbl_truncated),
+                f"{m.value:.2f}",
+            ]
+        )
+    print_table(f"Prometheus Application Metrics: {escape_text(target)}", columns, rows)
 
 
 def _render_metrics_snapshot(snapshot: SandboxMetricsSnapshot) -> None:
@@ -546,21 +554,26 @@ def _render_metrics_snapshot(snapshot: SandboxMetricsSnapshot) -> None:
     if snapshot.prometheus_metrics:
         _render_prom_table(snapshot.target, snapshot.prometheus_metrics)
 
+    # A scrape error carries the HTTP client's exception text, which can quote the endpoint's bytes.
     if snapshot.scrape_error:
-        print_warning(f"SCRAPE WARNING: {snapshot.scrape_error}")
+        print_warning(f"SCRAPE WARNING: {snapshot.scrape_error}", safe=True)
 
     for warning in snapshot.warnings:
-        print_warning(f"THRESHOLD ALERT: {warning}")
+        print_warning(f"THRESHOLD ALERT: {warning}", safe=True)
 
     if snapshot.is_healthy:
-        print_success(f"Workload '{snapshot.target}' operating within normal performance bounds.")
+        print_success(
+            f"Workload '{snapshot.target}' operating within normal performance bounds.", safe=True
+        )
     elif snapshot.scrape_error and not snapshot.warnings:
         print_error(
-            f"Workload '{snapshot.target}' encountered telemetry collection error: {snapshot.scrape_error}"
+            f"Workload '{snapshot.target}' encountered telemetry collection error: {snapshot.scrape_error}",
+            safe=True,
         )
     else:
         print_error(
-            f"Workload '{snapshot.target}' exceeded {len(snapshot.warnings)} operating threshold(s)."
+            f"Workload '{snapshot.target}' exceeded {len(snapshot.warnings)} operating threshold(s).",
+            safe=True,
         )
 
 
