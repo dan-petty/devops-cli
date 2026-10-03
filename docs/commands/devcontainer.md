@@ -26,7 +26,7 @@ devops devcontainer init [OPTIONS] <repo_path>
 | `--python` | `string` | `3.14` | Python version for base template. |
 | `--image`, `-i` | `string` | - | Base container image (defaults to published devops-cli image). |
 | `--published`, `-p` | `boolean` | `True` | Use published GHCR image (defaults to True). |
-| `--minikube`, `--no-minikube` | `boolean` | `True` | Install the kubectl, helm and minikube devcontainer feature. |
+| `--minikube` / `--no-minikube` | `boolean` | `True` | Install the kubectl, helm and minikube devcontainer feature. |
 | `--home-volume` | `string` | - | Custom volume name for /home/vscode (defaults to `<project_name>-home`). |
 | `--force`, `-f` | `boolean` | - | Overwrite existing devcontainer.json and configurations. |
 
@@ -167,7 +167,7 @@ devops devcontainer bootstrap-k8s [OPTIONS]
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
 | `--stack`, `-s` | `string` | `infra` | Kubernetes stack to deploy (e.g. infra, llm, monitoring, all). |
-| `--deploy`, `--no-deploy` | `boolean` | `True` | Auto-deploy Kubernetes stack after cluster startup. |
+| `--deploy` / `--no-deploy` | `boolean` | `True` | Auto-deploy Kubernetes stack after cluster startup. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

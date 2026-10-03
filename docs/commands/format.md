@@ -17,7 +17,7 @@ devops format [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--check` | `boolean` | - | Check formatting without writing changes to files. |
-| `--fix`, `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
+| `--fix` / `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

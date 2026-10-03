@@ -574,3 +574,24 @@ def test_ai_token_count_route_pipeline_bundle(tmp_path: Path) -> None:
         res_bundle = runner.invoke(ai_app, ["bundle-models"])
         assert res_bundle.exit_code == 0
         assert "Bundled 2 model(s)" in res_bundle.output
+
+
+def test_a_cut_stream_stores_no_reply_in_chat_memory() -> None:
+    """Verify a stream that raises after its first chunk leaves no assistant entry in memory."""
+    from devops_cli.ai.agents.memory import AgentMemory
+    from devops_cli.ai.client import AIClientError
+    from devops_cli.commands.ai import _stream_interactive_chat_turn
+
+    def cut_stream(*args: Any, **kwargs: Any) -> Any:
+        yield "Partial "
+        raise AIClientError("Provider stream ended before its final frame.")
+
+    client = MagicMock(chat_messages_stream=cut_stream)
+    agent = MagicMock(memory=AgentMemory())
+    agent.memory.add_interaction("user", "Explain the deploy.")
+    agent._build_system_prompt_with_tools.return_value = "You are an architect."
+
+    with pytest.raises(AIClientError, match="before its final frame"):
+        _stream_interactive_chat_turn(client, agent, False, "Explain the deploy.")
+
+    assert [entry.role for entry in agent.memory.entries] == ["user"]

@@ -354,6 +354,14 @@ async def _run_all_checks_async(
             "ci.step.lint_fix",
             "lint_fix",
         )
+    if docs_fix:
+        await _execute_check_async(
+            "docs_fix",
+            MESSAGES.ci.docs_validation,
+            ["uv", "run", "devops", "docs", "generate", "--sync-readme"],
+            "ci.step.docs_fix",
+            "docs_fix",
+        )
 
     _get("print_muted")(f"  ⏳ [test] {MESSAGES.ci.pytest_coverage} running in background...")
     sys.stdout.flush()
@@ -434,11 +442,7 @@ async def _run_all_checks_async(
             _execute_check_async(
                 "docs",
                 MESSAGES.ci.docs_validation,
-                (
-                    ["uv", "run", "devops", "docs", "generate", "--sync-readme"]
-                    if docs_fix
-                    else ["uv", "run", "devops", "docs", "check"]
-                ),
+                ["uv", "run", "devops", "docs", "check"],
                 "ci.step.docs",
                 "docs",
             ),

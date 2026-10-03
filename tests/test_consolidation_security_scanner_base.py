@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import errno
 import json
+import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -10,7 +12,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from devops_cli.ai.review_schema import Finding
-from devops_cli.security.base import BaseSecurityScanner
+from devops_cli.config.constants import (
+    CONST_MAX_ERROR_DETAIL_LENGTH,
+    CONST_SCANNER_STDOUT_EXCERPT_CHARS,
+)
+from devops_cli.security.base import BaseSecurityScanner, materialize_targets
+from devops_cli.security.dive import DiveAnalysisResult
 from devops_cli.security.registry import ScannerRegistry, global_scanner_registry
 
 
@@ -108,6 +115,67 @@ def test_scanner_falls_back_on_nonzero_exit_with_malformed_output(tmp_path: Path
         assert findings[0].title == "Fallback finding"
 
 
+class _NoPatternsScanner(BaseSecurityScanner):
+    """A scanner with no built-in patterns, so a failed run is reported as failed."""
+
+    name = "no_patterns_tool"
+    binary_name = "no-patterns-bin"
+
+    def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
+        return [self.binary_name, str(target_path)]
+
+    def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
+        return []
+
+
+def _failed_reason(tmp_path: Path, stdout: str, stderr: str) -> tuple[str, str]:
+    """Run _NoPatternsScanner on output exiting 1, returning the outcome's status and reason."""
+    proc = MagicMock(returncode=1, stdout=stdout, stderr=stderr)
+    with patch("devops_cli.security.base.run_subprocess", return_value=proc):
+        outcome = _NoPatternsScanner().scan(tmp_path)
+    return outcome.status, outcome.reason
+
+
+def test_a_failed_scan_says_its_output_was_not_json_and_quotes_it(tmp_path: Path) -> None:
+    """Verify the reason names non-JSON stdout and quotes its start on one line, then stderr."""
+    reason = _failed_reason(
+        tmp_path,
+        stdout='Working... ━━━━ 100% 0:00:20\n{\n  "errors": []\n}\n',
+        stderr="[main]\tINFO\tprofile include tests: None\n",
+    )
+
+    assert reason == (
+        "failed",
+        "Scanner exited with code 1; output was not JSON, starting "
+        '"Working... ━━━━ 100% 0:00:20 { "errors": [] }"; '
+        "stderr: [main] INFO profile include tests: None",
+    )
+
+
+def test_a_failed_scan_quotes_a_bounded_start_of_its_output(tmp_path: Path) -> None:
+    """Verify the quote and the whole reason are cut short, keeping as much stderr as fits."""
+    status, reason = _failed_reason(tmp_path, stdout="x" * 500, stderr="e" * 500)
+
+    assert (status, len(reason), reason.partition('"')[2].partition('"')[0], reason[-12:]) == (
+        "failed",
+        CONST_MAX_ERROR_DETAIL_LENGTH,
+        "x" * (CONST_SCANNER_STDOUT_EXCERPT_CHARS - 1) + "…",
+        "e" * 11 + "…",
+    )
+
+
+def test_a_failed_scan_masks_its_output_before_cutting_the_quote(tmp_path: Path) -> None:
+    """Verify a token the quote's cut would split is masked whole, so no part of it remains."""
+    token = "ghp_" + "Q7rT2xW9yB4nM6kP1sD8fG3hJ5lZ0cV2aE7u"
+    status, reason = _failed_reason(tmp_path, stdout="x" * 87 + " " + token, stderr="")
+
+    assert (status, token[:11] in reason, reason.partition('"')[2].partition('"')[0]) == (
+        "failed",
+        False,
+        "x" * 87 + " <masked-git…",
+    )
+
+
 def test_scanner_registry_lifecycle(tmp_path: Path) -> None:
     """Registry correctly registers, retrieves, lists, and executes batch scans."""
     registry = ScannerRegistry()
@@ -126,10 +194,19 @@ def test_scanner_registry_lifecycle(tmp_path: Path) -> None:
         assert "mock_tool" in results
         assert results["mock_tool"] == []
 
-    # Scanner raises exception in scan_all
+    # A scanner that raises is recorded as failed; only named, registered scanners run
+    other = MagicMock()
+    other.name = "other_tool"
+    registry.register(other)
     with patch.object(scanner, "scan", side_effect=RuntimeError("Scanner crashed")):
-        err_results = registry.scan_all(tmp_path)
-        assert err_results["mock_tool"] == []
+        err_results = registry.scan_all(tmp_path, names=["mock_tool", "unregistered"])
+    assert (
+        {name: (o.status, o.reason) for name, o in err_results.items()},
+        other.scan.call_count,
+    ) == (
+        {"mock_tool": ("failed", "Scanner crashed")},
+        0,
+    )
 
 
 ALL_EXPECTED_SCANNER_NAMES = [
@@ -256,15 +333,6 @@ _SAMPLE_STDOUTS: dict[str, str] = {
             }
         }
     ),
-    "dive": json.dumps(
-        {
-            "image": {
-                "efficiencyScore": 0.80,
-                "wastedBytes": 60000000,
-                "sizeBytes": 200000000,
-            }
-        }
-    ),
     "gitleaks": json.dumps(
         [
             {
@@ -386,10 +454,19 @@ def test_scanner_contract_execution_and_parsing(scanner_name: str, tmp_path: Pat
 
     sample_stdout = _SAMPLE_STDOUTS.get(scanner_name, "[]")
     mock_proc = MagicMock(returncode=0, stdout=sample_stdout, stderr="")
+    # Dive writes its analysis to a file, so its adapter reads it through `run_dive_analysis`.
+    dive_analysis = DiveAnalysisResult(
+        image_name="ubuntu:latest",
+        status="ran",
+        efficiency_score=0.80,
+        wasted_bytes=60_000_000,
+        total_bytes=200_000_000,
+    )
 
     with (
         patch("devops_cli.security.base.check_binary", return_value=True),
         patch("devops_cli.security.base.run_subprocess", return_value=mock_proc),
+        patch("devops_cli.security.dive.run_dive_analysis", return_value=dive_analysis),
     ):
         findings = scanner.scan(test_file, image="ubuntu:latest", context="test-cluster")
         assert isinstance(findings, list)
@@ -433,3 +510,45 @@ def test_dive_scanner_skips_directory_without_image(tmp_path: Path) -> None:
     with patch("devops_cli.security.base.check_binary", return_value=True):
         findings = scanner.scan(dir_path)
         assert findings == []
+
+
+def test_materialized_targets_are_hard_links_else_copies_and_replace_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A target is hard-linked under the working directory at its path in the tree, or copied
+    when the link fails, as across filesystems; a file already there, such as one devops-cli
+    handed the scanner, is never replaced (#1079). Each is named `./<its path>`, and a result
+    reported with or without the `./` maps back to the tree's file."""
+    tree = tmp_path / "tree"
+    (tree / "src").mkdir(parents=True)
+    linked, copied, taken = (tree / "src" / name for name in ("linked.py", "copied.py", "taken.py"))
+    for target in (linked, copied, taken):
+        target.write_text(target.name, encoding="utf-8")
+    workdir = tmp_path / "work"
+    (workdir / "src").mkdir(parents=True)
+    (workdir / "src" / "taken.py").write_text("devops-cli's own", encoding="utf-8")
+    link = os.link
+
+    def cross_device_for_copied(source: Any, destination: Any, **kwargs: Any) -> None:
+        if Path(source).name == "copied.py":
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        link(source, destination, **kwargs)
+
+    monkeypatch.setattr(os, "link", cross_device_for_copied)
+    staged = materialize_targets([linked, copied, taken], tree, workdir)
+
+    assert (
+        staged.names,
+        [staged.origin(name) for name in ("src/linked.py", "./src/copied.py")],
+        (workdir / "src" / "linked.py").samefile(linked),
+        (workdir / "src" / "copied.py").samefile(copied),
+        (workdir / "src" / "copied.py").read_text(encoding="utf-8"),
+        (workdir / "src" / "taken.py").read_text(encoding="utf-8"),
+    ) == (
+        [os.path.join(os.curdir, "src", name) for name in ("linked.py", "copied.py")],
+        [str(linked), str(copied)],
+        True,
+        False,
+        "copied.py",
+        "devops-cli's own",
+    )

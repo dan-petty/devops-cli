@@ -17,7 +17,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_gateway_routes`](#ai-gateway-routes) | List registered virtual models and target backend inference instances. |
 | [`ai_gateway_status`](#ai-gateway-status) | Probe LLM Gateway health, latency, and circuit breaker metrics. |
 | [`ai_harness_status`](#ai-harness-status) | Inspect the AI agent harness slots as configured: provider, model, skills and tools. |
-| [`ai_ingest_library`](#ai-ingest-library) | Introspect an installed Python package and extract its public API contract into .data/libraries/. |
+| [`ai_ingest_library`](#ai-ingest-library) | Introspect an installed Python package and extract its public API contract into the data directory's libraries/. |
 | [`ai_inspect_symbol`](#ai-inspect-symbol) | Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts. |
 | [`ai_pack_context`](#ai-pack-context) | Pack and prune source code context to fit token budget while preserving signatures and types. |
 | [`ai_prewarm_models`](#ai-prewarm-models) | Prewarm local LLM models into GPU VRAM or proactively evict them across candidate cluster nodes. |
@@ -34,8 +34,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
 | [`argo_rollout_analyze`](#argo-rollout-analyze) | Analyze progressive rollout metric gates and trigger automated rollback on threshold violation. |
 | [`argo_status`](#argo-status) | Check ArgoCD application health and sync status. |
-| [`benchmark_embeddings`](#benchmark-embeddings) | Benchmark embedding model inference latency, dimensions, and retrieval accuracy. |
-| [`benchmark_suite`](#benchmark-suite) | Benchmark candidate models against feedback dataset for precision, recall, and hallucination scoring. |
+| [`benchmark_embeddings`](#benchmark-embeddings) | Benchmark embedding latency, dimensions, and retrieval accuracy on the configured servers. |
 | [`branches_list`](#branches-list) | List git branches across repositories with tracking status and stale detection. |
 | [`ci_run`](#ci-run) | Run devops-cli complete quality gate (pytest, ruff check, ruff format, mypy). |
 | [`config_audit_keys`](#config-audit-keys) | Audit OS Keyring health, token state, and zero-plaintext secret compliance. |
@@ -49,15 +48,13 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_issue_create`](#gh-issue-create) | Create a new GitHub issue linking milestone and taxonomy labels. |
 | [`gh_issue_edit`](#gh-issue-edit) | Edit an existing GitHub issue title, body, state, or milestone. |
 | [`gh_issue_list`](#gh-issue-list) | List repository issues with milestone, taxonomy labels, and status. |
-| [`gh_issue_reconcile_roadmap`](#gh-issue-reconcile-roadmap) | Reconcile repository issue milestones and local task files to match docs/ROADMAP.md declarations. |
 | [`gh_issue_status`](#gh-issue-status) | Display aggregated issue counts by priority, type, and milestone. |
 | [`gh_issue_triage`](#gh-issue-triage) | Audit open issues for mandatory taxonomy labels and milestone linkage. |
 | [`gh_label_list`](#gh-label-list) | List declarative repository labels and descriptions. |
 | [`gh_label_sync`](#gh-label-sync) | Synchronize repository labels against .github/labels.yml schema. |
-| [`gh_milestone_close`](#gh-milestone-close) | Close a repository milestone matching the given version or title. |
-| [`gh_milestone_edit`](#gh-milestone-edit) | Edit an existing milestone title, description, state, or due date. |
+| [`gh_milestone_close`](#gh-milestone-close) | Close the release milestone of a version, with or without its v. |
+| [`gh_milestone_edit`](#gh-milestone-edit) | Edit a release milestone's title, description, state, or due date; others stay as they are. |
 | [`gh_milestone_list`](#gh-milestone-list) | List repository milestones and progress rates. |
-| [`gh_milestone_sync`](#gh-milestone-sync) | Synchronize repository milestones from docs/ROADMAP.md. |
 | [`gh_pages_build`](#gh-pages-build) | Trigger a new deployment build for GitHub Pages. |
 | [`gh_pages_status`](#gh-pages-status) | Inspect GitHub Pages site deployment status, URL, branch, and HTTPS enforcement. |
 | [`gh_pages_verify`](#gh-pages-verify) | Verify local repository readiness for GitHub Pages publishing. |
@@ -69,7 +66,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_rate_limit`](#gh-rate-limit) | Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 | [`gh_run_view`](#gh-run-view) | View details and diagnostic failure logs of a specific GitHub Actions workflow run. |
 | [`gh_runs_list`](#gh-runs-list) | List recent GitHub Actions CI/CD workflow runs. |
-| [`gh_sync_roadmap`](#gh-sync-roadmap) | Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files. |
 | [`gh_view_spec`](#gh-view-spec) | Return JSON specification for GitHub Projects v2 views. |
 | [`gh_views_audit`](#gh-views-audit) | Audit remote project views against standardized view template specifications. |
 | [`gh_views_sync`](#gh-views-sync) | Synchronize standardized GitHub Projects v2 views with the remote repository project. |
@@ -78,7 +74,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 
 Call this before browsing a domain's tools. Available lazy domains include `argo`,
 `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
-`prometheus`, `rag`, `release`, `repos`, `sandbox`, `scan`, `security`, `ssh`,
+`prometheus`, `rag`, `release`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`,
 `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
 Pass the domain name alone, for example `k8s`. |
 | [`k8s_audit`](#k8s-audit) | Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks. |
@@ -92,7 +88,7 @@ Pass the domain name alone, for example `k8s`. |
 | [`k8s_lint`](#k8s-lint) | Lint Kubernetes manifests against security best practices and deprecated APIs. |
 | [`k8s_logs_query`](#k8s-logs-query) | Execute LogQL query across Kubernetes and cluster log streams (e.g. {app="web"} |= "error"). |
 | [`k8s_logs_tail`](#k8s-logs-tail) | Tail recent log lines matching LogQL stream selector (e.g. {app="web"}). |
-| [`k8s_pods`](#k8s-pods) | List Kubernetes pod status for the specified namespace. |
+| [`k8s_pods`](#k8s-pods) | List the pods of a Kubernetes namespace, or of every namespace when it is empty. |
 | [`k8s_security_stream`](#k8s-security-stream) | Stream runtime security anomaly events and syscall alerts from Kubernetes Falco eBPF probes. |
 | [`k8s_status`](#k8s-status) | Display pod status across infrastructure namespaces. |
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | Uninstall Kubernetes infrastructure or LLM stack and delete namespaces. |
@@ -113,17 +109,24 @@ Pass the domain name alone, for example `k8s`. |
 | [`rag_drift`](#rag-drift) | Detect staleness and drift between the working tree and the Qdrant vector index. |
 | [`rag_index`](#rag-index) | Index workspace files into Qdrant vector database for semantic retrieval. |
 | [`rag_search`](#rag-search) | Perform semantic vector search across indexed workspace codebase and architecture docs. |
-| [`release_epic_sync`](#release-epic-sync) | Provision, correlate, and synchronize parent release tracking epics for milestones. |
 | [`release_status`](#release-status) | Check devops-cli release status, version consistency, tags, and docs state. |
 | [`repos_list`](#repos-list) | List local workspace repositories and active git branches. |
 | [`repos_status`](#repos-status) | Display uncommitted changes and branch drift across workspace repositories. |
 | [`repos_sync`](#repos-sync) | Fetch and pull tracking branches across workspace repositories. |
 | [`review_branch`](#review-branch) | Run an AI code review on git branch diff against base branch. |
-| [`review_export_feedback`](#review-export-feedback) | Export review findings into JSONL feedback dataset for LLM alignment. |
-| [`review_findings`](#review-findings) | Inspect structured review findings for a session by verification status. |
+| [`review_export_feedback`](#review-export-feedback) | Append review verdicts the feedback dataset does not hold yet to the JSONL dataset. |
+| [`review_findings`](#review-findings) | List a session's findings, filtered by status; each keeps the number verify_finding takes. |
 | [`review_path`](#review-path) | Run an AI code review on local files matching pattern using specified persona. |
 | [`review_pr`](#review-pr) | Fetch GitHub PR diff and review using specified persona; optionally post comment. |
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
+| [`roadmap_migrate`](#roadmap-migrate) | Preview the one-time move of the roadmap's source to GitHub: its plan and report.
+
+It never writes. A person reviews the plan and runs `devops roadmap migrate --confirm`. |
+| [`roadmap_render`](#roadmap-render) | Render docs/ROADMAP.md from GitHub's issues, milestones and board; prints it by default. |
+| [`roadmap_reprioritize`](#roadmap-reprioritize) | Hold the current release to its admission rule, cap and stall window, and start the next
+release once it ships; prints each change with its reason.
+
+It previews by default. `dry_run=False` makes the changes (`--confirm`). |
 | [`sandbox_deploy`](#sandbox-deploy) | Deploy an isolated workload container sandbox with security containment and port allocation. |
 | [`sandbox_exec`](#sandbox-exec) | Execute a command inside an active sandbox container. |
 | [`sandbox_network_policy`](#sandbox-network-policy) | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
@@ -139,11 +142,11 @@ Pass the domain name alone, for example `k8s`. |
 | [`scan_trivy`](#scan-trivy) | Run container, filesystem, or repository vulnerability scanning via Trivy. |
 | [`scan_uv_audit`](#scan-uv-audit) | Run uv dependency audit / pip-audit to check workspace Python dependencies for known CVEs. |
 | [`security_intel_network`](#security-intel-network) | Check IP or domain threat intelligence via Shodan and Cloudflare Radar. |
-| [`security_intel_package`](#security-intel-package) | Query OSV.dev and NVD vulnerability databases for package CVE intelligence. |
+| [`security_intel_package`](#security-intel-package) | Query the OSV.dev vulnerability database for package CVE intelligence. |
 | [`ssh_audit`](#ssh-audit) | Audit SSH key expiration dates and key file permissions. |
 | [`ssh_status`](#ssh-status) | Inspect age and rotation status of managed SSH keys in ~/.ssh. |
 | [`telemetry_logfire_status`](#telemetry-logfire-status) | Check Logfire structured observability bridge status, token configuration, and recorded metrics. |
-| [`telemetry_profile`](#telemetry-profile) | Run a command, or name a trace, and show its span waterfall as Jaeger recorded it. |
+| [`telemetry_profile`](#telemetry-profile) | Show the span waterfall Jaeger recorded for a trace ID; the tool runs no command. |
 | [`telemetry_status`](#telemetry-status) | Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings. |
 | [`telemetry_test_span`](#telemetry-test-span) | Emit a test OpenTelemetry trace span and metric to verify collector pipeline health. |
 | [`tf_apply`](#tf-apply) | Apply OpenTofu / Terraform Infrastructure-as-Code changes. |
@@ -164,7 +167,7 @@ Pass the domain name alone, for example `k8s`. |
 | [`vault_set`](#vault-set) | Store secret key-value pairs in HashiCorp Vault KV-v2 engine. |
 | [`vault_status`](#vault-status) | Check HashiCorp Vault cluster health and sealing status. |
 | [`vault_sync`](#vault-sync) | Synchronize secrets from HashiCorp Vault into the local OS Keyring. |
-| [`verify_finding`](#verify-finding) | Validate or invalidate a finding and record human feedback. |
+| [`verify_finding`](#verify-finding) | Record an agent's verdict on the finding `review_findings` numbers `index` (from 1). |
 | [`workspace_list`](#workspace-list) | Show the active VS Code workspace file and configured repository directories. |
 
 ---
@@ -285,7 +288,7 @@ Inspect the AI agent harness slots as configured: provider, model, skills and to
 
 ### `ai_ingest_library`
 
-Introspect an installed Python package and extract its public API contract into .data/libraries/.
+Introspect an installed Python package and extract its public API contract into the data directory's libraries/.
 
 **Parameters:**
 
@@ -481,7 +484,7 @@ Check ArgoCD application health and sync status.
 
 ### `benchmark_embeddings`
 
-Benchmark embedding model inference latency, dimensions, and retrieval accuracy.
+Benchmark embedding latency, dimensions, and retrieval accuracy on the configured servers.
 
 **Parameters:**
 
@@ -490,19 +493,6 @@ Benchmark embedding model inference latency, dimensions, and retrieval accuracy.
 | `provider` | `string` | No | `ollama` | - |
 | `model` | `string` | No | `bge-m3` | - |
 | `samples` | `integer` | No | `10` | - |
-
-### `benchmark_suite`
-
-Benchmark candidate models against feedback dataset for precision, recall, and hallucination scoring.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `models` | `string` | No | `qwen2.5-coder:7b` | - |
-| `dataset` | `string` | No | `` | - |
-| `provider` | `string` | No | `ollama` | - |
-| `dry_run` | `boolean` | No | `True` | - |
 
 ### `branches_list`
 
@@ -662,17 +652,6 @@ List repository issues with milestone, taxonomy labels, and status.
 | `label` | `string` | No | - | - |
 | `limit` | `integer` | No | `30` | - |
 
-### `gh_issue_reconcile_roadmap`
-
-Reconcile repository issue milestones and local task files to match docs/ROADMAP.md declarations.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `dry_run` | `boolean` | No | `True` | - |
-| `repo` | `string` | No | - | - |
-
 ### `gh_issue_status`
 
 Display aggregated issue counts by priority, type, and milestone.
@@ -716,7 +695,7 @@ Synchronize repository labels against .github/labels.yml schema.
 
 ### `gh_milestone_close`
 
-Close a repository milestone matching the given version or title.
+Close the release milestone of a version, with or without its v.
 
 **Parameters:**
 
@@ -727,7 +706,7 @@ Close a repository milestone matching the given version or title.
 
 ### `gh_milestone_edit`
 
-Edit an existing milestone title, description, state, or due date.
+Edit a release milestone's title, description, state, or due date; others stay as they are.
 
 **Parameters:**
 
@@ -749,18 +728,6 @@ List repository milestones and progress rates.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repo` | `string` | No | - | - |
-
-### `gh_milestone_sync`
-
-Synchronize repository milestones from docs/ROADMAP.md.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `repo` | `string` | No | - | - |
-| `dry_run` | `boolean` | No | `True` | - |
-| `create_release_epics` | `boolean` | No | `False` | - |
 
 ### `gh_pages_build`
 
@@ -871,19 +838,6 @@ List recent GitHub Actions CI/CD workflow runs.
 | `branch` | `string` | No | - | - |
 | `repo` | `string` | No | - | - |
 
-### `gh_sync_roadmap`
-
-Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `milestone` | `string` | No | - | - |
-| `dry_run` | `boolean` | No | `True` | - |
-| `limit` | `integer` | No | `20` | - |
-| `repo` | `string` | No | - | - |
-
 ### `gh_view_spec`
 
 Return JSON specification for GitHub Projects v2 views.
@@ -926,7 +880,7 @@ Advertise the tools for one domain, which are withheld from the listing by defau
 
 Call this before browsing a domain's tools. Available lazy domains include `argo`,
 `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
-`prometheus`, `rag`, `release`, `repos`, `sandbox`, `scan`, `security`, `ssh`,
+`prometheus`, `rag`, `release`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`,
 `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
 Pass the domain name alone, for example `k8s`.
 
@@ -1055,7 +1009,7 @@ Tail recent log lines matching LogQL stream selector (e.g. {app="web"}).
 
 ### `k8s_pods`
 
-List Kubernetes pod status for the specified namespace.
+List the pods of a Kubernetes namespace, or of every namespace when it is empty.
 
 **Parameters:**
 
@@ -1295,19 +1249,6 @@ Perform semantic vector search across indexed workspace codebase and architectur
 | `language` | `string` | No | - | - |
 | `category` | `string` | No | - | - |
 
-### `release_epic_sync`
-
-Provision, correlate, and synchronize parent release tracking epics for milestones.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `version` | `string` | No | - | - |
-| `all_milestones` | `boolean` | No | `False` | - |
-| `dry_run` | `boolean` | No | `True` | - |
-| `repo` | `string` | No | - | - |
-
 ### `release_status`
 
 Check devops-cli release status, version consistency, tags, and docs state.
@@ -1346,7 +1287,7 @@ Run an AI code review on git branch diff against base branch.
 
 ### `review_export_feedback`
 
-Export review findings into JSONL feedback dataset for LLM alignment.
+Append review verdicts the feedback dataset does not hold yet to the JSONL dataset.
 
 **Parameters:**
 
@@ -1357,7 +1298,7 @@ Export review findings into JSONL feedback dataset for LLM alignment.
 
 ### `review_findings`
 
-Inspect structured review findings for a session by verification status.
+List a session's findings, filtered by status; each keeps the number verify_finding takes.
 
 **Parameters:**
 
@@ -1395,6 +1336,46 @@ Fetch GitHub PR diff and review using specified persona; optionally post comment
 View accuracy metrics and false-positive rates per reviewer persona.
 
 *No parameters required.*
+
+### `roadmap_migrate`
+
+Preview the one-time move of the roadmap's source to GitHub: its plan and report.
+
+It never writes. A person reviews the plan and runs `devops roadmap migrate --confirm`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+| `ref` | `string` | No | - | - |
+
+### `roadmap_render`
+
+Render docs/ROADMAP.md from GitHub's issues, milestones and board; prints it by default.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+| `ref` | `string` | No | - | - |
+| `dry_run` | `boolean` | No | `True` | - |
+
+### `roadmap_reprioritize`
+
+Hold the current release to its admission rule, cap and stall window, and start the next
+release once it ships; prints each change with its reason.
+
+It previews by default. `dry_run=False` makes the changes (`--confirm`).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+| `ref` | `string` | No | - | - |
+| `dry_run` | `boolean` | No | `True` | - |
 
 ### `sandbox_deploy`
 
@@ -1579,7 +1560,7 @@ Check IP or domain threat intelligence via Shodan and Cloudflare Radar.
 
 ### `security_intel_package`
 
-Query OSV.dev and NVD vulnerability databases for package CVE intelligence.
+Query the OSV.dev vulnerability database for package CVE intelligence.
 
 **Parameters:**
 
@@ -1609,14 +1590,13 @@ Check Logfire structured observability bridge status, token configuration, and r
 
 ### `telemetry_profile`
 
-Run a command, or name a trace, and show its span waterfall as Jaeger recorded it.
+Show the span waterfall Jaeger recorded for a trace ID; the tool runs no command.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `command` | `string` | No | `` | - |
-| `trace_id` | `string` | No | `` | - |
+| `trace_id` | `string` | Yes | - | - |
 
 ### `telemetry_status`
 
@@ -1824,7 +1804,7 @@ Synchronize secrets from HashiCorp Vault into the local OS Keyring.
 
 ### `verify_finding`
 
-Validate or invalidate a finding and record human feedback.
+Record an agent's verdict on the finding `review_findings` numbers `index` (from 1).
 
 **Parameters:**
 

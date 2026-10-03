@@ -75,8 +75,10 @@ class _ComplexityVisitor(ast.NodeVisitor):
         self._func_max_depth = 0
         self._current_depth = 0
         is_method = self._class_depth > 0
+        # A class body opened inside this function makes methods, but this function's own
+        # closures are not methods even when it is one.
+        old_class_depth, self._class_depth = self._class_depth, 0
 
-        # Visit child nodes
         for item in node.body:
             self._visit_with_depth(item, depth=1)
 
@@ -97,8 +99,13 @@ class _ComplexityVisitor(ast.NodeVisitor):
         self._func_complexity = old_comp
         self._func_max_depth = old_max_depth
         self._current_depth = old_depth
+        self._class_depth = old_class_depth
 
     def _visit_with_depth(self, node: ast.AST, depth: int) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            # A nested def or class is measured on its own, never charged to the enclosing function.
+            self.visit(node)
+            return
         if depth > self._func_max_depth:
             self._func_max_depth = depth
 
@@ -131,11 +138,7 @@ class _ComplexityVisitor(ast.NodeVisitor):
             new_depth = depth
 
         for child in ast.iter_child_nodes(node):
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                # Do not recurse into nested function with current function's stats
-                self.visit(child)
-            else:
-                self._visit_with_depth(child, new_depth)
+            self._visit_with_depth(child, new_depth)
 
 
 def analyze_file_complexity(file_path: Path) -> FileComplexityReport:

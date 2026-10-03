@@ -30,7 +30,6 @@ from devops_cli.output import (
     write_stdout,
 )
 from devops_cli.security.aibom import generate_aibom
-from devops_cli.security.base import ScanOutcome
 from devops_cli.security.checkov import run_checkov_scan
 from devops_cli.security.complexity import run_complexity_scan
 from devops_cli.security.gitleaks import run_gitleaks_scan
@@ -96,7 +95,7 @@ def _handle_single_scanner_result(
     reason = getattr(findings, "reason", "")
     if status in ("unavailable", "failed", "not_applicable"):
         detail = f" ({reason})" if reason else ""
-        print_warning(f"{tool_name} was not run{detail}.")
+        print_warning(f"{tool_name} was not run{detail}.", safe=True)
         return True
     if not findings:
         print_success(success_message)
@@ -790,9 +789,9 @@ def _warn_missing_scanners(report: ScanReport) -> None:
     """Warn about missing/unavailable or failed scanners."""
     for name, outcome in report.outcomes.items():
         if outcome.status == "unavailable":
-            print_warning(f"Scanner '{name}' was not run ({outcome.reason}).")
+            print_warning(f"Scanner '{name}' was not run ({outcome.reason}).", safe=True)
         elif outcome.status == "failed":
-            print_warning(f"Scanner '{name}' failed during execution: {outcome.reason}")
+            print_warning(f"Scanner '{name}' failed during execution: {outcome.reason}", safe=True)
 
 
 def _check_failed_scanners(report: ScanReport, json_output: bool) -> bool:
@@ -892,18 +891,7 @@ def scan_report(
         print_error(f"Unknown scanner(s): {', '.join(sorted(unknown))}")
         raise typer.Exit(2)
 
-    results: dict[str, ScanOutcome] = {}
-    for name in selected:
-        scanner = registry.get(name)
-        if scanner is None:
-            continue
-        try:
-            results[name] = scanner.scan(target_abs)
-        except Exception as exc:
-            # One failing scanner must not discard every other scanner's findings.
-            logger.debug("Scanner '%s' failed during report: %s", name, exc)
-            results[name] = ScanOutcome("failed", [], str(exc))
-
+    results = registry.scan_all(target_abs, names=selected)
     report = build_report(results, target_abs, policy=policy, min_severity=min_severity)
 
     if sarif is not None:

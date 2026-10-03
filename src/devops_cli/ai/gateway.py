@@ -22,6 +22,7 @@ from devops_cli.ai.capability import validate_failover_capability
 from devops_cli.ai.client.models import credentials_error
 from devops_cli.config.constants import (
     CONST_AI_BACKENDS,
+    CONST_AI_GATEWAY_DEFAULT_ROUTE,
     CONST_AI_GATEWAY_PROVIDER_PORTKEY,
     CONST_AI_GATEWAY_PROVIDERS,
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
@@ -192,7 +193,7 @@ def _resolve_fallback_physical_route(
     target_r = next((r for r in active_routes if r.virtual_model == fallback_target), None)
     if target_r is not None:
         return target_r.target_model, target_r.backend_type, target_r.backend_url
-    return "qwen2.5-coder:7b", "ollama", "http://ollama.llm.svc.cluster.local:11434"
+    return "qwen2.5-coder:7b", "ollama", DEFAULT_OLLAMA_CLUSTER_URL
 
 
 def _wildcard_pattern(items: list[dict[str, Any]]) -> str:
@@ -553,16 +554,18 @@ class GatewayRouter:
 
     def build_pydantic_cascade_model(
         self,
-        virtual_model: str = "devops-chat",
+        virtual_model: str = CONST_AI_GATEWAY_DEFAULT_ROUTE,
         settings: Any = None,
         model_concurrency: Any = None,
     ) -> Any:
-        """Construct a PydanticAI FallbackModel chaining the primary route to its failover target."""
+        """Construct a PydanticAI FallbackModel: the route and its failover route on this
+        router's gateway, then `ai.model` on Ollama itself, which `direct-ollama` names."""
         from devops_cli.ai.pydantic_ai_bridge import build_fallback_cascade_model
 
-        fallback_target = MODEL_FAILOVER_PAIRS.get(virtual_model, "devops-chat")
+        fallback_target = MODEL_FAILOVER_PAIRS.get(virtual_model, CONST_AI_GATEWAY_DEFAULT_ROUTE)
+        routes = [r for r in (virtual_model, fallback_target) if r != "direct-ollama"]
         return build_fallback_cascade_model(
-            [virtual_model, fallback_target, "ollama"],
+            [*(f"{self.provider}:{route}" for route in routes), "ollama"],
             settings=settings,
             model_concurrency=model_concurrency,
         )

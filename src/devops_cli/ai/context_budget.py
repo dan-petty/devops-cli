@@ -129,7 +129,7 @@ def validate_and_budget_prompt(
     return text, False
 
 
-def budget_diff_chunks(
+def budget_diff_chunks(  # noqa: C901
     diff_text: str,
     max_tokens: int = DEFAULT_DIFF_CHUNK_BUDGET,
     model: str = "gpt-4o",

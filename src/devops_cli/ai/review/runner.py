@@ -9,19 +9,23 @@ import secrets
 import time
 from collections import Counter
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from devops_cli.ai.analyze.cache import _load_file_analysis_metas
+from devops_cli.ai.analyze.symbols import BaseRevision
 from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
+from devops_cli.ai.review.calibration import calibrate_findings
 from devops_cli.ai.review.chunker import (
     _extract_header_filenames,
     _split_source_file_blocks,
+    skips_persona_review,
 )
 from devops_cli.ai.review.classification import _persona_system_prompt
 from devops_cli.ai.review.flags import ReviewStageFlags
@@ -36,14 +40,12 @@ from devops_cli.ai.review.profile import (
 from devops_cli.ai.review.review_environment import (
     _get_reviews_base_dir as _get_reviews_base_dir,
 )
-from devops_cli.ai.review.review_environment import (
-    _read_candidate_conventions_file as _read_candidate_conventions_file,
-)
 from devops_cli.ai.review.verdicts import apply_verdict, assert_verdict_invariants
 from devops_cli.ai.review.verification import (
     _merge_segment_results,
     _reconcile_verified,
     _validate_segment_findings,
+    record_cited_code,
 )
 from devops_cli.ai.review_schema import (
     Finding,
@@ -57,7 +59,8 @@ from devops_cli.ai.review_schema import (
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_GIT_MAIN_BRANCH,
-    CONST_REVIEW_GENERATED_FILES,
+    CONST_GIT_NAME_STATUS_CHANGE_TYPES,
+    CONST_GITHUB_PR_FILE_CHANGE_TYPES,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
@@ -65,11 +68,12 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
-from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
+from devops_cli.config.settings import AIConfig, Settings, get_ai_api_key, load_settings
 from devops_cli.core.process import run_subprocess as _run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git, is_safe_subpath
 from devops_cli.dry_run import is_dry_run
 from devops_cli.models.ai import FileAnalysisMeta
+from devops_cli.models.git import ChangedFile
 from devops_cli.output import (
     format_duration,
     print_error,
@@ -124,6 +128,13 @@ def _personas_to_run(all_personas: bool, persona: Persona | None) -> list[Person
     if all_personas:
         return list(PERSONAS.values())
     return [PERSONAS[persona or Persona.DEVSECOPS]]
+
+
+def _orchestrator_personas(all_personas: bool, persona: Persona | None) -> list[str]:
+    """The personas the orchestrated review runs: the one named, all of them, or devsecops."""
+    if persona:
+        return [persona.value]
+    return ["devsecops", "architect", "qa", "auditor", "pm"] if all_personas else ["devsecops"]
 
 
 def _debug_block(title: str, payload: dict[str, Any]) -> None:
@@ -428,6 +439,7 @@ def _save_findings_json(
     session_dir: Path,
     show_status: bool = False,
     analysis_metas: dict[str, FileAnalysisMeta] | None = None,
+    subject: dict[str, str] | None = None,
 ) -> bool:
     target = session_dir / "findings.json"
     findings: list[SavedFinding] = []
@@ -443,12 +455,14 @@ def _save_findings_json(
                     **f.model_dump(),
                 )
             )
-    findings = consolidate_duplicate_findings(findings)
+    findings = consolidate_duplicate_findings(calibrate_findings(findings))
     assert_verdict_invariants(findings)
+    record_cited_code(findings, None)
     removed_count = sum(1 for f in findings if f.verification_note == "cites removed symbol")
     delta_summary = _compute_delta_summary(analysis_metas)
     payload = ReviewSessionPayload(
-        generated_at=datetime.now().isoformat(),
+        generated_at=datetime.now(UTC).isoformat(),
+        subject=subject or {},
         personas=[pd.name for pd, _ in completed],
         findings=findings,
         removed_symbol_findings_count=removed_count,
@@ -710,10 +724,17 @@ def _write_summary(
     pages: list[str],
     completed: list[tuple[PersonaDefinition, ReviewResult | str]],
     analysis_metas: dict[str, FileAnalysisMeta] | None = None,
+    subject: dict[str, str] | None = None,
 ) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     if completed:
-        _save_findings_json(completed, session_dir, show_status=True, analysis_metas=analysis_metas)
+        _save_findings_json(
+            completed,
+            session_dir,
+            show_status=True,
+            analysis_metas=analysis_metas,
+            subject=subject,
+        )
     lines: list[str] = [
         f"# Review: {title}",
         f"**Date:** {now}  ",
@@ -1254,7 +1275,7 @@ def _calculate_parallel_review_workers(
     return min(num_tasks, capacity, DEFAULT_REVIEW_MAX_CONCURRENCY)
 
 
-def _run_persona_loop(
+def _run_persona_loop(  # noqa: C901
     pages: list[str],
     title: str,
     build_prompt: Callable[[str, str], str],
@@ -1262,8 +1283,12 @@ def _run_persona_loop(
     agents_md: str,
     all_personas: bool,
     persona: Persona | None,
+    subject: dict[str, str] | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
-    """Run full persona review loop using analysis metadata exclusively."""
+    """Run full persona review loop using analysis metadata exclusively.
+
+    `subject` is what the session reviews, written to its findings.json.
+    """
     personas = _personas_to_run(all_personas, persona)
     session_dir = _review_session_dir(title) if not is_dry_run() else None
     if session_dir:
@@ -1281,7 +1306,7 @@ def _run_persona_loop(
 
     shared_meta = _load_shared_metadata_for_pages(pages)
     if session_dir and shared_meta:
-        _write_summary(title, session_dir, pages, [], shared_meta)
+        _write_summary(title, session_dir, pages, [], shared_meta, subject=subject)
 
     completed: list[tuple[PersonaDefinition, ReviewResult | str]] = []
     try:
@@ -1305,7 +1330,7 @@ def _run_persona_loop(
             completed.append((pd, review_text))
             if session_dir:
                 _save_persona_review(pd, review_text, session_dir)
-                _write_summary(title, session_dir, pages, completed, shared_meta)
+                _write_summary(title, session_dir, pages, completed, shared_meta, subject=subject)
 
         if len(personas) > 1 and not is_dry_run():
             from devops_cli.ai.review.pool import ReviewWorkerPool
@@ -1330,7 +1355,7 @@ def _run_persona_loop(
         print_error("Review cancelled by user.", prefix=False)
     finally:
         if session_dir and completed:
-            _write_summary(title, session_dir, pages, completed, shared_meta)
+            _write_summary(title, session_dir, pages, completed, shared_meta, subject=subject)
 
     return completed
 
@@ -1351,16 +1376,18 @@ def _print_review(persona: PersonaDefinition, review: ReviewResult | str) -> Non
     print_markdown(review)
 
 
-def _nearest_conventions(start: Path) -> str:
-    """Return the nearest project conventions file, from the start directory up to its repo root."""
+def _nearest_conventions(start: Path, revision: str | None = None) -> str:
+    """Return the nearest project conventions file, from the start directory up to its repo root,
+    as it was at `revision` when one is given."""
     from devops_cli.ai.review.review_environment import nearest_conventions
 
-    return nearest_conventions(start)
+    return nearest_conventions(start, revision)
 
 
-def _load_agents_md(start: Path) -> str:
-    """Return the sanitized nearest project conventions for a review target."""
-    raw_content = _nearest_conventions(start)
+def _load_agents_md(start: Path, revision: str | None = None) -> str:
+    """Return the sanitized nearest project conventions for a review target, as they were at
+    `revision` when one is given."""
+    raw_content = _nearest_conventions(start, revision)
     if not raw_content:
         return ""
 
@@ -1430,8 +1457,6 @@ def _is_candidate_file_included(
     """Predicate determining if candidate file should be included in review scope."""
     if not candidate_path.is_file():
         return False
-    if candidate_path.name in CONST_REVIEW_GENERATED_FILES:
-        return False
     effective_root = repo_root or find_repo_root(candidate_path)
     if not is_from_git and not root_ignored and is_ignored_by_git(effective_root, candidate_path):
         return False
@@ -1443,38 +1468,63 @@ def _is_candidate_file_included(
     return rel.match(pattern)
 
 
-def _review_candidate_files(root: Path, pattern: str) -> list[Path]:
-    """The files under root that a path review reads, in review order."""
+def _review_label(path: Path, root: Path, repo_root: Path | None) -> Path:
+    """A collected file's name in review pages: relative to its repository, else to the root."""
+    if repo_root is not None and path.is_relative_to(repo_root):
+        return path.relative_to(repo_root)
+    return path.relative_to(root) if path.is_relative_to(root) else path
+
+
+def _partition_candidate_files(root: Path, pattern: str) -> tuple[list[Path], list[Path]]:
+    """The files under root a path review reads, in review order, and those it routes past the
+    personas to the secret scan alone (`skips_persona_review`, #948)."""
     repo_root = _git_repo_root(root)
     candidates, is_from_git, root_ignored = _list_git_tracked_candidates(root, repo_root)
+    reviewed: list[Path] = []
+    routed: list[Path] = []
+    for p in sorted(candidates):
+        if _is_candidate_file_included(p, root, repo_root, is_from_git, root_ignored, pattern):
+            skipped = skips_persona_review(_review_label(p, root, repo_root))
+            (routed if skipped else reviewed).append(p)
+    return reviewed, routed
+
+
+def _review_candidate_files(root: Path, pattern: str) -> list[Path]:
+    """The files under root that a path review reads, in review order."""
+    return _partition_candidate_files(root, pattern)[0]
+
+
+def _routed_changes(base_revision: BaseRevision | None) -> list[str]:
+    """The files a branch or pull request changed that persona review skips, for the secret
+    scan; a deleted file has nothing left to scan."""
+    if base_revision is None:
+        return []
+    deleted = CONST_GIT_NAME_STATUS_CHANGE_TYPES["D"]
     return [
-        p
-        for p in sorted(candidates)
-        if _is_candidate_file_included(p, root, repo_root, is_from_git, root_ignored, pattern)
+        change.path
+        for change in base_revision.changes
+        if change.change_type != deleted and skips_persona_review(change.path)
     ]
 
 
-def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
+def _file_blocks(root: Path, files: Sequence[Path]) -> list[str]:
+    """The review blocks of files collected under root, each under its review label."""
     blocks: list[str] = []
     repo_root = _git_repo_root(root)
 
-    for p in _review_candidate_files(root, pattern):
+    for p in files:
         try:
             text = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        try:
-            rel = p.relative_to(root)
-        except ValueError:
-            rel = p
-        file_label = (
-            p.relative_to(repo_root)
-            if repo_root is not None and p.is_relative_to(repo_root)
-            else rel
-        )
-        suffix = rel.suffix.lstrip(".") or "text"
+        file_label = _review_label(p, root, repo_root)
+        suffix = file_label.suffix.lstrip(".") or "text"
         blocks.extend(_split_source_file_blocks(file_label, suffix, text, _MAX_DIFF_CHARS))
     return blocks
+
+
+def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
+    return _file_blocks(root, _review_candidate_files(root, pattern))
 
 
 def _corpus_digest(targets: list[Path], pattern: str) -> str:
@@ -1536,35 +1586,29 @@ def _make_review_clients(
     name what differs, such as a stronger model on the same gateway.
     """
     api_key = get_ai_api_key(settings)
-    analysis_config = settings.ai.for_task("analysis")
-    analysis = LLMClient(
-        analysis_config,
-        api_key=api_key,
-        request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
-        cache_enabled=cache_enabled,
-        append_cache=append_cache,
-    )
-    verification = (
-        LLMClient(
-            analysis_config.for_task("verification"),
+
+    def review_client(task_config: AIConfig) -> LLMClient:
+        # A task's configured timeout wins; unset, a review waits the review default rather
+        # than the client's general one.
+        return LLMClient(
+            task_config,
             api_key=api_key,
-            request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+            request_timeout_seconds=task_config.timeout or DEFAULT_REVIEW_TIMEOUT_SECONDS,
             cache_enabled=cache_enabled,
             append_cache=append_cache,
         )
+
+    analysis_config = settings.ai.for_task("analysis")
+    analysis = review_client(analysis_config)
+    verification = (
+        review_client(analysis_config.for_task("verification"))
         if settings.ai.tasks.verification.model_dump(exclude_none=True)
         else analysis
     )
     return ReviewClients(
         analysis=analysis,
         verification=verification,
-        compose=LLMClient(
-            settings.ai.for_task("compose"),
-            api_key=api_key,
-            request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
-            cache_enabled=cache_enabled,
-            append_cache=append_cache,
-        ),
+        compose=review_client(settings.ai.for_task("compose")),
     )
 
 
@@ -1583,7 +1627,7 @@ def _is_allowed_review_boundary(target: Path, settings: Settings) -> bool:
 
 
 def _detect_remote_default_branch(repo_path: Path) -> str:
-    """Detect origin default branch from symbolic-ref or HEAD."""
+    """The origin's default branch as `origin/<name>`, or empty when the clone records none."""
     res_sym = _run_subprocess(
         ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
         capture_output=True,
@@ -1591,29 +1635,18 @@ def _detect_remote_default_branch(repo_path: Path) -> str:
         cwd=repo_path,
         check=False,
     )
-    if res_sym.returncode == 0 and res_sym.stdout:
-        if target_str := res_sym.stdout.strip().removeprefix("origin/"):
-            return target_str
-
-    head_proc = _run_subprocess(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        capture_output=True,
-        text=True,
-        cwd=repo_path,
-        check=False,
-    )
-    if (
-        head_proc.returncode == 0
-        and (head_name := str(head_proc.stdout).strip())
-        and head_name != "HEAD"
-    ):
-        return head_name
-
-    return ""
+    return res_sym.stdout.strip() if res_sym.returncode == 0 and res_sym.stdout else ""
 
 
 def _detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BRANCH) -> str:
-    """Return preferred_base if it exists, otherwise detect master/main/origin default."""
+    """The branch a review diffs against: `preferred_base`, else main, master or trunk, else the
+    origin's default branch, each local or else as `origin/<name>`.
+
+    The base is never the checked-out branch for want of another. A single-branch clone or a
+    CI checkout of a feature has no local `main`, and taking the feature as its own base
+    reviewed only its last commit, under conventions its earlier commits set (#946). With no
+    base found, `preferred_base` is returned and the diff against it fails.
+    """
     res = _run_subprocess(
         ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{preferred_base}"],
         capture_output=True,
@@ -1625,33 +1658,40 @@ def _detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BR
         return preferred_base
 
     branches_proc = _run_subprocess(
-        ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+        ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/", "refs/remotes/origin/"],
         capture_output=True,
         text=True,
         cwd=repo_path,
         check=False,
     )
-    local_branches = (
-        [b.strip() for b in branches_proc.stdout.splitlines() if b.strip()]
+    branches = (
+        {b.strip() for b in branches_proc.stdout.splitlines() if b.strip()}
         if branches_proc.returncode == 0
-        else []
+        else set()
     )
 
-    if preferred_base in local_branches:
-        return preferred_base
+    def local_or_remote(name: str) -> str | None:
+        if name in branches:
+            return name
+        return f"origin/{name}" if f"origin/{name}" in branches else None
 
+    if base := local_or_remote(preferred_base):
+        return base
     for alt in ("main", "master", "trunk"):
-        if alt in local_branches:
+        if alt in branches:
             return alt
-
-    if remote_branch := _detect_remote_default_branch(repo_path):
-        return remote_branch
+    if remote_default := _detect_remote_default_branch(repo_path):
+        return local_or_remote(remote_default.removeprefix("origin/")) or remote_default
+    for alt in ("main", "master", "trunk"):
+        if f"origin/{alt}" in branches:
+            return f"origin/{alt}"
 
     return str(preferred_base)
 
 
-def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, str]:
-    """Prepare paginated pages, title, and agents_md for path review target."""
+def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, str, list[str]]:
+    """Prepare paginated pages, title, agents_md, and the files kept off the pages for the
+    secret scan alone, for a path review target."""
     import typer
 
     from devops_cli.config.constants import CONST_MAX_FILE_SIZE_BYTES
@@ -1681,15 +1721,20 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
         content = target_resolved.read_text(encoding="utf-8", errors="replace")
         blocks = _split_source_file_blocks(Path(file_label), suffix, content, _MAX_DIFF_CHARS)
         title = str(file_label)
+        # A file named as the target is reviewed as asked.
+        routed: list[str] = []
     else:
         collecting_msg = MESSAGES.review.collecting_files.format(
             pattern=f"[cyan]{pattern}[/cyan]", target=f"[dim]{target_resolved}[/dim]"
         )
         print_info(collecting_msg, prefix=False)
-        blocks = _collect_file_blocks(target_resolved, pattern)
+        reviewed, routed_paths = _partition_candidate_files(target_resolved, pattern)
+        blocks = _file_blocks(target_resolved, reviewed)
+        repo_root = _git_repo_root(target_resolved)
+        routed = [_review_label(p, target_resolved, repo_root).as_posix() for p in routed_paths]
         title = str(target_resolved)
 
-    if not blocks:
+    if not blocks and not routed:
         print_warning(MESSAGES.review.no_files_found, prefix=False)
         raise typer.Exit(0)
 
@@ -1697,7 +1742,7 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
     agents_md = _load_agents_md(
         target_resolved if target_resolved.is_dir() else target_resolved.parent
     )
-    return pages, title, agents_md
+    return pages, title, agents_md, routed
 
 
 def _get_current_git_branch(repo_path: Path) -> str:
@@ -1782,10 +1827,43 @@ def _resolve_branch_targets(
     return target_branch, effective_base, False
 
 
+def _branch_base_revision(
+    repo_path: Path, effective_base: str, target_branch: str, is_working_tree: bool
+) -> BaseRevision:
+    """Where a branch review's diff starts, the files it changed, and readers for their text.
+
+    A working-tree review starts at `HEAD` and ends at the files on disk. A branch starts at the
+    merge base of the base and the target, as `git diff base...target` does; with none, the
+    review falls back to a two-dot diff from `effective_base`, and so does this. It ends at the
+    target's commit, which is read there: the checkout can be another branch, or carry edits
+    the diff leaves out, and its text would count their removals as the branch's.
+    """
+    from devops_cli.git.operations import (
+        list_changed_files,
+        read_file_at_revision,
+        resolve_merge_base,
+    )
+
+    head = None if is_working_tree else target_branch
+    revision = (
+        "HEAD"
+        if head is None
+        else resolve_merge_base(repo_path, effective_base, head) or effective_base
+    )
+    changes = tuple(list_changed_files(repo_path, revision, head))
+    return BaseRevision(
+        changes=changes,
+        read=partial(read_file_at_revision, repo_path, revision),
+        read_head=None if head is None else partial(read_file_at_revision, repo_path, head),
+        revision=revision,
+    )
+
+
 def _prepare_branch_content(
     branch_name: str | None, base: str, repo_path: Path
-) -> tuple[list[str], str, str, str]:
-    """Prepare paginated diff pages, title, agents_md, and resolved target_branch."""
+) -> tuple[list[str], str, str, str, BaseRevision]:
+    """Prepare paginated diff pages, title, agents_md, resolved target_branch, and the base
+    revision the diff starts from, where agents_md is read."""
     import typer
 
     from devops_cli.ai.review.chunker import diff_pages
@@ -1840,20 +1918,12 @@ def _prepare_branch_content(
         raise typer.Exit(0)
 
     title = f"Branch `{target_branch}` vs `{effective_base}`"
-    agents_md = ""
-    if effective_base:
-        show_proc = _run_subprocess(
-            ["git", "--no-pager", "show", f"{effective_base}:AGENTS.md"],
-            capture_output=True,
-            text=True,
-            cwd=repo_path,
-        )
-        if show_proc.returncode == 0 and show_proc.stdout.strip():
-            agents_md = show_proc.stdout.strip()
-    if not agents_md:
-        agents_md = _load_agents_md(repo_path)
     pages = [redact_text(p) for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
-    return pages, title, agents_md, target_branch
+    base_revision = _branch_base_revision(repo_path, effective_base, target_branch, is_working_tree)
+    # The conventions are read where the diff starts, as a pull request's are read at its base,
+    # so a branch cannot loosen its own review.
+    agents_md = _load_agents_md(repo_path, base_revision.revision)
+    return pages, title, agents_md, target_branch, base_revision
 
 
 def _prepare_pr_content(
@@ -1861,8 +1931,12 @@ def _prepare_pr_content(
     repo_arg: str | None = None,
     auth: str | None = None,
     **kwargs: Any,
-) -> tuple[list[str], str, str, Any, str]:
-    """Fetch PR details, diff pages, title, and agents_md for PR review target."""
+) -> tuple[list[str], str, str, Any, str, BaseRevision | None]:
+    """Fetch PR details, diff pages, title, and agents_md for PR review target.
+
+    With `head_dir`, the PR head's changed files are written under it, and the base revision
+    they are compared with is returned; without it, there is none.
+    """
     import typer
 
     from devops_cli.ai.review.chunker import diff_pages
@@ -1887,14 +1961,47 @@ def _prepare_pr_content(
     diff = gh.get_pr_diff(repo, number)
     title = f"PR #{number}: {pull.title}"
     head_dir: Path | None = kwargs.get("head_dir")
+    base_revision: BaseRevision | None = None
     if head_dir is not None:
-        _materialize_pr_head(gh, repo, pull, head_dir)
+        pr_files = list(pull.get_files())
+        _materialize_pr_head(gh, repo, pull, head_dir, pr_files)
+        base_revision = _pr_base_revision(gh, repo, pull, pr_files)
     agents_md = _load_agents_md(head_dir or Path.cwd())
     pages = [redact_text(p) for p in diff_pages(diff, _MAX_DIFF_CHARS)]
-    return pages, title, agents_md, pull, repo
+    return pages, title, agents_md, pull, repo, base_revision
 
 
-def _materialize_pr_head(gh: Any, repo: str, pull: Any, dest: Path) -> int:
+def _pr_changed_file(pr_file: Any) -> ChangedFile:
+    """A pull request file as a change: its status, head path and, if renamed, its old path."""
+    return ChangedFile(
+        change_type=CONST_GITHUB_PR_FILE_CHANGE_TYPES.get(str(pr_file.status), "unknown"),
+        path=pr_file.filename,
+        old_path=getattr(pr_file, "previous_filename", None) or None,
+    )
+
+
+def _pr_base_revision(gh: Any, repo: str, pull: Any, pr_files: Sequence[Any]) -> BaseRevision:
+    """The PR's changed files, and a reader for their text at its merge base in the base repo.
+
+    `pull.base.sha` is the base branch's tip, which can be ahead of the merge base: read there,
+    a PR branched earlier would list symbols added on the base since as removed. When the merge
+    base cannot be read, nothing is read, and a modified file's delta stays unknown.
+    """
+    base_obj = getattr(pull, "base", None)
+    base_repo = getattr(getattr(base_obj, "repo", None), "full_name", None) or repo
+    base_sha = getattr(base_obj, "sha", None)
+    head_sha = getattr(getattr(pull, "head", None), "sha", None)
+    merge_base = gh.get_merge_base(base_repo, base_sha, head_sha) if base_sha and head_sha else None
+    if merge_base is None:
+        logger.debug("No merge base for %s...%s in %s", base_sha, head_sha, base_repo)
+
+    def read(path: str) -> str | None:
+        return gh.get_file_at(base_repo, path, merge_base) if merge_base else None
+
+    return BaseRevision(changes=tuple(_pr_changed_file(f) for f in pr_files), read=read)
+
+
+def _materialize_pr_head(gh: Any, repo: str, pull: Any, dest: Path, pr_files: Sequence[Any]) -> int:
     """Write PR head's version of changed files, and base conventions, under `dest`."""
     from devops_cli.ai.review.review_environment import _TARGET_CONVENTIONS_CANDIDATES
     from devops_cli.config.constants import CONST_REVIEW_CONVENTIONS_FILE
@@ -1905,11 +2012,7 @@ def _materialize_pr_head(gh: Any, repo: str, pull: Any, dest: Path) -> int:
     base_repo = getattr(getattr(base_obj, "repo", None), "full_name", None) or repo
     base_ref = getattr(base_obj, "sha", None) or getattr(base_obj, "ref", None) or "main"
     head_sha = getattr(head_obj, "sha", None) or "HEAD"
-    changed = [
-        f.filename
-        for f in (pull.get_files() if hasattr(pull, "get_files") else [])
-        if getattr(f, "status", "") != "removed"
-    ]
+    changed = [f.filename for f in pr_files if getattr(f, "status", "") != "removed"]
     convention_files = set(_TARGET_CONVENTIONS_CANDIDATES) | {CONST_REVIEW_CONVENTIONS_FILE}
     root = dest.resolve()
     written = 0
@@ -1980,9 +2083,11 @@ def _write_review_profile(
         for s in profile.stages
         if s.wall_seconds >= 1 or s.llm_calls
     )
+    capped = profile.truncated_replies
+    capped_note = f", {capped} hit the reply cap" if capped else ""
     print_info(
         f"[dim]Profile: {format_duration(profile.total_wall_seconds)}, "
-        f"{profile.llm_calls} LLM calls; {stages} -> {path}[/dim]",
+        f"{profile.llm_calls} LLM calls{capped_note}; {stages} -> {path}[/dim]",
         prefix=False,
     )
     return profile
@@ -2017,6 +2122,7 @@ def _run_profiled_session(
     target_type: Literal["branch", "pr", "path"],
     target_ref: str,
     stage_flags: ReviewStageFlags | None,
+    base_revision: BaseRevision | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]] | None:
     """Run the orchestrated review under a profiler; None when there are no files to review."""
     with profiling() as profiler:
@@ -2026,6 +2132,7 @@ def _run_profiled_session(
                 target_type=target_type,
                 target_ref=target_ref,
                 stage_flags=stage_flags,
+                base_revision=base_revision,
             )
         if not all_files:
             return None
@@ -2072,15 +2179,31 @@ def _run_orchestrator_review(
             )
         candidates = sum(len(p.findings) for p in payloads)
         with review_stage("verification"):
-            orchestrator.execute_finding_verification(payloads, stage_flags=stage_flags)
+            orchestrator.execute_finding_verification(
+                payloads,
+                stage_flags=stage_flags,
+                diff_text_by_file=diff_map,
+                metadata_by_path=metadata_by_path,
+            )
         with review_stage("reranking"):
             orchestrator.execute_finding_reranking(payloads, stage_flags=stage_flags)
         _record_profile_findings(payloads, candidates)
 
     with review_stage("report"):
-        payload_data, report_md = orchestrator.generate_consolidated_report(
-            payloads, stage_flags=stage_flags, personas=active_p
-        )
+        return _report_review(orchestrator, payloads, active_p, persona, stage_flags)
+
+
+def _report_review(
+    orchestrator: Any,
+    payloads: list[Any],
+    active_p: list[str],
+    persona: Persona | None,
+    stage_flags: ReviewStageFlags | None,
+) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
+    """Write the session's report and findings, and return them as the review's result."""
+    payload_data, report_md = orchestrator.generate_consolidated_report(
+        payloads, stage_flags=stage_flags, personas=active_p
+    )
     p_def = PERSONAS[persona or Persona.DEVSECOPS]
     raw_findings = payload_data.get("findings", []) if isinstance(payload_data, dict) else []
     findings_list = [Finding(**f) if isinstance(f, dict) else f for f in raw_findings]
@@ -2093,6 +2216,30 @@ def _run_orchestrator_review(
         summary="",
     )
     return [(p_def, result)]
+
+
+def _review_routed_files_only(
+    orchestrator: Any,
+    persona: Persona | None,
+    stage_flags: ReviewStageFlags | None,
+) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
+    """A review whose every file is routed past the personas: the secret scan reads them, the
+    report says what it found, and no model is called (#948).
+
+    The page builder yielded one empty page for such a diff, the orchestrator found no files,
+    and the legacy engine sent that empty page to the model.
+    """
+    from devops_cli.lang import MESSAGES
+
+    scanned = stage_flags is None or stage_flags.static_scan
+    message = (
+        MESSAGES.review.nothing_for_personas
+        if scanned
+        else MESSAGES.review.nothing_for_personas_unscanned
+    )
+    print_info(message.format(count=len(orchestrator.secret_scan_files)), prefix=False)
+    payloads = orchestrator.scan_routed_files(stage_flags=stage_flags)
+    return _report_review(orchestrator, payloads, [], persona, stage_flags)
 
 
 def _check_and_warn_perimeter_changes(target_type: str, changed_files: Sequence[str]) -> None:
@@ -2128,8 +2275,23 @@ def _execute_review_workflow(
     concurrency: int | None = None,
     parallel: bool = True,
     ground_contracts: bool = True,
+    base_revision: BaseRevision | None = None,
+    full_output: bool = False,
+    routed_files: Sequence[str] = (),
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
-    """Common review execution workflow for path, branch, and PR reviews."""
+    """Common review execution workflow for path, branch, and PR reviews.
+
+    `base_revision` is where a branch or PR diff starts; pre-analysis records each changed
+    Python file's symbol delta from it. A path review has none. When it is a local revision,
+    the target's conventions are read there rather than from disk. Both findings.json writers
+    record the session's subject, which review history counts once. `full_output` prints the
+    whole report to the terminal rather than the findings that matter and a summary of the rest.
+
+    The files kept off the pages still reach the secret scan: a path review names them in
+    `routed_files`, and a branch or PR's are the changes in `base_revision` they match (#948).
+    When no page is left, no model is called.
+    """
+    from devops_cli.ai.review.history import review_subject
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
     from devops_cli.lang import MESSAGES
 
@@ -2139,6 +2301,7 @@ def _execute_review_workflow(
 
     all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
     _check_and_warn_perimeter_changes(target_type, all_files)
+    subject = review_subject(target_type, target_ref, pages)
     orchestrator = ReviewPipelineOrchestrator(
         llm_client=clients.analysis,
         verification_client=clients.verification,
@@ -2146,13 +2309,18 @@ def _execute_review_workflow(
         concurrency=concurrency,
         parallel=parallel,
         ground_contracts=ground_contracts,
+        subject=subject,
+        conventions_revision=base_revision.revision if base_revision else None,
+        full_output=full_output,
+        secret_scan_files=sorted({*routed_files, *_routed_changes(base_revision)}),
     )
+    if not all_files:
+        return _review_routed_files_only(orchestrator, persona, stage_flags)
 
     if type(clients.analysis).__name__ == "LLMClient":
         server_info = orchestrator._get_server_info()
         n_af = len(all_files)
-        all_p = ["devsecops", "architect", "qa", "auditor", "pm"]
-        active_p = [persona.value] if persona else (all_p if all_personas else ["devsecops"])
+        active_p = _orchestrator_personas(all_personas, persona)
         with trace_span(
             "review.session",
             attributes={
@@ -2178,6 +2346,7 @@ def _execute_review_workflow(
                 target_type,
                 target_ref,
                 stage_flags,
+                base_revision,
             )
             if results is not None:
                 return results
@@ -2195,5 +2364,5 @@ def _execute_review_workflow(
         return []
 
     return _run_persona_loop(
-        pages, title, prompt_builder, clients, agents_md, all_personas, persona
+        pages, title, prompt_builder, clients, agents_md, all_personas, persona, subject=subject
     )

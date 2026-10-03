@@ -9,6 +9,7 @@ import os
 import subprocess
 import threading
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,7 @@ from devops_cli.config.defaults import (
     DEFAULT_CACHE_DATA_DIR,
     DEFAULT_DATA_DIR,
     DEFAULT_FEEDBACK_DATASET_PATH,
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_JAEGER_URL,
     DEFAULT_LLM_CACHE_DATA_DIR,
     DEFAULT_LLM_CACHE_ENABLED,
@@ -67,6 +69,8 @@ from devops_cli.config.defaults import (
     DEFAULT_OLLAMA_URLS,
     DEFAULT_OTEL_ENDPOINT,
     DEFAULT_PORTKEY_GATEWAY_URL,
+    DEFAULT_PYROSCOPE_URL,
+    DEFAULT_QDRANT_TIMEOUT_SECONDS,
     DEFAULT_QDRANT_URL,
     DEFAULT_RAG_CHUNK_OVERLAP,
     DEFAULT_RAG_CHUNK_SIZE,
@@ -75,6 +79,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
     DEFAULT_REPOS_BASE_DIR,
+    DEFAULT_REVIEW_TIMEOUT_SECONDS,
     DEFAULT_REVIEWS_DATA_DIR,
     DEFAULT_RUNS_DATA_DIR,
     DEFAULT_SAMPLES_DATA_DIR,
@@ -87,13 +92,16 @@ from devops_cli.config.defaults import (
     DEFAULT_VLLM_URL,
     DEFAULT_WORKSPACE_FILE,
 )
-from devops_cli.config.env import OPTION_TO_ENV_VAR
+from devops_cli.config.env import ENV_OTEL_EXPORTER_OTLP_ENDPOINT, OPTION_TO_ENV_VAR
+from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
 _SECRET_FIELDS: frozenset[str] = opt.SECRET_CONFIG_OPTIONS
 _KEYRING_KEYS: dict[str, str] = opt.KEYRING_KEYS
+# The options that still decide telemetry when the rest of the settings cannot load (#956).
+_TELEMETRY_ENV_OPTIONS: tuple[str, ...] = (opt.TELEMETRY_ENABLED, opt.TELEMETRY_ENDPOINT)
 
 
 class SecretStorageError(RuntimeError):
@@ -171,10 +179,20 @@ class ArgoCDConfig(BaseModel):
 
 
 class QdrantConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
+    # Assignments are validated, so an environment override is parsed and checked as the file is.
+    model_config = ConfigDict(frozen=False, validate_assignment=True)
     url: str | None = DEFAULT_QDRANT_URL
     collection_prefix: str = "devops"
     api_key: str | None = None
+    timeout: float = Field(
+        default=DEFAULT_QDRANT_TIMEOUT_SECONDS,
+        gt=0,
+        allow_inf_nan=False,
+        description=(
+            "Seconds each Qdrant request waits per attempt: RAG searches, and indexing's "
+            "upserts and deletes, which share the client"
+        ),
+    )
 
 
 class OpenWebUIConfig(BaseModel):
@@ -259,10 +277,21 @@ class JaegerConfig(BaseModel):
     url: str | None = DEFAULT_JAEGER_URL
 
 
+class PyroscopeConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    url: str | None = DEFAULT_PYROSCOPE_URL
+
+
 class TelemetryConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
-    enabled: bool = True
-    endpoint: str = DEFAULT_OTEL_ENDPOINT
+    enabled: bool = Field(default=True, description="Export OpenTelemetry traces and metrics")
+    # Unset rather than the built-in endpoint, so OpenTelemetry's own variable can name the
+    # collector when devops-cli's configuration does not.
+    endpoint: str | None = Field(
+        default=None,
+        description="OpenTelemetry collector that traces and metrics go to; unset, "
+        f"`{ENV_OTEL_EXPORTER_OTLP_ENDPOINT}` names it, else `{DEFAULT_OTEL_ENDPOINT}`",
+    )
     logfire: bool = False
     logfire_token: str | None = None
     logfire_send_to_logfire: bool | str = "if-token-present"
@@ -388,7 +417,12 @@ class AITaskOverride(BaseModel):
     ollama_max_parallel: int | None = None
     api_base_url: str | None = None
     max_retries: int | None = None
-    timeout: float | None = None
+    timeout: float | None = Field(
+        default=None,
+        gt=0,
+        allow_inf_nan=False,
+        description="Seconds this task's requests wait for their reply, in place of `ai.timeout`",
+    )
 
 
 class AITasksConfig(BaseModel):
@@ -429,7 +463,16 @@ class AIConfig(BaseModel):
     api_base_url: str | None = None
     allow_private_network: bool = False
     max_retries: int = DEFAULT_AI_MAX_RETRIES
-    timeout: float | None = None
+    timeout: float | None = Field(
+        default=None,
+        gt=0,
+        allow_inf_nan=False,
+        description=(
+            "Seconds each LLM request waits for its reply; `ai.tasks.<task>.timeout` sets one "
+            f"task's. Unset, a request waits {DEFAULT_HTTP_TIMEOUT_SECONDS:g} s, and a review's "
+            f"analysis, verification and compose requests {DEFAULT_REVIEW_TIMEOUT_SECONDS:g} s"
+        ),
+    )
     tasks: AITasksConfig = AITasksConfig()
     rag: AIRAGConfig = AIRAGConfig()
     cache: AICacheConfig = AICacheConfig()
@@ -589,7 +632,6 @@ class DataConfig(BaseModel):
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="DEVOPS_CLI_",
-        env_nested_delimiter="__",
         extra="ignore",
         frozen=False,
     )
@@ -604,6 +646,7 @@ class Settings(BaseSettings):
     valkey: ValkeyConfig = ValkeyConfig()
     runs: RunsConfig = RunsConfig()
     jaeger: JaegerConfig = JaegerConfig()
+    pyroscope: PyroscopeConfig = PyroscopeConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
     k8s: KubernetesConfig = KubernetesConfig()
     cloudflare: CloudflareConfig = CloudflareConfig()
@@ -712,15 +755,18 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
             base[key] = value
 
 
-def _apply_env_overrides(settings: Settings) -> None:
+def _apply_env_overrides(
+    settings: Settings, option_keys: Iterable[str] = OPTION_TO_ENV_VAR
+) -> None:
     """Allow devcontainer and shell environment variables to override file config."""
     env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     if env_data_dir:
         settings.data.dir = Path(env_data_dir)
 
-    for option_key, env_var in OPTION_TO_ENV_VAR.items():
+    for option_key in option_keys:
         if option_key in _SECRET_FIELDS:
             continue
+        env_var = OPTION_TO_ENV_VAR[option_key]
         env_value = os.environ.get(env_var)
         if env_value in (None, ""):
             continue
@@ -758,8 +804,11 @@ _ConfigCacheEntry = tuple[Path | None, tuple[_FileStamp, _FileStamp], dict[str, 
 
 _CONFIG_CACHE_LOCK = threading.Lock()
 # Keyed on everything that selects which files are read -- the global path (tests rebind
-# it), DEVOPS_CLI_CONFIG, and the working directory the project lookup walks up from.
-_CONFIG_CACHE: dict[tuple[str, str, str], _ConfigCacheEntry] = {}
+# it), DEVOPS_CLI_CONFIG, the working directory the project lookup walks up from, and whether the
+# rule for a command that reads a tree it does not own holds, which skips that lookup (#972). The
+# rule's check of the working directory's repository is cached in `core.repo`, so the key costs no
+# walk of the tree.
+_CONFIG_CACHE: dict[tuple[str, str, str, bool], _ConfigCacheEntry] = {}
 
 
 def _file_stamp(path: Path | None) -> _FileStamp:
@@ -809,7 +858,12 @@ def _merged_config_data() -> dict[str, Any]:
     The caller receives a copy, since the settings built from this mapping are mutable and
     a caller editing one before saving must not rewrite what every later load sees.
     """
-    cache_key = (str(CONFIG_PATH), os.environ.get(PROJECT_CONFIG_ENV, ""), os.getcwd())
+    cache_key = (
+        str(CONFIG_PATH),
+        os.environ.get(PROJECT_CONFIG_ENV, ""),
+        os.getcwd(),
+        reads_untrusted_trees(),
+    )
     with _CONFIG_CACHE_LOCK:
         entry = _CONFIG_CACHE.get(cache_key)
     if entry is not None:
@@ -838,7 +892,12 @@ def reset_settings_cache() -> None:
 
 
 def load_settings() -> Settings:
-    """Load settings: global config → project config → env vars (each layer wins)."""
+    """Load settings: global config → project config → env vars (each layer wins).
+
+    While a command that reads a tree it does not own runs, such as a review, from a repository
+    other than devops-cli's own, the project layer is only the file `DEVOPS_CLI_CONFIG` names
+    (`_find_project_config_path`, #972).
+    """
     raw = _merged_config_data()
 
     settings = Settings.model_validate(raw)
@@ -850,6 +909,18 @@ def load_settings() -> Settings:
     settings.data = _resolve_data_config(raw_data, settings.data.dir)
 
     return settings
+
+
+def telemetry_from_environment() -> TelemetryConfig:
+    """The telemetry section from its registered variables alone, for settings that cannot load.
+
+    An unreadable configuration layer, or a registered variable that cannot apply, may be the one
+    turning export off, so export stays off unless `DEVOPS_CLI_TELEMETRY_ENABLED` turns it on: an
+    opt-out never fails open to the default (#956).
+    """
+    fallback = Settings.model_validate({"telemetry": {"enabled": False}})
+    _apply_env_overrides(fallback, _TELEMETRY_ENV_OPTIONS)
+    return fallback.telemetry
 
 
 def _match_dir_candidate(d: Path, candidate_names: tuple[str, ...]) -> Path | None:
@@ -866,12 +937,22 @@ def _match_dir_candidate(d: Path, candidate_names: tuple[str, ...]) -> Path | No
 
 
 def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
-    """Locate candidate project/devcontainer config file from env, base_dir, or ancestor directories."""
+    """Locate candidate project/devcontainer config file from env, base_dir, or ancestor directories.
+
+    While a command that reads a tree it does not own runs, such as a review, only the file
+    `DEVOPS_CLI_CONFIG` names counts (#972). The walk would find a config the tree under review
+    commits, which could name the gateway its model traffic and API key go to; a project config
+    is a feature for the user's own repositories, and naming one is the explicit opt-in. The walk
+    still runs in devops-cli's own repository, whose code already runs in this process
+    (`reads_untrusted_trees`, `core.repo.is_own_source_repository`).
+    """
     env_config = os.environ.get(PROJECT_CONFIG_ENV)
     if env_config:
         env_p = Path(env_config).resolve()
         if not env_p.is_dir():
             return env_p
+    if reads_untrusted_trees():
+        return None
 
     candidate_names = (
         PROJECT_CONFIG_FILENAME,

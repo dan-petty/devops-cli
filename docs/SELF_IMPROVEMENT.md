@@ -4,80 +4,244 @@ This document defines the architecture, operational workflows, and engineering c
 
 ---
 
-## 1. Architectural Principles & Objectives
+## 1. The Loop as It Runs
 
-The primary objective of the self-improvement loop is to achieve **continuous, compounding code quality and security resilience** through structured automated feedback, reproducible verification, and historical memory calibration.
+This section describes the review and self-improvement loop as the code runs it. Each statement
+names the file and line that does what it says, as `path:line`. Lines move as the code changes,
+so read an anchor as the place to start looking. Paths under `src/devops_cli/` are written from
+there: `ai/review/pipeline.py:2832` is `src/devops_cli/ai/review/pipeline.py`, line 2832.
 
-### Dual-Loop Architecture
-
-The self-improvement system operates across two complementary timescales:
+The review is to be redesigned so that tools originate findings and models only explain them; an
+ADR in a later release will record that design, and until it lands the personas and the verifier
+below are what runs.
 
 ```mermaid
 flowchart TD
-    subgraph FastLoop["Fast Feedback Loop (Pre-Commit / PR Lifecycle)"]
-        A[Developer / Agent Code Authoring] --> B[devops ci / Local Gates]
-        B --> C[devops review / Multi-Persona AI Review]
-        C --> D[devops review verify / Automated Verification]
-        D --> E{Findings Verified?}
-        E -- Yes --> F[Test-First Remediation]
-        F --> A
-        E -- No / Clean --> G[Pull Request Ready]
-    end
-
-    subgraph DeepLoop["Deep Self-Improvement Loop (Cross-Release / Memory)"]
-        G --> H[devops review export-feedback]
-        H --> I[feedback_dataset.jsonl Calibration]
-        I --> J[common_hallucinations.json Updates]
-        J --> K[Prompt & Persona Protocol Refinement]
-        K --> L[ai_test_gen Regression Suites]
-        L --> A
-    end
+    A["devops review path / branch / pr"] --> B["1. Pre-analysis"]
+    B --> C["2. Payloads: static scanners, dependencies, network references"]
+    C --> D["3. Persona review: devsecops, or the personas named"]
+    D --> E["4. Verification: deterministic checks, criteria, verifier model, rule filter"]
+    E --> F["5. Re-ranking"]
+    F --> G["6. Report: findings.json, candidates.json, review.md, profile.json"]
+    G --> H["devops review verify: a person's or an agent's verdict"]
+    H -- "a person's INVALIDATED" --> I["Learned catalog: one claim about one piece of code"]
+    H -- "a person's MITIGATED" --> J["Mitigations ledger"]
+    H -- "a person's verdict" --> K["Review history"]
+    I -- "suppresses the claim" --> E
+    I -- "shown to the personas" --> D
+    J --> L["Perimeter warnings: branch and PR reviews, devops pr check-readiness"]
+    K --> M["devops review stats, the report's category baseline"]
+    H --> N["devops review export-feedback"]
+    N --> O["feedback_dataset.jsonl"]
+    O --> P["devops ai prompt-eval"]
 ```
 
-1. **Fast Feedback Loop (Synchronous & Per-Branch)**:
-   - **Local Quality Gates**: `devops ci` aggregates formatters, linters (`ruff`), static typing (`mypy`), security scanners (`bandit`, `actionlint`), and test suites ($\ge 90\%$ coverage).
-   - **Multi-Persona Review Ensemble**: `devops review` synthesizes findings across specialized personas (`devsecops`, `architect`, `qa`, `performance`, `sre`) using a 5-phase chain-of-thought protocol.
-   - **Automated Verification**: `devops review verify` evaluates concrete verification criteria against the target repository, automatically filtering out false alarms.
-   - **Test-First Remediation**: Verified findings are immediately converted into failing regression tests before implementation code is updated.
+### A Review
 
-2. **Deep Self-Improvement Loop (Asynchronous & Cross-Release)**:
-   - **Feedback Export**: `devops review export-feedback` extracts verified findings, false positives, developer overrides, and remediation diffs into structured datasets (`.data/agent/feedback_dataset.jsonl`).
-   - **Hallucination Calibration**: Patterns consistently proven false or invalid are incorporated into `common_hallucinations.json`, teaching review models to disarm recurrent false alerts.
-   - **Prompt Evolution**: Persona prompts, review instructions (`src/devops_cli/ai/tasks/review.md`), and system guidelines (`AGENTS.md`) are refined to eliminate blind spots and reinforce verified heuristics.
-   - **Continuous Regression Guarding**: Remediated defects are converted into enduring invariant checks (`tests/test_architectural_invariants.py`) and domain test suites.
+`devops review path`, `branch` and `pr` (`commands/review.py:190`, `:414`, `:624`) all run
+`_execute_review_workflow` (`ai/review/runner.py:2262`). The analysis client is always an
+`LLMClient` (`ai/review/runner.py:1577-1612`), so every review takes the staged path
+(`ai/review/runner.py:2320`), under a profiler, through six stages
+(`ai/review/runner.py:2115-2193`):
+
+1. **Pre-analysis** (`ai/review/pipeline.py:1903`) refreshes each file's metadata: its purpose,
+   symbols and dependencies, and for a branch or pull request the symbols the diff removed
+   (`ai/review/runner.py:2284-2285`).
+2. **Payloads** (`ai/review/pipeline.py:2460`) run the static scanners over the files
+   (`ai/review/pipeline.py:2011`: Bandit, KubeLinter, Pluto, Trivy, Gitleaks and Semgrep), extract
+   dependencies and network references, and look up their advisories and reputations
+   (`ai/review/pipeline.py:2113`, `:2210`).
+3. **Persona review** (`ai/review/pipeline.py:2832`). The DevSecOps persona reviews alone, unless
+   `--persona` names another or `--all` adds architect, qa, auditor and pm
+   (`ai/review/runner.py:133-137`). The sixth persona, challenger, runs only when `--persona`
+   names it (`ai/personas/__init__.py:18-24`). The CLI always passes that list, so the defaults by
+   kind of file (`ai/review/classification.py:268`) are never used
+   (`ai/review/pipeline.py:2779-2783`). A persona's system prompt is its `role.md`,
+   `tasks/review.md` and its `prompt.md` (`ai/personas/__init__.py:74`), then the target's
+   conventions: the opening 3,000 characters of the nearest `AGENTS.md` or its peers and up to
+   8,000 of `.devops/review.md` (`ai/review/pipeline.py:2534-2572`). Next come up to eight claims
+   a person disproved in this project, or the first eight builtin catalog entries when there are
+   none (`ai/review/classification.py:59`, `ai/review/common_hallucinations.py:1032-1064`), and
+   `ai/tasks/guardrails_isolation.md` closes the system prompt (`ai/review/classification.py:35`,
+   `:61`, `:72`).
+   Every persona reads every page of the file, with the prompt for its kind (code, configuration
+   or documentation; `ai/review/classification.py:32-34`, `:319`), up to three chunks the RAG
+   index returns for the file's path and symbols when RAG is enabled
+   (`ai/review/pipeline.py:1484`), and the contracts of the libraries a Python file imports
+   (`ai/review/pipeline.py:1491-1509`). Findings of one file that report one defect are merged
+   (`ai/review/pipeline.py:2729`).
+4. **Verification** (`ai/review/pipeline.py:3135`) judges each file's findings
+   (`ai/review/verification.py:2686`) in this order:
+   - Deterministic checks (`ai/review/verification.py:1641`); the first that fires gives the
+     verdict. On the finding's own text (`ai/review/verification.py:1528-1555`): identical
+     observed and expected values, conversational or complimentary text, keyword rules, an
+     advisory id written as a placeholder, and an advisory claim against a dependency this
+     session's scan reports clean. An advisory id no scanned dependency carries is removed from
+     the references, and a finding left with none is INVALIDATED
+     (`ai/review/verification.py:659`). On the cited file: a claim a person already judged
+     INVALIDATED (`ai/review/verification.py:1580`); syntax, symbol, runtime-floor, header and
+     `None`-dereference checks, the last by a `mypy --strict` probe
+     (`ai/review/verification.py:1472`, `:1434`); whether the cited lines hold the construct
+     the finding names (`ai/review/verification.py:1617`); and the builtin catalog
+     (`ai/review/verification.py:1490`).
+   - The finding's own criteria (`ai/review/review_environment.py:569`). A passing invalidation
+     criterion that runs the cited code and checks the outcome settles INVALIDATED; criteria never
+     settle VERIFIED (`ai/review/review_environment.py:489-509`,
+     `ai/review/criteria_evidence.py:1-33`).
+   - The verifier model, asked only about the findings still without a verdict, with
+     `verify_finding_system.md` and `verify_finding.md` (`ai/review/verification.py:90-91`,
+     `:2711-2748`). A reply cut at its token cap, or one that does not parse, leaves its findings
+     UNVERIFIED with a note (`ai/review/verification.py:2737-2745`).
+   - A rule filter the code calls an adversarial debate (`ai/review/stages/adversarial_debate.py`,
+     called at `ai/review/pipeline.py:3263`): two keyword rules, one for `httpx2` advisories and
+     one for "unverified stylistic". It calls no model and runs no persona.
+5. **Re-ranking** (`ai/review/pipeline.py:3266-3325`) marks each file that has a reportable
+   finding not INVALIDATED and counts those findings (`ai/review/pipeline.py:3268-3272`). It
+   changes no finding and reorders nothing; the report sorts.
+6. **Report** (`ai/review/pipeline.py:4072`). Each severity is capped by its evidence
+   (`ai/review/calibration.py:1-17`, `ai/review/pipeline.py:4107`), the code each finding cites is
+   recorded on it (`ai/review/pipeline.py:4121`), and the session's directory,
+   `<data dir>/reviews/<UTC timestamp>/` (`ai/review/pipeline.py:1806`, `:1824-1826`), receives:
+   - `findings.json`, the reported findings: VERIFIED, MITIGATED and UNVERIFIED, never INVALIDATED
+     (`ai/review/pipeline.py:3327-3336`, `:4134`);
+   - `candidates.json`, every finding the review raised with its verdict, INVALIDATED included
+     (`ai/review/pipeline.py:4137-4145`);
+   - `review.md` (`ai/review/pipeline.py:4162`) and `profile.json` (`ai/review/runner.py:2074`).
+
+An UNVERIFIED finding is reported. A finding's `confidence_score` comes from the verifier model or
+a deterministic check; nothing compares the personas or counts their agreement.
+
+### Verdicts
+
+`devops review verify` records a verdict and runs nothing (`commands/review.py:1069-1160`). It
+names one finding: `--index` takes the number `devops review findings` shows, its place in
+`findings.json` whatever filter the list applied, and `--candidate` the number
+`devops review findings --candidates` shows. A candidate given VERIFIED or MITIGATED moves into
+`findings.json`, and a verdict on either copy is recorded on both
+(`ai/review/adjudication.py:248-309`). `--adjudicator` says who gave it: `human`, the default, or
+`agent` (`ai/review/verdicts.py:44-52`), which the MCP `verify_finding` tool always sends
+(`ai/mcp/server.py:200-222`). An agent's verdict never replaces a person's
+(`ai/review/adjudication.py:340-347`).
+
+### What a Verdict Teaches
+
+Only a person's verdict teaches anything (`ai/review/adjudication.py:311-337`, `:462-490`). An
+agent's changes the finding's status and nothing else.
+
+- **INVALIDATED** records the claim it disproved in the learned catalog
+  (`ai/review/common_hallucinations.py:938-959`). Later reviews of the same project invalidate the
+  same claim about the same code as `deterministic:person_verdict` before any model is asked
+  (`ai/review/verification.py:1580-1599`), and show it to the personas
+  (`ai/review/common_hallucinations.py:1032-1064`). Section 5.7 gives the match.
+- **MITIGATED** records the mechanism, its perimeter files and its regression test in the
+  mitigations ledger (`ai/review/mitigations.py:103`). The ledger suppresses nothing: branch and PR
+  reviews and `devops pr check-readiness` warn when a change touches a perimeter file
+  (`ai/review/runner.py:2245-2259`, `commands/pr.py:1483-1497`).
+- **Every verdict a person gives** ranks its session in review history: of the sessions that
+  reviewed one subject, history counts the one with the most of them, the machine's verdicts
+  breaking a tie (`ai/review/history.py:1-17`). `devops review stats`
+  (`commands/review.py:1256-1300`) and the report's category baseline
+  (`ai/review/category_metrics.py:94-97`) read that history.
+
+A later verdict withdraws what earlier verdicts recorded that it no longer stands behind
+(`ai/review/adjudication.py:1-25`). The review teaches the learned catalog nothing of its own
+(`ai/review/common_hallucinations.py:1-12`), and the builtin catalog,
+`ai/review/common_hallucinations.json`, changes only through a commit.
+
+### The Feedback Dataset
+
+`devops review export-feedback` (`commands/review.py:2317`) appends to one JSONL file,
+`.data/feedback_dataset.jsonl` (`data.feedback_dataset_path`; `config/defaults.py:40`,
+`ai/review/exporter.py:181-199`), each verdict in `findings.json` and `candidates.json` that the
+file does not hold yet (`ai/review/exporter.py:202-231`). Without `--status` it exports the
+INVALIDATED verdicts only (`commands/review.py:2334`); `--status ALL` exports every verdict. A
+record's `verified_by` names its labeller, and only a person's verdict is labelled `human`
+(`ai/review/exporter.py:61-63`).
+
+One command reads the dataset: `devops ai prompt-eval` (`commands/ai.py:1824`,
+`ai/prompt_eval.py:111`). It replays the deterministic checks over the recorded verdicts and
+reports, per labeller, how many recorded invalidations they catch and how many recorded
+verifications they contest (`ai/prompt_eval.py:1-20`). Nothing indexes the dataset for RAG and no
+prompt is built from it: a prompt changes when someone edits a file under `ai/tasks/` or
+`ai/personas/`, which each review's `prompt_digest` records (`ai/personas/__init__.py:80-97`).
+
+### Where the Loop Keeps Its Data
+
+| Data | Default path | Written by | Read by |
+| :--- | :--- | :--- | :--- |
+| Review sessions | `.data/reviews/<session>/` | each review | `devops review findings`, `verify`, `stats`, `export-feedback`, `corpus score` |
+| Learned catalog | `.data/common_hallucinations.json` | a person's INVALIDATED verdict | every review |
+| Mitigations ledger | `.data/mitigated_findings.json` | a person's MITIGATED verdict | branch and PR reviews, `devops pr check-readiness` |
+| Feedback dataset | `.data/feedback_dataset.jsonl` | `devops review export-feedback` | `devops ai prompt-eval` |
+
+A relative path resolves under the main worktree in devops-cli's own repository, and under
+`~/.local/share/devops-cli` anywhere else (`core/repo.py:286-303`). `DEVOPS_CLI_DATA_DIR` moves
+all four (`config/settings.py:762-764`, `:781-799`, `ai/review/review_environment.py:185-187`,
+`ai/review/common_hallucinations.py:173-178`): a review run with it set keeps its own sessions,
+catalog, ledger and dataset, and a verdict given there reaches no review run without it.
+
+### What the Loop Does Not Do
+
+These documents said otherwise once; the code does none of it.
+
+- There is no `performance` or `sre` persona, and a review is no ensemble by default.
+- `tasks/review.md` has four steps (ground, inspect, falsify, formulate), not five phases.
+- `devops review verify` verifies nothing; it records the verdict it is given.
+- A review's own checks teach the learned catalog nothing, and an agent's verdict teaches nothing.
+- A persona does not look the catalog up. It is shown up to eight entries, and the deterministic
+  checks of verification match the builtin ones.
+- The feedback dataset reaches no RAG index and no prompt.
+- `review_output_instruction.md` and `--summary` belong to a path no CLI review takes: it runs
+  only when the analysis client is not an `LLMClient` (`ai/review/runner.py:2320-2368`).
+- The shared prompts under `ai/tasks/` and `ai/personas/` hold no project's facts since #951, but
+  the code still applies some of devops-cli's to every project: the rule filter names `httpx2`
+  (`ai/review/stages/adversarial_debate.py`), three keyword checks treat localhost defaults,
+  `os.kill(pid, 0)` and flag renames as settled, the last because devops-cli is pre-1.0
+  (`ai/review/verification.py:1116-1168`), and builtin catalog entries such as
+  `HALLUCINATION-HTTPX2-DEPENDENCY` describe devops-cli, which a project with no judged claims is
+  shown among the first eight.
 
 ### Deterministic Mechanical Oracles & Closed-Loop Feedback Inversion
 
-As documented in systemic engineering retrospectives and agent post-mortems, self-improvement mechanisms cannot rely on stochastic language generation alone. They require deterministic mechanical oracles coupled with a closed-loop feedback inversion dynamic:
+Self-improvement cannot rest on a model agreeing with itself. It needs deterministic oracles and a
+feedback loop that changes what it does once the defects are gone:
 
-1. **Phase 1: Reactive Remediation**: When invariant violations, test failures, or verified review findings exist, the agent focuses 100% of priority on minimal, surgical defect resolution.
-2. **Phase 2: Proactive Quality Elevation**: As soon as quality gates pass and repository health reaches 100.0/100, the feedback loop dynamically inverts:
-   - **Proactive Headroom Optimization**: Decomposing functions approaching the complexity ceiling ($7 \le M \le 10$) down to safe headroom ($M \le 6$, depth $\le 3$).
-   - **Public Contract Completeness**: Elevating docstring coverage and parameter type hints across all public interfaces to 100%.
-   - **Structural Assertion Consolidation**: Converting linear test assertion sequences into structural tuple comparisons (`assert (a, b) == (x, y)`) to prevent false-positive complexity alarms while preserving Pytest element-level diff diagnostics.
-3. **Phase 3: Continuous Self-Hardening**: Every debugging struggle, unexpected failure, missing parameter/API inconsistency, bad pattern or deficiency, and constructive suggestion is immediately codified into [`AGENTS.md`](../AGENTS.md) and ingested into [`docs/ROADMAP.md`](./ROADMAP.md) as permanent systemic roadmap tasks and guardrails.
+1. **Reactive remediation**: while invariant violations, failing tests or verified findings
+   exist, an agent works on nothing else, with minimal, surgical fixes.
+2. **Proactive quality elevation**: once `uv run devops ci` passes, the agent turns to headroom:
+   functions near the complexity cap ($7 \le M \le 10$) come down to $M \le 6$ and depth $\le 3$,
+   public interfaces get complete docstrings and type hints, and linear test assertions become
+   structural tuple comparisons (`assert (a, b) == (x, y)`).
+3. **Continuous self-hardening**: each struggle, failure, inconsistency, bad pattern or useful
+   idea becomes an issue (`devops gh issues create`), and a rule for agents goes into
+   [`AGENTS.md`](../AGENTS.md). `docs/ROADMAP.md` is rendered from GitHub at the cut and never
+   edited in an item's pull request ([ADR 0001](adr/0001-github-is-the-roadmap-source.md)).
 
 ---
 
 ## 2. Review Protocol & Persona Guidelines
 
-Review models must follow the **5-Phase Chain-of-Thought Protocol** specified in [`src/devops_cli/ai/tasks/review.md`](../src/devops_cli/ai/tasks/review.md):
+Every persona's system prompt carries [`src/devops_cli/ai/tasks/review.md`](../src/devops_cli/ai/tasks/review.md)
+(`ai/personas/__init__.py:74`). Its protocol has four steps: ground the review in the target,
+inspect, falsify before reporting, and formulate (`ai/tasks/review.md:1-3`). The notes below
+follow those steps, and the calibration records under step 3 are what each session taught.
 
-### Phase 1: Context & Target Grounding
-- Ground evaluations in universal software engineering standards (OWASP Top 10, CIS benchmarks, SOLID, DRY) and target project conventions (`AGENTS.md`, `CLAUDE.md`).
-- Respect authoritative lockfiles (`uv.lock`, `package-lock.json`). Never hallucinate CVEs against verified dependencies.
-- Distinguish production code from test fixtures, mocks (`tests/`), documentation, or configuration templates (`*.example.*`).
+### 1. Ground the Review in the Target
 
-### Phase 2: Semantic & AST Inspection
-- **Network Egress & DNS SSRF**: In outbound HTTP requests and web scrapers, verify that both the initial URL and post-redirect response URLs perform DNS resolution and check that all resolved IPs are public (`validate_url_egress`), guarding against DNS rebinding.
-- **Path Traversal Containment**: Enforce path parameter validation (`validate_no_path_traversal`) and ensure paths never resolve to forbidden system directories (`is_forbidden_system_path`).
-- **HTTP Client Timeouts**: Ensure numeric timeouts configure the `read` timeout (`request_timeout(read=...)`), keeping short connect timeouts to prevent hung connections (CWE-400).
-- **Algorithmic Complexity & Memory Bounds**: Bound JSON parsing inputs ($\le 5\text{ MiB}$) and ensure string lengths in exception details are bounded ($\le 256$ chars) with user credentials scrubbed.
-- **Architectural Invariants**: Strictly enforce cyclomatic complexity $\le 10$ and maximum nesting depth $\le 5$ project-wide.
+- Judge against universal standards (OWASP Top 10, CIS benchmarks, SOLID, DRY) and the target's own conventions (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`, `.devops/review.md`); one project's rules are never imposed on another (`ai/tasks/review.md:7`).
+- Lockfiles record exact versions. Dependency advisories come from the scanners; a reviewer never cites a CVE or GHSA identifier from memory (`ai/tasks/review.md:8`), and verification removes any advisory id this session's scan does not carry (section 1).
+- Distinguish production code from test fixtures, mocks (`tests/`), documentation, or configuration templates (`*.example.*`). A finding about a test itself is a test that cannot fail, while a real credential or a genuine vulnerability in a test file is still a finding. Roadmaps, changelogs, task files and decision records get no findings.
+- The threat model is the project's when its conventions state one. Otherwise `review.md` gives every persona a default (`ai/tasks/review.md:36`), and the DevSecOps persona states its own (`ai/personas/devsecops/prompt.md:1-5`): network and fetched content, model output, PR and issue text, repositories under review, Kubernetes and cloud API data, server requests and MCP or tool-call arguments are untrusted; the operator, their config, environment and arguments, and values the code builds are trusted. A vulnerability is a path the reviewer can quote: the untrusted source, the sink and the missing check between them. When it cannot quote them, it returns no finding.
 
-### Phase 3: Falsification & Anti-Hallucination
-- Actively search surrounding guards, upstream sanitizers, and lockfile constraints to disprove candidate findings.
-- Cross-reference candidate alerts against `common_hallucinations.json` (e.g. Python 3.14 PEP 758 syntax, masked placeholder tokens, synthetic test fixtures).
+### 2. Inspect
+
+- `review.md` names what to trace (`ai/tasks/review.md:12-23`): execution flow and resource lifecycles, whether a symbol exists before calling it missing, state after an empty declaration, path containment, egress and SSRF across redirects, repeated expensive work and unbounded untrusted input, bounded error detail, secret hygiene, the language version the project declares, and the review tool's own `<masked-kind>` markers.
+- What one project requires goes in its `.devops/review.md`, not in the shared prompts (section 4). This repository's file states, among others, read timeouts on HTTP clients, symlink-safe directory walks and error detail bounded to 256 characters (`.devops/review.md`, "House rules").
+
+### 3. Falsify Before Reporting
+
+- Search for what disproves the defect: surrounding guards, upstream sanitizers, lockfile pins, type guards, module exports, caller constraints. Report only what can be seen; when showing the defect needs code the reviewer was not given, there is no finding (`ai/tasks/review.md:25-31`).
+- A persona does not look the hallucination catalog up. Its prompt shows up to eight claims a person disproved in reviews of this project, or the first eight builtin entries when there are none (section 1), and verification matches the builtin catalog deterministically (`ai/review/verification.py:1490`).
 - Dismiss theoretical or already-mitigated alerts; prioritize high-signal, reproducible flaws.
 - **Prefer the cheapest mechanical oracle over model judgement.** Before a finding is put to the model verifier, ask which existing tool already decides it. A claim of a `None` dereference is decided by `mypy --strict`; a claim of invalid syntax by the parser; a claim that a symbol is missing by reading the module. A verifier asked to confirm something a tool has already disproved will sometimes confirm it.
 - **A finding describes the code as it is now.** Claims that a guard was "removed", "no longer present", or "dropped" must be confirmed against the current file. An assertion about an earlier state, remembered or inferred, is not a finding.
@@ -93,7 +257,7 @@ This session produced 42 findings (4 CRITICAL, 6 HIGH). Of the ten highest-sever
 | `_are_findings_duplicate` no longer checks same-file/same-line | Both checks are present and reachable in the current source. |
 | Unpinned `:latest` image in the release workflow | The reference is `cacheFrom`, a build-cache hint, not a deployed image. |
 
-Two of these were verifiable by a tool the repository already runs on every commit. The verification stage was reasoning about types instead of consulting the type checker, so `_check_none_dereference_hallucination` now invalidates a claimed `None` dereference whenever the cited module passes `mypy --strict`, before the model verifier sees it. The remaining two classes were added to the verifier prompt as falsification rules.
+Two of these were verifiable by a tool the repository already runs on every commit. The verification stage was reasoning about types instead of consulting the type checker, so `_check_none_dereference_hallucination` now invalidates a claimed `None` dereference whenever the cited module passes `mypy --strict`, before the model verifier sees it. The reviewed tree is untrusted, so the check runs devops-cli's own mypy in isolated mode (`python -I -m mypy --strict`), from an empty temporary directory, with devops-cli's own config, which loads only the `pydantic.mypy` plugin its `[tool.mypy]` loads. Nothing of the target runs: not its build backend, which `uv run` would sync, not its mypy config and plugins, and not a `sitecustomize` or `mypy` package that a `PYTHONPATH` naming it would put first (#946). mypy's cache is kept in devops-cli's cache directory (`<data dir>/cache/typecheck-probe/`), one per interpreter, and probes run one at a time. The first probe on a machine is a cold pass over the module's imports: about a minute for a devops-cli module, and longer on a loaded machine, against a 120 s timeout. A probe that times out claims nothing, and the next starts from what it cached. The module under review controls its own strict pass, so the probe claims nothing of a module that holds a `type: ignore` or an inline `# mypy:` comment, or whose cited lines hold an expression of type `Any`: a second, warm pass checks a copy of the module with `# mypy: disallow-any-expr` appended (`--shadow-file`) and names those lines (#972). The remaining two classes were added to the verifier prompt as falsification rules.
 
 The general lesson, and the reason this record exists: **a high-confidence `VERIFIED` is not evidence.** Confidence measures the model's agreement with itself. When a deterministic oracle for a claim exists, it outranks any confidence score, and the loop should consult it first rather than asking a second model to agree with the first.
 
@@ -114,7 +278,7 @@ Two patterns generalize, and both now short-circuit before the model verifier:
 
 - **Unfalsifiable evidence.** `CVE-2023-xxxx` is the shape of evidence written where evidence belongs. A verifier asked to confirm it has nothing to look up, so it agrees with the shape. `_check_placeholder_advisory_hallucination` now invalidates any finding whose advisory identifier is a placeholder.
 - **Invented context.** A compatibility claim about Python 3.10 in a project declaring `>=3.14` describes a configuration that cannot be installed. `_check_unsupported_runtime_hallucination` reads the declared floor from `pyproject.toml` and invalidates claims below it.
-- **Evidence the run already had.** The dependency finding is the sharpest case, because the artifact refutes itself: `external_dependencies` in the same file resolves both packages to `CLEAN` with no advisory records. The pipeline held the answer and never put the question to it. `_check_scanned_clean_dependency` now invalidates a vulnerability claim naming a package this run scanned clean, before the model verifier sees it.
+- **Evidence the run already had.** The dependency finding is the sharpest case, because the artifact refutes itself: `external_dependencies` in the same file resolves both packages to `CLEAN` with no advisory records. The pipeline held the answer and never put the question to it. `_check_scanned_clean_dependency` now invalidates a claim that a package this run scanned clean carries a known advisory, before the model verifier sees it.
 
 Three further classes became verifier prompt rules — sink grounding for injection claims, boundary arithmetic stated as a traced sequence rather than a reading of an operator, and deliberate mechanisms reported as documentation gaps rather than defects.
 
@@ -259,7 +423,7 @@ Systemic hardening updates resulting from this session:
 4. **General Category Ground-Truth Dispatch**: Closed verification gap in `common_hallucinations.py` by implementing `_verify_general_ground_truth` and registering `HallucinationCategory.GENERAL` in `_GROUND_TRUTH_VERIFIERS`.
 5. **Prompt Protocol Hardening**: Deduplicated and strengthened tautological criteria instructions in `verify_finding_system.md` to disallow auto-verification from import checks (`python -c "import ...; print('ok')"`) or source-printing reflection. Added explicit grounding rules in `review.md` and `verify_finding_system.md` for retry transports, async pools, hardware daemonsets, kube-router network policies, and telemetry error metrics.
 6. **Task Document Hygiene & Leakage Sanitization**: Sanitized ephemeral scratchpad paths and eliminated duplicated text across task tracking documents.
-7. **Feedback Dataset Export**: Exported 1744 findings to `.data/reviews/feedback_dataset.jsonl` with 100% categorized statuses.
+7. **Feedback Dataset Export**: Exported 1744 findings to the feedback dataset with 100% categorized statuses.
 
 #### Calibration Record: Session `20260930-133320`
 
@@ -293,89 +457,181 @@ Systemic hardening updates resulting from this session:
 6. **Task Tracking Document Hygiene**: Cleaned formatting artifacts, removed duplicate overview lines, and corrected markdown bolding across task files.
 7. **Feedback Dataset Export**: Re-exported feedback dataset via `devops review export-feedback`.
 
-### Phase 4: Root Cause & Severity Classification
-- Isolate exact failure mechanisms and categorize severity:
-  - **CRITICAL**: Exploitable vulnerability, auth bypass, credential leak, SSRF, arbitrary file write outside root, or fatal crash.
-  - **HIGH**: Preconditioned vulnerability, data corruption, race condition, unvalidated path write, or resource leak.
-  - **MEDIUM**: Bounded flaw, unhandled error state, or incomplete mitigation.
-  - **LOW**: Hardening, observability, defense-in-depth, or maintainability improvement.
+#### Calibration Record: Session `20261001-224227` (2026-10-01)
 
-### Phase 5: Self-Healing Remediation & Verification Synthesis
-- Author drop-in replacements (`fix`) resolving the defect cleanly without breaking API contracts.
-- Define 1–3 concrete `verification_criteria` proving defect presence and 1–3 `invalidation_criteria` proving defect resolution.
+A path review of the whole checkout, 1,547 files, ran the DevSecOps persona alone: 1,966 model
+calls over 11.7 hours. It raised 903 candidate findings, invalidated 340 and reported 563: 178
+VERIFIED (142 by the verifier model, 36 by criteria), 28 MITIGATED, and 357 UNVERIFIED that
+verification gave no verdict. Those figures are the session's own `findings.json`,
+`candidates.json` and `profile.json`.
+
+A hand triage of the 563 reported findings on 2026-10-02 found 489 false and 46 confirmed, and no
+confirmed finding was above MEDIUM. Of the 178 VERIFIED findings, 163 were false. The triage was
+not recorded as verdicts, so the session's files do not show it.
+
+The failure signatures the prompt A/B counts (section 4, step 8 of the #951 protocol) read, over
+the 903 candidates:
+
+| Signature | Count | Candidates that |
+| :--- | ---: | :--- |
+| `cve` | 9 | cite a CVE or GHSA identifier |
+| `tests` | 87 | sit on a file under `tests/` |
+| `planning` | 23 | sit on the roadmap, a changelog or a task file |
+| `masked` | 36 | are about the review tool's own `<masked-kind>` markers |
+| `syntax` | 97 | speak of syntax |
+| `no_code_fix` | 117 | carry a `fix` with no code in it |
+| `crit_high` | 534 | are CRITICAL or HIGH |
+| `unverified_reported` | 357 | are UNVERIFIED, and were reported |
+| `find_only_criteria` | 663 | have executable verification criteria that only find, import or print code |
+
+Ten more quoted a bare `<masked>`, which is the file's own text: the known-positive check of that
+protocol.
+
+Each failure now has a mechanism in the code:
+
+- **Criteria that checked nothing** (#846, #1043). 36 findings were VERIFIED by criteria, and none
+  of their 37 passing commands checked the cited code. A passing command now counts only when it
+  runs the cited code and checks the outcome, and criteria settle INVALIDATED, never VERIFIED
+  (`ai/review/criteria_evidence.py:1-33`, `ai/review/review_environment.py:489-509`).
+- **Advisories from memory, severities from the prompt** (#948). The session cited Log4j, polkit
+  and OpenSSH advisories against a Python CLI whose dependencies it had scanned clean
+  (`ai/review/verification.py:659-666`). 54% of the candidates were HIGH, the value both prompt
+  examples used, and 25 of 27 reported findings on tests were CRITICAL or HIGH
+  (`ai/review/calibration.py:1-17`). An advisory id no scanned dependency carries is now removed,
+  and the report caps each severity by its evidence.
+- **A catalog the review taught itself** (#950). The learned catalog held 35 entries the review's
+  own checks had taught; had their ground truth passed, they would have invalidated 240 of the 903
+  candidates, 19 VERIFIED HIGH findings among them (section 5.3). Only a person's INVALIDATED
+  verdict teaches it now, one claim at a time (`ai/review/common_hallucinations.py:938-959`).
+- **Reporting what could not be checked** (#951). The prompts let a reviewer report an unchecked
+  assumption at a lower confidence, and all 357 findings verification left unverified were
+  reported (section 5.2). A reviewer now returns no finding when it cannot see the defect
+  (`ai/tasks/review.md:28`), under a stated threat model (`ai/tasks/review.md:36`,
+  `ai/personas/devsecops/prompt.md:1-7`).
+
+The lesson this record adds: a review whose reported findings are 87% false does not save a
+person time, it spends it. Every mechanism above removes a false finding or keeps a model from
+writing one; none makes a model find more. The recall set (section 4, #1015) guards that side.
+
+### 4. Formulate
+
+- Name the failure mechanism, the path to it and the blast radius (`ai/tasks/review.md:35`). Severity follows who can trigger the defect and what it costs. Trusted and untrusted input are what the project's conventions say; where they give no threat model, `review.md` states a default one for every persona (`ai/tasks/review.md:36-41`):
+  - **CRITICAL**: an untrusted input reaches code execution, credential disclosure, or a write outside its root, and every step can be quoted.
+  - **HIGH**: an untrusted input reaches harm under a stated precondition, or normal use corrupts or loses data.
+  - **MEDIUM**: wrong behaviour on a path normal use reaches: a crash, an unhandled error, a leak in a long-running process.
+  - **LOW**: hardening, defense in depth, a missing guard on trusted input that the project's conventions require. Without that requirement, it is no finding.
+- `fix` is replacement code for the cited lines. A fix that says to verify, review or consider, or that matches the current code, means there is no finding.
+- `observed_value` is copied exactly from the cited lines, so a mechanical check can find it there.
+- Define 1–3 `verification_criteria` that pass only while the defect exists and 1–3 `invalidation_criteria` that pass only when it is absent. An executable check is a `python -c` command that imports the cited code and asserts the outcome; a check that only finds, imports or prints code is written as a sentence with `"executable": false`.
+- The persona agent is shown a reply schema of only the fields a reviewer writes. The fields the pipeline owns (verdicts, criteria results, citations, confidence) are still parsed but never asked for (`ai/review_schema.py:556-559`).
 
 ---
 
 ## 3. Step-by-Step AI Agent Remediation Workflow
 
-When an AI agent or automated workflow is tasked with addressing review findings, the following sequence is mandatory:
+When an AI agent or automated workflow is tasked with addressing review findings, it works in this
+order. The commands are the ones that exist; what each one changes is in section 1.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Developer as Developer / User
+    actor Person as Developer / User
     participant Agent as AI Agent
-    participant GH as GitHub Projects / Issues
+    participant GH as GitHub Issues
     participant Code as Workspace Code & Tests
-    participant CI as DevOps CI Pipeline
-    participant Memory as Feedback Dataset
+    participant Session as Review Session
+    participant Dataset as Feedback Dataset
 
-    Developer->>Agent: Request review remediation
-    Agent->>GH: Bootstrap tracking issue & project card (In Progress)
-    Agent->>Code: Read findings.json & review.md
-    Agent->>Code: Author failing unit/integration tests (TDD)
-    Agent->>Code: Apply clean, surgical code remediation (Complexity <= 10)
-    Agent->>Code: Run targeted pytest (verify invalidation criteria)
-    Agent->>CI: Run devops ci (all 10 quality gates pass)
-    Agent->>Memory: devops review export-feedback (update feedback memory)
-    Agent->>GH: Transition card to In Review / Done & close issue
+    Person->>Agent: Request review remediation
+    Agent->>GH: Find or file the tracking issue (devops gh issues create)
+    Agent->>Session: devops review findings (and --candidates)
+    Agent->>Code: Write failing tests from the finding
+    Agent->>Code: Fix the cited code
+    Agent->>Code: Run the targeted tests, then uv run devops ci
+    Agent->>Session: devops review verify --adjudicator agent
+    Agent->>Dataset: devops review export-feedback --status ALL
+    Agent->>GH: Pull request that closes the issue
+    Person->>Session: devops review verify (a person's verdict teaches the loop)
 ```
 
-### Step 1: Ingest & Categorize Findings
-Read `.data/reviews/<session-id>/findings.json` and `review.md`. Group findings by severity (Critical $\rightarrow$ High $\rightarrow$ Medium $\rightarrow$ Low) and target component. Filter for verified findings (`"verified": true` or `"status": "VERIFIED"`).
+### Step 1: Read the Findings
 
-### Step 2: Ground in GitHub Projects & Issues
-Every review remediation task must have an active GitHub Issue and Project Item:
-- Author a formal issue (e.g. `devops gh issues create --title "fix(security): remediate verified review findings" --label "type/security,scope/review,priority/p1-high"`).
-- Move the Project card to `In Progress` via `devops gh project sync`.
-- Create a dedicated task file under `docs/agent/tasks/task-<issue>-<slug>.md`.
+`devops review findings <session>` lists `findings.json`, the reported findings, numbered by their
+place in the file (`commands/review.py:923-998`). The list holds VERIFIED, MITIGATED and
+UNVERIFIED findings: an UNVERIFIED one was reported without a verdict and needs judging as much as
+a VERIFIED one. `--details` prints each finding in full, `--severity` keeps one severity, and
+`--candidates` lists `candidates.json`, every finding the review raised, the ones verification
+invalidated included. The terminal summary of a review lists CRITICAL to MEDIUM findings and
+only counts LOW and INFO ones (`ai/review/pipeline.py:3706-3729`); `review.md` holds them all.
+
+### Step 2: Ground the Work in an Issue
+
+Every remediation has a GitHub issue: find it, or file one with `devops gh issues create`. The
+task file, `docs/agent/tasks/task-<issue>-<slug>.md`, is written in the pull request that delivers
+the work.
 
 ### Step 3: Author Regression Tests First (Living Contract)
+
 Before altering implementation code in `src/`:
-- Formulate tests directly mirroring the finding's `verification_criteria` and `invalidation_criteria`.
+- Formulate tests from the finding's claim and its `verification_criteria` and `invalidation_criteria`, and watch them fail.
 - Place tests in canonical submodule test files under `tests/` (e.g. `tests/test_common_tools.py`, `tests/test_validation.py`, `tests/test_http.py`). NEVER create temporary one-off test files.
 - Ensure mock hostnames strictly use `example.com` (no subdomains).
 
 ### Step 4: Implement Surgical Remediation
+
 - Implement clean, minimal fixes satisfying the tests.
 - Ruthlessly remove legacy shims or zombie code (zero compatibility debt).
-- Enforce cyclomatic complexity $\le 10$ and maximum nesting depth $\le 5$. Decompose multi-branch procedures into single-responsibility pure functions.
+- Keep cyclomatic complexity $\le 10$ (Ruff `C901`) and nesting depth $\le 5$. Decompose multi-branch procedures into single-responsibility pure functions.
 
-### Step 5: Verify Invalidation & Run Full CI Suite
-- Execute targeted tests: `uv run pytest tests/test_<submodule>.py`.
-- Run architectural invariants: `uv run pytest tests/test_architectural_invariants.py`.
-- Run full CI quality gate: `devops ci` (or `uv run devops ci`).
+### Step 5: Verify
 
-### Step 6: Export Feedback & Update Knowledge Memory
-- Run `devops review export-feedback` to append the session's findings, verifications, and resolutions to `feedback_dataset.jsonl`.
-- If any finding was identified as a false positive, register or update catalog entries in `src/devops_cli/ai/review/common_hallucinations.json` (e.g. Keyring secret stores, prompt sanitization boundaries, local cache service bindings).
-- Commit changes atomically: `fix(review): remediate findings and update self-improvement memory (#<issue>)`.
+- Run the targeted tests: `uv run pytest tests/test_<submodule>.py`.
+- Run the Gated CI quality gate: `uv run devops ci`.
+
+### Step 6: Record the Verdict and Export It
+
+- Record the verdict on each finding the work settled:
+  `devops review verify <session> --index <n> --status <STATUS> --reason "..." --adjudicator agent`,
+  where `<n>` is the number `devops review findings` shows, or `--candidate <n>` for a candidate.
+  The status is VERIFIED for a real defect, MITIGATED when a guard now limits it (with
+  `--perimeter` and `--regression-test`), or INVALIDATED for a false positive.
+- An agent's verdict changes the finding's status and teaches nothing. A person's verdict on the
+  same finding is what teaches the learned catalog, the mitigations ledger and review history
+  (section 1); an agent never records `human`.
+- `devops review export-feedback --status ALL` appends the verdicts the dataset does not hold yet
+  to `.data/feedback_dataset.jsonl`, which `devops ai prompt-eval` reads. It changes no prompt and
+  no later review.
+- A false-positive pattern that recurs across files and projects belongs in the curated builtin
+  catalog, `src/devops_cli/ai/review/common_hallucinations.json`, changed by a commit, and a rule
+  true only of this repository belongs in `.devops/review.md`.
 
 ---
 
 ## 4. Observability, Telemetry & Key Metrics
 
-The self-improvement loop is monitored via OpenTelemetry distributed tracing and structured Prometheus metrics:
+A review sends two metrics of its own over OTLP, registered with every other devops-cli metric in
+`telemetry/instruments.py`, and only when it is not a dry run (`ai/review/runner.py:2149-2151`):
 
-| Metric Name | Type | Description |
-| :--- | :--- | :--- |
-| `devops_cli_review_sessions_total` | Counter | Total AI review sessions executed. |
-| `devops_cli_review_findings_total` | Counter | Total findings identified, labeled by `severity` and `persona`. |
-| `devops_cli_review_verified_total` | Counter | Findings verified as true defects by verification criteria. |
-| `devops_cli_review_invalidated_total` | Counter | Findings disproven as false alarms by invalidation criteria. |
-| `devops_cli_review_feedback_exports_total` | Counter | Feedback records exported to `feedback_dataset.jsonl`. |
+| Metric | Type | Labels | What it counts |
+| :--- | :--- | :--- | :--- |
+| `devops_cli_review_duration_seconds` | Histogram | `target_type` (`path`, `branch`, `pr`) | The review's wall time (`telemetry/instruments.py:77-83`). |
+| `devops_cli_findings_total` | Counter | `persona`, `severity`, `status` | The findings `findings.json` reports, by status: VERIFIED, MITIGATED or UNVERIFIED, never INVALIDATED (`telemetry/instruments.py:84-89`, `ai/review/runner.py:2096-2112`). |
 
-Tracing spans decorated with `@trace_span("review.<phase>")` capture execution latency, prompt token counts, and completion budgets across the entire pipeline.
+The `persona` label is the persona `--persona` named, or `devsecops`, whichever personas reported
+the finding (`ai/review/runner.py:2207`). The counter is sent once, when the report is written: a
+later `devops review verify` changes no metric, and nothing counts verdicts, invalidations or
+exports. Like every command, a review also counts in `devops_cli_command_total` and
+`devops_cli_command_duration_seconds` (`main.py:158-182`).
+
+The stages run inside trace spans (`trace_span` context managers): `review.session`
+(`ai/review/runner.py:2324`), `review.pre_analysis` (`ai/review/pipeline.py:1932`), the scanners'
+`security.*` spans (`ai/review/pipeline.py:2021-2236`), `review.init_payloads`
+(`ai/review/pipeline.py:2472`), `review.inspection` and one `review.file_review` per file
+(`ai/review/pipeline.py:2854`, `:2640`), `review.verification` and one `review.file_verify` per
+file (`ai/review/pipeline.py:3159`, `:3053`), `review.adversarial_debate`
+(`ai/review/stages/adversarial_debate.py:46`), `review.reranking` (`ai/review/pipeline.py:3300`)
+and `review.report_generation` (`ai/review/pipeline.py:4093`). Token counts are in `profile.json`,
+below.
 
 ### Review Profiles & Benchmarks
 
@@ -383,7 +639,15 @@ Every review writes `profile.json` next to its `findings.json`: wall time per st
 payloads, persona review, verification, re-ranking, report), the LLM calls, prompt and completion
 tokens made during each stage, the backends the gateway routed them to, and the candidate,
 verified and reported finding counts. The profile's session ID is an attribute of the session's
-`review.session` span, so a slow stage can be followed into its trace.
+`review.session` span, so a slow stage can be followed into its trace. It also records how each
+static analyzer took part (`static_analyzers`), why each that failed did, as review.md's Static
+Analyzers table says, such as `timed out after 300 s` (`static_analyzer_reasons`), and how many
+seconds each analyzer's scans ran (`static_analyzer_seconds`).
+
+Each stage also counts its replies by the reason the provider gave for their end
+(`finish_reasons`, with `unknown` when it gave none), and the replies cut at their token cap by
+the backend that served them (`truncated`). When any reply hit the cap, the profile's summary line
+says how many.
 
 A single review is not a measurement: identical runs produce different numbers of candidate
 findings, and verification time follows them. `devops review benchmark <targets> -n 3` reviews the
@@ -396,12 +660,26 @@ Compare benchmarks only when their corpus digests match.
 The shared review and verification prompts hold rules that are true of any project. What is
 intended in one project goes in that project's `.devops/review.md`. Examples include an internal
 connector allowed to reach private networks, output a CLI is meant to print, a type checker the
-project enforces, or house rules for its documentation.
+project enforces, the inputs the project trusts, or house rules for its documentation. Facts about
+one project's code, which the shared prompts once carried as exemptions for every project, belong
+there too (#951). A test keeps this repository's file under the 8,000-character cap below, past
+which a rule is cut before any model reads it.
 
 `devops ai review` reads the nearest `.devops/review.md` from the target up to its repository
 root, in full up to 8,000 characters. It gives the file to the persona reviewers and the verifier,
 beside the general conventions file (`AGENTS.md` or its peers), of which only the opening is used.
 This repository keeps its own rules in `.devops/review.md`.
+
+A change is reviewed under the conventions it started from, so it cannot loosen its own review
+(#946). `devops review branch` reads both files with git at the merge base of the branch and its
+base (at `HEAD` for uncommitted changes), not from the working tree, and `devops review pr` reads
+them from the pull request's base. A base with no local branch, as in a CI checkout of a feature,
+is `origin/<base>`, and the checked-out branch is never its own base: with no base at all the diff
+fails. The lookup also stops at a defect corpus's root, which its manifest marks, read at the same
+revision. It reads only regular files: a conventions file that is a link is skipped, on disk and
+at a revision, as the chunker skips a linked source file, so a reviewed tree cannot bring a file
+from outside it into the prompts. Each review's `profile.json` records `conventions_digest`, a digest of the conventions
+its prompts carried, empty when they carried none.
 
 ### Synthetic Defect Corpora
 
@@ -446,13 +724,19 @@ stays balanced and well formed. A Go error check is removed only when `err` is r
 or the file would not compile.
 
 The mutated files sit under `files/`, and the manifest sits beside that directory rather than in it,
-so the reviewer cannot read the answers. After `devops review path <corpus>/files --all`, run
+so the reviewer cannot read the answers. The corpus carries copies of the first source's
+conventions files where it has them, and the manifest marks the corpus root, where the conventions
+lookup stops: a corpus written under `.data/reviews/corpora/` is not reviewed under the
+conventions of the checkout around it. After `devops review path <corpus>/files --all`, run
 `devops review corpus score <corpus>`. It reports:
 
 - how many injections some finding matched, before verification;
 - how many were still reported after verification;
-- how many were found and then dropped;
-- the reported findings that match no injection.
+- how many findings the review raised, how many the verifier invalidated and how many it kept.
+  The invalidated count is the verifier's opinion, not a label.
+
+`--json` also gives, per session, the injections found and then dropped and the reported findings
+that match no injection.
 
 A finding matches an injection when it names the file and either:
 
@@ -469,6 +753,314 @@ leaves out.
 
 The score measures regression, not capability. A prompt can be tuned to find exactly the defects
 this generator knows how to inject, so every score carries that caveat.
+
+### Prompt Benchmarking
+
+Identical reviews find different defects, so one run of a prompt says little. An arm is k reviews
+of one corpus run with the same prompts, and `devops review corpus score <corpus> --runs k` scores
+the latest k reviews of the corpus together (`--session` names sessions instead, and is repeatable).
+The score gives:
+
+- for each injection, how many of the k runs found it and how many still reported it;
+- pass@k, the share of injections found in at least one run, and pass^k, the share found in every
+  run, before and after verification;
+- each run's recall, findings, tokens and unparsed persona replies;
+- the mean of each figure (`recall_found`, `recall_reported`, `candidate_findings`,
+  `invalidated_findings`, `reported_findings`, `prompt_tokens`, `completion_tokens`), and its
+  `[min, max]` across the runs as `spread`. One run measures no spread, so its `spread` is null.
+
+Each review's `profile.json` records `prompt_digest`, a digest of every `.md` file under the
+package's `ai/tasks/` and `ai/personas/`. Prompts load only from the package, so each arm runs from
+its own checkout, and the digest says which prompts a session ran. It does not cover the target's
+conventions, which `conventions_digest` records beside it. Sessions with different digests
+are refused rather than scored as one arm. The run record's setup names the prompt digest, k, the
+personas that replied, each task's model, temperature and `top_p`, and the gateway pool of each
+group the review used. Verification is recorded as reviews resolve it, layered on the analysis
+task, so with `ai.tasks.verification` unset the setup names the analysis model. When a group
+serves more than one model, the report says `not model-pinned`: pin one model with a single-model
+gateway group before comparing prompts.
+
+Two arms are compared with `devops ai runs baseline set <A>` and `devops ai runs compare <B>`.
+Beside each mean, the table shows each arm's range and whether the ranges `overlaps` or are
+`apart`, or `—` when either run has no range. With k = 3 that is all the data supports: no
+significance test is run. `devops ai runs check` still compares the means.
+
+Both arms must read one configuration file. `config.yaml` is git-ignored and the config lookup
+stops at a worktree's `.git`, so point both checkouts at a shared copy with `DEVOPS_CLI_CONFIG`,
+and pin the analysis and verification models there. Run the base arm twice first: the A/A ranges
+are the noise floor a prompt change is read against. A review learns nothing from its own
+verdicts: only a person's INVALIDATED verdict teaches the catalog (section 5.7). Give no verdicts
+between the runs of a comparison, or the claims judged after an earlier run are suppressed in, and
+shown to the personas of, the runs after it.
+
+To compare models rather than prompts, run every arm from one checkout and pin each arm's model
+from the shell. Each model `devops-review` serves has a gateway group of its own
+(`qwen3-coder:30b`, `gpt-oss:20b`) with the pool's deployments and weights and no fallback.
+`DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL` and `DEVOPS_CLI_AI_TASK_VERIFICATION_MODEL` name that group for
+both tasks; the second overrides a configured `ai.tasks.verification`. `devops review benchmark
+--no-static-scan` keeps scanner findings out of the model's recall. With `DEVOPS_CLI_DATA_DIR`
+unset, `DEVOPS_CLI_DATA_REVIEWS_DIR` and `DEVOPS_CLI_DATA_ANALYSIS_DIR` give each arm its own
+sessions and pre-analysis metadata, which also keeps its sessions out of `devops review stats`.
+
+#### Measuring the threat-model and evidence-bar prompts (#951)
+
+This change rewrote the review and verifier prompts after session `20261001-224227`, in which 87%
+of 563 reported findings were false. Its effect is measured by a person, because the run needs
+models; the gate never runs it.
+
+1. **Setup.** Check out two arms: A at the commit before the change, B at the change. Point both
+   at one shared `DEVOPS_CLI_CONFIG` that pins the analysis and verification models to
+   single-model gateway groups, or the report says `not model-pinned`. #475's per-model baseline
+   is the model-side control.
+2. **Corpus.** From A, run `devops review corpus generate src/devops_cli/security
+   src/devops_cli/ai/review src/devops_cli/commands/k8s src/devops_cli/server k8s docs/commands
+   tests --seed 413`. Both arms review this one corpus. It copies A's `.devops/review.md`, and a
+   review of `<corpus>/files` reads only that copy. A's file has neither the threat model nor the
+   devops-cli exemptions that B moved out of its prompts and into its own `.devops/review.md`, so
+   B reviewed under A's file would run with those exemptions nowhere.
+3. **A/A first.** Run arm A twice, each run a review of the corpus from A with A's
+   `.devops/review.md` in `<corpus>/.devops/review.md` (`devops review path <corpus>/files`), and
+   compare their scores with `devops ai runs compare`. Their difference is the noise floor a B
+   result is read against. Every review in this protocol runs the default DevSecOps persona, not
+   `--all`: the baseline session ran only that persona, and this change left the other four
+   personas' own prompts as they were, so their findings would blur the counts in step 8.
+4. **Interleave.** Run three reviews per arm, alternating A and B, so whatever changes between
+   runs, such as the response cache warming, does not favour one arm. Before each review, copy that arm's
+   `.devops/review.md` over `<corpus>/.devops/review.md`, so each arm runs as it ships; each
+   session's `profile.json` then records its arm's `conventions_digest` (#946) beside its
+   `prompt_digest`. Score each arm with explicit sessions:
+   `devops review corpus score <corpus> --session <id> --session <id> --session <id> --json`.
+   `--runs 3` takes the latest sessions and refuses mixed prompt digests, so it cannot pick an
+   interleaved arm.
+5. **Compare.** `devops ai runs baseline set <A>`, then `devops ai runs compare <B>`.
+6. **Read the guards.** `recall_found`, `recall_reported`, `pass_at_k` and `by_template` must
+   overlap A/A or be better. Watch the absence templates (`drop-error-check`,
+   `drop-bounds-check`) and the guard templates on trusted inputs (`drop-path-containment`), since
+   the prompts now say to report only what is visible and to treat operator input as trusted.
+7. **Read the effects.** `candidate_findings`, `invalidated_findings`, `reported_findings`,
+   `prompt_tokens`, and the mean of `scores[].unmatched_findings`, the reported findings that
+   match no injection (the precision proxy).
+8. **Count the failure signatures** in each session's `candidates.json`. The baseline session's
+   values, all from the DevSecOps persona: `cve` 9, `tests` 87, `planning` 23, `masked` 36,
+   `syntax` 97, `no_code_fix` 117, `crit_high` 534, `unverified_reported` 357,
+   `find_only_criteria` 663. `masked` counts findings about the review tool's own markers
+   (`<masked-kind>`). A bare `<masked>` is the file's own text, so the script lists those
+   findings apart as the known-positive check: the baseline had 10, and B should report the
+   `<masked>` default in `docs/commands/tls.md` and keep it through verification.
+
+   ```python
+   import json, re, sys
+   from collections import Counter
+
+
+   def kind(s):
+       s = s.strip()
+       if re.match(r"(git )?grep\b", s) or " grep " in s:
+           return "find"
+       if "pytest" in s:
+           return "test"
+       if not re.search(r"(from|import)\s+(src\.)?\w+", s) or "getsource" in s:
+           return "find"
+       return "test" if re.search(r"\bassert\b|\braise\b|pytest\.raises", s) else "find"
+
+
+   for d in sys.argv[1:]:
+       f = json.load(open(f"{d}/candidates.json"))["findings"]
+       p = lambda x: x["location"].split(":")[0].lstrip("./")
+       print(
+           d,
+           len(f),
+           dict(
+               Counter(
+                   cve=sum(
+                       any(r.upper().startswith(("CVE-", "GHSA-")) for r in x["references"]) for x in f
+                   ),
+                   tests=sum(p(x).startswith("tests/") for x in f),
+                   planning=sum(
+                       bool(re.search(r"ROADMAP|CHANGELOG|docs/agent/tasks", p(x))) for x in f
+                   ),
+                   masked=sum("<masked-" in x["title"] + x["description"] for x in f),
+                   syntax=sum("syntax" in (x["title"] + x["description"]).lower() for x in f),
+                   no_code_fix=sum("`" not in (x["fix"] or "") for x in f),
+                   crit_high=sum(x["severity"] in ("CRITICAL", "HIGH") for x in f),
+                   unverified_reported=sum(x["status"] == "UNVERIFIED" for x in f),
+                   find_only_criteria=sum(
+                       bool(k) and "test" not in k
+                       for k in (
+                           [
+                               kind(v["command"])
+                               for v in x["verification_criteria"]
+                               if v.get("executable") and v.get("command")
+                           ]
+                           for x in f
+                       )
+                   ),
+               )
+           ),
+       )
+       print(
+           d,
+           "bare <masked>:",
+           sorted(
+               f"{x['location']} {x['status']}"
+               for x in f
+               if "<masked>" in x["title"] + x["description"]
+           ),
+       )
+   ```
+
+9. **Planning documents** never enter a corpus, since they have no injection site. Measure them
+   with a known-negative run from each checkout, where every finding is a false positive:
+   `devops review benchmark docs/ROADMAP.md CHANGELOG.md docs/agent/tasks -n 3`.
+
+The prompt digest covers `ai/tasks/` and `ai/personas/`, not `.devops/review.md`, so the
+conventions swap in steps 3 and 4 is part of measuring B, not an option. To isolate the prompt
+change instead, run both arms under B's `.devops/review.md`; to isolate the conventions, run B
+under each file. Score every arm with explicit `--session` ids.
+
+#### Scoring recall on known findings (#1015)
+
+A corpus scores only the defects its templates inject. None of them injects a NetworkPolicy open
+to every address, a broad `except` or a security claim the code does not bear out, and those are
+what #951's prompts stopped finding: session `20261002-205520` answered each file that held one of
+this repository's known real findings with no finding. So a fixed set of real findings is scored
+beside the corpus A/B, and a prompt change is measured on both.
+
+`tests/fixtures/review_recall/recall_set.json` lists each finding with its file, the revision that
+holds it, its line range, its class and the issue that tracks its fix. The range spans the
+defective construct, such as a whole ingress rule or a whole `try` statement, because a review can
+cite any line of it: sessions S1 to S4 cited the monitoring policy's world-open rule at its port
+list. The class is the label of the rule that names it: a bullet of the DevSecOps persona's *Where
+to Look*, or of the page prompt for the file's kind. A test fails when no prompt that reaches a
+file names its class, when the page prompt a file gets carries a rule that silenced the persona,
+and, in a clone that holds the revision, when the cited lines no longer hold the finding's
+evidence. The gate calls no model, so it cannot score recall; a person runs this.
+
+1. **Setup.** Arm A is the commit to compare against (`38517a8`, #951's prompts, for #1015) and
+   arm B the change. T, at the set's revision, holds the files both arms review and the
+   `.devops/review.md` both read. Pin the models with one shared `DEVOPS_CLI_CONFIG`, as in step 1
+   above. The revision is on `release/v0.2.25`, which is squash-merged into `main`, so a clone
+   made after that branch is gone has to fetch it by its id.
+
+   ```sh
+   R=/tmp/recall
+   git worktree add --detach $R/a 38517a8
+   git worktree add --detach $R/b <B>
+   git worktree add --detach $R/t 38517a89ebd1439e245c08ce0d9ad9cd17932b74
+   ```
+
+2. **Review.** From T, review the set's files three times per arm, alternating arms. Each review
+   is fresh (`--no-cache`), runs no scanners (`--no-static-scan`), so that every candidate is the
+   model's, runs no verification (`--no-verification`), so that each severity is the persona's
+   own (after #846 the copy-back keeps the verifier's), and runs the default DevSecOps persona,
+   which session `20261002-205520` ran. Pin both arms to one model: the first run (2026-10-02)
+   let the pool mix gpt-oss and qwen3-coder per file, and gpt-oss cut two of B's replies. Each arm
+   keeps its sessions in a data directory of its own, and `uv run --project` runs an arm's code on
+   T's files. The paths are an array, expanded in quotes, so that bash and zsh both pass each one
+   as its own argument.
+
+   ```sh
+   cd $R/t
+   files=(k8s/monitoring/networkpolicy.yaml k8s/otel/networkpolicy.yaml src/devops_cli/ai/rag/investigator.py docs/VISION.md src/devops_cli/ai/spend/pricing.py)
+   for sample in 1 2 3; do
+     for arm in a b; do
+       DEVOPS_CLI_DATA_DIR=$R/data-$arm uv run --project $R/$arm devops review path "${files[@]}" --no-cache --no-static-scan --no-verification
+     done
+   done
+   ```
+
+3. **Score.** Save the script below as `score_recall.py` and run it once per arm on that arm's
+   sessions, as in `python3 score_recall.py $R/b/tests/fixtures/review_recall/recall_set.json
+   $R/data-b/reviews/2*/`. For each finding of the set it prints how many samples found it, with a
+   match among the candidates before verification, and how many reported it, then the location
+   and title of each match. A match names the file and cites a line inside the set's range. Last,
+   it lists every other candidate on the set's files.
+
+   ```python
+   import json, re, sys
+
+   recall_set, *sessions = sys.argv[1:]
+   entries = json.load(open(recall_set))["findings"]
+
+
+   def place(finding):
+       """The set's path that a finding names, or None, and the first and last line it cites."""
+       path, _, lines = finding["location"].partition(":")
+       named = next(
+           (e["path"] for e in entries if path == e["path"] or path.endswith("/" + e["path"])),
+           None,
+       )
+       span = re.fullmatch(r"(\d+)(?:-(\d+))?", lines)
+       return named, span and (int(span[1]), int(span[2] or span[1]))
+
+
+   def matches(entry, finding):
+       path, span = place(finding)
+       start, end = entry["lines"]
+       return path == entry["path"] and bool(span) and span[0] <= end and span[1] >= start
+
+
+   def load(session, name):
+       return json.load(open(f"{session}/{name}"))["findings"]
+
+
+   for entry in entries:
+       found = [[f for f in load(s, "candidates.json") if matches(entry, f)] for s in sessions]
+       kept = [[f for f in load(s, "findings.json") if matches(entry, f)] for s in sessions]
+       print(
+           f"{entry['path']}:{entry['lines'][0]}-{entry['lines'][1]}",
+           f"found {sum(map(bool, found))}/{len(sessions)}",
+           f"reported {sum(map(bool, kept))}/{len(sessions)}",
+       )
+       for session, hits in zip(sessions, found):
+           for f in hits:
+               print("   ", session, f["location"], f["title"])
+   print("unmatched on the set's files")
+   for session in sessions:
+       for f in load(session, "candidates.json"):
+           if place(f)[0] and not any(matches(e, f) for e in entries):
+               print("   ", session, f["location"], f["title"])
+   ```
+
+4. **Read.** The bar counts a sample only when one of its matches describes the set's defect:
+   read each title, because a finding on the construct's lines can describe another defect. An
+   unmatched candidate that describes a set's defect on other lines counts for it too; name it in
+   the PR. Label every other unmatched candidate valid, opinion or false: they are what the
+   change adds on the set's own files. B passes when it finds each Network Exposure finding of the
+   set in at least 2 of its 3 samples; the Error Handling and Security Claims findings are counted
+   and reported, not gated. A path review shows no code to a docs page and no diff to a broad
+   `except`, so those two classes are measured in branch reviews; #423 carries broad excepts and
+   #921 the `docs/VISION.md` text. A's counts, read the same way, are the baseline. A finding that B found and
+   did not report was lost at verification, not at generation.
+5. **Precision guard.** Session `20261002-205520` reported 24 findings on 15 files, and 22 of them
+   were false or opinion: all but the broad excepts at `pricing.py:55` and `:65`. Review those
+   files once from B, fresh, at T, and label each finding in the session's `findings.json` valid,
+   opinion or false. B passes with at most 33 false or opinion findings, 1.5 times 22. This review
+   keeps the scanners, as that session did. Bandit failed in that session (#1009) and runs on
+   these 15 files, so count its findings apart. A path review reads whole files where that branch
+   review read diffs, so when B misses the bar, the same review from A gives a like-for-like
+   baseline.
+
+   ```sh
+   cd $R/t
+   DEVOPS_CLI_DATA_DIR=$R/data-precision uv run --project $R/b devops review path .github/project-template.json docs/agent/tasks/task-593-reviews-compute-their-own-symbol-delta.md k8s/cloudflared/deployment.yaml k8s/monitoring/service-aliases.yaml src/devops_cli/ai/mcp/server.py src/devops_cli/ai/rag/indexer.py src/devops_cli/ai/rag/qdrant.py src/devops_cli/ai/spend/pricing.py src/devops_cli/config/settings.py src/devops_cli/docs/generator.py src/devops_cli/github/metrics.py tests/test_ai_request_priority.py tests/test_batch_2_review_defects.py tests/test_review_prompt_consistency.py tests/test_telemetry_profile.py --no-cache
+   ```
+
+6. **Where the restored classes reach.** The files of step 5 hold no NetworkPolicy, Ingress,
+   firewall rule or hand-written claim about a security control, so they cannot show what Network
+   Exposure and Security Claims add. Review every NetworkPolicy, Ingress and Service manifest at T,
+   the Terraform routes to `0.0.0.0/0`, and the hand-written documents that state security
+   controls, once from each arm, fresh and without scanners. Label each finding in each session's
+   `findings.json` valid, opinion or false; a finding of the recall set is valid. Put each arm's
+   false and opinion counts in the PR, and name each false finding B has and A does not.
+
+   ```sh
+   cd $R/t
+   reach=(k8s/argocd/networkpolicy.yaml k8s/cloudflared/networkpolicy.yaml k8s/llm/gateway/networkpolicy.yaml k8s/llm/networkpolicy.yaml k8s/llm/portkey/networkpolicy.yaml k8s/llm/profiles/networkpolicy.yaml k8s/logging/networkpolicy.yaml k8s/monitoring/networkpolicy.yaml k8s/otel/networkpolicy.yaml k8s/ingress/ingress-routes.yaml k8s/llm/gateway/service.yaml k8s/llm/ollama-host-service.yaml k8s/llm/portkey/service.yaml k8s/llm/profiles/services.yaml k8s/llm/valkey-runs.yaml k8s/llm/valkey.yaml k8s/monitoring/service-aliases.yaml k8s/otel/jaeger.yaml k8s/registry/service.yaml tf/aws/main.tf SECURITY.md ARCHITECTURE.md docs/VISION.md)
+   for arm in a b; do
+     DEVOPS_CLI_DATA_DIR=$R/reach-$arm uv run --project $R/$arm devops review path "${reach[@]}" --no-cache --no-static-scan
+   done
+   ```
 
 ### Sample Repositories
 
@@ -511,9 +1103,10 @@ attribute produced five findings: the unassigned attribute, the ineffective shut
 un-joined thread, the delayed stream teardown, and the leaked resource.
 
 **Guardrails**:
-- **Prompt**: `code_review_prompt.md` and `review_output_instruction.md` mandate one finding
-  per root cause, with downstream consequences enumerated inside that finding's description,
-  and require models to scan their own `findings` array for entries a single edit would fix.
+- **Prompt**: `code_review_prompt.md`, sent with each page of a code file, mandates one finding
+  per root cause, with downstream consequences enumerated inside that finding's description
+  (`ai/tasks/code_review_prompt.md:8`). `review_output_instruction.md` says the same but reaches
+  no model: only a path no CLI review takes sends it (section 1).
 - **Mechanical**: `consolidate_duplicate_findings` merges findings that name the same
   distinctive code symbol over overlapping lines, and merges near-identical titles in one
   file even when the cited line ranges differ (personas routinely cite different, and often
@@ -531,11 +1124,13 @@ opt-in flag. The inverse error is identical in shape: help strings were reported
 referencing non-existent commands because the commands are registered in a different module.
 
 **Guardrails**:
-- **Prompt**: a *Segment Boundary Honesty* mandate forbids asserting a missing control —
-  authentication, validation, error handling, bounds checks, cleanup — when the code that
-  would establish it lies outside the provided segment. A matching rule forbids declaring a
-  symbol unused or dangling without locating its consumer. In both cases the model must
-  omit the finding or record the unchecked assumption and lower `confidence_score`.
+- **Prompt**: a *Report What You Can See* rule allows a missing control — authentication,
+  validation, error handling, bounds checks, cleanup — only when the code in front of the
+  model shows the path that needs it. A matching rule forbids declaring a symbol unused or
+  dangling without locating its consumer. In both cases the model omits the finding. An
+  earlier version let it report the unchecked assumption with a lower `confidence_score`
+  instead; in session `20261001-224227` verification left 357 findings unverified and all
+  of them were reported, so #951 reversed it.
 - **Persona**: the DevSecOps persona carries an explicit rule that a server object's
   constructor is not its security boundary; transport, bind address, and loopback
   enforcement live at the launch site.
@@ -552,17 +1147,21 @@ security finding. The module's documented safety invariant ("no common English w
 flag findings as hallucinations") was enforced for `pattern_keywords` but not for
 `signature_patterns`, so learning routed straight around it.
 
-**Guardrails**:
-- Auto-learning now synthesizes a **co-occurrence** signature requiring two distinctive
-  keywords, or emits no signature at all and relies on the already-guarded compound keyword
-  match.
-- Bare single-word signatures are rejected **at match time**, which neutralizes catalogs
-  already written to disk without requiring a data migration.
-- An invalid signature regex is skipped rather than degraded into a broad substring match.
+A two-keyword co-occurrence signature did not fix it. In session `20261001-224227` the learned
+catalog held 35 entries, all `general` and all taught by the review's own deterministic checks,
+pairing common words such as `exception` and `handling` or `insecure` and `configuration`. Their
+`general` ground truth dispatched on id substrings, so none could pass; had it passed, they would
+have invalidated 240 of that session's 903 candidates, 19 VERIFIED HIGH findings among them.
 
-**Auditing the catalog**: a growing suppression catalog deserves periodic scrutiny, not
-trust. Entries with short, generic signatures should be treated as suspect until re-derived
-from a confirmed false positive.
+**Guardrails**:
+- The review teaches the catalog nothing. Only a person's INVALIDATED verdict records an entry,
+  and it suppresses one claim exactly (section 5.7) rather than matching a signature.
+- The entries the deterministic checks taught are purged from the ledger on its first load,
+  which logs one notice saying how many it removed.
+- Bare single-word signatures in the builtin catalog are rejected at match time, and an invalid
+  signature regex is skipped rather than degraded into a broad substring match.
+- The ledger's writers take turns on a lock beside it (`common_hallucinations.json.lock`), so
+  verdicts given at once all land, and a ledger that cannot be read warns.
 
 ### 5.4 Silent Baseline Loss (Fail-Open Calibration)
 
@@ -581,21 +1180,76 @@ review outcomes without changing review output.
 Both CRITICAL findings in session `20260920-124350` carried an empty `fix`. A finding
 without a remediation is a report of unease, not an engineering artifact.
 
-**Guardrail**: `fix` is mandatory and non-empty. A model that cannot articulate a concrete
-remediation does not yet understand the defect well enough to report it.
+**Guardrail**: `fix` is mandatory and holds replacement code for the cited lines. A model that
+cannot write that code does not yet understand the defect well enough to report it, and a fix
+that says to verify, review or consider means there is no finding.
 
 ### 5.6 Calibration Metrics Worth Tracking
 
 Finding counts measure volume, not value. The ratios below measure whether the loop is
-actually improving:
+actually improving. No command computes the first four: each is read from a session's files, as
+the calibration records in section 2 read them.
 
-| Signal | Interpretation |
-| :--- | :--- |
-| False positives per CRITICAL/HIGH finding | Precision where it matters most; the costliest errors to ship. |
-| Findings per distinct root cause | Symptom fan-out; approaching 1.0 means the loop reports defects, not symptoms. |
-| Share of findings with a non-empty `fix` | Actionability of the output. |
-| Suppression entries with generic signatures | Catalog poisoning risk; should trend to zero. |
-| Builtin catalog entries successfully loaded | Calibration integrity; any shortfall is a silent regression. |
+| Signal | Interpretation | Where to read it |
+| :--- | :--- | :--- |
+| False positives per CRITICAL/HIGH finding | Precision where it matters most; the costliest errors to ship. | A person's INVALIDATED verdicts on the CRITICAL and HIGH findings of `findings.json`. `devops review stats` counts statuses and personas, not severities (`commands/review.py:1168-1186`). |
+| Findings per distinct root cause | Symptom fan-out; approaching 1.0 means the loop reports defects, not symptoms. | A person's grouping of `findings.json`. Consolidation has already merged the duplicates it can tell apart (`ai/review_schema.py:1231`). |
+| Share of findings with a non-empty `fix` | Actionability of the output. | The `fix` field of each finding; the failure-signature script of section 4 counts the ones with no code (`no_code_fix`). |
+| Judged claims suppressed per review | What a person's triage saves the next review; each is one claim about one piece of code. | The candidates in `candidates.json` whose `verified_by` is `deterministic:person_verdict` (`ai/review/verification.py:1580-1599`). |
+| Unverified findings reported, and why | Findings a person must judge with no verdict to start from. | `profile.json`, `verdict_distributions.verification_note`: the UNVERIFIED findings by the note that says why, `none` for those verification never reached (`ai/review_schema.py:1636-1648`). |
+| Builtin catalog entries successfully loaded | Calibration integrity; any shortfall is a silent regression. | `devops review hallucinations list`, whose title counts the entries that loaded (`commands/review.py:2239-2259`); a malformed entry is skipped with a warning naming it (`ai/review/common_hallucinations.py:146-157`). |
+
+### 5.7 Re-Reviews Repeat What a Person Already Disproved
+
+Review session `20261002-214641` reported 24 findings, and 21 of them repeated session
+`20261002-205520`'s, word for word, because their replies were replayed from the cache; a person
+had judged nearly all of them false. A cold run rewords every one, and a scanner may report the
+same line under another rule: S6 reported Semgrep's `exec` finding at a test's line 439 under
+Bandit's B102 title.
+
+**Guardrail**: a person's INVALIDATED verdict (`devops review verify --status INVALIDATED`)
+records the claim it disproved, and a later review invalidates the same claim with
+`deterministic:person_verdict` before any model is asked about it. The review records on each
+finding the code its location cites as the review read it (`cited_code`), and the verdict keys
+the claim on that record, never on the file as it reads when the verdict is given, which may
+hold code the person never saw. A verdict on a session saved before this records nothing. The
+claim is matched on:
+
+- the project the code belongs to, the name of its main checkout, so a verdict in one
+  repository never suppresses another's identical code, though both share a data directory. A
+  pull request's head, which `devops review pr` writes to a temporary directory, is named after
+  the checkout the review runs in, and belongs to that project;
+- the file, relative to its checkout, so a scanner's absolute path and a persona's relative one
+  agree;
+- the first line the location cites and a hash of the lines it cites, each stripped of
+  surrounding whitespace. The line keeps a verdict on one `except Exception as err:` handler
+  from reaching the same line in another function, which nobody judged. A change to those lines,
+  or an edit above them that moves them, raises the claim again for a person to judge;
+- the code names of those lines that the title names, or the description when the title names
+  none, ignoring case. Language keywords such as `in`, `for` and `with` and common English words
+  are not code names, and in a prose or configuration file, such as Markdown, YAML or JSON, only
+  a name shaped like an identifier is: one with an underscore or a camelCase hump. A finding that
+  names no code name of its lines records nothing, and the verdict says so, because a claim
+  stated only in prose cannot be told from another claim about the same line.
+
+The tool, persona and wording are not part of the match. Findings whose location names no line,
+such as kube-linter's `Kind/name` objects, are not suppressed. Any later verdict on the finding
+but INVALIDATED withdraws the entry, whether VERIFIED, MITIGATED or a reset to UNVERIFIED, so a
+claim a person changes their mind about is raised again.
+
+The personas are shown the claims people disproved in reviews of the target, the most often
+judged first, under "reported against this codebase". A repository with none is shown the
+curated builtin entries under a heading that does not claim that, and another repository's judged
+claims are never shown.
+
+The feedback dataset is read honestly too. `devops review export-feedback` appends to the one
+configured dataset, `.data/feedback_dataset.jsonl`, skipping each verdict it already holds, reads
+findings.json and candidates.json, and leaves the file as it was when it finds nothing new. Each
+record carries its session's subject, the finding's category and references, and the excerpt
+of its cited code. `devops ai prompt-eval` reports its counts per labeller and leaves out the labels a
+deterministic check wrote, which the layer it measures would only agree with
+(`--include-deterministic` counts them). `devops ai benchmark --suite` is gone: it sent empty
+prompts from two task files that never existed and scored the fix as the code under test.
 
 ---
 

@@ -9,6 +9,7 @@ import pytest
 
 from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.config.settings import AIConfig
+from tests.llm_stream_fakes import route_llm_clients
 
 GATEWAY_URL = "http://gateway.example.com:4000/v1"
 
@@ -26,30 +27,14 @@ def _client(api_key: str) -> LLMClient:
     )
 
 
-def _serve(monkeypatch: pytest.MonkeyPatch, status: int) -> list[dict[str, str]]:
-    """Answer every chat, stream and model-list request with ``status``; record the headers."""
-    sent: list[dict[str, str]] = []
+def _serve(monkeypatch: pytest.MonkeyPatch, status: int) -> list[httpx2.Request]:
+    """Answer every chat, stream and model-list request with ``status``; return the requests."""
     body: dict[str, Any] = (
         {"choices": [{"message": {"content": "OK"}}], "data": [{"id": "devops-coder"}]}
         if status == 200
         else {"error": {"message": "Authentication Error, No api key passed in."}}
     )
-
-    def respond(url: str, headers: dict[str, str] | None) -> httpx2.Response:
-        # Telemetry exporters share httpx2.Client; record only the provider's requests.
-        if url.startswith(GATEWAY_URL):
-            sent.append(dict(headers or {}))
-        return httpx2.Response(status, json=body, request=httpx2.Request("POST", url))
-
-    def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
-        return respond(url, kwargs.get("headers"))
-
-    def fake_get(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
-        return respond(url, kwargs.get("headers"))
-
-    monkeypatch.setattr(httpx2.Client, "post", fake_post)
-    monkeypatch.setattr(httpx2.Client, "get", fake_get)
-    return sent
+    return route_llm_clients(monkeypatch, lambda request: httpx2.Response(status, json=body))
 
 
 def test_unset_key_sends_no_authorization_header(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -60,7 +45,7 @@ def test_unset_key_sends_no_authorization_header(monkeypatch: pytest.MonkeyPatch
     reply = client.chat("You are terse.", "Reply with OK.", use_cache=False)
     models = client.list_models()
 
-    assert (str(reply), models, [h.get("Authorization") for h in sent]) == (
+    assert (str(reply), models, [request.headers.get("Authorization") for request in sent]) == (
         "OK",
         ["devops-coder"],
         [None, None],

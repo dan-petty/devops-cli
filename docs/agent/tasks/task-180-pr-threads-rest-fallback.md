@@ -42,4 +42,3 @@ Resolve the unhandled `GitHubOperationError: GitHub GraphQL query failed: gh: AP
 - [x] Verify test suite and code coverage $\ge 90\%$ (`pr_threads.py` 90%, `issues.py` 91%).
 - [x] Validate cyclomatic complexity $\le 10$ and architectural invariants.
 - [x] Execute `devops ci` quality gate.
-- [ ] Open draft PR and monitor CI checks.

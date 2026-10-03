@@ -264,3 +264,39 @@ def test_pricing_registry_update_from_file_and_persistence(tmp_path: Path) -> No
         )
     finally:
         set_custom_snapshot(None)
+
+
+def test_is_local_configured_cluster_and_gateway(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify is_local recognizes cluster domain subdomains and configured gateway URLs."""
+    from devops_cli.ai.spend.pricing import is_local
+
+    custom_cfg = tmp_path / "config.yaml"
+    custom_cfg.write_text(
+        "k8s:\n"
+        "  domain: retric.click\n"
+        "cloudflare:\n"
+        "  domain: retric.click\n"
+        "ai:\n"
+        "  gateway_url: https://ai.retric.click/v1\n"
+        "  api_base_url: https://ai.retric.click/v1\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(custom_cfg))
+
+    assert (
+        is_local("ai.retric.click", "gateway"),
+        is_local("https://ai.retric.click/v1", "gateway"),
+        is_local("vllm.retric.click:8000", "gateway"),
+        is_local(None, "gateway"),
+        is_local("https://api.openai.com/v1", "openai"),
+        is_local("hog.lan:11434, bombas.lan:11434", "ollama"),
+    ) == (
+        True,
+        True,
+        True,
+        True,
+        False,
+        True,
+    )

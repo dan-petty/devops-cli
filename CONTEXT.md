@@ -16,6 +16,10 @@ _Avoid_: task, deliverable, card, ticket, work item, tracking issue
 The in-repo implementation record of one item, written in the pull request that delivers it.
 _Avoid_: task, task item
 
+**Changelog fragment**:
+One item's changelog entries, written as `changelog.d/<issue>.md` in the pull request that delivers it and merged into the release's section of `CHANGELOG.md` at the cut.
+_Avoid_: news fragment, changelog snippet
+
 **Priority**:
 An item's rank: P0 (critical), P1 (high), P2 (medium) or P3 (low).
 _Avoid_: severity, category, priority category
@@ -125,7 +129,7 @@ A reviewer's claim that something in the code is wrong, with where it is and the
 _Avoid_: issue, alert, problem
 
 **Verdict**:
-The decision on a finding: verified (real), invalidated (a false positive) or mitigated (fixed).
+The decision on a finding: verified (the defect is there), invalidated (a false positive), mitigated (the defect is there, but a named guard in named files limits it) or unverified (no decision yet). It records who gave it: a check, the verifier model, an agent or a person.
 _Avoid_: status, resolution
 
 **Review session**:

@@ -218,7 +218,11 @@ def test_devops_subcommand_wrappers(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_scan_osv_and_threat_intel(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify scan_osv and check_threat_intel functions."""
-    from devops_cli.models.vulnerability import NetworkReputationRecord, VulnerabilityRecord
+    from devops_cli.models.vulnerability import (
+        NetworkReputationRecord,
+        PackageLookupResult,
+        VulnerabilityRecord,
+    )
 
     mock_rec = VulnerabilityRecord(
         id="CVE-2026-0001",
@@ -230,7 +234,7 @@ def test_scan_osv_and_threat_intel(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     with patch(
         "devops_cli.security.vulnerability_lookup.OSVClient.query_package",
-        return_value=[mock_rec],
+        return_value=PackageLookupResult(status="ok", vulnerabilities=[mock_rec]),
     ):
         res_osv = scan_osv("pydantic", version="2.0.0")
         assert "CVE-2026-0001" in res_osv
@@ -255,6 +259,42 @@ def test_scan_osv_and_threat_intel(monkeypatch: pytest.MonkeyPatch) -> None:
 
     res_ex_ip = check_threat_intel("192.0.2.1")
     assert "documented example or reserved network space" in res_ex_ip
+
+
+def test_scan_osv_names_only_the_database_it_queries() -> None:
+    """`scan_osv` and the `security_intel_package` tool query OSV.dev alone, so neither their
+    descriptions nor a clean reply mention NVD, which nothing queries (#956)."""
+    from devops_cli.ai.mcp.server import security_intel_package
+    from devops_cli.models.vulnerability import PackageLookupResult
+
+    with patch(
+        "devops_cli.security.vulnerability_lookup.OSVClient.query_package",
+        return_value=PackageLookupResult(status="ok", vulnerabilities=[]),
+    ):
+        clean = scan_osv("requests", "2.0.0")
+
+    assert (
+        clean,
+        "NVD" in (scan_osv.__doc__ or ""),
+        "NVD" in (security_intel_package.__doc__ or ""),
+    ) == ("No known vulnerabilities found in OSV for requests (PyPI).", False, False)
+
+
+def test_scan_osv_reports_a_failed_lookup_instead_of_a_clean_package() -> None:
+    """A lookup that cannot reach OSV.dev says so with the reason. It used to answer "No known
+    vulnerabilities", which reads as a clean package (#956)."""
+    import httpx2
+
+    with patch(
+        "devops_cli.security.vulnerability_lookup.httpx2.Client.post",
+        side_effect=httpx2.ConnectError("connection refused"),
+    ):
+        reply = scan_osv("requests", "2.0.0")
+
+    assert (reply, "No known vulnerabilities" in reply) == (
+        "OSV lookup failed: connection refused",
+        False,
+    )
 
 
 def test_builtin_security_and_iac_tools(tmp_path: Path) -> None:
@@ -282,6 +322,7 @@ def test_builtin_security_and_iac_tools(tmp_path: Path) -> None:
 
     mock_dive = DiveAnalysisResult(
         image_name="alpine:latest",
+        status="ran",
         efficiency_score=0.95,
         wasted_bytes=1024 * 1024,
         total_bytes=10 * 1024 * 1024,
@@ -332,3 +373,32 @@ def test_builtin_security_and_iac_tools(tmp_path: Path) -> None:
 
         res_rag = rag_search("test query")
         assert "No semantic matches found" in res_rag
+
+
+def test_rag_search_names_an_embedding_failure() -> None:
+    """A query the embedding model cannot embed returns the failure, as an unreachable store does."""
+    from devops_cli.ai.rag.embeddings import EmbeddingsError
+    from devops_cli.ai.tools.builtin_tools import rag_search
+    from devops_cli.config.settings import Settings
+
+    failure = EmbeddingsError(
+        "Embedding model bge-m3:latest produced no embeddings: "
+        "https://example.com/v1/embeddings answered HTTP 400: model not loaded"
+    )
+    with (
+        patch("devops_cli.config.settings.load_settings", return_value=Settings()),
+        patch("devops_cli.config.settings.get_ai_api_key", return_value=None),
+        patch("devops_cli.config.settings.get_qdrant_api_key", return_value=None),
+        patch("devops_cli.ai.rag.embeddings.EmbeddingsEngine._init_valkey", return_value=None),
+        patch("devops_cli.ai.rag.qdrant.QdrantClient.is_alive", return_value=True),
+        patch(
+            "devops_cli.ai.rag.retriever.SemanticRetriever.retrieve_context", side_effect=failure
+        ),
+    ):
+        reply = rag_search("where is the retry policy")
+
+    assert reply == (
+        "RAG search unavailable: Embedding model bge-m3:latest produced no embeddings: "
+        "https://example.com/v1/embeddings answered HTTP 400: model not loaded. "
+        "Fallback: use search_code."
+    )

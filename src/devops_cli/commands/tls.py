@@ -486,13 +486,10 @@ def enable_k8s_cmd(
                 ["kubectl", "create", "namespace", ns] + kubectl_ctx, capture_output=True
             )
 
-        # Delete existing secret before re-creating
-        run_subprocess(
-            ["kubectl", "delete", "secret", secret_name, "-n", ns] + kubectl_ctx,
-            capture_output=True,
-        )
-
-        create_cmd = [
+        # Render the secret client-side, where kubectl rejects a certificate and key that do
+        # not match, and apply it over the existing one only once it renders. Deleting first
+        # left the namespace without a secret whenever the create then failed.
+        render_cmd = [
             "kubectl",
             "create",
             "secret",
@@ -502,9 +499,19 @@ def enable_k8s_cmd(
             f"--key={key_path}",
             "-n",
             ns,
+            "--dry-run=client",
+            "-o",
+            "yaml",
         ] + kubectl_ctx
 
-        proc = run_subprocess(create_cmd, capture_output=True, text=True)
+        proc = run_subprocess(render_cmd, capture_output=True, text=True)
+        if proc.returncode == 0:
+            proc = run_subprocess(
+                ["kubectl", "apply", "-f", "-", "-n", ns] + kubectl_ctx,
+                input=proc.stdout,
+                capture_output=True,
+                text=True,
+            )
         if proc.returncode == 0:
             results.append(
                 KubernetesTLSSecretResult(

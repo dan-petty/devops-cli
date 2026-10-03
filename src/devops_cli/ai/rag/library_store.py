@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any, cast
 
+from devops_cli.config.constants import CONST_LIBRARIES_DIR_NAME
 from devops_cli.config.defaults import (
     DEFAULT_DRY_RUN_EMBEDDING_DIMENSION,
     DEFAULT_QDRANT_DISTANCE,
@@ -23,6 +24,20 @@ from devops_cli.models.library import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def library_contracts_dir() -> Path:
+    """Where library contracts are kept: `libraries` under devops-cli's data directory (#972).
+
+    Contracts are written and read there alone, by `devops ai ingest` and a review alike, so a
+    relative data directory resolves under the review data root (`resolve_review_data_path`).
+    A review's contract grounding hands them to the model as ground truth it must not dispute, so
+    they never come from the directory a command runs in, which may be the tree under review.
+    """
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_review_data_path
+
+    return resolve_review_data_path(load_settings().data.dir / CONST_LIBRARIES_DIR_NAME)
 
 
 def _format_fn_signature(fn: FunctionSignature) -> str:
@@ -168,7 +183,7 @@ class LibraryVectorStore:
         self.valkey_client = valkey_client
         self.embedder = embedder
         self.collection_name = collection_name
-        self.local_contracts_dir = local_contracts_dir or Path(".data/libraries")
+        self.local_contracts_dir = local_contracts_dir or library_contracts_dir()
 
     def _resolve_dimension(self) -> int:
         """Resolve vector dimension from embedder or fallback default."""

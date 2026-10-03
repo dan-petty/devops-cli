@@ -1,0 +1,12 @@
+[
+{"id": 32300356096, "event": "assigned", "actor": {"login": "dan-petty"}, "created_at": "2026-10-02T00:54:30Z", "issue": {"number": 768, "state": "open"}},
+{"id": 32300182969, "event": "referenced", "actor": {"login": "dan-petty"}, "created_at": "2026-10-02T00:50:16Z", "issue": {"number": 739, "state": "open"}},
+{"id": 32300182010, "event": "closed", "actor": {"login": "dan-petty"}, "created_at": "2026-10-02T00:50:14Z", "issue": {"number": 918, "state": "closed", "pull_request": {"url": "https://api.github.com/repos/dan-petty/devops-cli/pulls/918"}}, "state_reason": null},
+{"id": 32294483177, "event": "labeled", "actor": {"login": "dan-petty"}, "created_at": "2026-10-01T22:39:11Z", "issue": {"number": 917, "state": "open"}, "label": {"name": "priority/p3-low", "color": "0E8A16"}},
+{"id": 32294478614, "event": "closed", "actor": {"login": "dan-petty"}, "created_at": "2026-10-01T22:39:06Z", "issue": {"number": 299, "state": "closed"}, "state_reason": null},
+{"id": 32293399061, "event": "milestoned", "actor": {"login": "dan-petty"}, "created_at": "2026-10-01T22:17:49Z", "issue": {"number": 912, "state": "closed"}, "milestone": {"title": "v0.2.24"}},
+{"id": 32292067162, "event": "unlabeled", "actor": {"login": "dan-petty"}, "created_at": "2026-10-01T21:54:21Z", "issue": {"number": 829, "state": "closed"}, "label": {"name": "priority/p1-high", "color": "D93F0B"}},
+{"id": 32292065980, "event": "renamed", "actor": {"login": "dan-petty"}, "created_at": "2026-10-01T21:54:20Z", "issue": {"number": 829, "state": "closed"}, "rename": {"from": "fix(telemetry): the collector's remote-write to alloy times out and drops most devops-cli metrics", "to": "fix(telemetry): the collector remote-writes devops-cli metrics to the path alloy serves"}},
+{"id": 32292065874, "event": "demilestoned", "actor": {"login": "dan-petty"}, "created_at": "2026-10-01T21:54:20Z", "issue": {"number": 829, "state": "closed"}, "milestone": {"title": "v0.2.28"}},
+{"id": 32290425332, "event": "milestoned", "actor": {"login": "dan-petty"}, "created_at": "2026-10-01T21:27:15Z", "issue": {"number": 905, "state": "closed", "pull_request": {"url": "https://api.github.com/repos/dan-petty/devops-cli/pulls/905"}}, "milestone": {"title": "v0.2.24"}}
+]

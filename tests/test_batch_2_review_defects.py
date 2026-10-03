@@ -26,7 +26,6 @@ from devops_cli.ai.review_schema import (
     Finding,
     ReviewResult,
     SavedFinding,
-    VerificationCriterion,
     _parse_location,
     canonicalize_finding_location,
     reset_verification_state,
@@ -180,7 +179,7 @@ def test_pr_review_conventions_loaded_from_base_ref(tmp_path: Path) -> None:
     pull_mock.base.repo.full_name = "org/repo"
     pull_mock.base.ref = "main"
     pull_mock.base.sha = "base123"
-    pull_mock.get_files.return_value = [
+    pr_files = [
         MagicMock(filename="AGENTS.md", status="modified"),
         MagicMock(filename=".devops/review.md", status="added"),
         MagicMock(filename="src/foo.py", status="modified"),
@@ -192,7 +191,7 @@ def test_pr_review_conventions_loaded_from_base_ref(tmp_path: Path) -> None:
     empty_cwd.mkdir()
 
     with patch("pathlib.Path.cwd", return_value=empty_cwd):
-        _materialize_pr_head(mock_gh, "org/repo", pull_mock, dest_dir)
+        _materialize_pr_head(mock_gh, "org/repo", pull_mock, dest_dir, pr_files)
 
     assert (
         (dest_dir / "AGENTS.md").read_text(encoding="utf-8"),
@@ -290,34 +289,34 @@ def test_positional_oracle_rejects_incompatible_title() -> None:
     assert matched is None
 
 
-def test_conflicting_criteria_leaves_finding_unverified() -> None:
+def test_conflicting_criteria_leaves_finding_unverified(tmp_path: Path) -> None:
     """When both invalidation and verification criteria pass, finding remains UNVERIFIED."""
-    crit_ver = VerificationCriterion(command="git grep -q timeout", executable=True)
+    proves = "python -c 'from net import fetch; assert fetch.timeout is None'"
+    refutes = "python -c 'from net import fetch; assert fetch(1) == 1'"
     f = SavedFinding(
         title="Flaky timeout",
         location="net.py:15",
         status="UNVERIFIED",
-        verification_criteria=[crit_ver],
+        verification_criteria=[proves],
+        invalidation_criteria=[refutes],
     )
     exec_res = [
-        CriterionExecutionResult(
-            command="git grep -q timeout",
-            exit_code=0,
-            passed=True,
-            duration_seconds=0.1,
-        )
+        CriterionExecutionResult(command=c, exit_code=0, passed=True, duration_seconds=0.1)
+        for c in (proves, refutes)
     ]
     reconciled = _reconcile_finding_from_criteria(
         finding=f,
         exec_results=exec_res,
-        matched_ver=["git grep -q timeout"],
-        matched_inv=["test_inv.sh"],
+        matched_ver=[proves],
+        matched_inv=[refutes],
+        repo_root=tmp_path,
     )
     assert (
         reconciled.status,
         reconciled.verified_by,
         reconciled.confidence_score,
-    ) == ("UNVERIFIED", None, 1.0)
+        reconciled.verification_note,
+    ) == ("UNVERIFIED", None, None, "criteria-non-discriminating")
 
 
 def test_null_location_treated_as_unchanged() -> None:

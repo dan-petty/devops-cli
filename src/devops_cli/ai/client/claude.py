@@ -10,13 +10,10 @@ from typing import Any
 import httpx2
 
 from devops_cli.ai.client.base import BaseLLMProviderMixin
-from devops_cli.ai.client.models import LLMResponse
-from devops_cli.ai.client.network import read_limited_json
-from devops_cli.ai.client.streaming import (
-    _consume_streaming_lines,
-    _extract_claude_stream_chunk,
-)
-from devops_cli.config.constants import CONST_URL_ANTHROPIC_API_BASE
+from devops_cli.ai.client.models import LLMResponse, provider_finish_reason
+from devops_cli.ai.client.network import request_limited_json
+from devops_cli.ai.client.streaming import _claude_stream_frame, _read_event_stream
+from devops_cli.config.constants import CONST_ANTHROPIC_STOP_REASONS, CONST_URL_ANTHROPIC_API_BASE
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import inject_trace_context
 
@@ -71,16 +68,15 @@ class ClaudeProviderMixin(BaseLLMProviderMixin):
                 payload["top_p"] = float(claude_top_p)
 
         try:
-            http_client = self._shared_client()
-            response = http_client.post(
+            raw_json, _headers = request_limited_json(
+                self._shared_client(),
+                "POST",
                 f"{base}/v1/messages",
                 headers=headers,
                 json=payload,
                 timeout=self._request_timeout(),
             )
-            response.raise_for_status()
             wall_elapsed = time.monotonic() - start_time
-            raw_json = read_limited_json(response)
             content_blocks = raw_json.get("content", [])
             text_parts: list[str] = []
             thinking_parts: list[str] = []
@@ -115,6 +111,9 @@ class ClaudeProviderMixin(BaseLLMProviderMixin):
                 completion_tokens=completion_tokens,
                 total_tokens=total_tokens,
                 model=raw_json.get("model"),
+                finish_reason=provider_finish_reason(
+                    CONST_ANTHROPIC_STOP_REASONS, raw_json.get("stop_reason")
+                ),
             )
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
@@ -172,9 +171,7 @@ class ClaudeProviderMixin(BaseLLMProviderMixin):
                 if response.status_code >= 400:
                     response.read()
                 response.raise_for_status()
-                yield from _consume_streaming_lines(
-                    response, _extract_claude_stream_chunk, "Claude"
-                )
+                yield from _read_event_stream(response, _claude_stream_frame, "Claude")
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:

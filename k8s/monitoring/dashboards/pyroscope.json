@@ -1,0 +1,238 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "panels": [],
+      "title": "CPU Profiling",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "pyroscope"
+      },
+      "description": "Continuous process CPU profiling flamegraph showing execution call stacks and hot paths.",
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-pyroscope-datasource",
+            "uid": "pyroscope"
+          },
+          "expr": "process_cpu:cpu:nanoseconds:cpu:nanoseconds{service_name=~\".*$service.*\"}",
+          "groupBy": [],
+          "labelSelector": "{service_name=~\".*$service.*\"}",
+          "profileTypeId": "process_cpu:cpu:nanoseconds:cpu:nanoseconds",
+          "queryType": "profile",
+          "refId": "A"
+        }
+      ],
+      "title": "CPU Flamegraph (process_cpu)",
+      "type": "flamegraph"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "id": 3,
+      "panels": [],
+      "title": "Memory Profiling",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "pyroscope"
+      },
+      "description": "In-use memory allocations flamegraph showing active heap memory retained by call stack.",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 4,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-pyroscope-datasource",
+            "uid": "pyroscope"
+          },
+          "expr": "memory:inuse_space:bytes:space:bytes{service_name=~\".*$service.*\"}",
+          "groupBy": [],
+          "labelSelector": "{service_name=~\".*$service.*\"}",
+          "profileTypeId": "memory:inuse_space:bytes:space:bytes",
+          "queryType": "profile",
+          "refId": "A"
+        }
+      ],
+      "title": "Memory In-Use Space (inuse_space)",
+      "type": "flamegraph"
+    },
+    {
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "pyroscope"
+      },
+      "description": "Cumulative memory allocation flamegraph showing total heap memory allocated over time.",
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 5,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-pyroscope-datasource",
+            "uid": "pyroscope"
+          },
+          "expr": "memory:alloc_space:bytes:space:bytes{service_name=~\".*$service.*\"}",
+          "groupBy": [],
+          "labelSelector": "{service_name=~\".*$service.*\"}",
+          "profileTypeId": "memory:alloc_space:bytes:space:bytes",
+          "queryType": "profile",
+          "refId": "A"
+        }
+      ],
+      "title": "Memory Allocated Space (alloc_space)",
+      "type": "flamegraph"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "id": 6,
+      "panels": [],
+      "title": "Goroutines & Concurrency",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-pyroscope-datasource",
+        "uid": "pyroscope"
+      },
+      "description": "Live Goroutines flamegraph showing call stacks and concurrency distribution.",
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
+      "id": 7,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-pyroscope-datasource",
+            "uid": "pyroscope"
+          },
+          "expr": "goroutine:goroutine:count:goroutines:count{service_name=~\".*$service.*\"}",
+          "groupBy": [],
+          "labelSelector": "{service_name=~\".*$service.*\"}",
+          "profileTypeId": "goroutine:goroutine:count:goroutines:count",
+          "queryType": "profile",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Goroutines Flamegraph",
+      "type": "flamegraph"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": [
+    "pyroscope",
+    "profiling",
+    "flamegraph",
+    "devops-cli",
+    "sre"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Service",
+        "multi": false,
+        "name": "service",
+        "options": [
+          {
+            "selected": true,
+            "text": "All",
+            "value": ".*"
+          },
+          {
+            "selected": false,
+            "text": "monitoring/pyroscope",
+            "value": "monitoring/pyroscope"
+          },
+          {
+            "selected": false,
+            "text": "monitoring/alloy",
+            "value": "monitoring/alloy"
+          }
+        ],
+        "query": "monitoring/pyroscope, monitoring/alloy",
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "timezone": "browser",
+  "title": "Continuous Profiling / Pyroscope Flamegraphs",
+  "uid": "devops-pyroscope",
+  "version": 1
+}

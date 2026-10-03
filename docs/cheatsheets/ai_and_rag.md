@@ -12,7 +12,7 @@ Compare raw LLM API endpoints and manual review scripts with the unified, multi-
 | **Review Git Branch Diffs** | `git diff main...feat \| llm -s "review"` | `devops ai review branch <branch>` | Multi-persona analysis across `devsecops`, `architect`, `qa`, `auditor`, and `pm` with boundary tag prompt isolation. |
 | **Review GitHub PR** | Manual GitHub web UI inspection | `devops ai review pr <pr_number>` | Automatically downloads PR diffs, paginates large changes, checks CI status, and stages structured review reports in `.data/reviews/`. |
 | **Inspect Review Findings** | Manual JSON parsing | `devops ai review findings <session>` | Formatted terminal summary of findings sorted by severity and confidence score, filtering out invalidated false positives. |
-| **Export Feedback Dataset** | Manual record curation | `devops ai review export-feedback` | Exports reviewed, verified, and invalidated findings into structured JSONL datasets (`.data/feedback.jsonl`) for prompt alignment. |
+| **Export Feedback Dataset** | Manual record curation | `devops ai review export-feedback` | Appends the verdicts on review findings it does not already hold to the one JSONL dataset (`.data/feedback_dataset.jsonl`, `data.feedback_dataset_path`), read from findings.json and candidates.json. |
 
 ---
 

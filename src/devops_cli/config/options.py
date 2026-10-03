@@ -41,6 +41,10 @@ AI_TASK_ANALYSIS_PROVIDER = "ai.tasks.analysis.provider"
 AI_TASK_ANALYSIS_MODEL = "ai.tasks.analysis.model"
 AI_TASK_ANALYSIS_REASONING_EFFORT = "ai.tasks.analysis.reasoning_effort"
 AI_TASK_ANALYSIS_OLLAMA_URLS = "ai.tasks.analysis.ollama_urls"
+AI_TASK_VERIFICATION_PROVIDER = "ai.tasks.verification.provider"
+AI_TASK_VERIFICATION_MODEL = "ai.tasks.verification.model"
+AI_TASK_VERIFICATION_REASONING_EFFORT = "ai.tasks.verification.reasoning_effort"
+AI_TASK_VERIFICATION_OLLAMA_URLS = "ai.tasks.verification.ollama_urls"
 AI_TASK_COMPOSE_PROVIDER = "ai.tasks.compose.provider"
 AI_TASK_COMPOSE_MODEL = "ai.tasks.compose.model"
 AI_TASK_COMPOSE_REASONING_EFFORT = "ai.tasks.compose.reasoning_effort"
@@ -60,6 +64,7 @@ AI_RAG_SCORE_THRESHOLD = "ai.rag.score_threshold"
 QDRANT_URL = "qdrant.url"
 QDRANT_API_KEY = "qdrant.api_key"
 QDRANT_COLLECTION_PREFIX = "qdrant.collection_prefix"
+QDRANT_TIMEOUT = "qdrant.timeout"
 
 # Valkey In-Memory Data Store & Distributed Cache
 VALKEY_HOST = "valkey.host"
@@ -74,6 +79,8 @@ RUNS_INDEX_URL = "runs.index_url"
 RUNS_INDEX_PASSWORD = "runs.index_password"
 
 # Telemetry & Structured Observability
+TELEMETRY_ENABLED = "telemetry.enabled"
+TELEMETRY_ENDPOINT = "telemetry.endpoint"
 TELEMETRY_LOGFIRE = "telemetry.logfire"
 TELEMETRY_LOGFIRE_TOKEN = "telemetry.logfire_token"
 
@@ -155,6 +162,10 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     AI_TASK_ANALYSIS_MODEL,
     AI_TASK_ANALYSIS_REASONING_EFFORT,
     AI_TASK_ANALYSIS_OLLAMA_URLS,
+    AI_TASK_VERIFICATION_PROVIDER,
+    AI_TASK_VERIFICATION_MODEL,
+    AI_TASK_VERIFICATION_REASONING_EFFORT,
+    AI_TASK_VERIFICATION_OLLAMA_URLS,
     AI_TASK_COMPOSE_PROVIDER,
     AI_TASK_COMPOSE_MODEL,
     AI_TASK_COMPOSE_REASONING_EFFORT,
@@ -170,6 +181,7 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     QDRANT_URL,
     QDRANT_API_KEY,
     QDRANT_COLLECTION_PREFIX,
+    QDRANT_TIMEOUT,
     VALKEY_HOST,
     VALKEY_PORT,
     VALKEY_PASSWORD,
@@ -191,6 +203,8 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     DATA_TLS_DIR,
     DATA_AUDIT_LOG_PATH,
     DATA_FEEDBACK_DATASET_PATH,
+    TELEMETRY_ENABLED,
+    TELEMETRY_ENDPOINT,
     TELEMETRY_LOGFIRE,
     TELEMETRY_LOGFIRE_TOKEN,
     SANDBOX_EXCLUDE_HOME_DIR,

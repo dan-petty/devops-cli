@@ -87,7 +87,7 @@ devops pr wait [OPTIONS] <number>
 | `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
 | `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
-| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
@@ -114,7 +114,7 @@ devops pr monitor [OPTIONS] <number>
 | `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
 | `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
-| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
@@ -239,7 +239,16 @@ devops pr close [OPTIONS] <number>
 
 ## `devops pr check-readiness`
 
-**Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state.**
+**Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.**
+
+Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
+
+Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
+and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
+body closes exactly one issue, and it adds, modifies or renames that issue's
+docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves CHANGELOG.md and
+docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. Into release/vX.Y.Z,
+the issue it closes is in release vX.Y.Z. A base branch without docs/agent/tasks/ is exempt.
 
 ```bash
 devops pr check-readiness [OPTIONS] <number>
@@ -385,7 +394,7 @@ devops pr threads resolve-all [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
+| `--only-replied` / `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---

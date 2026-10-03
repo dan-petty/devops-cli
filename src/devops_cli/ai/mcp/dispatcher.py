@@ -57,6 +57,7 @@ _PREFIX_TO_DOMAIN: dict[str, str] = {
     "security": "security",
     "sandbox": "security",
     "workspace": "workspace",
+    "roadmap": "roadmap",
 }
 
 

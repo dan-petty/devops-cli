@@ -60,10 +60,10 @@ Integrate Sigstore Cosign CLI for keyless container image and manifest signing, 
 
 ## 3. Verification & Acceptance Criteria
 
-- [ ] Comprehensive unit tests in `tests/test_docker_cosign.py` pass cleanly.
-- [ ] FastMCP contract tests in `tests/test_fastmcp_contracts.py` pass cleanly.
-- [ ] Architectural invariant tests in `tests/test_architectural_invariants.py` pass cleanly.
-- [ ] Code coverage $\ge 90\%$ maintained across all new modules.
-- [ ] Actionable error when `cosign` binary is missing (`DependencyError`).
-- [ ] Zero plaintext secrets exposed in arguments or logs.
-- [ ] All quality gates pass in `devops ci`.
+- Not checked when merged: comprehensive unit tests in `tests/test_docker_cosign.py` pass cleanly.
+- Not checked when merged: FastMCP contract tests in `tests/test_fastmcp_contracts.py` pass cleanly.
+- Not checked when merged: architectural invariant tests in `tests/test_architectural_invariants.py` pass cleanly.
+- Not checked when merged: code coverage $\ge 90\%$ maintained across all new modules.
+- Not checked when merged: actionable error when `cosign` binary is missing (`DependencyError`).
+- Not checked when merged: zero plaintext secrets exposed in arguments or logs.
+- Not checked when merged: all quality gates pass in `devops ci`.

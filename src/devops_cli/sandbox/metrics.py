@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 import httpx2
 
+from devops_cli.config.constants import CONST_PROMETHEUS_EXPOSITION_METRIC_TYPES
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.validation import validate_url_egress
 from devops_cli.exceptions import DevOpsCLIError
@@ -26,8 +27,10 @@ from devops_cli.security.sanitizer import mask_uri_credentials, redact_text
 logger = logging.getLogger(__name__)
 
 _MAX_ERROR_LEN = 256
+_METRIC_NAME_PATTERN = r"[a-zA-Z_:][a-zA-Z0-9_:]*"
+_METRIC_NAME_REGEX = re.compile(_METRIC_NAME_PATTERN)
 _METRIC_LINE_REGEX = re.compile(
-    r"^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>[^}]*)\})?\s+(?P<value>[^\s]+)(?:\s+(?P<ts>\d+))?$"
+    rf"^(?P<name>{_METRIC_NAME_PATTERN})(?:\{{(?P<labels>[^}}]*)\}})?\s+(?P<value>[^\s]+)(?:\s+(?P<ts>\d+))?$"
 )
 _LABEL_REGEX = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)="([^"\\]*(?:\\.[^"\\]*)*)"')
 _UNESCAPE_MAP = {r"\"": '"', r"\\": "\\", r"\n": "\n"}
@@ -326,10 +329,17 @@ def parse_prometheus_exposition(text: str) -> list[PrometheusMetric]:
 
 
 def _record_type(line: str, type_map: dict[str, str]) -> None:
-    """Record metric type definition from comment line."""
+    """Record a `# TYPE <name> <type>` line that names a metric and gives a type the format defines.
+
+    The line is the scraped endpoint's text. Any other line is ignored, so the samples' type is
+    inferred from their name instead of taken from it.
+    """
     parts = line.split(maxsplit=3)
-    if len(parts) >= 4:
-        type_map[parts[2]] = parts[3].lower()
+    if len(parts) < 4 or not _METRIC_NAME_REGEX.fullmatch(parts[2]):
+        return
+    metric_type = parts[3].lower()
+    if metric_type in CONST_PROMETHEUS_EXPOSITION_METRIC_TYPES:
+        type_map[parts[2]] = metric_type
 
 
 def _parse_metric_line(line: str, type_map: dict[str, str]) -> PrometheusMetric | None:

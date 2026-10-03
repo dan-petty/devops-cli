@@ -5,19 +5,36 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Annotated, Any, cast
+from collections.abc import Callable
+from http import HTTPStatus
+from typing import Annotated, Any, NamedTuple, cast
+from urllib.parse import urlencode
 
 import typer
+from packaging.version import Version
 
 from devops_cli.config.constants import (
+    CONST_AGENT_TASK_FILE_RE,
+    CONST_AGENT_TASKS_DIR,
+    CONST_CHANGELOG_FRAGMENTS_DIR,
+    CONST_GH_API_HTTP_STATUS_RE,
     CONST_GH_CLI,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_PR_API_STATE_MAP,
+    CONST_PR_FILE_CHANGED_STATUSES,
+    CONST_PR_FILE_WRITTEN_STATUSES,
+    CONST_RELEASE_BRANCH_PREFIX,
+    CONST_RELEASE_BRANCH_RE,
+    CONST_RELEASE_PROCESS_BRANCH_RE,
+    CONST_RELEASE_SHARED_FILES,
 )
-from devops_cli.config.defaults import DEFAULT_PR_LIMIT, DEFAULT_PR_STATE
+from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE, DEFAULT_PR_LIMIT, DEFAULT_PR_STATE
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
+from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.github.issue_closure import extract_linked_issues
 from devops_cli.github.pr_monitor import sort_prs_oldest_first
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.lang import ERRORS, HELP, MESSAGES
@@ -28,6 +45,7 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
+from devops_cli.roadmap.store import in_release
 
 logger = logging.getLogger(__name__)
 
@@ -547,7 +565,6 @@ def _resolve_monitor_pr_number(number: int | None, owner: str, repo_name: str) -
     """Resolve pull request number or discover from branch."""
     if number is not None:
         return number
-    from devops_cli.exceptions.git import GitHubOperationError
     from devops_cli.github.pr_monitor import resolve_branch_pr_number
 
     try:
@@ -1389,19 +1406,83 @@ def _check_run_blockers(
     return blockers
 
 
-def _fetch_pr_changed_files(pr_num: int, owner: str, repo_name: str) -> list[str]:
-    """Fetch changed file paths for a PR."""
+class ChangedFile(NamedTuple):
+    """A file a pull request changes, with GitHub's status for it (`added`, `removed`, ...).
+
+    A renamed file also carries the path it had before.
+    """
+
+    filename: str
+    status: str
+    previous_filename: str = ""
+
+
+class _ChangedFilesRead(NamedTuple):
+    """The files a pull request changes, or why they could not be read."""
+
+    files: list[ChangedFile]
+    error: str = ""
+
+
+def _gh_failure(res: Any) -> str:
+    """Name a failed `gh` call by its own message, bounded for the blocker that repeats it."""
+    return ((res.stderr or "").strip() or f"exit code {res.returncode}")[
+        :CONST_MAX_ERROR_DETAIL_LENGTH
+    ]
+
+
+def _changed_file(entry: Any) -> ChangedFile:
+    """Read one `pulls/{n}/files` entry, raising on one without a filename and status."""
+    if not isinstance(entry, dict):
+        raise GitHubOperationError("the pull request files API returned a non-object entry")
+    filename, status = entry.get("filename"), entry.get("status")
+    if not isinstance(filename, str) or not isinstance(status, str):
+        raise GitHubOperationError(
+            "the pull request files API returned an entry without a filename or status"
+        )
+    previous = entry.get("previous_filename")
+    return ChangedFile(filename, status, previous if isinstance(previous, str) else "")
+
+
+def _fetch_pr_files(pr_num: int, owner: str, repo_name: str) -> list[ChangedFile]:
+    """Read every file a pull request changes, raising when GitHub can't say which.
+
+    `run_gh` pages a `--paginate` request itself and stops at the first page shorter than the
+    URL's `per_page`, assuming 100 when the URL sets none. This endpoint's default page is 30,
+    so without `per_page=100` the read ended after 30 files.
+    """
     res = run_gh(
-        [CONST_GH_CLI, "pr", "diff", str(pr_num), "--name-only", "--repo", f"{owner}/{repo_name}"],
+        [
+            CONST_GH_CLI,
+            "api",
+            "--paginate",
+            f"repos/{owner}/{repo_name}/pulls/{pr_num}/files?per_page={DEFAULT_GH_REST_PER_PAGE}",
+        ],
         check=False,
         quiet=True,
     )
-    if res.returncode == 0 and res.stdout.strip():
-        return [line.strip() for line in res.stdout.splitlines() if line.strip()]
-    return []
+    if res.returncode != 0:
+        raise GitHubOperationError(_gh_failure(res))
+    try:
+        payload = json.loads(res.stdout or "null")
+    except json.JSONDecodeError as exc:
+        raise GitHubOperationError(
+            f"malformed JSON from the pull request files API: {exc}"
+        ) from exc
+    if not isinstance(payload, list):
+        raise GitHubOperationError("the pull request files API returned no list")
+    return [_changed_file(entry) for entry in payload]
 
 
-def _check_pr_perimeter_changes(pr_num: int, owner: str, repo_name: str) -> None:
+def _read_pr_files(pr_num: int, owner: str, repo_name: str) -> _ChangedFilesRead:
+    """Read the changed files once per readiness run, keeping a failure for the caller to judge."""
+    try:
+        return _ChangedFilesRead(_fetch_pr_files(pr_num, owner, repo_name))
+    except GitHubOperationError as exc:
+        return _ChangedFilesRead([], str(exc))
+
+
+def _check_pr_perimeter_changes(changed: _ChangedFilesRead) -> None:
     """Warn if PR changed files intersect with the mitigated findings perimeter ledger."""
     try:
         from devops_cli.ai.review.mitigations import (
@@ -1409,14 +1490,283 @@ def _check_pr_perimeter_changes(pr_num: int, owner: str, repo_name: str) -> None
             format_perimeter_warning,
         )
 
-        changed_files = _fetch_pr_changed_files(pr_num, owner, repo_name)
-        if not changed_files:
+        if not changed.files:
             return
-        matches = find_perimeter_changes(changed_files)
+        matches = find_perimeter_changes([entry.filename for entry in changed.files])
         if matches:
             print_warning(format_perimeter_warning(matches))
     except Exception as exc:
         logger.debug("Failed checking PR perimeter changes: %s", exc)
+
+
+def _repo_full_name(side: dict[str, Any]) -> str:
+    """The `owner/repo` one side of a pull request lives in, lower-cased; empty when unknown."""
+    repo = side.get("repo")
+    return str(repo.get("full_name") or "").lower() if isinstance(repo, dict) else ""
+
+
+def _same_repository(pr_data: dict[str, Any]) -> bool:
+    """Whether the PR's head lives in its base's repository rather than a fork."""
+    head, base = pr_data.get("head") or {}, pr_data.get("base") or {}
+    return _repo_full_name(head) != "" and _repo_full_name(head) == _repo_full_name(base)
+
+
+def _branch_ref(pr_data: dict[str, Any], side: str) -> str:
+    """The branch name on one side (`head` or `base`) of a pull request."""
+    return str((pr_data.get(side) or {}).get("ref") or "")
+
+
+def _is_release_pr(pr_data: dict[str, Any]) -> bool:
+    """Whether this is the release PR: `release/vX.Y.Z` into the default branch, not from a fork."""
+    base = pr_data.get("base") or {}
+    default_branch = str((base.get("repo") or {}).get("default_branch") or "")
+    into_default = default_branch != "" and base.get("ref") == default_branch
+    release_head = CONST_RELEASE_BRANCH_RE.fullmatch(_branch_ref(pr_data, "head")) is not None
+    return _same_repository(pr_data) and into_default and release_head
+
+
+def _is_release_process_pr(pr_data: dict[str, Any]) -> bool:
+    """Whether this PR opens or cuts a release rather than delivering an item.
+
+    Its head is `chore/open-vX.Y.Z` or `chore/cut-vX.Y.Z`, optionally followed by `-<slug>`,
+    from the same repository, and its base is `release/vX.Y.Z` of the same version.
+    """
+    process = CONST_RELEASE_PROCESS_BRANCH_RE.fullmatch(_branch_ref(pr_data, "head"))
+    release = CONST_RELEASE_BRANCH_RE.fullmatch(_branch_ref(pr_data, "base"))
+    if process is None or release is None:
+        return False
+    return process["version"] == release["version"] and _same_repository(pr_data)
+
+
+def _base_has_task_files(pr_data: dict[str, Any], owner: str, repo_name: str) -> bool:
+    """Whether the base commit holds the task directory, raising when GitHub can't say.
+
+    A 404 means the repository keeps no task files. Only the answer matters, so `--silent`
+    drops the listing.
+    """
+    base = pr_data.get("base") or {}
+    query = urlencode({"ref": str(base.get("sha") or base.get("ref") or "")})
+    res = run_gh(
+        [
+            CONST_GH_CLI,
+            "api",
+            "--silent",
+            f"repos/{owner}/{repo_name}/contents/{CONST_AGENT_TASKS_DIR}?{query}",
+        ],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode == 0:
+        return True
+    status = CONST_GH_API_HTTP_STATUS_RE.search(res.stderr or "")
+    if status is not None and int(status.group("status")) == HTTPStatus.NOT_FOUND:
+        return False
+    raise GitHubOperationError(_gh_failure(res))
+
+
+def _grounding_scope(
+    pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str
+) -> tuple[bool, list[str]]:
+    """Whether grounding applies to this PR, and the blocker a failed lookup leaves.
+
+    A lookup that fails for any reason but a 404 can't rule grounding out, so the check still
+    applies and the failure is a blocker of its own.
+    """
+    if _is_release_pr(pr_data) or _is_release_process_pr(pr_data):
+        return False, []
+    try:
+        return _base_has_task_files(pr_data, owner, repo_name), []
+    except GitHubOperationError as exc:
+        blocker = MESSAGES.pr.grounding_tasks_dir_unread.format(
+            number=pr_num, path=CONST_AGENT_TASKS_DIR, error=exc
+        )
+        return True, [blocker]
+
+
+class _ClosedItem(NamedTuple):
+    """The Release of the one issue a PR into `release/vX.Y.Z` closes, or why it wasn't read."""
+
+    release: str | None
+    error: str = ""
+
+
+class _Grounding(NamedTuple):
+    """What the grounding checks judge: the PR's base, the issues it closes, the files it changes,
+    and, into a release branch, the Release of the one issue it closes."""
+
+    pr_num: int
+    repo: str
+    base: str
+    issues: list[int]
+    changed: _ChangedFilesRead
+    item: _ClosedItem | None = None
+
+
+def _closes_one_issue(grounding: _Grounding) -> str | None:
+    """The body closes exactly one issue, read as `gh issues close-merged` will act on it."""
+    if len(grounding.issues) == 1:
+        return None
+    if not grounding.issues:
+        return MESSAGES.pr.grounding_closes_no_issue.format(
+            number=grounding.pr_num, repo=grounding.repo
+        )
+    return MESSAGES.pr.grounding_closes_several_issues.format(
+        number=grounding.pr_num,
+        count=len(grounding.issues),
+        issues=", ".join(f"#{issue}" for issue in grounding.issues),
+    )
+
+
+def _changed_files_were_read(grounding: _Grounding) -> str | None:
+    """The files the PR changes were read, so the task-file check has something to judge."""
+    if not grounding.changed.error:
+        return None
+    return MESSAGES.pr.grounding_files_unread.format(
+        number=grounding.pr_num, error=grounding.changed.error
+    )
+
+
+def _writes_task_file(changed: ChangedFile, issue: int) -> bool:
+    """Whether this change leaves the issue's task file in the head."""
+    match = CONST_AGENT_TASK_FILE_RE.fullmatch(changed.filename)
+    return (
+        match is not None
+        and int(match.group("issue")) == issue
+        and changed.status in CONST_PR_FILE_WRITTEN_STATUSES
+    )
+
+
+def _changes_its_task_file(grounding: _Grounding) -> str | None:
+    """The PR adds, modifies or renames the task file of the one issue it closes."""
+    if len(grounding.issues) != 1 or grounding.changed.error:
+        return None
+    issue = grounding.issues[0]
+    if any(_writes_task_file(changed, issue) for changed in grounding.changed.files):
+        return None
+    return MESSAGES.pr.grounding_task_file_missing.format(
+        number=grounding.pr_num, pattern=f"{CONST_AGENT_TASKS_DIR}/task-{issue}-*.md", issue=issue
+    )
+
+
+def _changes_a_release_file(changed: ChangedFile) -> list[str]:
+    """The files the cut writes that this change adds, modifies, renames or removes."""
+    if changed.status not in CONST_PR_FILE_CHANGED_STATUSES:
+        return []
+    paths = (changed.filename, changed.previous_filename)
+    return [path for path in paths if path in CONST_RELEASE_SHARED_FILES]
+
+
+def _leaves_release_files_to_the_cut(grounding: _Grounding) -> str | None:
+    """A PR into a release branch leaves CHANGELOG.md and docs/ROADMAP.md to the cut.
+
+    Every such PR edited the same lines of both, so each merge made every other open PR
+    conflict and run CI again (#933). Its changelog entry is a fragment of its own instead.
+    """
+    if not grounding.base.startswith(CONST_RELEASE_BRANCH_PREFIX) or grounding.changed.error:
+        return None
+    found = {
+        path for changed in grounding.changed.files for path in _changes_a_release_file(changed)
+    }
+    if not found:
+        return None
+    issue = str(grounding.issues[0]) if len(grounding.issues) == 1 else "<issue>"
+    return MESSAGES.pr.grounding_release_files_changed.format(
+        number=grounding.pr_num,
+        files=" and ".join(path for path in CONST_RELEASE_SHARED_FILES if path in found),
+        base=grounding.base,
+        fragment=f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{issue}.md",
+    )
+
+
+def _closes_an_item_of_its_release(grounding: _Grounding) -> str | None:
+    """A PR into `release/vX.Y.Z` closes an item of release vX.Y.Z (#740).
+
+    The release's scope is fixed when it starts, so work on an item of another release, or of
+    the backlog, waits for that release. It judges the one issue the body closes, which
+    `_closes_one_issue` requires; a PR into the default branch is not judged.
+    """
+    branch = CONST_RELEASE_BRANCH_RE.fullmatch(grounding.base)
+    if branch is None or grounding.item is None:
+        return None
+    issue = grounding.issues[0]
+    if grounding.item.error:
+        return MESSAGES.pr.grounding_item_unread.format(
+            number=grounding.pr_num, issue=issue, error=grounding.item.error
+        )
+    version = Version(branch["version"])
+    if in_release(grounding.item.release, version):
+        return None
+    placement = (
+        MESSAGES.pr.grounding_item_in_release.format(release=grounding.item.release)
+        if grounding.item.release
+        else MESSAGES.pr.grounding_item_in_backlog
+    )
+    return MESSAGES.pr.grounding_item_not_in_release.format(
+        number=grounding.pr_num,
+        issue=issue,
+        placement=placement,
+        release=f"v{version}",
+        base=grounding.base,
+    )
+
+
+# Each check names what is missing, or returns None. A check that needs what an earlier one
+# found missing returns None, so each failure is one blocker. A new rule is one more entry.
+_GROUNDING_CHECKS: tuple[Callable[[_Grounding], str | None], ...] = (
+    _closes_one_issue,
+    _changed_files_were_read,
+    _changes_its_task_file,
+    _leaves_release_files_to_the_cut,
+    _closes_an_item_of_its_release,
+)
+
+
+def _read_closed_item(
+    owner: str, repo_name: str, base: str, issues: list[int]
+) -> _ClosedItem | None:
+    """The Release of the one issue a PR into a release branch closes; None for any other PR."""
+    if CONST_RELEASE_BRANCH_RE.fullmatch(base) is None or len(issues) != 1:
+        return None
+    res = run_gh(
+        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/issues/{issues[0]}"],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode != 0:
+        return _ClosedItem(None, _gh_failure(res))
+    try:
+        issue = json.loads(res.stdout or "")
+    except json.JSONDecodeError as exc:
+        return _ClosedItem(None, f"malformed JSON: {exc}"[:CONST_MAX_ERROR_DETAIL_LENGTH])
+    milestone = issue.get("milestone") if isinstance(issue, dict) else None
+    title = milestone.get("title") if isinstance(milestone, dict) else None
+    return _ClosedItem(title if isinstance(title, str) else None)
+
+
+def _grounding_blockers(
+    pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str, changed: _ChangedFilesRead
+) -> list[str]:
+    """Require every item PR to close one issue, change its task file and leave shared files
+    alone, and a PR into `release/vX.Y.Z` to close an item of that release.
+
+    The release PR and release-process PRs deliver no single item and are exempt. It applies
+    where the base holds `docs/agent/tasks/`. Where it does not apply, an unread file list is a
+    warning, since only the perimeter warning reads it.
+    """
+    applies, blockers = _grounding_scope(pr_data, pr_num, owner, repo_name)
+    if not applies:
+        if changed.error:
+            print_warning(
+                MESSAGES.pr.changed_files_unread.format(number=pr_num, error=changed.error)
+            )
+        return []
+    repo = f"{owner}/{repo_name}"
+    linked = extract_linked_issues(str(pr_data.get("body") or ""), repo)
+    base = _branch_ref(pr_data, "base")
+    issues = [issue.number for issue in linked]
+    item = _read_closed_item(owner, repo_name, base, issues)
+    grounding = _Grounding(pr_num, repo, base, issues, changed, item)
+    return blockers + [found for check in _GROUNDING_CHECKS if (found := check(grounding))]
 
 
 def _evaluate_pr_blockers(
@@ -1429,11 +1779,10 @@ def _evaluate_pr_blockers(
     allow_replied_threads: bool = False,
     allow_pending_checks: bool = False,
 ) -> list[str]:
-    """Inspect PR data and unresolved discussion threads for merge blockers."""
+    """Inspect PR data, checks, discussion threads and grounding for merge blockers."""
     if pr_data.get("merged") is True:
         return []
 
-    from devops_cli.exceptions.git import GitHubOperationError
     from devops_cli.github.pr_threads import list_pr_review_threads
 
     blockers: list[str] = []
@@ -1462,7 +1811,9 @@ def _evaluate_pr_blockers(
     blockers.extend(
         _evaluate_threads_blockers(unresolved, pr_num, allow_replied_threads=allow_replied_threads)
     )
-    _check_pr_perimeter_changes(pr_num, owner, repo_name)
+    changed = _read_pr_files(pr_num, owner, repo_name)
+    blockers.extend(_grounding_blockers(pr_data, pr_num, owner, repo_name, changed))
+    _check_pr_perimeter_changes(changed)
     return blockers
 
 
@@ -1561,7 +1912,15 @@ def check_readiness(
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
 ) -> None:
-    """Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state."""
+    """Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
+
+    Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
+    and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
+    body closes exactly one issue, and it adds, modifies or renames that issue's
+    docs/agent/tasks/task-<issue>-*.md. Into a release/* branch it leaves CHANGELOG.md and
+    docs/ROADMAP.md to the cut and adds changelog.d/<issue>.md instead. Into release/vX.Y.Z,
+    the issue it closes is in release vX.Y.Z. A base branch without docs/agent/tasks/ is exempt.
+    """
     owner, repo_name, pr_num, target_repo = _resolve_readiness_target(repo, number)
     pr_data = _fetch_pr_details(pr_num, target_repo)
     if not pr_data:
@@ -1821,7 +2180,6 @@ def list_threads(
 ) -> None:
     """List PR review discussion threads, file locations, and comments."""
     from devops_cli.core.repo import get_repo_origin_name
-    from devops_cli.exceptions.git import GitHubOperationError
     from devops_cli.github.pr_threads import list_pr_review_threads
 
     target_repo = repo or get_repo_origin_name()

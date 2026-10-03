@@ -5,14 +5,17 @@ from __future__ import annotations
 import json
 import logging
 import urllib.parse
-from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 import httpx2
 from pydantic import BaseModel
 
-from devops_cli.config.constants import CONST_GH_CLI, CONST_URL_GITHUB_API_BASE
-from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
+from devops_cli.config.constants import (
+    CONST_GH_CLI,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
+    CONST_URL_GITHUB_API_BASE,
+)
+from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT, DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.models.ssh import SSHKeyInfo
@@ -148,6 +151,21 @@ class GitHubClient:
             logger.debug("Could not fetch %s@%s from %s: %s", path, ref, repo, exc)
             return None
 
+    def get_merge_base(self, repo: str, base: str, head: str) -> str | None:
+        """The merge base of two commits from the compare endpoint; None when it cannot be read.
+
+        A pull request's `base.sha` is the base branch's tip, which moves on after the branch
+        point; its diff starts here instead.
+        """
+        try:
+            comparison = self._gh.get_repo(repo, lazy=True).compare(
+                base, head, comparison_commits_per_page=1
+            )
+            return str(comparison.merge_base_commit.sha)
+        except Exception as exc:
+            logger.debug("Could not compare %s...%s in %s: %s", base, head, repo, exc)
+            return None
+
     def get_pr_diff(self, repo: str, number: int) -> str:
         """Fetch the raw unified diff for a pull request."""
         url = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls/{number}"
@@ -216,98 +234,6 @@ class GitHubClient:
             color=color.lstrip("#"),
             description=description,
         )
-
-    # ── Milestones ────────────────────────────────────────────────────────────
-
-    def get_milestones(self, repo: str, state: str = "all") -> list[dict[str, Any]]:
-        """Fetch all milestones for a repository."""
-        milestones = self._gh.get_repo(repo).get_milestones(state=state)
-        results: list[dict[str, Any]] = []
-        for m in milestones:
-            due = getattr(m, "due_on", None)
-            due_str = (
-                due.isoformat()
-                if due and hasattr(due, "isoformat")
-                else (str(due) if due else None)
-            )
-            results.append(
-                {
-                    "title": m.title,
-                    "number": m.number,
-                    "state": m.state,
-                    "description": m.description or "",
-                    "open_issues": m.open_issues,
-                    "closed_issues": m.closed_issues,
-                    "due_on": due_str,
-                }
-            )
-        return results
-
-    def create_milestone(
-        self,
-        repo: str,
-        title: str,
-        description: str = "",
-        state: str = "open",
-        due_on: str | date | datetime | None = None,
-    ) -> Any:
-        """Create a new milestone in the specified repository."""
-        kwargs: dict[str, Any] = {
-            "title": title,
-            "description": description,
-            "state": state,
-        }
-        if due_on is not None:
-            if isinstance(due_on, (datetime, date)):
-                kwargs["due_on"] = due_on
-            elif isinstance(due_on, str) and due_on.strip():
-                clean_due = due_on.strip()
-                try:
-                    kwargs["due_on"] = datetime.fromisoformat(clean_due.replace("Z", "+00:00"))
-                except ValueError:
-                    kwargs["due_on"] = date.fromisoformat(clean_due)
-        return self._gh.get_repo(repo).create_milestone(**kwargs)
-
-    def edit_milestone(
-        self,
-        repo: str,
-        number: int,
-        title: str | None = None,
-        state: str = "closed",
-        description: str | None = None,
-        due_on: str | date | datetime | None = None,
-    ) -> Any:
-        """Update an existing milestone in the specified repository."""
-        milestone = self._gh.get_repo(repo).get_milestone(number)
-        kwargs: dict[str, Any] = {"state": state}
-        kwargs["title"] = title if title is not None else milestone.title
-        if description is not None:
-            kwargs["description"] = description
-        if due_on is not None:
-            if isinstance(due_on, (datetime, date)):
-                kwargs["due_on"] = due_on
-            elif isinstance(due_on, str) and due_on.strip():
-                clean_due = due_on.strip()
-                try:
-                    kwargs["due_on"] = datetime.fromisoformat(clean_due.replace("Z", "+00:00"))
-                except ValueError:
-                    kwargs["due_on"] = date.fromisoformat(clean_due)
-        return milestone.edit(**kwargs)
-
-    def close_milestone(self, repo: str, version_or_number: str | int) -> bool:
-        """Close a milestone by number or title/version string."""
-        if isinstance(version_or_number, int):
-            self.edit_milestone(repo, version_or_number, state="closed")
-            return True
-
-        target_title = str(version_or_number).strip()
-        candidates = {target_title, target_title.lstrip("v"), f"v{target_title.lstrip('v')}"}
-        milestones = self.get_milestones(repo, state="all")
-        matched = next((m for m in milestones if m.get("title") in candidates), None)
-        if matched and "number" in matched:
-            self.edit_milestone(repo, int(matched["number"]), state="closed")
-            return True
-        return False
 
     # ── Issues ───────────────────────────────────────────────────────────────
 
@@ -422,18 +348,41 @@ class GhCliClient:
     def __init__(self, default_repo: str | None = None) -> None:
         self.default_repo = default_repo
 
+    def _run_label_command(self, cmd: list[str], *, quiet: bool = False) -> str:
+        """Run a `gh label` subcommand and return its output, raising when gh fails."""
+        res = run_gh(cmd, check=False, quiet=quiet)
+        if res.returncode != 0:
+            stderr = res.stderr.strip()[:CONST_MAX_ERROR_DETAIL_LENGTH]
+            raise GitHubOperationError(
+                f"gh label {cmd[2]} failed with exit code {res.returncode}: {stderr}",
+                operation=f"gh_label_{cmd[2]}",
+                details={"stderr": stderr},
+            )
+        return res.stdout
+
     def get_labels(self, repo: str) -> list[dict[str, Any]]:
         target_repo = repo or self.default_repo or ""
-        cmd = [CONST_GH_CLI, "label", "list", "--json", "name,color,description"]
+        cmd = [
+            CONST_GH_CLI,
+            "label",
+            "list",
+            "--json",
+            "name,color,description",
+            "--limit",
+            str(DEFAULT_GH_LABEL_LIST_LIMIT),
+        ]
         if target_repo:
             cmd.extend(["--repo", target_repo])
-        res = run_gh(cmd, check=False, quiet=True)
-        if res.returncode == 0 and res.stdout.strip():
-            try:
-                return json.loads(res.stdout)  # type: ignore[no-any-return]
-            except json.JSONDecodeError:
-                pass
-        return []
+        stdout = self._run_label_command(cmd, quiet=True)
+        if not stdout.strip():
+            return []
+        try:
+            return json.loads(stdout)  # type: ignore[no-any-return]
+        except json.JSONDecodeError as exc:
+            raise GitHubOperationError(
+                f"gh label list returned output that is not JSON: {exc}",
+                operation="gh_label_list",
+            ) from exc
 
     def create_label(self, repo: str, name: str, color: str, description: str = "") -> None:
         target_repo = repo or self.default_repo or ""
@@ -449,7 +398,7 @@ class GhCliClient:
         ]
         if target_repo:
             cmd.extend(["--repo", target_repo])
-        run_gh(cmd, check=False)
+        self._run_label_command(cmd)
 
     def edit_label(self, repo: str, name: str, color: str, description: str = "") -> None:
         target_repo = repo or self.default_repo or ""
@@ -465,77 +414,7 @@ class GhCliClient:
         ]
         if target_repo:
             cmd.extend(["--repo", target_repo])
-        run_gh(cmd, check=False)
-
-    def get_milestones(self, repo: str, state: str = "all") -> list[dict[str, Any]]:
-        target_repo = repo or self.default_repo or ""
-        cmd = [
-            CONST_GH_CLI,
-            "api",
-            "--paginate",
-            f"repos/{target_repo}/milestones?state={state}&per_page=100",
-        ]
-        res = run_gh(cmd, check=False, quiet=True)
-        if res.returncode == 0 and res.stdout.strip():
-            raw = parse_paginated_json(res.stdout)
-            return [
-                {
-                    "title": m.get("title", ""),
-                    "number": m.get("number", 0),
-                    "state": m.get("state", "open"),
-                    "description": m.get("description", ""),
-                    "open_issues": m.get("open_issues", 0),
-                    "closed_issues": m.get("closed_issues", 0),
-                    "due_on": m.get("due_on"),
-                }
-                for m in raw
-            ]
-        return []
-
-    def create_milestone(
-        self,
-        repo: str,
-        title: str,
-        description: str = "",
-        state: str = "open",
-        due_on: Any = None,
-    ) -> None:
-        target_repo = repo or self.default_repo or ""
-        cmd = [
-            CONST_GH_CLI,
-            "api",
-            f"repos/{target_repo}/milestones",
-            "-f",
-            f"title={title}",
-            "-f",
-            f"description={description}",
-            "-f",
-            f"state={state}",
-        ]
-        if due_on:
-            cmd.extend(["-f", f"due_on={due_on}"])
-        run_gh(cmd, check=False)
-
-    def edit_milestone(
-        self,
-        repo: str,
-        number: int,
-        title: str | None = None,
-        description: str | None = None,
-        state: str | None = None,
-        due_on: Any = None,
-    ) -> None:
-        target_repo = repo or self.default_repo or ""
-        cmd = [CONST_GH_CLI, "api", "-X", "PATCH", f"repos/{target_repo}/milestones/{number}"]
-        if title is not None:
-            cmd.extend(["-f", f"title={title}"])
-        if description is not None:
-            cmd.extend(["-f", f"description={description}"])
-        if state is not None:
-            cmd.extend(["-f", f"state={state}"])
-        if due_on is not None:
-            cmd.extend(["-f", f"due_on={due_on}"])
-        run_gh(cmd, check=False)
+        self._run_label_command(cmd)
 
     def edit_issue(
         self,
@@ -569,3 +448,18 @@ class GhCliClient:
             return True
         except Exception:
             return False
+
+    def api(self, endpoint: str, paginate: bool = False) -> str:
+        """Execute a GitHub API request via rate-managed run_gh."""
+        cmd = [CONST_GH_CLI, "api"]
+        if paginate:
+            cmd.append("--paginate")
+        cmd.append(endpoint)
+        res = run_gh(cmd, check=False, quiet=True)
+        if res.returncode != 0:
+            raise GitHubOperationError(
+                f"gh api call failed with exit code {res.returncode}: {res.stderr.strip()}",
+                operation="gh_api",
+                details={"endpoint": endpoint, "stderr": res.stderr[:256]},
+            )
+        return res.stdout

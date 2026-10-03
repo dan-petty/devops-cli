@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.ai.review_schema import Finding
+from devops_cli.ai.review.history import review_subject
+from devops_cli.ai.review_schema import Finding, SavedFinding
 from devops_cli.commands.review import app
 
 runner = CliRunner()
@@ -128,42 +130,44 @@ def test_review_verify_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert updated_finding["verified_by"] == "human"
 
 
-def test_review_stats_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    reviews_dir = tmp_path / "reviews"
-    session_dir = reviews_dir / "20260809-120000-test-repo"
-    session_dir.mkdir(parents=True)
+def test_review_verify_keeps_the_session_subject(
+    isolate_data_dir: Path, write_review_session: Callable[..., Path]
+) -> None:
+    """Verify `devops review verify` rewrites findings.json with the session's subject, so a
+    session that holds human verdicts keeps its place in review history (#607)."""
+    subject = review_subject("pr", "42", ["diff --git a/auth.py b/auth.py\n"])
+    session = write_review_session(
+        isolate_data_dir / "reviews" / "20261001-090000",
+        generated_at="2026-10-01T09:00:00+00:00",
+        subject=subject,
+        findings=[SavedFinding(title="Hardcoded Token", location="auth.py:42")],
+    )
 
-    findings_payload = {
-        "generated_at": "2026-08-09T12:00:00",
-        "personas": ["devsecops"],
-        "findings": [
-            {
-                "persona": "devsecops",
-                "severity": "HIGH",
-                "location": "auth.py:42",
-                "title": "Hardcoded Token",
-                "status": "VERIFIED",
-            },
-            {
-                "persona": "devsecops",
-                "severity": "MEDIUM",
-                "location": "logging.py:10",
-                "title": "Verbose Log",
-                "status": "INVALIDATED",
-                "invalidation_reason": "Debug mode only",
-            },
-        ],
-    }
-    (session_dir / "findings.json").write_text(json.dumps(findings_payload), encoding="utf-8")
+    res = runner.invoke(
+        app, ["verify", session.name, "--index", "1", "--status", "VERIFIED", "--reason", "Seen"]
+    )
 
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    saved = json.loads((session / "findings.json").read_text(encoding="utf-8"))
+    assert (res.exit_code, saved["subject"], saved["findings"][0]["verified_by"]) == (
+        0,
+        subject,
+        "human",
+    )
 
-    res = runner.invoke(app, ["stats"], env={"DEVOPS_CLI_DATA_DIR": str(tmp_path)})
-    assert res.exit_code == 0
-    assert "Total Sessions:  1" in res.output
-    assert "Total Findings:  2" in res.output
-    assert "VERIFIED" in res.output
-    assert "INVALIDATED" in res.output
+
+def test_review_stats_command(review_history: Path) -> None:
+    """Verify `devops review stats` reports how its sessions were counted, and that its tables
+    count each review subject once: counting every session would add the repeats' VERIFIED and
+    UNVERIFIED findings (#607)."""
+    res = runner.invoke(app, ["stats", "--reviews-dir", str(review_history)])
+
+    output = " ".join(res.output.split())
+    assert (
+        res.exit_code,
+        "Sessions: 5 (counted 3: 2 repeat sessions collapsed, 1 target-only, 1 unkeyed)" in output,
+        "Total Findings: 3" in output,
+        "VERIFIED 1 33.3% UNVERIFIED 0 0.0% INVALIDATED 1 33.3% MITIGATED 1 33.3%" in output,
+    ) == (0, True, True, True)
 
 
 def test_find_related_file_metas_matches_dependencies_and_symbols() -> None:
@@ -358,6 +362,7 @@ def test_format_related_file_block(tmp_path: Path) -> None:
                 "confidence_score": 0.95,
                 "severity": "LOW",
                 "location": "test.py:12",
+                "citation_line": 12,
             },
             "INVALIDATED",
             False,
@@ -370,7 +375,7 @@ def test_format_related_file_block(tmp_path: Path) -> None:
                 "mitigated": True,
                 "verified": False,
                 "reason": "Input is bounded at line 12.",
-                "mitigating_mechanism": "BoundedInputValidator",
+                "mitigating_mechanism": "`BoundedInputValidator`",
                 "perimeter_files": ["src/validator.py"],
             },
             "MITIGATED",
@@ -413,8 +418,13 @@ def test_apply_single_finding_verification(
     expected_reportable: bool,
     expected_verified: bool,
     expected_conf: float | None,
+    tmp_path: Path,
 ) -> None:
     from devops_cli.ai.review.verification import _apply_single_finding_verification
+
+    # The perimeter a mitigation names must hold its mechanism in the reviewed tree (#845).
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/validator.py").write_text("class BoundedInputValidator: ...\n", "utf-8")
 
     f = Finding(
         title="Test Finding",
@@ -426,7 +436,7 @@ def test_apply_single_finding_verification(
     )
     now_iso = "2026-08-26T00:00:00"
 
-    res = _apply_single_finding_verification(f, item, now_iso)
+    res = _apply_single_finding_verification(f, item, now_iso, repo_root=tmp_path)
     actual_verified = res.verified if item is not None else expected_verified
     actual_conf = res.confidence_score if expected_conf is not None else None
     assert (res.status, res.reportable, actual_verified, actual_conf) == (
@@ -1124,6 +1134,183 @@ def test_an_unchecked_or_failed_lookup_dependency_does_not_invalidate_finding() 
     assert (res1, res2) == (None, None)
 
 
+# Findings the check invalidated once #948 gave it every dependency the session scanned. Each
+# names a package the scan reported CLEAN, and none is a claim about that package's advisories.
+_CLAIMS_A_CLEAN_SCAN_DOES_NOT_ANSWER = [
+    pytest.param(
+        Finding(
+            severity="LOW",
+            location="tests/test_security_bandit.py:107",
+            title="Potential Path Traversal in Bandit Mock",
+            description=(
+                "The `_fake_bandit_1_9` function reads file contents using `path.read_text()` "
+                "without validating that the path is within the expected scope. This could "
+                "allow an attacker to read arbitrary files if the path traversal vulnerability "
+                "exists in how paths are constructed or resolved."
+            ),
+        ),
+        id="20261003-012555-path-traversal-in-a-test-helper",
+    ),
+    pytest.param(
+        Finding(
+            severity="HIGH",
+            location="src/devops_cli/commands/k8s/networking.py:561",
+            title="Command Injection Vulnerability in Kubernetes Process Execution",
+            description=(
+                "The `_discover_ingress_hosts` function calls `runtime.run_subprocess` with "
+                "user-provided context arguments. This could lead to command injection if the "
+                "context name contains shell metacharacters."
+            ),
+        ),
+        id="20260928-040906-command-injection-in-a-kubernetes-call",
+    ),
+    pytest.param(
+        Finding(
+            severity="HIGH",
+            location="src/devops_cli/ai/spend/pricing.py:455-473",
+            title="Unvalidated SSRF in _fetch_raw_pricing_payload",
+            description=(
+                "The function `_fetch_raw_pricing_payload` accepts an arbitrary `source_url` and "
+                "performs an HTTP GET using `httpx2` without checking whether the URL resolves "
+                "to a private or loopback address. The lack of validation directly leads to a "
+                "SSRF vulnerability."
+            ),
+        ),
+        id="20261002-232955-ssrf-through-httpx2",
+    ),
+    pytest.param(
+        Finding(
+            severity="MEDIUM",
+            location="k8s/gpu-feature-discovery/daemonset.yaml:57",
+            title=(
+                "[yaml.kubernetes.security.allow-privilege-escalation.allow-privilege-escalation] "
+                "In Kubernetes, each pod runs in its own isolated environment with its own set of"
+            ),
+            description=(
+                "Semgrep AST flaw (yaml.kubernetes.security.allow-privilege-escalation."
+                "allow-privilege-escalation) at k8s/gpu-feature-discovery/daemonset.yaml:57: "
+                "In Kubernetes, each pod runs in its own isolated environment. By adding the "
+                "`allowPrivilegeEscalation` parameter to your the `securityContext`, you can "
+                "help to ensure that your containerized applications are more secure and less "
+                "vulnerable to privilege escalation attacks."
+            ),
+        ),
+        id="20260930-053418-semgrep-kubernetes-rule",
+    ),
+]
+
+
+def _scanned_clean(*names: str) -> list[Any]:
+    """Dependencies this session's advisory scan resolved CLEAN with no advisory record."""
+    from devops_cli.models.vulnerability import DependencySpec
+
+    return [DependencySpec(name=name, severity="CLEAN", queried=True) for name in names]
+
+
+_SCANNED_CLEAN = "deterministic:scanned_clean_dependency"
+
+
+@pytest.mark.parametrize("finding", _CLAIMS_A_CLEAN_SCAN_DOES_NOT_ANSWER)
+def test_a_clean_scan_leaves_claims_that_are_not_about_the_dependencys_advisories(
+    finding: Finding,
+) -> None:
+    """Verify a finding that names a CLEAN dependency, but not its advisories, is left alone.
+
+    A CLEAN scan refutes only that the pinned version carries a known advisory. Once #948 passed
+    the check every scanned dependency, "vulnerab" plus a word such as kubernetes invalidated a
+    test helper's path traversal, a command injection, an SSRF and Semgrep's own Kubernetes
+    finding, each as "advisory scan reports <name> CLEAN" (#1044).
+    """
+    from devops_cli.ai.review.verification import _check_scanned_clean_dependency
+
+    scanned = _scanned_clean("bandit", "kubernetes", "httpx2")
+
+    assert _check_scanned_clean_dependency(finding, scanned) is None
+
+
+def test_a_claim_that_a_clean_dependency_carries_known_vulnerabilities_is_invalidated() -> None:
+    """Verify a claim about the package itself is still refuted by the scan (#1044)."""
+    from devops_cli.ai.review.verification import _check_scanned_clean_dependency
+
+    finding = Finding(
+        severity="HIGH",
+        location="pyproject.toml:40",
+        title="kubernetes 29.0.0 carries known vulnerabilities",
+        description="Upgrade the pinned client.",
+    )
+    result = _check_scanned_clean_dependency(finding, _scanned_clean("kubernetes"))
+
+    assert result is not None
+    assert (result.status, result.verified_by) == ("INVALIDATED", _SCANNED_CLEAN)
+
+
+@pytest.mark.parametrize(
+    ("description", "verified_by"),
+    [
+        ("The pinned kubernetes has a CVE.", _SCANNED_CLEAN),
+        ("The pinned kubernetes has two CVEs.", _SCANNED_CLEAN),
+        ("The pinned kubernetes is affected by CVE-2024-24762.", _SCANNED_CLEAN),
+        ("The pinned kubernetes is affected by GHSA-2jv5-9r88-3w3p.", _SCANNED_CLEAN),
+        ("The pinned kubernetes has a published advisory.", _SCANNED_CLEAN),
+        ("The pinned kubernetes has published advisories.", _SCANNED_CLEAN),
+        ("The pinned kubernetes is unpatched.", _SCANNED_CLEAN),
+        ("The pinned kubernetes has a known vulnerability.", _SCANNED_CLEAN),
+        ("The pinned kubernetes is a vulnerable version.", _SCANNED_CLEAN),
+        ("The kubernetes call is vulnerable to command injection.", None),
+        ("The pinned kubernetes is outdated.", None),
+    ],
+)
+def test_only_advisory_wording_makes_a_claim_the_scan_answers(
+    description: str, verified_by: str | None
+) -> None:
+    """Verify the words that make a finding a claim about a dependency's advisories (#1044).
+
+    "CVE", a GHSA id, "advisory", "unpatched", "known vulnerability" and "vulnerable version"
+    do. Bare "vulnerable" does not, nor "outdated": a CLEAN scan says the pinned version has no
+    advisory, not that it is current.
+    """
+    from devops_cli.ai.review.verification import _check_scanned_clean_dependency
+
+    finding = Finding(
+        severity="MEDIUM", location="pyproject.toml:40", title="Client", description=description
+    )
+    result = _check_scanned_clean_dependency(finding, _scanned_clean("kubernetes"))
+
+    assert (None if result is None else result.verified_by) == verified_by
+
+
+def test_the_first_early_check_that_fires_gives_the_verdict() -> None:
+    """Verify a later early check does not overwrite the verdict an earlier one gave (#1044).
+
+    `apply_verdict` writes on the finding itself, so when every early check ran, the last one to
+    fire gave the reason. A manifest finding that cites `CVE-2024-xxxx` and speaks of Kubernetes
+    best practices (session `20260930-232803`) read "advisory scan reports kubernetes CLEAN"
+    instead of a placeholder advisory.
+    """
+    from devops_cli.ai.review.verification import _check_early_hallucinations
+
+    finding = Finding(
+        severity="HIGH",
+        location="k8s/cloudflared/deployment.yaml:25-30",
+        title="Missing image digest for cloudflared container",
+        description=(
+            "The deployment specifies the image as `cloudflare/cloudflared:2026.9.3` without a "
+            "digest. This violates Kubernetes best practices for image immutability and can "
+            "expose the cluster to the CVE-2024-xxxx risk of image tampering."
+        ),
+    )
+    result = _check_early_hallucinations(finding, _scanned_clean("kubernetes"))
+
+    assert result is not None
+    reason = result.invalidation_reason or ""
+    assert (result.status, result.verified_by, "CVE-2024-xxxx" in reason, "CLEAN" in reason) == (
+        "INVALIDATED",
+        "deterministic:placeholder_advisory",
+        True,
+        False,
+    )
+
+
 # =============================================================================
 # Verifier prompt rule coverage
 # =============================================================================
@@ -1143,7 +1330,7 @@ _VERIFIER_PROMPT_RULES: tuple[str, ...] = (
     "off-by-one",
     "CWE-400",
     "CWE-209",
-    "<masked-secret>",
+    "<masked-kind>",
     "__import__",
     "cacheFrom",
     "192.0.2.0/24",
@@ -1389,7 +1576,7 @@ def test_an_unadjudicated_finding_is_not_exported_as_human_reviewed() -> None:
     from devops_cli.ai.review.exporter import _build_feedback_record
 
     record = _build_feedback_record(
-        {"title": "A defect", "location": "a.py:1"}, "sess", "UNVERIFIED"
+        {"title": "A defect", "location": "a.py:1"}, "sess", {}, "UNVERIFIED"
     )
     assert record.verified_by == "unknown"
 
@@ -1405,7 +1592,12 @@ def test_an_unadjudicated_finding_is_not_exported_as_human_reviewed() -> None:
             {"verified": True, "invalidated_criteria_matched": ["Guard present"]},
             ("UNVERIFIED", True),
         ),
-        ({"status": "INVALIDATED", "reason": "The guard is on line 4."}, ("INVALIDATED", False)),
+        (
+            {"status": "INVALIDATED", "reason": "The guard is on line 4.", "citation_line": 4},
+            ("INVALIDATED", False),
+        ),
+        # A line named only in the reason is not a citation (#846).
+        ({"status": "INVALIDATED", "reason": "The guard is on line 4."}, ("UNVERIFIED", True)),
         ({"invalidated": "true", "citation_line": 4}, ("INVALIDATED", False)),
         ({"invalidated": "true"}, ("UNVERIFIED", True)),
         ({"status": "MITIGATED"}, ("UNVERIFIED", True)),
@@ -1413,7 +1605,7 @@ def test_an_unadjudicated_finding_is_not_exported_as_human_reviewed() -> None:
             {
                 "status": "MITIGATED",
                 "reason": "Quota checked at line 40.",
-                "mitigating_mechanism": "QuotaChecker",
+                "mitigating_mechanism": "`QuotaChecker`",
                 "perimeter_files": ["src/quota.py"],
             },
             ("MITIGATED", True),
@@ -1421,13 +1613,17 @@ def test_an_unadjudicated_finding_is_not_exported_as_human_reviewed() -> None:
     ],
 )
 def test_verdicts_are_read_as_the_model_meant_them(
-    item: dict[str, Any], expected: tuple[str, bool]
+    item: dict[str, Any], expected: tuple[str, bool], tmp_path: Path
 ) -> None:
     """Verify string flags, "none" criteria and contradictions never discard a finding by accident."""
     from devops_cli.ai.review.verification import _apply_single_finding_verification
 
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/quota.py").write_text("class QuotaChecker: ...\n", encoding="utf-8")
     finding = Finding(title="SQL injection in search", location="app.py:10", severity="HIGH")
-    result = _apply_single_finding_verification(finding, item, "2026-09-24T00:00:00")
+    result = _apply_single_finding_verification(
+        finding, item, "2026-09-24T00:00:00", repo_root=tmp_path
+    )
 
     assert (result.status, result.reportable) == expected
 
@@ -1672,3 +1868,568 @@ def test_missing_symbol_check_still_invalidates_claims_that_a_defined_name_is_un
 
     outcome = (result.status, result.reportable) if result else None
     assert outcome == ("INVALIDATED", False)
+
+
+_APP_SOURCE = "import os\n\n\ndef run(cmd):\n    os.system(cmd)\n"
+
+
+def _shell_finding() -> Finding:
+    return Finding(
+        severity="HIGH",
+        location="app.py:5",
+        title="os.system runs caller input",
+        description="`run` passes `cmd` to `os.system` unchecked.",
+        fix="Use subprocess.run with a list.",
+    )
+
+
+def test_the_verifier_input_carries_only_what_the_reviewer_wrote() -> None:
+    """The verifier sees the finding's claim and criteria, never the pipeline's state: the
+    findings block holds exactly the allowlisted fields."""
+    from devops_cli.ai.review.verification import _build_validation_prompt
+    from devops_cli.ai.review_schema import CriterionExecutionResult
+    from devops_cli.config.constants import CONST_VERIFIER_FINDING_FIELDS
+
+    command = "python -c 'from app import run; assert run'"
+    finding = _shell_finding().model_copy(
+        update={
+            "finding_id": 1,
+            "category": "command-injection",
+            "verification_criteria": Finding(verification_criteria=[command]).verification_criteria,
+            "confidence_score": 0.9,
+            "reportable": False,
+            "thinking": "The reviewer's own reasoning.",
+            "verified_criteria_matched": [command],
+            "criteria_execution_results": [
+                CriterionExecutionResult(command=command, passed=True, duration_seconds=1.25)
+            ],
+        }
+    )
+
+    prompt = _build_validation_prompt([finding], ["code"])
+    sent = json.loads(prompt.rsplit("```json\n", 1)[1].split("\n```", 1)[0])
+
+    assert (sorted(sent[0]), sent[0].get("category")) == (
+        sorted(CONST_VERIFIER_FINDING_FIELDS),
+        "command-injection",
+    )
+
+
+def test_verifying_a_finding_twice_sends_the_same_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two runs whose criteria took different times and printed different output, one of them
+    timing out, on a finding with another reviewer confidence and the reason a timeout leaves,
+    send the verifier the same prompt byte for byte, so the second can replay the first from
+    the response cache."""
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.review.verification import _validate_segment_findings
+    from devops_cli.ai.review_schema import CriterionExecutionResult, ReviewResult
+
+    (tmp_path / "app.py").write_text(_APP_SOURCE, encoding="utf-8")
+    first = "python -c 'from app import run; assert run(\"true\") == 1'"
+    second = "python -c 'from app import run; assert run(\"id\") == 1'"
+
+    def ran(command: str, seconds: float, stdout: str) -> CriterionExecutionResult:
+        return CriterionExecutionResult(
+            command=command,
+            description=command,
+            executable=True,
+            exit_code=1,
+            passed=False,
+            stdout=stdout,
+            stderr="AssertionError",
+            duration_seconds=seconds,
+        )
+
+    timed_out = CriterionExecutionResult(
+        command=second,
+        description=second,
+        executable=True,
+        exit_code=-1,
+        passed=False,
+        duration_seconds=5.0,
+        error="Criterion execution timed out after 5.0s",
+    )
+    runs = [
+        ({first: ran(first, 0.4, "0"), second: ran(second, 0.6, "uid=1000")}, 0.9, None),
+        (
+            {first: ran(first, 4.6, "256"), second: timed_out},
+            0.2,
+            "Criterion execution timed out after 5.0s",
+        ),
+    ]
+    sent: list[str] = []
+    recorded: list[list[tuple[int | None, str, float]]] = []
+    client = MagicMock()
+    client.chat.side_effect = lambda system, user, **_: sent.append(user) or "[]"
+    monkeypatch.setattr(
+        "devops_cli.ai.rag.investigator.investigate_rag_context", lambda *_, **__: None
+    )
+    for results, confidence, reason in runs:
+        monkeypatch.setattr(
+            "devops_cli.ai.review.review_environment.execute_criterion_command",
+            lambda c, cwd, r=results, **_: r[c],
+        )
+        finding = _shell_finding().model_copy(
+            update={
+                "verification_criteria": Finding(
+                    verification_criteria=[first, second]
+                ).verification_criteria,
+                "confidence_score": confidence,
+                "invalidation_reason": reason,
+            }
+        )
+        verified, _, _ = _validate_segment_findings(
+            ReviewResult(findings=[finding]), ["code"], client, repo_root=tmp_path
+        )
+        recorded.append(
+            [
+                (r.exit_code, r.stdout, r.duration_seconds)
+                for r in verified.findings[0].criteria_execution_results
+            ]
+        )
+
+    assert (recorded, len(sent), sent[0] == sent[1]) == (
+        [[(1, "0", 0.4), (1, "uid=1000", 0.6)], [(1, "256", 4.6), (-1, "", 5.0)]],
+        2,
+        True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("verdict", "expected"),
+    [
+        (
+            {"finding_id": 1, "status": "INVALIDATED", "location": "app.py:5", "reason": "x"},
+            ("UNVERIFIED", None),
+        ),
+        (
+            {"finding_id": 1, "status": "INVALIDATED", "reason": "Line 5 runs trusted input."},
+            ("UNVERIFIED", None),
+        ),
+        (
+            {
+                "finding_id": 1,
+                "status": "INVALIDATED",
+                "reason": "Line 5 runs trusted input.",
+                "citation_line": 5,
+            },
+            ("INVALIDATED", 5),
+        ),
+    ],
+    ids=["echoed-location", "line-in-reason", "citation-key"],
+)
+def test_a_refutation_cites_a_line_only_by_an_explicit_key(
+    verdict: dict[str, Any], expected: tuple[str, int | None], tmp_path: Path
+) -> None:
+    """The echoed `location` and a line named in the reason are not a citation."""
+    from devops_cli.ai.review.verification import _apply_single_finding_verification
+
+    (tmp_path / "app.py").write_text(_APP_SOURCE, encoding="utf-8")
+
+    judged = _apply_single_finding_verification(
+        _shell_finding(), verdict, "2026-10-02T00:00:00", repo_root=tmp_path
+    )
+
+    assert (judged.status, judged.citation_line) == expected
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "The verification criterion is tautological; it proves nothing.",
+        "The criteria only check that the call exists.",
+        "The command only confirms that run is defined.",
+    ],
+)
+def test_a_refutation_of_the_criteria_is_not_a_refutation_of_the_code(
+    reason: str, tmp_path: Path
+) -> None:
+    """A verdict that refutes the criteria, citing no line, leaves the finding unverified."""
+    from devops_cli.ai.review.verification import _apply_single_finding_verification
+
+    (tmp_path / "app.py").write_text(_APP_SOURCE, encoding="utf-8")
+    item = {"finding_id": 1, "status": "INVALIDATED", "reason": reason}
+
+    uncited = _apply_single_finding_verification(
+        _shell_finding(), item, "2026-10-02T00:00:00", repo_root=tmp_path
+    )
+    cited = _apply_single_finding_verification(
+        _shell_finding(), {**item, "citation_line": 5}, "2026-10-02T00:00:00", repo_root=tmp_path
+    )
+
+    assert (uncited.status, uncited.verification_note, cited.status) == (
+        "UNVERIFIED",
+        "Refutation is about the criteria, not the code, and cites no line; "
+        "downgraded to UNVERIFIED",
+        "INVALIDATED",
+    )
+
+
+@pytest.mark.parametrize(
+    ("reply", "notes"),
+    [
+        (
+            json.dumps(
+                [
+                    {
+                        "finding_id": 1,
+                        "status": "VERIFIED",
+                        "verified": True,
+                        "citation_line": 5,
+                        "reason": "Line 5 `os.system(cmd)` runs `cmd`.",
+                    }
+                ]
+            ),
+            [None, "verifier-no-verdict"],
+        ),
+        ("I could not decide.", ["verifier-reply-unparsed", "verifier-reply-unparsed"]),
+    ],
+    ids=["no-verdict", "unparsed"],
+)
+def test_a_finding_the_verifier_gave_no_verdict_says_why(
+    reply: str, notes: list[str | None], tmp_path: Path
+) -> None:
+    """Each finding left without a verdict names whether the reply skipped it or did not parse."""
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.review.verification import _validate_segment_findings
+    from devops_cli.ai.review_schema import ReviewResult
+
+    (tmp_path / "app.py").write_text(_APP_SOURCE, encoding="utf-8")
+    client = MagicMock()
+    client.chat.return_value = reply
+    findings = [
+        _shell_finding(),
+        _shell_finding().model_copy(update={"title": "run has no docstring"}),
+    ]
+
+    result, _, _ = _validate_segment_findings(
+        ReviewResult(findings=findings), ["code"], client, repo_root=tmp_path
+    )
+
+    assert [f.verification_note for f in result.findings] == notes
+
+
+@pytest.mark.parametrize(
+    ("reply", "outcome"),
+    [
+        (
+            [{"finding_id": 1, "status": "UNVERIFIED", "reason": "Cannot tell from the code."}],
+            ("UNVERIFIED", "criteria-non-discriminating"),
+        ),
+        (
+            [
+                {
+                    "finding_id": 1,
+                    "status": "VERIFIED",
+                    "verified": True,
+                    "citation_line": 5,
+                    "reason": "Line 5 `os.system(cmd)` runs `cmd`.",
+                }
+            ],
+            ("VERIFIED", None),
+        ),
+        ([], ("UNVERIFIED", "verifier-no-verdict")),
+    ],
+    ids=["left-unverified", "verified", "no-verdict"],
+)
+def test_criteria_that_pass_both_ways_stay_noted_when_the_verifier_cannot_decide(
+    reply: list[dict[str, Any]],
+    outcome: tuple[str, str | None],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The criteria's note survives a verifier that judges the finding and leaves it unverified
+    without a note of its own; a verdict or a reply that skips the finding replaces it (#846)."""
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.review.verification import _validate_segment_findings
+    from devops_cli.ai.review_schema import CriterionExecutionResult, ReviewResult
+
+    (tmp_path / "app.py").write_text(_APP_SOURCE, encoding="utf-8")
+    proves = "python -c 'from app import run; assert run(\"true\") is None'"
+    refutes = "python -c 'from app import run; assert run(\"false\") is None'"
+    monkeypatch.setattr(
+        "devops_cli.ai.review.review_environment.execute_criterion_command",
+        lambda c, cwd, **_: CriterionExecutionResult(
+            command=c, description=c, executable=True, exit_code=0, passed=True
+        ),
+    )
+    criteria = Finding(verification_criteria=[proves], invalidation_criteria=[refutes])
+    finding = _shell_finding().model_copy(
+        update={
+            "verification_criteria": criteria.verification_criteria,
+            "invalidation_criteria": criteria.invalidation_criteria,
+        }
+    )
+    client = MagicMock()
+    client.chat.return_value = json.dumps(reply)
+
+    result, _, _ = _validate_segment_findings(
+        ReviewResult(findings=[finding]), ["code"], client, repo_root=tmp_path
+    )
+
+    assert (result.findings[0].status, result.findings[0].verification_note) == outcome
+
+
+def test_the_profile_counts_why_unverified_findings_have_no_verdict() -> None:
+    """The verdict distributions in profile.json count each unverified finding's note by kind."""
+    from devops_cli.ai.review_schema import compute_verdict_distributions
+
+    def unverified(note: str | None) -> Finding:
+        return Finding(title="t", location="a.py:1", verification_note=note)
+
+    findings = [
+        unverified(None),
+        unverified("verifier-no-verdict"),
+        unverified("verifier-no-verdict"),
+        unverified("verifier-reply-unparsed"),
+        unverified("verification-unavailable: ConnectError"),
+        unverified("criteria-non-discriminating"),
+        unverified("verifier-reply-cut"),
+        unverified("verifier-self-refutation"),
+        unverified("verifier-inconclusive"),
+        unverified("verifier-inconclusive"),
+        unverified("Refutation missing cited line; downgraded to UNVERIFIED"),
+        Finding(title="t", location="a.py:2", status="VERIFIED", verified=True, verified_by="llm"),
+    ]
+
+    assert compute_verdict_distributions(findings)["verification_note"] == {
+        "none": 1,
+        "verifier-no-verdict": 2,
+        "verifier-reply-unparsed": 1,
+        "verification-unavailable": 1,
+        "criteria-non-discriminating": 1,
+        "verifier-reply-cut": 1,
+        "verifier-self-refutation": 1,
+        "verifier-inconclusive": 2,
+        "other": 1,
+    }
+
+
+_SERVER_SOURCE = (
+    "def verify_finding(session_id, index):\n"
+    '    """Verify the finding at a 1-based index, as `review verify --index` numbers them."""\n'
+    '    _validate_mcp_int_bound("index", index, min_val=1)\n'
+    '    return run_cli(["review", "verify", session_id, "--index", str(index)])\n'
+)
+
+# Session 20261002-214641, ai/mcp/server.py:202: a gpt-oss verifier reply cut at its token cap
+# mid-reason, which JSON repair closed into an INVALIDATED verdict.
+_CUT_REFUTATION = (
+    "```json\n[\n  {\n"
+    '    "finding_id": 1,\n'
+    '    "status": "INVALIDATED",\n'
+    '    "verified": false,\n'
+    '    "invalidated": true,\n'
+    '    "citation_line": 3,\n'
+    '    "confidence_score": 0.9,\n'
+    '    "reason": "The function `verify_finding` validates the `index` argument with '
+    '`_validate_mcp_int_bound(\\"index\\", index, min_val=1)`.  This matches the documented '
+    "1-based indexing used by the underlying CLI (`review verify --index`).  The claim that "
+    "the function changed its minimum from 0 to 1 is therefore incorrect; the"
+)
+
+
+def _index_finding() -> Finding:
+    return Finding(
+        severity="MEDIUM",
+        location="server.py:3",
+        title="Inconsistent Index Validation in verify_finding",
+        description=(
+            "The `verify_finding` function changed its minimum index validation from 0 to 1, "
+            "which is inconsistent with 0-based list indexing."
+        ),
+        fix='_validate_mcp_int_bound("index", index, min_val=0)',
+        references=["CWE-129"],
+        observed_value='_validate_mcp_int_bound("index", index, min_val=1)',
+        expected_value='_validate_mcp_int_bound("index", index, min_val=0)',
+    )
+
+
+def test_a_verifier_reply_cut_at_its_cap_binds_no_verdict(tmp_path: Path) -> None:
+    """A reply that ended at its token cap applies no verdict, even one JSON repair salvages.
+
+    The same text with a normal finish shows the repair path turns it into an INVALIDATED
+    verdict whose reason stops mid-sentence, as it did in session 20261002-214641 (#846).
+    """
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.client import LLMResponse
+    from devops_cli.ai.review.verification import _validate_segment_findings
+    from devops_cli.ai.review_schema import ReviewResult
+
+    (tmp_path / "server.py").write_text(_SERVER_SOURCE, encoding="utf-8")
+
+    def verify(finish_reason: str) -> tuple[str, str | None, bool, str | None]:
+        client = MagicMock()
+        client.chat.return_value = LLMResponse(_CUT_REFUTATION, finish_reason=finish_reason)
+        result, _, _ = _validate_segment_findings(
+            ReviewResult(findings=[_index_finding()]), ["code"], client, repo_root=tmp_path
+        )
+        f = result.findings[0]
+        return f.status, f.verified_by, f.invalidation_reason is not None, f.verification_note
+
+    assert (verify("length"), verify("stop")) == (
+        ("UNVERIFIED", None, False, "verifier-reply-cut"),
+        ("INVALIDATED", "llm", True, None),
+    )
+
+
+@pytest.mark.parametrize(
+    ("verdict", "note"),
+    [
+        (
+            # Refuted by restating the claim: the reason confirms what the finding says.
+            {
+                "finding_id": 1,
+                "status": "INVALIDATED",
+                "invalidated": True,
+                "citation_line": 5,
+                "reason": "Line 5 passes cmd to os.system, so os.system runs caller input.",
+            },
+            "verifier-self-refutation",
+        ),
+        (
+            {
+                "finding_id": 1,
+                "verified": False,
+                "invalidated": False,
+                "mitigated": False,
+                "reason": "Whether `cmd` comes from a caller is not visible in this file.",
+            },
+            "verifier-inconclusive",
+        ),
+        (
+            {"finding_id": 1, "status": "UNVERIFIED", "reason": "Cannot tell from the code."},
+            "verifier-inconclusive",
+        ),
+    ],
+    ids=["self-refutation", "all-false", "unverified"],
+)
+def test_a_judged_finding_left_unverified_says_why(
+    verdict: dict[str, Any], note: str, tmp_path: Path
+) -> None:
+    """A withdrawn self-refutation and an inconclusive verdict each name why there is no verdict.
+
+    Session 20261002-214641 reported 9 entries with no verdict and no note: 5 withdrawn as
+    self-refutations, 3 cut and 1 inconclusive (#846).
+    """
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.review.verification import _validate_segment_findings
+    from devops_cli.ai.review_schema import ReviewResult
+
+    (tmp_path / "app.py").write_text(_APP_SOURCE, encoding="utf-8")
+    client = MagicMock()
+    client.chat.return_value = json.dumps([verdict])
+
+    result, _, _ = _validate_segment_findings(
+        ReviewResult(findings=[_shell_finding()]), ["code"], client, repo_root=tmp_path
+    )
+
+    assert (result.findings[0].status, result.findings[0].verification_note) == (
+        "UNVERIFIED",
+        note,
+    )
+
+
+def test_only_a_withdrawn_refutation_is_noted_as_one(tmp_path: Path) -> None:
+    """A withdrawn invalidation that also confirmed leaves a verdict and no note. A verdict whose
+    reason states the claim but that never refuted it is inconclusive, not a self-refutation."""
+    from devops_cli.ai.review.verification import _apply_single_finding_verification
+
+    (tmp_path / "app.py").write_text(_APP_SOURCE, encoding="utf-8")
+    reason = "Line 5 passes cmd to os.system, so os.system runs caller input."
+    verdicts = [
+        {"status": "VERIFIED", "verified": True, "invalidated": True, "reason": reason},
+        {"verified": False, "reason": reason},
+    ]
+
+    judged = [
+        _apply_single_finding_verification(_shell_finding(), v, "2026-10-02T00:00:00", tmp_path)
+        for v in verdicts
+    ]
+
+    assert [(f.status, f.verification_note) for f in judged] == [
+        ("VERIFIED", None),
+        ("UNVERIFIED", "verifier-inconclusive"),
+    ]
+
+
+def test_verifying_an_unchanged_file_twice_reaches_the_model_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the response cache on, the second verification of an unchanged file is replayed.
+
+    Each run is a new process: a new client over a new cache on the same directory, and a
+    criterion that ran for a different time. In the branch reviews of release/v0.2.25 the cache
+    replayed 192 and 238 persona replies but 3 and 6 verifier replies, because the verifier
+    prompt changed on every run (#846).
+    """
+    import httpx2
+
+    from devops_cli.ai import response_cache
+    from devops_cli.ai.client import LLMClient
+    from devops_cli.ai.review.verification import _validate_segment_findings
+    from devops_cli.ai.review_schema import CriterionExecutionResult, ReviewResult
+    from devops_cli.config.settings import AICacheConfig, AIConfig
+    from tests.llm_stream_fakes import route_client
+
+    (tmp_path / "app.py").write_text(_APP_SOURCE, encoding="utf-8")
+    command = "python -c 'from app import run; assert run(\"true\") == 1'"
+    verdict = {
+        "finding_id": 1,
+        "status": "VERIFIED",
+        "verified": True,
+        "citation_line": 5,
+        "reason": "Line 5 `os.system(cmd)` runs `cmd`.",
+    }
+    body = {
+        "choices": [{"message": {"content": json.dumps([verdict])}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 1200, "completion_tokens": 60, "total_tokens": 1260},
+    }
+    config = AIConfig(
+        provider="openai",
+        model="gpt-test",
+        api_base_url="http://example.com/v1",
+        allow_private_network=True,
+        cache=AICacheConfig(dir=tmp_path / "llm-cache"),
+    )
+    monkeypatch.setattr("devops_cli.ai.spend.track_request_spend", lambda **kwargs: None)
+    requests: list[httpx2.Request] = []
+    runs: list[tuple[str, bool]] = []
+    for duration in (0.4, 4.6):
+        monkeypatch.setattr(response_cache, "_GLOBAL_LLM_CACHE", None)
+        client = LLMClient(config, api_key="sk-test")
+        sent = route_client(client, monkeypatch, lambda request: httpx2.Response(200, json=body))
+        result = CriterionExecutionResult(
+            command=command,
+            description=command,
+            executable=True,
+            exit_code=1,
+            passed=False,
+            stderr="AssertionError",
+            duration_seconds=duration,
+        )
+        monkeypatch.setattr(
+            "devops_cli.ai.review.review_environment.execute_criterion_command",
+            lambda c, cwd, r=result, **_: r,
+        )
+        finding = _shell_finding().model_copy(
+            update={
+                "verification_criteria": Finding(
+                    verification_criteria=[command]
+                ).verification_criteria
+            }
+        )
+        verified, _, backend = _validate_segment_findings(
+            ReviewResult(findings=[finding]), ["code"], client, repo_root=tmp_path
+        )
+        requests += sent
+        runs.append((verified.findings[0].status, backend == "cache"))
+
+    assert (len(requests), runs) == (1, [("VERIFIED", False), ("VERIFIED", True)])

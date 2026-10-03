@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from devops_cli.ai.spend.ledger import SpendLedger, track_request_spend
+from devops_cli.ai.spend.ledger import SpendLedger, observe_llm_calls, track_request_spend
 
 
 def test_spend_ledger_schema_and_wal_initialization(tmp_path: Path) -> None:
@@ -483,6 +483,87 @@ def test_spend_ledger_iso_date_filtering(tmp_path: Path) -> None:
     assert (report_7d.total_requests, report_all.total_requests) == (1, 2)
 
 
+# The ledger schema before the finish_reason column existed.
+_SCHEMA_BEFORE_FINISH_REASON = """
+CREATE TABLE ai_spend_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    server TEXT NOT NULL,
+    backend_info TEXT,
+    served_by TEXT,
+    model TEXT NOT NULL,
+    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL NOT NULL DEFAULT 0.0,
+    cached INTEGER NOT NULL DEFAULT 0,
+    request_type TEXT NOT NULL DEFAULT 'chat',
+    duration_seconds REAL NOT NULL DEFAULT 0.0,
+    stage TEXT
+);
+"""
+
+
+def _columns(db_path: Path) -> set[str]:
+    with sqlite3.connect(db_path) as conn:
+        return {row[1] for row in conn.execute("PRAGMA table_info(ai_spend_records);")}
+
+
+def _finish_reasons(db_path: Path) -> list[tuple[str, str | None]]:
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute(
+            "SELECT model, finish_reason FROM ai_spend_records ORDER BY id"
+        ).fetchall()
+
+
+def test_a_ledger_records_each_replys_finish_reason(tmp_path: Path) -> None:
+    """Verify a new ledger has the column, and a recorded reason reaches the row and observers."""
+    ledger = SpendLedger(db_path=tmp_path / "spend.db")
+    seen: list[dict[str, object]] = []
+
+    with observe_llm_calls(seen.append):
+        record = track_request_spend(
+            provider="ollama",
+            model="llama3:8b",
+            server="localhost:11434",
+            prompt_tokens=10,
+            completion_tokens=5,
+            finish_reason="length",
+            ledger=ledger,
+        )
+
+    assert (
+        "finish_reason" in _columns(ledger.db_path),
+        record.finish_reason if record else None,
+        [call["finish_reason"] for call in seen],
+        _finish_reasons(ledger.db_path),
+    ) == (True, "length", ["length"], [("llama3:8b", "length")])
+
+
+def test_an_existing_ledger_gains_the_finish_reason_column(tmp_path: Path) -> None:
+    """Verify a ledger written before finish_reason existed keeps its rows and records it."""
+    db_path = tmp_path / "spend.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(_SCHEMA_BEFORE_FINISH_REASON)
+        conn.execute(
+            "INSERT INTO ai_spend_records (timestamp, provider, server, model) "
+            "VALUES ('2026-09-01T00:00:00+00:00', 'ollama', 'local', 'qwen')"
+        )
+
+    SpendLedger(db_path=db_path).record_request(
+        provider="ollama",
+        server="local",
+        model="llama3:8b",
+        prompt_tokens=10,
+        completion_tokens=5,
+        cost_usd=0.0,
+        finish_reason="stop",
+    )
+
+    assert _finish_reasons(db_path) == [("qwen", None), ("llama3:8b", "stop")]
+
+
 def test_spend_ledger_init_db_duplicate_column_tolerance(tmp_path: Path) -> None:
     """Verify concurrent schema migrations tolerate duplicate column errors."""
     db_path = tmp_path / "race_spend.db"
@@ -494,7 +575,7 @@ def test_spend_ledger_init_db_duplicate_column_tolerance(tmp_path: Path) -> None
     with sqlite3.connect(db_path) as conn:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(ai_spend_records);").fetchall()}
 
-    assert ("served_by" in cols, "stage" in cols) == (True, True)
+    assert ("served_by" in cols, "stage" in cols, "finish_reason" in cols) == (True, True, True)
 
 
 def test_spend_ledger_export_prometheus_with_report(tmp_path: Path) -> None:

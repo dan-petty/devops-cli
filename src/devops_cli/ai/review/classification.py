@@ -45,17 +45,18 @@ _UNTRUSTED_CONTEXT_PREAMBLE: Final[str] = (
 )
 
 
-def _persona_system_prompt(persona: PersonaDefinition, agents_md: str) -> str:
+def _persona_system_prompt(
+    persona: PersonaDefinition, agents_md: str, target: Path | None = None
+) -> str:
     """Compose the per-file/segment system prompt for this persona.
 
-    The recorded false positives are appended so a persona sees what it has already got
-    wrong against this codebase. The ledger was previously written on every deterministic
-    invalidation and read back only during verification, which suppresses a finding after
-    a model has been paid to produce it; the same ones recur, the top entry 225 times.
+    The false positives a person disproved in reviews of `target` (the working directory by
+    default) are appended, so a persona sees what it has already got wrong against this
+    codebase before a model is paid to produce it again (#950).
     """
     from devops_cli.ai.review.common_hallucinations import render_negative_exemplars
 
-    exemplars = render_negative_exemplars()
+    exemplars = render_negative_exemplars(target)
     if not agents_md:
         return persona.system_prompt + exemplars + _GUARDRAILS_PROMPT
 

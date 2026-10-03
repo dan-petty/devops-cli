@@ -78,7 +78,7 @@ devops ai prewarm [OPTIONS]
 |---|---|---|---|
 | `--model`, `-m` | `string` | - | Model name to prewarm or evict (defaults to configured AI model). |
 | `--keep-alive`, `-k` | `string` | `1h` | Keep-alive duration for loaded model (e.g. 1h, 24h, forever, or 0 for eviction). |
-| `--all-nodes`, `-a`, `--single-node` | `boolean` | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
+| `--all-nodes`, `-a` / `--single-node` | `boolean` | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
 | `--evict` | `boolean` | - | Evict the model from GPU VRAM immediately (sets keep_alive to 0). |
 | `--url`, `-u` | `string` | - | Specific Ollama node URL to target instead of all candidate nodes. |
 | `--json` | `boolean` | - | Output results as structured JSON. |
@@ -118,11 +118,11 @@ devops ai chat [OPTIONS]
 | `--persona`, `-p` | `string` | `architect` | Persona to chat with: devsecops, architect, pm, auditor, qa, challenger |
 | `--model`, `-m` | `string` | - | AI model identifier. |
 | `--context`, `-c` | `path` | - | Optional file to inject as background context (e.g. AGENTS.md). |
-| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
-| `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens. |
-| `--tools`, `--no-tools` | `boolean` | `True` | Enable DevOps agent tools. |
-| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
-| `--prewarm`, `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat. |
+| `--rag` / `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
+| `--stream` / `--no-stream` | `boolean` | `True` | Stream response tokens. |
+| `--tools` / `--no-tools` | `boolean` | `True` | Enable DevOps agent tools. |
+| `--thinking` / `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
+| `--prewarm` / `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat. |
 | `--explain`, `-e` | `boolean` | - | Explain chat personas, tools, and reasoning modes. |
 
 ---
@@ -163,8 +163,8 @@ devops ai pipeline [OPTIONS] <prompt>
 |---|---|---|---|
 | `--personas`, `-p` | `string` | `devsecops,architect,qa` | Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa). |
 | `--max-turns` | `integer` | `5` | Maximum tool turns per agent stage. |
-| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
-| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
+| `--rag` / `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
+| `--thinking` / `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
 
 ---
 
@@ -251,7 +251,7 @@ devops ai audit-library-usage [OPTIONS]
 |---|---|---|---|
 | `--package`, `-p` | `string` | - | Filter by package distribution name. |
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
-| `--contracts-dir` | `path` | - | Path to directory containing exported library contract JSON files. |
+| `--contracts-dir` | `path` | - | Path to directory containing exported library contract JSON files (default: libraries/ under the data directory where review data is kept). |
 | `--fail-on-breaking` | `boolean` | - | Exit with code 1 if any breaking API drift issues are detected. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -277,9 +277,9 @@ devops ai pack-context [OPTIONS] <target_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--referenced`, `-r` | `string` | - | Comma-separated list of symbols referenced by caller to prioritize during pruning. |
-| `--max-tokens` | `integer` | `<masked>` | Maximum token budget for packed context output. |
-| `--strip-private`, `--no-strip-private` | `boolean` | `True` | Strip unreferenced private functions, methods, and attributes. |
-| `--skeletonize`, `--no-skeletonize` | `boolean` | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
+| `--max-tokens` | `integer` | `1500` | Maximum token budget for packed context output. |
+| `--strip-private` / `--no-strip-private` | `boolean` | `True` | Strip unreferenced private functions, methods, and attributes. |
+| `--skeletonize` / `--no-skeletonize` | `boolean` | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -304,7 +304,7 @@ devops ai read [OPTIONS] <target_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--inspect`, `-i` | `boolean` | - | Enable multi-scale semantic outline and inspection scanner. |
-| `--level`, `-l` | `integer` | - | Focal zoom level: 0 (Topology: <200 tokens), 1 (Structural Outline: control flow & signatures), 2 (Deep Focal Window: line slice). |
+| `--level`, `-l` | `integer` | - | Focal zoom level: 0 (Topology: classes, functions, exports & hotspots), 1 (Structural Outline: control flow & signatures), 2 (Deep Focal Window: line slice). |
 | `--lines`, `-L` | `string` | - | Line range for Level 2 focal window (e.g. '40:80'). |
 | `--symbol`, `-s` | `string` | - | Target symbol name to inspect or focus on. |
 | `--format`, `-f` | `string` | `markdown` | Output format: 'text', 'markdown', or 'json'. |
@@ -342,6 +342,11 @@ devops ai diagram [OPTIONS] <diagram_type>
 
 **Measure the deterministic suppression layer against recorded review verdicts.**
 
+Measure the deterministic suppression layer against recorded review verdicts.
+
+The counts are reported for each labeller, and a label a deterministic check wrote is left
+out unless --include-deterministic: scoring the layer against its own labels is circular.
+
 ```bash
 devops ai prompt-eval [OPTIONS]
 ```
@@ -351,7 +356,8 @@ devops ai prompt-eval [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--persona`, `-p` | `string` | `devsecops` | Persona whose recorded findings to measure the layer against. |
-| `--dataset`, `-d` | `path` | - | Feedback dataset JSONL; a relative path is a data path under the main worktree, like data.feedback_dataset_path (default: the configured feedback dataset). |
+| `--dataset`, `-d` | `path` | - | Feedback dataset JSONL; a relative path resolves where review data is kept, like data.feedback_dataset_path: under the main worktree in devops-cli's own repository, else under ~/.local/share/devops-cli (default: the configured feedback dataset). |
+| `--include-deterministic` | `boolean` | - | Also count records a deterministic check labelled; scoring the layer against its own labels is circular, so they are excluded by default. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -509,10 +515,11 @@ devops ai review path [OPTIONS] <targets>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
+| `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
@@ -532,8 +539,8 @@ devops ai review path [OPTIONS] <targets>
 | `--watch`, `-w` | `boolean` | - | Continuously watch target paths for changes and re-run reviews. |
 | `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `devops ai review branch`
 
@@ -554,11 +561,12 @@ devops ai review branch [OPTIONS] <branch_name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--repo` | `path` | `.` | Repository root directory (default: current directory). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
+| `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
@@ -576,8 +584,8 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `devops ai review pr`
 
@@ -598,11 +606,12 @@ devops ai review pr [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
+| `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
@@ -620,12 +629,19 @@ devops ai review pr [OPTIONS] <number>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `devops ai review findings`
 
 **Inspect structured findings for a review session.**
+
+Inspect structured findings for a review session.
+
+Each finding keeps its number, its place in findings.json, whatever filter the list
+applies, and `devops review verify --index` takes that number. With `--candidates` the list
+is candidates.json: every finding the review raised, the ones verification invalidated
+included, numbered for `devops review verify --candidate`.
 
 ```bash
 devops ai review findings [OPTIONS] <session>
@@ -644,14 +660,38 @@ devops ai review findings [OPTIONS] <session>
 | `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
 | `--status` | `string` | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED. |
 | `--unverified` | `boolean` | - | Show unverified findings only. |
-| `--invalidated` | `boolean` | - | Show invalidated findings only. |
+| `--invalidated` | `boolean` | - | Show INVALIDATED findings only. findings.json holds only those a later verdict invalidated; add --candidates for the ones verification invalidated. |
 | `--verified` | `boolean` | - | Show verified findings only. |
 | `--mitigated` | `boolean` | - | Filter findings by MITIGATED status |
+| `--candidates` | `boolean` | - | List candidates.json: every finding the review raised, with the ones verification dropped. |
+| `--severity` | `string` | - | Show only findings of this severity: CRITICAL, HIGH, MEDIUM, LOW or INFO (repeatable). |
 | `--details`, `-d` | `boolean` | - | Display full finding descriptions and fix recommendations. |
 
 ### `devops ai review verify`
 
-**Validate or invalidate a review finding, persisting feedback reasons.**
+**Record a person's or an agent's verdict on a review finding or candidate.**
+
+Record a person's or an agent's verdict on a review finding or candidate.
+
+Name one finding: `--index` takes the number `devops review findings` shows, `--title` a
+substring of exactly one title, and `--candidate` the number `review findings --candidates`
+shows. There is no default verdict, so `--status` is required. A candidate given VERIFIED
+or MITIGATED moves into findings.json, unless findings.json already reports its defect under
+another title: give that finding the verdict instead.
+
+A verdict on a finding in findings.json is recorded on the candidate it reports too, and a
+verdict on a candidate on its copy in findings.json, so both lists agree. When that copy also
+reports another candidate of the same persona, title, location and description, give the
+verdict to the copy with `--index`. Verdicts given on one session at once take turns.
+
+`--adjudicator` records who gave the verdict: `human`, the default, or `agent`, which an AI
+agent passes and the MCP `verify_finding` tool always sends. An agent cannot change a
+person's verdict. Only a person's verdict ranks review history, teaches the learned catalog
+(INVALIDATED) or records a mitigation in the ledger (MITIGATED). A later verdict withdraws
+what the finding's earlier verdicts recorded there that it no longer stands behind: the
+catalog entry once the finding is not INVALIDATED, so later reviews stop suppressing its
+claim, and the ledger entry once it is not MITIGATED. An entry another verdict also recorded
+stays, and one nothing else recorded is removed.
 
 ```bash
 devops ai review verify [OPTIONS] <session>
@@ -668,9 +708,11 @@ devops ai review verify [OPTIONS] <session>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
-| `--index`, `-i` | `integer` | - | 1-based finding index in session to verify. |
-| `--title`, `-t` | `string` | - | Match finding by substring in title. |
-| `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. |
+| `--index`, `-i` | `integer` | - | Number `review findings` shows for the finding: its place in findings.json, whatever filter the list applied. |
+| `--title`, `-t` | `string` | - | Substring of exactly one finding title in findings.json. |
+| `--candidate` | `integer` | - | Number `review findings --candidates` shows; a VERIFIED or MITIGATED verdict moves the candidate into findings.json. |
+| `--status` | `string` | - | Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. It withdraws what a person's earlier verdicts recorded that it no longer stands behind: the catalog entry of an INVALIDATED one, the ledger entry of a MITIGATED one. |
+| `--adjudicator` | `choice (human|agent)` | `human` | Who gives the verdict: human, or agent for an AI agent, which cannot change a person's verdict. Only a person's verdict ranks review history and teaches the learned catalog and mitigations ledger. |
 | `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
 | `--perimeter`, `-p` | `string` | - | Perimeter file path(s) protecting against finding recurrence (repeatable). |
 | `--regression-test` | `string` | - | Path to regression test guarding against finding recurrence. |
@@ -709,14 +751,22 @@ devops ai review benchmark [OPTIONS] <targets>
 |---|---|---|---|
 | `--runs`, `-n` | `integer` | `3` | Number of reviews to run; the report takes medians across them. |
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
+| `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
 
 ### `devops ai review export-feedback`
 
-**Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning.**
+**Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.**
+
+Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.
+
+Each session's findings.json and candidates.json are read, and only the findings whose
+verdict the dataset does not hold yet are appended. An export that finds none leaves the
+dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset
+changes no prompt and no later review.
 
 ```bash
 devops ai review export-feedback [OPTIONS]
@@ -726,7 +776,7 @@ devops ai review export-feedback [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | Output JSONL path for benchmark feedback dataset. |
+| `--output`, `-o` | `path` | - | JSONL dataset to append to (default: the configured data.feedback_dataset_path). |
 | `--reviews-dir` | `path` | - | Directory containing review sessions. |
 | `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 
@@ -761,7 +811,7 @@ devops ai review corpus generate [OPTIONS] <sources>
 
 #### `devops ai review corpus score`
 
-**Score a review of a corpus: which injected defects it found, and what verification kept.**
+**Score one arm of reviews of a corpus: which injected defects each run found, and what verification kept.**
 
 ```bash
 devops ai review corpus score [OPTIONS] <corpus_dir>
@@ -777,7 +827,8 @@ devops ai review corpus score [OPTIONS] <corpus_dir>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | `string` | - | Review session to score (default: the latest review of the corpus). |
+| `--session`, `-s` | `string` | - | Review session to score (repeatable; default: the latest review of the corpus). The sessions must have run the same review prompts. |
+| `--runs`, `-n` | `integer` | - | Score the latest N reviews of the corpus together as one arm: how many runs found each injection, and each figure's mean and range across the runs. Refused with --session. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops ai review samples`
@@ -840,7 +891,7 @@ devops ai review samples validate [OPTIONS] <names>
 |---|---|---|---|
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--review` | `boolean` | - | Also review each category's synthetic defect corpus and score it (calls the configured LLM). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
 
 ### `devops ai review templates`
@@ -878,7 +929,7 @@ devops ai review templates sweep [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 #### `devops ai review templates check`
@@ -896,7 +947,7 @@ devops ai review templates check [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops ai review hallucinations`
@@ -975,7 +1026,7 @@ devops ai analyze path [OPTIONS] <target>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
@@ -998,7 +1049,7 @@ devops ai analyze branch [OPTIONS] <branch>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
@@ -1020,7 +1071,7 @@ devops ai analyze pr [OPTIONS] <pr_number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
@@ -1060,7 +1111,7 @@ devops ai rag index [OPTIONS] <path>
 |---|---|---|---|
 | `--project`, `-p` | `string` | - | Project / repository name override. |
 | `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
-| `--include-kb`, `--no-include-kb` | `boolean` | `True` | Include bundled DevOps CLI Knowledge Base in docs collection. |
+| `--include-kb` / `--no-include-kb` | `boolean` | `True` | Include bundled DevOps CLI Knowledge Base in docs collection. |
 | `--collection`, `-c` | `string` | - | Target collection override. |
 | `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
 
@@ -1194,12 +1245,10 @@ devops ai benchmark [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434'). |
+| `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434'). A model@url runs on that server, which gets the AI key only when it is the configured api_base_url, gateway_url or provider API. |
 | `--servers`, `--ollama-urls` | `string` | - | Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434'). |
 | `--provider`, `-p` | `string` | - | AI or cloud provider. |
-| `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding', 'suite'. |
-| `--suite` | `boolean` | - | Run multi-model evaluation suite grounded in feedback datasets. |
-| `--dataset` | `path` | - | Feedback dataset JSONL for --suite; a relative path is a data path under the main worktree, like data.feedback_dataset_path (default: the configured feedback dataset). |
+| `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding'. |
 | `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes'). |
 | `--concurrency`, `-c` | `integer` | `4` | Number of concurrent model server workers (default: automatic per model count). |
 | `--output`, `-o` | `path` | - | Destination path for output report or artifacts. |
@@ -1372,7 +1421,7 @@ devops ai ingest index-libraries [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dir`, `-d` | `path` | `.data/libraries` | Path to directory containing exported library contract JSON files. |
+| `--dir`, `-d` | `path` | - | Path to directory containing exported library contract JSON files (default: libraries/ under the data directory where review data is kept). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 
@@ -1397,7 +1446,7 @@ devops ai ingest query-library [OPTIONS] <query>
 | `--package`, `-p` | `string` | - | Filter by package distribution name. |
 | `--exact`, `-e` | `boolean` | - | Perform exact qualified symbol lookup instead of semantic vector search. |
 | `--top-k`, `-k` | `integer` | `5` | Maximum number of items to return or display. |
-| `--contracts-dir` | `path` | `.data/libraries` | Path to directory containing exported library contract JSON files. |
+| `--contracts-dir` | `path` | - | Path to directory containing exported library contract JSON files (default: libraries/ under the data directory where review data is kept). |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 
 ---
@@ -1510,7 +1559,7 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--simulate`, `--no-simulate` | `boolean` | `True` | Simulate failover without altering active routing table. |
+| `--simulate` / `--no-simulate` | `boolean` | `True` | Simulate failover without altering active routing table. |
 | `--force` | `boolean` | - | Bypass model capability tier minimum checks during failover. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
@@ -1528,7 +1577,7 @@ devops ai gateway scale [OPTIONS]
 |---|---|---|---|
 | `--replicas`, `-r` | `integer` | - | Replica count for backend deployment. |
 | `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree for vLLM (e.g. 2). |
-| `--apply`, `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
+| `--apply` / `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops ai gateway probe-backend`
@@ -1574,7 +1623,7 @@ devops ai gateway tune [OPTIONS]
 | `--concurrency`, `-c` | `string` | `1,4,8` | Comma-separated concurrency levels to measure. |
 | `--rounds` | `integer` | `2` | Requests per worker at each concurrency level. |
 | `--prompt-tokens` | `integer` | - | Prompt size in tokens (default: one review page for the analysis task). |
-| `--max-tokens` | `integer` | `<masked>` | Completion tokens requested per call. |
+| `--max-tokens` | `integer` | `200` | Completion tokens requested per call. |
 | `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
 | `--namespace`, `-n` | `string` | `llm` | Namespace of the gateway deployment. |
 | `--deployment` | `string` | `llm-gateway` | Gateway deployment to run the sweep in. |
@@ -1641,7 +1690,7 @@ devops ai runs connect [OPTIONS]
 | `--context` | `string` | - | Kubernetes context (default: current). |
 | `--namespace`, `-n` | `string` | `llm` | Namespace of the run index. |
 | `--service` | `string` | `valkey-runs` | Service of the run index's Valkey. |
-| `--secret` | `string` | `<masked>` | Secret holding the Valkey password. |
+| `--secret-name` | `string` | `valkey-runs-auth` | Name of the Secret holding the Valkey password. |
 
 ### `devops ai runs list`
 
@@ -1722,7 +1771,7 @@ devops ai runs check [OPTIONS] <run_id>
 | `--baseline`, `-b` | `string` | - | Override baseline run ID to compare against. |
 | `--max-recall-drop` | `float` | `0.0` | Maximum allowable relative drop in recall (e.g. 0.05 for 5%). |
 | `--max-duration-increase` | `float` | `0.15` | Maximum allowable relative increase in duration (e.g. 0.15 for 15%). |
-| `--max-tokens-increase` | `float` | `<masked>` | Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%). |
+| `--max-tokens-increase` | `float` | `0.2` | Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops ai runs baseline`

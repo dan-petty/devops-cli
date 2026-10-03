@@ -8,12 +8,13 @@ from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_KUBELINTER, build_kubelinter_cmd
+from devops_cli.config.constants import CONST_REVIEW_SCAN_KUBELINTER_CONFIG
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
 )
 from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.dry_run.state import is_dry_run  # noqa: F401
-from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
+from devops_cli.security.base import BaseSecurityScanner, ScannerConfigFile, ScanOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,10 @@ class KubelinterScanner(BaseSecurityScanner):
     binary_name: str = BIN_KUBELINTER
     gating: ClassVar[bool] = True
     has_builtin_patterns: ClassVar[bool] = False
+    # kube-linter reads `.kube-linter.yaml` from its working directory without `--config`.
+    isolation_files: ClassVar[tuple[ScannerConfigFile, ...]] = (
+        ScannerConfigFile("--config", "kube-linter.yaml", CONST_REVIEW_SCAN_KUBELINTER_CONFIG),
+    )
 
     def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
         """Build argument command list for invoking Kube-linter."""
@@ -97,7 +102,9 @@ class KubelinterScanner(BaseSecurityScanner):
         ]
 
 
-def run_kubelinter_scan(target: Path = DEFAULT_CURRENT_PATH) -> ScanOutcome:
-    """Execute Kube-linter scanner and return scan outcome."""
+def run_kubelinter_scan(
+    target: Path = DEFAULT_CURRENT_PATH, *, isolated: bool = False
+) -> ScanOutcome:
+    """Execute Kube-linter scanner and return scan outcome; `isolated` for a review (#972)."""
     scanner = KubelinterScanner()
-    return scanner.scan(target)
+    return scanner.scan(target, isolated=isolated)

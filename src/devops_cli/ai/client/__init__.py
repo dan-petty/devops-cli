@@ -19,7 +19,7 @@ from devops_cli.ai.client.network import (
     current_request_priority,
     get_ollama_active_leases,
     get_ollama_waiting_counts,
-    read_limited_json,
+    request_limited_json,
     request_priority_scope,
     reset_ollama_slots,
     validate_base_url,
@@ -27,11 +27,6 @@ from devops_cli.ai.client.network import (
 from devops_cli.ai.client.streaming import (
     StreamingReasoningSanitizer,
     StreamingTokenProcessor,
-    _consume_streaming_lines,
-    _extract_claude_stream_chunk,
-    _extract_ollama_stream_chunk,
-    _extract_ollama_stream_tuple,
-    _extract_openai_stream_chunk,
 )
 from devops_cli.ai.client.structured import StructuredOutputMixin
 from devops_cli.ai.client.unified import (
@@ -51,11 +46,6 @@ __all__ = [
     "StreamingReasoningSanitizer",
     "StreamingTokenProcessor",
     "StructuredOutputMixin",
-    "_consume_streaming_lines",
-    "_extract_claude_stream_chunk",
-    "_extract_ollama_stream_chunk",
-    "_extract_ollama_stream_tuple",
-    "_extract_openai_stream_chunk",
     "_is_json_error_payload",
     "acquire_ollama_slot",
     "current_request_priority",
@@ -65,7 +55,7 @@ __all__ = [
     "is_reasoning_model",
     "model_request",
     "model_request_sync",
-    "read_limited_json",
+    "request_limited_json",
     "request_priority_scope",
     "reset_ollama_slots",
     "validate_base_url",

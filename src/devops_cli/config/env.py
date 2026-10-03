@@ -7,8 +7,12 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 import devops_cli.config.options as opt
+from devops_cli.config.defaults import DEFAULT_OTEL_ENDPOINT
 
 ENV_DEVOPS_CLI_CONFIG = "DEVOPS_CLI_CONFIG"
+# OpenTelemetry's own name for the collector. devops-cli reads it only when its configuration
+# names no `telemetry.endpoint`.
+ENV_OTEL_EXPORTER_OTLP_ENDPOINT = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
 ENV_GITHUB_TOKEN = "DEVOPS_CLI_GITHUB_TOKEN"
 ENV_GITHUB_DEFAULT_ORG = "DEVOPS_CLI_GITHUB_DEFAULT_ORG"
@@ -45,6 +49,10 @@ ENV_AI_TASK_ANALYSIS_PROVIDER = "DEVOPS_CLI_AI_TASK_ANALYSIS_PROVIDER"
 ENV_AI_TASK_ANALYSIS_MODEL = "DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL"
 ENV_AI_TASK_ANALYSIS_REASONING_EFFORT = "DEVOPS_CLI_AI_TASK_ANALYSIS_REASONING_EFFORT"
 ENV_AI_TASK_ANALYSIS_OLLAMA_URLS = "DEVOPS_CLI_AI_TASK_ANALYSIS_OLLAMA_URLS"
+ENV_AI_TASK_VERIFICATION_PROVIDER = "DEVOPS_CLI_AI_TASK_VERIFICATION_PROVIDER"
+ENV_AI_TASK_VERIFICATION_MODEL = "DEVOPS_CLI_AI_TASK_VERIFICATION_MODEL"
+ENV_AI_TASK_VERIFICATION_REASONING_EFFORT = "DEVOPS_CLI_AI_TASK_VERIFICATION_REASONING_EFFORT"
+ENV_AI_TASK_VERIFICATION_OLLAMA_URLS = "DEVOPS_CLI_AI_TASK_VERIFICATION_OLLAMA_URLS"
 ENV_AI_TASK_COMPOSE_PROVIDER = "DEVOPS_CLI_AI_TASK_COMPOSE_PROVIDER"
 ENV_AI_TASK_COMPOSE_MODEL = "DEVOPS_CLI_AI_TASK_COMPOSE_MODEL"
 ENV_AI_TASK_COMPOSE_REASONING_EFFORT = "DEVOPS_CLI_AI_TASK_COMPOSE_REASONING_EFFORT"
@@ -62,6 +70,7 @@ ENV_AI_RAG_SCORE_THRESHOLD = "DEVOPS_CLI_AI_RAG_SCORE_THRESHOLD"
 ENV_QDRANT_URL = "DEVOPS_CLI_QDRANT_URL"
 ENV_QDRANT_API_KEY = "DEVOPS_CLI_QDRANT_API_KEY"
 ENV_QDRANT_COLLECTION_PREFIX = "DEVOPS_CLI_QDRANT_COLLECTION_PREFIX"
+ENV_QDRANT_TIMEOUT = "DEVOPS_CLI_QDRANT_TIMEOUT"
 
 ENV_VALKEY_HOST = "DEVOPS_CLI_VALKEY_HOST"
 ENV_VALKEY_PORT = "DEVOPS_CLI_VALKEY_PORT"
@@ -78,6 +87,8 @@ ENV_CLOUDFLARE_TUNNEL = "DEVOPS_CLI_CLOUDFLARE_TUNNEL"
 ENV_CLOUDFLARE_ACCOUNT_ID = "DEVOPS_CLI_CLOUDFLARE_ACCOUNT_ID"
 ENV_CLOUDFLARE_ZONE_ID = "DEVOPS_CLI_CLOUDFLARE_ZONE_ID"
 ENV_CLOUDFLARE_API_TOKEN = "DEVOPS_CLI_CLOUDFLARE_API_TOKEN"
+ENV_TELEMETRY_ENABLED = "DEVOPS_CLI_TELEMETRY_ENABLED"
+ENV_TELEMETRY_ENDPOINT = "DEVOPS_CLI_TELEMETRY_ENDPOINT"
 
 
 # Data Storage & Artifact Path environment variables
@@ -129,6 +140,10 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.AI_TASK_ANALYSIS_MODEL: ENV_AI_TASK_ANALYSIS_MODEL,
     opt.AI_TASK_ANALYSIS_REASONING_EFFORT: ENV_AI_TASK_ANALYSIS_REASONING_EFFORT,
     opt.AI_TASK_ANALYSIS_OLLAMA_URLS: ENV_AI_TASK_ANALYSIS_OLLAMA_URLS,
+    opt.AI_TASK_VERIFICATION_PROVIDER: ENV_AI_TASK_VERIFICATION_PROVIDER,
+    opt.AI_TASK_VERIFICATION_MODEL: ENV_AI_TASK_VERIFICATION_MODEL,
+    opt.AI_TASK_VERIFICATION_REASONING_EFFORT: ENV_AI_TASK_VERIFICATION_REASONING_EFFORT,
+    opt.AI_TASK_VERIFICATION_OLLAMA_URLS: ENV_AI_TASK_VERIFICATION_OLLAMA_URLS,
     opt.AI_TASK_COMPOSE_PROVIDER: ENV_AI_TASK_COMPOSE_PROVIDER,
     opt.AI_TASK_COMPOSE_MODEL: ENV_AI_TASK_COMPOSE_MODEL,
     opt.AI_TASK_COMPOSE_REASONING_EFFORT: ENV_AI_TASK_COMPOSE_REASONING_EFFORT,
@@ -144,6 +159,7 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.QDRANT_URL: ENV_QDRANT_URL,
     opt.QDRANT_API_KEY: ENV_QDRANT_API_KEY,
     opt.QDRANT_COLLECTION_PREFIX: ENV_QDRANT_COLLECTION_PREFIX,
+    opt.QDRANT_TIMEOUT: ENV_QDRANT_TIMEOUT,
     opt.VALKEY_HOST: ENV_VALKEY_HOST,
     opt.VALKEY_PORT: ENV_VALKEY_PORT,
     opt.VALKEY_PASSWORD: ENV_VALKEY_PASSWORD,
@@ -159,6 +175,8 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.CLOUDFLARE_ACCOUNT_ID: ENV_CLOUDFLARE_ACCOUNT_ID,
     opt.CLOUDFLARE_ZONE_ID: ENV_CLOUDFLARE_ZONE_ID,
     opt.CLOUDFLARE_API_TOKEN: ENV_CLOUDFLARE_API_TOKEN,
+    opt.TELEMETRY_ENABLED: ENV_TELEMETRY_ENABLED,
+    opt.TELEMETRY_ENDPOINT: ENV_TELEMETRY_ENDPOINT,
     opt.DATA_DIR: ENV_DATA_DIR,
     opt.DATA_ANALYSIS_DIR: ENV_DATA_ANALYSIS_DIR,
     opt.DATA_REVIEWS_DIR: ENV_DATA_REVIEWS_DIR,
@@ -216,7 +234,8 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             ENV_DEVOPS_CLI_CONFIG,
             None,
             False,
-            "Absolute path to project configuration file",
+            "Absolute path to project configuration file; outside devops-cli's own "
+            "repository, the only one a `devops review` command reads",
         ),
         EnvVarSpec(
             ENV_GITHUB_TOKEN,
@@ -399,6 +418,24 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "Ollama URLs override for analysis task",
         ),
         EnvVarSpec(
+            ENV_AI_TASK_VERIFICATION_PROVIDER,
+            opt.AI_TASK_VERIFICATION_PROVIDER,
+            False,
+            "AI provider override for review verification task (layered on analysis)",
+        ),
+        EnvVarSpec(
+            ENV_AI_TASK_VERIFICATION_MODEL,
+            opt.AI_TASK_VERIFICATION_MODEL,
+            False,
+            "AI model override for review verification task (layered on analysis)",
+        ),
+        EnvVarSpec(
+            ENV_AI_TASK_VERIFICATION_OLLAMA_URLS,
+            opt.AI_TASK_VERIFICATION_OLLAMA_URLS,
+            False,
+            "Ollama URLs override for review verification task (layered on analysis)",
+        ),
+        EnvVarSpec(
             ENV_AI_TASK_COMPOSE_PROVIDER,
             opt.AI_TASK_COMPOSE_PROVIDER,
             False,
@@ -457,6 +494,13 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.QDRANT_COLLECTION_PREFIX,
             False,
             "Prefix for Qdrant collection names",
+        ),
+        EnvVarSpec(
+            ENV_QDRANT_TIMEOUT,
+            opt.QDRANT_TIMEOUT,
+            False,
+            "Seconds each Qdrant request, a RAG search or an indexing upsert or delete, waits "
+            "per attempt (default: 300)",
         ),
         EnvVarSpec(
             ENV_VALKEY_HOST,
@@ -549,10 +593,32 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "Cloudflare API Token (stored in OS keyring)",
         ),
         EnvVarSpec(
+            ENV_TELEMETRY_ENABLED,
+            opt.TELEMETRY_ENABLED,
+            False,
+            "Export OpenTelemetry traces and metrics: true or false (default: true)",
+        ),
+        EnvVarSpec(
+            ENV_TELEMETRY_ENDPOINT,
+            opt.TELEMETRY_ENDPOINT,
+            False,
+            "OpenTelemetry collector that traces and metrics are exported to "
+            f"(default: {ENV_OTEL_EXPORTER_OTLP_ENDPOINT}, else {DEFAULT_OTEL_ENDPOINT})",
+        ),
+        EnvVarSpec(
+            ENV_OTEL_EXPORTER_OTLP_ENDPOINT,
+            None,
+            False,
+            "OpenTelemetry's standard collector variable, read only when `telemetry.endpoint` "
+            "is unset",
+        ),
+        EnvVarSpec(
             ENV_DATA_DIR,
             opt.DATA_DIR,
             False,
-            "Root data directory for local reviews, cache, logs, and artifacts (default: ./.data)",
+            "Root data directory for local reviews, cache, logs, and artifacts (default: ./.data; "
+            "outside devops-cli's own repository, ~/.local/share/devops-cli/.data for review data "
+            "and a `devops review` command)",
         ),
         EnvVarSpec(
             ENV_DATA_ANALYSIS_DIR,

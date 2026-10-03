@@ -14,6 +14,21 @@ class BranchListing(BaseModel):
     current: str = Field(default="main", description="Active current branch name")
 
 
+class ChangedFile(BaseModel):
+    """A file a diff changed: how, its path at head and, for a rename or copy, its old path."""
+
+    model_config = ConfigDict(frozen=True)
+
+    change_type: str = Field(..., description="added, deleted, modified, renamed, copied, ...")
+    path: str = Field(..., description="Path at head; a deleted file's last path")
+    old_path: str | None = Field(default=None, description="Path at base of a rename or copy")
+
+    @property
+    def base_path(self) -> str:
+        """Where the file is at the base revision."""
+        return self.old_path or self.path
+
+
 class BranchesListRequest(BaseModel):
     """Request parameters for querying git repository branches."""
 

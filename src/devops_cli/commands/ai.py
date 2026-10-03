@@ -32,6 +32,7 @@ from devops_cli.commands.rag import app as rag_app
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
+    CONST_AI_PROVIDER_IDS,
     CONST_DEVCONTAINER_JSON_PATH,
     CONST_GIT_DIR_NAME,
 )
@@ -165,7 +166,6 @@ def ai_main(
 # Constants & File Targets
 # =============================================================================
 
-_PROVIDERS = ("ollama", "claude", "copilot", "openai", "gateway")
 # The tasks a provider and model can be set for on their own (`ai.tasks.<task>`).
 _AI_TASKS = ("chat", "metadata", "analysis", "verification", "compose", "embedding")
 
@@ -370,7 +370,7 @@ def _print_task_override(task: str, override: Any) -> None:
 def config(
     provider: Annotated[
         str | None,
-        typer.Option("--provider", "-p", help=f"Provider: {', '.join(_PROVIDERS)}"),
+        typer.Option("--provider", "-p", help=f"Provider: {', '.join(CONST_AI_PROVIDER_IDS)}"),
     ] = None,
     model: Annotated[
         str | None,
@@ -452,8 +452,11 @@ def config(
         )
         return
 
-    if provider and provider not in _PROVIDERS:
-        print_error(f"Unknown provider {provider!r}. Choose: {', '.join(_PROVIDERS)}", prefix=False)
+    if provider and provider not in CONST_AI_PROVIDER_IDS:
+        print_error(
+            f"Unknown provider {provider!r}. Choose: {', '.join(CONST_AI_PROVIDER_IDS)}",
+            prefix=False,
+        )
         raise typer.Exit(1)
     target = getattr(settings.ai.tasks, task) if task else settings.ai
     _apply_ai_settings(
@@ -959,7 +962,7 @@ def _stream_interactive_chat_turn(
 
 
 @app.command()
-def chat(
+def chat(  # noqa: C901
     persona: Annotated[
         str,
         typer.Option(
@@ -1533,6 +1536,13 @@ def audit_library_usage_cmd(
         ws_dir, package_filter=package, save_report_path=default_report_path
     )
     _render_drift_report(report, json_output)
+    if report.save_error is not None:
+        print_warning(
+            f"Could not write the drift report to {default_report_path}: {report.save_error}",
+            to_stderr=json_output,
+        )
+    elif not json_output:
+        print_info(f"Drift report saved to {default_report_path}", prefix=False)
 
     if fail_on_breaking and report.breaking_count > 0:
         raise typer.Exit(code=1)
@@ -1821,6 +1831,10 @@ def prompt_eval_cmd(
         Path | None,
         typer.Option("--dataset", "-d", help=HELP.ai.dataset_path),
     ] = None,
+    include_deterministic: Annotated[
+        bool,
+        typer.Option("--include-deterministic", help=HELP.ai.include_deterministic),
+    ] = False,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -1830,7 +1844,11 @@ def prompt_eval_cmd(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Measure the deterministic suppression layer against recorded review verdicts."""
+    """Measure the deterministic suppression layer against recorded review verdicts.
+
+    The counts are reported for each labeller, and a label a deterministic check wrote is left
+    out unless --include-deterministic: scoring the layer against its own labels is circular.
+    """
     import json
 
     from devops_cli.ai.prompt_eval import evaluate_persona_prompts
@@ -1844,10 +1862,12 @@ def prompt_eval_cmd(
         )
         return
 
-    res = evaluate_persona_prompts(persona=persona, dataset_path=dataset)
+    res = evaluate_persona_prompts(
+        persona=persona, dataset_path=dataset, include_deterministic=include_deterministic
+    )
     saved = record_run(
         Mechanism.PROMPT_EVAL,
-        setup={"persona": res.persona},
+        setup={"persona": res.persona, "include_deterministic": include_deterministic},
         subject={"dataset_digest": res.dataset_digest, "records": res.total_cases},
         results=res.to_dict(),
     )
@@ -1870,6 +1890,19 @@ def prompt_eval_cmd(
             ["Recorded verifications", str(res.labelled_verified)],
             ["  contested by the layer", f"[yellow]{res.contested_verifications}[/yellow]"],
             ["  contested rate", f"{res.contested_rate:.1%}"],
+            *(
+                [f"Excluded: labelled by {labeller}", str(count)]
+                for labeller, count in res.excluded_labels.items()
+            ),
+        ],
+        border_style="cyan",
+    )
+    print_table(
+        title="By labeller",
+        columns=["Labeller", "Invalidated", "Caught", "Verified", "Contested"],
+        rows=[
+            [labeller, *(str(counts[field]) for field in counts)]
+            for labeller, counts in res.by_labeller.items()
         ],
         border_style="cyan",
     )

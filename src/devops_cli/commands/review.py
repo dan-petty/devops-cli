@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import tempfile
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -24,6 +23,7 @@ from devops_cli.config.constants import (
     CONST_GIT_MAIN_BRANCH,
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_REVIEW_CANDIDATES_FILENAME,
+    CONST_REVIEW_FINDINGS_FILENAME,
     CONST_STATUS_INVALIDATED,
 )
 from devops_cli.config.defaults import (
@@ -33,7 +33,9 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_CORPUS_SEED,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.core.untrusted_trees import reading_untrusted_trees
 from devops_cli.dry_run import is_dry_run, set_dry_run
+from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output.serialization import emit_serialized, normalize_format
 
@@ -43,18 +45,30 @@ __all__ = [
 ]
 
 from devops_cli.ai.review import runner
+from devops_cli.ai.review.adjudication import (
+    Verdict,
+    adjudicating,
+    judge_candidate,
+    judge_reported,
+    number_by_title,
+    write_session_files,
+)
 from devops_cli.ai.review.defects import (
     CORPUS_FILES_DIR,
+    RUN_FIGURE_DECIMALS,
     TEMPLATES,
+    CorpusRunsScore,
     CorpusScore,
     DefectCorpus,
     DefectTemplate,
-    InjectionOutcome,
     generate_corpus,
     score_corpus,
+    score_corpus_runs,
     select_templates,
 )
 from devops_cli.ai.review.exporter import export_invalidated_feedback
+from devops_cli.ai.review.history import HistoryFinding, load_review_history
+from devops_cli.ai.review.judged_claims import project_of
 from devops_cli.ai.review.profile import (
     BenchmarkSummary,
     ReviewProfile,
@@ -96,11 +110,12 @@ from devops_cli.ai.review.template_sweep import (
     save_sweep_run,
     sweep_templates,
 )
-from devops_cli.ai.review.verdicts import apply_verdict, assert_verdict_invariants
+from devops_cli.ai.review.verdicts import Adjudicator
 from devops_cli.ai.review_schema import (
     ReviewSessionPayload,
     SavedFinding,
     format_clean_text_field,
+    severity_named,
 )
 from devops_cli.ai.run_store import (
     Mechanism,
@@ -109,6 +124,7 @@ from devops_cli.ai.run_store import (
     new_run,
     record_run,
     review_setup,
+    unpinned_groups,
 )
 from devops_cli.commands.ai_runs import announce_run, announce_runs
 from devops_cli.config.settings import load_settings
@@ -122,11 +138,8 @@ from devops_cli.output import (
     print_success,
     print_table,
     print_warning,
-    write_json_file,
     write_stdout,
 )
-
-logger = logging.getLogger(__name__)
 
 app = new_typer(help=HELP.review.app, no_args_is_help=True)
 
@@ -140,6 +153,11 @@ def review_main(
     ] = False,
 ) -> None:
     """Multi-persona AI code review with confidence calibration and finding verification."""
+    # Every review command reads a tree devops-cli does not own, or what a review of one wrote,
+    # so none takes the project config or the data directory from the repository it starts in,
+    # unless that is devops-cli's own repository (#972); the commands that read a session resolve
+    # the data directory as the review did.
+    ctx.with_resource(reading_untrusted_trees())
     if explain:
         from devops_cli.ai.explain import render_explanation
 
@@ -194,6 +212,10 @@ def path(
     summary: Annotated[
         bool,
         typer.Option("--summary", "-s", help=HELP.review.summary),
+    ] = False,
+    full: Annotated[
+        bool,
+        typer.Option("--full", help=HELP.review.full_output),
     ] = False,
     explain: Annotated[
         bool,
@@ -303,7 +325,6 @@ def path(
         no_reporting=no_reporting,
         reporting_only=reporting_only,
     )
-    settings = load_settings()
     clients = _make_review_clients(
         settings,
         cache_enabled=False if (no_cache or force) else None,
@@ -314,7 +335,7 @@ def path(
     def _execute_current_review() -> None:
         if len(path_targets) == 1:
             target = path_targets[0]
-            pages, title, agents_md = _prepare_path_content(target, pattern)
+            pages, title, agents_md, routed_files = _prepare_path_content(target, pattern)
             target_resolved = target.resolve()
             target_dir = target_resolved if target_resolved.is_dir() else target_resolved.parent
             target_ref = str(target_resolved)
@@ -322,11 +343,13 @@ def path(
             all_pages: list[str] = []
             agents_md = ""
             target_names: list[str] = []
+            routed_files = []
             first_target_dir = Path.cwd().resolve()
             for t in path_targets:
                 t_resolved = t.resolve()
-                t_pages, _, t_agents = _prepare_path_content(t, pattern)
+                t_pages, _, t_agents, t_routed = _prepare_path_content(t, pattern)
                 all_pages.extend(t_pages)
+                routed_files.extend(t_routed)
                 if not agents_md and t_agents:
                     agents_md = t_agents
                 target_names.append(str(t_resolved))
@@ -359,6 +382,8 @@ def path(
             stage_flags=stage_flags,
             concurrency=concurrency,
             parallel=parallel,
+            full_output=full,
+            routed_files=routed_files,
         )
 
     if watch:
@@ -415,6 +440,10 @@ def branch(
     summary: Annotated[
         bool,
         typer.Option("--summary", "-s", help=HELP.review.summary),
+    ] = False,
+    full: Annotated[
+        bool,
+        typer.Option("--full", help=HELP.review.full_output),
     ] = False,
     explain: Annotated[
         bool,
@@ -516,13 +545,14 @@ def branch(
         no_reporting=no_reporting,
         reporting_only=reporting_only,
     )
-    settings = load_settings()
     clients = _make_review_clients(
         settings,
         cache_enabled=False if (no_cache or force) else None,
         append_cache=append_cache,
     )
-    pages, title, agents_md, target_ref = _prepare_branch_content(branch_name, base, repo_path)
+    pages, title, agents_md, target_ref, base_revision = _prepare_branch_content(
+        branch_name, base, repo_path
+    )
     _execute_review_workflow(
         pages,
         title,
@@ -538,6 +568,8 @@ def branch(
         stage_flags=stage_flags,
         concurrency=concurrency,
         parallel=parallel,
+        base_revision=base_revision,
+        full_output=full,
     )
 
 
@@ -615,6 +647,10 @@ def pr(
     summary: Annotated[
         bool,
         typer.Option("--summary", "-s", help=HELP.review.summary),
+    ] = False,
+    full: Annotated[
+        bool,
+        typer.Option("--full", help=HELP.review.full_output),
     ] = False,
     explain: Annotated[
         bool,
@@ -718,7 +754,6 @@ def pr(
         no_reporting=no_reporting,
         reporting_only=reporting_only,
     )
-    settings = load_settings()
     token = get_github_token(settings)
     if not token:
         print_error(
@@ -732,10 +767,15 @@ def pr(
         cache_enabled=False if (no_cache or force) else None,
         append_cache=append_cache,
     )
-    # The review reads the PR head's files, not the local checkout's version of them.
-    with tempfile.TemporaryDirectory(prefix=f"devops-review-pr-{number}-") as head_dir:
-        pages, title, agents_md, pull, repo_name = _prepare_pr_content(
-            number, repo, token, head_dir=Path(head_dir)
+    # The review reads the PR head's files, not the local checkout's version of them. The head
+    # is named after the checkout the review runs in, which its project resolves to, so the
+    # review is shown and suppresses the claims people judged there (#950).
+    with tempfile.TemporaryDirectory(prefix=f"devops-review-pr-{number}-") as head_parent:
+        head_dir = Path(head_parent) / project_of(Path.cwd())
+        # A review run from the file-system root names no project, and keeps the directory itself.
+        head_dir.mkdir(exist_ok=True)
+        pages, title, agents_md, pull, repo_name, base_revision = _prepare_pr_content(
+            number, repo, token, head_dir=head_dir
         )
         reviews = _execute_review_workflow(
             pages,
@@ -748,17 +788,19 @@ def pr(
             clients,
             target_type="pr",
             target_ref=str(number),
-            target_dir=Path(head_dir),
+            target_dir=head_dir,
             stage_flags=stage_flags,
             concurrency=concurrency,
             parallel=parallel,
+            base_revision=base_revision,
+            full_output=full,
         )
 
     if post_comment and reviews:
         _post_pr_review_comment(
             reviews=reviews,
             pages=pages,
-            head_dir=Path(head_dir),
+            head_dir=head_dir,
             pull=pull,
             repo_name=repo_name,
             number=number,
@@ -808,6 +850,76 @@ def _build_finding_panel_lines(f: Any) -> list[str]:
     return lines
 
 
+_SEVERITY_COLORS = {
+    "CRITICAL": "red",
+    "HIGH": "orange3",
+    "MEDIUM": "yellow",
+    "LOW": "cyan",
+    "INFO": "green",
+}
+_STATUS_COLORS = {"VERIFIED": "green", "INVALIDATED": "red", "MITIGATED": "cyan"}
+_VERDICT_STATUSES = frozenset({"VERIFIED", "INVALIDATED", "MITIGATED", "UNVERIFIED"})
+
+
+def _listed_status(
+    status_filter: str | None, unverified: bool, invalidated: bool, verified: bool, mitigated: bool
+) -> str | None:
+    """The status `review findings` keeps; a status flag wins over `--status`."""
+    flags = (
+        (unverified, "UNVERIFIED"),
+        (invalidated, "INVALIDATED"),
+        (verified, "VERIFIED"),
+        (mitigated, "MITIGATED"),
+    )
+    return next((st for on, st in flags if on), status_filter.upper() if status_filter else None)
+
+
+def _listed_findings(
+    findings: list[SavedFinding], status: str | None, severities: list[str]
+) -> list[tuple[int, SavedFinding]]:
+    """Each finding with `status`, when given, and one of `severities`, spelled as a review
+    accepts them (`informational` is INFO), under its number: its place in the file."""
+    wanted = {severity_named(s) or s.upper() for s in severities}
+    return [
+        (number, f)
+        for number, f in enumerate(findings, 1)
+        if (status is None or f.status == status) and (not wanted or f.severity.upper() in wanted)
+    ]
+
+
+def _finding_row(number: int, f: SavedFinding) -> list[str]:
+    """A finding's `devops review findings` table cells, its text escaped."""
+    color = _STATUS_COLORS.get(f.status)
+    st_fmt = f"[{color}]{f.status}[/{color}]" if color else "[yellow]UNVERIFIED[/yellow]"
+    by = f.verified_by or ""
+    reason = f.invalidation_reason or ""
+    info = f"{by}: {reason}".strip(": ") if (by or reason) else "—"
+    conf_str = f"{f.confidence_score:.2f}" if f.confidence_score is not None else "N/A"
+    return [
+        str(number),
+        escape_text(f.persona),
+        escape_text(f.severity),
+        conf_str,
+        escape_text(f.location),
+        escape_text(f.title),
+        st_fmt,
+        escape_text(info),
+    ]
+
+
+def _print_finding_details(numbered: Sequence[tuple[int, SavedFinding]], noun: str) -> None:
+    for number, f in numbered:
+        sev_upper = f.severity.upper()
+        sev_color = _SEVERITY_COLORS.get(sev_upper, "white")
+        st_badge = _render_finding_badge(f.status)
+        title_header = f"[{sev_color} bold]{noun} #{number}: [{sev_upper}] {escape_text(f.title)}[/{sev_color} bold]  {st_badge}"
+        print_panel(
+            "\n".join(_build_finding_panel_lines(f)),
+            title=title_header,
+            border_style=sev_color,
+        )
+
+
 @app.command("findings")
 def list_findings(
     session: Annotated[
@@ -830,74 +942,47 @@ def list_findings(
     mitigated: Annotated[
         bool, typer.Option("--mitigated", help="Filter findings by MITIGATED status")
     ] = False,
+    candidates: Annotated[bool, typer.Option("--candidates", help=HELP.review.candidates)] = False,
+    severities: Annotated[
+        list[str] | None,
+        typer.Option("--severity", help=HELP.review.severity_filter),
+    ] = None,
     details: Annotated[
         bool,
         typer.Option("--details", "-d", help=HELP.review.details),
     ] = False,
 ) -> None:
-    """Inspect structured findings for a review session."""
+    """Inspect structured findings for a review session.
+
+    Each finding keeps its number, its place in findings.json, whatever filter the list
+    applies, and `devops review verify --index` takes that number. With `--candidates` the list
+    is candidates.json: every finding the review raised, the ones verification invalidated
+    included, numbered for `devops review verify --candidate`.
+    """
 
     target_session = session or session_opt
     session_dir = _find_session_dir(target_session)
     if not session_dir:
-        print_warning("No review sessions found in .data/reviews/", prefix=False)
-        raise typer.Exit(0)
-
-    findings_file = session_dir / "findings.json"
-    if not findings_file.exists():
-        print_warning(f"No findings.json in session {session_dir.name}", prefix=False)
-        raise typer.Exit(0)
-
-    from devops_cli.ai.review_schema import ReviewSessionPayload
-
-    payload = ReviewSessionPayload.model_validate_json(findings_file.read_text(encoding="utf-8"))
-    findings = payload.findings
-
-    target_status = status_filter.upper() if status_filter else None
-    if unverified:
-        target_status = "UNVERIFIED"
-    elif invalidated:
-        target_status = "INVALIDATED"
-    elif verified:
-        target_status = "VERIFIED"
-    elif mitigated:
-        target_status = "MITIGATED"
-
-    if target_status:
-        findings = [f for f in findings if f.status == target_status]
-
-    rows: list[list[str]] = []
-    for i, f in enumerate(findings, 1):
-        st = f.status
-        if st == "VERIFIED":
-            st_fmt = "[green]VERIFIED[/green]"
-        elif st == "INVALIDATED":
-            st_fmt = "[red]INVALIDATED[/red]"
-        elif st == "MITIGATED":
-            st_fmt = "[cyan]MITIGATED[/cyan]"
-        else:
-            st_fmt = "[yellow]UNVERIFIED[/yellow]"
-
-        by = f.verified_by or ""
-        reason = f.invalidation_reason or ""
-        info = f"{by}: {reason}".strip(": ") if (by or reason) else "—"
-
-        conf_str = f"{f.confidence_score:.2f}" if f.confidence_score is not None else "N/A"
-        rows.append(
-            [
-                str(i),
-                f.persona,
-                f.severity,
-                conf_str,
-                f.location,
-                f.title,
-                st_fmt,
-                info,
-            ]
+        # A review's data directory may not be the repository's `.data` (#972), so say where.
+        reviews_dir = runner._get_reviews_base_dir()
+        print_warning(
+            MESSAGES.review.no_review_sessions_found.format(reviews_dir=reviews_dir), prefix=False
         )
+        raise typer.Exit(0)
 
+    file_name = CONST_REVIEW_CANDIDATES_FILENAME if candidates else CONST_REVIEW_FINDINGS_FILENAME
+    source = session_dir / file_name
+    if not source.exists():
+        print_warning(f"No {file_name} in session {session_dir.name}", prefix=False)
+        raise typer.Exit(0)
+
+    payload = ReviewSessionPayload.model_validate_json(source.read_text(encoding="utf-8"))
+    target_status = _listed_status(status_filter, unverified, invalidated, verified, mitigated)
+    # Each keeps its place in the file whatever the filter, the number `verify` takes.
+    numbered = _listed_findings(payload.findings, target_status, severities or [])
+    noun = "Candidate" if candidates else "Finding"
     print_table(
-        title=f"Findings: {session_dir.name}",
+        title=f"{noun}s: {session_dir.name}",
         columns=[
             ("#", "right"),
             ("Persona", "cyan"),
@@ -908,29 +993,10 @@ def list_findings(
             "Status",
             "Verified By / Reason",
         ],
-        rows=rows,
+        rows=[_finding_row(number, f) for number, f in numbered],
     )
-
     if details:
-        for idx, f in enumerate(findings, 1):
-            sev_upper = f.severity.upper()
-            sev_color = {
-                "CRITICAL": "red",
-                "HIGH": "orange3",
-                "MEDIUM": "yellow",
-                "LOW": "cyan",
-                "INFO": "green",
-            }.get(sev_upper, "white")
-
-            st_badge = _render_finding_badge(f.status)
-            title_header = f"[{sev_color} bold]Finding #{idx}: [{sev_upper}] {escape_text(f.title)}[/{sev_color} bold]  {st_badge}"
-            panel_lines = _build_finding_panel_lines(f)
-
-            print_panel(
-                "\n".join(panel_lines),
-                title=title_header,
-                border_style=sev_color,
-            )
+        _print_finding_details(numbered, noun)
 
 
 # =============================================================================
@@ -938,76 +1004,66 @@ def list_findings(
 # =============================================================================
 
 
-def _resolve_session_findings_file(target_session: str | None) -> tuple[Path, Any]:
-    """Resolve session directory and findings file, validating presence."""
+def _require_session_dir(target_session: str | None) -> Path:
     session_dir = _find_session_dir(target_session)
     if not session_dir:
-        print_error(f"Session not found matching: {target_session}", prefix=False)
+        print_error(MESSAGES.review.session_not_found.format(session=target_session), prefix=False)
         raise typer.Exit(1)
+    return session_dir
 
-    findings_file = session_dir / "findings.json"
-    if not findings_file.exists():
-        print_error(f"No findings.json in {session_dir}", prefix=False)
+
+def _read_session_file(session_dir: Path, file_name: str) -> tuple[Path, ReviewSessionPayload]:
+    path = session_dir / file_name
+    if not path.is_file():
+        print_error(f"No {file_name} in {session_dir}", prefix=False)
         raise typer.Exit(1)
+    return path, ReviewSessionPayload.model_validate_json(path.read_text(encoding="utf-8"))
 
-    from devops_cli.ai.review_schema import ReviewSessionPayload
 
-    payload = ReviewSessionPayload.model_validate_json(findings_file.read_text(encoding="utf-8"))
+def _require_findings(payload: ReviewSessionPayload) -> None:
     if not payload.findings:
         print_warning(MESSAGES.review.no_findings_to_update, prefix=False)
         raise typer.Exit(0)
-    return findings_file, payload
 
 
-def _resolve_target_finding_index(
-    findings: Sequence[Any],
-    index: int | None,
-    title_pattern: str | None,
-) -> int:
-    """Resolve 0-based target finding index from positional index or title pattern."""
-    if index is not None:
-        if index < 1 or index > len(findings):
-            print_error(f"Index out of bounds (1-{len(findings)})", prefix=False)
-            raise typer.Exit(1)
-        return index - 1
-
-    if title_pattern is not None:
-        pattern_lower = title_pattern.lower()
-        for idx, f in enumerate(findings):
-            if pattern_lower in f.title.lower():
-                return idx
-
-    print_error(MESSAGES.review.specify_index_or_title, prefix=False)
-    raise typer.Exit(1)
-
-
-def _record_verdict_side_effects(
-    finding: Any,
-    new_status: str,
-    reason: str,
-    perimeter_files: list[str] | None = None,
-    regression_test: str | None = None,
-) -> None:
-    """Persist domain-specific feedback or perimeter ledgers for adjudicated verdicts."""
-    if new_status == "INVALIDATED":
-        try:
-            from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
-
-            auto_record_invalidated_finding(finding, reason=reason)
-        except Exception:
-            pass
-    elif new_status == "MITIGATED":
-        try:
-            from devops_cli.ai.review.mitigations import record_mitigated_finding
-
-            record_mitigated_finding(
-                finding,
-                reason=reason,
-                perimeter_files=perimeter_files,
-                regression_test=regression_test,
+def _judge_reported(
+    session_dir: Path, index: int | None, title_pattern: str | None, verdict: Verdict
+) -> str:
+    """Record the verdict on a finding in findings.json, named by number or title, and on the
+    candidates in candidates.json it reports."""
+    with adjudicating(session_dir) as changes:
+        findings_file, payload = _read_session_file(session_dir, CONST_REVIEW_FINDINGS_FILENAME)
+        _require_findings(payload)
+        files = [(findings_file, payload)]
+        candidates = None
+        if (session_dir / CONST_REVIEW_CANDIDATES_FILENAME).is_file():
+            candidates_file, candidates = _read_session_file(
+                session_dir, CONST_REVIEW_CANDIDATES_FILENAME
             )
-        except Exception as exc:
-            logger.debug("Failed to record mitigated finding to ledger: %s", exc)
+            files.append((candidates_file, candidates))
+        number = (
+            index if index is not None else number_by_title(payload.findings, title_pattern or "")
+        )
+        judge_reported(payload, candidates, number, verdict, changes)
+        write_session_files(files)
+    return MESSAGES.review.updated_finding_status.format(index=number, status=verdict.status)
+
+
+def _judge_candidate(session_dir: Path, number: int, verdict: Verdict) -> str:
+    """Record the verdict on a candidate, moving it into findings.json when it is reported."""
+    with adjudicating(session_dir) as changes:
+        candidates_file, candidates = _read_session_file(
+            session_dir, CONST_REVIEW_CANDIDATES_FILENAME
+        )
+        _require_findings(candidates)
+        findings_file, reported = _read_session_file(session_dir, CONST_REVIEW_FINDINGS_FILENAME)
+        moved = judge_candidate(candidates, reported, number, verdict, changes)
+        write_session_files([(candidates_file, candidates), (findings_file, reported)])
+    done = MESSAGES.review.updated_candidate_status.format(index=number, status=verdict.status)
+    if not moved:
+        return done
+    added = MESSAGES.review.candidate_moved.format(index=number, number=len(reported.findings))
+    return f"{done}\n{added}"
 
 
 @app.command("verify")
@@ -1028,10 +1084,19 @@ def verify_finding(
         str | None,
         typer.Option("--title", "-t", help=HELP.review.title_match),
     ] = None,
+    candidate: Annotated[
+        int | None,
+        typer.Option("--candidate", help=HELP.review.candidate_index),
+    ] = None,
+    *,
     status: Annotated[
         str,
         typer.Option("--status", help=HELP.review.status_target),
-    ] = CONST_STATUS_INVALIDATED,
+    ],
+    adjudicator: Annotated[
+        Adjudicator,
+        typer.Option("--adjudicator", help=HELP.review.adjudicator),
+    ] = Adjudicator.HUMAN,
     reason: Annotated[
         str,
         typer.Option("--reason", "-r", help=HELP.review.reason),
@@ -1045,62 +1110,54 @@ def verify_finding(
         typer.Option("--regression-test", help=HELP.review.regression_test),
     ] = None,
 ) -> None:
-    """Validate or invalidate a review finding, persisting feedback reasons."""
-    findings_file, payload = _resolve_session_findings_file(session or session_opt)
-    target_idx = _resolve_target_finding_index(payload.findings, index, title_pattern)
+    """Record a person's or an agent's verdict on a review finding or candidate.
 
+    Name one finding: `--index` takes the number `devops review findings` shows, `--title` a
+    substring of exactly one title, and `--candidate` the number `review findings --candidates`
+    shows. There is no default verdict, so `--status` is required. A candidate given VERIFIED
+    or MITIGATED moves into findings.json, unless findings.json already reports its defect under
+    another title: give that finding the verdict instead.
+
+    A verdict on a finding in findings.json is recorded on the candidate it reports too, and a
+    verdict on a candidate on its copy in findings.json, so both lists agree. When that copy also
+    reports another candidate of the same persona, title, location and description, give the
+    verdict to the copy with `--index`. Verdicts given on one session at once take turns.
+
+    `--adjudicator` records who gave the verdict: `human`, the default, or `agent`, which an AI
+    agent passes and the MCP `verify_finding` tool always sends. An agent cannot change a
+    person's verdict. Only a person's verdict ranks review history, teaches the learned catalog
+    (INVALIDATED) or records a mitigation in the ledger (MITIGATED). A later verdict withdraws
+    what the finding's earlier verdicts recorded there that it no longer stands behind: the
+    catalog entry once the finding is not INVALIDATED, so later reviews stop suppressing its
+    claim, and the ledger entry once it is not MITIGATED. An entry another verdict also recorded
+    stays, and one nothing else recorded is removed.
+    """
     new_status = status.upper().strip()
-    if new_status not in {"VERIFIED", "INVALIDATED", "MITIGATED", "UNVERIFIED"}:
+    if new_status not in _VERDICT_STATUSES:
         print_error(MESSAGES.review.invalid_status_choices, prefix=False)
         raise typer.Exit(1)
+    if [index, title_pattern, candidate].count(None) != 2:
+        print_error(MESSAGES.review.specify_one_finding, prefix=False)
+        raise typer.Exit(1)
 
-    finding = payload.findings[target_idx]
-    perimeter_list = (
-        _resolve_mitigated_perimeter(finding, perimeter) if new_status == "MITIGATED" else []
-    )
-    effective_reason = _resolve_verdict_reason(finding, new_status, reason)
-    by = "human" if new_status != "UNVERIFIED" else None
-    apply_verdict(
-        finding,
-        new_status,
-        by=by,
-        reason=effective_reason,
-        mitigating_mechanism=effective_reason if new_status == "MITIGATED" else None,
-        perimeter_files=perimeter_list if new_status == "MITIGATED" else None,
-        regression_test=regression_test if new_status == "MITIGATED" else None,
-    )
-
-    _record_verdict_side_effects(
-        finding, new_status, effective_reason, perimeter_list, regression_test
-    )
+    session_dir = _require_session_dir(session or session_opt)
+    verdict = Verdict(new_status, adjudicator, reason, tuple(perimeter or ()), regression_test)
     try:
-        assert_verdict_invariants([finding])
+        done = (
+            _judge_candidate(session_dir, candidate, verdict)
+            if candidate is not None
+            else _judge_reported(session_dir, index, title_pattern, verdict)
+        )
+    except ValidationError as exc:
+        print_error(str(exc), prefix=False)
+        raise typer.Exit(1) from None
     except (AssertionError, ValueError) as exc:
         print_error(f"Cannot update finding: verdict invariants violated: {exc}", prefix=False)
         raise typer.Exit(1) from None
-
-    write_json_file(findings_file, payload)
-    print_success(f"Updated finding #{target_idx + 1} status → {new_status}")
-
-
-def _resolve_mitigated_perimeter(finding: Any, perimeter: list[str] | None) -> list[str]:
-    clean = [p.strip() for p in perimeter if p.strip()] if perimeter else []
-    if clean:
-        return clean
-    if getattr(finding, "perimeter_files", None):
-        return list(finding.perimeter_files)
-    loc_file = finding.location.split(":")[0].strip() if finding.location else ""
-    return [loc_file] if loc_file else []
-
-
-def _resolve_verdict_reason(finding: Any, new_status: str, reason: str) -> str:
-    if reason:
-        return reason
-    if getattr(finding, "invalidation_reason", None):
-        return str(finding.invalidation_reason)
-    if getattr(finding, "mitigating_mechanism", None):
-        return str(finding.mitigating_mechanism)
-    return "Mitigated" if new_status == "MITIGATED" else ""
+    except OSError as exc:
+        print_error(MESSAGES.review.session_write_failed.format(error=exc), prefix=False)
+        raise typer.Exit(1) from None
+    print_success(done)
 
 
 # =============================================================================
@@ -1108,55 +1165,25 @@ def _resolve_verdict_reason(finding: Any, new_status: str, reason: str) -> str:
 # =============================================================================
 
 
-def _tally_single_session_findings(
-    findings_file: Path,
-    by_status: dict[str, int],
-    by_persona_total: dict[str, int],
-    by_persona_invalidated: dict[str, int],
-    all_findings: list[Any],
-) -> int:
-    """Tally findings from a single session findings.json file into running counters."""
-    try:
-        from devops_cli.ai.review_schema import ReviewSessionPayload
+def _tally_findings(
+    findings: Sequence[HistoryFinding],
+) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+    """Count findings by status, and by persona in total and invalidated.
 
-        payload = ReviewSessionPayload.model_validate_json(
-            findings_file.read_text(encoding="utf-8")
-        )
-        count = 0
-        for f in payload.findings:
-            count += 1
-            st = f.status
-            by_status[st] = by_status.get(st, 0) + 1
-            raw_personas = [p.strip() for p in (f.persona or "").split(",") if p.strip()]
-            for persona in raw_personas or ["unknown"]:
-                by_persona_total[persona] = by_persona_total.get(persona, 0) + 1
-                if st == "INVALIDATED":
-                    by_persona_invalidated[persona] = by_persona_invalidated.get(persona, 0) + 1
-            all_findings.append(f)
-        return count
-    except Exception:
-        return 0
-
-
-def _load_sessions_data(
-    session_dirs: list[Path],
-) -> tuple[int, dict[str, int], dict[str, int], dict[str, int], list[Any]]:
-    """Accumulate review metrics across all saved session directories."""
+    A finding several personas raised is joined into one with their names comma-separated, and
+    counts once for each of them.
+    """
     by_status: dict[str, int] = {"VERIFIED": 0, "UNVERIFIED": 0, "INVALIDATED": 0, "MITIGATED": 0}
     by_persona_total: dict[str, int] = {}
     by_persona_invalidated: dict[str, int] = {}
-    all_findings: list[Any] = []
-    total_findings = 0
-
-    for d in session_dirs:
-        total_findings += _tally_single_session_findings(
-            d / "findings.json",
-            by_status,
-            by_persona_total,
-            by_persona_invalidated,
-            all_findings,
-        )
-    return total_findings, by_status, by_persona_total, by_persona_invalidated, all_findings
+    for f in findings:
+        by_status[f.status] = by_status.get(f.status, 0) + 1
+        raw_personas = [p.strip() for p in f.persona.split(",") if p.strip()]
+        for persona in raw_personas or ["unknown"]:
+            by_persona_total[persona] = by_persona_total.get(persona, 0) + 1
+            if f.status == "INVALIDATED":
+                by_persona_invalidated[persona] = by_persona_invalidated.get(persona, 0) + 1
+    return by_status, by_persona_total, by_persona_invalidated
 
 
 def _render_status_breakdown_table(by_status: dict[str, int], total_findings: int) -> None:
@@ -1239,25 +1266,37 @@ def review_stats(
         print_warning(MESSAGES.review.no_review_dir_found, prefix=False)
         raise typer.Exit(0)
 
-    session_dirs = [d for d in r_dir.iterdir() if d.is_dir() and (d / "findings.json").exists()]
-    if not session_dirs:
+    # Each subject counts once. Findings come from findings.json: the reported findings, with
+    # the verdicts `devops review verify` gave them, and the candidates a VERIFIED or MITIGATED
+    # verdict moved there. A verdict on a candidate kept out of findings.json ranks its session
+    # in history, but these figures do not count the candidate.
+    history = load_review_history(r_dir)
+    if not history.sessions:
         print_warning(MESSAGES.review.no_saved_sessions, prefix=False)
         raise typer.Exit(0)
 
-    total_findings, by_status, by_persona_total, by_persona_invalidated, all_findings = (
-        _load_sessions_data(session_dirs)
-    )
+    findings = [f for session in history.counted for f in session.findings]
+    by_status, by_persona_total, by_persona_invalidated = _tally_findings(findings)
 
     print_section(" AI Code Review Accuracy & Verification Stats ", style="bold cyan")
-    print_info(f"[bold]Total Sessions:[/bold]  {len(session_dirs)}", prefix=False)
-    print_info(f"[bold]Total Findings:[/bold]  {total_findings}\n", prefix=False)
+    print_info(
+        MESSAGES.review.sessions_counted.format(
+            total=len(history.sessions),
+            counted=len(history.counted),
+            repeats=history.repeats,
+            target_only=history.target_only,
+            unkeyed=history.unkeyed,
+        ),
+        prefix=False,
+    )
+    print_info(MESSAGES.review.total_findings_count.format(count=len(findings)), prefix=False)
 
-    _render_status_breakdown_table(by_status, total_findings)
+    _render_status_breakdown_table(by_status, len(findings))
     _render_persona_stats_table(by_persona_total, by_persona_invalidated)
 
     from devops_cli.ai.review.category_metrics import compute_category_metrics
 
-    category_metrics = compute_category_metrics(all_findings)
+    category_metrics = compute_category_metrics(findings)
     _render_category_stats_table(category_metrics)
 
 
@@ -1356,6 +1395,10 @@ def benchmark(
         bool,
         typer.Option("--no-pre-analysis", help=HELP.review.no_pre_analysis),
     ] = False,
+    no_static_scan: Annotated[
+        bool,
+        typer.Option("--no-static-scan", help=HELP.review.no_static_scan),
+    ] = False,
     concurrency: Annotated[
         int | None,
         typer.Option("--concurrency", "-c", help=HELP.review.concurrency),
@@ -1374,6 +1417,7 @@ def benchmark(
                 persona=persona,
                 all_personas=all_personas,
                 no_pre_analysis=no_pre_analysis,
+                no_static_scan=no_static_scan,
                 no_cache=True,
                 concurrency=concurrency,
             )
@@ -1387,6 +1431,7 @@ def benchmark(
         persona=persona.value if persona else None,
         all_personas=all_personas,
         pre_analysis=not no_pre_analysis,
+        static_scan=not no_static_scan,
         concurrency=concurrency,
     )
     subject = {"corpus_digest": summary.corpus_digest, "target": Path(summary.target).name}
@@ -1491,13 +1536,11 @@ def corpus_generate(
     print_info(f"[dim]{corpus.caveat}[/dim]", prefix=False)
 
 
-def _corpus_session_dir(files_dir: Path, session: str | None) -> Path | None:
-    """The named session, or the latest one whose profile shows it reviewed the corpus."""
-    if session:
-        return _find_session_dir(session)
+def _corpus_session_dirs(files_dir: Path) -> list[Path]:
+    """Every session whose profile shows it reviewed the corpus, oldest first."""
     reviews_dir = runner._get_reviews_base_dir()
     if not reviews_dir.exists():
-        return None
+        return []
     target = str(files_dir.resolve())
     reviews = [
         d
@@ -1506,103 +1549,251 @@ def _corpus_session_dir(files_dir: Path, session: str | None) -> Path | None:
         and (profile := ReviewProfile.load(d)) is not None
         and profile.target == target
     ]
-    return max(reviews, key=lambda d: d.name, default=None)
+    return sorted(reviews, key=lambda d: d.name)
+
+
+def _named_session_dirs(sessions: list[str]) -> list[Path]:
+    """The named sessions, oldest first; a name that matches no reviewed session exits 1."""
+    found = {name: _find_session_dir(name) for name in dict.fromkeys(sessions)}
+    dirs = {d: None for d in found.values() if d is not None and (d / "findings.json").exists()}
+    if missing := [name for name, d in found.items() if d not in dirs]:
+        print_error(f"No review session with findings matches: {', '.join(missing)}")
+        raise typer.Exit(1)
+    return sorted(dirs, key=lambda d: d.name)
+
+
+def _arm_session_dirs(files_dir: Path, sessions: list[str] | None, runs: int | None) -> list[Path]:
+    """The sessions of one arm: those named, the latest `runs` reviews of the corpus, or the
+    latest one."""
+    if sessions and runs is not None:
+        print_error("Name sessions with --session or take the latest with --runs, not both.")
+        raise typer.Exit(1)
+    if sessions:
+        return _named_session_dirs(sessions)
+    reviews = _corpus_session_dirs(files_dir)
+    if runs is not None and len(reviews) < runs:
+        print_error(
+            f"Only {len(reviews)} review(s) of {files_dir} exist, and --runs asks for {runs}; "
+            f"run: devops review benchmark {files_dir} --runs {runs}"
+        )
+        raise typer.Exit(1)
+    if not reviews:
+        print_error(f"No review of {files_dir} found; run: devops review path {files_dir}")
+        raise typer.Exit(1)
+    return reviews[-(runs or 1) :]
 
 
 def _session_findings(path: Path) -> list[SavedFinding]:
     return ReviewSessionPayload.model_validate_json(path.read_text(encoding="utf-8")).findings
 
 
-def _injection_outcome(outcome: InjectionOutcome) -> str:
-    if outcome.reported:
-        return "reported"
-    if outcome.found:
-        return "found, then " + "/".join(sorted(set(outcome.statuses))).lower()
-    return "named the file elsewhere" if outcome.in_file else "missed"
-
-
-def _render_corpus_score(score: CorpusScore) -> None:
-    print_section(f" Synthetic Defect Recall: {score.session_id} ", style="bold cyan")
-    print_info(
-        f"Found: [bold]{score.found}/{score.injections}[/bold] ({score.recall_found:.0%}; "
-        f"{score.found_by_line} at their line); still reported after verification: "
-        f"[bold]{score.reported}/{score.injections}[/bold] ({score.recall_reported:.0%}); "
-        f"found then dropped: {score.dropped}; reported findings beyond the injections: "
-        f"{score.unmatched_findings}",
-        prefix=False,
+def _replied_personas(profiles: list[ReviewProfile | None]) -> list[str]:
+    """Every persona that replied in any of the sessions."""
+    return sorted(
+        {
+            reply["persona"]
+            for p in profiles
+            if p
+            for reply in p.persona_replies
+            if "persona" in reply
+        }
     )
+
+
+def _out_of(count: int, whole: int, share: float) -> str:
+    return f"{count}/{whole} ({share:.0%})"
+
+
+def _render_arm_totals(arm: CorpusRunsScore) -> None:
+    """How many injections the arm's runs caught: in at least one run, in every run, in none."""
+    whole, k = len(arm.tallies), arm.runs
+    rows = []
+    for label, total, counts in (
+        ("Found", arm.found, [t.found_in for t in arm.tallies]),
+        ("Still reported after verification", arm.reported, [t.reported_in for t in arm.tallies]),
+    ):
+        rows.append(
+            [
+                label,
+                _out_of(sum(c > 0 for c in counts), whole, total.pass_at_k),
+                _out_of(sum(c == k for c in counts), whole, total.pass_hat_k),
+                str(total.in_none),
+            ]
+        )
+    print_table(
+        title=f"Injections Caught Across {k} Run(s)",
+        columns=[
+            ("Outcome", "cyan"),
+            (f"In at least one run (pass@{k})", "right"),
+            (f"In every run (pass^{k})", "right"),
+            ("In no run", "right"),
+        ],
+        rows=rows,
+    )
+
+
+def _render_arm_means(arm: CorpusRunsScore) -> None:
+    """The mean of each figure across the runs, beside its range; one run has no range."""
+    spread = arm.spread or {}
+    print_table(
+        title="Mean per Run",
+        columns=[("Figure", "cyan"), ("Mean", "right"), ("Range across runs", "right")],
+        rows=[
+            [
+                name,
+                f"{getattr(arm, name):g}",
+                f"{spread[name][0]:g}–{spread[name][1]:g}" if name in spread else "—",
+            ]
+            for name in RUN_FIGURE_DECIMALS
+        ],
+    )
+
+
+def _render_arm_sessions(arm: CorpusRunsScore) -> None:
+    print_table(
+        title="Runs",
+        columns=[
+            ("Session", "magenta"),
+            ("Recall found", "right"),
+            ("Recall reported", "right"),
+            ("Candidates", "right"),
+            ("Invalidated by the verifier", "right"),
+            ("Reported", "right"),
+            ("Prompt tokens", "right"),
+            ("Completion tokens", "right"),
+            ("Unparsed persona replies", "right"),
+        ],
+        rows=[
+            [
+                row.session_id,
+                f"{row.recall_found:.0%}",
+                f"{row.recall_reported:.0%}",
+                str(row.candidate_findings),
+                str(row.invalidated_findings),
+                str(row.reported_findings),
+                str(row.prompt_tokens),
+                str(row.completion_tokens),
+                str(row.unparsed_replies),
+            ]
+            for row in arm.sessions
+        ],
+    )
+
+
+def _render_arm_templates(arm: CorpusRunsScore) -> None:
+    by_template: dict[str, list[int]] = {}
+    for tally in arm.tallies:
+        counts = by_template.setdefault(tally.template, [0, 0, 0])
+        counts[0] += 1
+        counts[1] += tally.found_in > 0
+        counts[2] += tally.found_in == arm.runs
     print_table(
         title="By Template",
         columns=[
             ("Template", "cyan"),
             ("Injections", "right"),
-            ("Found", "right"),
-            ("Reported", "right"),
+            ("Found in any run", "right"),
+            ("Found in every run", "right"),
         ],
-        rows=[
-            [name, str(t.injections), str(t.found), str(t.reported)]
-            for name, t in sorted(score.by_template.items())
-        ],
+        rows=[[name, *map(str, counts)] for name, counts in sorted(by_template.items())],
     )
+
+
+def _render_arm_injections(arm: CorpusRunsScore) -> None:
+    """Each injection: in how many runs it was found and reported, and every finding matched."""
+    titles: dict[str, dict[str, None]] = {}
+    for outcome in (outcome for score in arm.scores for outcome in score.outcomes):
+        titles.setdefault(outcome.id, {}).update(dict.fromkeys(outcome.titles))
     print_table(
         title="Injections",
         columns=[
             ("Injection", "magenta"),
             ("Template", "cyan"),
-            ("Outcome", ""),
-            ("Matched Findings", "dim"),
+            ("Found", "right"),
+            ("Reported", "right"),
+            ("Matched findings (any run)", "dim"),
         ],
         rows=[
             [
-                escape_text(f"{o.file}:{o.line}"),
-                o.template,
-                _injection_outcome(o),
-                escape_text("; ".join(dict.fromkeys(o.titles))),
+                escape_text(f"{t.file}:{t.line}"),
+                t.template,
+                f"found in {t.found_in}/{arm.runs}",
+                f"reported in {t.reported_in}/{arm.runs}",
+                escape_text("; ".join(titles.get(t.id, {}))),
             ]
-            for o in score.outcomes
+            for t in arm.tallies
         ],
     )
-    print_info(f"[dim]{score.caveat}[/dim]", prefix=False)
+
+
+def _render_corpus_runs(arm: CorpusRunsScore) -> None:
+    print_section(
+        f" Synthetic Defect Recall: {arm.runs} run(s), prompts {arm.prompt_digest or 'unrecorded'} ",
+        style="bold cyan",
+    )
+    _render_arm_totals(arm)
+    _render_arm_means(arm)
+    _render_arm_sessions(arm)
+    _render_arm_templates(arm)
+    _render_arm_injections(arm)
+    print_info(f"[dim]{arm.caveat}[/dim]", prefix=False)
+
+
+def _warn_unpinned(setup: dict[str, Any], *, to_stderr: bool) -> None:
+    """Say when a gateway group the review used serves several models, so runs mix models."""
+    for group, models in unpinned_groups(setup).items():
+        print_warning(
+            f"not model-pinned: {group} serves {models} models, so its runs mix them; pin one "
+            "model with a single-model gateway group to compare prompts.",
+            prefix=False,
+            to_stderr=to_stderr,
+        )
 
 
 @corpus_app.command("score")
 def corpus_score(
     corpus_dir: Annotated[Path, typer.Argument(help=HELP.review.corpus_dir)],
     session: Annotated[
-        str | None,
+        list[str] | None,
         typer.Option("--session", "-s", help=HELP.review.corpus_session),
+    ] = None,
+    runs: Annotated[
+        int | None,
+        typer.Option("--runs", "-n", min=1, help=HELP.review.corpus_runs),
     ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
     ] = False,
 ) -> None:
-    """Score a review of a corpus: which injected defects it found, and what verification kept."""
+    """Score one arm of reviews of a corpus: which injected defects each run found, and what verification kept."""
     try:
         corpus = DefectCorpus.load(corpus_dir)
     except (OSError, ValueError) as exc:
         print_error(f"No corpus manifest in {corpus_dir}: {exc}")
         raise typer.Exit(1) from exc
-    files_dir = corpus_dir / CORPUS_FILES_DIR
-    session_dir = _corpus_session_dir(files_dir, session)
-    if session_dir is None or not (session_dir / "findings.json").exists():
-        print_error(f"No review of {files_dir} found; run: devops review path {files_dir}")
-        raise typer.Exit(1)
-    reported = _session_findings(session_dir / "findings.json")
-    candidates_file = session_dir / CONST_REVIEW_CANDIDATES_FILENAME
-    candidates = _session_findings(candidates_file) if candidates_file.exists() else reported
-    score = score_corpus(corpus, candidates, reported, session_id=session_dir.name)
+    session_dirs = _arm_session_dirs(corpus_dir / CORPUS_FILES_DIR, session, runs)
+    profiles = [ReviewProfile.load(d) for d in session_dirs]
+    try:
+        arm = score_corpus_runs([_scored_session(corpus, d.name) for d in session_dirs], profiles)
+    except ValidationError as exc:
+        print_error(exc.message)
+        raise typer.Exit(1) from exc
     # The setup is read when scoring, so score a review before changing its models or pool.
+    setup = review_setup(
+        prompt_digest=arm.prompt_digest, runs=arm.runs, personas=_replied_personas(profiles)
+    )
     saved = record_run(
         Mechanism.CORPUS_SCORE,
-        setup=review_setup(),
+        setup=setup,
         subject={"corpus_digest": digest(corpus.model_dump(mode="json", exclude={"created_at"}))},
-        results=score.model_dump(mode="json"),
+        results=arm.model_dump(mode="json"),
     )
     if json_output:
-        write_stdout(score.model_dump_json(indent=2) + "\n")
+        write_stdout(arm.model_dump_json(indent=2) + "\n")
     else:
-        _render_corpus_score(score)
+        _render_corpus_runs(arm)
+    _warn_unpinned(setup, to_stderr=json_output)
     announce_run(saved, to_stderr=json_output)
 
 
@@ -2142,7 +2333,13 @@ def export_feedback(
         ),
     ] = CONST_STATUS_INVALIDATED,
 ) -> None:
-    """Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning."""
+    """Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.
+
+    Each session's findings.json and candidates.json are read, and only the findings whose
+    verdict the dataset does not hold yet are appended. An export that finds none leaves the
+    dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset
+    changes no prompt and no later review.
+    """
     status_filter = None if status.upper() == "ALL" else status.upper()
     from devops_cli.ai.review.exporter import export_invalidated_feedback
 
@@ -2151,6 +2348,13 @@ def export_feedback(
     )
     if count == 0:
         target_dir = reviews_dir or runner._get_reviews_base_dir()
-        print_warning(f"No {status} findings found to export under {target_dir}.", prefix=False)
+        print_warning(
+            MESSAGES.review.no_findings_to_export.format(
+                status=status, target=target_dir, path=out_path
+            ),
+            prefix=False,
+        )
     else:
-        print_success(f"Exported {count} {status} finding(s) → [bold]{out_path}[/bold]")
+        print_success(
+            MESSAGES.review.exported_findings.format(count=count, status=status, path=out_path)
+        )

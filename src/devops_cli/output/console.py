@@ -150,7 +150,7 @@ def write_stderr(text: str, *, flush: bool = True) -> None:
     write_stream(text, stream="stderr", flush=flush)
 
 
-def print(
+def print(  # noqa: C901
     content: Any = "",
     *,
     level: MessageLevel = "raw",

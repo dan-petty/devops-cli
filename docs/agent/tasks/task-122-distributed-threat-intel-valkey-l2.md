@@ -35,4 +35,3 @@ OpenTelemetry review traces revealed `threat_intel.lookup.cloudflare` called seq
 - [x] 100% test coverage in `tests/test_security_threat_intel.py`.
 - [x] All architectural invariants and complexity gates pass ($\le 10$).
 - [x] Local `uv run devops ci` passes with $\ge 90.0\%$ coverage.
-- [ ] Remote CI passing and PR staged.

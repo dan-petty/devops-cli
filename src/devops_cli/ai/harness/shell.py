@@ -6,8 +6,10 @@ import fnmatch
 import logging
 import os
 import shlex
+import signal
 import subprocess
 import threading
+import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -25,6 +27,8 @@ from devops_cli.ai.harness.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_SHELL_BG_OUTPUT_LINES,
     DEFAULT_SHELL_DRAIN_TIMEOUT_SECONDS,
+    DEFAULT_SHELL_STOP_GRACE_SECONDS,
+    DEFAULT_SHELL_STOP_POLL_SECONDS,
 )
 from devops_cli.exceptions.ai import HarnessValidationError
 
@@ -104,6 +108,23 @@ def _spawn_reader(stream: IO[str] | None, sink: _OutputRing, name: str) -> threa
     return thread
 
 
+def _signal_process_group(pgid: int, sig: int) -> bool:
+    """Send ``sig`` to the group, returning False once no member is left to receive it.
+
+    Signal 0 only probes whether a member still exists. A group this process may not signal is
+    reported and treated as out of reach, since signalling it again cannot succeed either.
+    """
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        name = signal.Signals(sig).name if sig else "signal 0"
+        logger.warning("Not permitted to signal process group %s with %s", pgid, name)
+        return False
+    return True
+
+
 def _check_shell_syntax(command: str, denied_operators: list[str]) -> tuple[bool, str, list[str]]:
     """Validate shell operators, shlex parsing, and path traversal."""
     if not command.strip():
@@ -168,6 +189,7 @@ class Shell(BaseCapability):
     max_output_chars: int = 20000
     max_bg_processes: int = 10
     max_bg_output_lines: int = DEFAULT_SHELL_BG_OUTPUT_LINES
+    stop_grace_seconds: float = DEFAULT_SHELL_STOP_GRACE_SECONDS
 
     def __init__(
         self,
@@ -183,6 +205,7 @@ class Shell(BaseCapability):
         max_output_chars: int = 20000,
         max_bg_processes: int = 10,
         max_bg_output_lines: int = DEFAULT_SHELL_BG_OUTPUT_LINES,
+        stop_grace_seconds: float = DEFAULT_SHELL_STOP_GRACE_SECONDS,
     ) -> None:
         p = Path(cwd)
         if allowed_commands is not None and denied_commands is not None:
@@ -205,6 +228,7 @@ class Shell(BaseCapability):
             max_output_chars=max_output_chars,
             max_bg_processes=max_bg_processes,
             max_bg_output_lines=max_bg_output_lines,
+            stop_grace_seconds=stop_grace_seconds,
         )
 
     def _sanitize_env(self) -> dict[str, str]:
@@ -312,27 +336,39 @@ class Shell(BaseCapability):
         return f"{header}\n{body}" if body else header
 
     def _terminate_process_group(self, proc: subprocess.Popen[str]) -> None:
-        """Signal the whole POSIX group, escalating to SIGKILL if the group ignores SIGTERM.
+        """Signal the whole POSIX group, escalating to SIGKILL for members that outlast SIGTERM.
 
         Killing only ``proc`` would leave any subshell it spawned running as an orphan
         reparented to PID 1, which is why the process was given its own session to begin with.
+        That makes its pid the group id for as long as any member lives, so the group is
+        signalled by it: looking the group up through ``getpgid`` failed once the leader had
+        exited and been reaped, and its members kept running. The group is probed until no
+        member is left, reaping the leader each time so its zombie does not keep the group in
+        sight, and whatever is still there when the grace period ends gets SIGKILL.
         """
-        import signal
-
+        pgid = proc.pid
+        if not isinstance(pgid, int) or pgid <= 1 or pgid == os.getpgrp():
+            return
+        if not _signal_process_group(pgid, signal.SIGTERM):
+            proc.poll()
+            return
+        deadline = time.monotonic() + self.stop_grace_seconds
+        while time.monotonic() < deadline:
+            proc.poll()
+            if not _signal_process_group(pgid, 0):
+                return
+            time.sleep(DEFAULT_SHELL_STOP_POLL_SECONDS)
+        _signal_process_group(pgid, signal.SIGKILL)
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            proc.wait(timeout=3.0)
-        except ProcessLookupError, PermissionError:
-            pass
-        except Exception:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except ProcessLookupError, PermissionError:
-                pass
-            except Exception:
-                pass
+            proc.wait(timeout=self.stop_grace_seconds)
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "Process group %s leader did not exit %ss after SIGKILL",
+                pgid,
+                self.stop_grace_seconds,
+            )
 
-    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:  # noqa: C901
         bg_commands: dict[str, _BackgroundCommand] = {}
 
         def run_command(command: str, timeout_seconds: float | None = None) -> str:

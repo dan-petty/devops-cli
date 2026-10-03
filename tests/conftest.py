@@ -11,12 +11,14 @@ import weakref
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 if TYPE_CHECKING:
+    from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+    from devops_cli.roadmap.store import RoadmapStore
     from tests.web_fakes import StubWeb
 
 
@@ -279,6 +281,27 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterato
 
 
 @pytest.fixture(autouse=True)
+def isolate_user_data_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Keep the user-level data root, where a review's relative data paths resolve (#972), in
+    the test's temporary directory rather than the developer's home."""
+    user_data_root = (tmp_path / "user-data").resolve()
+    monkeypatch.setattr("devops_cli.core.repo.CONST_USER_DATA_ROOT", user_data_root)
+    return user_data_root
+
+
+@pytest.fixture(autouse=True)
+def isolate_own_source_repository(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run every test as a devops-cli installed in site-packages runs, trusting no repository as
+    its own (#972). The suite imports devops-cli from the checkout it runs in, which would make
+    that checkout trusted: a review started there would read its `config.yaml` and `.data`. A test
+    of the trusted repository points `_own_source_dir` at a repository of its own."""
+    import sysconfig
+
+    installed = Path(sysconfig.get_paths()["purelib"]).resolve() / "devops_cli"
+    monkeypatch.setattr("devops_cli.core.repo._own_source_dir", lambda: installed)
+
+
+@pytest.fixture(autouse=True)
 def isolate_session_bus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Keep tests off the devcontainer's session bus, where gnome-keyring holds real secrets."""
     monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
@@ -289,6 +312,79 @@ def isolate_session_bus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def isolate_gh_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Keep tests from reading the developer's gh login, which may hold a plaintext token."""
     monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path / "gh-config"))
+
+
+@pytest.fixture(autouse=True, scope="session")
+def github_roadmap_factory() -> Iterator[Callable[..., RoadmapStore]]:
+    """Keep every test off the GitHub roadmap store, and hand its real factory to its own test.
+
+    The GitHub store runs `gh`, which in a test acts as the developer's own login: `run_gh` passes
+    its child no `GH_CONFIG_DIR`, so `isolate_gh_config` does not reach it. For the whole run the
+    factory refuses instead, and a test that drives a roadmap command requests `roadmap_store`.
+    """
+    from devops_cli.roadmap import store as roadmap_module
+
+    factory = roadmap_module.get_roadmap_store
+
+    def refuse(repo: str, **_: Any) -> NoReturn:
+        raise AssertionError(
+            f"A test opened the GitHub roadmap store for {repo}, which runs the developer's own "
+            "gh login. Request the roadmap_store fixture instead."
+        )
+
+    with patch.object(roadmap_module, "get_roadmap_store", refuse):
+        yield factory
+
+
+@pytest.fixture
+def roadmap_store_repos() -> list[str]:
+    """The repository each roadmap store a command opened during the test was opened for."""
+    return []
+
+
+@pytest.fixture
+def roadmap_store(
+    monkeypatch: pytest.MonkeyPatch, roadmap_store_repos: list[str]
+) -> InMemoryRoadmapStore:
+    """The in-memory roadmap that every store a command opens during the test reads and writes.
+
+    Each store a command opens adds its repository to `roadmap_store_repos`, so a test can pin
+    which repository a command reads and writes.
+    """
+    from devops_cli.roadmap import store as roadmap_module
+    from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+
+    roadmap = InMemoryRoadmapStore()
+
+    def open_store(repo: str, **_: Any) -> InMemoryRoadmapStore:
+        roadmap_store_repos.append(repo)
+        return roadmap
+
+    monkeypatch.setattr(roadmap_module, "get_roadmap_store", open_store)
+    return roadmap
+
+
+@pytest.fixture
+def unreadable_github_roadmap(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """Open the GitHub store over a `gh` that exits 1, as when GitHub can't be read.
+
+    Returns the argv of every `gh` command the store ran.
+    """
+    from devops_cli.roadmap import store as roadmap_module
+    from devops_cli.roadmap.github_store import GitHubRoadmapStore
+
+    calls: list[list[str]] = []
+
+    def gh_exits_1(args: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 1, "", "HTTP 503: Service Unavailable")
+
+    monkeypatch.setattr(
+        roadmap_module,
+        "get_roadmap_store",
+        lambda repo, **kwargs: GitHubRoadmapStore(repo, runner=gh_exits_1, **kwargs),
+    )
+    return calls
 
 
 @pytest.fixture(autouse=True)
@@ -308,7 +404,7 @@ def isolate_devops_cli_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         encoding="utf-8",
     )
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(test_config))
-    monkeypatch.setenv("DEVOPS_OTEL_ENDPOINT", "http://localhost:4318")
+    monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENDPOINT", "http://localhost:4318")
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
     with patch("devops_cli.config.settings.CONFIG_PATH", test_config):
         yield test_config
@@ -380,6 +476,97 @@ def nested_worktree(tmp_path: Path, git: Callable[..., None]) -> tuple[Path, Pat
     nested = main / ".claude" / "worktrees" / "wt"
     git(main, "worktree", "add", "--quiet", "-b", "nested", str(nested))
     return main, nested
+
+
+@pytest.fixture
+def symbol_removal_repo(tmp_path: Path, git: Callable[..., None]) -> Path:
+    """A real repository whose `main` defines two functions and whose `feature` branch
+    removes one of them and adds another."""
+    git(tmp_path, "init", "--quiet", "-b", "main")
+    (tmp_path / "mod.py").write_text("def kept(): pass\ndef gone(): pass\n", encoding="utf-8")
+    git(tmp_path, "add", "mod.py")
+    git(tmp_path, "commit", "--quiet", "-m", "base")
+    git(tmp_path, "switch", "--quiet", "-c", "feature")
+    (tmp_path / "mod.py").write_text("def kept(): pass\ndef added(): pass\n", encoding="utf-8")
+    git(tmp_path, "commit", "--quiet", "-am", "remove gone")
+    return tmp_path
+
+
+@pytest.fixture
+def write_review_session() -> Callable[..., Path]:
+    """Write a completed review session as the pipeline lays one out: findings.json, plus
+    candidates.json and a profile.json naming `target` when they are given.
+
+    Review history, baseline and stats tests share it.
+    """
+    from devops_cli.ai.review.profile import ReviewProfile
+    from devops_cli.ai.review_schema import ReviewSessionPayload
+    from devops_cli.config.constants import (
+        CONST_REVIEW_CANDIDATES_FILENAME,
+        CONST_REVIEW_FINDINGS_FILENAME,
+    )
+
+    def write(
+        session_dir: Path,
+        *,
+        generated_at: str,
+        subject: dict[str, str] | None = None,
+        findings: Sequence[Any] = (),
+        candidates: Sequence[Any] | None = None,
+        target: str | None = None,
+    ) -> Path:
+        session_dir.mkdir(parents=True)
+        files = (
+            (CONST_REVIEW_FINDINGS_FILENAME, findings),
+            (CONST_REVIEW_CANDIDATES_FILENAME, candidates),
+        )
+        for name, saved in files:
+            if saved is not None:
+                payload = ReviewSessionPayload(
+                    generated_at=generated_at, subject=subject or {}, findings=list(saved)
+                )
+                (session_dir / name).write_text(payload.model_dump_json(), encoding="utf-8")
+        if target is not None:
+            ReviewProfile(session_id=session_dir.name, target=target).write(session_dir)
+        return session_dir
+
+    return write
+
+
+@pytest.fixture
+def review_history(tmp_path: Path, write_review_session: Callable[..., Path]) -> Path:
+    """A reviews directory with three sessions of one subject, a target-only session, an unkeyed
+    session, and a directory without findings.json.
+
+    `same-3` is the newest of the subject and counts. With it left out, `same-1`, whose finding
+    has a verdict, outranks the newer `same-2`, whose finding has none. Each session reports one
+    finding, so counting every session and counting each subject once give different tables.
+    """
+    from devops_cli.ai.review.history import review_subject
+    from devops_cli.ai.review_schema import SavedFinding
+
+    reviews = tmp_path / "reviews"
+    subject = review_subject("path", "/repo/src", ["diff --git a/mod.py b/mod.py\n"])
+    sessions = (
+        ("same-1", "2026-10-01T09:00:00+00:00", subject, "VERIFIED", None),
+        ("same-2", "2026-10-01T10:00:00+00:00", subject, "UNVERIFIED", None),
+        ("same-3", "2026-10-01T11:00:00+00:00", subject, "VERIFIED", None),
+        ("target-only", "2026-09-30T09:00:00+00:00", None, "INVALIDATED", "/repo/src"),
+        ("unkeyed", "2026-09-29T09:00:00", None, "MITIGATED", None),
+    )
+    for name, generated_at, session_subject, status, target in sessions:
+        finding = SavedFinding(
+            title=f"{name} finding", location="mod.py:1", status=status, persona="devsecops"
+        )
+        write_review_session(
+            reviews / name,
+            generated_at=generated_at,
+            subject=session_subject,
+            findings=[finding],
+            target=target,
+        )
+    (reviews / "incomplete" / "files").mkdir(parents=True)
+    return reviews
 
 
 @pytest.fixture

@@ -50,6 +50,3 @@ Implement an automated GitOps drift detection and synchronization watch engine (
 - [x] Add `gitops watch` command in `src/devops_cli/commands/argo.py`.
 - [x] Author comprehensive tests in `tests/test_argo_gitops.py`.
 - [x] Verify test suite and quality gates pass cleanly.
-- [ ] Commit with concise Conventional Commit message.
-- [ ] Open Draft Pull Request targeting `release/v0.2.17`.
-- [ ] Transition PR to ready, verify merge readiness, squash-merge into `release/v0.2.17`, and close issue #111.

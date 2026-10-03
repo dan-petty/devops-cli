@@ -4,21 +4,25 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any, Literal
 
 from devops_cli.ai.review_schema import Finding, SavedFinding
+from devops_cli.config.constants import CONST_VERIFIED_BY_AGENT, CONST_VERIFIED_BY_HUMAN
 
 VerifiedBy = Literal[
     "criteria",
     "llm",
     "debate",
     "human",
+    "agent",
     "deterministic:syntax_error",
     "deterministic:missing_symbol",
     "deterministic:missing_header",
     "deterministic:pathlib_resolve",
     "deterministic:scanned_clean_dependency",
     "deterministic:placeholder_advisory",
+    "deterministic:unbacked_advisory",
     "deterministic:unsupported_runtime",
     "deterministic:operational_protocol",
     "deterministic:test_fixture_credential",
@@ -28,6 +32,7 @@ VerifiedBy = Literal[
     "deterministic:masked_placeholder_syntax_error",
     "deterministic:none_dereference",
     "deterministic:catalog_hallucination",
+    "deterministic:person_verdict",
     "deterministic:verdict_polarity",
     "deterministic:construct_location",
     "deterministic:line_boundaries",
@@ -35,7 +40,52 @@ VerifiedBy = Literal[
     "deterministic:vulnerable_dependency",
 ]
 
+
+class Adjudicator(StrEnum):
+    """Who gives a verdict through `devops review verify`: a person, or an agent.
+
+    Only a person's verdict is ground truth. Review history ranks sessions by it, and only it
+    teaches the learned catalog or records a mitigation in the ledger.
+    """
+
+    HUMAN = CONST_VERIFIED_BY_HUMAN
+    AGENT = CONST_VERIFIED_BY_AGENT
+
+
 _VALID_STATUSES: frozenset[str] = frozenset({"VERIFIED", "INVALIDATED", "MITIGATED", "UNVERIFIED"})
+
+# Every field verification owns on a finding: the verdict `apply_verdict` writes, the criteria
+# evidence it rests on, and what the verifier rewrites (the severity it rates on the reviewer's
+# bands and the band the reviewer gave, the location it re-anchors, the values it quotes, and the
+# advisories it strips with their note). The pipeline copies each of them
+# from the verified copy back onto the saved finding; the hand-kept list it had dropped the
+# verifier's severity.
+VERDICT_FIELDS: tuple[str, ...] = (
+    "status",
+    "verified",
+    "reportable",
+    "mitigated",
+    "verified_by",
+    "verified_at",
+    "invalidation_reason",
+    "verification_note",
+    "confidence_score",
+    "citation_line",
+    "mitigating_mechanism",
+    "perimeter_files",
+    "regression_test",
+    "verified_criteria_matched",
+    "invalidated_criteria_matched",
+    "criteria_execution_results",
+    "severity",
+    "severity_raw",
+    "references",
+    "reference_note",
+    "location",
+    "relocated_from",
+    "observed_value",
+    "expected_value",
+)
 
 
 def _check_invalidated_invariants(f: Finding | SavedFinding) -> None:
@@ -154,10 +204,10 @@ def _build_verdict_updates(
             "citation_line": citation_line,
             "verification_note": verification_note,
         }
-    # MITIGATED
+    # MITIGATED: reported beside the defect it limits, which is not a verified one (#845).
     return {
         "status": "MITIGATED",
-        "verified": True,
+        "verified": False,
         "reportable": True,
         "mitigated": True,
         "verified_by": by,
@@ -205,7 +255,9 @@ def apply_verdict[T: (Finding, SavedFinding)](
     )
 
     if confidence_score is not None:
-        updates["confidence_score"] = confidence_score
+        # Clamped here, where every verdict is written: a parsed finding's validator clamps,
+        # but an update does not, and criteria that passed twice once stored 2.0.
+        updates["confidence_score"] = min(1.0, max(0.0, confidence_score))
 
     for key, val in extra_updates.items():
         if val is not None:

@@ -211,18 +211,20 @@ def test_logging_stack_security_and_scoping() -> None:
     # Ingress rule 1: intra-namespace
     assert ingress_rules[0].get("from") == [{"podSelector": {}}]
 
-    # Ingress rule 2: monitoring namespace port 3100
-    rule_monitoring = ingress_rules[1]
-    from_monitoring = rule_monitoring.get("from", [])
-    assert len(from_monitoring) == 1
+    # Ingress rule 2: monitoring and otel namespaces port 3100
+    rule_telemetry = ingress_rules[1]
+    from_telemetry = rule_telemetry.get("from", [])
+    allowed_namespaces = {
+        f.get("namespaceSelector", {}).get("matchLabels", {}).get("kubernetes.io/metadata.name")
+        for f in from_telemetry
+    }
     assert (
-        from_monitoring[0]
-        .get("namespaceSelector", {})
-        .get("matchLabels", {})
-        .get("kubernetes.io/metadata.name")
-        == "monitoring"
+        allowed_namespaces,
+        rule_telemetry.get("ports"),
+    ) == (
+        {"monitoring", "otel"},
+        [{"protocol": "TCP", "port": 3100}],
     )
-    assert rule_monitoring.get("ports") == [{"protocol": "TCP", "port": 3100}]
 
     # Ensure no ingress-nginx or unconstrained CIDR rules
     for rule in ingress_rules:

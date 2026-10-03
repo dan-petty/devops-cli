@@ -106,6 +106,12 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "namespace": "otel",
             "values": str(DEFAULT_K8S_DIR / "otel" / "values.yaml"),
         },
+        {
+            "name": "pyroscope",
+            "chart": "grafana/pyroscope",
+            "namespace": "monitoring",
+            "values": str(DEFAULT_K8S_DIR / "monitoring" / "pyroscope-values.yaml"),
+        },
     ],
     "llm": [
         {
@@ -661,6 +667,10 @@ def _post_deploy_credentials(
         )
         print_info(
             "[dim]Jaeger OTLP Traces: localhost:4317 (gRPC) / localhost:4318 (HTTP)[/dim]",
+            prefix=False,
+        )
+        print_info(
+            "[dim]Pyroscope UI: http://localhost:4040 (namespace: monitoring)[/dim]",
             prefix=False,
         )
     if "llm" in selected_stacks:

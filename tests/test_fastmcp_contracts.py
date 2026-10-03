@@ -78,7 +78,6 @@ def test_fastmcp_tools_registration() -> None:
         "rag_index",
         "rag_drift",
         "benchmark_embeddings",
-        "benchmark_suite",
         # Security Intel & Scanners
         "security_intel_package",
         "security_intel_network",
@@ -135,7 +134,9 @@ def test_fastmcp_tools_registration() -> None:
         "gh_rate_limit",
         "gh_runs_list",
         "gh_run_view",
-        "gh_sync_roadmap",
+        "roadmap_migrate",
+        "roadmap_render",
+        "roadmap_reprioritize",
         "pr_ready",
         "pr_diff",
         "pr_close",
@@ -1295,3 +1296,170 @@ def test_describe_schema_states_what_a_property_accepts() -> None:
         "string or null",
         "any JSON value",
     ]
+
+
+# ── Roadmap tools (#739) ──────────────────────────────────────────────────────
+
+
+def _roadmap_tool_parameters(name: str) -> dict[str, object]:
+    import asyncio
+
+    from devops_cli.ai.mcp import server as mcp_server
+
+    tool = asyncio.run(mcp_server.mcp.get_tool(name))
+    assert tool is not None
+    return dict(tool.parameters["properties"])
+
+
+def test_the_roadmap_tools_are_registered_and_migrate_only_previews() -> None:
+    """`roadmap_migrate` has no confirm parameter: a bulk change is never one tool call away.
+
+    `roadmap_reprioritize` previews unless it is called with `dry_run=False` (#740).
+    """
+    render = _roadmap_tool_parameters("roadmap_render")
+    migrate = _roadmap_tool_parameters("roadmap_migrate")
+    reprioritize = _roadmap_tool_parameters("roadmap_reprioritize")
+    assert (
+        sorted(render),
+        render["dry_run"].get("default"),  # type: ignore[attr-defined]
+        sorted(migrate),
+        sorted(reprioritize),
+        reprioritize["dry_run"].get("default"),  # type: ignore[attr-defined]
+    ) == (["dry_run", "ref", "repo"], True, ["ref", "repo"], ["dry_run", "ref", "repo"], True)
+
+
+def test_the_roadmap_tools_resolve_to_the_roadmap_domain_and_hydrate() -> None:
+    from devops_cli.ai.mcp import server as mcp_server
+    from devops_cli.ai.mcp.dispatcher import resolve_tool_domain
+
+    before = mcp_server._is_advertised("roadmap_render")
+    hydrated = mcp_server.hydrate_tool_domain("roadmap")["hydrated"]
+    after = (
+        mcp_server._is_advertised("roadmap_migrate"),
+        mcp_server._is_advertised("roadmap_reprioritize"),
+    )
+    mcp_server.reset_hydrated_domains()
+    assert (
+        resolve_tool_domain("roadmap_render"),
+        resolve_tool_domain("roadmap_migrate"),
+        resolve_tool_domain("roadmap_reprioritize"),
+        before,
+        hydrated,
+        after,
+    ) == ("roadmap", "roadmap", "roadmap", False, True, (True, True))
+
+
+def test_the_roadmap_tools_build_the_commands_argv() -> None:
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import roadmap_migrate, roadmap_render, roadmap_reprioritize
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
+        roadmap_render()
+        roadmap_render(repo="dan-petty/devops-cli", ref="release/v0.2.25", dry_run=False)
+        roadmap_migrate(repo="dan-petty/devops-cli", ref="release/v0.2.25")
+        roadmap_reprioritize()
+        roadmap_reprioritize(repo="dan-petty/devops-cli", ref="release/v0.2.25", dry_run=False)
+    head = ["uv", "run", "devops", "roadmap"]
+    target = ["--repo", "dan-petty/devops-cli", "--ref", "release/v0.2.25"]
+    assert [call.args[0] for call in run.call_args_list] == [
+        [*head, "render", "--dry-run"],
+        [*head, "render", *target],
+        [*head, "migrate", "--dry-run", *target],
+        [*head, "reprioritize", "--dry-run"],
+        [*head, "reprioritize", *target, "--confirm"],
+    ]
+
+
+# =============================================================================
+# telemetry_profile names a trace and runs nothing (#980)
+# =============================================================================
+
+_PROFILED_TRACE = "0af7651916cd43dd8448eb211c80319c"
+
+
+async def test_telemetry_profile_publishes_a_trace_id_and_no_command() -> None:
+    """`telemetry_profile(command=...)` ran whatever program an MCP caller named.
+
+    `devops telemetry profile` split the string with `shlex` and ran it with the user's whole
+    environment, so a prompt-injected agent ran anything with every credential in reach. An
+    MCP caller now names a trace already in Jaeger, and the trace ID is all it can send.
+    """
+    import inspect
+
+    from devops_cli.ai.mcp.server import telemetry_profile
+
+    schema = (await _published_schemas())["telemetry_profile"]
+    assert (
+        tuple(inspect.signature(telemetry_profile).parameters),
+        sorted(schema["properties"]),
+        schema.get("required"),
+    ) == (("trace_id",), ["trace_id"], ["trace_id"])
+
+
+async def test_telemetry_profile_refuses_a_command_before_anything_runs(handler_runner) -> None:
+    """The call that profiled `bash -c true` is refused as a parameter the tool never had."""
+    is_error, reply = await _call(
+        "telemetry_profile", {"command": "bash -c true", "trace_id": _PROFILED_TRACE}
+    )
+    assert (
+        is_error,
+        "Parameter: `command`" in reply,
+        "HALLUCINATED_PARAM" in reply,
+        handler_runner.call_count,
+    ) == (True, True, True, 0)
+
+
+def test_telemetry_profile_reads_the_named_trace() -> None:
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import telemetry_profile
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
+        telemetry_profile(trace_id=_PROFILED_TRACE)
+    assert run.call_args.args[0] == [
+        "uv",
+        "run",
+        "devops",
+        "telemetry",
+        "profile",
+        "--trace-id",
+        _PROFILED_TRACE,
+    ]
+
+
+def test_docker_sandbox_hands_its_command_over_after_the_options_end() -> None:
+    """`docker_sandbox` appended `command` straight after its own options (#980).
+
+    `devops docker sandbox` parsed a leading `--root` or `--cpus 64` in that list as its own
+    option, so a caller turned off the rootless default the tool never offered. `--` ends the
+    options, as `sandbox_deploy` and `sandbox_exec` already did.
+    """
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import docker_sandbox
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
+        docker_sandbox(command=["--root", "id"])
+    assert run.call_args.args[0][-3:] == ["--", "--root", "id"]
+
+
+def test_a_delegated_command_receives_the_end_of_options_marker(monkeypatch) -> None:
+    """The lazy proxy in front of each command group dropped `--` (#980).
+
+    Click consumed the marker while collecting the proxy's extra arguments, so the command
+    behind it parsed what followed as options. `sandbox_exec` and `sandbox_deploy` end their
+    options with `--`, and `sandbox_exec(command=["--workdir", "/", "id"])` set the workdir.
+    """
+    from typer.testing import CliRunner
+
+    import devops_cli.main as main_module
+
+    delegated: list[str] = []
+    monkeypatch.setattr(
+        main_module, "_delegate", lambda _module, _name, args: delegated.extend(args)
+    )
+    result = CliRunner().invoke(
+        main_module.app, ["sandbox", "exec", "abc", "--", "--workdir", "/", "id"]
+    )
+    assert (result.exit_code, delegated) == (0, ["exec", "abc", "--", "--workdir", "/", "id"])

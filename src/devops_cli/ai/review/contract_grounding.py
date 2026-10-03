@@ -10,7 +10,9 @@ from devops_cli.ai.rag.library_store import (
     LibraryVectorStore,
     _format_class_signature,
     _format_fn_signature,
+    library_contracts_dir,
 )
+from devops_cli.core.repo import is_own_source_repository
 from devops_cli.models.library import ClassSignature, FunctionSignature
 from devops_cli.security.sanitizer import sanitize_prompt_boundary_tags
 
@@ -36,18 +38,52 @@ def _format_signature_block(sig: FunctionSignature | ClassSignature) -> str:
     return str(sig)
 
 
+def _lies_within(path: Path, root: Path) -> bool:
+    """Whether `path` resolves inside `root`; an unresolvable path counts as inside."""
+    try:
+        return path.resolve().is_relative_to(root.resolve())
+    except OSError, RuntimeError:
+        return True
+
+
+def _reviewed_tree_holds(contracts_dir: Path, reviewed_tree: Path) -> bool:
+    """Whether contracts at `contracts_dir` lie inside `reviewed_tree`, which could have written
+    them. devops-cli's own repository is exempt (`is_own_source_repository`): its code already
+    runs in this process, and a review started there keeps its contracts in its `.data`."""
+    return _lies_within(contracts_dir, reviewed_tree) and not is_own_source_repository(
+        reviewed_tree
+    )
+
+
 def resolve_grounded_contracts(
     imports: Sequence[tuple[str, str | None]],
     store: LibraryVectorStore | None = None,
     max_contracts: int = _DEFAULT_MAX_GROUNDED_CONTRACTS,
     contracts_dir: Path | None = None,
+    reviewed_tree: Path | None = None,
 ) -> list[FunctionSignature | ClassSignature]:
-    """Resolve verified API contracts from installed library contracts for imported symbols."""
+    """Resolve verified API contracts from installed library contracts for imported symbols.
+
+    Contracts come from devops-cli's data directory (`library_contracts_dir`), never the working
+    directory (#972). Contracts inside `reviewed_tree`, the tree under review, are refused, even
+    in a data directory the user named there: the prompt states them as ground truth the model
+    must not dispute, and that tree could have written them. A review of devops-cli's own
+    repository still reads its `.data/libraries` (`_reviewed_tree_holds`).
+    """
     if not imports:
         return []
 
-    target_dir = contracts_dir or Path(".data/libraries")
-    active_store = store or LibraryVectorStore(local_contracts_dir=target_dir)
+    active_store = store or LibraryVectorStore(
+        local_contracts_dir=contracts_dir or library_contracts_dir()
+    )
+    if reviewed_tree is not None and _reviewed_tree_holds(
+        active_store.local_contracts_dir, reviewed_tree
+    ):
+        logger.warning(
+            "Library contracts at %s lie inside the tree under review and are not read",
+            active_store.local_contracts_dir,
+        )
+        return []
 
     resolved: list[FunctionSignature | ClassSignature] = []
     seen_qualnames: set[str] = set()

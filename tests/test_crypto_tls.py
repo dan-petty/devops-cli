@@ -121,6 +121,12 @@ def test_generate_homelab_tls_bundle(tmp_path: Path) -> None:
     assert any(san == "example.com" for san in summary.sans)
     assert any(san == "192.0.2.15" for san in summary.sans)
 
+    # The llm Services the stack deploys by name; the wildcard covers the Ollama tiers, and no
+    # Service is named `ollama` since the tiers replaced the single workload (#953).
+    assert sorted(
+        san for san in summary.sans if san.endswith(".llm.svc.cluster.local") and "*" not in san
+    ) == ["open-webui.llm.svc.cluster.local", "qdrant.llm.svc.cluster.local"]
+
     # Cryptographically verify the server cert against the generated CA
     assert verify_certificate(summary.server_cert_path, summary.ca_cert_path) is True
 

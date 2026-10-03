@@ -5,9 +5,11 @@ This document is automatically generated from `Settings` (`src/devops_cli/config
 DevOps CLI supports hierarchical configuration resolution through:
 1. **CLI Flags & Arguments** (highest precedence)
 2. **Environment Variables** (`DEVOPS_CLI_*`)
-3. **Local Project Configuration** (`.devops-cli.yaml`)
+3. **Local Project Configuration** (the file `DEVOPS_CLI_CONFIG` names, else the nearest `config.yaml`, `.devops/config.yaml` or `.devops.yaml` from the working directory up to its repository root)
 4. **Global User Configuration** (`~/.config/devops-cli/config.yaml`)
 5. **System Defaults**
+
+A `devops review` command reads a tree it does not own. Started in a repository other than devops-cli's own, it looks for no project configuration, reading only the file `DEVOPS_CLI_CONFIG` names, and it resolves a relative data path under `~/.local/share/devops-cli` rather than under that repository, so its default data directory is `~/.local/share/devops-cli/.data`. What a review keeps -- its sessions, the hallucination catalog, the mitigations ledger, the feedback dataset, runs, samples, library contracts and AI spend -- every other command started outside devops-cli's own repository reads and writes there too. devops-cli's own repository is the one whose checkout holds the source of the devops-cli that runs, as an editable install's does; its code already runs, so a review started there, or in any worktree of it, reads its project configuration and keeps all data under its main worktree's `.data`, as every other command does. A clone nested in that checkout is another repository, and an installed devops-cli trusts no repository this way. An absolute `DEVOPS_CLI_DATA_DIR` or `data.dir` names the data directory every command uses.
 
 ---
 
@@ -43,8 +45,8 @@ OpenTelemetry distributed tracing and Prometheus metric export settings.
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
-| `enabled` | `bool` | `True` | - | - |
-| `endpoint` | `str` | `http://localhost:4318` | - | - |
+| `enabled` | `bool` | `True` | `DEVOPS_CLI_TELEMETRY_ENABLED` | Export OpenTelemetry traces and metrics |
+| `endpoint` | `Union` | - | `DEVOPS_CLI_TELEMETRY_ENDPOINT` | OpenTelemetry collector that traces and metrics go to; unset, `OTEL_EXPORTER_OTLP_ENDPOINT` names it, else `http://localhost:4318` |
 | `logfire` | `bool` | `False` | - | - |
 | `logfire_token` | `Union` | - | - | - |
 | `logfire_send_to_logfire` | `Union` | `if-token-present` | - | - |
@@ -87,12 +89,23 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 | `api_base_url` | `Union` | - | `DEVOPS_CLI_AI_API_BASE_URL` | - |
 | `allow_private_network` | `bool` | `False` | `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK` | - |
 | `max_retries` | `int` | `4` | `DEVOPS_CLI_AI_MAX_RETRIES` | - |
-| `timeout` | `Union` | - | - | - |
+| `timeout` | `Union` | - | - | Seconds each LLM request waits for its reply; `ai.tasks.<task>.timeout` sets one task's. Unset, a request waits 3600 s, and a review's analysis, verification and compose requests 1200 s |
 | `tasks` | `AITasksConfig` | `chat=AITaskOverride(provider=None, model=None, reasoning_effort=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) metadata=AITaskOverride(provider=None, model=None, reasoning_effort=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) analysis=AITaskOverride(provider=None, model=None, reasoning_effort=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) verification=AITaskOverride(provider=None, model=None, reasoning_effort=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) compose=AITaskOverride(provider=None, model=None, reasoning_effort=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None) embedding=AITaskOverride(provider=None, model='qwen3-embedding:0.6b', reasoning_effort=None, temperature=None, top_p=None, context_window=None, num_ctx=None, max_tokens=None, ollama_urls=None, ollama_max_parallel=None, api_base_url=None, max_retries=None, timeout=None)` | - | - |
 | `rag` | `AIRAGConfig` | `enabled=True top_k=5 score_threshold=0.35 chunk_size=2400 chunk_overlap=240` | - | - |
 | `cache` | `AICacheConfig` | `enabled=True backend='file' dir=PosixPath('.data/cache/llm') ttl_seconds=604800 max_entries=1000 append_cache=False` | - | - |
 | `durable` | `AIDurableConfig` | `engine='sqlite' store_path=PosixPath('.data/durable_runs.db') task_queue='devops-cli-tasks' workflow_id_prefix='devops-run-'` | - | - |
 | `task_name` | `Union` | - | - | - |
+
+## Qdrant Vector Store (`qdrant`)
+
+The vector store that RAG searches query and indexing writes to.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `url` | `Union` | `http://localhost:6333` | `DEVOPS_CLI_QDRANT_URL` | - |
+| `collection_prefix` | `str` | `devops` | `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX` | - |
+| `api_key` | `Union` | - | `DEVOPS_CLI_QDRANT_API_KEY` | - |
+| `timeout` | `float` | `300.0` | `DEVOPS_CLI_QDRANT_TIMEOUT` | Seconds each Qdrant request waits per attempt: RAG searches, and indexing's upserts and deletes, which share the client |
 
 ## Data Storage Tier (`data`)
 

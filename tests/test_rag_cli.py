@@ -183,3 +183,40 @@ def test_rag_index_cmd_handles_canonical_indexer_keys(runner: CliRunner, tmp_pat
         assert res.exit_code == 0
         assert "Indexed 5 files (12 chunks)" in res.output
         assert "pruned 2 stale chunks" in res.output
+
+
+def test_rag_commands_fail_with_the_embedding_error(runner: CliRunner, tmp_path: Path) -> None:
+    """Index, index-kb, query and an auto-syncing drift exit 1 with the error, no traceback."""
+    from devops_cli.ai.rag.embeddings import EmbeddingsError
+
+    failure = EmbeddingsError("Embedding model m produced no embeddings: x answered HTTP 400")
+    mock_qdrant = MagicMock()
+    mock_qdrant.is_alive.return_value = True
+    mock_retriever = MagicMock()
+    mock_retriever.search.side_effect = failure
+    mock_detector = MagicMock()
+    mock_detector.detect_and_sync.side_effect = failure
+
+    with (
+        patch(
+            "devops_cli.commands.rag._get_rag_components",
+            return_value=(mock_qdrant, MagicMock(), "code", "docs"),
+        ),
+        patch("devops_cli.ai.rag.indexer.WorkspaceIndexer.index_workspace", side_effect=failure),
+        patch(
+            "devops_cli.ai.rag.indexer.WorkspaceIndexer.index_knowledge_base",
+            side_effect=failure,
+        ),
+        patch("devops_cli.ai.rag.retriever.SemanticRetriever", return_value=mock_retriever),
+        patch("devops_cli.ai.rag.drift.RAGDriftDetector", return_value=mock_detector),
+    ):
+        results = [
+            runner.invoke(app, ["index", str(tmp_path)]),
+            runner.invoke(app, ["index-kb"]),
+            runner.invoke(app, ["query", "run_app"]),
+            runner.invoke(app, ["drift", str(tmp_path), "--auto-sync"]),
+        ]
+
+    assert [(r.exit_code, failure.message in r.output, type(r.exception)) for r in results] == [
+        (1, True, SystemExit)
+    ] * 4

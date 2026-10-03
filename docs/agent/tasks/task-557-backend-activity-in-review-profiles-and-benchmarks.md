@@ -32,7 +32,7 @@ it had in flight at once, so a benchmark could not show whether a routing change
   `vllm 60% ×4, ollama-0 10% ×1`. Comparing runs (#555) reads these fields from saved summaries.
 - [x] **Direct model requests** report their duration to the spend ledger and its observers, as
   gateway calls already did.
-- [ ] **Pool busy share over a window from Prometheus**: moved to #546, since it reads the vLLM,
+- **Pool busy share over a window from Prometheus**: moved to #546, since it reads the vLLM,
   gateway and GPU metrics that #546 adds.
 - [x] **Automated Tests & Quality Gates**:
   - `tests/test_review_backend_activity.py`:

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
 from pathlib import Path
+from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.library.drift_auditor import DriftIssueType, LibraryDriftAuditor
@@ -240,11 +244,87 @@ def test_drift_auditor_save_report_and_unparseable_file(tmp_path: Path) -> None:
     auditor = LibraryDriftAuditor(contracts_dir=contracts_dir)
     report = auditor.audit_workspace(ws_dir, save_report_path=report_path)
 
-    bad_report_path = Path("/invalid/nonexistent/path/drift.json")
-    auditor.audit_workspace(ws_dir, save_report_path=bad_report_path)
-
     assert (
         report_path.is_file(),
         report.files_scanned,
         report.total_calls_checked >= 1,
     ) == (True, 2, True)
+
+
+def _drift_workspace(tmp_path: Path) -> tuple[Path, Path]:
+    """Lay out a contracts directory and a one-file workspace that calls it."""
+    contracts_dir = tmp_path / "libraries"
+    _create_mock_contract(contracts_dir, "demolib")
+    ws_dir = tmp_path / "workspace"
+    ws_dir.mkdir()
+    (ws_dir / "valid.py").write_text("import demolib\ndemolib.compute(x=1)\n")
+    return contracts_dir, ws_dir
+
+
+@pytest.mark.parametrize("failure", ["parent-is-a-file", "write-fails"])
+def test_save_failure_is_reported_not_silent(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, failure: str
+) -> None:
+    """A drift report that cannot be written is logged and recorded, never dropped (#961).
+
+    `audit_workspace` swallowed the OSError, so an unwritable analysis directory or a full
+    disk left the previous run's report in place, passing as this run's.
+    """
+    contracts_dir, ws_dir = _drift_workspace(tmp_path)
+    if failure == "parent-is-a-file":
+        (tmp_path / "blocker").write_text("", encoding="utf-8")
+        report_path = tmp_path / "blocker" / "drift.json"
+    else:
+        report_path = tmp_path / "reports" / "drift.json"
+        report_path.parent.mkdir()
+        report_path.write_text('{"breaking_count": 0}', encoding="utf-8")
+    auditor = LibraryDriftAuditor(contracts_dir=contracts_dir)
+    disk_full = (
+        patch.object(Path, "write_text", side_effect=OSError(28, "No space left on device"))
+        if failure == "write-fails"
+        else contextlib.nullcontext()
+    )
+
+    with (
+        caplog.at_level(logging.WARNING, logger="devops_cli.ai.library.drift_auditor"),
+        disk_full,
+    ):
+        report = auditor.audit_workspace(ws_dir, save_report_path=report_path)
+
+    logged = [record.getMessage() for record in caplog.records]
+    assert (
+        any(str(report_path) in message for message in logged),
+        bool(report.save_error),
+        report_path.exists(),
+    ) == (True, True, False)
+
+
+@pytest.mark.parametrize("json_output", [False, True], ids=["text", "json"])
+def test_cli_audit_library_usage_reports_where_the_report_went(
+    tmp_path: Path, json_output: bool
+) -> None:
+    """`devops ai audit-library-usage` names the saved report, or says why it could not save."""
+    from devops_cli.commands.ai import audit_library_usage_cmd
+    from devops_cli.core.cli import new_typer
+
+    # The command alone: building all of `devops ai` costs most of a second per invocation.
+    audit_app = new_typer()
+    audit_app.command()(audit_library_usage_cmd)
+    contracts_dir, ws_dir = _drift_workspace(tmp_path)
+    (tmp_path / "blocker").write_text("", encoding="utf-8")
+    args = ["--contracts-dir", str(contracts_dir), "--dir", str(ws_dir)]
+    args += ["--json"] if json_output else []
+
+    with patch("devops_cli.ai.analyze.cache.analysis_directory", return_value=tmp_path / "out"):
+        saved = runner.invoke(audit_app, args)
+    with patch("devops_cli.ai.analyze.cache.analysis_directory", return_value=tmp_path / "blocker"):
+        blocked = runner.invoke(audit_app, args)
+
+    saved_note = "saved to" in saved.output and "api_drift_report.json" in saved.output
+    assert (
+        saved.exit_code,
+        saved_note,
+        blocked.exit_code,
+        "Could not write" in blocked.output,
+        json.loads(blocked.stdout)["files_scanned"] if json_output else 1,
+    ) == (0, not json_output, 0, True, 1)

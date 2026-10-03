@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -20,6 +21,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_VERIFICATION_REPLY_TOKENS_PER_FINDING,
 )
 from devops_cli.config.settings import AIConfig
+from tests.llm_stream_fakes import route_llm_clients
 
 GATEWAY_URL = "http://gateway.example.com:4000/v1"
 
@@ -32,16 +34,12 @@ def _allow_private_network(monkeypatch: pytest.MonkeyPatch) -> None:
 def _capture_payloads(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
 
-    def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
-        if url.startswith(GATEWAY_URL):
-            payloads.append(kwargs.get("json") or {})
-        return httpx2.Response(
-            200,
-            json={"choices": [{"message": {"content": "[]"}}]},
-            request=httpx2.Request("POST", url),
-        )
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        if str(request.url).startswith(GATEWAY_URL):
+            payloads.append(json.loads(request.content))
+        return httpx2.Response(200, json={"choices": [{"message": {"content": "[]"}}]})
 
-    monkeypatch.setattr(httpx2.Client, "post", fake_post)
+    route_llm_clients(monkeypatch, answer)
     return payloads
 
 

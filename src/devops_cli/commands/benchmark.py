@@ -8,13 +8,15 @@ from typing import Annotated, Any
 import typer
 from pydantic import BaseModel
 
+from devops_cli.config.constants import CONST_BENCHMARK_TYPES
 from devops_cli.config.defaults import (
     DEFAULT_BENCHMARK_CONCURRENCY,
     DEFAULT_BENCHMARK_FORMAT,
     DEFAULT_BENCHMARK_SAMPLES,
     DEFAULT_BENCHMARK_TYPE,
 )
-from devops_cli.core.cli import new_typer
+from devops_cli.core.cli import exit_on_error, new_typer
+from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import ERRORS, HELP
 from devops_cli.output import print_error, print_success, write_stdout, write_text_file
 
@@ -40,6 +42,17 @@ def _is_embedding_model(model_name: str) -> bool:
     """Check if model name matches common embedding model patterns."""
     m = model_name.lower()
     return any(hint in m for hint in _EMBEDDING_MODEL_HINTS)
+
+
+def _validate_benchmark_type(benchmark_type: str) -> None:
+    """Refuse a `--type` other than auto, chat or embedding, which ran the chat tasks instead."""
+    if benchmark_type.strip().lower() not in CONST_BENCHMARK_TYPES:
+        raise ValidationError(
+            ERRORS.ai.unknown_benchmark_type.format(
+                value=benchmark_type, choices=", ".join(CONST_BENCHMARK_TYPES)
+            ),
+            field="type",
+        )
 
 
 def _parse_model_list(models: str | None, default_model: str) -> list[str]:
@@ -146,57 +159,6 @@ def _execute_embedding_benchmark(
     embed_runner.print_report(embed_report, format_type=format_type)
 
 
-def _execute_suite_benchmark(
-    model_list: list[str],
-    dataset: Path | None,
-    settings: Any,
-    provider: str | None,
-    dry_run: bool,
-    safe_concurrency: int,
-    server_list: list[str] | None,
-    output: Path | None,
-    format_type: str,
-) -> None:
-    """Execute feedback-grounded multi-model benchmark evaluation suite."""
-    from devops_cli.ai.benchmark.suite import BenchmarkSuiteRunner
-
-    suite_runner = BenchmarkSuiteRunner(
-        models=model_list,
-        dataset_path=dataset,
-        settings=settings,
-        provider=provider,
-        is_dry_run=dry_run,
-        concurrency=safe_concurrency,
-        servers=server_list,
-        quiet=format_type.lower() in ("json", "markdown"),
-    )
-    suite_report = suite_runner.run()
-    if not dry_run:
-        from devops_cli.ai.benchmark.suite import load_feedback_benchmark_dataset
-        from devops_cli.ai.run_store import digest
-
-        cases = [case.model_dump(mode="json") for case in load_feedback_benchmark_dataset(dataset)]
-        _record_benchmark(
-            "suite",
-            suite_report,
-            setup=_benchmark_setup(model_list, settings, provider, safe_concurrency, server_list),
-            subject={"dataset_digest": digest(cases), "cases": len(cases)},
-            format_type=format_type,
-        )
-
-    if output:
-        resolved_output = output.resolve()
-        write_text_file(resolved_output, suite_report.model_dump_json(indent=2))
-        print_success(f"Exported custom report to {resolved_output}")
-
-    if format_type.lower() == "json":
-        write_stdout(suite_report.model_dump_json(indent=2) + "\n")
-    elif format_type.lower() == "markdown":
-        write_stdout(suite_runner.to_markdown(suite_report) + "\n")
-    else:
-        suite_runner.render_results(suite_report)
-
-
 def _execute_tasks_benchmark(
     model_list: list[str],
     tasks_filter: str | None,
@@ -284,20 +246,6 @@ def run_benchmark(
             help=HELP.benchmark.mode,
         ),
     ] = DEFAULT_BENCHMARK_TYPE,
-    suite: Annotated[
-        bool,
-        typer.Option(
-            "--suite",
-            help=HELP.benchmark.suite,
-        ),
-    ] = False,
-    dataset: Annotated[
-        Path | None,
-        typer.Option(
-            "--dataset",
-            help=HELP.benchmark.dataset,
-        ),
-    ] = None,
     tasks_filter: Annotated[
         str | None,
         typer.Option(
@@ -359,6 +307,9 @@ def run_benchmark(
         render_explanation("benchmark")
         return
 
+    with exit_on_error(ValidationError):
+        _validate_benchmark_type(benchmark_type)
+
     from devops_cli.config.settings import load_settings
 
     settings = load_settings()
@@ -366,23 +317,9 @@ def run_benchmark(
     safe_concurrency = max(1, min(concurrency, 32))
     server_list = _parse_server_list(servers)
 
-    is_suite = suite or benchmark_type.lower() == "suite"
-    if is_suite:
-        _execute_suite_benchmark(
-            model_list=model_list,
-            dataset=dataset,
-            settings=settings,
-            provider=provider,
-            dry_run=dry_run,
-            safe_concurrency=safe_concurrency,
-            server_list=server_list,
-            output=output,
-            format_type=format_type,
-        )
-        return
-
-    is_embedding = benchmark_type.lower() in ("embed", "embedding", "embeddings") or (
-        benchmark_type.lower() == "auto" and any(_is_embedding_model(m) for m in model_list)
+    kind = benchmark_type.strip().lower()
+    is_embedding = kind == "embedding" or (
+        kind == "auto" and any(_is_embedding_model(m) for m in model_list)
     )
 
     if is_embedding:

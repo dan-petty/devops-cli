@@ -407,7 +407,6 @@ def test_repointed_mcp_entry_points_pass_real_command_lines() -> None:
     argv of the real command, with only options it declares."""
     from devops_cli.ai.mcp.server import (
         benchmark_embeddings,
-        benchmark_suite,
         get_argo_fleet_status_resource,
         get_workspace_resource,
         k8s_audit,
@@ -429,7 +428,6 @@ def test_repointed_mcp_entry_points_pass_real_command_lines() -> None:
         "k8s_chaos_live": lambda: k8s_chaos("pod-kill", "llm", dry_run=False),
         "k8s_audit": k8s_audit,
         "benchmark_embeddings": lambda: benchmark_embeddings(provider="ollama", model="bge-m3"),
-        "benchmark_suite": lambda: benchmark_suite(models="m1,m2", dataset="feedback.jsonl"),
         "resource://workspace/status": get_workspace_resource,
         "resource://argo/fleet/status": get_argo_fleet_status_resource,
     }
@@ -465,21 +463,43 @@ def test_repointed_mcp_entry_points_pass_real_command_lines() -> None:
             "--samples",
             "10",
         ],
-        "benchmark_suite": [
-            "ai",
-            "benchmark",
-            "--suite",
-            "--models",
-            "m1,m2",
-            "--provider",
-            "ollama",
-            "--dataset",
-            "feedback.jsonl",
-            "--dry-run",
-        ],
         "resource://workspace/status": ["repos", "list"],
         "resource://argo/fleet/status": ["argo", "cd", "apps", "list"],
     }
+
+
+def test_k8s_pods_lists_the_pods_of_the_namespace_it_names() -> None:
+    """`k8s_pods` validated its namespace and then ran `devops k8s status`, which ignores it. It
+    lists that namespace's pods, and every namespace's when it names none (#956)."""
+    from devops_cli.ai.mcp.server import k8s_pods
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="pods") as runner:
+        argv = [(k8s_pods(namespace), runner.call_args.args[0][3:])[1] for namespace in ("llm", "")]
+
+    assert argv == [["k8s", "pods", "-n", "llm"], ["k8s", "pods", "-A"]]
+
+
+@pytest.mark.parametrize(
+    ("provider", "model", "field"),
+    [
+        ("openai", "x@https://example.com", "model"),
+        ("openai", "bge-m3,x@https://example.com", "model"),
+        ("ollama", "https://example.com/bge-m3", "model"),
+        ("example", "bge-m3", "provider"),
+    ],
+)
+def test_benchmark_tools_reject_endpoint_override(provider: str, model: str, field: str) -> None:
+    """Verify an MCP client can neither name the server the benchmark sends its requests and the
+    AI key to, nor pick a provider outside the known ids, and that nothing is dispatched (#954)."""
+    from devops_cli.ai.mcp.server import benchmark_embeddings
+
+    with (
+        patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="output") as dispatcher,
+        pytest.raises(ValidationError) as refused,
+    ):
+        benchmark_embeddings(provider=provider, model=model)
+
+    assert (refused.value.details["field"], dispatcher.called) == (field, False)
 
 
 def test_ai_architecture_tool_is_removed() -> None:

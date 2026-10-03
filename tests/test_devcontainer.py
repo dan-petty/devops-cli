@@ -1241,6 +1241,47 @@ def _record_subprocess_calls(
     return calls
 
 
+def test_a_live_pid_in_a_stale_git_daemon_pid_file_is_not_a_running_daemon(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only a listener on 127.0.0.1:9418 counts as a running git daemon (#961).
+
+    `git daemon --detach --pid-file` never removes its pid file, and `/tmp` is a volume that
+    outlives container rebuilds, so after a restart the recorded pid can belong to any
+    process. A live pid used to read as a running daemon, and post-start skipped the start.
+    """
+    import os
+    import socket
+
+    from devops_cli.commands.devcontainer import _is_git_daemon_running
+
+    pid_file = tmp_path / "git-daemon.pid"
+    pid_file.write_text(str(os.getpid()), encoding="utf-8")
+    probed: list[tuple[str, int]] = []
+
+    def refuse(address: tuple[str, int], timeout: float) -> socket.socket:
+        probed.append(address)
+        raise ConnectionRefusedError(address)
+
+    monkeypatch.setattr("devops_cli.commands.devcontainer._git_daemon_pid_file", lambda: pid_file)
+    monkeypatch.setattr(socket, "create_connection", refuse)
+
+    assert (_is_git_daemon_running(), probed) == (False, [("127.0.0.1", 9418)])
+
+
+def test_a_listener_on_the_git_daemon_port_is_a_running_daemon(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With nothing recorded, an accepted connection on 127.0.0.1:9418 is the daemon."""
+    import socket
+
+    from devops_cli.commands.devcontainer import _is_git_daemon_running
+
+    monkeypatch.setattr(socket, "create_connection", lambda address, timeout: MagicMock())
+
+    assert _is_git_daemon_running() is True
+
+
 def test_post_start_starts_the_session_bus_named_by_the_container_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -7,7 +7,9 @@ Gitleaks fell back to its built-in patterns. A reader took that for a clean scan
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -19,6 +21,7 @@ from devops_cli.ai.review.pipeline import (
 )
 from devops_cli.ai.review.profile import ReviewProfile, profiling, summarize_profiles
 from devops_cli.commands import review as review_commands
+from devops_cli.security.base import ScanOutcome
 
 _ONLY_BANDIT = {
     "Bandit": "ran",
@@ -40,7 +43,13 @@ def only_bandit(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_each_analyzer_is_marked_ran_missing_fallback_or_without_files() -> None:
     """Verify every analyzer gets the state it actually had."""
     states = _static_analyzer_states(
-        {"python": [Path("a.py")], "yaml": [], "container": [], "any": [Path("a.py")]}
+        {
+            "python": [Path("a.py")],
+            "yaml": [],
+            "container": [],
+            "any": [Path("a.py")],
+            "secrets": [Path("a.py")],
+        }
     )
 
     assert states == {
@@ -81,10 +90,11 @@ def test_a_review_with_only_bandit_is_not_reported_as_a_clean_scan(
     """Verify the reported case end to end: console, orchestrator state and review profile."""
     for name in ("app.py", "deploy.yaml", "Dockerfile"):
         (tmp_path / name).write_text("x = 1\n", encoding="utf-8")
-    monkeypatch.setattr("devops_cli.security.bandit.run_bandit_scan", lambda paths: [])
+    monkeypatch.setattr("devops_cli.security.bandit.run_bandit_scan", lambda paths, **_: [])
     for scan in ("_scan_kubernetes_manifests", "_scan_container_and_lockfiles"):
         monkeypatch.setattr(pipeline, scan, lambda paths: [])
-    monkeypatch.setattr(pipeline, "_scan_gitleaks_and_semgrep", lambda paths: [])
+    for scan in ("_scan_secrets", "_scan_semgrep"):
+        monkeypatch.setattr(pipeline, scan, lambda paths, *_, **__: [])
     printed: list[str] = []
     monkeypatch.setattr(pipeline, "print_info", lambda text, **_: printed.append(text))
     orchestrator = ReviewPipelineOrchestrator(session_id="s516", target_dir=tmp_path)
@@ -144,4 +154,97 @@ def test_a_benchmark_tells_a_clean_scan_from_a_skipped_one(
     )
     assert "Semgrep not installed / ran" in next(
         line for line in printed if line.startswith("Static analyzers: ")
+    )
+
+
+@pytest.mark.usefixtures("only_bandit")
+def test_the_report_says_why_an_analyzer_failed_and_the_console_points_there(
+    tmp_path: Path,
+) -> None:
+    """Verify a failed analyzer's reason reaches its report row, escaped, and the console names it."""
+    orchestrator = ReviewPipelineOrchestrator(session_id="s1009", target_dir=tmp_path)
+    failed = ScanOutcome(
+        "failed", [], 'Scanner exited with code 1; output was not JSON, starting "a | b"\nnext'
+    )
+    orchestrator._record_static_analyzers(
+        {"python": [Path("a.py")], "yaml": [], "container": [], "any": [Path("a.py")]},
+        observed_outcomes={"Bandit": failed},
+    )
+
+    report = orchestrator._build_consolidated_markdown_report("s1009", "now", [], [], [])
+
+    section = report.split("## Static Analyzers\n", 1)[1].split("\n\n", 1)[0]
+    assert (
+        section.splitlines()[2],
+        _static_analyzer_summary(orchestrator.static_analyzers, 0)[-1],
+    ) == (
+        "| Bandit | failed: Scanner exited with code 1; output was not JSON, starting "
+        '"a \\| b" next |',
+        "    [yellow]! Failed during execution: Bandit "
+        "(the report's Static Analyzers table says why)[/yellow]",
+    )
+
+
+@pytest.mark.usefixtures("only_bandit")
+def test_the_report_masks_a_secret_in_a_failed_analyzer_s_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a token a failing scanner printed instead of JSON never reaches review.md (#915)."""
+    token = "ghp_" + "Q7rT2xW9yB4nM6kP1sD8fG3hJ5lZ0cV2aE7u"
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+    failed = subprocess.CompletedProcess(
+        ["bandit"], 1, stdout=f"fatal: could not authenticate with {token}\n", stderr=""
+    )
+    monkeypatch.setattr("devops_cli.security.bandit.run_subprocess", MagicMock(return_value=failed))
+    for scan in ("_scan_kubernetes_manifests", "_scan_container_and_lockfiles"):
+        monkeypatch.setattr(pipeline, scan, lambda paths: [])
+    for scan in ("_scan_secrets", "_scan_semgrep"):
+        monkeypatch.setattr(pipeline, scan, lambda paths, *_, **__: [])
+    monkeypatch.setattr(pipeline, "print_info", lambda text, **_: None)
+    orchestrator = ReviewPipelineOrchestrator(session_id="s915", target_dir=tmp_path)
+
+    orchestrator._run_static_scanners(["app.py"])
+    report = orchestrator._build_consolidated_markdown_report("s915", "now", [], [], [])
+
+    section = report.split("## Static Analyzers\n", 1)[1].split("\n\n", 1)[0]
+    assert (token in report, section.splitlines()[2]) == (
+        False,
+        "| Bandit | failed: Scanner exited with code 1; output was not JSON, starting "
+        '"fatal: could not authenticate with <masked-github-token>" |',
+    )
+
+
+def test_a_scanner_timeout_reads_timed_out_in_the_report_and_the_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a scanner that ran out of time says so (#1079). Semgrep's row read `failed:
+    Scanner execution failed: Command '['semgrep', 'scan', …`, cut before the timeout, and the
+    profile said only `failed`. The profile also keeps how long each analyzer ran."""
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "devops_cli.security.bandit.run_bandit_scan", lambda *_, **__: ScanOutcome("ran")
+    )
+    for scan in ("_scan_kubernetes_manifests", "_scan_container_and_lockfiles", "_scan_secrets"):
+        monkeypatch.setattr(pipeline, scan, lambda *_, **__: [])
+    monkeypatch.setattr(
+        "devops_cli.security.base.run_subprocess",
+        MagicMock(side_effect=subprocess.TimeoutExpired(["semgrep", "scan"], 300.0)),
+    )
+    monkeypatch.setattr(pipeline, "print_info", lambda text, **_: None)
+    orchestrator = ReviewPipelineOrchestrator(session_id="s1079", target_dir=tmp_path)
+
+    with profiling() as profiler:
+        orchestrator._run_static_scanners(["app.py"])
+    profile = profiler.build(session_id="s1079", target=str(tmp_path))
+    report = orchestrator._build_consolidated_markdown_report("s1079", "now", [], [], [])
+
+    section = report.split("## Static Analyzers\n", 1)[1].split("\n\n", 1)[0]
+    assert (
+        [row for row in section.splitlines() if row.startswith("| Semgrep ")],
+        profile.static_analyzer_reasons,
+        sorted(profile.static_analyzer_seconds),
+    ) == (
+        ["| Semgrep | failed: timed out after 300 s |"],
+        {"Semgrep": "timed out after 300 s"},
+        ["Semgrep"],
     )

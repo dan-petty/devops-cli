@@ -211,8 +211,8 @@ def test_resolve_target_file_src_layout_fallback(tmp_path: Path) -> None:
 
 
 def test_tautological_verification_command_detection() -> None:
-    """Verify that text-search and reflection commands are classified as tautological."""
-    from devops_cli.ai.review.review_environment import _is_tautological_verification_command
+    """Verify that commands which find, print or reflect on code are classified as tautological."""
+    from devops_cli.ai.review.criteria_evidence import is_tautological_criterion
 
     tautological_cmds = (
         'git grep -n "http://ollama" k8s/profiles.yaml',
@@ -221,23 +221,27 @@ def test_tautological_verification_command_detection() -> None:
         'grep -n "password" config.yaml',
         "python -c \"from src.devops_cli.ai.retries import create_retry_transport; print('Transport created successfully')\"",
         "python -c \"from src.devops_cli.ai.gateway import GatewayRouter; router = GatewayRouter(); print('Method exists and validates input')\"",
-    )
-    non_tautological_cmds = (
-        "pytest tests/test_security_gitleaks.py -k test_gitleaks",
         "python -c \"from devops_cli.security.gitleaks import scan; scan('bad')\"",
         "ruff check src/devops_cli/",
+        'git log --oneline --grep="SSRF" --all',
+        "python -c 'import sys; sys.exit(0)'",
+        "python -c 'from app import run; print(run); raise SystemExit(0)'",
+        "python -c 'import app; assert 1 == 1'",
+        "python -c \"from pathlib import Path; assert 'os.system' in Path('app.py').read_text()\"",
+        "python -c 'from app import test_page; test_page()'",
     )
-    tautological_results = tuple(
-        _is_tautological_verification_command(cmd) for cmd in tautological_cmds
-    )
-    non_tautological_results = tuple(
-        _is_tautological_verification_command(cmd) for cmd in non_tautological_cmds
+    non_tautological_cmds = (
+        "python -c \"from devops_cli.security.gitleaks import scan; assert scan('bad') == []\"",
+        'python -c "import sys; from app import ok; sys.exit(not ok())"',
+        "python -c \"from app import content_type; assert content_type('a.json') == 'json'\"",
+        # A test's own asserts check what it runs, for a finding that cites it (#1043).
+        "python -c 'from tests.test_app import test_page; test_page()'",
     )
 
-    assert (tautological_results, non_tautological_results) == (
-        (True, True, True, True, True, True),
-        (False, False, False),
-    )
+    assert (
+        tuple(is_tautological_criterion(cmd) for cmd in tautological_cmds),
+        tuple(is_tautological_criterion(cmd) for cmd in non_tautological_cmds),
+    ) == ((True,) * len(tautological_cmds), (False,) * len(non_tautological_cmds))
 
 
 def test_offline_pricing_and_mitigation_ledger_hallucinations() -> None:

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.commands.gh import app
+from devops_cli.commands.gh import app, milestones_app
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.store import GitHubState
 
 runner = CliRunner()
 
@@ -40,32 +43,52 @@ def test_gh_labels_sync_dry_run() -> None:
         )
 
 
-def test_gh_milestones_list() -> None:
-    """devops gh milestones list prints milestones and progress rates."""
-    mock_milestones = [
-        {
-            "title": "v0.2.11",
-            "state": "open",
-            "open_issues": 1,
-            "closed_issues": 9,
-            "due_on": "2026-09-10",
-        },
-    ]
-    with patch("devops_cli.commands.gh._get_repo_milestones", return_value=mock_milestones):
-        result = runner.invoke(app, ["milestones", "list"])
-        assert result.exit_code == 0
-        assert "v0.2.11" in result.output
+def test_gh_labels_sync_exits_nonzero_when_unauthenticated(tmp_path: Path) -> None:
+    """`devops gh labels sync` fails when gh cannot list or create labels (#961).
 
+    With no token and gh logged out, the label list came back empty, every create failed
+    unseen, and the command still printed "Label sync complete" and exited 0.
+    """
+    labels_file = tmp_path / "labels.yml"
+    labels_file.write_text("- name: type/bug\n  color: D73A4A\n", encoding="utf-8")
+    failed = MagicMock(returncode=1, stdout="", stderr="gh auth login required")
 
-def test_gh_milestones_sync_dry_run() -> None:
-    """devops gh milestones sync --dry-run extracts roadmap milestones and simulates create."""
     with (
-        patch("devops_cli.commands.gh._get_repo_milestones", return_value=[]),
-        patch("devops_cli.commands.gh.sync_repository_milestones") as mock_sync,
+        patch("devops_cli.commands.gh._get_github_client", return_value=None),
+        patch("devops_cli.github.client.run_gh", return_value=failed),
     ):
-        mock_sync.return_value = MagicMock(created_count=4, dry_run=True)
-        result = runner.invoke(app, ["milestones", "sync", "--dry-run"])
-        assert result.exit_code == 0
+        result = runner.invoke(app, ["labels", "sync", "-f", str(labels_file), "-R", "o/r"])
+
+    assert (
+        result.exit_code,
+        "Label sync complete" in result.output,
+        "gh auth login required" in result.output,
+    ) == (1, False, True)
+
+
+def test_gh_labels_list_asks_for_every_label() -> None:
+    """`devops gh labels list` asks gh for more than its default 30 labels."""
+    from devops_cli.commands.gh import _get_repo_labels
+
+    listed = MagicMock(returncode=0, stdout='[{"name": "type/bug"}]', stderr="")
+    with patch("devops_cli.commands.gh.run_gh", return_value=listed) as run_gh:
+        _get_repo_labels("o/r")
+    argv = run_gh.call_args.args[0]
+    # Without --limit, gh lists 30.
+    assert (int(argv[argv.index("--limit") + 1]) if "--limit" in argv else 30) > 30
+
+
+def test_gh_milestones_list(roadmap_store: InMemoryRoadmapStore) -> None:
+    """devops gh milestones list prints each Release with its progress rate."""
+    roadmap_store.create_release("v0.2.11")
+    roadmap_store.seed_issue("Shipped", state=GitHubState.CLOSED, release="v0.2.11")
+
+    result = runner.invoke(milestones_app, ["list", "-R", "example/repo"])
+    assert (result.exit_code, "v0.2.11" in result.output, "100.0%" in result.output) == (
+        0,
+        True,
+        True,
+    )
 
 
 def test_gh_views_list() -> None:
@@ -96,27 +119,6 @@ def test_get_github_client_env_override(monkeypatch: pytest.MonkeyPatch) -> None
         client = _get_github_client()
         assert client is not None
         assert client._token == "test-env-token-12345"
-
-
-def test_get_repo_milestones_paginated() -> None:
-    """_get_repo_milestones passes --paginate and per_page=100 to gh api."""
-    from devops_cli.commands.gh import _get_repo_milestones
-
-    mock_res = MagicMock()
-    mock_res.returncode = 0
-    mock_res.stdout = '[{"title": "v0.2.12", "number": 1, "state": "open"}]'
-
-    with (
-        patch("devops_cli.commands.gh._get_github_client", return_value=None),
-        patch("devops_cli.commands.gh.run_gh", return_value=mock_res) as mock_run,
-    ):
-        milestones = _get_repo_milestones("org/test-repo", state="all")
-        assert len(milestones) == 1
-        assert milestones[0]["title"] == "v0.2.12"
-        mock_run.assert_called_once()
-        cmd = mock_run.call_args[0][0]
-        assert "--paginate" in cmd
-        assert any("per_page=100" in arg for arg in cmd)
 
 
 def test_gh_pages_status() -> None:

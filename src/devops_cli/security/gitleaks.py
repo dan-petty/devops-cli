@@ -9,15 +9,23 @@ from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_GITLEAKS, build_gitleaks_cmd
-from devops_cli.config.constants import CONST_SECRET_PLACEHOLDER_MARKERS
+from devops_cli.config.constants import (
+    CONST_REVIEW_SCAN_GITLEAKS_CONFIG,
+    CONST_SECRET_PLACEHOLDER_MARKERS,
+)
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
-    DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.dry_run.state import is_dry_run  # noqa: F401
-from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
+from devops_cli.security.base import (
+    BaseSecurityScanner,
+    ScannerConfigFile,
+    ScanOutcome,
+    merge_outcomes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -175,28 +183,6 @@ def _resolve_scan_files(target: Path | list[Path], *, ignore_tests: bool = False
     return candidates
 
 
-# Most severe first: a list target reports the worst status any of its files had.
-_STATUS_PRECEDENCE: tuple[str, ...] = (
-    "failed",
-    "unavailable",
-    "dry-run",
-    "built-in patterns",
-    "ran",
-    "not_applicable",
-)
-
-
-def _merge_outcomes(outcomes: list[ScanOutcome]) -> ScanOutcome:
-    """Combine per-file outcomes into one, keeping every finding and the worst status."""
-    status = min(
-        (o.status for o in outcomes),
-        key=lambda s: _STATUS_PRECEDENCE.index(s) if s in _STATUS_PRECEDENCE else 0,
-    )
-    findings = [f for o in outcomes for f in o.findings]
-    reasons = dict.fromkeys(o.reason for o in outcomes if o.reason)
-    return ScanOutcome(status, findings, "; ".join(reasons))
-
-
 class GitleaksScanner(BaseSecurityScanner):
     """Declarative security scanner adapter for Gitleaks secret detection."""
 
@@ -204,11 +190,17 @@ class GitleaksScanner(BaseSecurityScanner):
     binary_name: str = BIN_GITLEAKS
     gating: ClassVar[bool] = True
     has_builtin_patterns: ClassVar[bool] = True
+    # Gitleaks reads `.gitleaks.toml` from the scanned source and `.gitleaksignore` from its
+    # working directory unless each is named.
+    isolation_files: ClassVar[tuple[ScannerConfigFile, ...]] = (
+        ScannerConfigFile("--config", "gitleaks.toml", CONST_REVIEW_SCAN_GITLEAKS_CONFIG),
+        ScannerConfigFile("--gitleaks-ignore-path", ".gitleaksignore", ""),
+    )
 
     def scan(
         self,
         target_path: Any,
-        timeout: float = DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+        timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
         **kwargs: Any,
     ) -> ScanOutcome:
         """Scan a path, or each file of a list, since Gitleaks takes one source per run."""
@@ -217,7 +209,7 @@ class GitleaksScanner(BaseSecurityScanner):
         files = _resolve_scan_files(target_path)
         if not files:
             return ScanOutcome("not_applicable", [], "No scannable files in the target list")
-        return _merge_outcomes(
+        return merge_outcomes(
             [BaseSecurityScanner.scan(self, f, timeout=timeout, **kwargs) for f in files]
         )
 
@@ -268,18 +260,23 @@ def run_gitleaks_scan(
     target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     no_git: bool = True,
     ignore_tests: bool = False,
+    *,
+    isolated: bool = False,
 ) -> ScanOutcome:
-    """Execute Gitleaks secret scanner subprocess or fallback pattern scan."""
+    """Execute Gitleaks secret scanner subprocess or fallback pattern scan; `isolated` for a
+    review (#972)."""
     if isinstance(target, Path) and target.is_file() and ignore_tests and _is_test_file(target):
         return ScanOutcome("ran", [], "Test file ignored")
 
     if isinstance(target, list) and ignore_tests:
         target = [p for p in target if not _is_test_file(p)]
 
-    outcome = GitleaksScanner().scan(target, no_git=no_git)
+    outcome = GitleaksScanner().scan(target, isolated=isolated, no_git=no_git)
     if ignore_tests and outcome.findings:
         filtered = [
             f for f in outcome.findings if not _is_test_file(_extract_location_path(f.location))
         ]
-        return ScanOutcome(outcome.status, filtered, outcome.reason)
+        kept = ScanOutcome(outcome.status, filtered, outcome.reason)
+        kept.started_utc, kept.ended_utc = outcome.started_utc, outcome.ended_utc
+        return kept
     return outcome

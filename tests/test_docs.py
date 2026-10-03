@@ -19,6 +19,7 @@ from devops_cli.docs.generator import (
     ParamDoc,
 )
 from devops_cli.telemetry.instruments import INSTRUMENTS
+from devops_cli.telemetry.semconv import load_genai_snapshot
 
 
 @pytest.fixture
@@ -161,17 +162,27 @@ def test_render_markdown_and_json(generator: DocGenerator) -> None:
 
 
 def test_write_and_check_docs(generator: DocGenerator, tmp_path: Path) -> None:
-    written = generator.write_all_docs(tmp_path)
-    assert len(written) > 0
-    assert (tmp_path / "CLI_REFERENCE.md").exists()
-    assert (tmp_path / "ENV_VARS.md").exists()
-    assert (tmp_path / "MCP_TOOLS.md").exists()
-    assert (tmp_path / "commands" / "repos.md").exists()
+    """Write and check every generated file, syncing a README under `tmp_path`.
 
-    # Check passes when docs are unchanged
-    ok, errors = generator.check_docs(tmp_path)
-    assert ok is True
-    assert len(errors) == 0
+    With the default README this rewrote the repository's own, which the workspace tripwire
+    reports whenever that README already differs from HEAD.
+    """
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        "# Title\n\n## Complete Command Matrix\n\n| Command Group | Subcommand |\n|---|---|\n\n---\n",
+        encoding="utf-8",
+    )
+    with patch.object(generator, "_find_readme", return_value=readme):
+        written = generator.write_all_docs(tmp_path)
+        # Check passes when docs are unchanged
+        ok, errors = generator.check_docs(tmp_path)
+    expected = ("CLI_REFERENCE.md", "ENV_VARS.md", "MCP_TOOLS.md", "commands/repos.md")
+    assert (
+        all((tmp_path / name).exists() for name in expected),
+        readme in written,
+        ok,
+        errors,
+    ) == (True, True, True, [])
 
     # Stale file detection
     (tmp_path / "CLI_REFERENCE.md").write_text("Modified content", encoding="utf-8")
@@ -364,38 +375,152 @@ def test_docs_cli_dry_run_and_format_helpers(runner: CliRunner, tmp_path: Path) 
         set_dry_run(False)
 
 
-def test_doc_generator_masks_sensitive_param_defaults(generator: DocGenerator) -> None:
-    """Verify that parameters with names or envvars indicating secrets mask default values."""
-    # Sensitive option name
-    secret_opt = click.Option(
-        ["--api-key"],
-        type=click.STRING,
-        default="secret_live_api_key_12345",
-        help="API secret token.",
-    )
-    doc_secret = generator.introspect_param(secret_opt)
-    assert doc_secret.default == "<masked>"
+@pytest.mark.parametrize(
+    "option",
+    [
+        click.Option(["--api-key"], default="secret_live_api_key_12345", help="API secret token."),
+        click.Option(["--auth"], default="ghp_token_xyz", envvar="DEVOPS_AUTH_TOKEN"),
+        click.Option(["--api-token"], default="abc"),
+        click.Option(["--password"], default="x"),
+        click.Option(["--api-key"], default="sk-123"),
+        click.Option(["--apikey"], default="sk-123"),
+        click.Option(["--secret-id"], default="abc"),
+        click.Option(["--endpoint"], default="abc", envvar="DEVOPS_CLI_CLIENT_SECRET"),
+        click.Option(["--pin"], default="1234", hide_input=True),
+        click.Option(["--pin"], type=click.INT, default=1234, hide_input=True),
+    ],
+    ids=[
+        "api-key",
+        "envvar-token",
+        "api-token",
+        "password",
+        "api-key-short",
+        "apikey",
+        "secret-id",
+        "envvar-secret",
+        "hide-input",
+        "hide-input-int",
+    ],
+)
+def test_doc_generator_masks_sensitive_param_defaults(
+    generator: DocGenerator, option: click.Option
+) -> None:
+    """A text default is masked when the option's name or envvar names a credential, word by word,
+    or when the option hides its input, Click's own marker for a secret, whatever its type."""
+    assert generator.introspect_param(option).default == "<masked>"
 
-    # Sensitive envvar
-    token_opt = click.Option(
-        ["--auth"],
-        type=click.STRING,
-        default="ghp_token_xyz",
-        envvar="DEVOPS_AUTH_TOKEN",
-        help="Auth credential.",
-    )
-    doc_token = generator.introspect_param(token_opt)
-    assert doc_token.default == "<masked>"
 
-    # Non-sensitive option preserves normal default
-    normal_opt = click.Option(
-        ["--port"],
-        type=click.INT,
-        default=8080,
-        help="Service port.",
+@pytest.mark.parametrize(
+    ("option", "shown"),
+    [
+        (click.Option(["--port"], type=click.INT, default=8080), "8080"),
+        (click.Option(["--max-tokens"], type=click.INT, default=200), "200"),
+        (click.Option(["--valkey-port"], type=click.INT, default=6379), "6379"),
+        (click.Option(["--key-size", "-k"], type=click.INT, default=4096), "4096"),
+        (click.Option(["--max-tokens-increase"], type=click.FLOAT, default=0.2), "0.2"),
+        (click.Option(["--secret-name"], default="homelab-tls"), "homelab-tls"),
+        (
+            click.Option(
+                ["--token-file"],
+                type=click.Path(path_type=Path),
+                default=Path("/etc/devops-cli/token"),
+            ),
+            "/etc/devops-cli/token",
+        ),
+        (click.Option(["--show-password/--hide-password"], default=True), "True"),
+    ],
+    ids=[
+        "port",
+        "max-tokens",
+        "valkey-port",
+        "key-size",
+        "max-tokens-increase",
+        "secret-name",
+        "token-path",
+        "password-switch",
+    ],
+)
+def test_doc_generator_shows_defaults_that_are_not_credentials(
+    generator: DocGenerator, option: click.Option, shown: str
+) -> None:
+    """A number, a boolean or a path cannot be a credential, and a credential word inside another
+    word (MAX_TOKENS, VALKEY_PORT, KEY_SIZE) or before NAME names no credential (#956)."""
+    assert generator.introspect_param(option).default == shown
+
+
+def test_doc_generator_renders_an_on_off_pair_as_two_switches(generator: DocGenerator) -> None:
+    """`--rootless/--root` is one boolean with an off switch, not two aliases: `--root` turns the
+    UID/GID mapping off. The table shows the pair apart from comma-joined aliases (#956)."""
+    pair = generator.introspect_param(
+        click.Option(["--rootless/--root"], default=True, help="Run as the host user.")
     )
-    doc_normal = generator.introspect_param(normal_opt)
-    assert doc_normal.default == "8080"
+    aliased = generator.introspect_param(click.Option(["--key-size", "-k"], default=2048))
+    lines: list[str] = []
+    generator._render_command_markdown(
+        CommandDoc(
+            name="run",
+            full_path="devops docker run",
+            summary="",
+            description="",
+            usage="devops docker run [OPTIONS]",
+            params=[pair, aliased],
+        ),
+        lines,
+    )
+    rendered = "\n".join(lines)
+
+    assert (
+        pair.flags,
+        pair.off_flags,
+        aliased.off_flags,
+        "| `--rootless` / `--root` | `boolean` | `True` |" in rendered,
+        "`--rootless`, `--root`" in rendered,
+        "| `--key-size`, `-k` |" in rendered,
+    ) == (["--rootless"], ["--root"], [], True, False, True)
+
+
+def _option_cells(page: str, flag: str) -> list[tuple[str, str]]:
+    """The flag and default cells of each option row for `flag` in a generated command page."""
+    rows = (row.split(" | ") for row in page.splitlines() if row.startswith(f"| `{flag}`"))
+    return [(cells[0].removeprefix("| "), cells[2]) for cells in rows]
+
+
+def test_committed_command_pages_show_the_defaults_and_switches_they_hid() -> None:
+    """The committed reference, which `devops docs check` keeps equal to the generator's output,
+    shows the defaults it masked and the off switch it listed as an alias (#956)."""
+    from devops_cli.config.constants import CONST_RUNS_INDEX_SECRET
+    from devops_cli.config.defaults import (
+        DEFAULT_GATEWAY_TUNE_MAX_TOKENS,
+        DEFAULT_K8S_TLS_SECRET_NAME,
+        DEFAULT_TLS_KEY_SIZE,
+        DEFAULT_VALKEY_PORT,
+    )
+
+    pages = Path(__file__).resolve().parents[1] / "docs" / "commands"
+    ai, k8s, tls, docker = (
+        (pages / f"{name}.md").read_text(encoding="utf-8")
+        for name in ("ai", "k8s", "tls", "docker")
+    )
+
+    assert (
+        _option_cells(ai, "--max-tokens"),
+        _option_cells(ai, "--max-tokens-increase"),
+        _option_cells(ai, "--secret-name"),
+        _option_cells(k8s, "--valkey-port"),
+        _option_cells(k8s, "--secret-name"),
+        _option_cells(tls, "--key-size"),
+        _option_cells(tls, "--secret-name"),
+        _option_cells(docker, "--rootless"),
+    ) == (
+        [("`--max-tokens`", "`1500`"), ("`--max-tokens`", f"`{DEFAULT_GATEWAY_TUNE_MAX_TOKENS}`")],
+        [("`--max-tokens-increase`", "`0.2`")],
+        [("`--secret-name`", f"`{CONST_RUNS_INDEX_SECRET}`")],
+        [("`--valkey-port`", f"`{DEFAULT_VALKEY_PORT}`")],
+        [("`--secret-name`", f"`{DEFAULT_K8S_TLS_SECRET_NAME}`")],
+        [("`--key-size`, `-k`", f"`{DEFAULT_TLS_KEY_SIZE}`")] * 2,
+        [("`--secret-name`", f"`{DEFAULT_K8S_TLS_SECRET_NAME}`")],
+        [("`--rootless` / `--root`", "`True`")],
+    )
 
 
 def test_doc_generator_introspect_single_group_untrusted_prefix_rejected(
@@ -421,6 +546,28 @@ def test_doc_generator_configuration_docs(generator: DocGenerator) -> None:
     assert "| Option | Type | Default | Environment Variable | Description |" in content
 
 
+def test_configuration_and_telemetry_docs_name_the_telemetry_variables_that_work(
+    generator: DocGenerator,
+) -> None:
+    """The telemetry rows name the registered `DEVOPS_CLI_TELEMETRY_*` variables, and the tracing
+    reference names no variable devops-cli stopped reading (#956)."""
+    configuration = generator.generate_configuration_docs().splitlines()
+    telemetry = generator.generate_telemetry_docs()
+    rows = {
+        row.split(" | ")[0]: row
+        for row in configuration[configuration.index("## Telemetry & Metrics (`telemetry`)") :]
+        if row.startswith("| `")
+    }
+
+    assert (
+        "`DEVOPS_CLI_TELEMETRY_ENABLED`" in rows["| `enabled`"],
+        "`DEVOPS_CLI_TELEMETRY_ENDPOINT`" in rows["| `endpoint`"],
+        "`DEVOPS_CLI_TELEMETRY_ENDPOINT`" in telemetry,
+        "`OTEL_EXPORTER_OTLP_ENDPOINT`" in telemetry,
+        "DEVOPS_CLI_OTEL_ENDPOINT" in telemetry,
+    ) == (True, True, True, True, False)
+
+
 def test_doc_generator_error_catalog_docs(generator: DocGenerator) -> None:
     """Verify programmatic generation of ERRORS.md from DevOpsCLIError hierarchy."""
     content = generator.generate_error_catalog_docs()
@@ -440,6 +587,9 @@ def test_doc_generator_telemetry_docs(generator: DocGenerator) -> None:
     # The table lists the metrics devops-cli sends, and only those (#564).
     listed = {line.split("`")[1] for line in content.splitlines() if line.startswith("| `")}
     assert listed == {i.name for i in INSTRUMENTS}
+    # The LLM span section names the GenAI conventions commit the snapshot pins (#588).
+    pinned = load_genai_snapshot()["source"]["commit"]
+    assert ("## LLM Span Attributes" in content, f"`{pinned}`" in content) == (True, True)
 
 
 def test_doc_generator_knowledge_base_index(generator: DocGenerator) -> None:

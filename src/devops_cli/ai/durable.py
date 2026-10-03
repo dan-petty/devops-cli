@@ -580,15 +580,17 @@ def create_durable_pydantic_agent(
     system_prompt: str | None = None,
     **kwargs: Any,
 ) -> Agent[Any, Any]:
-    """Create a native Pydantic AI Agent bound to a durable execution capability."""
+    """Create a native Pydantic AI Agent bound to a durable execution capability.
+
+    A model name is resolved as `resolve_pydantic_ai_model` resolves it; a ConfigurationError
+    from that, such as a malformed `ai.api_base_url`, is raised rather than the bare name being
+    left for the Agent to infer against the vendor's own endpoint.
+    """
     from devops_cli.ai.pydantic_ai_bridge import resolve_pydantic_ai_model
 
     resolved_model: Model | KnownModelName | str | None = model
-    if isinstance(resolved_model, str) and not isinstance(resolved_model, Model):
-        try:
-            resolved_model = resolve_pydantic_ai_model(resolved_model)
-        except Exception:
-            resolved_model = model
+    if isinstance(model, str):
+        resolved_model = resolve_pydantic_ai_model(model)
 
     durability_cap = resolve_durability_capability(
         engine=engine,

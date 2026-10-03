@@ -31,11 +31,12 @@ spec:
         - protocol: TCP
           port: 8787
   egress:
-    # Allow communication to backend inference pods (Ollama, vLLM) and Valkey cache
+    # Allow communication to backend inference pods (Ollama, vLLM) and Valkey cache. Every Ollama
+    # tier (profiles/ollama-profiles.yaml) carries llm.devops.io/provider: ollama.
     - to:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: ollama
+              llm.devops.io/provider: ollama
       ports:
         - protocol: TCP
           port: 11434

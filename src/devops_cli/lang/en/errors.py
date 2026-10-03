@@ -13,6 +13,7 @@ class AIErrorMessages:
     empty_prompt: str = "Error: Prompt cannot be empty."
     provider_connection_error: str = "Could not connect to AI provider at {url}: {exc}"
     unsupported_provider: str = "Unsupported AI provider '{provider}'."
+    unknown_benchmark_type: str = "Unknown benchmark type '{value}': use one of {choices}."
 
 
 @dataclass(frozen=True)
@@ -52,9 +53,19 @@ class SSHErrorMessages:
 
 @dataclass(frozen=True)
 class WorkspaceErrorMessages:
-    file_too_large: str = "Workspace file too large to load: {ws_file}. Using defaults."
-    malformed: str = "Malformed workspace file structure: {ws_file}. Using defaults."
-    corrupted: str = "Corrupted workspace file: {ws_file}. Using defaults."
+    file_too_large: str = (
+        "Workspace file too large to load: {ws_file}. It was left unchanged; "
+        "run 'devops workspace generate' to rebuild it."
+    )
+    malformed: str = (
+        "Workspace file {ws_file} has no 'folders' list. It was left unchanged; "
+        "fix it or run 'devops workspace generate' to rebuild it."
+    )
+    corrupted: str = (
+        "Workspace file {ws_file} is not UTF-8 JSON; comments and trailing commas are not "
+        "supported. It was left unchanged; fix it or run 'devops workspace generate' to "
+        "rebuild it."
+    )
     outside_roots: str = "Error: Cannot add path '{path}' outside allowed workspace roots."
     outside_boundary: str = "Cannot write workspace file '{path}' outside boundary."
     already_present: str = "Already in workspace: {path}"
@@ -147,6 +158,12 @@ class MCPErrorMessages:
     )
     integer_below_minimum: str = "Invalid value for '{name}': {value}. Must be >= {min_val}."
     integer_above_maximum: str = "Invalid value for '{name}': {value}. Must be <= {max_val}."
+    unknown_provider: str = "Invalid value for 'provider': use one of {choices}."
+    model_names_endpoint: str = (
+        "Invalid value for 'model': a model name with '@' or '://' names the server the "
+        "benchmark sends requests and the AI key to, which only the command line may choose. "
+        "Name the model alone; it runs on the configured servers."
+    )
     conflicting_symbol_and_pattern: str = (
         "Cannot specify both 'symbol' and 'pattern'; provide one or the other."
     )
@@ -170,6 +187,19 @@ class ReleaseErrorMessages:
     tag_push_failed: str = "Failed to push tag {tag} to origin: {error}"
     invalid_label: str = "Invalid label '{label}'."
     invalid_version_format: str = "Invalid semver version format: '{version}'."
+    changelog_fragment_misnamed: str = (
+        "{path} is not a changelog fragment: a fragment is a file named <issue>.md, the issue "
+        "number only, and changelog.d/ holds nothing else but its README.md. Nothing was written."
+    )
+    changelog_fragment_empty: str = "{path} holds no changelog entry. Nothing was written."
+    changelog_text_outside_category: str = (
+        "{path}:{line} is outside a category: every entry sits under one of {categories}. "
+        "Nothing was written."
+    )
+    changelog_unknown_category: str = (
+        "{path}:{line} '{heading}' is not a changelog category: use one of {categories}. "
+        "Nothing was written."
+    )
 
 
 @dataclass(frozen=True)
@@ -198,6 +228,17 @@ class RAGErrorMessages:
     cannot_connect_store: str = "Cannot connect to Qdrant vector store at {url}"
     path_not_found: str = "Path not found: {path}"
     fetch_details_failed: str = "Could not fetch collection details: {exc}"
+    embedding_failed: str = "Embedding model {model} produced no embeddings: {failures}"
+    embedding_endpoint_status: str = "{endpoint} answered HTTP {status}: {body}"
+    embedding_endpoint_malformed: str = (
+        "{endpoint} returned {received} embeddings for {expected} texts"
+    )
+    embedding_endpoint_error: str = "{endpoint} failed: {error}"
+    embedding_no_provider: str = (
+        "Embedding model {model} has no provider: the embedding task's provider '{provider}' "
+        "is not ollama, openai, copilot or gateway, and no Ollama URLs are set. "
+        "Set ai.tasks.embedding.provider"
+    )
 
 
 @dataclass(frozen=True)

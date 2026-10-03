@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import contextlib
+import logging
+import os
 import re
+import shlex
+import signal
+import subprocess
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -809,182 +817,6 @@ def test_subagents_markdown_disk_loading(tmp_path: Path) -> None:
     assert "delegate_to_analyst" in tools
 
 
-def test_dynamic_workflow_script_execution() -> None:
-    import asyncio
-
-    from devops_cli.ai.harness import DynamicWorkflow, WorkflowAgent
-
-    def reviewer_func(prompt: str) -> str:
-        return f"Review findings for: {prompt}"
-
-    def summarizer_func(prompt: str) -> str:
-        return f"Summary of: {prompt}"
-
-    reviewer = WorkflowAgent(agent=reviewer_func, name="reviewer", description="Reviews code")
-    summarizer = WorkflowAgent(
-        agent=summarizer_func, name="summarizer", description="Summarizes reports"
-    )
-
-    workflow = DynamicWorkflow(agents=[reviewer, summarizer])
-    tools = {t.name: t for t in workflow.get_tools()}
-    assert "run_workflow" in tools
-
-    run_wf = tools["run_workflow"].function
-
-    # Test sequential chaining and last expression value
-    script1 = """
-import asyncio
-rep1 = await reviewer(task="auth.py")
-rep2 = await reviewer(task="parser.py")
-await summarizer(task=rep1 + " and " + rep2)
-"""
-    res1 = asyncio.run(run_wf(code=script1))  # type: ignore[union-attr]
-    assert "Summary of: Review findings for: auth.py and Review findings for: parser.py" in res1
-
-    # Test concurrent fan-out with asyncio.gather
-    script2 = """
-import asyncio
-reports = await asyncio.gather(
-    reviewer(task="file_a.py"),
-    reviewer(task="file_b.py")
-)
-reports
-"""
-    res2 = asyncio.run(run_wf(code=script2))  # type: ignore[union-attr]
-    assert isinstance(res2, list)
-    assert len(res2) == 2
-    assert "Review findings for: file_a.py" in res2[0]
-
-
-def test_dynamic_workflow_structured_outputs_and_prints() -> None:
-    import asyncio
-
-    from pydantic import BaseModel
-
-    from devops_cli.ai.harness import DynamicWorkflow, WorkflowAgent
-
-    class ReviewScore(BaseModel):
-        score: int
-        comment: str
-
-    def critic_func(prompt: str) -> ReviewScore:
-        return ReviewScore(score=9, comment="Great code")
-
-    critic = WorkflowAgent(agent=critic_func, name="critic", output_type=ReviewScore)
-    workflow = DynamicWorkflow(agents=[critic])
-    run_wf = {t.name: t for t in workflow.get_tools()}["run_workflow"].function
-
-    # Test subscript access to Pydantic model outputs and print capture
-    script = """
-print("Starting criticism...")
-res = await critic(task="Check quality")
-print("Criticism complete")
-{"final_score": res["score"], "reason": res["comment"]}
-"""
-    output_res = asyncio.run(run_wf(code=script))  # type: ignore[union-attr]
-    assert isinstance(output_res, dict)
-    assert "output" in output_res
-    assert "Starting criticism...\nCriticism complete" in output_res["output"]
-    assert output_res["result"] == {"final_score": 9, "reason": "Great code"}
-
-
-def test_dynamic_workflow_budget_and_reveal() -> None:
-    import asyncio
-
-    import pytest
-
-    from devops_cli.ai.harness import DynamicWorkflow, WorkflowAgent
-
-    def worker(prompt: str) -> str:
-        return f"Done: {prompt}"
-
-    workflow = DynamicWorkflow(
-        agents=[WorkflowAgent(agent=worker, name="w1")],
-        max_agent_calls=2,
-        defer_loading=True,
-    )
-
-    # Prompt additions when deferred
-    prompts = workflow.get_system_prompt_additions()
-    assert "DynamicWorkflow [dynamic_workflow]" in prompts[0]
-
-    # Test reveal() validation
-    with pytest.raises(ValueError, match="Invalid agent name"):
-        workflow.reveal(WorkflowAgent(agent=worker, name="123invalid"))
-
-    with pytest.raises(ValueError, match="Agent name collision"):
-        workflow.reveal(WorkflowAgent(agent=worker, name="w1"))
-
-    workflow.reveal(WorkflowAgent(agent=worker, name="w2"))
-    assert len(workflow.agents) == 2
-
-    # Test positional task error
-    run_wf = {t.name: t for t in workflow.get_tools()}["run_workflow"].function
-    err_pos = asyncio.run(run_wf(code='await w1("positional")'))  # type: ignore[union-attr]
-    assert "must be called with keyword argument task=" in err_pos
-
-    # Test max_agent_calls budget limit
-    budget_script = """
-await w1(task="call 1")
-await w2(task="call 2")
-await w1(task="call 3")
-"""
-    err_budget = asyncio.run(run_wf(code=budget_script))  # type: ignore[union-attr]
-    assert "Workflow budget exhausted: reached maximum agent calls (2)" in err_budget
-
-
-def test_dynamic_workflow_edge_cases_and_syntax() -> None:
-    import asyncio
-
-    from devops_cli.ai.harness import DynamicWorkflow, WorkflowAgent
-
-    class NonPydanticResult:
-        def __init__(self, val: str) -> None:
-            self.val = val
-
-    class AsyncAgent:
-        async def run_async(self, prompt: str) -> NonPydanticResult:
-            return NonPydanticResult(val=f"async_{prompt}")
-
-    workflow = DynamicWorkflow(
-        agents=[
-            WorkflowAgent(agent=AsyncAgent(), name="async_bot"),
-            WorkflowAgent(agent="static_string_agent", name="str_bot"),
-        ]
-    )
-    run_wf = {t.name: t for t in workflow.get_tools()}["run_workflow"].function
-
-    # Test syntax error handling
-    err_syntax = asyncio.run(run_wf(code="def invalid syntax here: : :"))  # type: ignore[union-attr]
-    assert "SyntaxError in workflow script" in err_syntax
-
-    # Test async runner execution and custom object dict unpacking
-    script_async = """
-res = await async_bot(task="test_async")
-res["val"]
-"""
-    res_async = asyncio.run(run_wf(code=script_async))  # type: ignore[union-attr]
-    assert res_async == "async_test_async"
-
-    # Test static string agent call
-    res_str = asyncio.run(run_wf(code='await str_bot(task="ping")'))  # type: ignore[union-attr]
-    assert res_str == "static_string_agent"
-
-    # Test script with only prints and None return
-    script_print_only = """
-print("Only printing")
-"""
-    res_print = asyncio.run(run_wf(code=script_print_only))  # type: ignore[union-attr]
-    assert res_print == {"output": "Only printing"}
-
-    # Test script with empty return and no print
-    script_empty = """
-pass
-"""
-    res_empty = asyncio.run(run_wf(code=script_empty))  # type: ignore[union-attr]
-    assert res_empty == {}
-
-
 def test_subagents_edge_cases() -> None:
     from devops_cli.ai.harness import AgentOverride, SubAgent, SubAgents
 
@@ -1081,181 +913,6 @@ def test_advisor_consultation_execution_and_limits() -> None:
     # Test deferred prompts
     adv_def = Advisor("openai:gpt-4o", defer_loading=True)
     assert "Advisor [advisor]:" in adv_def.get_system_prompt_additions()[0]
-
-
-def test_code_mode_execution_and_tool_wrapping() -> None:
-    import asyncio
-
-    from devops_cli.ai.agents.pydantic_agent import Tool
-    from devops_cli.ai.harness import CodeMode, MountDir, OSAccess
-
-    def get_weather(city: str) -> dict[str, Any]:
-        temp = 72 if city == "Paris" else 65
-        return {"city": city, "temp_f": temp, "condition": "sunny"}
-
-    async def get_traffic(city: str) -> str:
-        return f"Light traffic in {city}"
-
-    weather_tool = Tool.from_function(get_weather, name="get_weather")
-    traffic_tool = Tool.from_function(get_traffic, name="get_traffic")
-
-    cm = CodeMode(
-        sandboxed_tools=[weather_tool, traffic_tool],
-        mount=MountDir(virtual_path="/work", host_path="/tmp/agent-work", mode="read-write"),
-        os_access=OSAccess(environ={"API_KEY": "secret-123"}),
-        max_tool_calls=5,
-    )
-    tools = {t.name: t for t in cm.get_tools()}
-    assert "run_code" in tools
-    run_fn = tools["run_code"].function
-
-    # Test concurrent fan-out and last expression return
-    script1 = """
-import asyncio
-paris, tokyo = await asyncio.gather(
-    get_weather(city="Paris"),
-    get_weather(city="Tokyo")
-)
-traf = await get_traffic(city="Paris")
-summary = f"{paris['city']}: {paris['temp_f']}F, {tokyo['city']}: {tokyo['temp_f']}F - {traf}"
-summary
-"""
-    res1 = asyncio.run(run_fn(code=script1))  # type: ignore[union-attr]
-    assert "Paris: 72F, Tokyo: 65F - Light traffic in Paris" in res1
-
-    # Test REPL state persistence across calls
-    script2 = """
-var_from_call1 = summary.upper()
-var_from_call1
-"""
-    res2 = asyncio.run(run_fn(code=script2))  # type: ignore[union-attr]
-    assert "PARIS: 72F, TOKYO: 65F - LIGHT TRAFFIC IN PARIS" in res2
-
-    # Test print capturing with result
-    script3 = """
-print("Logging metric...")
-{"status": "ok", "prev": var_from_call1[:5]}
-"""
-    res3 = asyncio.run(run_fn(code=script3))  # type: ignore[union-attr]
-    assert isinstance(res3, dict)
-    assert res3["output"] == "Logging metric..."
-    assert res3["result"] == {"status": "ok", "prev": "PARIS"}
-
-    # Test restart=True resets REPL state
-    res4 = asyncio.run(run_fn(code="print('restart done')", restart=True))  # type: ignore[union-attr]
-    assert res4 == {"output": "restart done"}
-    assert cm.repl_state == {}
-
-    # Test syntax error handling
-    err_syntax = asyncio.run(run_fn(code="def broken syntax :::"))  # type: ignore[union-attr]
-    assert "SyntaxError in code mode snippet" in err_syntax
-
-    # Test max_tool_calls limit
-    budget_script = """
-for i in range(10):
-    await get_weather(city=f"City_{i}")
-"""
-    err_budget = asyncio.run(run_fn(code=budget_script))  # type: ignore[union-attr]
-    assert "Nested tool call limit exceeded: maximum 5" in err_budget
-
-    # Test for_run isolation
-    fresh_cm = cm.for_run()
-    assert fresh_cm.tool_call_count == 0
-    assert fresh_cm.repl_state == {}
-
-    # Test deferred prompts
-    cm_def = CodeMode(defer_loading=True)
-    assert "CodeMode [code_mode]:" in cm_def.get_system_prompt_additions()[0]
-
-
-def test_tool_search_discovery_and_strategies() -> None:
-    import asyncio
-
-    from devops_cli.ai.agents.pydantic_agent import Tool
-    from devops_cli.ai.harness import ToolSearch
-
-    def calculate_mortgage(principal: float, rate: float) -> float:
-        """Calculate monthly mortgage payment for a home loan."""
-        return principal * (rate / 12)
-
-    def calculate_compound_interest(principal: float, rate: float, time: int) -> float:
-        """Calculate compound interest over investment timeline."""
-        return principal * ((1 + rate) ** time)
-
-    def weather_lookup(city: str) -> str:
-        """Check weather forecast and rain condition for a given city."""
-        return f"Sunny in {city}"
-
-    t_mortgage = Tool.from_function(calculate_mortgage, name="calculate_mortgage")
-    t_interest = Tool.from_function(calculate_compound_interest, name="calculate_compound_interest")
-    t_weather = Tool.from_function(weather_lookup, name="weather_lookup")
-
-    # 1. Test Default Keyword search
-    ts = ToolSearch(
-        searchable_tools=[t_mortgage, t_interest, t_weather],
-        max_results=2,
-    )
-    tools = {t.name: t for t in ts.get_tools()}
-    assert "search_tools" in tools
-    search_fn = tools["search_tools"].function
-
-    # First search for finance loans
-    res1 = asyncio.run(search_fn(queries=["mortgage loan"]))  # type: ignore[union-attr]
-    assert res1["count"] == 1
-    assert res1["matched_tools"][0]["name"] == "calculate_mortgage"
-    assert "calculate_mortgage" in ts.discovered_tools
-
-    # Second search matches compound interest and mortgage (undiscovered ranks first)
-    res2 = asyncio.run(search_fn(queries=["calculate interest payment"]))  # type: ignore[union-attr]
-    assert res2["count"] == 2
-    assert res2["matched_tools"][0]["name"] == "calculate_compound_interest"
-
-    # 2. Test Regex strategy
-    ts_regex = ToolSearch(
-        strategy="regex",
-        searchable_tools=[t_mortgage, t_interest, t_weather],
-    )
-    search_regex_fn = {t.name: t for t in ts_regex.get_tools()}["search_tools"].function
-    res_regex = asyncio.run(search_regex_fn(queries=[r"weather_.*"]))  # type: ignore[union-attr]
-    assert res_regex["count"] == 1
-    assert res_regex["matched_tools"][0]["name"] == "weather_lookup"
-
-    # 3. Test BM25 strategy
-    ts_bm25 = ToolSearch(
-        strategy="bm25",
-        searchable_tools=[t_mortgage, t_interest, t_weather],
-    )
-    search_bm25_fn = {t.name: t for t in ts_bm25.get_tools()}["search_tools"].function
-    res_bm25 = asyncio.run(search_bm25_fn(queries=["forecast rain sunny"]))  # type: ignore[union-attr]
-    assert res_bm25["count"] == 1
-    assert res_bm25["matched_tools"][0]["name"] == "weather_lookup"
-
-    # 4. Test Custom callable strategy
-    def custom_filter(ctx: Any, queries: list[str], tools_list: list[Any]) -> list[str]:
-        return ["calculate_compound_interest"]
-
-    ts_custom = ToolSearch(
-        strategy=custom_filter,
-        searchable_tools=[t_mortgage, t_interest, t_weather],
-    )
-    search_custom_fn = {t.name: t for t in ts_custom.get_tools()}["search_tools"].function
-    res_custom = asyncio.run(search_custom_fn(queries=["custom query"]))  # type: ignore[union-attr]
-    assert res_custom["count"] == 1
-    assert res_custom["matched_tools"][0]["name"] == "calculate_compound_interest"
-
-    # 5. Test empty queries / no tools
-    ts_empty = ToolSearch(searchable_tools=[])
-    search_empty_fn = {t.name: t for t in ts_empty.get_tools()}["search_tools"].function
-    res_empty = asyncio.run(search_empty_fn(queries=[]))  # type: ignore[union-attr]
-    assert res_empty["count"] == 0
-
-    # 6. Test for_run isolation
-    fresh_ts = ts.for_run()
-    assert fresh_ts.discovered_tools == set()
-
-    # 7. Test deferred system prompt
-    ts_def = ToolSearch(defer_loading=True)
-    assert "ToolSearch [tool_search]:" in ts_def.get_system_prompt_additions()[0]
 
 
 def test_compaction_suite() -> None:
@@ -1845,6 +1502,42 @@ def test_harness_memory_suite(tmp_path: Path) -> None:
     p_tools = {t.name: t for t in prefixed_cap.get_tools()}
     assert "org_write_memory" in p_tools
     assert "org_read_memory" in p_tools
+
+
+def _refuses_database(**fields: Any) -> bool:
+    from pydantic import ValidationError
+
+    from devops_cli.ai.harness import SqliteMemoryStore
+
+    try:
+        SqliteMemoryStore(**fields)
+    except ValidationError:
+        return True
+    return False
+
+
+def test_sqlite_memory_store_requires_a_database_file_every_call_shares(tmp_path: Path) -> None:
+    """A store opens a connection per call, so a per-connection database is refused (#958).
+
+    The default `:memory:` gave every call a new empty database: a write reported `ok` and the
+    next read returned nothing. The empty name does the same with a temporary file.
+    """
+    from devops_cli.ai.harness import SqliteMemoryStore
+
+    db_file = tmp_path / "memory.db"
+    written = SqliteMemoryStore(database=db_file).write("MEMORY.md", "remember this")
+    reader = SqliteMemoryStore(database=str(db_file))
+
+    assert (
+        _refuses_database(),
+        _refuses_database(database=":memory:"),
+        _refuses_database(database=""),
+        _refuses_database(database=Path(":memory:")),
+        written.status,
+        reader.read("MEMORY.md").content,
+        reader.list_paths(),
+        [match.path for match in reader.search("remember")],
+    ) == (True, True, True, True, "ok", "remember this", ["MEMORY.md"], ["MEMORY.md"])
 
 
 def test_conversation_search_suite() -> None:
@@ -2495,6 +2188,145 @@ def test_shell_limits_concurrent_background_processes() -> None:
         # Third command exceeds limit of 2
         res3 = start_cmd("echo 3")
         assert "maximum limit" in res3.lower() or "blocked" in res3.lower()
+
+
+_POSIX_PROCESS_GROUPS = pytest.mark.skipif(
+    not hasattr(os, "killpg") or not Path("/proc/self/stat").is_file(),
+    reason="needs POSIX process groups and the Linux /proc filesystem",
+)
+
+
+def _poll_until(predicate: Callable[[], bool], timeout: float = 2.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.02)
+    return True
+
+
+def _gone_or_zombie(pid: int) -> bool:
+    """Whether the process has exited: reaped, or a zombie its new parent has not reaped yet.
+
+    A process reaped between opening its stat file and reading it fails the read with ESRCH.
+    """
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except FileNotFoundError, ProcessLookupError:
+        return True
+    return stat.rsplit(")", 1)[1].split()[0] == "Z"
+
+
+def _kill_if_running(pid: int) -> None:
+    """Stop a process a failing test left behind, never touching init, this process or a dead pid."""
+    if pid > 1 and pid != os.getpid() and not _gone_or_zombie(pid):
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGKILL)
+
+
+def _read_pid(pid_file: Path) -> int:
+    text = pid_file.read_text(encoding="utf-8") if pid_file.is_file() else ""
+    return int(text) if text.endswith("\n") else 0
+
+
+def _background_tools(tmp_path: Path) -> dict[str, Callable[..., str]]:
+    shell = Shell(cwd=tmp_path, allowed_commands=["sh"], stop_grace_seconds=0.2)
+    return {t.name: t.function for t in shell.get_tools()}  # type: ignore[union-attr]
+
+
+@_POSIX_PROCESS_GROUPS
+def test_stop_command_ends_members_an_exited_leader_left_running(tmp_path: Path) -> None:
+    """Stopping a command whose leader has exited still ends the rest of its group (#958).
+
+    The group was found through the leader's pid, which fails once the leader is reaped, and the
+    failure was swallowed while `stop_command` reported the command terminated.
+    """
+    tools = _background_tools(tmp_path)
+    # The member leaves the command's pipes, so the readers see EOF once the leader exits.
+    started = tools["start_command"]("sh -c 'sleep 30 >/dev/null 2>&1 & echo $! > pid; exit 0'")
+    cmd_id = started.split("ID: ")[1]
+    finished = _poll_until(lambda: "FINISHED" in tools["check_command"](cmd_id))
+    pid = _read_pid(tmp_path / "pid")
+    try:
+        report = tools["stop_command"](cmd_id)
+        ended = _poll_until(lambda: _gone_or_zombie(pid))
+    finally:
+        _kill_if_running(pid)
+
+    assert (finished, pid > 1, report, ended) == (
+        True,
+        True,
+        f"Background command {cmd_id} terminated.",
+        True,
+    )
+
+
+@_POSIX_PROCESS_GROUPS
+def test_stop_command_kills_a_member_that_ignores_sigterm(tmp_path: Path) -> None:
+    """A group member still alive when the grace period ends gets SIGKILL (#958).
+
+    Escalation waited only on the leader, which SIGTERM ended, so a member ignoring SIGTERM
+    kept running.
+    """
+    tools = _background_tools(tmp_path)
+    member = "trap '' TERM; echo $$ > pid; exec sleep 30"
+    started = tools["start_command"](
+        shlex.join(["sh", "-c", f"sh -c {shlex.quote(member)} & wait"])
+    )
+    cmd_id = started.split("ID: ")[1]
+    written = _poll_until(lambda: _read_pid(tmp_path / "pid") > 1)
+    pid = _read_pid(tmp_path / "pid")
+    try:
+        tools["stop_command"](cmd_id)
+        ended = _poll_until(lambda: _gone_or_zombie(pid))
+    finally:
+        _kill_if_running(pid)
+
+    assert (written, ended) == (True, True)
+
+
+def _leader(pid: Any) -> MagicMock:
+    proc = MagicMock()
+    proc.pid = pid
+    proc.wait.side_effect = subprocess.TimeoutExpired("sh", 0)
+    return proc
+
+
+def test_terminate_process_group_guards_and_logs_what_it_cannot_do(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Never signals PID 0 or 1 or this process's group, and logs failures it used to swallow (#958)."""
+    import devops_cli.ai.harness.shell as shell_module
+
+    shell = Shell(stop_grace_seconds=0.0)
+    with patch.object(shell_module.os, "killpg") as guarded:
+        for pid in (0, 1, os.getpgrp(), MagicMock()):
+            shell._terminate_process_group(_leader(pid))
+    with (
+        caplog.at_level(logging.WARNING, logger="devops_cli.ai.harness.shell"),
+        patch.object(shell_module.os, "killpg", side_effect=PermissionError) as refused,
+    ):
+        shell._terminate_process_group(_leader(424242))
+    with (
+        caplog.at_level(logging.WARNING, logger="devops_cli.ai.harness.shell"),
+        patch.object(shell_module.os, "killpg") as escalated,
+    ):
+        shell._terminate_process_group(_leader(424243))
+
+    assert (
+        guarded.call_args_list,
+        refused.call_args_list,
+        escalated.call_args_list,
+        [record.getMessage() for record in caplog.records],
+    ) == (
+        [],
+        [call(424242, signal.SIGTERM)],
+        [call(424243, signal.SIGTERM), call(424243, signal.SIGKILL)],
+        [
+            "Not permitted to signal process group 424242 with SIGTERM",
+            "Process group 424243 leader did not exit 0.0s after SIGKILL",
+        ],
+    )
 
 
 def test_macroscope_rejects_path_traversal_in_base_ref() -> None:

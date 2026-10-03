@@ -7,6 +7,7 @@ from pathlib import Path
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.rag.indexer import WorkspaceIndexer, detect_project_name
 from devops_cli.ai.rag.qdrant import QdrantClient
+from devops_cli.config.settings import AIConfig
 
 
 def test_detect_project_name(tmp_path: Path) -> None:
@@ -57,15 +58,12 @@ def test_multi_project_indexing(tmp_path: Path) -> None:
             return True
 
     class DummyEmbedder(EmbeddingsEngine):
-        def embed_batch(self, texts: list[str], prefix: str = "") -> list[list[float]]:
-            return [[0.1] * 384 for _ in texts]
-
-        def embed(self, text: str, prefix: str = "") -> list[float]:
-            return [0.1] * 384
+        def _dispatch_embed(self, prefixed_miss: list[str]) -> list[list[float]]:
+            return [[0.1] * 384 for _ in prefixed_miss]
 
     indexer = WorkspaceIndexer(
         qdrant=DummyQdrant(base_url="http://example.com:6333", allow_private_network=True),
-        embedder=DummyEmbedder(),
+        embedder=DummyEmbedder(AIConfig(provider="custom", ollama_urls=[]), valkey_client=None),
         code_collection="test_code",
         docs_collection="test_docs",
         cache_dir=tmp_path / ".cache",

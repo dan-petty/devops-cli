@@ -8,12 +8,13 @@ from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_TRIVY, build_trivy_scan_cmd
+from devops_cli.config.constants import CONST_REVIEW_SCAN_TRIVY_CONFIG
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_TRIVY_SCAN_TYPE,
     DEFAULT_TRIVY_SEVERITIES,
 )
-from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
+from devops_cli.security.base import BaseSecurityScanner, ScannerConfigFile, ScanOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,11 @@ class TrivyScanner(BaseSecurityScanner):
     binary_name: str = BIN_TRIVY
     gating: ClassVar[bool] = True
     has_builtin_patterns: ClassVar[bool] = False
+    # Trivy reads `trivy.yaml` and `.trivyignore` from its working directory unless named.
+    isolation_files: ClassVar[tuple[ScannerConfigFile, ...]] = (
+        ScannerConfigFile("--config", "trivy.yaml", CONST_REVIEW_SCAN_TRIVY_CONFIG),
+        ScannerConfigFile("--ignorefile", ".trivyignore", ""),
+    )
 
     def build_command(
         self,
@@ -137,7 +143,9 @@ def run_trivy_scan(
     target: Path = DEFAULT_CURRENT_PATH,
     scan_type: str = DEFAULT_TRIVY_SCAN_TYPE,
     severity: str = DEFAULT_TRIVY_SEVERITIES,
+    *,
+    isolated: bool = False,
 ) -> ScanOutcome:
-    """Execute Trivy scanner and return scan outcome."""
+    """Execute Trivy scanner and return scan outcome; `isolated` for a review (#972)."""
     scanner = TrivyScanner()
-    return scanner.scan(target, scan_type=scan_type, severity=severity)
+    return scanner.scan(target, isolated=isolated, scan_type=scan_type, severity=severity)

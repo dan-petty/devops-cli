@@ -1,4 +1,4 @@
-"""Unit tests for AI response validation and configurable request retry logic."""
+"""Unit tests for AI response validation, configurable request retries and request timeouts."""
 
 from __future__ import annotations
 
@@ -8,8 +8,10 @@ import httpx2
 import pytest
 
 from devops_cli.ai.client import AIClientError, LLMClient, LLMResponse
-from devops_cli.config.defaults import DEFAULT_AI_MAX_RETRIES
+from devops_cli.config.defaults import DEFAULT_AI_MAX_RETRIES, DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import AIConfig, AITaskOverride
+from devops_cli.models.ai import ChatMessage
+from tests.llm_stream_fakes import route_client
 
 
 def test_validate_response_text_valid() -> None:
@@ -155,3 +157,45 @@ def test_provider_http_error_sanitizes_html_error_response() -> None:
         "<head>" not in err_str,
         "<body" not in err_str,
     ) == (True, True, True, True, True)
+
+
+@pytest.mark.parametrize(
+    ("config", "constructor_timeout", "expected_read"),
+    [
+        (AIConfig(timeout=5.0).for_task("analysis"), None, 5.0),
+        (AIConfig(tasks={"analysis": {"timeout": 7.0}}).for_task("analysis"), None, 7.0),
+        (AIConfig(timeout=5.0, tasks={"chat": {"timeout": 7.0}}).for_task("analysis"), None, 5.0),
+        (AIConfig(timeout=5.0), 9.0, 9.0),
+        (AIConfig(), None, DEFAULT_HTTP_TIMEOUT_SECONDS),
+    ],
+    ids=["ai-timeout", "task-timeout", "other-task", "constructor-wins", "unset"],
+)
+def test_request_timeout_reads_the_configured_timeout(
+    config: AIConfig, constructor_timeout: float | None, expected_read: float
+) -> None:
+    """Verify `ai.timeout` and `ai.tasks.<task>.timeout` set the read timeout, under the caller's."""
+    client = LLMClient(
+        config, api_key="x", request_timeout_seconds=constructor_timeout, cache_enabled=False
+    )
+
+    assert client._request_timeout().read == expected_read
+
+
+def test_a_configured_timeout_reaches_the_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify an Ollama chat request is sent with the task's configured read timeout."""
+    config = AIConfig(
+        provider="ollama", ollama_urls=["http://example.com:11434"], timeout=5.0
+    ).for_task("analysis")
+    client = LLMClient(config, api_key="x", cache_enabled=False)
+    sent = route_client(
+        client,
+        monkeypatch,
+        lambda request: httpx2.Response(200, json={"message": {"content": "ok"}, "done": True}),
+    )
+
+    reply = client._ollama_messages("sys", [ChatMessage(role="user", content="hi")])
+
+    assert (str(reply), [request.extensions["timeout"]["read"] for request in sent]) == (
+        "ok",
+        [5.0],
+    )

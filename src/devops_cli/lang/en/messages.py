@@ -33,6 +33,15 @@ class ReviewMessages:
     no_files_found: str = "No files found."
     diffing_branches: str = "Diffing {branch} against {base}..."
     no_diff_found: str = "No differences found between branches."
+    nothing_for_personas: str = (
+        "Nothing is left for the personas: every file under review is a lockfile, a planning "
+        "document or a generated reference. The secret scan still reads {count} of them."
+    )
+    nothing_for_personas_unscanned: str = (
+        "Nothing is left for the personas: every file under review is a lockfile, a planning "
+        "document or a generated reference. The static scan is off, so none of the {count} "
+        "is read."
+    )
     fetching_pr: str = "Fetching PR #{number} from {repo}..."
     findings_saved: str = "  ✓ findings saved → {path}"
     review_saved: str = "Review saved → {path}"
@@ -46,22 +55,54 @@ class ReviewMessages:
     github_token_not_configured: str = (
         "GitHub token not configured. Run: devops config set github.token <token>"
     )
-    no_review_sessions_found: str = "No review sessions found in .data/reviews/"
+    no_review_sessions_found: str = "No review sessions found in {reviews_dir}"
     no_findings_to_update: str = "Session has no findings to update."
-    specify_index_or_title: str = "Must specify --index <N> or --title <pattern>"
+    specify_one_finding: str = "Name one finding: --index <N>, --title <pattern> or --candidate <N>"
+    title_matches_none: str = "No finding title contains '{pattern}'."
+    title_matches_several: str = (
+        "Findings {numbers} all contain '{pattern}' in their titles; name one with --index."
+    )
     invalid_status_choices: str = (
         "Status must be one of: VERIFIED, INVALIDATED, MITIGATED, UNVERIFIED"
     )
     no_review_dir_found: str = "No review directory found."
     no_saved_sessions: str = "No saved review sessions found."
     updated_finding_status: str = "Updated finding #{index} status → {status}"
-    total_sessions_count: str = "[bold]Total Sessions:[/bold]  {count}"
+    updated_candidate_status: str = "Updated candidate #{index} status → {status}"
+    candidate_moved: str = "Candidate #{index} added to findings.json as finding #{number}"
+    candidate_already_reported: str = (
+        "findings.json already reports candidate #{index}'s defect as finding #{number}; "
+        "give the verdict there with --index {number}."
+    )
+    candidate_copy_ambiguous: str = (
+        "Finding #{number} in findings.json reports candidates {candidates}, which share a "
+        "persona, title, location and description; give the verdict there with --index {number}, "
+        "which records it on each."
+    )
+    session_write_failed: str = (
+        "Cannot write the session's files, so the verdict was not recorded: {error}"
+    )
+    agent_over_person: str = (
+        "A person gave this finding its verdict, and an agent cannot change it; "
+        "only --adjudicator human can."
+    )
+    verdict_teaches_nothing: str = (
+        "The verdict is recorded, but later reviews will not suppress this finding: its review "
+        "recorded no code at its location, as sessions saved by earlier versions do not, or its "
+        "title and description name no identifier of that code."
+    )
+    sessions_counted: str = (
+        "[bold]Sessions:[/bold] {total} (counted {counted}: {repeats} repeat sessions collapsed, "
+        "{target_only} target-only, {unkeyed} unkeyed)"
+    )
     total_findings_count: str = "[bold]Total Findings:[/bold]  {count}\n"
     review_posted_pr: str = "Review posted as comment on PR #{number}"
     no_findings_session: str = "No findings.json in session {name}"
     session_not_found: str = "Session not found matching: {session}"
-    no_findings_to_export: str = "No {status} findings found to export under {target}."
-    exported_findings: str = "Exported {count} {status} finding(s) → [bold]{path}[/bold]"
+    no_findings_to_export: str = (
+        "No {status} findings under {target} that {path} does not already hold; it is unchanged."
+    )
+    exported_findings: str = "Appended {count} {status} finding(s) → [bold]{path}[/bold]"
     index_out_of_bounds: str = "Index out of bounds (1-{max_index})"
     table_title_findings: str = "Code Review Findings"
     table_title_dependencies: str = "[bold yellow]External Dependencies Audit[/bold yellow]"
@@ -115,9 +156,6 @@ class BenchmarkMessages:
     table_title_category_breakdown: str = "Domain Category Breakdown (Session {session_id})"
     table_title_server_hardware: str = (
         "Ollama Server Hardware & Node Performance (Session {session_id})"
-    )
-    table_title_suite_leaderboard: str = (
-        "AI Benchmark Evaluation Suite Leaderboard (Session {session_id})"
     )
 
 
@@ -240,6 +278,14 @@ class K8sMessages:
     popeye_executing: str = "[dim]Executing Popeye K8s cluster health sanitizer...[/dim]"
     popeye_passed: str = "Popeye cluster audit passed: no health warnings."
     pluto_passed: str = "Pluto API check passed: no deprecated K8s APIs."
+    rbac_audit_passed: str = (
+        "RBAC audit passed: no broad or wildcard role granted to a non-system subject "
+        "in {bindings} binding(s)."
+    )
+    rbac_audit_failed: str = (
+        "RBAC audit failed: {violations} overprivileged grant(s) in {bindings} binding(s)."
+    )
+    rbac_cluster_scope: str = "(cluster)"
     generating_homelab_tls: str = "[bold]Generating Homelab TLS certificate bundle...[/bold]"
     applying_tls_secret: str = (
         "[bold]Applying TLS secret '[cyan]{secret}[/cyan]' across cluster namespaces...[/bold]"
@@ -497,6 +543,37 @@ class PRMessages:
         "✗ Merge conflict detected on PR #{number} with base '{base}'. Manual resolution required."
     )
     update_table_title: str = "Pull Request Branch Update Summary"
+    grounding_closes_no_issue: str = (
+        "PR #{number} is not grounded: its body closes no issue in {repo}. Name the one issue "
+        "it delivers with a closing keyword: Closes #<issue>."
+    )
+    grounding_closes_several_issues: str = (
+        "PR #{number} is not grounded: its body closes {count} issues ({issues}), and a PR "
+        "delivers exactly one."
+    )
+    grounding_task_file_missing: str = (
+        "PR #{number} is not grounded: it adds, modifies or renames no {pattern} for #{issue}."
+    )
+    grounding_files_unread: str = (
+        "PR #{number} is not grounded: the files it changes could not be read ({error})."
+    )
+    grounding_tasks_dir_unread: str = (
+        "PR #{number} is not grounded: {path}/ could not be read at its base ({error})."
+    )
+    grounding_release_files_changed: str = (
+        "PR #{number} changes {files}: a PR into {base} leaves them to the cut, so open PRs "
+        "never conflict on them. Add its changelog entry as {fragment} instead."
+    )
+    grounding_item_not_in_release: str = (
+        "PR #{number} closes #{issue}, which is {placement}, not in {release}: a PR into "
+        "{base} delivers an item of {release}, whose scope was fixed when it started."
+    )
+    grounding_item_in_release: str = "in {release}"
+    grounding_item_in_backlog: str = "in the backlog"
+    grounding_item_unread: str = (
+        "PR #{number} is not grounded: the Release of #{issue} could not be read ({error})."
+    )
+    changed_files_unread: str = "Could not read the files PR #{number} changes ({error})."
 
 
 @dataclass(frozen=True)
@@ -529,6 +606,14 @@ class TelemetryMessages:
     span_emitted_success: str = "Test span emitted successfully! (Span ID: [cyan]{span_id}[/cyan], Duration: {elapsed_ms:.1f}ms)"
     view_jaeger_service: str = "[dim]View in Jaeger: {url} (Service: {service})[/dim]"
     jaeger_ui_link: str = "[bold]Jaeger Tracing UI:[/bold] [link={url}]{url}[/link]"
+    profile_devops_only: str = (
+        "telemetry profile runs only a devops-cli command, whose first word is 'devops' "
+        "(e.g. 'devops k8s contexts'); pass --trace-id to show a trace already in Jaeger."
+    )
+    semconv_refreshed: str = (
+        "{path} now holds {attributes} attributes, {metrics} metrics and {spans} span types "
+        "from {repo}@{commit} (weaver {weaver})."
+    )
 
 
 @dataclass(frozen=True)
@@ -542,6 +627,7 @@ class ScanMessages:
     semgrep_passed: str = "✓ No static AST pattern flaws detected."
     semgrep_default_flaw: str = "Code pattern flaw detected by Semgrep"
     semgrep_default_message: str = "Code pattern flaw detected by Semgrep"
+    semgrep_batch_failed: str = "batch {batch} of {batches}, {files} files: {reason}"
     checkov_executing: str = "Executing Checkov IaC scan on '{target}'..."
     checkov_passed: str = "✓ No IaC policy violations detected."
 
@@ -566,6 +652,15 @@ class RAGMessages:
     )
     cleared_collection: str = "Cleared collection: {coll}"
     no_matching_query: str = "No matching code/documentation found for query: {query}"
+    stopped_for_run: str = (
+        "RAG is off for the rest of this run: {error}. To fix it, serve {model} on a backend, "
+        "point ai.tasks.embedding at a backend that serves it, or set ai.rag.enabled: false."
+    )
+    search_embedding_failed: str = "RAG search unavailable: {error}. Fallback: use search_code."
+    lookup_failed: str = (
+        "RAG lookup failed, so prompts go on without retrieved context: {error}. Later failures "
+        "this run are logged at debug level."
+    )
 
 
 @dataclass(frozen=True)
@@ -750,6 +845,7 @@ class DockerMessages:
     pushed_success: str = "Pushed."
     pruned_success: str = "Pruned. Space reclaimed: {mb} MB"
     analyzing_layers: str = "Analyzing container image layers for '{image}' via Dive..."
+    layer_analysis_not_run: str = "Dive layer analysis {status}: {reason}"
     efficiency_summary: str = (
         "Efficiency: {eff:.1f}% | Size: {size:.1f} MB | Wasted: {wasted:.1f} MB"
     )
@@ -863,6 +959,236 @@ class OutputMessages:
 
 
 @dataclass(frozen=True)
+class RoadmapMessages:
+    epic_closed: str = (
+        "Closed as not planned: a release is its milestone, so release epics are retired. "
+        "GitHub issues, milestones and the project board are now the roadmap's source of "
+        "truth (ADR 0001: {adr})."
+    )
+    not_planned_closed: str = (
+        "Closed as not planned: the hand-written roadmap recorded it as {status} "
+        "({location}). It stays on record so intake recognizes the idea as a duplicate if it "
+        "surfaces again (ADR 0001: {adr})."
+    )
+    not_planned_body: str = (
+        "The hand-written roadmap recorded this as not planned before GitHub became the "
+        "roadmap's source of truth. Its text, from {location}:\n\n{text}"
+    )
+    report_title: str = "# Roadmap migration plan for {repo} at {ref}"
+    report_p0: str = "## 1. P0 feature candidates for a later release"
+    report_unfiled: str = "## 2. Open entries without an issue"
+    report_closed: str = "## 3. Open entries whose issue is closed"
+    report_writes: str = "## 4. Planned writes"
+    report_left_alone: str = "### Left alone: set on the board and different from the matrix"
+    report_auto_add: str = (
+        "### Enabled auto-add workflows: turn these off in the board's Workflows page"
+    )
+    report_option_edits: str = (
+        "### Option edits a person makes in the board's field settings, which keep option ids"
+    )
+    report_none: str = "None."
+    report_not_imported: str = (
+        "{path} carries the `devops roadmap render` marker, so it is a generated view and was "
+        "not imported."
+    )
+    default_branch: str = "the default branch"
+    board_created: str = (
+        "Created board #{number} ({url}). Its Status options were replaced, so check the Status "
+        "each built-in workflow sets in its Workflows page. Set `board = {number}` in {config}, "
+        "then run migrate again."
+    )
+    applied: str = "Made {count} planned write(s)."
+    nothing_to_do: str = "Nothing to migrate: GitHub already holds the roadmap."
+    nothing_to_write: str = (
+        "Nothing for migrate to write. Make the option edits listed above in the board's field "
+        "settings."
+    )
+    edits_due: str = (
+        "Make these option edits in the board's field settings first, because the planned "
+        "writes set those options: {edits}. GitHub's API can't keep an option's id, so migrate "
+        "never edits options itself."
+    )
+    preview_only: str = "Nothing was written. Run again with --confirm to make these writes."
+    render_written: str = "Wrote {path}: {items} item(s) in {sections} section(s)."
+    render_current: str = "## Current release: {title}"
+    render_planned: str = "## Planned release: {title}"
+    render_backlog: str = "## Backlog"
+    render_empty: str = "No items."
+    # `devops roadmap reprioritize` (#740). Each reason completes its action's comment, and the
+    # placeholders are {release}, {next}, {cap}, {days} and {detail}.
+    reasons: dict[str, str] = field(
+        default_factory=lambda: {
+            "critical_fix": "a critical fix can join {release} after it starts.",
+            "admission": (
+                "after {release} started, only a critical fix can join it. A person can place "
+                "it in a planned release, and that placement stands."
+            ),
+            "p0_feature": (
+                "a P0 feature waits for the next release once {release} has started, and goes "
+                "first when {next} starts."
+            ),
+            "cut": (
+                "{release} is cut, so nothing joins it until its release pull request is "
+                "closed; a critical fix goes first into the next release."
+            ),
+            "cap": (
+                "critical fix {detail} took {release} over its size of {cap} items, and this "
+                "was its lowest-ranked unstarted item."
+            ),
+            "over_size": (
+                "{release} holds {detail} items, more than its size of {cap} and more than it "
+                "held when it started, and this was its lowest-ranked unstarted item."
+            ),
+            "blocked": "it is Blocked and had not started.",
+            "dependency": "it waits on {detail}, open outside {release}.",
+            "needs_split": "it is labeled needs-split, so it must be split before it fits one "
+            "pull request.",
+            "others_done": "every other item in {release} is done, and it had not started.",
+            "fix_stays": "an admitted critical fix leaves {release} only when it is Blocked.",
+            "stalled": (
+                "it had no status change, pull request update or commit for {days} days, so it "
+                "counts as not started again."
+            ),
+            "fix_stalled": (
+                "it had no status change, pull request update or commit for {days} days; as a "
+                "critical fix it stays in {release}."
+            ),
+            "review_idle": (
+                "this item has been in review for {days} days without a status change, pull "
+                "request update or commit, and it holds the cut of {release}."
+            ),
+            "shipped": (
+                "{release} shipped: its release pull request merged and GitHub Release "
+                "{release} is published."
+            ),
+            "not_ready_at_start": "it was New, not Ready, when {release} started.",
+            "fix_new_at_start": "a New critical fix stays in a starting release.",
+            "blocked_at_start": "a Blocked item can't join a starting release ({release}).",
+            "top_up": (
+                "{release} started with fewer than its {cap} items and was topped up to "
+                "{detail} from Ready items, critical fixes and P0 features first."
+            ),
+            "trim": (
+                "{release} started with more than {cap} items, and this was its lowest-ranked "
+                "unstarted item."
+            ),
+        }
+    )
+    # What each action did, in the item's one-line comment; {reason} is one of `reasons`.
+    actions: dict[str, str] = field(
+        default_factory=lambda: {
+            "keep": "Kept in {release}: {reason}",
+            "admit": "Admitted to {release}: {reason}",
+            "to_backlog": "Moved to the backlog: {reason}",
+            "to_next": "Moved to {target}: {reason}",
+            "ready": "Status set to Ready: {reason}",
+            "ready_to_next": "Status set to Ready and moved to {target}: {reason}",
+            "nudge": "Nudge: {reason}",
+            "pull_in": "Moved to {target}: {reason}",
+            "start_next": "{reason}",
+        }
+    )
+    reprioritize_comment: str = "{text} (devops roadmap reprioritize)"
+    reprioritize_title: str = "# Reprioritization of {repo}"
+    reprioritize_current: str = "Current release: {release} ({state})."
+    reprioritize_no_release: str = "No Release is open, so there is no current release."
+    reprioritize_first_run: str = (
+        "First run: the board has no run record yet, so this run records the admitted set of "
+        "{release} and moves nothing. The rules apply to changes made after it."
+    )
+    reprioritize_first_run_at_ship: str = (
+        "First run: the board has no run record yet, and {shipped} has shipped, so {release} "
+        "is under way. This run records the admitted set of {release}, closes every shipped "
+        "milestone still open and moves nothing. The rules apply to changes made after it."
+    )
+    reprioritize_unshipped: str = (
+        "{release} is closed but has not shipped: its release pull request has not merged, or "
+        "GitHub Release {release} is not published. {current} starts only once {release} "
+        "ships, so this run starts nothing. Reopen {release} if it was closed by mistake."
+    )
+    reprioritize_unmigrated: str = (
+        "#739's migration has not finished on this board: {problems}. Run `devops roadmap "
+        "migrate` first, then reprioritize."
+    )
+    reprioritize_unmigrated_missing: str = "its Status field has no {found} option"
+    reprioritize_unmigrated_merged: str = (
+        "its Status field still has {found}, which migrate merges into New"
+    )
+    reprioritize_unmigrated_epics: str = "release epics {found} are still open on it"
+    reprioritize_no_run_record: str = (
+        'The board has no "{card}" draft card, yet {count} item(s) carry this job\'s marks '
+        "({items}), so the job has run before: the card was deleted, archived, converted to "
+        'an issue or renamed. Put it back as a draft issue titled "{card}", unarchived. A first '
+        "run now would admit everything added to the current release since it started."
+    )
+    reprioritize_record_unreadable: str = (
+        'The "{card}" card is on the board, but its run record can\'t be read: its Started '
+        "mark is {started}, not a milestone number, so an older version of the job wrote it or "
+        "it was edited by hand. Set the Started mark in its Job record to the milestone number "
+        "of the release the job last started, as text: for the current release, {release}, "
+        'that is "{number}". Then run the job again.'
+    )
+    reprioritize_record_gone: str = (
+        'The "{card}" card names milestone #{number} as the release the job last started, and '
+        "the repository has no such milestone. Restore it, or set the card's Started mark to "
+        "the milestone number of the release under way."
+    )
+    reprioritize_behind: str = (
+        "{current} is older than {started}, the release the run record names as started, so "
+        "{current} never started and has no admitted set. This run holds no release to its "
+        "rules and moves nothing until {current} ships or is closed."
+    )
+    reprioritize_start: str = "{shipped} shipped, so {starting} starts."
+    reprioritize_start_after_close: str = (
+        "{starting} starts: the release the run record names is closed."
+    )
+    reprioritize_changes: str = "## Changes"
+    reprioritize_release_writes: str = "## Releases and branches"
+    reprioritize_records: str = "## Admitted set"
+    reprioritize_admits: str = "- {release} admits {items}."
+    reprioritize_cleared: str = (
+        "- {items} left {release} after it admitted them: their admitted marks are cleared, "
+        "and a return to {release} is judged again."
+    )
+    reprioritize_left: str = (
+        "- #{number} left {release}, where a job placed it, so a return to {release} is judged "
+        "again."
+    )
+    reprioritize_left_backlog: str = (
+        "- #{number} left the backlog, where a job placed it, so where a person puts it stands."
+    )
+    reprioritize_kept_out: str = (
+        "- #{number} was taken out of {release} by a person, as its issue's events show, so it "
+        "stays in the backlog: a person's placement stands."
+    )
+    reprioritize_change_line: str = "- #{number} {title}: {text}"
+    reprioritize_resumed_line: str = (
+        "- #{number} {title}: {text} (finishing what an earlier run began)"
+    )
+    reprioritize_dropped_line: str = (
+        "- #{number} {title}: not finishing what an earlier run began ({text}): a person has "
+        "changed the item since, or the rules no longer decide it, so what that run wrote is "
+        "put back."
+    )
+    reprioritize_unreadable_line: str = (
+        "- #{number} {title}: an earlier run left a change this run can't read, or one about a "
+        "release that is gone, so it is dropped."
+    )
+    reprioritize_run_record: str = (
+        "- The run record names {release}, holding {size} item(s), so the next run holds it "
+        "to its rules."
+    )
+    reprioritize_nothing: str = "Nothing to do: the current release already keeps its rules."
+    reprioritize_preview: str = (
+        "Nothing was written. Run again with --confirm to make these changes."
+    )
+    reprioritize_applied: str = "Made {changes} change(s) and {records} job-record mark(s)."
+    reprioritize_close_release: str = "close Release {release}"
+    reprioritize_create_release: str = "create Release {release}"
+    reprioritize_create_branch: str = "create branch {branch} at {sha}"
+
+
+@dataclass(frozen=True)
 class LanguageCatalog:
     persona_titles: PersonaTitles = field(default_factory=PersonaTitles)
     messages: GeneralMessages = field(default_factory=GeneralMessages)
@@ -902,6 +1228,7 @@ class LanguageCatalog:
     serve: ServeMessages = field(default_factory=ServeMessages)
     pipeline: PipelineMessages = field(default_factory=PipelineMessages)
     test: TestMessages = field(default_factory=TestMessages)
+    roadmap: RoadmapMessages = field(default_factory=RoadmapMessages)
 
 
 MESSAGES = LanguageCatalog()

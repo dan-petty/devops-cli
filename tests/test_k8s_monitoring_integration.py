@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 import yaml
@@ -12,6 +13,15 @@ from devops_cli.commands.k8s.networking import _collect_port_forward_services
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
+
+# The host units whose journal reaches Loki at info and above and whose state Prometheus keeps (#1080).
+HOST_UNITS = ("k3s", "k3s-agent", "nvidia-power-limit", "containerd", "systemd-journald")
+HOST_UNIT_PATTERN = f"({'|'.join(HOST_UNITS)})\\.service"
+
+
+def _k8s_monitoring_values() -> Any:
+    with open(K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml", encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
 
 def test_k8s_monitoring_cadvisor_and_ksm_metrics_tuning() -> None:
@@ -27,6 +37,8 @@ def test_k8s_monitoring_cadvisor_and_ksm_metrics_tuning() -> None:
     ksm_inc = set(
         cm.get("kube-state-metrics", {}).get("metricsTuning", {}).get("includeMetrics", [])
     )
+    hm_tuning = data.get("hostMetrics", {}).get("linuxHosts", {}).get("metricsTuning", {})
+    use_integration_allow_list = hm_tuning.get("useIntegrationAllowList")
 
     required_cadvisor = {
         "machine_cpu_cores",
@@ -34,6 +46,12 @@ def test_k8s_monitoring_cadvisor_and_ksm_metrics_tuning() -> None:
         "container_oom_events_total",
         "container_network_receive_errors_total",
         "container_network_transmit_errors_total",
+        "container_cpu_usage_seconds_total",
+        "container_memory_working_set_bytes",
+        "container_network_receive_packets_total",
+        "container_network_transmit_packets_total",
+        "container_network_receive_packets_dropped_total",
+        "container_network_transmit_packets_dropped_total",
     }
     required_ksm = {
         "kube_deployment_labels",
@@ -60,7 +78,90 @@ def test_k8s_monitoring_cadvisor_and_ksm_metrics_tuning() -> None:
     assert (
         required_cadvisor.issubset(cadvisor_inc),
         required_ksm.issubset(ksm_inc),
-    ) == (True, True)
+        use_integration_allow_list,
+    ) == (True, True, False)
+
+
+def test_node_journals_reach_loki_through_the_alloy_logs_daemonset() -> None:
+    """Each node's journal reaches Loki through the alloy-logs DaemonSet that already reads pod
+    logs, with no other agent (#1080). Kernel lines are kept at every priority (GPU Xid, MCE and
+    thermal lines), the host units and systemd's own lines about them at info and above, and every
+    other line at warning and above. Each unit has its own rate limit; kernel lines have none."""
+    values = _k8s_monitoring_values()
+    node_logs = values["nodeLogs"]
+    rules = " ".join(node_logs["extraDiscoveryRules"].split())
+    stages = " ".join(node_logs["extraLogProcessingStages"].split())
+    alloy_unit_pattern = HOST_UNIT_PATTERN.replace("\\", "\\\\")  # Alloy strings escape "\"
+
+    assert (
+        node_logs["enabled"],
+        node_logs["collector"],
+        values["collectors"][node_logs["collector"]]["presets"],
+        node_logs.get("journal", {}).get("units", []),
+        node_logs["journalLabels"],
+        node_logs["structuredMetadata"],
+        'source_labels = ["__journal__transport"] regex = "kernel" target_label = "__tmp_keep"'
+        in rules,
+        'source_labels = ["__journal_priority", "__journal__systemd_unit", "__journal_unit"]'
+        f' separator = ";" regex = "[0-6];(.*;)?{alloy_unit_pattern}(;.*)?"'
+        ' target_label = "__tmp_keep"' in rules,
+        'source_labels = ["__journal_priority"] regex = "[0-4]" target_label = "__tmp_keep"'
+        in rules,
+        'source_labels = ["__tmp_keep"] regex = "true" action = "keep"' in rules,
+        stages,
+    ) == (
+        True,
+        "alloy-logs",
+        ["daemonset", "filesystem-log-reader"],
+        [],
+        {"transport": "transport"},
+        {"boot_id": "boot_id"},
+        True,
+        True,
+        True,
+        True,
+        'stage.limit { rate = 1 burst = 10000 by_label_name = "unit" drop = true }',
+    )
+
+
+def test_host_metrics_keep_the_series_that_explain_a_host_failure() -> None:
+    """Prometheus keeps each node's boot time, temperatures, pressure, memory and NVMe health,
+    filesystem space and the host units' state (#1080). The systemd collector is the one the
+    chart's node-exporter leaves off: it reads unit state over the host's D-Bus socket, which the
+    node's root mount already exposes, and only for the host units."""
+    values = _k8s_monitoring_values()
+    tuning = values["hostMetrics"]["linuxHosts"]["metricsTuning"]
+    exporter = values["telemetryServices"]["node-exporter"]
+
+    assert (
+        tuning["useIntegrationAllowList"],
+        tuning["includeMetrics"],
+        exporter["extraArgs"],
+        exporter["env"],
+    ) == (
+        False,
+        [
+            "node_time_seconds",
+            "node_boot_time_seconds",
+            "node_hwmon_temp_celsius",
+            "node_hwmon_chip_names",
+            "node_systemd_unit_state",
+            "node_pressure_.*",
+            "node_edac_correctable_errors_total",
+            "node_edac_uncorrectable_errors_total",
+            "node_nvme_info",
+            "node_filesystem_avail_bytes",
+            "node_filesystem_size_bytes",
+        ],
+        [
+            "--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs"
+            "|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs"
+            "|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|erofs|sysfs|tracefs|tmpfs|ramfs)$",
+            "--collector.systemd",
+            f"--collector.systemd.unit-include={HOST_UNIT_PATTERN}",
+        ],
+        {"DBUS_SYSTEM_BUS_ADDRESS": "unix:path=/host/root/run/dbus/system_bus_socket"},
+    )
 
 
 def test_k8s_monitoring_ksm_telemetry_service_config() -> None:
@@ -204,9 +305,88 @@ def test_dcgm_exporter_values_timeout_and_capabilities() -> None:
     sec = data.get("securityContext", {})
     caps = sec.get("capabilities", {}).get("add", [])
 
+    relabelings = sm.get("relabelings", [])
+    target_labels = [r.get("targetLabel") for r in relabelings]
+
     assert (
         sm.get("enabled"),
         sm.get("interval"),
         sm.get("scrapeTimeout"),
         "SYS_ADMIN" in caps,
-    ) == (True, "15s", "10s", True)
+        target_labels,
+    ) == (True, "15s", "10s", True, ["node", "instance"])
+
+
+def _has_ingress_port_from_namespace(
+    rules: list[dict[str, Any]], target_ns: str, target_port: int
+) -> bool:
+    """Predicate checking whether an ingress rule allows target_port from target_ns."""
+    for rule in rules:
+        ns_matches = any(
+            src.get("namespaceSelector", {})
+            .get("matchLabels", {})
+            .get("kubernetes.io/metadata.name")
+            == target_ns
+            for src in rule.get("from", [])
+        )
+        port_matches = any(p.get("port") == target_port for p in rule.get("ports", []))
+        if ns_matches and port_matches:
+            return True
+    return False
+
+
+def _has_egress_port_to_namespace(
+    rules: list[dict[str, Any]], target_ns: str, target_port: int
+) -> bool:
+    """Predicate checking whether an egress rule allows target_port to target_ns."""
+    for rule in rules:
+        ns_matches = any(
+            dst.get("namespaceSelector", {})
+            .get("matchLabels", {})
+            .get("kubernetes.io/metadata.name")
+            == target_ns
+            for dst in rule.get("to", [])
+        )
+        port_matches = any(p.get("port") == target_port for p in rule.get("ports", []))
+        if ns_matches and port_matches:
+            return True
+    return False
+
+
+def test_otel_collector_logs_pipeline_exports_to_loki() -> None:
+    """Verify that OTel collector logs pipeline exports to Loki push endpoint."""
+    otel_values_path = K8S_DIR / "otel" / "values.yaml"
+    with open(otel_values_path, encoding="utf-8") as f:
+        otel = yaml.safe_load(f)
+
+    loki_exp = otel["config"]["exporters"].get("otlp_http/loki", {})
+    endpoint = loki_exp.get("endpoint")
+    log_exporters = otel["config"]["service"]["pipelines"]["logs"]["exporters"]
+
+    assert (
+        endpoint,
+        "otlp_http/loki" in log_exporters,
+    ) == (
+        "http://loki.logging.svc.cluster.local:3100/otlp",
+        True,
+    )
+
+
+def test_otel_and_logging_network_policies_allow_telemetry_flow() -> None:
+    """Verify network policies permit OTel collector egress to Loki/Alloy and Loki ingress from OTel."""
+    logging_netpol = K8S_DIR / "logging" / "networkpolicy.yaml"
+    with open(logging_netpol, encoding="utf-8") as f:
+        log_doc = yaml.safe_load(f)
+
+    otel_netpol = K8S_DIR / "otel" / "networkpolicy.yaml"
+    with open(otel_netpol, encoding="utf-8") as f:
+        otel_doc = yaml.safe_load(f)
+
+    log_ingress = log_doc.get("spec", {}).get("ingress", [])
+    otel_egress = otel_doc.get("spec", {}).get("egress", [])
+
+    assert (
+        _has_ingress_port_from_namespace(log_ingress, "otel", 3100),
+        _has_egress_port_to_namespace(otel_egress, "logging", 3100),
+        _has_egress_port_to_namespace(otel_egress, "monitoring", 9090),
+    ) == (True, True, True)

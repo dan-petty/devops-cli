@@ -29,7 +29,7 @@ devops telemetry connect [OPTIONS]
 | `--context` | `string` | - | Kubernetes context of the cluster running the collector (default: current). |
 | `--namespace`, `-n` | `string` | `otel` | Namespace of the collector service. |
 | `--service` | `string` | `otel-collector-opentelemetry-collector` | Name of the collector service. |
-| `--save`, `--no-save` | `boolean` | `True` | Save the endpoint as telemetry.endpoint (default) or only check it. |
+| `--save` / `--no-save` | `boolean` | `True` | Save the endpoint as telemetry.endpoint (default) or only check it. |
 
 ---
 
@@ -68,7 +68,7 @@ devops telemetry test [OPTIONS]
 
 ## `devops telemetry profile`
 
-**Run a command, or name a trace, and show its span waterfall as Jaeger recorded it.**
+**Run a devops-cli command, or name a trace, and show its span waterfall as Jaeger recorded it.**
 
 ```bash
 devops telemetry profile [OPTIONS] <command>
@@ -78,7 +78,7 @@ devops telemetry profile [OPTIONS] <command>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<command>` | `string` | No | CLI command string to profile and render waterfall for (e.g. 'devops k8s contexts'). |
+| `<command>` | `string` | No | devops-cli command line to run and profile; its first word must be 'devops' (e.g. 'devops k8s contexts'), and any other program is refused. |
 
 **Options:**
 
@@ -97,5 +97,29 @@ devops telemetry profile [OPTIONS] <command>
 ```bash
 devops telemetry open-ui
 ```
+
+---
+
+## `devops telemetry semconv`
+
+**The GenAI semantic conventions that LLM span attributes are checked against.**
+
+```bash
+devops telemetry semconv COMMAND [ARGS]...
+```
+
+### `devops telemetry semconv refresh`
+
+**Resolve the GenAI semantic conventions at a commit with weaver and rewrite the snapshot.**
+
+```bash
+devops telemetry semconv refresh [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--commit` | `string` | - | Full 40-character commit SHA of open-telemetry/semantic-conventions-genai to resolve. |
 
 ---

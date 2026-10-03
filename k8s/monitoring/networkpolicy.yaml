@@ -14,10 +14,15 @@ spec:
     # 1. Allow intra-namespace pod communications (Prometheus, Grafana, node-exporter, kube-state-metrics)
     - from:
         - podSelector: {}
-    # 2. Allow external and Traefik ingress to monitoring services (0.0.0.0/0 and kube-system/traefik)
+    # 2. Allow Traefik ingress to monitoring UIs and APIs. Traefik is the only way in from outside
+    #    the cluster: cloudflared forwards the Access-gated tunnel to Traefik alone, and Traefik
+    #    routes k8s/ingress/ingress-routes.yaml's monitoring hosts to these ports. No ipBlock:
+    #    kube-router matches ingress CIDRs against pod addresses, so 0.0.0.0/0 or any private range
+    #    here would admit every pod in the cluster. `kubectl port-forward` enters the pod's own
+    #    network namespace and needs no rule. `configure-urls --addressing proxy` connects from the
+    #    control-plane node's host network, which kube-router admits only to pods on that node
+    #    (k8s/README.md, Port Forwarding & Automated Configuration).
     - from:
-        - ipBlock:
-            cidr: 0.0.0.0/0
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
@@ -43,7 +48,9 @@ spec:
           port: 9400
         - protocol: TCP
           port: 12345
-    # 3. Allow OpenTelemetry collector to push metrics to Prometheus remote write receiver (9090)
+        - protocol: TCP
+          port: 4040
+    # 3. Allow OpenTelemetry collector to push metrics (9090) and profiles (4040)
     - from:
         - namespaceSelector:
             matchLabels:
@@ -51,6 +58,8 @@ spec:
       ports:
         - protocol: TCP
           port: 9090
+        - protocol: TCP
+          port: 4040
   egress:
     # 1. Allow intra-namespace pod communications
     - to:
@@ -114,7 +123,15 @@ spec:
           port: 8888
         - protocol: TCP
           port: 16686
-    # 5. Allow egress to logging namespace for Loki log shipping
+    # 5. Allow egress to cloudflared namespace for Cloudflare Tunnel metrics scraping
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cloudflared
+      ports:
+        - protocol: TCP
+          port: 2000
+    # 6. Allow egress to logging namespace for Loki log shipping
     - to:
         - namespaceSelector:
             matchLabels:
@@ -122,7 +139,7 @@ spec:
       ports:
         - protocol: TCP
           port: 3100
-    # 6. Outbound external egress (e.g. Grafana plugins/alerts) with cloud metadata SSRF strictly blocked
+    # 7. Outbound external egress (e.g. Grafana plugins/alerts) with cloud metadata SSRF strictly blocked
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

@@ -23,10 +23,11 @@ devops review path [OPTIONS] <targets>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
+| `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
@@ -46,8 +47,8 @@ devops review path [OPTIONS] <targets>
 | `--watch`, `-w` | `boolean` | - | Continuously watch target paths for changes and re-run reviews. |
 | `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ---
 
@@ -70,11 +71,12 @@ devops review branch [OPTIONS] <branch_name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--repo` | `path` | `.` | Repository root directory (default: current directory). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
+| `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
@@ -92,8 +94,8 @@ devops review branch [OPTIONS] <branch_name>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ---
 
@@ -116,11 +118,12 @@ devops review pr [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
+| `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
@@ -138,14 +141,21 @@ devops review pr [OPTIONS] <number>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ---
 
 ## `devops review findings`
 
 **Inspect structured findings for a review session.**
+
+Inspect structured findings for a review session.
+
+Each finding keeps its number, its place in findings.json, whatever filter the list
+applies, and `devops review verify --index` takes that number. With `--candidates` the list
+is candidates.json: every finding the review raised, the ones verification invalidated
+included, numbered for `devops review verify --candidate`.
 
 ```bash
 devops review findings [OPTIONS] <session>
@@ -164,16 +174,40 @@ devops review findings [OPTIONS] <session>
 | `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
 | `--status` | `string` | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED. |
 | `--unverified` | `boolean` | - | Show unverified findings only. |
-| `--invalidated` | `boolean` | - | Show invalidated findings only. |
+| `--invalidated` | `boolean` | - | Show INVALIDATED findings only. findings.json holds only those a later verdict invalidated; add --candidates for the ones verification invalidated. |
 | `--verified` | `boolean` | - | Show verified findings only. |
 | `--mitigated` | `boolean` | - | Filter findings by MITIGATED status |
+| `--candidates` | `boolean` | - | List candidates.json: every finding the review raised, with the ones verification dropped. |
+| `--severity` | `string` | - | Show only findings of this severity: CRITICAL, HIGH, MEDIUM, LOW or INFO (repeatable). |
 | `--details`, `-d` | `boolean` | - | Display full finding descriptions and fix recommendations. |
 
 ---
 
 ## `devops review verify`
 
-**Validate or invalidate a review finding, persisting feedback reasons.**
+**Record a person's or an agent's verdict on a review finding or candidate.**
+
+Record a person's or an agent's verdict on a review finding or candidate.
+
+Name one finding: `--index` takes the number `devops review findings` shows, `--title` a
+substring of exactly one title, and `--candidate` the number `review findings --candidates`
+shows. There is no default verdict, so `--status` is required. A candidate given VERIFIED
+or MITIGATED moves into findings.json, unless findings.json already reports its defect under
+another title: give that finding the verdict instead.
+
+A verdict on a finding in findings.json is recorded on the candidate it reports too, and a
+verdict on a candidate on its copy in findings.json, so both lists agree. When that copy also
+reports another candidate of the same persona, title, location and description, give the
+verdict to the copy with `--index`. Verdicts given on one session at once take turns.
+
+`--adjudicator` records who gave the verdict: `human`, the default, or `agent`, which an AI
+agent passes and the MCP `verify_finding` tool always sends. An agent cannot change a
+person's verdict. Only a person's verdict ranks review history, teaches the learned catalog
+(INVALIDATED) or records a mitigation in the ledger (MITIGATED). A later verdict withdraws
+what the finding's earlier verdicts recorded there that it no longer stands behind: the
+catalog entry once the finding is not INVALIDATED, so later reviews stop suppressing its
+claim, and the ledger entry once it is not MITIGATED. An entry another verdict also recorded
+stays, and one nothing else recorded is removed.
 
 ```bash
 devops review verify [OPTIONS] <session>
@@ -190,9 +224,11 @@ devops review verify [OPTIONS] <session>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
-| `--index`, `-i` | `integer` | - | 1-based finding index in session to verify. |
-| `--title`, `-t` | `string` | - | Match finding by substring in title. |
-| `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. |
+| `--index`, `-i` | `integer` | - | Number `review findings` shows for the finding: its place in findings.json, whatever filter the list applied. |
+| `--title`, `-t` | `string` | - | Substring of exactly one finding title in findings.json. |
+| `--candidate` | `integer` | - | Number `review findings --candidates` shows; a VERIFIED or MITIGATED verdict moves the candidate into findings.json. |
+| `--status` | `string` | - | Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. It withdraws what a person's earlier verdicts recorded that it no longer stands behind: the catalog entry of an INVALIDATED one, the ledger entry of a MITIGATED one. |
+| `--adjudicator` | `choice (human|agent)` | `human` | Who gives the verdict: human, or agent for an AI agent, which cannot change a person's verdict. Only a person's verdict ranks review history and teaches the learned catalog and mitigations ledger. |
 | `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
 | `--perimeter`, `-p` | `string` | - | Perimeter file path(s) protecting against finding recurrence (repeatable). |
 | `--regression-test` | `string` | - | Path to regression test guarding against finding recurrence. |
@@ -235,16 +271,24 @@ devops review benchmark [OPTIONS] <targets>
 |---|---|---|---|
 | `--runs`, `-n` | `integer` | `3` | Number of reviews to run; the report takes medians across them. |
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
+| `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
 
 ---
 
 ## `devops review export-feedback`
 
-**Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning.**
+**Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.**
+
+Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.
+
+Each session's findings.json and candidates.json are read, and only the findings whose
+verdict the dataset does not hold yet are appended. An export that finds none leaves the
+dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset
+changes no prompt and no later review.
 
 ```bash
 devops review export-feedback [OPTIONS]
@@ -254,7 +298,7 @@ devops review export-feedback [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | Output JSONL path for benchmark feedback dataset. |
+| `--output`, `-o` | `path` | - | JSONL dataset to append to (default: the configured data.feedback_dataset_path). |
 | `--reviews-dir` | `path` | - | Directory containing review sessions. |
 | `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 
@@ -291,7 +335,7 @@ devops review corpus generate [OPTIONS] <sources>
 
 ### `devops review corpus score`
 
-**Score a review of a corpus: which injected defects it found, and what verification kept.**
+**Score one arm of reviews of a corpus: which injected defects each run found, and what verification kept.**
 
 ```bash
 devops review corpus score [OPTIONS] <corpus_dir>
@@ -307,7 +351,8 @@ devops review corpus score [OPTIONS] <corpus_dir>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | `string` | - | Review session to score (default: the latest review of the corpus). |
+| `--session`, `-s` | `string` | - | Review session to score (repeatable; default: the latest review of the corpus). The sessions must have run the same review prompts. |
+| `--runs`, `-n` | `integer` | - | Score the latest N reviews of the corpus together as one arm: how many runs found each injection, and each figure's mean and range across the runs. Refused with --session. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -372,7 +417,7 @@ devops review samples validate [OPTIONS] <names>
 |---|---|---|---|
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--review` | `boolean` | - | Also review each category's synthetic defect corpus and score it (calls the configured LLM). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
 
 ---
@@ -412,7 +457,7 @@ devops review templates sweep [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops review templates check`
@@ -430,7 +475,7 @@ devops review templates check [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ---

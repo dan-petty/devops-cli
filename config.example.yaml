@@ -61,6 +61,10 @@ qdrant:
   # Example: http://localhost:6333 or https://example.com:6333
   url: http://localhost:6333
   collection_prefix: devops
+  # Seconds each Qdrant request waits per attempt before it is retried, up to 3 attempts.
+  # RAG searches and indexing's upserts and deletes share the client, so they share this.
+  # 300 to 600 s suits a homelab Qdrant. Env: DEVOPS_CLI_QDRANT_TIMEOUT.
+  timeout: 300
 
 # ── Jaeger Tracing ────────────────────────────────────────────────────────────
 jaeger:
@@ -87,6 +91,14 @@ ai:
   model: qwen3.8:27b
   # reasoning_effort: low  # Reasoning effort level: low | medium | high
 
+  # Reference model used for counterfactual cloud spend calculations and hardware payoff.
+  # Defaults to gpt-4o.
+  reference_model: gpt-4o
+
+  # Total hardware investment cost in USD (e.g. GPU workstation or cluster node purchases).
+  # Used by `devops ai cost` to calculate payback progress and amortization against local LLM usage.
+  hardware_cost_usd: 0.0
+
   # Ollama server URLs (list or comma-separated string).
   # AI request loops automatically failover across configured servers if one is unreachable.
   # Use DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true for remote/private IP hosts.
@@ -96,12 +108,25 @@ ai:
   # Custom base URL for claude/openai-compatible providers (leave null for defaults).
   api_base_url: null
 
-  # Allow connections to private/loopback/RFC-1918 addresses for AI, ArgoCD, and Grafana.
+  # Allow connections to private/RFC-1918 addresses for AI, ArgoCD, Grafana and Prometheus,
+  # and to loopback addresses for ArgoCD, Grafana and Prometheus.
   # Required when Ollama or cluster services run on a private network (e.g. 192.168.x.x).
+  # Configured AI, gateway, Ollama and Qdrant URLs on loopback (localhost, 127.0.0.1, ::1),
+  # as in this file, need no opt-in. Cloud metadata addresses are always refused.
   # Equivalent to setting DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true in the environment.
   allow_private_network: false
 
+  # Seconds each LLM request waits for its reply; tasks.<task>.timeout sets one task's.
+  # Unset, a request waits 3600 s and a review's analysis, verification and compose
+  # requests 1200 s.
+  # timeout: 1200
+
   # RAG (Retrieval-Augmented Generation) settings
+  # Reviews, chat and analysis look up context with the embedding model (tasks.embedding).
+  # If that model cannot embed a lookup, for example because no backend serves it, RAG is off
+  # for the rest of the run after one warning; indexing and `devops ai rag query` fail with the
+  # error. Serve the model, point tasks.embedding at a backend that serves it, or set
+  # enabled: false.
   rag:
     enabled: true
     top_k: 5

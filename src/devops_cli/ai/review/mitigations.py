@@ -11,13 +11,13 @@ import logging
 import os
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.ai.review_schema import Finding
-from devops_cli.core.repo import resolve_data_path
+from devops_cli.core.repo import find_repo_root, resolve_review_data_path
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +25,10 @@ _CANONICAL_LEDGER_PATH = Path("mitigated_findings.json")
 DEFAULT_MITIGATIONS_LEDGER_PATH = _CANONICAL_LEDGER_PATH
 
 
-def resolve_ledger_path(path: Path | None = None, start_path: Path | str | None = None) -> Path:
-    """Resolve the effective ledger path, resolving under the data directory."""
+def resolve_ledger_path(path: Path | None = None) -> Path:
+    """Resolve the effective ledger path, resolving under the data directory: under the review
+    data root when relative, for a review and `devops pr` alike (`resolve_review_data_path`, #972).
+    """
     if path is not None:
         return path
     if DEFAULT_MITIGATIONS_LEDGER_PATH != _CANONICAL_LEDGER_PATH:
@@ -40,7 +42,7 @@ def resolve_ledger_path(path: Path | None = None, start_path: Path | str | None 
         data_dir = load_settings().data.dir
     except Exception:
         data_dir = Path(".data")
-    return resolve_data_path(data_dir / DEFAULT_MITIGATIONS_LEDGER_PATH, start_path)
+    return resolve_review_data_path(data_dir / DEFAULT_MITIGATIONS_LEDGER_PATH)
 
 
 class MitigatedFindingEntry(BaseModel):
@@ -57,6 +59,9 @@ class MitigatedFindingEntry(BaseModel):
     reason: str = ""
     recorded_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     recorded_by: str = "human"
+    # The person's verdicts that recorded or updated this mitigation. Changing one of them to
+    # anything but MITIGATED withdraws it, and the entry goes with the last (#949, #950).
+    verdict_count: int = 1
 
 
 def load_mitigated_findings(ledger_path: Path | None = None) -> list[MitigatedFindingEntry]:
@@ -146,6 +151,7 @@ def record_mitigated_finding(
         existing.regression_test = test_path
         existing.reason = reason or existing.reason
         existing.recorded_at = datetime.now(UTC).isoformat()
+        existing.verdict_count += 1
         entry = existing
     else:
         entry = MitigatedFindingEntry(
@@ -162,29 +168,50 @@ def record_mitigated_finding(
     return entry
 
 
-def _normalize_path(path_str: str) -> str:
-    """Normalize file path for consistent prefix and separator matching."""
-    return path_str.replace("\\", "/").strip().lstrip("./")
+def _normalize_path(path_str: str, repo_root: PurePosixPath) -> str:
+    """A path with forward slashes and no leading `./`, relative to `repo_root` when it is an
+    absolute path inside it.
+
+    `.lstrip("./")` also cut the dot off `.github/...` and `.devops/...`, and the root off an
+    absolute path (#845). A scanner's finding, and so a person's mitigation of it, names its file
+    absolute (#788), while changed files are repository-relative.
+    """
+    normalized = path_str.replace("\\", "/").strip()
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    path = PurePosixPath(normalized)
+    if path.is_absolute() and path.is_relative_to(repo_root):
+        return path.relative_to(repo_root).as_posix()
+    return normalized
 
 
 def _is_path_matching(changed: str, perimeter: str) -> bool:
-    """Check if changed file path matches a perimeter path exactly or as child."""
+    """Whether a changed file is a perimeter file: the same path, or for two relative paths, one
+    ending in the other. An absolute path, which lies outside the repository, matches only
+    itself."""
     if changed == perimeter:
         return True
-    if changed.endswith("/" + perimeter) or perimeter.endswith("/" + changed):
-        return True
-    return False
+    if changed.startswith("/") or perimeter.startswith("/"):
+        return False
+    return changed.endswith("/" + perimeter) or perimeter.endswith("/" + changed)
 
 
 def find_perimeter_changes(
-    changed_files: Iterable[str], ledger_path: Path | None = None
+    changed_files: Iterable[str],
+    ledger_path: Path | None = None,
+    repo_root: Path | None = None,
 ) -> list[tuple[MitigatedFindingEntry, list[str]]]:
-    """Find mitigated findings whose perimeter files intersect with changed files."""
+    """Find mitigated findings whose perimeter files intersect with changed files.
+
+    `repo_root`, the current repository's by default, is what an absolute path is read
+    against.
+    """
     entries = load_mitigated_findings(ledger_path)
     if not entries:
         return []
 
-    norm_changed = {_normalize_path(f) for f in changed_files if f.strip()}
+    root = PurePosixPath((repo_root or find_repo_root()).resolve().as_posix())
+    norm_changed = {_normalize_path(f, root) for f in changed_files if f.strip()}
     if not norm_changed:
         return []
 
@@ -192,7 +219,7 @@ def find_perimeter_changes(
     for entry in entries:
         matched_perimeters: list[str] = []
         for perim in entry.perimeter_files:
-            norm_perim = _normalize_path(perim)
+            norm_perim = _normalize_path(perim, root)
             if any(_is_path_matching(ch, norm_perim) for ch in norm_changed):
                 matched_perimeters.append(perim)
         if matched_perimeters:

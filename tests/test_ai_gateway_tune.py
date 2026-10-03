@@ -335,7 +335,7 @@ class TestTune:
         printed: list[str] = []
         namespace["print"] = printed.append
 
-        exec(compile(script, "<bench>", "exec"), namespace)  # noqa: S102 - the script under test
+        exec(compile(script, "<bench>", "exec"), namespace)  # the script under test
 
         assert json.loads(printed[-1]) == []
 

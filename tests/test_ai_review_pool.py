@@ -267,6 +267,6 @@ def test_diff_stream_chunks_skips_generated_files() -> None:
 
 
 def test_diff_stream_chunks_empty_stream() -> None:
-    """Test empty input stream yields empty string fallback."""
+    """Test an empty input stream yields no page: an empty one reached the model (#948)."""
     chunks = list(diff_stream_chunks("", max_chars=1000))
-    assert chunks == [""]
+    assert chunks == []

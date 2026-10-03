@@ -124,9 +124,9 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 
 ## Local Workstation Model & Security Architecture
 
-1. **Local Workstation Timeouts**: High timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`, `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 1800.0`) support local LLM inference (CPU/GPU Ollama) and corporate proxies.
+1. **Local Workstation Timeouts**: High timeouts (`DEFAULT_HTTP_TIMEOUT_SECONDS = 3600.0` per LLM request, `DEFAULT_REVIEW_TIMEOUT_SECONDS = 1200.0` per review request, unless `ai.timeout` or `ai.tasks.<task>.timeout` sets one; `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 1800.0`) support local LLM inference (CPU/GPU Ollama) and corporate proxies.
 2. **Key Material Mounting**: `${localEnv:HOME}/.ssh` is bind-mounted by design into `.devcontainer` for local SSH key generation and 90-day rotation.
-3. **SSRF Protections**: `validate_service_url` blocks non-public IPs unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set.
+3. **SSRF Protections**: `validate_service_url` blocks non-public IPs unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set. A service URL from the user's own configuration (Ollama, Qdrant, the LLM gateway, a provider's `api_base_url`) may also name loopback (`validate_configured_service_url`).
 4. **Workspace Boundary Guards**: Path traversal checks (`_is_safe_workspace_path`) enforce repository boundaries on file commands.
 5. **Checksum Verification**: `devops install-tools` validates SHA-256 checksums before writing binaries to disk.
 6. **Automated Design Justification & Documentation Maintenance**: Non-instructional, reference-backed inline comments (`# NOTE (Design Justification - <REF>): ...`) automatically document intentional design trade-offs directly above target code constructs, and project documentation (`AGENTS.md`, `README.md`, `CLAUDE.md`, `.github/copilot-instructions.md`) is routinely updated whenever code or prompt conventions evolve.
@@ -323,10 +323,10 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff with one or all AI personas. |
 |  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request with one or all AI personas. |
 |  | `devops review findings [OPTIONS] <session>` | Inspect structured findings for a review session. |
-|  | `devops review verify [OPTIONS] <session>` | Validate or invalidate a review finding, persisting feedback reasons. |
+|  | `devops review verify [OPTIONS] <session>` | Record a person's or an agent's verdict on a review finding or candidate. |
 |  | `devops review stats [OPTIONS]` | Compute and display review accuracy statistics across saved sessions. |
 |  | `devops review benchmark [OPTIONS] <targets>` | Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage. |
-|  | `devops review export-feedback [OPTIONS]` | Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning. |
+|  | `devops review export-feedback [OPTIONS]` | Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads. |
 |  | `devops review corpus COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
 |  | `devops review samples COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
 |  | `devops review templates COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
@@ -346,7 +346,9 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops release sync-notes [OPTIONS]` | Republish GitHub release descriptions from CHANGELOG.md. |
 |  | `devops release changelog [OPTIONS]` | Compile and generate changelog entries from git commits or PR deliverables. |
 |  | `devops release tag [OPTIONS]` | Create release commit and annotated git tag. |
-|  | `devops release epic [OPTIONS] <version>` | Provision, correlate, and synchronize parent release tracking epics for milestones. |
+| **roadmap** | `devops roadmap migrate [OPTIONS]` | Make GitHub the roadmap's source, once: bring the board in line with its template, fill unset Status, Priority, Value and Effort, retire release epics and milestones beyond the planning horizon, and record rejected roadmap ideas as issues closed as not planned. Prints the plan and a report, which lists the option renames, additions and removals a person makes in the board's field settings; writes only with --confirm, once the renames and additions are made. |
+|  | `devops roadmap render [OPTIONS]` | Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the backlog by priority. |
+|  | `devops roadmap reprioritize [OPTIONS]` | Hold the current release to its rules: after it starts only a critical fix joins it, a fix that takes it over the cap descopes one unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, each with a reason comment. Once the release ships, close it, branch the next one and fill or trim it to the cap. The first run records the admitted set and moves nothing. Writes only with --confirm. |
 | **pr** | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |
@@ -357,11 +359,12 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops pr ready [OPTIONS] <number>` | Mark a draft pull request as ready for review. |
 |  | `devops pr diff [OPTIONS] <number>` | View diff of a pull request. |
 |  | `devops pr close [OPTIONS] <number>` | Close a pull request. |
-|  | `devops pr check-readiness [OPTIONS] <number>` | Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state. |
+|  | `devops pr check-readiness [OPTIONS] <number>` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding. |
 |  | `devops pr update [OPTIONS] <number>` | Update pull request branch with latest commits from its base branch. |
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |
 | **gh** | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching. |
 |  | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
+|  | `devops gh metrics [OPTIONS]` | Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, and milestones. |
 |  | `devops gh labels COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh milestones COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh project COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
@@ -396,8 +399,9 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops telemetry connect [OPTIONS]` | Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there. |
 |  | `devops telemetry logfire [OPTIONS]` | Display Logfire structured observability bridge status and token metrics. |
 |  | `devops telemetry test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
-|  | `devops telemetry profile [OPTIONS] <command>` | Run a command, or name a trace, and show its span waterfall as Jaeger recorded it. |
+|  | `devops telemetry profile [OPTIONS] <command>` | Run a devops-cli command, or name a trace, and show its span waterfall as Jaeger recorded it. |
 |  | `devops telemetry open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
+|  | `devops telemetry semconv COMMAND [ARGS]...` | The GenAI semantic conventions that LLM span attributes are checked against. |
 | **cloudflare** | `devops cloudflare status [OPTIONS]` | Verify Cloudflare API token authentication and inspect zone status. |
 |  | `devops cloudflare dns COMMAND [ARGS]...` | Cloudflare Zero Trust tunnels and DNS management. |
 |  | `devops cloudflare tunnel COMMAND [ARGS]...` | Cloudflare Zero Trust tunnels and DNS management. |

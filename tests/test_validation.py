@@ -11,6 +11,7 @@ import typer
 
 from devops_cli.core.validation import (
     is_non_public_ip,
+    validate_configured_service_url,
     validate_dir,
     validate_file,
     validate_k8s_name,
@@ -20,6 +21,7 @@ from devops_cli.core.validation import (
     validate_url,
     validate_version_str,
 )
+from devops_cli.exceptions import InvalidURLError, SSRFBlockedError
 
 
 def test_is_non_public_ip() -> None:
@@ -57,6 +59,40 @@ def test_validate_service_url_public_vs_private(monkeypatch: pytest.MonkeyPatch)
 
     # Allowed private network
     validate_service_url("http://127.0.0.1:8080", "test-service", allow=True)
+
+
+def _configured_url_verdict(url: str, *, allow_private: bool) -> str:
+    """What the configured-URL policy does with `url`: passes it, or the error it raises."""
+    try:
+        validate_configured_service_url(url, "Qdrant", allow_private=allow_private)
+    except (InvalidURLError, SSRFBlockedError) as exc:
+        return type(exc).__name__
+    return "passes"
+
+
+@pytest.mark.parametrize(
+    ("url", "allow_private", "verdict"),
+    [
+        ("http://localhost:6333", False, "passes"),
+        ("http://LocalHost.:6333", False, "passes"),
+        ("http://127.0.0.1:6333", False, "passes"),
+        ("http://127.8.9.10:6333", False, "passes"),
+        ("http://[::1]:11434", False, "passes"),
+        ("http://192.0.2.10:6333", False, "SSRFBlockedError"),
+        ("http://192.0.2.10:6333", True, "passes"),
+        ("http://169.254.169.254:6333", False, "SSRFBlockedError"),
+        ("http://169.254.169.254:6333", True, "SSRFBlockedError"),
+        ("ftp://localhost:6333", False, "InvalidURLError"),
+        ("localhost:6333", False, "InvalidURLError"),
+    ],
+)
+def test_validate_configured_service_url_exempts_only_loopback(
+    url: str, allow_private: bool, verdict: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a configured URL may name loopback without allow_private, and nothing else."""
+    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
+
+    assert _configured_url_verdict(url, allow_private=allow_private) == verdict
 
 
 def test_validate_path_and_dir_and_file(tmp_path: Path) -> None:

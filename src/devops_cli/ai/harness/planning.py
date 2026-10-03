@@ -21,6 +21,7 @@ from devops_cli.ai.agents.pydantic_agent import (
     RunContext,
     Tool,
 )
+from devops_cli.ai.harness.constants import DEFAULT_PLANNING_GUIDANCE
 from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
 from devops_cli.exceptions.ai import HarnessValidationError
 from devops_cli.exceptions.security import SecurityError
@@ -323,14 +324,6 @@ class SqlitePlanStore(PlanStore):
             return cur.rowcount > 0
 
 
-DEFAULT_PLANNING_GUIDANCE: str = (
-    "You have access to a structured planning toolset (write_plan, read_plan, add_task, update_task_status, remove_task). "
-    "Keep a concise, structured plan to track progress on multi-step tasks. "
-    "Ensure exactly one step is marked as 'in_progress' at any given time while working. "
-    "Mark steps 'completed' promptly when finished."
-)
-
-
 class Planning(BaseCapability):
     """Structured task planning capability that maintains state and injects cache-safe tail reminders."""
 
@@ -444,7 +437,7 @@ class Planning(BaseCapability):
         _render_node(None)
         return "\n".join(lines)
 
-    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:  # noqa: C901
         all_tools: list[AgentTool | Callable[..., Any]] = []
 
         def write_plan(items: list[dict[str, Any] | PlanItem | str]) -> str:

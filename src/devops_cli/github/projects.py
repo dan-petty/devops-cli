@@ -6,7 +6,7 @@ import json
 import logging
 import re
 import subprocess
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -17,8 +17,9 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_CACHE_TTL_SECONDS,
     DEFAULT_GH_GRAPHQL_SAFETY_THRESHOLD,
     DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC,
+    DEFAULT_GH_PROJECT_OPTION_COLOR,
 )
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.github.client import parse_paginated_json
 from devops_cli.github.rate_limiter import (
     extract_json_payload,
@@ -30,11 +31,18 @@ logger = logging.getLogger(__name__)
 
 
 class ProjectFieldOption(BaseModel):
-    """Option for single-select project custom fields."""
+    """Option for single-select project custom fields.
+
+    `replaces` names board options this one takes the place of, for `devops roadmap migrate`.
+    Its plan has a person rename the first one the board has to this option in the board's
+    field settings, which keeps its id and so every card's value. Migrate moves the cards
+    holding any other here, and then the person removes that option.
+    """
 
     name: str
-    color: str = "GRAY"
+    color: str = DEFAULT_GH_PROJECT_OPTION_COLOR
     description: str = ""
+    replaces: list[str] = Field(default_factory=list)
 
 
 class ProjectField(BaseModel):
@@ -77,8 +85,6 @@ class ProjectItem(BaseModel):
     title: str
     status: str = "Backlog"
     priority: str | None = None
-    category: str | None = None
-    milestone: str | None = None
 
 
 class MutationBudget:
@@ -294,7 +300,7 @@ class ProjectSyncResult(BaseModel):
 
 
 def check_github_rate_limit_error(output: str, operation: str = "github_operation") -> None:
-    """Check if subprocess output indicates a GitHub API rate limit exhaustion."""
+    """Raise `GitHubRateLimitError` if subprocess output indicates a GitHub API rate limit exhaustion."""
     clean = output.lower()
     rate_limit_indicators = (
         "unknown owner type",
@@ -303,8 +309,8 @@ def check_github_rate_limit_error(output: str, operation: str = "github_operatio
         "rate limit exceeded",
     )
     if any(ind in clean for ind in rate_limit_indicators):
-        raise GitHubOperationError(
-            "GitHub GraphQL API rate limit is currently exhausted. Please wait for quota reset.",
+        raise GitHubRateLimitError(
+            "GitHub API rate limit is currently exhausted. Please wait for quota reset.",
             operation=operation,
             details={"output": output.strip()},
         )
@@ -630,77 +636,6 @@ def _provision_single_field(owner: str, project_number: int, field: ProjectField
     return proc.returncode == 0
 
 
-def _sync_single_select_field_options(
-    existing_field: dict[str, Any], template_field: ProjectField
-) -> bool:
-    """Ensure all single-select options from the template exist on the remote field."""
-    field_id = existing_field.get("id")
-    if not field_id or not template_field.options:
-        return True
-
-    existing_opts = existing_field.get("options", [])
-    existing_opt_names = {
-        str(opt.get("name", "")).lower()
-        for opt in existing_opts
-        if isinstance(opt, dict) and "name" in opt
-    }
-
-    missing_opts = [
-        opt for opt in template_field.options if opt.name.lower() not in existing_opt_names
-    ]
-    if not missing_opts:
-        return True
-
-    payload = {
-        "query": """
-mutation UpdateField($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
-  updateProjectV2Field(input: {fieldId: $fieldId, singleSelectOptions: $options}) {
-    projectV2Field {
-      ... on ProjectV2SingleSelectField {
-        id
-      }
-    }
-  }
-}
-""",
-        "variables": {
-            "fieldId": field_id,
-            "options": _format_remote_options(existing_opts, missing_opts),
-        },
-    }
-    proc = run_gh(
-        [CONST_GH_CLI, "api", "graphql", "--input", "-"],
-        input=json.dumps(payload),
-        check=False,
-        quiet=True,
-    )
-    return proc.returncode == 0
-
-
-def _format_remote_options(
-    existing_opts: list[Any], missing_opts: list[ProjectFieldOption]
-) -> list[dict[str, str]]:
-    """Format combined existing and missing options for GraphQL mutation."""
-    formatted = [
-        {
-            "name": str(opt["name"]),
-            "color": str(opt.get("color", "GRAY")).upper(),
-            "description": str(opt.get("description", "")),
-        }
-        for opt in existing_opts
-        if isinstance(opt, dict) and "name" in opt
-    ]
-    formatted.extend(
-        {
-            "name": opt.name,
-            "color": (opt.color or "GRAY").upper(),
-            "description": opt.description or "",
-        }
-        for opt in missing_opts
-    )
-    return formatted
-
-
 def _fetch_existing_fields_by_name(
     owner_arg: str, project_number: int
 ) -> dict[str, dict[str, Any]]:
@@ -734,70 +669,19 @@ def _fetch_existing_fields_by_name(
 def provision_remote_project_fields(
     project_number: int, owner: str, fields: list[ProjectField]
 ) -> list[str]:
-    """Inspect and provision missing custom fields on a project board."""
+    """Create the template fields the board lacks, and never edit an existing field's options.
+
+    GitHub replaces a single-select field's whole option list, and its option input takes no
+    id, so every option it is sent gets a new id and every card loses its value. No command
+    edits an existing board's options: `devops roadmap migrate` lists the edits a person makes
+    in the board's field settings, which keep ids.
+    """
     owner_arg = _resolve_project_owner_arg(owner)
     existing_fields_by_name = _fetch_existing_fields_by_name(owner_arg, project_number)
-    provisioned: list[str] = []
-
-    for field in fields:
-        f_lower = field.name.lower()
-        if f_lower in existing_fields_by_name:
-            existing_f = existing_fields_by_name[f_lower]
-            if (
-                field.type == "single_select"
-                and field.options
-                and existing_f.get("type") == "ProjectV2SingleSelectField"
-            ):
-                _sync_single_select_field_options(existing_f, field)
-            continue
-        if _provision_single_field(owner_arg, project_number, field):
-            provisioned.append(field.name)
-    return provisioned
-
-
-def _extract_urls_from_project_items(items: list[dict[str, Any]]) -> set[str]:
-    """Extract item URLs from parsed project items."""
-    urls: set[str] = set()
-    for it in items:
-        if isinstance(it, dict):
-            content = it.get("content") or {}
-            url = content.get("html_url") or content.get("url")
-            if url:
-                urls.add(url)
-    return urls
-
-
-def _fetch_project_item_urls_with_status(owner: str, project_number: int) -> tuple[set[str], bool]:
-    """Retrieve URLs of items currently present on the project board with success flag."""
-    endpoints = [
-        f"users/{owner}/projectsV2/{project_number}/items",
-        f"orgs/{owner}/projectsV2/{project_number}/items",
+    missing = [field for field in fields if field.name.lower() not in existing_fields_by_name]
+    return [
+        field.name for field in missing if _provision_single_field(owner_arg, project_number, field)
     ]
-    for endpoint in endpoints:
-        res = run_gh(
-            [
-                CONST_GH_CLI,
-                "api",
-                "--paginate",
-                endpoint,
-                "-H",
-                "Accept: application/vnd.github+json",
-            ],
-            check=False,
-            quiet=True,
-        )
-        if res.returncode == 0:
-            if res.stdout.strip():
-                items = parse_paginated_json(res.stdout)
-                return _extract_urls_from_project_items(items), True
-            return set(), True
-    return set(), False
-
-
-def _fetch_project_item_urls(owner: str, project_number: int) -> set[str]:
-    """Retrieve URLs of items currently present on the project board."""
-    urls, _ = _fetch_project_item_urls_with_status(owner, project_number)
-    return urls
 
 
 def _extract_item_url(it: dict[str, Any]) -> str | None:
@@ -821,10 +705,8 @@ def _extract_item_fields(it: dict[str, Any]) -> dict[str, str | None]:
     return {
         "status": fields_by_lower.get("status"),
         "priority": fields_by_lower.get("priority"),
-        "category": fields_by_lower.get("category"),
         "value": fields_by_lower.get("value"),
         "effort": fields_by_lower.get("effort"),
-        "milestone": fields_by_lower.get("milestone"),
         "id": fields_by_lower.get("id"),
     }
 
@@ -1009,7 +891,7 @@ class FieldChange(BaseModel):
 
 # Labels match exactly: `status/ready-to-merge` is not `status/ready`.
 _STATUS_LABELS: dict[str, str] = {
-    "status/backlog": "Backlog",
+    "status/backlog": "New",
     "status/ready": "Ready",
     "status/in-progress": "In Progress",
     "status/in-review": "In Review",
@@ -1021,10 +903,10 @@ _PRIORITY_LABELS: dict[str, str] = {
     "priority/p2-medium": "P2-Medium",
     "priority/p3-low": "P3-Low",
 }
-_DEFAULT_STATUS = "Backlog"
+_DEFAULT_STATUS = "New"
 
 
-def _label_names(labels: list[Any]) -> list[str]:
+def _label_names(labels: Sequence[Any]) -> list[str]:
     """Return the lower-cased names of an item's labels."""
     return [
         str(lbl.get("name", "") if isinstance(lbl, dict) else lbl).lower() for lbl in labels or []
@@ -1048,7 +930,7 @@ def _forced_status(item: Mapping[str, Any], has_open_pr: bool) -> tuple[str, str
     return None
 
 
-def _initial_status(labels: list[Any], status_options: Collection[str]) -> tuple[str, str]:
+def initial_status(labels: Sequence[Any], status_options: Collection[str]) -> tuple[str, str]:
     """Return the status for an item whose Status is unset, with its source."""
     for name in _label_names(labels):
         status = _STATUS_LABELS.get(name)
@@ -1057,21 +939,13 @@ def _initial_status(labels: list[Any], status_options: Collection[str]) -> tuple
     return _DEFAULT_STATUS, "default for an unset status"
 
 
-def _declared_priority(labels: list[Any]) -> tuple[str, str] | None:
+def declared_priority(labels: Sequence[Any]) -> tuple[str, str] | None:
     """Return the priority a priority label declares, with its source, or None."""
     for name in _label_names(labels):
         priority = _PRIORITY_LABELS.get(name)
         if priority is not None:
             return priority, f"label {name}"
     return None
-
-
-def _milestone_title(item: Mapping[str, Any]) -> str | None:
-    """Return the title of an item's milestone, if it has one."""
-    milestone = item.get("milestone")
-    if isinstance(milestone, dict):
-        return str(milestone.get("title") or "") or None
-    return str(milestone) if milestone else None
 
 
 def plan_item_changes(
@@ -1085,21 +959,17 @@ def plan_item_changes(
 
     The board owns Status: it is set only when unset, or when the item's state forces Done,
     In Review or In Progress, so a person's triage is never reverted. Priority only fills an
-    unset field, from a priority label. Category, Value and Effort are never inferred: an
-    inferred value the board shows as decided is worse than an unset one.
+    unset field, from a priority label. Value and Effort are never inferred: an inferred value
+    the board shows as decided is worse than an unset one. The board mirrors the milestone on
+    its own, so it is never written.
     """
     labels = item.get("labels", [])
     status = _forced_status(item, has_open_pr)
     if status is None and not current.get("status"):
-        status = _initial_status(labels, status_options)
-    priority = None if current.get("priority") else _declared_priority(labels)
-    milestone = _milestone_title(item)
+        status = initial_status(labels, status_options)
+    priority = None if current.get("priority") else declared_priority(labels)
 
-    targets = (
-        ("Status", status),
-        ("Priority", priority),
-        ("Milestone", (milestone, "issue milestone") if milestone else None),
-    )
+    targets = (("Status", status), ("Priority", priority))
     url = str(item.get("html_url") or item.get("url") or "")
     changes: list[FieldChange] = []
     for field_name, target in targets:
@@ -1319,7 +1189,7 @@ def reconcile_project_custom_fields(
     budget: MutationBudget | None = None,
     template: ProjectTemplate | None = None,
 ) -> dict[str, Any]:
-    """Reconcile Status, Priority and Milestone on project items, listing every change.
+    """Reconcile Status and Priority on project items, listing every change.
 
     The result's ``changes`` holds each field change with its old and new value and the
     source that decided it: the planned changes in a dry run, the applied ones otherwise.

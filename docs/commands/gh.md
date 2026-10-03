@@ -47,6 +47,27 @@ devops gh rate-limit [OPTIONS]
 
 ---
 
+## `devops gh metrics`
+
+**Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, and milestones.**
+
+```bash
+devops gh metrics [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--limit`, `-l` | `integer` | `10` | Number of recent releases to inspect |
+| `--ci-limit` | `integer` | `50` | Number of recent CI workflow runs to inspect |
+| `--milestone`, `-m` | `string` | - | Filter metrics to a specific milestone |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--json` | `boolean` | - | Emit structured JSON metrics report |
+| `--emit-telemetry` | `boolean` | - | Emit project and velocity metrics over OpenTelemetry to Prometheus |
+
+---
+
 ## `devops gh labels`
 
 ```bash
@@ -117,25 +138,8 @@ devops gh milestones list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--state`, `-s` | `string` | `all` | Milestone state filter |
+| `--state`, `-s` | `string` | `all` | Milestone state filter (open, closed or all) |
 | `--repo`, `-R` | `string` | - | Target repository |
-
-### `devops gh milestones sync`
-
-**Extract release milestones from ROADMAP.md and sync to repository.**
-
-```bash
-devops gh milestones sync [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
-| `--repo`, `-R` | `string` | - | Target repository |
-| `--create-release-epics` | `boolean` | - | Provision or synchronize release tracking epics for each milestone |
-| `--dry-run` | `boolean` | - | Simulate milestone extraction without creating remote records |
 
 ### `devops gh milestones status`
 
@@ -149,7 +153,7 @@ devops gh milestones status [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Milestone version or title (e.g. v0.2.11) |
+| `<name>` | `string` | Yes | Release version, with or without the v (e.g. v0.2.11) |
 
 **Options:**
 
@@ -159,7 +163,7 @@ devops gh milestones status [OPTIONS] <name>
 
 ### `devops gh milestones close`
 
-**Close a repository release milestone by title or version.**
+**Close the release milestone of a version, with or without its v.**
 
 ```bash
 devops gh milestones close [OPTIONS] <name>
@@ -169,7 +173,7 @@ devops gh milestones close [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Milestone version or title (e.g. v0.2.11) |
+| `<name>` | `string` | Yes | Release version, with or without the v (e.g. v0.2.11) |
 
 **Options:**
 
@@ -179,7 +183,7 @@ devops gh milestones close [OPTIONS] <name>
 
 ### `devops gh milestones edit`
 
-**Edit an existing milestone title, description, state, or due date.**
+**Edit a release milestone's title, description, state, or due date; fields left out stay as they are.**
 
 ```bash
 devops gh milestones edit [OPTIONS] <name>
@@ -189,7 +193,7 @@ devops gh milestones edit [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Milestone version, title, or number (e.g. v0.2.21 or 34) |
+| `<name>` | `string` | Yes | Release version, with or without the v (e.g. v0.2.21) |
 
 **Options:**
 
@@ -238,8 +242,8 @@ devops gh project sync [OPTIONS]
 | `--task-file`, `-f` | `path` | `docs/agent/tasks` | Path to docs/agent/tasks directory |
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 | `--repo`, `-R` | `string` | - | Target repository |
-| `--dry-run`, `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
-| `--reconcile-fields`, `--no-reconcile-fields` | `boolean` | `True` | Also reconcile Status, Priority and Milestone from issue state and labels. |
+| `--dry-run` / `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
+| `--reconcile-fields` / `--no-reconcile-fields` | `boolean` | `True` | Also reconcile Status, Priority and Milestone from issue state and labels. |
 
 ### `devops gh project reconcile`
 
@@ -573,40 +577,6 @@ devops gh issues edit [OPTIONS] <number>
 | `--remove-label` | `string` | - | Taxonomy label to detach (repeatable). |
 | `--repo`, `-R` | `string` | - | Target repository |
 
-### `devops gh issues reconcile-roadmap`
-
-**Reconcile existing issue milestones to match docs/ROADMAP.md specifications.**
-
-```bash
-devops gh issues reconcile-roadmap [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
-| `--tasks-dir`, `-t` | `path` | `docs/agent/tasks` | Directory for local per-task tracking files |
-| `--repo`, `-R` | `string` | - | Target repository |
-| `--dry-run` | `boolean` | - | Preview issue milestone reconciliation without mutations |
-
-### `devops gh issues sync-roadmap`
-
-**Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files.**
-
-```bash
-devops gh issues sync-roadmap [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--milestone`, `-m` | `string` | - | Filter by release milestone (e.g. v0.2.20) |
-| `--dry-run` | `boolean` | - | Preview issue and task creation without modifying remote state |
-| `--limit`, `-L` | `integer` | `20` | Maximum issues to create |
-| `--repo`, `-R` | `string` | - | Target repository |
-
 ### `devops gh issues close-merged`
 
 **Close issues linked by merged pull requests. GitHub only honours closing keywords when a pull request merges into the default branch, so pull requests targeting a release branch leave their issues open.**
@@ -841,7 +811,7 @@ devops gh pr wait [OPTIONS] <number>
 | `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
 | `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
-| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
@@ -866,7 +836,7 @@ devops gh pr monitor [OPTIONS] <number>
 | `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
 | `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
-| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
@@ -979,7 +949,16 @@ devops gh pr close [OPTIONS] <number>
 
 ### `devops gh pr check-readiness`
 
-**Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state.**
+**Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.**
+
+Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
+
+Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
+and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
+body closes exactly one issue, and it adds, modifies or renames that issue's
+docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves CHANGELOG.md and
+docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. Into release/vX.Y.Z,
+the issue it closes is in release vX.Y.Z. A base branch without docs/agent/tasks/ is exempt.
 
 ```bash
 devops gh pr check-readiness [OPTIONS] <number>
@@ -1121,7 +1100,7 @@ devops gh pr threads resolve-all [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
+| `--only-replied` / `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---

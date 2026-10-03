@@ -399,7 +399,7 @@ devops argo rollouts analyze [OPTIONS] <name>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
 | `--error-rate-threshold`, `-e` | `float` | `1.0` | Maximum allowable HTTP 5xx error rate percentage before triggering automated rollback |
-| `--auto-abort`, `--no-auto-abort` | `boolean` | `True` | Automatically trigger rollout abort when metric analysis violates threshold |
+| `--auto-abort` / `--no-auto-abort` | `boolean` | `True` | Automatically trigger rollout abort when metric analysis violates threshold |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---

@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from typer.testing import CliRunner
 
 from devops_cli.ai.personas import PERSONAS, Persona
+from devops_cli.ai.review.history import review_subject
 from devops_cli.ai.review.runner import (
     ReviewClients,
     _build_path_prompt,
@@ -194,9 +195,8 @@ def test_prepare_content_helpers(tmp_path: Path) -> None:
     """Verify content preparation for paths, branches, and PRs."""
     test_file = Path("src/devops_cli/main.py")
 
-    pages, title, agents_md = _prepare_path_content(test_file, "*")
-    assert len(pages) >= 1
-    assert "main.py" in title
+    pages, title, agents_md, routed = _prepare_path_content(test_file, "*")
+    assert (len(pages) >= 1, "main.py" in title, routed) == (True, True, [])
 
     import subprocess
 
@@ -207,8 +207,12 @@ def test_prepare_content_helpers(tmp_path: Path) -> None:
         stderr="",
     )
 
-    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_cp):
-        b_pages, b_title, b_agents, b_target = _prepare_branch_content(
+    with (
+        patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_cp),
+        patch("devops_cli.git.operations.resolve_merge_base", return_value="base-sha"),
+        patch("devops_cli.git.operations.list_changed_files", return_value=[]),
+    ):
+        b_pages, b_title, b_agents, b_target, _ = _prepare_branch_content(
             "feat/test", "main", Path(".")
         )
         assert len(b_pages) >= 1
@@ -219,11 +223,12 @@ def test_prepare_content_helpers(tmp_path: Path) -> None:
         mock_gh = mock_gh_cls.return_value
         mock_gh.get_pull.return_value = MagicMock(title="Mock PR Title")
         mock_gh.get_pr_diff.return_value = "diff --git a/test.py b/test.py\n+content\n"
-        pr_pages, pr_title, pr_agents, pull, repo = _prepare_pr_content(
+        pr_pages, pr_title, pr_agents, pull, repo, pr_base = _prepare_pr_content(
             123, repo_arg="owner/repo", token="ghp_test"
         )
         assert len(pr_pages) >= 1
         assert "PR #123" in pr_title
+        assert pr_base is None
 
 
 def test_run_review_and_persona_loop(tmp_path: Path) -> None:
@@ -416,10 +421,8 @@ def test_review_cli_commands(tmp_path: Path) -> None:
         ),
     ]
     payload = ReviewSessionPayload(
-        session_id="sample-session",
-        created_at="2026-08-26T00:00:00",
-        target_type="path",
-        target="src/",
+        generated_at="2026-08-26T00:00:00",
+        subject=review_subject("path", "src/", []),
         findings=findings,
     )
     (session_dir / "findings.json").write_text(payload.model_dump_json(indent=2), encoding="utf-8")
@@ -537,6 +540,29 @@ def test_make_review_clients() -> None:
     clients = _make_review_clients(st)
     assert clients.analysis is not None
     assert clients.compose is not None
+
+
+def test_review_clients_wait_a_configured_task_timeout() -> None:
+    """Verify a configured analysis, verification or compose timeout replaces the review default."""
+    from devops_cli.config.defaults import DEFAULT_REVIEW_TIMEOUT_SECONDS
+    from devops_cli.config.settings import AITaskOverride, Settings
+
+    st = Settings()
+    st.ai.tasks.analysis = AITaskOverride(timeout=30.0)
+    st.ai.tasks.compose = AITaskOverride(timeout=45.0)
+    configured = _make_review_clients(st)
+    st.ai.tasks.verification = AITaskOverride(model="devops-reasoning", timeout=60.0)
+    verifier = _make_review_clients(st).verification
+    defaults = _make_review_clients(Settings())
+
+    assert (
+        configured.analysis._request_timeout().read,
+        configured.verification._request_timeout().read,
+        configured.compose._request_timeout().read,
+        verifier._request_timeout().read,
+        defaults.analysis._request_timeout().read,
+        defaults.compose._request_timeout().read,
+    ) == (30.0, 30.0, 45.0, 60.0, DEFAULT_REVIEW_TIMEOUT_SECONDS, DEFAULT_REVIEW_TIMEOUT_SECONDS)
 
 
 def test_get_current_git_branch() -> None:
@@ -684,8 +710,10 @@ def test_prepare_branch_content_on_main_and_base_switching() -> None:
         ),
         patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
         patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_diff),
+        patch("devops_cli.git.operations.resolve_merge_base", return_value="base-sha"),
+        patch("devops_cli.git.operations.list_changed_files", return_value=[]),
     ):
-        pages, title, agents, target = _prepare_branch_content("main", "main", Path("."))
+        pages, title, agents, target, _ = _prepare_branch_content("main", "main", Path("."))
         assert len(pages) >= 1
         assert "release/v0.2.19" in title
         assert "main" in title
@@ -699,8 +727,9 @@ def test_prepare_branch_content_on_main_and_base_switching() -> None:
             "devops_cli.ai.review.runner._has_uncommitted_working_tree_changes", return_value=True
         ),
         patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_diff),
+        patch("devops_cli.git.operations.list_changed_files", return_value=[]),
     ):
-        pages, title, agents, target = _prepare_branch_content(None, "main", Path("."))
+        pages, title, agents, target, _ = _prepare_branch_content(None, "main", Path("."))
         assert len(pages) >= 1
         assert "main" in title
         assert "HEAD" in title

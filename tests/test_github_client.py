@@ -208,6 +208,43 @@ def test_create_pr_review_comment() -> None:
     assert called_kwargs["line"] == 15
 
 
+def test_get_merge_base_reads_the_compare_endpoint() -> None:
+    """Verify the merge base comes from comparing base and head in the named repository, and a
+    failed comparison gives None rather than a ref to read at (#593)."""
+    client = GitHubClient("token")
+    compared: list[tuple[str, str, str, int | None]] = []
+
+    class _FakeRepo:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def compare(
+            self, base: str, head: str, comparison_commits_per_page: int | None = None
+        ) -> SimpleNamespace:
+            compared.append((self.name, base, head, comparison_commits_per_page))
+            if head == "unknown":
+                raise UnknownObjectException(404, "Not Found", None)
+            return SimpleNamespace(merge_base_commit=SimpleNamespace(sha="merge-base-sha"))
+
+    class _FakeGithub:
+        def get_repo(self, repo: str, lazy: bool = False) -> _FakeRepo:
+            return _FakeRepo(f"{repo} lazy={lazy}")
+
+    client._gh = _FakeGithub()  # type: ignore[assignment]
+
+    found = client.get_merge_base("octo/repo", "base-tip", "head-sha")
+    missing = client.get_merge_base("octo/repo", "base-tip", "unknown")
+
+    assert (found, missing, compared) == (
+        "merge-base-sha",
+        None,
+        [
+            ("octo/repo lazy=True", "base-tip", "head-sha", 1),
+            ("octo/repo lazy=True", "base-tip", "unknown", 1),
+        ],
+    )
+
+
 def test_get_pr_diff_normal_and_redirect(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify get_pr_diff fetches unified diff with and without redirect."""
     import httpx2
@@ -249,92 +286,6 @@ def test_get_pr_diff_normal_and_redirect(monkeypatch: pytest.MonkeyPatch) -> Non
     diff_redir = client.get_pr_diff("octo/repo", 42)
     assert "diff --git a/redirected" in diff_redir
     assert len(calls) == 2
-
-
-def test_create_milestone_forwards_due_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify create_milestone parses and forwards due_on to GitHub repository."""
-    import datetime
-    from unittest.mock import MagicMock
-
-    client = GitHubClient("token123")
-    mock_repo = MagicMock()
-    monkeypatch.setattr(client._gh, "get_repo", lambda r: mock_repo)
-
-    # String date
-    client.create_milestone(
-        repo="octo/repo",
-        title="v1.0.0",
-        description="Launch",
-        state="open",
-        due_on="2026-12-31",
-    )
-    mock_repo.create_milestone.assert_called_once()
-    called_kwargs = mock_repo.create_milestone.call_args[1]
-    assert called_kwargs["title"] == "v1.0.0"
-    assert called_kwargs["description"] == "Launch"
-    assert called_kwargs["state"] == "open"
-    assert isinstance(called_kwargs["due_on"], (datetime.date, datetime.datetime))
-    assert called_kwargs["due_on"].year == 2026
-
-    # Native date object
-    mock_repo.reset_mock()
-    target_date = datetime.date(2027, 1, 15)
-    client.create_milestone(
-        repo="octo/repo",
-        title="v1.1.0",
-        due_on=target_date,
-    )
-    called_kwargs2 = mock_repo.create_milestone.call_args[1]
-    assert called_kwargs2["due_on"] == target_date
-
-
-def test_edit_milestone_supplies_existing_title(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify edit_milestone supplies milestone.title when title is None."""
-    from unittest.mock import MagicMock
-
-    client = GitHubClient("token123")
-    mock_repo = MagicMock()
-    mock_milestone = MagicMock()
-    mock_milestone.title = "v0.2.12"
-    mock_repo.get_milestone.return_value = mock_milestone
-    monkeypatch.setattr(client._gh, "get_repo", lambda r: mock_repo)
-
-    client.edit_milestone("octo/repo", 24, state="closed")
-    mock_milestone.edit.assert_called_once_with(state="closed", title="v0.2.12")
-
-
-def test_close_milestone_by_title_and_number(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify close_milestone closes by numeric id and by title string."""
-    from unittest.mock import MagicMock
-
-    client = GitHubClient("token123")
-    mock_repo = MagicMock()
-    mock_milestone = MagicMock()
-    mock_milestone.title = "v0.2.12"
-    mock_repo.get_milestone.return_value = mock_milestone
-    monkeypatch.setattr(client._gh, "get_repo", lambda r: mock_repo)
-
-    # 1. Close by integer
-    res_int = client.close_milestone("octo/repo", 24)
-    assert res_int is True
-    mock_milestone.edit.assert_called_with(state="closed", title="v0.2.12")
-
-    # 2. Close by title matching
-    mock_milestone.reset_mock()
-    monkeypatch.setattr(
-        client,
-        "get_milestones",
-        lambda repo, state="all": [{"title": "v0.2.13", "number": 25}],
-    )
-    mock_milestone.title = "v0.2.13"
-    res_title = client.close_milestone("octo/repo", "v0.2.13")
-    assert res_title is True
-    mock_repo.get_milestone.assert_called_with(25)
-    mock_milestone.edit.assert_called_with(state="closed", title="v0.2.13")
-
-    # 3. Non-existent milestone returns False
-    res_missing = client.close_milestone("octo/repo", "v9.9.9")
-    assert res_missing is False
 
 
 def test_parse_paginated_json_concatenated_documents() -> None:
@@ -381,41 +332,38 @@ def test_gh_cli_client_labels() -> None:
         assert "0075ca" in edit_cmd
 
 
-def test_gh_cli_client_milestones_paginated() -> None:
-    """Verify GhCliClient milestone querying across multiple paginated pages."""
-    client = GhCliClient(default_repo="owner/my-repo")
+def test_gh_cli_client_label_failures_raise() -> None:
+    """A failed `gh label` call raises instead of reading as no labels or as done (#961).
 
-    multi_page_stdout = (
-        '[{"number": 1, "title": "v0.1.0", "state": "closed", "open_issues": 0, "closed_issues": 5}]\n'
-        '[{"number": 2, "title": "v0.2.0", "state": "open", "open_issues": 3, "closed_issues": 10}]\n'
-    )
-    mock_proc = MagicMock(returncode=0, stdout=multi_page_stdout)
-    mock_run = MagicMock(return_value=mock_proc)
+    `get_labels` returned [] on any failure, so `labels sync` set out to create every label,
+    and `create_label` and `edit_label` dropped the result, so their failures went unseen.
+    """
+    from devops_cli.exceptions.git import GitHubOperationError
 
-    with patch("devops_cli.github.client.run_gh", mock_run):
-        milestones = client.get_milestones("owner/my-repo")
-        assert len(milestones) == 2
-        assert milestones[0]["title"] == "v0.1.0"
-        assert milestones[0]["state"] == "closed"
-        assert milestones[1]["title"] == "v0.2.0"
-        assert milestones[1]["open_issues"] == 3
+    client = GhCliClient(default_repo="o/r")
+    failed = MagicMock(returncode=1, stdout="", stderr="not logged in")
+    calls = [
+        lambda: client.get_labels("o/r"),
+        lambda: client.create_label("o/r", "x", "000000"),
+        lambda: client.edit_label("o/r", "x", "000000"),
+    ]
+    raised: list[str] = []
+    with patch("devops_cli.github.client.run_gh", return_value=failed):
+        for call in calls:
+            with pytest.raises(GitHubOperationError) as error:
+                call()
+            raised.append(str(error.value))
+    assert all("not logged in" in message for message in raised)
 
-        client.create_milestone(
-            "owner/my-repo",
-            "v0.3.0",
-            description="Next release",
-            due_on="2026-10-01T00:00:00Z",
-        )
-        create_cmd = mock_run.call_args[0][0]
-        assert "repos/owner/my-repo/milestones" in create_cmd
-        assert "title=v0.3.0" in create_cmd
-        assert "due_on=2026-10-01T00:00:00Z" in create_cmd
 
-        client.edit_milestone("owner/my-repo", 2, title="v0.2.1", state="closed")
-        edit_cmd = mock_run.call_args[0][0]
-        assert "repos/owner/my-repo/milestones/2" in edit_cmd
-        assert "title=v0.2.1" in edit_cmd
-        assert "state=closed" in edit_cmd
+def test_gh_cli_client_lists_every_label() -> None:
+    """`gh label list` stops at 30 labels unless told otherwise; .github/labels.yml has 31."""
+    listed = MagicMock(returncode=0, stdout="[]", stderr="")
+    with patch("devops_cli.github.client.run_gh", return_value=listed) as run_gh:
+        GhCliClient(default_repo="o/r").get_labels("o/r")
+    argv = run_gh.call_args.args[0]
+    # Without --limit, gh lists 30.
+    assert (int(argv[argv.index("--limit") + 1]) if "--limit" in argv else 30) > 30
 
 
 def test_get_repo_overview_wraps_graphql_failure() -> None:

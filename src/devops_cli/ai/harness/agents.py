@@ -24,6 +24,7 @@ from devops_cli.ai.common_tools import duckduckgo_search_tool, web_fetch_tool
 from devops_cli.ai.harness.constants import (
     DEFAULT_CODER_INSTRUCTIONS,
     DEFAULT_MACROSCOPE_GUIDANCE,
+    DEFAULT_PLAYWRIGHT_GUIDANCE,
     DEFAULT_RESEARCHER_INSTRUCTIONS,
 )
 from devops_cli.ai.harness.filesystem import FileSystem
@@ -325,10 +326,6 @@ class Macroscope(BaseCapability):
         return additions
 
 
-DEFAULT_PLAYWRIGHT_GUIDANCE: str = """Use Playwright browser tools to navigate web pages, inspect accessibility snapshots, click elements, fill forms, and take screenshots.
-Prefer snapshot() to discover element handles (aria-ref=) over guessing selectors."""
-
-
 class PlaywrightBrowser(BaseCapability):
     """Capability managing a headless Chromium browser instance via Playwright."""
 
@@ -377,7 +374,7 @@ class PlaywrightBrowser(BaseCapability):
             guidance=guidance,
         )
 
-    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:  # noqa: C901
         def navigate(url: str, timeout_ms: int | None = None) -> str:
             """Navigate to a URL and return title, URL, and visible page text."""
             from urllib.parse import urlparse

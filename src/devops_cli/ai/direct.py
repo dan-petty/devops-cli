@@ -102,7 +102,7 @@ def direct_model_request_sync(
 
     with trace_span(
         "pydantic_ai.direct.model_request_sync",
-        attributes={"gen_ai.request.model": model_repr, "gen_ai.messages_count": len(msgs)},
+        attributes={"gen_ai.request.model": model_repr, "llm.request.message_count": len(msgs)},
     ):
         started = time.monotonic()
         resp = model_request_sync(
@@ -124,6 +124,7 @@ def direct_model_request_sync(
                 request_type="direct_sync",
                 duration_seconds=time.monotonic() - started,
                 stage=current_stage.get(),
+                finish_reason=resp.finish_reason,
             )
         return resp
 
@@ -147,7 +148,7 @@ async def direct_model_request(
 
     with trace_span(
         "pydantic_ai.direct.model_request",
-        attributes={"gen_ai.request.model": model_repr, "gen_ai.messages_count": len(msgs)},
+        attributes={"gen_ai.request.model": model_repr, "llm.request.message_count": len(msgs)},
     ):
         started = time.monotonic()
         resp = await model_request(
@@ -169,6 +170,7 @@ async def direct_model_request(
                 request_type="direct_async",
                 duration_seconds=time.monotonic() - started,
                 stage=current_stage.get(),
+                finish_reason=resp.finish_reason,
             )
         return resp
 
@@ -192,7 +194,7 @@ def direct_model_request_stream_sync(
 
     with trace_span(
         "pydantic_ai.direct.model_request_stream_sync",
-        attributes={"gen_ai.request.model": model_repr, "gen_ai.messages_count": len(msgs)},
+        attributes={"gen_ai.request.model": model_repr, "llm.request.message_count": len(msgs)},
     ):
         with model_request_stream_sync(
             resolved_model,
@@ -225,7 +227,7 @@ async def direct_model_request_stream(
 
     with trace_span(
         "pydantic_ai.direct.model_request_stream",
-        attributes={"gen_ai.request.model": model_repr, "gen_ai.messages_count": len(msgs)},
+        attributes={"gen_ai.request.model": model_repr, "llm.request.message_count": len(msgs)},
     ):
         async with model_request_stream(
             resolved_model,

@@ -51,7 +51,7 @@ def _get_default_docs_dir() -> Path:
 
 
 @app.command(name="generate")
-def generate(
+def generate(  # noqa: C901
     output_dir: Annotated[
         Path | None,
         typer.Option(

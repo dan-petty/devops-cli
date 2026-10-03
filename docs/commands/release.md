@@ -40,12 +40,12 @@ devops release prepare [OPTIONS] <version>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--sync-docs`, `--no-sync-docs` | `boolean` | `True` | Regenerate CLI reference docs and sync README matrix. |
-| `--changelog`, `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date. |
+| `--sync-docs` / `--no-sync-docs` | `boolean` | `True` | Regenerate CLI reference docs and sync README matrix. |
+| `--changelog` / `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date. |
 | `--create-pr`, `-p` | `boolean` | - | Create release branch, commit changes, and open a GitHub Release PR. |
 | `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
-| `--draft`, `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
+| `--draft` / `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
 
 ---
@@ -64,9 +64,9 @@ devops release pr [OPTIONS]
 |---|---|---|---|
 | `--version`, `-v` | `string` | - | Target version string. |
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--draft`, `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
+| `--draft` / `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
 | `--labels`, `-l` | `string` | `release` | Comma-separated labels to attach. |
-| `--push`, `--no-push` | `boolean` | `True` | Push commits or tags to git remote. |
+| `--push` / `--no-push` | `boolean` | `True` | Push commits or tags to git remote. |
 | `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
@@ -173,30 +173,5 @@ devops release tag [OPTIONS]
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
 | `--message`, `-m` | `string` | - | Custom tag annotation message. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
-
----
-
-## `devops release epic`
-
-**Provision, correlate, and synchronize parent release tracking epics for milestones.**
-
-```bash
-devops release epic [OPTIONS] <version>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<version>` | `string` | No | Target release milestone version (e.g. v0.2.21 or 0.2.21). Omit with --all. |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--all`, `-a` | `boolean` | - | Synchronize release epics for all roadmap milestones |
-| `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
-| `--repo`, `-R` | `string` | - | Target repository |
-| `--dry-run` | `boolean` | - | Simulate release epic creation without modifying remote issues |
 
 ---

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -117,17 +118,12 @@ def test_docker_analyze_layers() -> None:
     """Test docker analyze-layers subcommand."""
     mock_result = DiveAnalysisResult(
         image_name="alpine:latest",
+        status="ran",
         efficiency_score=0.98,
         total_bytes=5000000,
         wasted_bytes=100000,
         layers=[
-            DiveLayerInfo(
-                index=0,
-                digest="sha256:1111",
-                size_bytes=5000000,
-                wasted_bytes=100000,
-                command="FROM alpine",
-            )
+            DiveLayerInfo(index=0, digest="sha256:1111", size_bytes=5000000, command="FROM alpine")
         ],
     )
     with patch("devops_cli.security.dive.run_dive_analysis", return_value=mock_result):
@@ -136,10 +132,40 @@ def test_docker_analyze_layers() -> None:
 
         res_json = runner.invoke(docker_app, ["analyze-layers", "alpine:latest", "--json"])
         assert res_json.exit_code == 0
-        assert "efficiency_score" in res_json.output
+        assert json.loads(res_json.stdout)["efficiency_score"] == 0.98
 
         res_dry = runner.invoke(docker_app, ["analyze-layers", "alpine:latest", "--dry-run"])
         assert res_dry.exit_code == 0
+
+
+def test_docker_analyze_layers_without_dive_says_so_and_fails() -> None:
+    """With dive missing there is no table or score to show: a warning and a non-zero exit."""
+    with patch("shutil.which", return_value=None):
+        res_table = runner.invoke(docker_app, ["analyze-layers", "img:1"])
+        res_json = runner.invoke(docker_app, ["analyze-layers", "img:1", "--json"])
+
+    assert (res_table.exit_code, res_json.exit_code) == (1, 1)
+    assert ("unavailable" in res_table.output, "Efficiency" in res_table.output) == (True, False)
+    # stdout under --json is the JSON document alone.
+    assert json.loads(res_json.stdout)["status"] == "unavailable"
+
+
+def test_docker_analyze_layers_shows_layer_commands_as_text() -> None:
+    """A layer command is image history, written by whoever built the image: its brackets are
+    text, never Rich markup that drops words or adds styles and links."""
+    commands = [
+        "RUN pip install uvicorn[standard]",
+        "FROM [bold]x[/bold] [link=https://x.test]y[/link]",
+    ]
+    analysis = DiveAnalysisResult(
+        image_name="img:1",
+        status="ran",
+        layers=[DiveLayerInfo(index=i, command=c) for i, c in enumerate(commands)],
+    )
+    with patch("devops_cli.security.dive.run_dive_analysis", return_value=analysis):
+        res = runner.invoke(docker_app, ["analyze-layers", "img:1"], env={"COLUMNS": "120"})
+
+    assert (res.exit_code, [command in res.output for command in commands]) == (0, [True, True])
 
 
 def test_docker_client_and_error_branches(tmp_path: Path, docker_engine: Any) -> None:
@@ -216,3 +242,38 @@ def test_docker_images_and_build_formatting(tmp_path: Path, docker_engine: Any) 
         res_build = runner.invoke(docker_app, ["build", str(tmp_path)])
         assert res_build.exit_code == 0
         assert "Successfully built image" in res_build.output or "sha256:5678" in res_build.output
+
+
+def test_docker_push_registry_error_prints_as_written_and_exits_1(docker_engine: Any) -> None:
+    """A push error is the registry's text: `[/v2/repo]` in it is text, not a Rich closing tag
+    that ends the command in a MarkupError traceback instead of a clean exit 1 (#955)."""
+    mock_client = MagicMock()
+    mock_client.images.push.return_value = [{"error": "denied: [/v2/repo] access"}]
+    with docker_engine(mock_client):
+        res = runner.invoke(docker_app, ["push", "registry/app:1"])
+
+    assert (res.exit_code, isinstance(res.exception, SystemExit)) == (1, True)
+    assert "denied: [/v2/repo] access" in res.output
+
+
+def test_docker_push_status_and_build_output_print_as_written(
+    tmp_path: Path, docker_engine: Any
+) -> None:
+    """Push status comes from the registry and build lines from the build: their brackets print
+    as written, so no word vanishes and no style or link is added. Control characters are still
+    stripped (#955)."""
+    status = "[link=https://example.com]Pushed[/link] [internal]"
+    build_lines = ["Step [/x] done", "[internal] load build definition from Dockerfile"]
+    mock_client = MagicMock()
+    mock_client.images.build.return_value = (
+        MagicMock(short_id="sha256:1234"),
+        [{"stream": f"{line}\x07\n"} for line in build_lines],
+    )
+    mock_client.images.push.return_value = [{"status": status}]
+    with docker_engine(mock_client):
+        res_build = runner.invoke(docker_app, ["build", str(tmp_path)])
+        res_push = runner.invoke(docker_app, ["push", "registry/app:1"])
+
+    assert (res_build.exit_code, res_push.exit_code) == (0, 0)
+    assert [line in res_build.output for line in build_lines] == [True, True]
+    assert (status in res_push.output, "\x07" in res_build.output) == (True, False)

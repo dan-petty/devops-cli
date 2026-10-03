@@ -8,16 +8,23 @@ from devops_cli.ai.review.common_hallucinations import (
     CommonHallucinationEntry,
     HallucinationCategory,
     _build_builtin_hallucinations,
-    auto_record_invalidated_finding,
     calculate_hallucination_similarity,
     find_similar_hallucinations,
     get_common_hallucinations_file_path,
     is_common_hallucination,
     load_common_hallucinations,
+    record_judged_claim,
     register_common_hallucination,
     save_common_hallucinations,
 )
-from devops_cli.ai.review_schema import Finding
+from devops_cli.ai.review.judged_claims import JudgedClaim
+from devops_cli.ai.review_schema import Finding, SavedFinding
+from devops_cli.exceptions.validation import ValidationError
+
+
+def _judged(file: str = "a.py", project: str = "target") -> JudgedClaim:
+    """A claim a person judged about one line of `file`."""
+    return JudgedClaim(project=project, file=file, line=1, code_sha256="0" * 64, claim=("exec",))
 
 
 def test_builtin_catalog_contains_pep758_and_essential_entries() -> None:
@@ -55,10 +62,10 @@ def test_save_and_load_common_hallucinations(tmp_path: Path) -> None:
         name="Custom Test Hallucination",
         category=HallucinationCategory.GENERAL,
         description="A test hallucination description",
-        pattern_keywords=["custom", "hallucination", "test"],
         resolution="Resolved via custom test rule",
         occurrence_count=3,
-        source="custom",
+        source="person",
+        judged=_judged(),
     )
 
     save_common_hallucinations([custom_entry], target_file=data_file)
@@ -129,84 +136,86 @@ def test_find_similar_hallucinations_and_is_common_hallucination(tmp_path: Path)
 
 
 def test_register_common_hallucination_updates_existing(tmp_path: Path) -> None:
-    """Registering an existing hallucination updates occurrence count and timestamp."""
+    """Registering a judged claim again counts one more verdict and keeps the latest reason."""
     data_file = tmp_path / "hallucinations.json"
 
     entry = CommonHallucinationEntry(
-        id="HALLUCINATION-CUSTOM-1",
+        id="JUDGED-CUSTOM-1",
         name="Custom 1",
         category=HallucinationCategory.GENERAL,
         description="Custom description",
-        pattern_keywords=["sample", "keyword"],
         resolution="Sample resolution",
-        occurrence_count=1,
+        source="person",
+        judged=_judged(),
     )
     register_common_hallucination(entry, target_file=data_file)
-
-    # Register again with new keyword
-    entry_updated = entry.model_copy(
-        update={"occurrence_count": 5, "pattern_keywords": ["sample", "keyword", "extra"]}
+    register_common_hallucination(
+        entry.model_copy(update={"resolution": "Second reason"}), target_file=data_file
     )
-    register_common_hallucination(entry_updated, target_file=data_file)
 
     loaded = load_common_hallucinations(target_file=data_file, include_builtin=False)
-    assert len(loaded) == 1
-    assert loaded[0].occurrence_count == 5
-    assert "extra" in loaded[0].pattern_keywords
+    assert [(e.id, e.occurrence_count, e.resolution) for e in loaded] == [
+        ("JUDGED-CUSTOM-1", 2, "Second reason")
+    ]
 
 
-def test_a_finding_matching_a_builtin_entry_leaves_it_unchanged(tmp_path: Path) -> None:
-    """A builtin entry is never widened or persisted by learning (#514).
+def test_a_builtin_entry_is_never_learned(tmp_path: Path) -> None:
+    """A builtin entry is never widened or persisted by learning (#514), and nothing but a
+    claim a person judged is learned (#950).
 
     Learning used to add the finding's words to the builtin entry and persist the copy, which
     then shadowed the shipped entry and matched ever more real findings.
     """
     data_file = tmp_path / "hallucinations.json"
-
-    finding = Finding(
-        title="Syntax error in except clause without parentheses",
-        description="Found except ErrorA, ErrorB: which is invalid syntax.",
-        location="test.py:10",
-        severity="HIGH",
-        status="INVALIDATED",
-        invalidation_reason="Valid Python 3.14 PEP 758 syntax",
-    )
     builtin = next(
         e for e in _build_builtin_hallucinations() if e.id == "HALLUCINATION-PEP758-EXCEPT"
     )
 
-    recorded = auto_record_invalidated_finding(
-        finding, target_file=data_file, reason="Valid Python 3.14 PEP 758 syntax"
+    with pytest.raises(ValidationError):
+        register_common_hallucination(builtin, target_file=data_file)
+
+    assert load_common_hallucinations(target_file=data_file, include_builtin=False) == []
+
+
+def test_a_persons_verdict_records_the_claim_it_disproved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A person's INVALIDATED verdict records the project, the file, the line and code the review
+    recorded the finding citing, and the identifiers of that code the title names, under the
+    person's reason."""
+    from devops_cli.ai.review.verification import record_cited_code
+
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'site'\n", encoding="utf-8")
+    (tmp_path / "templates").mkdir()
+    (tmp_path / "templates" / "view.html").write_text(
+        "<html>\n<body>\n<main>\n  {{ widget.render(artifact) }}\n</main>\n",
+        encoding="utf-8",
     )
-
-    assert (recorded, data_file.exists()) == (builtin, False)
-
-
-def test_auto_record_invalidated_finding_creates_new_entry(tmp_path: Path) -> None:
-    """Auto-recording an uncatalogued invalidated finding creates a new auto-learned entry."""
-    data_file = tmp_path / "hallucinations.json"
-
-    finding = Finding(
+    monkeypatch.chdir(tmp_path)
+    finding = SavedFinding(
         title="Quirky Framework Obsolete Artifact Warning",
         description="Flagged obsolete widget architecture in template engine.",
         location="templates/view.html:4",
         severity="LOW",
-        status="INVALIDATED",
-        invalidation_reason="Template engine legitimately supports widget syntax in v3",
     )
+    record_cited_code([finding], tmp_path)
 
-    recorded = auto_record_invalidated_finding(
-        finding,
-        target_file=data_file,
-        reason="Template engine legitimately supports widget syntax in v3",
-    )
+    recorded = record_judged_claim(finding, "The engine supports widget syntax in v3")
+
     assert recorded is not None
-    assert recorded.source == "auto_learned"
-    assert "widget" in recorded.pattern_keywords or "quirky" in recorded.pattern_keywords
-    assert recorded.occurrence_count == 1
-
-    loaded = load_common_hallucinations(target_file=data_file, include_builtin=False)
-    assert any(e.id == recorded.id for e in loaded)
+    assert (
+        recorded.source,
+        recorded.resolution,
+        recorded.judged and (recorded.judged.project, recorded.judged.file, recorded.judged.line),
+        recorded.judged and recorded.judged.claim,
+        [e.id for e in load_common_hallucinations(include_builtin=False)],
+    ) == (
+        "person",
+        "The engine supports widget syntax in v3",
+        (tmp_path.name, "templates/view.html", 4),
+        ("artifact",),
+        [recorded.id],
+    )
 
 
 def test_deterministic_pre_verification_integrates_common_hallucinations(tmp_path: Path) -> None:
@@ -436,28 +445,26 @@ def test_cataloged_hallucinations_matching() -> None:
 
 
 def _entry(name: str, description: str, count: int):
-    """Build one ledger entry."""
-    from devops_cli.ai.review.common_hallucinations import (
-        CommonHallucinationEntry,
-        HallucinationCategory,
-    )
+    """Build one claim a person judged in a review of the working directory's repository."""
+    from devops_cli.ai.review.judged_claims import project_of
 
     return CommonHallucinationEntry(
         id=name,
-        name=name,
+        name=description,
         category=HallucinationCategory.GENERAL,
         description=description,
         resolution="Disproved against the source.",
         occurrence_count=count,
+        source="person",
+        judged=_judged(project=project_of(Path.cwd())),
     )
 
 
 def test_the_most_frequent_false_positives_are_shown_first() -> None:
     """Recurrence is concentrated in a few entries; the tail spends tokens for nothing.
 
-    The ledger was written on every deterministic invalidation and read back only during
-    verification, which suppresses a finding after a model has been paid to produce it.
-    The top entry in this repository's ledger has been recorded 225 times.
+    The claims people judged most often come first: the shipped entries' counts never changed,
+    51 of 53 of them 1, so recurrence never reached generation (#950).
     """
     from unittest.mock import patch
 
@@ -487,7 +494,10 @@ def test_an_empty_ledger_contributes_nothing() -> None:
 
     from devops_cli.ai.review import common_hallucinations as module
 
-    with patch.object(module, "load_common_hallucinations", return_value=[]):
+    with (
+        patch.object(module, "load_common_hallucinations", return_value=[]),
+        patch.object(module, "_build_builtin_hallucinations", return_value=[]),
+    ):
         assert module.render_negative_exemplars() == ""
 
 

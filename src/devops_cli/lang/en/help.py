@@ -18,8 +18,11 @@ class MainHelp:
 @dataclass(frozen=True)
 class OptionHelp:
     repo: str = "Repository root directory (default: current directory)."
-    persona: str = "Reviewer persona to activate (devsecops, architect, pm, auditor, qa)."
-    all_personas: str = "Run all reviewer personas in sequence."
+    persona: str = (
+        "Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins "
+        "over --all. Without it or --all, devsecops reviews alone."
+    )
+    all_personas: str = "Review with devsecops, architect, qa, auditor and pm (not challenger)."
     base_branch: str = "Base git branch to diff against (default: main)."
     format_type: str = "Output format type (table, json, yaml, markdown)."
     dry_run: str = "Preview execution plan without mutating external state."
@@ -160,9 +163,14 @@ class AICommandHelp:
     diagram: str = "Generate Mermaid architecture topology or STRIDE threat model diagram."
     diagram_type: str = "Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model."
     eval_review: str = "Persona whose recorded findings to measure the layer against."
+    include_deterministic: str = (
+        "Also count records a deterministic check labelled; scoring the layer against its own "
+        "labels is circular, so they are excluded by default."
+    )
     dataset_path: str = (
-        "Feedback dataset JSONL; a relative path is a data path under the main worktree, like "
-        "data.feedback_dataset_path (default: the configured feedback dataset)."
+        "Feedback dataset JSONL; a relative path resolves where review data is kept, like "
+        "data.feedback_dataset_path: under the main worktree in devops-cli's own repository, else "
+        "under ~/.local/share/devops-cli (default: the configured feedback dataset)."
     )
     test_gen: str = "Synthesize unit test suites for functions and modules via LLM."
     test_function: str = "Specific function to synthesize tests for."
@@ -188,7 +196,10 @@ class AICommandHelp:
     query_library: str = (
         "Search library contracts and documentation via semantic search or exact symbol lookup."
     )
-    contracts_dir: str = "Path to directory containing exported library contract JSON files."
+    contracts_dir: str = (
+        "Path to directory containing exported library contract JSON files "
+        "(default: libraries/ under the data directory where review data is kept)."
+    )
     exact_lookup: str = "Perform exact qualified symbol lookup instead of semantic vector search."
     package_name: str = "Filter by package distribution name."
     multilingual: str = "Enable multilingual polyglot scanning across Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell and Markdown."
@@ -218,7 +229,7 @@ class AICommandHelp:
     read_path: str = "Target file path to read or inspect."
     read_inspect: str = "Enable multi-scale semantic outline and inspection scanner."
     read_level: str = (
-        "Focal zoom level: 0 (Topology: <200 tokens), "
+        "Focal zoom level: 0 (Topology: classes, functions, exports & hotspots), "
         "1 (Structural Outline: control flow & signatures), "
         "2 (Deep Focal Window: line slice)."
     )
@@ -309,6 +320,7 @@ class K8sCommandHelp:
     grafana_port: str = "Local port for Grafana."
     prometheus_port: str = "Local port for Prometheus."
     jaeger_port: str = "Local port for Jaeger Query UI."
+    pyroscope_port: str = "Local port for Pyroscope Continuous Profiling UI."
     otel_port: str = "Local port for OpenTelemetry OTLP Traces (HTTP)."
     ollama_port: str = "Local port for Ollama."
     open_webui_port: str = "Local port for Open-WebUI."
@@ -317,6 +329,9 @@ class K8sCommandHelp:
     bind_address: str = "Local address to bind for port-forwarding."
     lint_target: str = "Target K8s manifest file or directory to lint."
     pluto_target: str = "Target manifest file or directory to scan for deprecated APIs."
+    rbac_namespace: str = (
+        "Audit only this namespace's RoleBindings and Roles; ClusterRoleBindings are always read."
+    )
     k8s_version: str = "Target Kubernetes OpenAPI version."
     strict_schema: str = "Disallow additional undeclared properties."
     policy_path: str = "Path to Kyverno policy or OPA rule file."
@@ -747,10 +762,12 @@ class GHCommandHelp:
     labels_audit: str = "Audit pull requests for mandatory type/ and scope/ taxonomy."
     milestones_app: str = "Manage roadmap milestones and track release progress."
     milestones_list: str = "List milestones and progress rates."
-    milestones_sync: str = "Extract milestones from ROADMAP.md and sync to repository."
     milestones_status: str = "Inspect progress and health for a specific milestone."
-    milestones_close: str = "Close a repository release milestone by title or version."
-    milestones_edit: str = "Edit an existing milestone title, description, state, or due date."
+    milestones_close: str = "Close the release milestone of a version, with or without its v."
+    milestones_edit: str = (
+        "Edit a release milestone's title, description, state, or due date; "
+        "fields left out stay as they are."
+    )
     project_app: str = "Manage GitHub Projects v2 templates and task item synchronization."
     project_list: str = "List available GitHub Projects v2 boards for user or organization."
     project_status: str = "Inspect project template structure and configured views."
@@ -802,9 +819,6 @@ class GHCommandHelp:
     close_merged_pr: str = "Close issues for this single pull request instead of sweeping."
     close_merged_base: str = "Only consider merged pull requests with this base branch."
     close_merged_limit: str = "Maximum merged pull requests to examine."
-    issues_reconcile_roadmap: str = (
-        "Reconcile existing issue milestones to match docs/ROADMAP.md specifications."
-    )
     branch_protection_app: str = "Manage declarative branch protection rulesets and policies."
     branch_protection_audit: str = (
         "Audit repository branch protection rulesets against declarative policy specification."
@@ -846,11 +860,48 @@ class ReleaseCommandHelp:
     changelog_update: str = "Update CHANGELOG.md in-place with generated release notes."
     changelog_from_tag: str = "Starting git tag or ref for changelog compilation."
     changelog_to_tag: str = "Ending git tag or ref for changelog compilation."
-    epic: str = (
-        "Provision, correlate, and synchronize parent release tracking epics for milestones."
-    )
     sync_notes: str = "Republish GitHub release descriptions from CHANGELOG.md."
     sync_notes_all: str = "Sync every published release rather than one version."
+
+
+@dataclass(frozen=True)
+class RoadmapCommandHelp:
+    app: str = (
+        "Read and write the roadmap on GitHub, its source of truth: issues, milestones and the "
+        "project board."
+    )
+    migrate: str = (
+        "Make GitHub the roadmap's source, once: bring the board in line with its template, "
+        "fill unset Status, Priority, Value and Effort, retire release epics and milestones "
+        "beyond the planning horizon, and record rejected roadmap ideas as issues closed as not "
+        "planned. Prints the plan and a report, which lists the option renames, additions and "
+        "removals a person makes in the board's field settings; writes only with --confirm, "
+        "once the renames and additions are made."
+    )
+    render: str = (
+        "Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the "
+        "backlog by priority."
+    )
+    repo: str = "Repository as owner/name (default: this checkout's origin)."
+    ref: str = (
+        "Branch, tag or commit to read .github/roadmap.toml, the board template and "
+        "docs/ROADMAP.md at (default: the repository's default branch)."
+    )
+    confirm: str = "Make the planned writes to GitHub. Without it, migrate prints its plan only."
+    migrate_dry_run: str = "Print the plan and report, and write nothing."
+    render_dry_run: str = "Print the rendered file to stdout instead of writing it."
+    output: str = "File render writes."
+    reprioritize: str = (
+        "Hold the current release to its rules: after it starts only a critical fix joins it, "
+        "a fix that takes it over the cap descopes one unstarted item, and Blocked, dependent, "
+        "needs-split and stalled items are descoped, each with a reason comment. Once the "
+        "release ships, close it, branch the next one and fill or trim it to the cap. The first "
+        "run records the admitted set and moves nothing. Writes only with --confirm."
+    )
+    reprioritize_confirm: str = (
+        "Make the changes on GitHub. Without it, reprioritize prints its plan only."
+    )
+    reprioritize_dry_run: str = "Print each change with its reason, and write nothing."
 
 
 @dataclass(frozen=True)
@@ -870,9 +921,7 @@ class ReviewCommandHelp:
     corpus_generate: str = (
         "Copy source files with one known defect injected into each, and record where."
     )
-    corpus_score: str = (
-        "Score a review of a corpus: which injected defects it found, and what verification kept."
-    )
+    corpus_score: str = "Score one arm of reviews of a corpus: which injected defects each run found, and what verification kept."
     corpus_source: str = "Clean file(s) or directory(ies) to inject defects into; each becomes a folder of the corpus."
     corpus_out: str = (
         "Corpus directory to create (default: corpora/<source>-<seed> under the reviews directory)."
@@ -882,7 +931,8 @@ class ReviewCommandHelp:
     )
     corpus_template: str = "Defect template to inject (repeatable; default: all)."
     corpus_dir: str = "Corpus directory created by `devops review corpus generate`."
-    corpus_session: str = "Review session to score (default: the latest review of the corpus)."
+    corpus_session: str = "Review session to score (repeatable; default: the latest review of the corpus). The sessions must have run the same review prompts."
+    corpus_runs: str = "Score the latest N reviews of the corpus together as one arm: how many runs found each injection, and each figure's mean and range across the runs. Refused with --session."
     samples: str = "Open-source sample repositories pinned by commit, across languages and infrastructure formats."
     samples_list: str = "List the sample catalog: category, languages, licence, pinned commit and paths, and whether each is fetched."
     samples_fetch: str = "Fetch samples at their pinned commits into the samples data directory, verifying commit, licence and paths."
@@ -905,7 +955,8 @@ class ReviewCommandHelp:
     )
     templates_save: str = "Save sweep results into the evaluation run store (default: true)."
     hallucinations: str = (
-        "Inspect and prune the hallucinations catalog that deterministic verification learns from."
+        "Inspect and prune the false-positive catalog verification matches: the builtin entries, "
+        "and the claims a person's INVALIDATED verdict recorded."
     )
     hallucinations_list: str = "List catalog entries: builtin ones shipped with the tool, and learned ones from this workspace."
     hallucinations_remove: str = (
@@ -920,20 +971,44 @@ class ReviewCommandHelp:
     target_branch: str = "Branch to review (default: current branch)."
     pr_number: str = "Pull request number."
     post_pr: str = "Post the review as a comment on the GitHub PR."
-    summary: str = "Show segment metadata without running a full review."
+    summary: str = "Has no effect: every review runs the staged pipeline, which does not read it."
     session: str = "Session ID or substring (default: latest)."
     status_filter: str = "Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED."
     unverified: str = "Show unverified findings only."
-    invalidated: str = "Show invalidated findings only."
+    invalidated: str = (
+        "Show INVALIDATED findings only. findings.json holds only those a later verdict "
+        "invalidated; add --candidates for the ones verification invalidated."
+    )
     verified: str = "Show verified findings only."
-    finding_index: str = "1-based finding index in session to verify."
-    title_match: str = "Match finding by substring in title."
-    status_target: str = "Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED."
+    candidates: str = (
+        "List candidates.json: every finding the review raised, with the ones verification dropped."
+    )
+    finding_index: str = (
+        "Number `review findings` shows for the finding: its place in findings.json, whatever "
+        "filter the list applied."
+    )
+    title_match: str = "Substring of exactly one finding title in findings.json."
+    candidate_index: str = (
+        "Number `review findings --candidates` shows; a VERIFIED or MITIGATED verdict moves the "
+        "candidate into findings.json."
+    )
+    status_target: str = (
+        "Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. It "
+        "withdraws what a person's earlier verdicts recorded that it no longer stands behind: "
+        "the catalog entry of an INVALIDATED one, the ledger entry of a MITIGATED one."
+    )
+    adjudicator: str = (
+        "Who gives the verdict: human, or agent for an AI agent, which cannot change a person's "
+        "verdict. Only a person's verdict ranks review history and teaches the learned catalog "
+        "and mitigations ledger."
+    )
     reason: str = "Explanation or justification for the status change."
     perimeter: str = "Perimeter file path(s) protecting against finding recurrence (repeatable)."
     regression_test: str = "Path to regression test guarding against finding recurrence."
     reviews_dir: str = "Directory containing review sessions."
-    output_feedback: str = "Output JSONL path for benchmark feedback dataset."
+    output_feedback: str = (
+        "JSONL dataset to append to (default: the configured data.feedback_dataset_path)."
+    )
     status_export: str = "Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL."
     explain_review: str = "Explain code review personas, severity levels, and terminology."
     no_pre_analysis: str = "Disable pre-analysis and metadata refresh."
@@ -952,6 +1027,15 @@ class ReviewCommandHelp:
     no_cache: str = "Bypass LLM response cache and force fresh inference."
     force_review: str = "Force fresh review execution without cache."
     details: str = "Display full finding descriptions and fix recommendations."
+    severity_filter: str = (
+        "Show only findings of this severity: CRITICAL, HIGH, MEDIUM, LOW or INFO (repeatable)."
+    )
+    full_output: str = (
+        "Print the whole report to the terminal: every finding with its details, every "
+        "dependency and every network reference. By default the terminal lists CRITICAL to "
+        "MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, "
+        "dependencies and network references one line each that points at review.md."
+    )
     concurrency: str = "Max concurrent workers for parallel review and verification."
     parallel: str = "Execute multi-file review stages concurrently using async worker pool."
     logfire: str = "Enable or disable Logfire structured observability and agent turn tracing."
@@ -1025,11 +1109,16 @@ class TelemetryCommandHelp:
         "Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans."
     )
     command_to_profile: str = (
-        "CLI command string to profile and render waterfall for (e.g. 'devops k8s contexts')."
+        "devops-cli command line to run and profile; its first word must be 'devops' "
+        "(e.g. 'devops k8s contexts'), and any other program is refused."
     )
     trace_id: str = "Trace ID to read from Jaeger and show, instead of running a command."
     logfire: str = "Display Logfire structured observability bridge status and token metrics."
     test_logfire: str = "Emit test span via Logfire bridge."
+    semconv: str = "The GenAI semantic conventions that LLM span attributes are checked against."
+    semconv_commit: str = (
+        "Full 40-character commit SHA of open-telemetry/semantic-conventions-genai to resolve."
+    )
 
 
 @dataclass(frozen=True)
@@ -1093,7 +1182,9 @@ class InstallCommandHelp:
 class BenchmarkCommandHelp:
     app: str = "Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks."
     models: str = (
-        "Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434')."
+        "Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434'). "
+        "A model@url runs on that server, which gets the AI key only when it is the configured "
+        "api_base_url, gateway_url or provider API."
     )
     ollama_urls: str = (
         "Comma-separated Ollama server URLs for concurrent execution "
@@ -1103,13 +1194,8 @@ class BenchmarkCommandHelp:
     workers: str = "Number of concurrent model server workers (default: automatic per model count)."
     test_doc: str = "Path to large test document for in-memory tokenization and section retrieval."
     samples: str = "Number of random sections to sample for retrieval evaluation."
-    mode: str = "Benchmark mode: 'auto', 'chat', 'embedding', 'suite'."
+    mode: str = "Benchmark mode: 'auto', 'chat', 'embedding'."
     explain: str = "Explain benchmark metrics, terminology, and mathematical formulas."
-    suite: str = "Run multi-model evaluation suite grounded in feedback datasets."
-    dataset: str = (
-        "Feedback dataset JSONL for --suite; a relative path is a data path under the main "
-        "worktree, like data.feedback_dataset_path (default: the configured feedback dataset)."
-    )
 
 
 @dataclass(frozen=True)
@@ -1304,6 +1390,7 @@ class HelpCatalog:
     pr: PRCommandHelp = field(default_factory=PRCommandHelp)
     gh: GHCommandHelp = field(default_factory=GHCommandHelp)
     release: ReleaseCommandHelp = field(default_factory=ReleaseCommandHelp)
+    roadmap: RoadmapCommandHelp = field(default_factory=RoadmapCommandHelp)
     review: ReviewCommandHelp = field(default_factory=ReviewCommandHelp)
     scan: ScanCommandHelp = field(default_factory=ScanCommandHelp)
     telemetry: TelemetryCommandHelp = field(default_factory=TelemetryCommandHelp)

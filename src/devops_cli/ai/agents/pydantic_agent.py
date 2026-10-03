@@ -122,7 +122,7 @@ from devops_cli.ai.agents.embeddings import (
     EmbeddingSettings,
     TestEmbeddingModel,
 )
-from devops_cli.ai.agents.models import AgentResponse, MCPSamplingModel
+from devops_cli.ai.agents.models import AgentResponse
 from devops_cli.ai.agents.runner import (
     _create_deferred_tool_request,
     _create_tool_retry_message,
@@ -609,7 +609,6 @@ __all__ = [
     "LiteralTypeExpr",
     "LocalDurabilityCapability",
     "MCPError",
-    "MCPSamplingModel",
     "MCPServerTool",
     "MCPToolset",
     "MCPToolsetClient",

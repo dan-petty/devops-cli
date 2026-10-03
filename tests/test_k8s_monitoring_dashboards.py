@@ -24,13 +24,18 @@ DASHBOARDS_DIR = MONITORING_DIR / "dashboards"
 PROVISIONED = {
     "grafana-k8s-global-dashboards": ["k8s-views-global.json", "k8s-views-pods.json"],
     "grafana-k8s-node-dashboards": ["k8s-views-nodes.json", "k8s-views-namespaces.json"],
-    "grafana-devops-cli-dashboards": ["devops-cli.json", "ai-spend.json"],
+    "grafana-devops-cli-dashboards": ["devops-cli.json", "ai-spend.json", "project-metrics.json"],
+    "grafana-stack-dashboards": [
+        "sre-service.json",
+        "ingress-tunnel.json",
+        "llm-stack.json",
+        "otel-collector.json",
+        "prometheus-server.json",
+        "pyroscope.json",
+    ],
 }
-# Reachable through `devops grafana dashboards sync` only: the stack dashboards, which chart the
-# LiteLLM gateway and DCGM (llm-stack), the collector's own telemetry (otel-collector) and the
-# Prometheus server (prometheus-server), checked against their exporters in
-# tests/test_stack_dashboards.py (#693).
-SYNC_ONLY = {"llm-stack.json", "otel-collector.json", "prometheus-server.json"}
+# All dashboards are now provisioned via sidecar ConfigMaps.
+SYNC_ONLY: set[str] = set()
 SIDECAR_LABELS = {
     "grafana_dashboard": "1",
     "app.kubernetes.io/name": "grafana",
@@ -91,8 +96,8 @@ def _hashed_names() -> list[bool]:
     ]
 
 
-def test_the_generator_provisions_six_dashboards_under_todays_configmap_names() -> None:
-    """Verify three unhashed ConfigMaps in `monitoring` carry the six files and sidecar labels."""
+def test_the_generator_provisions_all_dashboards_under_todays_configmap_names() -> None:
+    """Verify unhashed ConfigMaps in `monitoring` carry all dashboard files and sidecar labels."""
     configmaps = _generated_configmaps()
 
     assert (

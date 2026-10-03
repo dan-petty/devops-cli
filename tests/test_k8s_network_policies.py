@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
 
 import pytest
 import yaml
+
+from devops_cli.commands.k8s.networking import _PROXY_TARGETS_INFRA
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
 
 TARGET_NAMESPACES = ("monitoring", "argocd", "llm", "otel")
 METADATA_SSRF_IP = "169.254.169.254/32"
+TRAEFIK_PEER = {
+    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
+    "podSelector": {"matchLabels": {"app.kubernetes.io/name": "traefik"}},
+}
+# The monitoring ports Traefik routes to (k8s/ingress/ingress-routes.yaml), plus Pyroscope (#943).
+MONITORING_TRAEFIK_PORTS = [80, 3000, 4040, 8080, 8081, 8082, 9090, 9100, 9400, 12345]
 
 
 @pytest.mark.parametrize("namespace", TARGET_NAMESPACES)
@@ -107,13 +116,68 @@ def test_argocd_networkpolicy_specifics() -> None:
 
 
 def test_monitoring_networkpolicy_specifics() -> None:
-    """Verify Monitoring specific ports and rules: Grafana (3000), Prometheus (9090)."""
+    """Verify Monitoring specific ports and rules: Grafana (3000), Prometheus (9090), Pyroscope (4040), cloudflared (2000)."""
     policy_path = K8S_DIR / "monitoring" / "networkpolicy.yaml"
     doc = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
     spec = doc.get("spec", {})
 
     ingress_rules = spec.get("ingress", [])
     allowed_ports = {p.get("port") for rule in ingress_rules for p in rule.get("ports", [])}
-    # UI ports 3000 (Grafana) and 9090 (Prometheus) must be allowed for ingress
-    assert 3000 in allowed_ports
-    assert 9090 in allowed_ports
+    egress_rules = spec.get("egress", [])
+    egress_ports = {p.get("port") for rule in egress_rules for p in rule.get("ports", [])}
+    # UI ports 3000 (Grafana), 9090 (Prometheus), 4040 (Pyroscope) allowed for ingress, and 2000 (cloudflared) for egress
+    assert (
+        3000 in allowed_ports,
+        9090 in allowed_ports,
+        4040 in allowed_ports,
+        2000 in egress_ports,
+    ) == (True, True, True, True)
+
+
+def test_monitoring_ingress_admits_no_world_cidr() -> None:
+    """Verify the monitoring perimeter admits Traefik by its selector and no address range (#953).
+
+    The cluster's policy engine, kube-router, matches an ingress `ipBlock` against the source
+    addresses of pods. The `0.0.0.0/0` peer next to the Traefik peer therefore admitted every pod
+    in the cluster to Prometheus, which has no authentication and accepts remote writes, and to
+    Grafana, which admits anonymous Viewers. Any range wider than one address admits pods the
+    same way, so an RFC 1918 range in its place fails too. External clients reach these ports
+    through cloudflared, which forwards only to Traefik.
+    """
+    doc = yaml.safe_load((K8S_DIR / "monitoring" / "networkpolicy.yaml").read_text("utf-8"))
+    ingress = doc["spec"]["ingress"]
+    cidrs = [
+        peer["ipBlock"]["cidr"]
+        for rule in ingress
+        for peer in rule.get("from", [])
+        if "ipBlock" in peer
+    ]
+    traefik_rules = [
+        (rule["from"], sorted(port["port"] for port in rule.get("ports", [])))
+        for rule in ingress
+        if TRAEFIK_PEER in rule.get("from", [])
+    ]
+
+    assert (
+        [cidr for cidr in cidrs if ipaddress.ip_network(cidr).num_addresses > 1],
+        traefik_rules,
+    ) == ([], [([TRAEFIK_PEER], MONITORING_TRAEFIK_PORTS)])
+
+
+def test_readme_proxy_caveat_names_every_monitoring_proxy_target() -> None:
+    """Verify k8s/README.md's proxy caveat names every monitoring Service it applies to (#953).
+
+    With no address range in the perimeter, a `k8s://` address the API server proxies reaches a
+    monitoring pod only while that pod runs on the control-plane node. `configure-urls
+    --addressing proxy` writes one for each monitoring target in `_PROXY_TARGETS_INFRA`, and the
+    caveat named Grafana and Prometheus but not Pyroscope.
+    """
+    readme = (K8S_DIR / "README.md").read_text("utf-8").splitlines()
+    caveat = next(line for line in readme if line.startswith("- `--addressing proxy`"))
+    unnamed = [
+        key
+        for key, namespace, _, _ in _PROXY_TARGETS_INFRA
+        if namespace == "monitoring" and key.split(".")[0].capitalize() not in caveat
+    ]
+
+    assert unnamed == []

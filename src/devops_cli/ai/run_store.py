@@ -138,20 +138,41 @@ def gateway_pool(task: AIConfig) -> list[dict[str, Any]] | None:
 
 
 def review_setup(**extra: Any) -> dict[str, Any]:
-    """What a review's results depend on: its models, the gateway's pool and the page size."""
+    """What a review's results depend on: models, sampling, the gateway's pool and the page size.
+
+    Verification is resolved as reviews resolve it, layered on the analysis task, so with
+    `ai.tasks.verification` unset the setup names the analysis model that verified.
+    """
     from devops_cli.ai.review.chunker import review_page_chars
     from devops_cli.config.settings import load_settings
 
-    ai = load_settings().ai
-    tasks = {"analysis": ai.for_task("analysis"), "verification": ai.for_task("verification")}
+    analysis = load_settings().ai.for_task("analysis")
+    tasks = {"analysis": analysis, "verification": analysis.for_task("verification")}
     setup: dict[str, Any] = {
         "models": {name: f"{t.provider}/{t.model}" for name, t in tasks.items()},
-        "page_chars": review_page_chars(tasks["analysis"].context_window),
+        "sampling": {
+            name: {"temperature": t.temperature, "top_p": t.top_p} for name, t in tasks.items()
+        },
+        "page_chars": review_page_chars(analysis.context_window),
     }
     gateway_tasks = {t.model: t for t in tasks.values() if t.provider == CONST_AI_GATEWAY_PROVIDER}
     if gateway_tasks:
         setup["pools"] = {group: gateway_pool(t) for group, t in sorted(gateway_tasks.items())}
     return setup | extra
+
+
+def unpinned_groups(setup: dict[str, Any]) -> dict[str, int]:
+    """The gateway groups of a review setup that serve more than one model, and how many.
+
+    Runs through such a group are answered by whichever model the gateway picks, so their
+    figures mix models.
+    """
+    counts = {
+        group: len({deployment["model"] for deployment in pool})
+        for group, pool in (setup.get("pools") or {}).items()
+        if pool
+    }
+    return {group: count for group, count in counts.items() if count > 1}
 
 
 def new_run(
@@ -178,15 +199,16 @@ def new_run(
 
 
 def runs_dir() -> Path:
-    """The directory run records are kept in, one subdirectory per mechanism."""
+    """The directory run records are kept in, one subdirectory per mechanism: under the review
+    data root when relative, where a review records its runs (`resolve_review_data_path`, #972)."""
     from devops_cli.config.settings import load_settings
-    from devops_cli.core.repo import resolve_data_path
+    from devops_cli.core.repo import resolve_review_data_path
 
     env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     directory = (
         Path(env_data_dir) / CONST_RUNS_DIR_NAME if env_data_dir else load_settings().data.runs_dir
     )
-    return resolve_data_path(directory)
+    return resolve_review_data_path(directory)
 
 
 def save_run(record: RunRecord, root: Path | None = None) -> Path:
@@ -588,7 +610,15 @@ def _extract_core_metrics(res: dict[str, Any]) -> dict[str, float]:
     _extract_metric_item(metrics, "recall", _extract_recall(res), 4)
     calls = res.get("median_llm_calls") or res.get("llm_calls") or res.get("total_calls")
     _extract_metric_item(metrics, "llm_calls", calls, 1)
-    for key in ("total_sites", "parse_failures", "comment_collisions", "tested_mutations"):
+    for key in (
+        "total_sites",
+        "parse_failures",
+        "comment_collisions",
+        "tested_mutations",
+        "candidate_findings",
+        "invalidated_findings",
+        "reported_findings",
+    ):
         _extract_metric_item(metrics, key, res.get(key), 1)
     return metrics
 
@@ -599,13 +629,17 @@ def extract_metrics(record: RunRecord) -> tuple[dict[str, float], dict[str, floa
 
 
 class MetricDiff(BaseModel):
-    """The difference in one metric between two runs."""
+    """The difference in one metric between two runs, and each run's range when it has one."""
 
     name: str
     base_value: float
     current_value: float
     absolute_change: float
     percent_change: float | None = None
+    # `[min, max]` of the metric across a repeated run's sessions (its `results["spread"]`); None
+    # for a run with no spread, such as a one-run score.
+    base_range: tuple[float, float] | None = None
+    current_range: tuple[float, float] | None = None
 
 
 class RunComparison(BaseModel):
@@ -619,7 +653,13 @@ class RunComparison(BaseModel):
     backend_shares: dict[str, MetricDiff]
 
 
-def _calc_metric_diff(name: str, base_val: float, curr_val: float) -> MetricDiff:
+def _calc_metric_diff(
+    name: str,
+    base_val: float,
+    curr_val: float,
+    base_range: tuple[float, float] | None = None,
+    current_range: tuple[float, float] | None = None,
+) -> MetricDiff:
     diff = round(curr_val - base_val, 4)
     pct = round((diff / base_val) * 100, 2) if base_val != 0 else None
     return MetricDiff(
@@ -628,7 +668,22 @@ def _calc_metric_diff(name: str, base_val: float, curr_val: float) -> MetricDiff
         current_value=curr_val,
         absolute_change=diff,
         percent_change=pct,
+        base_range=base_range,
+        current_range=current_range,
     )
+
+
+def _metric_range(results: dict[str, Any], name: str) -> tuple[float, float] | None:
+    """A metric's `[min, max]` from a run's `spread`, or None when the run recorded none."""
+    spread = results.get("spread")
+    bounds = spread.get(name) if isinstance(spread, dict) else None
+    if (
+        isinstance(bounds, list | tuple)
+        and len(bounds) == 2
+        and all(isinstance(b, int | float) and not isinstance(b, bool) for b in bounds)
+    ):
+        return (float(bounds[0]), float(bounds[1]))
+    return None
 
 
 def compare_runs(base: RunRecord, current: RunRecord) -> RunComparison:
@@ -638,7 +693,13 @@ def compare_runs(base: RunRecord, current: RunRecord) -> RunComparison:
     curr_m, curr_backends = extract_metrics(current)
 
     metrics = {
-        k: _calc_metric_diff(k, base_m.get(k, 0.0), curr_m.get(k, 0.0))
+        k: _calc_metric_diff(
+            k,
+            base_m.get(k, 0.0),
+            curr_m.get(k, 0.0),
+            _metric_range(base.results, k),
+            _metric_range(current.results, k),
+        )
         for k in sorted(set(base_m) | set(curr_m))
     }
     backend_shares = {
@@ -804,4 +865,5 @@ __all__ = [
     "set_baseline",
     "share_runs",
     "source_commit",
+    "unpinned_groups",
 ]

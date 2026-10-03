@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.benchmark.embedding_runner import (
@@ -14,11 +16,17 @@ from devops_cli.ai.benchmark.embedding_runner import (
 from devops_cli.ai.benchmark.embedding_tasks import (
     get_embedding_eval_dataset,
 )
+from devops_cli.ai.rag.embeddings import EmbeddingsError
 from devops_cli.commands.benchmark import app
+from devops_cli.config.settings import load_settings
+from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.models.benchmark import (
     EmbeddingBenchmarkReport,
     EmbeddingBenchmarkResult,
 )
+
+if TYPE_CHECKING:
+    from tests.web_fakes import StubWeb
 
 runner = CliRunner()
 
@@ -343,3 +351,185 @@ def test_compute_ndcg_and_report_rendering() -> None:
     md = runner.generate_markdown(rep)
     assert "Server Hardware Comparison" in md
     assert "Key Recommendations" in md
+
+
+@pytest.mark.parametrize(
+    ("server", "authorization"),
+    [
+        ("https://example.com:8443", None),
+        ("https://example.com", "Bearer sk-test-configured"),
+    ],
+)
+@pytest.mark.usefixtures("mock_keyring")
+def test_override_endpoint_gets_no_key(
+    monkeypatch: pytest.MonkeyPatch, stub_web: StubWeb, server: str, authorization: str | None
+) -> None:
+    """Verify the AI key goes only to the configured api_base_url: an endpoint the model names
+    gets no Authorization header, and the engine takes no OPENAI_API_KEY in its place (#954)."""
+    monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", "sk-test-configured")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-environment")
+    settings = load_settings()
+    settings.ai.api_base_url = "https://example.com/v1"
+    bench = EmbeddingBenchmarkRunner(
+        models=[f"x@{server}"], settings=settings, provider="openai", is_dry_run=False
+    )
+
+    engine = bench._engine_for_model(f"x@{server}")
+    with pytest.raises(EmbeddingsError):
+        engine.embed_texts(["query"], is_query=True)
+
+    assert [
+        (str(sent.url), sent.headers.get("authorization"))
+        for sent in stub_web.sent
+        if sent.url.host == "example.com"
+    ] == [(f"{server}/v1/embeddings", authorization)]
+
+
+def _canned_vectors(texts: list[str], *, is_query: bool = False) -> list[list[float]]:
+    """Distinct, deterministic vectors standing in for a model's embeddings."""
+    return [[float(len(text) % 7) + 1.0, 1.0, 0.5] for text in texts]
+
+
+def _unreachable(texts: list[str], *, is_query: bool = False) -> list[list[float]]:
+    """What EmbeddingsEngine raises for a node that refuses the connection."""
+    raise EmbeddingsError("Embedding model dead-model failed: ConnectError: connection refused")
+
+
+def test_unreachable_server_is_reported_failed(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify a model whose embeddings fail is reported failed with the reason and no latency,
+    ranked after every scored model and left out of the server summary and the recommendations,
+    where a p50 of 0.0 made it the lowest-latency model (#954)."""
+    pairs, corpus = get_embedding_eval_dataset()
+    bench = EmbeddingBenchmarkRunner(
+        models=["dead-model", "live-model"],
+        servers=["http://localhost:11434"],
+        is_dry_run=False,
+    )
+    engines = {
+        "dead-model": MagicMock(embed_texts=MagicMock(side_effect=_unreachable)),
+        "live-model": MagicMock(embed_texts=MagicMock(side_effect=_canned_vectors)),
+    }
+    with (
+        patch(
+            "devops_cli.ai.benchmark.embedding_runner.load_test_document_corpus",
+            return_value=(pairs[:3], corpus, []),
+        ),
+        patch.object(bench, "_engine_for_model", side_effect=lambda model, _: engines[model]),
+    ):
+        report = bench.run()
+
+    dead = next(result for result in report.models if result.model == "dead-model")
+    assert (
+        [result.model for result in report.models],
+        (dead.failed, dead.error, dead.latency_ms_p50, dead.latency_ms_p95, dead.overall_score),
+        [rec for rec in report.recommendations if "dead-model" in rec],
+        [(srv.models_evaluated_count, srv.fastest_model) for srv in report.server_benchmarks],
+        "✗ dead-model" in capsys.readouterr().out,
+    ) == (
+        ["live-model", "dead-model"],
+        (
+            True,
+            "Embedding model dead-model failed: ConnectError: connection refused",
+            None,
+            None,
+            0.0,
+        ),
+        [],
+        [(1, "live-model")],
+        True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("failing_call", "has_latency"),
+    [(0, False), (3, True), (4, True)],
+    ids=["first-latency-probe", "corpus", "retrieval-queries"],
+)
+def test_failed_embedding_fails_the_model(failing_call: int, has_latency: bool) -> None:
+    """Verify a failure at any embedding call fails the model, sends no request after it, and
+    keeps only the latencies of the calls that succeeded (#954)."""
+    pairs, corpus = get_embedding_eval_dataset()
+    calls: list[int] = []
+
+    def embed(texts: list[str], *, is_query: bool = False) -> list[list[float]]:
+        calls.append(len(calls))
+        if len(calls) - 1 == failing_call:
+            raise EmbeddingsError("Embedding model m failed: HTTP 404 model not found")
+        return _canned_vectors(texts)
+
+    bench = EmbeddingBenchmarkRunner(models=["m"], is_dry_run=False)
+    engine = MagicMock(embed_texts=MagicMock(side_effect=embed))
+    with patch.object(bench, "_engine_for_model", return_value=engine):
+        result = bench.evaluate_model_on_server("m", "http://localhost:11434", pairs[:3], corpus)
+
+    assert (
+        result.failed,
+        result.latency_ms_p50 is not None,
+        result.recall_at_1,
+        result.overall_score,
+        len(calls),
+    ) == (True, has_latency, 0.0, 0.0, failing_call + 1)
+
+
+def test_refused_endpoint_is_reported_failed() -> None:
+    """Verify a server the engine refuses to reach is a failed result in the report, not a
+    model that silently drops out of it (#954)."""
+    pairs, corpus = get_embedding_eval_dataset()
+    bench = EmbeddingBenchmarkRunner(
+        models=["m"], servers=["http://localhost:11434"], is_dry_run=False
+    )
+    refusal = SSRFBlockedError("http://localhost:11434", reason="private address")
+    with (
+        patch(
+            "devops_cli.ai.benchmark.embedding_runner.load_test_document_corpus",
+            return_value=(pairs[:3], corpus, []),
+        ),
+        patch.object(bench, "_engine_for_model", side_effect=refusal),
+    ):
+        report = bench.run()
+
+    assert [(result.model, result.failed, result.error) for result in report.models] == [
+        ("m", True, refusal.message)
+    ]
+
+
+def test_report_shows_a_failed_run_without_metrics(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify the leaderboards give a failed run no medal and no metrics, and the Markdown report
+    says why it failed (#954)."""
+    from devops_cli.models.benchmark import EmbeddingServerSummary
+
+    scored = EmbeddingBenchmarkResult(
+        model="live-model", server="http://localhost:11434", dimension=3, overall_score=70.0
+    )
+    failed = EmbeddingBenchmarkResult(
+        model="dead-model",
+        server="http://localhost:11435",
+        failed=True,
+        error="Embedding model dead-model failed: ConnectError",
+        is_normalized=False,
+    )
+    report = EmbeddingBenchmarkReport(
+        session_id="20261003-sess",
+        models=[scored, failed],
+        server_benchmarks=[
+            EmbeddingServerSummary(server="http://localhost:11434", models_evaluated_count=1),
+            EmbeddingServerSummary(server="http://localhost:11435"),
+        ],
+    )
+    bench = EmbeddingBenchmarkRunner(models=["live-model", "dead-model"], is_dry_run=True)
+
+    bench.print_report(report, format_type="table")
+    markdown = bench.generate_markdown(report).splitlines()
+
+    assert (
+        [line for line in markdown if "dead-model" in line],
+        "✗" in capsys.readouterr().out,
+    ) == (
+        [
+            "| ✗ | `dead-model` | `http://localhost:11435` | - | - | - | - | - | - | - | - | "
+            "**failed** |",
+            "- `dead-model` on `http://localhost:11435`: "
+            "Embedding model dead-model failed: ConnectError",
+        ],
+        True,
+    )

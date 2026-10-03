@@ -9,7 +9,11 @@ from typing import Any
 import pytest
 import yaml
 
-from devops_cli.config.defaults import DEFAULT_AI_GATEWAY_CLUSTER_URL
+from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK, _MANIFESTS_BY_STACK
+from devops_cli.config.defaults import (
+    DEFAULT_AI_GATEWAY_CLUSTER_URL,
+    DEFAULT_REVIEW_TIMEOUT_SECONDS,
+)
 
 GATEWAY_DIR = Path("k8s/llm/gateway")
 PROFILES_DIR = Path("k8s/llm/profiles")
@@ -48,11 +52,36 @@ def _load_service(path: Path, name: str) -> dict[str, Any]:
     )
 
 
+def _gateway_config() -> dict[str, Any]:
+    """Return the LiteLLM configuration the gateway ConfigMap carries."""
+    cm = _load_kind(GATEWAY_DIR / "configmap.yaml", "ConfigMap")
+    return dict(yaml.safe_load(cm["data"]["config.yaml"]))
+
+
 def _deployments(group: str) -> list[dict[str, Any]]:
     """Return the gateway deployments of one model group, in configuration order."""
-    cm = _load_kind(GATEWAY_DIR / "configmap.yaml", "ConfigMap")
-    cfg = yaml.safe_load(cm["data"]["config.yaml"])
-    return [m for m in cfg["model_list"] if m["model_name"] == group]
+    return [m for m in _gateway_config()["model_list"] if m["model_name"] == group]
+
+
+def _routes(deployments: list[dict[str, Any]]) -> list[tuple[str, str, int | None]]:
+    """Return each deployment's model, backend and weight, in configuration order."""
+    return [
+        (
+            m["litellm_params"]["model"],
+            m["litellm_params"]["api_base"],
+            m["litellm_params"].get("weight"),
+        )
+        for m in deployments
+    ]
+
+
+def _kustomized_files(directory: Path) -> set[Path]:
+    """Return the files `kubectl apply -k` applies from a kustomization, following directories."""
+    kustomization = yaml.safe_load((directory / "kustomization.yaml").read_text(encoding="utf-8"))
+    entries = [directory / entry for entry in kustomization.get("resources", [])]
+    return {entry for entry in entries if not entry.is_dir()} | {
+        path for entry in entries if entry.is_dir() for path in _kustomized_files(entry)
+    }
 
 
 class TestK8sLLMGatewayManifests:
@@ -97,7 +126,7 @@ class TestK8sLLMGatewayManifests:
             cm["metadata"]["name"],
             models,
             cfg["router_settings"]["routing_strategy"],
-            len(cfg["router_settings"]["fallbacks"]),
+            cfg["router_settings"]["fallbacks"],
         ) == (
             "llm-gateway-config",
             [
@@ -105,14 +134,20 @@ class TestK8sLLMGatewayManifests:
                 "devops-coder",
                 "devops-reasoning",
                 "bge-m3:latest",
-                "embeddinggemma:300m",
+                "devops-background",
                 "devops-review",
+                "qwen3-coder:30b",
+                "gpt-oss:20b",
                 "gemma4:31b",
                 "qwen3.8:27b",
                 "deepseek-r1:70b",
             ],
             "simple-shuffle",
-            2,
+            [
+                {"devops-reasoning": ["devops-coder"]},
+                {"devops-coder": ["devops-reasoning", "devops-chat"]},
+                {"devops-review": ["devops-background"]},
+            ],
         )
 
     def test_gateway_configmap_routes_coder_and_reasoning(self) -> None:
@@ -128,9 +163,9 @@ class TestK8sLLMGatewayManifests:
             params["devops-coder"]["api_base"],
         ) == (
             "ollama_chat/qwen3-coder:30b",
-            "http://ollama-48gib.llm.svc.cluster.local:11434",
+            "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
             "ollama_chat/qwen3-coder:30b",
-            "http://ollama-48gib.llm.svc.cluster.local:11434",
+            "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
         )
 
     def test_gateway_escalates_to_larger_models(self) -> None:
@@ -159,41 +194,104 @@ class TestK8sLLMGatewayManifests:
             m["litellm_params"]["api_base"]: m["litellm_params"].get("weight") for m in deployments
         }
         assert weights == {
-            "http://ollama-48gib.llm.svc.cluster.local:11434": 9,
-            "http://ollama-64gib.llm.svc.cluster.local:11434": 6,
-            "http://ollama-16gib.llm.svc.cluster.local:11434": 8,
-            "http://ollama-24gib.llm.svc.cluster.local:11434": 1,
+            "http://ollama-48gib-fast.llm.svc.cluster.local:11434": 9,
+            "http://ollama-64gib-standard.llm.svc.cluster.local:11434": 6,
+            "http://ollama-16gib-fast.llm.svc.cluster.local:11434": 6,
         }
+
+    @pytest.mark.parametrize("group", ["qwen3-coder:30b", "gpt-oss:20b"])
+    def test_a_review_model_has_a_group_of_its_review_deployments_alone(self, group: str) -> None:
+        """Verify each model devops-review serves can be pinned: its own group copies that model's
+        devops-review deployments (model, backend and weight, in order) with no window that would
+        route it differently from the pool, and no fallback reaches or leaves it (#475).
+
+        No other group gives that backend model a window either. LiteLLM v1.103.0 writes a
+        deployment's top-level model_info into the cost-map entry that every deployment of the
+        same backend model reads, so the window would become the pinned group's too (#1064)."""
+        backend = f"ollama_chat/{group}"
+        model_list = _gateway_config()["model_list"]
+        review = [
+            m for m in _deployments("devops-review") if m["litellm_params"]["model"] == backend
+        ]
+        pinned = _deployments(group)
+        router = _gateway_config()["router_settings"]
+        fallback_groups = {
+            name
+            for rule in [*router["fallbacks"], *router["context_window_fallbacks"]]
+            for source, targets in rule.items()
+            for name in (source, *targets)
+        }
+        groups_windowing_the_backend = [
+            m["model_name"]
+            for m in model_list
+            if m["litellm_params"]["model"] == backend
+            and "max_input_tokens" in (m.get("model_info") or {})
+        ]
+
+        assert (
+            bool(review),
+            _routes(pinned),
+            [(sorted(m), sorted(m["litellm_params"])) for m in pinned],
+            group in fallback_groups,
+            groups_windowing_the_backend,
+        ) == (
+            True,
+            _routes(review),
+            [(["litellm_params", "model_name"], ["api_base", "model", "weight"])] * len(review),
+            False,
+            [],
+        )
 
     def test_gateway_routes_to_provider_vram_services(self) -> None:
         """Verify Gateway routes target standardized <llm_provider>-<vram_gib> services."""
         chat_deployments = _deployments("devops-chat")
         bge_deployments = _deployments("bge-m3:latest")
-        gemma_deployments = _deployments("embeddinggemma:300m")
 
         assert (
             sorted(m["litellm_params"]["api_base"] for m in chat_deployments),
-            sorted(m["litellm_params"]["api_base"] for m in bge_deployments),
-            sorted(m["litellm_params"]["api_base"] for m in gemma_deployments),
-            all(m.get("model_info", {}).get("mode") == "embedding" for m in bge_deployments),
-            all(m.get("model_info", {}).get("mode") == "embedding" for m in gemma_deployments),
+            [m["litellm_params"]["api_base"] for m in bge_deployments],
+            [m.get("model_info", {}).get("mode") for m in bge_deployments],
         ) == (
             [
-                "http://ollama-16gib.llm.svc.cluster.local:11434",
-                "http://ollama-24gib.llm.svc.cluster.local:11434",
-                "http://ollama-48gib.llm.svc.cluster.local:11434",
-                "http://ollama-64gib.llm.svc.cluster.local:11434",
+                "http://ollama-16gib-fast.llm.svc.cluster.local:11434",
+                "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
+                "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
             ],
-            [
-                "http://ollama-16gib.llm.svc.cluster.local:11434",
-                "http://ollama-24gib.llm.svc.cluster.local:11434",
-            ],
-            [
-                "http://ollama-16gib.llm.svc.cluster.local:11434",
-                "http://ollama-24gib.llm.svc.cluster.local:11434",
-            ],
+            ["http://ollama-48gib-slow.llm.svc.cluster.local:11434"],
+            ["embedding"],
+        )
+
+    def test_the_slow_tier_serves_embeddings_and_devops_background_alone(self) -> None:
+        """Verify ollama-48gib-slow is in no interactive or review pool: every generation
+        deployment on it belongs to devops-background, which has that one deployment alone, so
+        the tier never loads a third model beside its embedder and qwen3-coder:30b (#1064)."""
+        slow = "http://ollama-48gib-slow.llm.svc.cluster.local:11434"
+        slow_generation_groups = [
+            m["model_name"]
+            for m in _gateway_config()["model_list"]
+            if m["litellm_params"]["api_base"] == slow
+            and m.get("model_info", {}).get("mode") != "embedding"
+        ]
+
+        assert (
+            slow_generation_groups,
+            _routes(_deployments("devops-background")),
+        ) == (
+            ["devops-background"],
+            [("ollama_chat/qwen3-coder:30b", slow, None)],
+        )
+
+    def test_devops_background_frees_its_slot_before_the_review_client_gives_up(self) -> None:
+        """Verify the gateway abandons a devops-background call before the review client's read
+        timeout and never retries it: the slow tier serves one request at a time, so a call the
+        client has given up on, or a gateway retry, would hold the slot in front of new work
+        (#1064)."""
+        (background,) = _deployments("devops-background")
+        params = background["litellm_params"]
+
+        assert (params["timeout"] < DEFAULT_REVIEW_TIMEOUT_SECONDS, params["num_retries"]) == (
             True,
-            True,
+            0,
         )
 
     def test_gateway_service_and_network_policy(self) -> None:
@@ -288,6 +386,7 @@ class TestK8sLLMGatewayManifests:
             "ollama-24gib",
             "ollama-32gib",
             "ollama-48gib",
+            "ollama-48gib-slow",
             "ollama-64gib",
             "ollama-72gib",
             "ollama-96gib",
@@ -305,6 +404,35 @@ class TestK8sLLMGatewayManifests:
             True,
             True,
         )
+
+    def test_every_ollama_tier_keeps_one_model_and_serves_one_request(self) -> None:
+        """Verify each tier reserves KV cache for one context: Ollama sizes it by NUM_PARALLEL (#1061).
+
+        The slow tier is the exception on residency alone: it keeps its embedding model and its
+        one background model loaded together, for good, so neither evicts the other (#1064).
+        """
+        docs = list(yaml.safe_load_all(OLLAMA_PROFILES_MANIFEST.read_text(encoding="utf-8")))
+        settings = {
+            d["metadata"]["name"]: {
+                var["name"]: var.get("value")
+                for container in d["spec"]["template"]["spec"]["containers"]
+                for var in container.get("env", [])
+                if var["name"]
+                in ("OLLAMA_MAX_LOADED_MODELS", "OLLAMA_NUM_PARALLEL", "OLLAMA_KEEP_ALIVE")
+            }
+            for d in docs
+            if d and d.get("kind") == "DaemonSet"
+        }
+        expected = {
+            name: {"OLLAMA_MAX_LOADED_MODELS": "1", "OLLAMA_NUM_PARALLEL": "1"} for name in settings
+        }
+        expected["ollama-48gib-slow"] = {
+            "OLLAMA_MAX_LOADED_MODELS": "2",
+            "OLLAMA_NUM_PARALLEL": "1",
+            "OLLAMA_KEEP_ALIVE": "-1",
+        }
+
+        assert settings == expected
 
     @pytest.mark.parametrize("service_name", ["ollama-16gib", "ollama-48gib"])
     def test_ollama_services_stay_behind_the_gateway(self, service_name: str) -> None:
@@ -385,12 +513,31 @@ class TestK8sLLMGatewayManifests:
             ["llm-gateway", "portkey", "valkey-runs", "vllm", "vllm-single"],
         )
 
+    def test_llm_manifests_have_a_deploy_path(self) -> None:
+        """Verify every manifest under k8s/llm is applied by something (#953).
+
+        A file counts when a k8s/llm kustomization lists it (a listed directory lists its
+        files), when deploy-stack applies it (`_MANIFESTS_BY_STACK["llm"]`), or when it is the
+        values file of an `llm` Helm release. `ollama-host-service.yaml` and `values-ollama.yaml`
+        had none: nothing applied them once the Ollama tiers replaced the single `ollama` workload.
+        """
+        llm_dir = Path("k8s/llm")
+        manifests = {path for path in llm_dir.rglob("*.yaml") if path.name != "kustomization.yaml"}
+        applied = (
+            {
+                path
+                for kustomization in llm_dir.rglob("kustomization.yaml")
+                for path in _kustomized_files(kustomization.parent)
+            }
+            | set(_MANIFESTS_BY_STACK["llm"])
+            | {Path(release["values"]) for release in _HELM_RELEASES_BY_STACK["llm"]}
+        )
+
+        assert sorted(manifests - applied) == []
+
     def test_zero_homelab_ip_or_hostname_leakage(self) -> None:
-        """Verify no private RFC 1918 IPs or *.lan hostnames exist in Gateway/profiles manifests."""
-        all_yaml_files = [
-            *GATEWAY_DIR.glob("*.yaml"),
-            *PROFILES_DIR.glob("*.yaml"),
-        ]
+        """Verify no private RFC 1918 IPs or *.lan hostnames exist in any k8s/llm manifest."""
+        all_yaml_files = sorted(Path("k8s/llm").rglob("*.yaml"))
         private_ip_pattern = re.compile(
             r"\b(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b(?!/)"
         )

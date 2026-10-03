@@ -27,7 +27,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_DURABLE_TASK_QUEUE,
     DEFAULT_AI_DURABLE_WORKFLOW_PREFIX,
 )
-from devops_cli.config.settings import AIDurableConfig
+from devops_cli.config.settings import AIDurableConfig, Settings
 from devops_cli.exceptions import ConfigurationError
 
 
@@ -395,3 +395,24 @@ def test_create_durable_pydantic_agent_extended_options() -> None:
 
     leaves = leaf_capabilities(agent.root_capability)
     assert len(leaves) >= 2
+
+
+def test_durable_agent_does_not_swallow_a_configuration_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a model its configured endpoint cannot serve raises instead of being passed on.
+
+    Handed the bare string, the Agent would infer it against the vendor's public endpoint and
+    send the prompts there rather than to the malformed `ai.api_base_url`.
+    """
+    from devops_cli.ai import pydantic_ai_bridge
+
+    settings = Settings()
+    settings.ai.provider = "openai"
+    settings.ai.api_base_url = "localhost:8000/v1"
+    monkeypatch.setattr(pydantic_ai_bridge, "_is_testing_mode_active", lambda: False)
+    monkeypatch.setattr(pydantic_ai_bridge, "load_settings", lambda: settings)
+    monkeypatch.setattr(pydantic_ai_bridge, "get_ai_api_key", lambda _settings: "sk-test")
+
+    with pytest.raises(ConfigurationError, match=r"^ai\.api_base_url cannot serve model"):
+        create_durable_pydantic_agent("openai:gpt-4o", engine="memory")

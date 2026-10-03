@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -11,6 +12,9 @@ from unittest.mock import MagicMock
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai import personas
+from devops_cli.ai.personas import review_prompt_digest
+from devops_cli.ai.review import profile as profile_module
 from devops_cli.ai.review import runner
 from devops_cli.ai.review.profile import (
     BenchmarkSummary,
@@ -114,6 +118,65 @@ def test_cached_replies_are_counted_apart_from_backend_calls(tmp_path: Path) -> 
     assert (profile.llm_calls, profile.cached_calls, profile.completion_tokens) == (1, 1, 10)
 
 
+def _observed(profiler: ReviewProfiler, served_by: str | None, reason: str | None) -> None:
+    """Show the profiler one served reply, as the spend ledger does when a call finishes."""
+    profiler.observe({"served_by": served_by, "finish_reason": reason, "completion_tokens": 10})
+
+
+@pytest.fixture
+def fixed_prompt_digest(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip hashing every review prompt on disk; the digest is not under test here."""
+    monkeypatch.setattr(profile_module, "review_prompt_digest", lambda: "digest")
+
+
+@pytest.mark.usefixtures("fixed_prompt_digest")
+def test_profile_counts_replies_by_finish_reason_and_cut_replies_by_backend(
+    tmp_path: Path,
+) -> None:
+    """Verify each stage counts replies per reason, and `length` replies per serving backend."""
+    with profiling() as profiler:
+        with review_stage("persona_review"):
+            for reason in ("stop", "stop", "length"):
+                _observed(profiler, "b1", reason)
+        with review_stage("verification"):
+            _observed(profiler, None, None)
+        profiler.build(session_id="s", target="t").write(tmp_path)
+
+    loaded = ReviewProfile.load(tmp_path)
+    stages = loaded.stages if loaded else []
+    assert [(s.name, s.finish_reasons, s.truncated) for s in stages] == [
+        ("persona_review", {"stop": 2, "length": 1}, {"b1": 1}),
+        ("verification", {"unknown": 1}, {}),
+    ]
+
+
+@pytest.mark.usefixtures("fixed_prompt_digest")
+@pytest.mark.parametrize(
+    ("reasons", "summary"),
+    [
+        (["stop", "length"], "2 LLM calls, 1 hit the reply cap; persona_review 1s (2 calls)"),
+        (["stop"], "1 LLM calls; persona_review 1s (1 calls)"),
+    ],
+    ids=["one-cut", "none-cut"],
+)
+def test_the_profile_summary_says_how_many_replies_hit_the_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reasons: list[str], summary: str
+) -> None:
+    """Verify the summary line counts replies cut at their cap, and is unchanged with none."""
+    lines: list[str] = []
+    monkeypatch.setattr(runner, "print_info", lambda message, **kwargs: lines.append(message))
+    monkeypatch.setattr(runner, "format_duration", lambda seconds: "1s")
+    orchestrator = MagicMock(session_id="s1", session_dir=tmp_path)
+
+    with profiling() as profiler:
+        with review_stage("persona_review"):
+            for reason in reasons:
+                _observed(profiler, VLLM, reason)
+        _write_review_profile(profiler, orchestrator, "playbooks", 2)
+
+    assert lines == [f"[dim]Profile: 1s, {summary} -> {tmp_path / 'profile.json'}[/dim]"]
+
+
 def test_stage_is_a_no_op_without_a_profiler() -> None:
     """Verify stage markers cost nothing when no review is being profiled."""
     with review_stage("persona_review"):
@@ -203,6 +266,45 @@ def test_written_profiles_reach_the_collecting_benchmark(tmp_path: Path) -> None
         [(p.session_id, p.target, p.files) for p in profiles],
         (tmp_path / "profile.json").exists(),
     ) == ([("20260924-120000", "playbooks", 15)], True)
+
+
+def test_the_profile_records_a_digest_of_the_conventions_the_review_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify profile.json says which conventions the prompts carried (#946).
+
+    The prompt digest covers the prompts devops-cli ships, so arms of a benchmark reviewed
+    under different conventions looked alike. A review whose target has no conventions records
+    an empty digest, as one that never read them does, not the digest of an empty text.
+    """
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.ai.run_store import digest
+
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+    recorded: list[tuple[str | None, str]] = []
+    for name, rules in (("a", "Rule a.\n"), ("b", "Rule b.\n"), ("none", "")):
+        project = tmp_path / name
+        (project / ".git").mkdir(parents=True)
+        if rules:
+            (project / ".devops").mkdir()
+            (project / ".devops" / "review.md").write_text(rules, encoding="utf-8")
+        orchestrator = ReviewPipelineOrchestrator(
+            session_id=name, llm_client=MagicMock(), target_dir=project
+        )
+        with profiling() as profiler:
+            conventions = orchestrator._read_target_conventions()
+            _write_review_profile(profiler, orchestrator, str(project), 1)
+        saved = ReviewProfile.load(orchestrator.session_dir)
+        recorded.append((saved.conventions_digest if saved else None, conventions))
+    digests = [kept for kept, _ in recorded]
+    used = [conventions for _, conventions in recorded]
+
+    assert (
+        digests,
+        used[2],
+        digests[0] != digests[1],
+        ReviewProfiler().build(session_id="s", target="t").conventions_digest,
+    ) == ([digest(used[0]), digest(used[1]), ""], "", True, "")
 
 
 def test_benchmark_summary_is_saved_under_the_reviews_directory(tmp_path: Path) -> None:
@@ -305,3 +407,39 @@ def test_profiler_accumulates_cost_usd_per_stage(tmp_path: Path) -> None:
 
     stage_costs = [round(s.cost_usd, 6) for s in profile.stages]
     assert (stage_costs, profile.cost_usd) == ([0.0045, 0.009], 0.0135)
+
+
+def _change_one_character(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    path.write_text(("Y" if text[0] == "X" else "X") + text[1:], encoding="utf-8")
+
+
+def test_the_prompt_digest_changes_with_any_review_prompt_and_nothing_else(tmp_path: Path) -> None:
+    """Verify the digest is 16 stable hex characters, moves with one character of a task or
+    persona prompt, and ignores files that are not prompts (#413)."""
+    personas_dir = Path(personas.__file__).parent
+    tasks, roles = tmp_path / "tasks", tmp_path / "personas"
+    shutil.copytree(personas_dir.parent / "tasks", tasks)
+    shutil.copytree(personas_dir, roles, ignore=shutil.ignore_patterns("__pycache__"))
+    package = review_prompt_digest()
+    copy = review_prompt_digest(tasks, roles)
+    _change_one_character(tasks / "review.md")
+    task_edit = review_prompt_digest(tasks, roles)
+    _change_one_character(roles / "devsecops" / "prompt.md")
+    persona_edit = review_prompt_digest(tasks, roles)
+    (tasks / "helper.py").write_text("x = 1\n", encoding="utf-8")
+    (roles / "helper.py").write_text("x = 1\n", encoding="utf-8")
+
+    assert (
+        (len(package), int(package, 16) >= 0, review_prompt_digest() == package),
+        copy == package,
+        len({copy, task_edit, persona_edit}),
+        review_prompt_digest(tasks, roles) == persona_edit,
+    ) == ((16, True, True), True, 3, True)
+
+
+def test_a_profile_records_the_digest_of_the_prompts_it_ran_with() -> None:
+    """Verify every built profile names the package's review prompts (#413)."""
+    profile = ReviewProfiler().build(session_id="s", target="t")
+
+    assert profile.prompt_digest == review_prompt_digest()

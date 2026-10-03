@@ -8,11 +8,11 @@ This document provides a comprehensive operational reference for all CLI command
 
 | Group | Subcommand | Purpose | Primary Flags / Arguments |
 | :--- | :--- | :--- | :--- |
-| **`ai`** | `review branch` | AI multi-persona branch code review | `--target`, `--persona`, `--all`, `--summary`, `--no-<stage>`, `--<stage>-only` |
-| | `review path` | AI multi-persona path/file code review | `path`, `--persona`, `--all`, `--summary`, `--no-<stage>`, `--<stage>-only` |
-| | `review pr` | Review GitHub pull request by number | `number`, `--repo`, `--post`, `--no-<stage>`, `--<stage>-only` |
-| | `review findings` | Inspect review findings for a session | `--session`, `--status`, `--unverified`, `--verified`, `--invalidated`, `--details` |
-| | `review verify` | Validate/invalidate review findings with reasons | `--session`, `--index`, `--title`, `--status`, `--reason` |
+| **`ai`** | `review branch` | AI multi-persona branch code review | `--target`, `--persona`, `--all`, `--summary`, `--full`, `--no-<stage>`, `--<stage>-only` |
+| | `review path` | AI multi-persona path/file code review | `path`, `--persona`, `--all`, `--summary`, `--full`, `--no-<stage>`, `--<stage>-only` |
+| | `review pr` | Review GitHub pull request by number | `number`, `--repo`, `--post`, `--full`, `--no-<stage>`, `--<stage>-only` |
+| | `review findings` | Inspect a session's findings, or with `--candidates` every finding it raised; each keeps the number `review verify` takes | `--session`, `--status`, `--severity`, `--unverified`, `--verified`, `--invalidated`, `--mitigated`, `--candidates`, `--details` |
+| | `review verify` | Record a person's or an agent's verdict on a finding or candidate | `--session`, `--index`, `--title`, `--candidate`, `--status` (required), `--adjudicator human\|agent`, `--reason`, `--perimeter`, `--regression-test` |
 | | `review patch` | Interactive preview and patch application | `--session`, `--index`, `--apply`, `--dry-run` |
 | | `review export-feedback`| Export findings to fine-tuning/RAG dataset | `--session`, `--status`, `--output` |
 | | `review stats` | Display review accuracy statistics | `--reviews-dir` |
