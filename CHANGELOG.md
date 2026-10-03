@@ -629,6 +629,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Every scanner a review or `devops scan` runs gets an empty stdin, never the caller's, such as the request stream of `devops mcp` (#1079).
 - **A Scanner That Runs Out of Time Says So (`devops review`, `devops scan report`, `devops_cli.security.base`)**:
   - A timeout read `failed: Scanner execution failed: Command '['semgrep', 'scan', …` in review.md, SARIF and the CLI, cut off before the reason. It now reads `timed out after 300 s` (#1079).
+- **Release Notes Fit GitHub's Body Limits (`devops release notes`, `devops release changelog`, `devops release pr`, `devops release sync-notes`)**:
+  - GitHub refuses a Release body over 125,000 characters and a pull request body over 65,536, and v0.2.25's changelog section is 196,525. Notes that fit are printed unchanged. Longer notes keep every `###` category and each entry's title, drop the sub-bullets, and end with a link to the version's section of `CHANGELOG.md` at its tag; titles that still do not fit are cut at the last whole entry, with a count of those left out. v0.2.25's notes come to 22,780 characters (#1097).
+  - The release PR body counts its other sections against the PR limit. Entries are read with the changelog parser the cut uses, now with markdown-it-py, and the link's anchor comes from mdit-py-plugins; both are declared dependencies, where before they arrived only through Rich and Textual (#1097).
 
 ### Security
 - **Logs Leave Loki Only by Age (`k8s/logging/loki-values.yaml`)**:
