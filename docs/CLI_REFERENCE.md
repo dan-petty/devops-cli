@@ -3093,7 +3093,7 @@ devops ai read [OPTIONS] <target_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--inspect`, `-i` | `boolean` | - | Enable multi-scale semantic outline and inspection scanner. |
-| `--level`, `-l` | `integer` | - | Focal zoom level: 0 (Topology: <200 tokens), 1 (Structural Outline: control flow & signatures), 2 (Deep Focal Window: line slice). |
+| `--level`, `-l` | `integer` | - | Focal zoom level: 0 (Topology: classes, functions, exports & hotspots), 1 (Structural Outline: control flow & signatures), 2 (Deep Focal Window: line slice). |
 | `--lines`, `-L` | `string` | - | Line range for Level 2 focal window (e.g. '40:80'). |
 | `--symbol`, `-s` | `string` | - | Target symbol name to inspect or focus on. |
 | `--format`, `-f` | `string` | `markdown` | Output format: 'text', 'markdown', or 'json'. |

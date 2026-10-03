@@ -221,6 +221,127 @@ output "bucket_arn" {
     assert 'variable "region"' in names or "variable.region" in names
 
 
+def test_fallback_finds_generic_and_qualified_rust_and_typescript_functions() -> None:
+    """Verify the regex fallback names generic, const, unsafe and extern Rust functions and
+    generic and default-exported TypeScript ones; it wanted `(` straight after the name and
+    allowed only `pub` and `async` before `fn` (#959)."""
+    rust = (
+        "pub fn plain(x: i32) -> i32 { x }\n"
+        "pub fn process<T: Clone>(x: T) -> T { x }\n"
+        "pub const fn c() -> u8 { 1 }\n"
+        "unsafe fn u() {}\n"
+        'pub(crate) unsafe extern "C" fn g() {}\n'
+        "pub async fn f<'a>(x: &'a str) {}\n"
+    )
+    typescript = (
+        "export function identity<T>(value: T): T { return value; }\n"
+        "export default function main(): void {}\n"
+    )
+    parser = FallbackASTParser()
+
+    assert (
+        [s.name for s in parser.parse("lib.rs", rust, "rust").symbols],
+        [s.name for s in parser.parse("main.ts", typescript, "typescript").symbols],
+    ) == (["plain", "process", "c", "u", "g", "f"], ["identity", "main"])
+
+
+SIGNED_DECLARATIONS: dict[str, str] = {
+    "python": (
+        "class DataProcessor:\n"
+        "    @staticmethod\n"
+        "    def process_item(item: str) -> bool:\n"
+        "        return True\n\n\n"
+        "async def fetch_feed(url: str) -> list[str]:\n"
+        "    return [url]\n"
+    ),
+    "typescript": (
+        "export class AuthService {\n"
+        "  login(payload: UserPayload): boolean {\n"
+        "    return true;\n"
+        "  }\n"
+        "}\n"
+        "export function a(x: string, y: number): Promise<void> {}\n"
+        "@Injectable()\n"
+        "class TokenStore {}\n"
+    ),
+    "go": (
+        "package worker\n\n"
+        "type WorkerPool struct {\n}\n\n"
+        "func NewWorkerPool(workers int) *WorkerPool {\n  return nil\n}\n\n"
+        "func (w *WorkerPool) Start() error {\n  return nil\n}\n"
+    ),
+    "rust": "pub struct MemoryCache {\n}\n\npub fn hash_payload(data: &[u8]) -> u64 {\n    42\n}\n",
+    "java": (
+        "public class MetricsClient {\n"
+        "    public static MetricsClient createDefault() {\n"
+        "        return INSTANCE;\n"
+        "    }\n"
+        "    @Override\n"
+        "    public String toString() {\n"
+        '        return "";\n'
+        "    }\n"
+        "    @Transactional @Deprecated\n"
+        "    public Order placeOrder(Cart cart) throws OrderException {\n"
+        "        return null;\n"
+        "    }\n"
+        "}\n"
+    ),
+    "csharp": (
+        "[ApiController]\n"
+        "public class UsersController : ControllerBase\n"
+        "{\n"
+        '    [HttpGet("{id}")]\n'
+        "    public ActionResult<User> Get(int id)\n"
+        "    {\n"
+        "        return null;\n"
+        "    }\n"
+        "}\n"
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("language", "code"), list(SIGNED_DECLARATIONS.items()), ids=list(SIGNED_DECLARATIONS)
+)
+def test_fallback_signs_symbols_with_their_declaration_line_as_tree_sitter_does(
+    language: str, code: str
+) -> None:
+    """Verify the regex fallback and tree-sitter give a symbol the same signature, its
+    declaration line; the fallback kept only the parameter list, `(x: string, y: number)`, with
+    no name or return type, and tree-sitter took a Java annotation, C# attribute or TypeScript
+    decorator above the declaration, `@Override`, for it (#959)."""
+    fallback = FallbackASTParser().parse("snippet", code, language).symbols
+    native = TreeSitterEngine().parse_code(code, language).symbols
+
+    assert sorted((s.name, s.signature) for s in fallback) == sorted(
+        (s.name, s.signature) for s in native
+    )
+
+
+def test_go_methods_belong_to_their_receiver_type() -> None:
+    """Verify tree-sitter scopes a Go method to the type its receiver names, through a pointer,
+    type arguments or parentheses, as the regex fallback does; it gave every Go method no
+    owner, so Level 0 listed none of them (#959)."""
+    code = (
+        "package p\n\n"
+        "func (w *WorkerPool) Start() error { return nil }\n"
+        "func (s Stack) Len() int { return 0 }\n"
+        "func (l *List[T]) Push(v T) {}\n"
+        "func (c (*Cache)) Get() {}\n"
+        "func New() *WorkerPool { return nil }\n"
+    )
+
+    assert [
+        (s.name, s.parent_scope) for s in TreeSitterEngine().parse_code(code, "go").symbols
+    ] == [
+        ("Start", "WorkerPool"),
+        ("Len", "Stack"),
+        ("Push", "List"),
+        ("Get", "Cache"),
+        ("New", None),
+    ]
+
+
 def test_tree_sitter_engine_parse_file_and_cache(tmp_path: Path) -> None:
     """Verify TreeSitterEngine parses source files and caches results."""
     engine = TreeSitterEngine()
@@ -249,6 +370,29 @@ def test_query_tree_execution() -> None:
     assert isinstance(matches, list)
     assert len(matches) >= 1
     assert any("handle_event" in str(m) for m in matches)
+
+
+def test_query_file_checks_size_and_language_before_reading(tmp_path: Path) -> None:
+    """Verify a file query refuses a file over the size cap, in no known language or missing,
+    and reads a header as the language it is written in, as parse_file does (#959)."""
+    engine = TreeSitterEngine(max_file_size_bytes=100)
+    (tmp_path / "small.py").write_text("def f(x): ...\n")
+    (tmp_path / "big.py").write_text("def f(x): ...\n" + "# padding\n" * 100)
+    (tmp_path / "notes.txt").write_text("def f(x): ...\n")
+    (tmp_path / "format.h").write_text("namespace fmt {\nclass writer {\n};\n}\n")
+    functions = "(function_definition name: (identifier) @name)"
+
+    def symbols(name: str, query: str = functions) -> list[str] | None:
+        matches = engine.query_file(tmp_path / name, query)
+        return None if matches is None else [m["symbol"] for m in matches]
+
+    assert (
+        symbols("small.py"),
+        symbols("big.py"),
+        symbols("notes.txt"),
+        symbols("missing.py"),
+        symbols("format.h", "(class_specifier name: (type_identifier) @name)"),
+    ) == (["f"], None, None, None, ["writer"])
 
 
 def test_query_resolution_latency(tmp_path: Path) -> None:

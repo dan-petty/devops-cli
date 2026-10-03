@@ -1,7 +1,7 @@
 """Multi-Scale Semantic Outline & Inspectional Scanner.
 
 Provides 3 discrete focal zoom levels for source code inspection:
-- Level 0 (Topology): Class/method hierarchies, exported symbols, docstrings, cyclomatic hotspots (< 200 tokens).
+- Level 0 (Topology): Class/method hierarchies, exported symbols, docstrings, cyclomatic hotspots.
 - Level 1 (Structural Outline): Signatures, return contracts, and control-flow sketches (> 85% token reduction).
 - Level 2 (Deep Focal Window): Line-bounded code slices with surrounding breadcrumb context.
 """
@@ -18,9 +18,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from devops_cli.ai.ast.engine import EXT_TO_LANG
-from devops_cli.ai.ast.fallback import FallbackASTParser
-from devops_cli.ai.ast.models import SymbolKind
+from devops_cli.ai.ast.engine import TreeSitterEngine, detect_language
+from devops_cli.ai.ast.models import PolyglotFileMap, SymbolKind
 from devops_cli.config.constants import (
     CONST_DEFAULT_FOCAL_WINDOW_SIZE,
     CONST_HOTSPOT_COMPLEXITY_THRESHOLD,
@@ -345,17 +344,12 @@ def _build_python_topology(tree: ast.AST, content: str) -> TopologyOutline:
         if f.cyclomatic_complexity >= CONST_HOTSPOT_COMPLEXITY_THRESHOLD
     ]
 
-    total_syms = len(classes) + len(functions)
-    text_repr = f"classes: {len(classes)}, functions: {len(functions)}, exports: {len(exports)}"
-    est_tokens = estimate_tokens(text_repr) + (total_syms * 6)
-
     return TopologyOutline(
         classes=classes,
         functions=functions,
         exported_symbols=exports[:20],
         cyclomatic_hotspots=all_hotspots[:5],
-        total_symbols=total_syms,
-        estimated_tokens=est_tokens,
+        total_symbols=len(classes) + len(functions),
     )
 
 
@@ -538,20 +532,35 @@ def _build_focal_window(
     )
 
 
-def _build_polyglot_topology(path: Path, content: str, lang: str) -> TopologyOutline:
-    """Construct Level 0 Topology outline for polyglot files via FallbackASTParser."""
-    parser = FallbackASTParser()
-    file_map = parser.parse(path=str(path), code=content, language=lang)
+def _parse_polyglot(path: Path, content: str) -> PolyglotFileMap:
+    """A non-Python file's symbols, as tree-sitter parses it; the engine falls back to the regex
+    parser itself when its grammar finds nothing. A .h header is read as C++ or C by its
+    content, as `devops ai ast parse` reads it."""
+    lang = detect_language(path, content) or "text"
+    return TreeSitterEngine().parse_code(content, lang, str(path))
+
+
+def _build_polyglot_topology(file_map: PolyglotFileMap) -> TopologyOutline:
+    """Construct Level 0 Topology outline for polyglot files.
+
+    A method is listed under its class when the file declares that class. Otherwise it is listed
+    among the functions, by `Owner.name` when its owner is declared elsewhere (a Go method on
+    another file's type) or by its own name (C++ `Widget::draw`, already qualified).
+    """
     classes: list[ClassTopology] = []
     functions: list[FunctionTopology] = []
+    type_kinds = (SymbolKind.CLASS, SymbolKind.INTERFACE, SymbolKind.STRUCT)
+    owners = {sym.name for sym in file_map.symbols if sym.kind in type_kinds}
 
     class_methods: dict[str, list[str]] = {}
     for sym in file_map.symbols:
-        if sym.kind == SymbolKind.METHOD and sym.parent_scope:
-            class_methods.setdefault(sym.parent_scope, []).append(sym.name)
+        owner = sym.parent_scope or ""
+        if sym.kind == SymbolKind.METHOD and owner in owners:
+            class_methods.setdefault(owner, []).append(sym.name)
 
     for sym in file_map.symbols:
-        if sym.kind in (SymbolKind.CLASS, SymbolKind.INTERFACE, SymbolKind.STRUCT):
+        owner = sym.parent_scope or ""
+        if sym.kind in type_kinds:
             classes.append(
                 ClassTopology(
                     name=sym.name,
@@ -561,10 +570,13 @@ def _build_polyglot_topology(path: Path, content: str, lang: str) -> TopologyOut
                     line_end=sym.span.line_end,
                 )
             )
-        elif sym.kind == SymbolKind.FUNCTION:
+        elif sym.kind == SymbolKind.FUNCTION or (
+            sym.kind == SymbolKind.METHOD and owner not in owners
+        ):
+            listed = f"{owner}.{sym.name}" if sym.kind == SymbolKind.METHOD and owner else sym.name
             functions.append(
                 FunctionTopology(
-                    name=sym.name,
+                    name=listed,
                     docstring=sym.docstring,
                     line_number=sym.span.line_start,
                     end_line_number=sym.span.line_end,
@@ -574,23 +586,17 @@ def _build_polyglot_topology(path: Path, content: str, lang: str) -> TopologyOut
     exports = [
         s.name for s in file_map.symbols if s.kind in (SymbolKind.FUNCTION, SymbolKind.CLASS)
     ]
-    total_syms = len(file_map.symbols)
-    est_tokens = max(1, total_syms * 6)
-
     return TopologyOutline(
         classes=classes,
         functions=functions,
         exported_symbols=exports[:20],
         cyclomatic_hotspots=[],
-        total_symbols=total_syms,
-        estimated_tokens=est_tokens,
+        total_symbols=len(file_map.symbols),
     )
 
 
-def _build_polyglot_structural(path: Path, content: str, lang: str) -> StructuralOutline:
+def _build_polyglot_structural(file_map: PolyglotFileMap) -> StructuralOutline:
     """Construct Level 1 Structural outline for polyglot files."""
-    parser = FallbackASTParser()
-    file_map = parser.parse(path=str(path), code=content, language=lang)
     classes: list[ClassStructural] = []
     functions: list[FunctionStructural] = []
     skeleton_lines: list[str] = []
@@ -633,11 +639,14 @@ def _build_polyglot_structural(path: Path, content: str, lang: str) -> Structura
 def _resolve_topology_level(
     is_py: bool, py_tree: ast.AST | None, resolved_path: Path, content: str
 ) -> TopologyOutline:
-    """Resolve Level 0 Topology outline based on language."""
-    if is_py and py_tree:
-        return _build_python_topology(py_tree, content)
-    lang = EXT_TO_LANG.get(resolved_path.suffix.lower(), "text")
-    return _build_polyglot_topology(resolved_path, content, lang)
+    """Resolve Level 0 Topology outline based on language, counted as the markdown it renders."""
+    topology = (
+        _build_python_topology(py_tree, content)
+        if is_py and py_tree
+        else _build_polyglot_topology(_parse_polyglot(resolved_path, content))
+    )
+    topology.estimated_tokens = estimate_tokens(_render_topology(topology))
+    return topology
 
 
 def _resolve_structural_level(
@@ -646,8 +655,7 @@ def _resolve_structural_level(
     """Resolve Level 1 Structural outline based on language."""
     if is_py and py_tree:
         return _build_python_structural(py_tree, content)
-    lang = EXT_TO_LANG.get(resolved_path.suffix.lower(), "text")
-    return _build_polyglot_structural(resolved_path, content, lang)
+    return _build_polyglot_structural(_parse_polyglot(resolved_path, content))
 
 
 def _find_symbol_or_lines_range(
@@ -664,9 +672,7 @@ def _find_symbol_or_lines_range(
     if is_py and py_tree:
         found = _find_symbol_line_range(py_tree, target_sym)
     else:
-        lang = EXT_TO_LANG.get(resolved_path.suffix.lower(), "text")
-        parser = FallbackASTParser()
-        file_map = parser.parse(path=str(resolved_path), code=content, language=lang)
+        file_map = _parse_polyglot(resolved_path, content)
         found = _find_polyglot_symbol_range(file_map.symbols, target_sym)
 
     if found:
@@ -770,7 +776,7 @@ def generate_semantic_outline(
         language=(
             "python"
             if is_py
-            else EXT_TO_LANG.get(resolved_path.suffix.lower(), resolved_path.suffix.lstrip("."))
+            else detect_language(resolved_path, content) or resolved_path.suffix.lstrip(".")
         ),
         level=level,
         raw_lines=raw_lines,
@@ -835,9 +841,11 @@ def _render_hotspots_section(hotspots: list[FunctionTopology]) -> list[str]:
 
 def _render_topology_markdown(outline: SemanticOutline) -> str:
     """Render Level 0 Topology outline as structured markdown."""
-    top = outline.topology
-    if not top:
-        return ""
+    return _render_topology(outline.topology) if outline.topology else ""
+
+
+def _render_topology(top: TopologyOutline) -> str:
+    """Render a topology as the markdown Level 0 displays, which its token count measures."""
     parts = []
     if top.exported_symbols:
         parts.append(f"**Exported Symbols**: {', '.join(top.exported_symbols)}\n")
