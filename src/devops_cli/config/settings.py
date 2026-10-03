@@ -57,6 +57,7 @@ from devops_cli.config.defaults import (
     DEFAULT_CACHE_DATA_DIR,
     DEFAULT_DATA_DIR,
     DEFAULT_FEEDBACK_DATASET_PATH,
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_JAEGER_URL,
     DEFAULT_LLM_CACHE_DATA_DIR,
     DEFAULT_LLM_CACHE_ENABLED,
@@ -78,6 +79,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
     DEFAULT_REPOS_BASE_DIR,
+    DEFAULT_REVIEW_TIMEOUT_SECONDS,
     DEFAULT_REVIEWS_DATA_DIR,
     DEFAULT_RUNS_DATA_DIR,
     DEFAULT_SAMPLES_DATA_DIR,
@@ -415,7 +417,12 @@ class AITaskOverride(BaseModel):
     ollama_max_parallel: int | None = None
     api_base_url: str | None = None
     max_retries: int | None = None
-    timeout: float | None = None
+    timeout: float | None = Field(
+        default=None,
+        gt=0,
+        allow_inf_nan=False,
+        description="Seconds this task's requests wait for their reply, in place of `ai.timeout`",
+    )
 
 
 class AITasksConfig(BaseModel):
@@ -456,7 +463,16 @@ class AIConfig(BaseModel):
     api_base_url: str | None = None
     allow_private_network: bool = False
     max_retries: int = DEFAULT_AI_MAX_RETRIES
-    timeout: float | None = None
+    timeout: float | None = Field(
+        default=None,
+        gt=0,
+        allow_inf_nan=False,
+        description=(
+            "Seconds each LLM request waits for its reply; `ai.tasks.<task>.timeout` sets one "
+            f"task's. Unset, a request waits {DEFAULT_HTTP_TIMEOUT_SECONDS:g} s, and a review's "
+            f"analysis, verification and compose requests {DEFAULT_REVIEW_TIMEOUT_SECONDS:g} s"
+        ),
+    )
     tasks: AITasksConfig = AITasksConfig()
     rag: AIRAGConfig = AIRAGConfig()
     cache: AICacheConfig = AICacheConfig()

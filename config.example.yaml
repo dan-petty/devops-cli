@@ -108,10 +108,18 @@ ai:
   # Custom base URL for claude/openai-compatible providers (leave null for defaults).
   api_base_url: null
 
-  # Allow connections to private/loopback/RFC-1918 addresses for AI, ArgoCD, and Grafana.
+  # Allow connections to private/RFC-1918 addresses for AI, ArgoCD, Grafana and Prometheus,
+  # and to loopback addresses for ArgoCD, Grafana and Prometheus.
   # Required when Ollama or cluster services run on a private network (e.g. 192.168.x.x).
+  # Configured AI, gateway, Ollama and Qdrant URLs on loopback (localhost, 127.0.0.1, ::1),
+  # as in this file, need no opt-in. Cloud metadata addresses are always refused.
   # Equivalent to setting DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true in the environment.
   allow_private_network: false
+
+  # Seconds each LLM request waits for its reply; tasks.<task>.timeout sets one task's.
+  # Unset, a request waits 3600 s and a review's analysis, verification and compose
+  # requests 1200 s.
+  # timeout: 1200
 
   # RAG (Retrieval-Augmented Generation) settings
   # Reviews, chat and analysis look up context with the embedding model (tasks.embedding).

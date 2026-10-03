@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx2
@@ -10,6 +11,7 @@ import pytest
 from devops_cli.ai.client.models import is_reasoning_model
 from devops_cli.ai.client.unified import LLMClient
 from devops_cli.config.settings import AIConfig
+from tests.llm_stream_fakes import route_llm_clients
 
 
 @pytest.fixture(autouse=True)
@@ -63,10 +65,10 @@ class TestOpenAIReasoningPayloadAndParsing:
         """o1/o3 reasoning models must omit temperature and use max_completion_tokens."""
         captured_payload: dict[str, Any] = {}
 
-        def mock_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        def mock_post(request: httpx2.Request) -> httpx2.Response:
             nonlocal captured_payload
-            if "chat/completions" in str(url):
-                captured_payload = dict(kwargs.get("json", {}))
+            if "chat/completions" in str(request.url):
+                captured_payload = json.loads(request.content)
             return _make_resp(
                 200,
                 {
@@ -75,7 +77,7 @@ class TestOpenAIReasoningPayloadAndParsing:
                 },
             )
 
-        monkeypatch.setattr(httpx2.Client, "post", mock_post)
+        route_llm_clients(monkeypatch, mock_post)
 
         cfg = AIConfig(
             provider="openai",
@@ -100,10 +102,10 @@ class TestOpenAIReasoningPayloadAndParsing:
         """Non-reasoning models must omit reasoning_effort even if configured globally."""
         captured_payload: dict[str, Any] = {}
 
-        def mock_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        def mock_post(request: httpx2.Request) -> httpx2.Response:
             nonlocal captured_payload
-            if "chat/completions" in str(url):
-                captured_payload = dict(kwargs.get("json", {}))
+            if "chat/completions" in str(request.url):
+                captured_payload = json.loads(request.content)
             return _make_resp(
                 200,
                 {
@@ -112,7 +114,7 @@ class TestOpenAIReasoningPayloadAndParsing:
                 },
             )
 
-        monkeypatch.setattr(httpx2.Client, "post", mock_post)
+        route_llm_clients(monkeypatch, mock_post)
 
         cfg = AIConfig(
             provider="openai",
@@ -151,7 +153,7 @@ class TestOpenAIReasoningPayloadAndParsing:
                 "usage": {"prompt_tokens": 5, "completion_tokens": 15, "total_tokens": 20},
             },
         )
-        monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: resp)
+        route_llm_clients(monkeypatch, lambda request: resp)
 
         cfg = AIConfig(provider="openai", model="deepseek-reasoner", allow_private_network=True)
         client = LLMClient(cfg, api_key="sk-test-token")
@@ -170,10 +172,10 @@ class TestClaudeThinkingPayloadAndParsing:
         """Claude 3.7 with thinking enabled includes thinking budget and omits non-1.0 temperature."""
         captured_payload: dict[str, Any] = {}
 
-        def mock_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        def mock_post(request: httpx2.Request) -> httpx2.Response:
             nonlocal captured_payload
-            if "v1/messages" in str(url):
-                captured_payload = dict(kwargs.get("json", {}))
+            if "v1/messages" in str(request.url):
+                captured_payload = json.loads(request.content)
             return _make_resp(
                 200,
                 {
@@ -185,7 +187,7 @@ class TestClaudeThinkingPayloadAndParsing:
                 },
             )
 
-        monkeypatch.setattr(httpx2.Client, "post", mock_post)
+        route_llm_clients(monkeypatch, mock_post)
 
         cfg = AIConfig(
             provider="claude",
@@ -209,9 +211,9 @@ class TestClaudeThinkingPayloadAndParsing:
         """Claude with enable_thinking=False does not include enabled thinking block."""
         captured_payload: dict[str, Any] = {}
 
-        def mock_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        def mock_post(request: httpx2.Request) -> httpx2.Response:
             nonlocal captured_payload
-            captured_payload = dict(kwargs.get("json", {}))
+            captured_payload = json.loads(request.content)
             return _make_resp(
                 200,
                 {
@@ -220,7 +222,7 @@ class TestClaudeThinkingPayloadAndParsing:
                 },
             )
 
-        monkeypatch.setattr(httpx2.Client, "post", mock_post)
+        route_llm_clients(monkeypatch, mock_post)
 
         cfg = AIConfig(
             provider="claude",
@@ -254,7 +256,7 @@ class TestOllamaThinkingSeparation:
                 "eval_count": 50,
             },
         )
-        monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: resp)
+        route_llm_clients(monkeypatch, lambda request: resp)
 
         cfg = AIConfig(
             provider="ollama",

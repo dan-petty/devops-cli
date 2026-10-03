@@ -26,13 +26,7 @@ class DummyOllamaProvider(OllamaProviderMixin):
     def __init__(self, config: AIConfig) -> None:
         self._config = config
 
-    def _validate_base_url(
-        self,
-        base_url: str,
-        purpose: str = "API",
-        *,
-        allow_loopback_for_local_tooling: bool = False,
-    ) -> str:
+    def _validate_base_url(self, base_url: str, purpose: str = "API") -> str:
         return base_url.rstrip("/")
 
     def _request_timeout(self) -> httpx2.Timeout:

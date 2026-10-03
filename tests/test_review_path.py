@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -34,6 +35,7 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import AIConfig
 from devops_cli.main import app
 from devops_cli.models.ai import ChatMessage
+from tests.llm_stream_fakes import route_client
 
 runner = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
@@ -428,25 +430,17 @@ def test_review_client_uses_long_read_timeout_for_chat_requests(
     client = LLMClient(
         AIConfig(provider="ollama"), request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS
     )
-    seen: dict[str, Any] = {}
-
-    class DummyClient:
-        def post(self, *args: object, **kwargs: object) -> object:
-            seen["timeout"] = kwargs.get("timeout")
-            return type(
-                "Response",
-                (),
-                {
-                    "raise_for_status": lambda self: None,
-                    "json": lambda self: {"message": {"content": "ok"}},
-                },
-            )()
-
-    monkeypatch.setattr(type(client), "_shared_client", lambda self: DummyClient())
+    sent = route_client(
+        client,
+        monkeypatch,
+        lambda request: httpx2.Response(200, json={"message": {"content": "ok"}}),
+    )
 
     client._ollama_messages("system", [ChatMessage(role="user", content="user")])
 
-    assert seen["timeout"].read == DEFAULT_REVIEW_TIMEOUT_SECONDS
+    assert [request.extensions["timeout"]["read"] for request in sent] == [
+        DEFAULT_REVIEW_TIMEOUT_SECONDS
+    ]
 
 
 def test_review_path_append_cache_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

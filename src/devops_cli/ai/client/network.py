@@ -266,43 +266,83 @@ def reset_ollama_slots() -> None:
         ollama_slot_condition.notify_all()
 
 
-def _check_response_size(response: httpx2.Response, limit_bytes: int) -> None:
-    """Validate content-length header and content buffer against maximum body size limit."""
-    headers = getattr(response, "headers", {})
-    cl = headers.get("content-length") if hasattr(headers, "get") else None
-    if cl and cl.isdigit() and int(cl) > limit_bytes:
-        mb = limit_bytes // (1024 * 1024)
-        raise AIClientError(f"Response body exceeded maximum size ({mb}MB).")
-
-    body = getattr(response, "content", None)
-    if body is not None and len(body) > limit_bytes:
-        mb = limit_bytes // (1024 * 1024)
-        raise AIClientError(f"Response body exceeded maximum size ({mb}MB).")
+def size_limit_text(limit_bytes: int) -> str:
+    """A byte limit in the largest unit it reaches: `50MB`, `1.5KB`, `200 bytes`."""
+    for unit, scale in (("MB", 1024 * 1024), ("KB", 1024)):
+        if limit_bytes >= scale:
+            return f"{limit_bytes / scale:.1f}".removesuffix(".0") + unit
+    return f"{limit_bytes} bytes"
 
 
-def read_limited_json(
-    response: httpx2.Response, limit_bytes: int = DEFAULT_AI_MAX_RESPONSE_BYTES
-) -> dict[str, Any]:
-    """Parse JSON response while enforcing a maximum response body size limit.
+def _response_size_error(limit_bytes: int) -> AIClientError:
+    return AIClientError(f"Response body exceeded maximum size ({size_limit_text(limit_bytes)}).")
 
-    4xx and 5xx responses are treated as HTTP errors and never parsed as a valid response.
+
+def _read_limited_body(response: httpx2.Response, limit_bytes: int) -> bytearray:
+    """A streamed response's decoded body, refused as soon as it passes ``limit_bytes``.
+
+    A numeric Content-Length over the limit is refused before any of the body is read. The
+    decoded bytes are counted, so a compressed body cannot inflate past the limit either.
     """
-    if getattr(response, "status_code", 200) >= 400:
-        response.raise_for_status()
+    declared = response.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit_bytes:
+        raise _response_size_error(limit_bytes)
+    body = bytearray()
+    for chunk in response.iter_bytes():
+        body += chunk
+        if len(body) > limit_bytes:
+            raise _response_size_error(limit_bytes)
+    return body
 
-    _check_response_size(response, limit_bytes)
 
-    body = getattr(response, "content", None)
-    if body is not None:
-        try:
-            return json.loads(body)  # type: ignore[no-any-return]
-        except json.JSONDecodeError as exc:
-            raise AIClientError(f"Invalid JSON response payload from AI provider: {exc}") from exc
+def _raise_for_status(response: httpx2.Response, body: bytearray) -> None:
+    """Raise `HTTPStatusError` for a reply that is not 2xx, its response holding the body read.
 
+    The streamed response is closed by then, so the error carries a copy whose `text` and
+    `json()` read the bounded body, as callers that inspect a provider's error message do.
+    """
+    if response.is_success:
+        return
+    read_reply = httpx2.Response(
+        response.status_code,
+        headers={"content-type": response.headers.get("content-type", "")},
+        content=bytes(body),
+        request=response.request,
+    )
+    read_reply.raise_for_status()
+
+
+def _json_object(body: bytearray) -> dict[str, Any]:
     try:
-        return response.json()  # type: ignore[no-any-return]
-    except Exception as exc:
-        raise AIClientError(f"Failed to parse JSON response body from AI provider: {exc}") from exc
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise AIClientError(f"Invalid JSON response payload from AI provider: {exc}") from exc
+    if not isinstance(payload, dict):
+        kind = type(payload).__name__
+        raise AIClientError(f"AI provider replied with a JSON {kind}, not an object.")
+    return payload
+
+
+def request_limited_json(
+    http_client: httpx2.Client,
+    method: str,
+    url: str,
+    *,
+    limit_bytes: int | None = None,
+    **request_kwargs: Any,
+) -> tuple[dict[str, Any], httpx2.Headers]:
+    """Send a request and return its JSON object reply and headers, reading at most the limit.
+
+    The reply is streamed, so no more than ``limit_bytes`` (default
+    `DEFAULT_AI_MAX_RESPONSE_BYTES`) of it is ever held: a client that buffers the whole body
+    before checking its size gives a model endpoint, or anyone on the path to a plain-http one,
+    the CLI's memory. A reply that is not 2xx raises `httpx2.HTTPStatusError`, unparsed.
+    """
+    limit = DEFAULT_AI_MAX_RESPONSE_BYTES if limit_bytes is None else limit_bytes
+    with http_client.stream(method, url, **request_kwargs) as response:
+        body = _read_limited_body(response, limit)
+    _raise_for_status(response, body)
+    return _json_object(body), response.headers
 
 
 def validate_base_url(
@@ -310,9 +350,13 @@ def validate_base_url(
     purpose: str = "API",
     *,
     allow_private_network: bool = False,
-    allow_loopback_for_local_tooling: bool = False,
 ) -> str:
-    """Validate base URL against SSRF and network egress rules."""
+    """Validate a configured base URL against SSRF and network egress rules.
+
+    Every base URL the client sends to comes from the user's configuration, so it follows
+    `validate_configured_service_url`: loopback is allowed, and any other non-public host
+    needs ``allow_private_network``.
+    """
     if not base_url or not base_url.strip():
         raise AIClientError(f"Missing {purpose} base URL.")
 
@@ -326,21 +370,16 @@ def validate_base_url(
             f"Invalid {purpose} URL scheme '{parsed.scheme}'. Only http and https are permitted."
         )
 
-    host = parsed.hostname
-    if not host:
+    if not parsed.hostname:
         raise AIClientError(f"Missing hostname in {purpose} base URL: {base_url!r}")
 
-    is_allowed_local = allow_loopback_for_local_tooling and host in (
-        "localhost",
-        "127.0.0.1",
-        "::1",
-    )
-    if not allow_private_network and not is_allowed_local:
-        try:
-            from devops_cli.core.validation import validate_service_url
+    from devops_cli.core.validation import validate_configured_service_url
 
-            validate_service_url(base_url, purpose=purpose, allow=False)
-        except ValueError as exc:
-            raise AIClientError(str(exc)) from exc
+    try:
+        validate_configured_service_url(
+            base_url, purpose=purpose, allow_private=allow_private_network
+        )
+    except ValueError as exc:
+        raise AIClientError(str(exc)) from exc
 
     return base_url.rstrip("/")

@@ -23,6 +23,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import Settings
 from devops_cli.lang import MESSAGES
+from devops_cli.security.sanitizer import redact_text
 from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,10 @@ _STOP_LOCK = threading.Lock()
 # is not served, not one each before the first failure stops RAG.
 _RAG_SERVED = threading.Event()
 _PROBE_LOCK = threading.Lock()
+# Set by the first lookup that fails for any other reason, such as a vector store the SSRF guard
+# refuses. That one warns, so a RAG backend that cannot be reached is not silent; later failures
+# log at debug, as each review worker's lookup would repeat the warning.
+_FAILURE_REPORTED = threading.Event()
 
 
 def clear_investigation_cache() -> None:
@@ -50,6 +55,7 @@ def clear_investigation_cache() -> None:
     _INVESTIGATION_CACHE.clear()
     _RAG_STOPPED.clear()
     _RAG_SERVED.clear()
+    _FAILURE_REPORTED.clear()
 
 
 def _stop_rag_for_run(model: str, exc: EmbeddingsError) -> None:
@@ -60,6 +66,17 @@ def _stop_rag_for_run(model: str, exc: EmbeddingsError) -> None:
         _RAG_STOPPED.set()
     record_metric("ai.rag.investigation.stopped", 1)
     logger.warning(MESSAGES.rag.stopped_for_run.format(model=model, error=exc.message))
+
+
+def _report_lookup_failure(exc: Exception) -> None:
+    """Warn of the run's first failed lookup with its masked cause; log later ones at debug."""
+    with _STOP_LOCK:
+        first = not _FAILURE_REPORTED.is_set()
+        _FAILURE_REPORTED.set()
+    if first:
+        logger.warning(MESSAGES.rag.lookup_failed.format(error=redact_text(str(exc))[:256]))
+    else:
+        logger.debug("RAG investigation skipped due to error: %s", redact_text(str(exc))[:256])
 
 
 def _get_or_create_retriever(
@@ -73,14 +90,7 @@ def _get_or_create_retriever(
         if now - last_t < _CACHE_TTL_SECONDS and retriever.qdrant.is_alive():
             return retriever
 
-    from devops_cli.core.validation import validate_url
-
-    raw_url = st.qdrant.url or "http://localhost:6333"
-    qdrant_url = validate_url(
-        raw_url,
-        "Qdrant vector database",
-        allow_private=True,
-    )
+    qdrant_url = st.qdrant.url or "http://localhost:6333"
     qdrant = QdrantClient(
         base_url=qdrant_url,
         api_key=settings_mod.get_qdrant_api_key(st),
@@ -291,7 +301,7 @@ def investigate_rag_context(
                 max_chars=max_chars,
             )
         except Exception as exc:
-            logger.debug("RAG investigation skipped due to error: %s", exc)
+            _report_lookup_failure(exc)
             ctx = None
         found = None if ctx is None else _recorded_results(ctx, r_span, clean_query, start_time)
     _INVESTIGATION_CACHE[cache_key] = (now, found)

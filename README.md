@@ -124,9 +124,9 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 
 ## Local Workstation Model & Security Architecture
 
-1. **Local Workstation Timeouts**: High timeouts (`DEFAULT_REVIEW_TIMEOUT_SECONDS = 3600.0`, `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 1800.0`) support local LLM inference (CPU/GPU Ollama) and corporate proxies.
+1. **Local Workstation Timeouts**: High timeouts (`DEFAULT_HTTP_TIMEOUT_SECONDS = 3600.0` per LLM request, `DEFAULT_REVIEW_TIMEOUT_SECONDS = 1200.0` per review request, unless `ai.timeout` or `ai.tasks.<task>.timeout` sets one; `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 1800.0`) support local LLM inference (CPU/GPU Ollama) and corporate proxies.
 2. **Key Material Mounting**: `${localEnv:HOME}/.ssh` is bind-mounted by design into `.devcontainer` for local SSH key generation and 90-day rotation.
-3. **SSRF Protections**: `validate_service_url` blocks non-public IPs unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set.
+3. **SSRF Protections**: `validate_service_url` blocks non-public IPs unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set. A service URL from the user's own configuration (Ollama, Qdrant, the LLM gateway, a provider's `api_base_url`) may also name loopback (`validate_configured_service_url`).
 4. **Workspace Boundary Guards**: Path traversal checks (`_is_safe_workspace_path`) enforce repository boundaries on file commands.
 5. **Checksum Verification**: `devops install-tools` validates SHA-256 checksums before writing binaries to disk.
 6. **Automated Design Justification & Documentation Maintenance**: Non-instructional, reference-backed inline comments (`# NOTE (Design Justification - <REF>): ...`) automatically document intentional design trade-offs directly above target code constructs, and project documentation (`AGENTS.md`, `README.md`, `CLAUDE.md`, `.github/copilot-instructions.md`) is routinely updated whenever code or prompt conventions evolve.

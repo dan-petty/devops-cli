@@ -11,7 +11,7 @@ import httpx2
 
 from devops_cli.ai.client.base import BaseLLMProviderMixin
 from devops_cli.ai.client.models import LLMResponse, provider_finish_reason
-from devops_cli.ai.client.network import read_limited_json
+from devops_cli.ai.client.network import request_limited_json
 from devops_cli.ai.client.streaming import _claude_stream_frame, _read_event_stream
 from devops_cli.config.constants import CONST_ANTHROPIC_STOP_REASONS, CONST_URL_ANTHROPIC_API_BASE
 from devops_cli.models.ai import ChatMessage
@@ -68,16 +68,15 @@ class ClaudeProviderMixin(BaseLLMProviderMixin):
                 payload["top_p"] = float(claude_top_p)
 
         try:
-            http_client = self._shared_client()
-            response = http_client.post(
+            raw_json, _headers = request_limited_json(
+                self._shared_client(),
+                "POST",
                 f"{base}/v1/messages",
                 headers=headers,
                 json=payload,
                 timeout=self._request_timeout(),
             )
-            response.raise_for_status()
             wall_elapsed = time.monotonic() - start_time
-            raw_json = read_limited_json(response)
             content_blocks = raw_json.get("content", [])
             text_parts: list[str] = []
             thinking_parts: list[str] = []

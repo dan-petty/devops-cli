@@ -22,7 +22,7 @@ from devops_cli.ai.client.network import (
     acquire_ollama_slot,
     active_ollama_requests,
     ollama_active_lock,
-    read_limited_json,
+    request_limited_json,
     request_priority_scope,
 )
 from devops_cli.ai.client.streaming import _ollama_stream_frame, _read_ndjson_stream
@@ -52,11 +52,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         """Prewarm or evict model on a single Ollama endpoint."""
         target_model = model or self._config.model
         try:
-            base = self._validate_base_url(
-                url,
-                purpose="Ollama",
-                allow_loopback_for_local_tooling=True,
-            )
+            base = self._validate_base_url(url, purpose="Ollama")
             http_client = self._shared_client()
             res = http_client.post(
                 f"{base}/api/generate",
@@ -185,11 +181,6 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         if n == 0:
             return [(0, "http://localhost:11434")]
         start = self._load_and_increment_rr_index(n)
-        from devops_cli.ai.client import network
-
-        self._ollama_url_index = getattr(
-            self, "_global_ollama_url_index", network.global_ollama_url_index
-        )
         candidate_urls = [all_urls[(start + i) % n] for i in range(n)]
         indexed_urls = list(enumerate(candidate_urls))
 
@@ -251,11 +242,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 with acquire_ollama_slot(
                     remaining_candidates, max_parallel=max_par, priority=priority
                 ) as leased_url:
-                    base = self._validate_base_url(
-                        leased_url,
-                        purpose="Ollama",
-                        allow_loopback_for_local_tooling=True,
-                    )
+                    base = self._validate_base_url(leased_url, purpose="Ollama")
                     use_thinking = enable_thinking and self._ollama_thinking_supported is not False
                     return self._try_single_ollama_request(
                         base, leased_url, system, messages, use_thinking
@@ -286,7 +273,6 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         self, base: str, system: str, messages: list[ChatMessage], think: bool
     ) -> LLMResponse:
         start_time = time.monotonic()
-        http_client = self._shared_client()
         payload: dict[str, Any] = {
             "model": self._config.model,
             "stream": False,
@@ -316,17 +302,16 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         if ollama_opts:
             payload["options"] = ollama_opts
         headers = inject_trace_context({"Content-Type": "application/json"})
-        response = http_client.post(
+        raw_res, _headers = request_limited_json(
+            self._shared_client(),
+            "POST",
             f"{base}/api/chat",
             json=payload,
             headers=headers,
             timeout=self._request_timeout(),
         )
-        response.raise_for_status()
         if think and self._ollama_thinking_supported is None:
             self._ollama_thinking_supported = True
-
-        raw_res = read_limited_json(response)
         wall_elapsed = time.monotonic() - start_time
 
         msg = raw_res.get("message", {})
@@ -434,11 +419,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 with acquire_ollama_slot(
                     remaining_candidates, max_parallel=max_par, priority=priority
                 ) as leased_url:
-                    base = self._validate_base_url(
-                        leased_url,
-                        purpose="Ollama",
-                        allow_loopback_for_local_tooling=True,
-                    )
+                    base = self._validate_base_url(leased_url, purpose="Ollama")
                     use_thinking = enable_thinking and self._ollama_thinking_supported is not False
                     yield from self._try_single_ollama_stream(
                         base, leased_url, system, messages, use_thinking
@@ -491,11 +472,10 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
 
     def _fetch_ollama_tags(self, base: str) -> list[str]:
         """Fetch available model tags from single Ollama host."""
-        http_client = self._shared_client()
-        response = http_client.get(f"{base}/api/tags", timeout=self._request_timeout())
-        response.raise_for_status()
-        models_data = read_limited_json(response).get("models", [])
-        return [model_info["name"] for model_info in models_data]
+        tags, _headers = request_limited_json(
+            self._shared_client(), "GET", f"{base}/api/tags", timeout=self._request_timeout()
+        )
+        return [model_info["name"] for model_info in tags.get("models", [])]
 
     def _ollama_models(self) -> list[str]:
         candidates = self._get_ollama_urls_loop()
@@ -503,11 +483,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
 
         for _idx, candidate_url in candidates:
             try:
-                base = self._validate_base_url(
-                    candidate_url,
-                    purpose="Ollama",
-                    allow_loopback_for_local_tooling=True,
-                )
+                base = self._validate_base_url(candidate_url, purpose="Ollama")
                 return self._fetch_ollama_tags(base)
             except (
                 httpx2.ConnectError,

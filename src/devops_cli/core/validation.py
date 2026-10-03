@@ -20,6 +20,7 @@ from devops_cli.config.constants import (
     CONST_CLOUD_METADATA_IPS,
     CONST_K8S_LABEL_RE,
     CONST_K8S_SUBDOMAIN_RE,
+    CONST_LOOPBACK_HOSTNAME,
 )
 from devops_cli.config.defaults import DEFAULT_DNS_TIMEOUT_SECONDS
 from devops_cli.exceptions import (
@@ -322,6 +323,34 @@ def validate_service_url(url: str, purpose: str = "service", *, allow: bool = Fa
     DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true is set in the environment.
     """
     validate_url(url, purpose=purpose, allow_private=allow)
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Whether a host is `localhost` or a loopback address, decided without a DNS query."""
+    clean = host.strip().lower().strip("[]").rstrip(".")
+    if clean == CONST_LOOPBACK_HOSTNAME:
+        return True
+    try:
+        return ipaddress.ip_address(clean).is_loopback
+    except ValueError:
+        return False
+
+
+def validate_configured_service_url(
+    url: str, purpose: str = "service", *, allow_private: bool = False
+) -> None:
+    """Validate a service URL taken from the user's own configuration.
+
+    Loopback (`localhost`, 127.0.0.0/8, ::1) is the workstation itself, so a configured local
+    service, such as the example config's Qdrant and Ollama, is reached without
+    `allow_private_network`. Every other non-public host, private ranges among them, is refused
+    as `validate_service_url` refuses it unless `allow_private` or
+    DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK permits it, and cloud metadata hosts always are. URLs
+    that do not come from configuration, as the HTTP broker's and tool downloads', keep
+    `validate_service_url`.
+    """
+    host = urlparse(str(url).strip()).hostname or ""
+    validate_url(url, purpose=purpose, allow_private=allow_private or _is_loopback_host(host))
 
 
 def validate_path(

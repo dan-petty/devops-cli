@@ -44,13 +44,7 @@ class BaseLLMProviderMixin:
     def backend_host(self) -> str:
         raise NotImplementedError
 
-    def _validate_base_url(
-        self,
-        base_url: str,
-        purpose: str = "API",
-        *,
-        allow_loopback_for_local_tooling: bool = False,
-    ) -> str:
+    def _validate_base_url(self, base_url: str, purpose: str = "API") -> str:
         raise NotImplementedError
 
     def _request_timeout(self) -> httpx2.Timeout:

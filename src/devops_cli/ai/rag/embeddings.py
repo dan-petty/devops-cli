@@ -54,8 +54,8 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_EMBEDDING_TTL_SECONDS,
 )
 from devops_cli.config.settings import AIConfig
+from devops_cli.core.validation import validate_configured_service_url
 from devops_cli.exceptions.base import DevOpsCLIError
-from devops_cli.http.validation import validate_service_url
 from devops_cli.lang import ERRORS
 from devops_cli.telemetry import (
     ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor,
@@ -517,7 +517,9 @@ class EmbeddingsEngine:
 
     def _probe_single_ollama_url(self, base_url: str, timeout: httpx2.Timeout) -> int | None:
         try:
-            validate_service_url(base_url, "Ollama", allow=self.ai_config.allow_private_network)
+            validate_configured_service_url(
+                base_url, "Ollama", allow_private=self.ai_config.allow_private_network
+            )
             with httpx2.Client(timeout=timeout) as client:
                 return self._parse_ollama_node_metadata(client, base_url)
         except Exception as exc:
@@ -534,10 +536,10 @@ class EmbeddingsEngine:
         base_url = self._openai_compatible_base_url().rstrip("/")
         is_gateway = self.ai_config.provider.lower() == CONST_AI_GATEWAY_PROVIDER
         try:
-            validate_service_url(
+            validate_configured_service_url(
                 base_url,
                 "LLM gateway" if is_gateway else "OpenAI",
-                allow=self.ai_config.allow_private_network,
+                allow_private=self.ai_config.allow_private_network,
             )
             headers: dict[str, str] = {"Content-Type": "application/json"}
             if self.api_key:
@@ -681,7 +683,9 @@ class EmbeddingsEngine:
 
     def _query_ollama_node_batch(self, base_url: str, batch_texts: list[str]) -> list[list[float]]:
         """Embed a batch on one Ollama node; raise when the node refuses, fails or misanswers."""
-        validate_service_url(base_url, "Ollama", allow=self.ai_config.allow_private_network)
+        validate_configured_service_url(
+            base_url, "Ollama", allow_private=self.ai_config.allow_private_network
+        )
         endpoint = _ollama_embed_endpoint(base_url)
         with trace_span(
             "ai.rag.ollama_embed_batch",
@@ -804,10 +808,10 @@ class EmbeddingsEngine:
             f"{base_url}/embeddings" if base_url.endswith("/v1") else f"{base_url}/v1/embeddings"
         )
         try:
-            validate_service_url(
+            validate_configured_service_url(
                 base_url,
                 "LLM gateway" if is_gateway else "OpenAI",
-                allow=self.ai_config.allow_private_network,
+                allow_private=self.ai_config.allow_private_network,
             )
             client_timeout = httpx2.Timeout(max(self.timeout, 30.0), connect=2.0)
             with httpx2.Client(timeout=client_timeout) as client:

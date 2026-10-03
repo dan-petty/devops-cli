@@ -100,3 +100,29 @@ def route_client(
         client, "_create_http_client", lambda timeout=None: httpx2.Client(transport=transport)
     )
     return sent
+
+
+def route_llm_clients(
+    monkeypatch: pytest.MonkeyPatch,
+    handler: Callable[[httpx2.Request], httpx2.Response],
+) -> list[httpx2.Request]:
+    """Send every request any LLMClient makes, including one built inside the code under test,
+    to `handler`; return the requests, in order."""
+    from devops_cli.ai.client import LLMClient
+
+    sent: list[httpx2.Request] = []
+
+    def record(request: httpx2.Request) -> httpx2.Response:
+        sent.append(request)
+        return handler(request)
+
+    transport = httpx2.MockTransport(record)
+    monkeypatch.setattr(
+        LLMClient, "_shared_client", lambda self: httpx2.Client(transport=transport)
+    )
+    monkeypatch.setattr(
+        LLMClient,
+        "_create_http_client",
+        lambda self, timeout=None: httpx2.Client(transport=transport),
+    )
+    return sent
