@@ -1134,6 +1134,183 @@ def test_an_unchecked_or_failed_lookup_dependency_does_not_invalidate_finding() 
     assert (res1, res2) == (None, None)
 
 
+# Findings the check invalidated once #948 gave it every dependency the session scanned. Each
+# names a package the scan reported CLEAN, and none is a claim about that package's advisories.
+_CLAIMS_A_CLEAN_SCAN_DOES_NOT_ANSWER = [
+    pytest.param(
+        Finding(
+            severity="LOW",
+            location="tests/test_security_bandit.py:107",
+            title="Potential Path Traversal in Bandit Mock",
+            description=(
+                "The `_fake_bandit_1_9` function reads file contents using `path.read_text()` "
+                "without validating that the path is within the expected scope. This could "
+                "allow an attacker to read arbitrary files if the path traversal vulnerability "
+                "exists in how paths are constructed or resolved."
+            ),
+        ),
+        id="20261003-012555-path-traversal-in-a-test-helper",
+    ),
+    pytest.param(
+        Finding(
+            severity="HIGH",
+            location="src/devops_cli/commands/k8s/networking.py:561",
+            title="Command Injection Vulnerability in Kubernetes Process Execution",
+            description=(
+                "The `_discover_ingress_hosts` function calls `runtime.run_subprocess` with "
+                "user-provided context arguments. This could lead to command injection if the "
+                "context name contains shell metacharacters."
+            ),
+        ),
+        id="20260928-040906-command-injection-in-a-kubernetes-call",
+    ),
+    pytest.param(
+        Finding(
+            severity="HIGH",
+            location="src/devops_cli/ai/spend/pricing.py:455-473",
+            title="Unvalidated SSRF in _fetch_raw_pricing_payload",
+            description=(
+                "The function `_fetch_raw_pricing_payload` accepts an arbitrary `source_url` and "
+                "performs an HTTP GET using `httpx2` without checking whether the URL resolves "
+                "to a private or loopback address. The lack of validation directly leads to a "
+                "SSRF vulnerability."
+            ),
+        ),
+        id="20261002-232955-ssrf-through-httpx2",
+    ),
+    pytest.param(
+        Finding(
+            severity="MEDIUM",
+            location="k8s/gpu-feature-discovery/daemonset.yaml:57",
+            title=(
+                "[yaml.kubernetes.security.allow-privilege-escalation.allow-privilege-escalation] "
+                "In Kubernetes, each pod runs in its own isolated environment with its own set of"
+            ),
+            description=(
+                "Semgrep AST flaw (yaml.kubernetes.security.allow-privilege-escalation."
+                "allow-privilege-escalation) at k8s/gpu-feature-discovery/daemonset.yaml:57: "
+                "In Kubernetes, each pod runs in its own isolated environment. By adding the "
+                "`allowPrivilegeEscalation` parameter to your the `securityContext`, you can "
+                "help to ensure that your containerized applications are more secure and less "
+                "vulnerable to privilege escalation attacks."
+            ),
+        ),
+        id="20260930-053418-semgrep-kubernetes-rule",
+    ),
+]
+
+
+def _scanned_clean(*names: str) -> list[Any]:
+    """Dependencies this session's advisory scan resolved CLEAN with no advisory record."""
+    from devops_cli.models.vulnerability import DependencySpec
+
+    return [DependencySpec(name=name, severity="CLEAN", queried=True) for name in names]
+
+
+_SCANNED_CLEAN = "deterministic:scanned_clean_dependency"
+
+
+@pytest.mark.parametrize("finding", _CLAIMS_A_CLEAN_SCAN_DOES_NOT_ANSWER)
+def test_a_clean_scan_leaves_claims_that_are_not_about_the_dependencys_advisories(
+    finding: Finding,
+) -> None:
+    """Verify a finding that names a CLEAN dependency, but not its advisories, is left alone.
+
+    A CLEAN scan refutes only that the pinned version carries a known advisory. Once #948 passed
+    the check every scanned dependency, "vulnerab" plus a word such as kubernetes invalidated a
+    test helper's path traversal, a command injection, an SSRF and Semgrep's own Kubernetes
+    finding, each as "advisory scan reports <name> CLEAN" (#1044).
+    """
+    from devops_cli.ai.review.verification import _check_scanned_clean_dependency
+
+    scanned = _scanned_clean("bandit", "kubernetes", "httpx2")
+
+    assert _check_scanned_clean_dependency(finding, scanned) is None
+
+
+def test_a_claim_that_a_clean_dependency_carries_known_vulnerabilities_is_invalidated() -> None:
+    """Verify a claim about the package itself is still refuted by the scan (#1044)."""
+    from devops_cli.ai.review.verification import _check_scanned_clean_dependency
+
+    finding = Finding(
+        severity="HIGH",
+        location="pyproject.toml:40",
+        title="kubernetes 29.0.0 carries known vulnerabilities",
+        description="Upgrade the pinned client.",
+    )
+    result = _check_scanned_clean_dependency(finding, _scanned_clean("kubernetes"))
+
+    assert result is not None
+    assert (result.status, result.verified_by) == ("INVALIDATED", _SCANNED_CLEAN)
+
+
+@pytest.mark.parametrize(
+    ("description", "verified_by"),
+    [
+        ("The pinned kubernetes has a CVE.", _SCANNED_CLEAN),
+        ("The pinned kubernetes has two CVEs.", _SCANNED_CLEAN),
+        ("The pinned kubernetes is affected by CVE-2024-24762.", _SCANNED_CLEAN),
+        ("The pinned kubernetes is affected by GHSA-2jv5-9r88-3w3p.", _SCANNED_CLEAN),
+        ("The pinned kubernetes has a published advisory.", _SCANNED_CLEAN),
+        ("The pinned kubernetes has published advisories.", _SCANNED_CLEAN),
+        ("The pinned kubernetes is unpatched.", _SCANNED_CLEAN),
+        ("The pinned kubernetes has a known vulnerability.", _SCANNED_CLEAN),
+        ("The pinned kubernetes is a vulnerable version.", _SCANNED_CLEAN),
+        ("The kubernetes call is vulnerable to command injection.", None),
+        ("The pinned kubernetes is outdated.", None),
+    ],
+)
+def test_only_advisory_wording_makes_a_claim_the_scan_answers(
+    description: str, verified_by: str | None
+) -> None:
+    """Verify the words that make a finding a claim about a dependency's advisories (#1044).
+
+    "CVE", a GHSA id, "advisory", "unpatched", "known vulnerability" and "vulnerable version"
+    do. Bare "vulnerable" does not, nor "outdated": a CLEAN scan says the pinned version has no
+    advisory, not that it is current.
+    """
+    from devops_cli.ai.review.verification import _check_scanned_clean_dependency
+
+    finding = Finding(
+        severity="MEDIUM", location="pyproject.toml:40", title="Client", description=description
+    )
+    result = _check_scanned_clean_dependency(finding, _scanned_clean("kubernetes"))
+
+    assert (None if result is None else result.verified_by) == verified_by
+
+
+def test_the_first_early_check_that_fires_gives_the_verdict() -> None:
+    """Verify a later early check does not overwrite the verdict an earlier one gave (#1044).
+
+    `apply_verdict` writes on the finding itself, so when every early check ran, the last one to
+    fire gave the reason. A manifest finding that cites `CVE-2024-xxxx` and speaks of Kubernetes
+    best practices (session `20260930-232803`) read "advisory scan reports kubernetes CLEAN"
+    instead of a placeholder advisory.
+    """
+    from devops_cli.ai.review.verification import _check_early_hallucinations
+
+    finding = Finding(
+        severity="HIGH",
+        location="k8s/cloudflared/deployment.yaml:25-30",
+        title="Missing image digest for cloudflared container",
+        description=(
+            "The deployment specifies the image as `cloudflare/cloudflared:2026.9.3` without a "
+            "digest. This violates Kubernetes best practices for image immutability and can "
+            "expose the cluster to the CVE-2024-xxxx risk of image tampering."
+        ),
+    )
+    result = _check_early_hallucinations(finding, _scanned_clean("kubernetes"))
+
+    assert result is not None
+    reason = result.invalidation_reason or ""
+    assert (result.status, result.verified_by, "CVE-2024-xxxx" in reason, "CLEAN" in reason) == (
+        "INVALIDATED",
+        "deterministic:placeholder_advisory",
+        True,
+        False,
+    )
+
+
 # =============================================================================
 # Verifier prompt rule coverage
 # =============================================================================
