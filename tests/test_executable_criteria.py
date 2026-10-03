@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -10,15 +11,18 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from devops_cli.ai.client import LLMResponse
 from devops_cli.ai.review.criteria_evidence import counts_as_evidence
 from devops_cli.ai.review.review_environment import (
     execute_criterion_command,
     execute_finding_criteria,
     validate_criteria_command,
 )
+from devops_cli.ai.review.verification import _validate_segment_findings
 from devops_cli.ai.review_schema import (
     CriterionExecutionResult,
     Finding,
+    ReviewResult,
     VerificationCriterion,
 )
 from devops_cli.config.defaults import DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS
@@ -293,8 +297,12 @@ def test_assertions_over_no_cited_code_do_not_verify(tmp_path: Path) -> None:
     ) == (("UNVERIFIED", False, True, None, None), [True, True], [])
 
 
-def test_an_assertion_over_the_cited_code_verifies(tmp_path: Path) -> None:
-    """A command that imports the cited module and asserts its outcome settles VERIFIED."""
+def test_an_assertion_over_the_cited_code_leaves_the_finding_for_the_verifier(
+    tmp_path: Path,
+) -> None:
+    """A passing verification command that imports the cited module and asserts its outcome is
+    recorded as matched, and the finding stays unverified for the verifier: the evidence rule
+    cannot tell which side of the claim a pass supports (#1043)."""
     command = "python -c 'from app import f; assert f(1) == 2'"
     finding = Finding(
         title="f adds one",
@@ -305,30 +313,23 @@ def test_an_assertion_over_the_cited_code_verifies(tmp_path: Path) -> None:
 
     updated = execute_finding_criteria(finding, repo_root=_app(tmp_path))
 
-    assert (_verdict(updated), updated.verified_criteria_matched) == (
-        ("VERIFIED", True, True, "criteria", 1.0),
-        [command],
-    )
+    assert (_verdict(updated), updated.verified_criteria_matched) == (_NO_VERDICT, [command])
 
 
-def test_finding_criteria_partial_pass_derives_partial_confidence(tmp_path: Path) -> None:
-    """One of two assertions over the cited code passing verifies at half confidence."""
+def test_verification_criteria_that_pass_in_part_give_no_confidence(tmp_path: Path) -> None:
+    """One of two assertions over the cited code passing is recorded as matched, and the
+    criteria give the finding no confidence (#1043). It verified at half confidence before."""
+    passing = "python -c 'from app import f; assert f(1) == 2'"
     finding = Finding(
         title="Partial defect",
         location="app.py:2",
         severity="MEDIUM",
-        verification_criteria=[
-            "python -c 'from app import f; assert f(1) == 2'",
-            "python -c 'from app import f; assert f(1) == 3'",
-        ],
+        verification_criteria=[passing, "python -c 'from app import f; assert f(1) == 3'"],
     )
 
     updated = execute_finding_criteria(finding, repo_root=_app(tmp_path))
 
-    assert (_verdict(updated), len(updated.verified_criteria_matched)) == (
-        ("VERIFIED", True, True, "criteria", 0.5),
-        1,
-    )
+    assert (_verdict(updated), updated.verified_criteria_matched) == (_NO_VERDICT, [passing])
 
 
 def test_an_assertion_over_no_cited_code_does_not_invalidate(tmp_path: Path) -> None:
@@ -458,13 +459,13 @@ def test_a_command_that_runs_the_cited_code_and_asserts_counts(
     location: str, command: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Asserting over what the cited module computes, or over the cited file as parsed, is
-    evidence."""
+    evidence: the command is recorded as matched, and the verifier judges the finding (#1043)."""
     _replaying(monkeypatch, [_passed(command)])
     finding = Finding(title="Defect", location=location, verification_criteria=[command])
 
     updated = execute_finding_criteria(finding, repo_root=tmp_path)
 
-    assert _verdict(updated) == ("VERIFIED", True, True, "criteria", 1.0)
+    assert (_verdict(updated), updated.verified_criteria_matched) == (_NO_VERDICT, [command])
 
 
 _ASSERTS_F = "python -c 'from app import f; assert f(1) == 2'"
@@ -535,28 +536,32 @@ def _sandbox_for_a_run_of(seconds: float) -> MagicMock:
 
 
 _NO_VERDICT = ("UNVERIFIED", False, True, None, None)
+_INVALIDATED_BY_CRITERIA = ("INVALIDATED", False, False, "criteria", 0.0)
 
 
 @pytest.mark.parametrize(
-    ("side", "command", "verdict"),
+    ("side", "command", "verdict", "matched"),
     [
-        ("verification_criteria", _PRINTS_F, _NO_VERDICT),
-        ("invalidation_criteria", _PRINTS_F, _NO_VERDICT),
-        ("verification_criteria", _ASSERTS_F, ("VERIFIED", True, True, "criteria", 1.0)),
-        ("invalidation_criteria", _ASSERTS_F, ("INVALIDATED", False, False, "criteria", 0.0)),
+        ("verification_criteria", _PRINTS_F, _NO_VERDICT, ([], [])),
+        ("invalidation_criteria", _PRINTS_F, _NO_VERDICT, ([], [])),
+        ("verification_criteria", _ASSERTS_F, _NO_VERDICT, ([_ASSERTS_F], [])),
+        ("invalidation_criteria", _ASSERTS_F, _INVALIDATED_BY_CRITERIA, ([], [_ASSERTS_F])),
     ],
     ids=["verify-print", "invalidate-print", "verify-assert", "invalidate-assert"],
 )
-def test_a_criterion_the_python_limit_lets_finish_settles_a_verdict_only_if_it_asserts(
+def test_a_criterion_the_python_limit_lets_finish_counts_only_if_it_asserts(
     side: str,
     command: str,
     verdict: tuple[str, bool, bool, str | None, float | None],
+    matched: tuple[list[str], list[str]],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A python criterion that timed out at 5 s finishes and passes within the python limit,
-    and the evidence rule still decides what it settles: printing what the cited code returns
-    settles nothing, asserting over it settles the verdict (#846, #847).
+    and the evidence rule still decides what it counts for: printing what the cited code
+    returns counts for nothing, and asserting over it counts. As an invalidation criterion it
+    settles INVALIDATED; as a verification criterion it is recorded as matched and leaves the
+    finding to the verifier (#846, #847, #1043).
 
     The print case stands for the merge-order replay, which on #847 without #846 ended VERIFIED."""
     from devops_cli.config.defaults import DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS
@@ -574,7 +579,8 @@ def test_a_criterion_the_python_limit_lets_finish_settles_a_verdict_only_if_it_a
         [call.kwargs["timeout"] for call in sandbox.execute.call_args_list],
         [(r.passed, r.timed_out) for r in updated.criteria_execution_results],
         _verdict(updated),
-    ) == (True, [DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS], [(True, False)], verdict)
+        (updated.verified_criteria_matched, updated.invalidated_criteria_matched),
+    ) == (True, [DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS], [(True, False)], verdict, matched)
 
 
 def _app_with_its_own_environment(tmp_path: Path) -> Path:
@@ -598,19 +604,17 @@ def _app_with_its_own_environment(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize(
-    ("command", "verdict"),
-    [
-        (_PRINTS_F, _NO_VERDICT),
-        (_ASSERTS_F, ("VERIFIED", True, True, "criteria", 1.0)),
-    ],
+    ("command", "matched"),
+    [(_PRINTS_F, []), (_ASSERTS_F, [_ASSERTS_F])],
     ids=["print", "assert"],
 )
-def test_under_the_project_interpreter_only_an_assertion_settles_a_verdict(
-    command: str, verdict: tuple[str, bool, bool, str | None, float | None], tmp_path: Path
+def test_under_the_project_interpreter_only_an_assertion_counts(
+    command: str, matched: list[str], tmp_path: Path
 ) -> None:
     """Live test: run by the reviewed project's own interpreter, a criterion importing code that
-    needs the project's dependencies passes, and only one that asserts over it settles a verdict
-    (#846, #847). Under the system Python both failed on the import and settled nothing."""
+    needs the project's dependencies passes, and only one that asserts over it counts as
+    evidence (#846, #847). Neither settles a verdict: a verification criterion leaves the finding
+    to the verifier (#1043). Under the system Python both failed on the import."""
     finding = Finding(
         title="f adds one", location="app.py:2", severity="HIGH", verification_criteria=[command]
     )
@@ -620,7 +624,8 @@ def test_under_the_project_interpreter_only_an_assertion_settles_a_verdict(
     assert (
         [(r.passed, r.stderr) for r in updated.criteria_execution_results],
         _verdict(updated),
-    ) == ([(True, "")], verdict)
+        updated.verified_criteria_matched,
+    ) == ([(True, "")], _NO_VERDICT, matched)
 
 
 # An assertion over the cited code that fails: `f(1)` is 2.
@@ -728,6 +733,233 @@ def test_the_sessions_worst_commands_settle_no_verdict(
         ("UNVERIFIED", False, True, None, None),
         len(case["results"]),
     )
+
+
+_DIRECTION = {
+    case["id"]: case
+    for case in json.loads(
+        (Path(__file__).parent / "golden" / "criteria_direction.json").read_text(encoding="utf-8")
+    )["cases"]
+}
+
+
+def _golden(case_id: str, root: Path, monkeypatch: pytest.MonkeyPatch) -> Finding:
+    """The golden case's finding, with the cited file written at its path under `root`, holding
+    the case's lines at their numbers, and its commands replayed with the results they gave."""
+    case = _DIRECTION[case_id]
+    finding = Finding(**case["finding"])
+    lines: dict[str, str] = case["cited_lines"]
+    cited = root / finding.location.split(":")[0]
+    cited.parent.mkdir(parents=True, exist_ok=True)
+    cited.write_text(
+        "".join(f"{lines.get(str(n), '')}\n" for n in range(1, max(map(int, lines)) + 1)),
+        encoding="utf-8",
+    )
+    _replaying(monkeypatch, [CriterionExecutionResult(**r) for r in case["results"]])
+    return finding
+
+
+def _verifier(reply: str, finish_reason: str = "stop") -> MagicMock:
+    """A verifier client stand-in that gives `reply` and calls no model."""
+    client = MagicMock()
+    client.chat.return_value = LLMResponse(reply, finish_reason=finish_reason)
+    return client
+
+
+def _shown(client: MagicMock) -> list[list[str]]:
+    """The locations of the findings each verifier prompt showed, one list per call."""
+    shown = re.compile(r"<untrusted_findings_input>\n```json\n(.*?)\n```", re.DOTALL)
+    return [
+        [f["location"] for f in json.loads(shown.findall(call.kwargs["user"])[0])]
+        for call in client.chat.call_args_list
+    ]
+
+
+def _verify(
+    finding: Finding, client: MagicMock, root: Path, monkeypatch: pytest.MonkeyPatch
+) -> Finding:
+    """The finding after file verification under `root`, the RAG lookup stubbed out."""
+    monkeypatch.setattr(
+        "devops_cli.ai.review.verification._collect_rag_verification_blocks", lambda _: []
+    )
+    result, _, _ = _validate_segment_findings(
+        ReviewResult(findings=[finding]), ["code"], client, repo_root=root
+    )
+    return result.findings[0]
+
+
+# The verifier's refutation of the chunker.py:395 claim, citing the line that calls `full_match`.
+_FULL_MATCH_EXISTS = json.dumps(
+    [
+        {
+            "finding_id": 1,
+            "status": "INVALIDATED",
+            "verified": False,
+            "invalidated": True,
+            "citation_line": 395,
+            "confidence_score": 0.9,
+            "reason": "`PurePath.full_match` exists on Python 3.13 and later and the project "
+            "requires 3.14, so `posix.full_match(pattern)` raises no AttributeError.",
+        }
+    ]
+)
+
+
+@pytest.mark.parametrize(
+    ("reply", "finish_reason", "outcome"),
+    [
+        (_FULL_MATCH_EXISTS, "length", ("UNVERIFIED", None, None, "verifier-reply-cut")),
+        ("[]", "stop", ("UNVERIFIED", None, None, "verifier-no-verdict")),
+        (_FULL_MATCH_EXISTS, "stop", ("INVALIDATED", "llm", 0.9, None)),
+    ],
+    ids=["cut", "no-verdict", "refuted"],
+)
+def test_criteria_that_assert_the_opposite_of_the_claim_leave_it_to_the_verifier(
+    reply: str,
+    finish_reason: str,
+    outcome: tuple[str, str | None, float | None, str | None],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Golden S8 chunker.py:395: a false claim that `PurePosixPath` has no `full_match`, whose
+    verification criteria assert the function returns the right value and pass. They count as
+    evidence and are recorded, and the verifier judges the finding: a cut reply or one without a
+    verdict leaves it unverified with that note, and a refutation invalidates it (#1043).
+
+    Before, it ended VERIFIED by criteria at confidence 1.0 and the verifier never saw it."""
+    finding = _golden("chunker-full-match", tmp_path, monkeypatch)
+    client = _verifier(reply, finish_reason)
+
+    judged = _verify(finding, client, tmp_path, monkeypatch)
+
+    assert (
+        _shown(client),
+        (judged.status, judged.verified_by, judged.confidence_score, judged.verification_note),
+        judged.verified_criteria_matched,
+    ) == (
+        [[finding.location]],
+        outcome,
+        [c.command for c in finding.verification_criteria],
+    )
+
+
+def test_a_passing_run_of_the_cited_test_refutes_the_claim_that_it_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Golden S8 test_rag_multi_project_indexer.py:66: the invalidation criterion calls the test
+    that spans the cited line, whose own asserts are the check, and it passed. The finding ends
+    INVALIDATED by criteria and the verifier is not asked (#1043). Before, the command did not
+    count, and the verifier's reply was cut."""
+    finding = _golden("test-rag-indexing", tmp_path, monkeypatch)
+    command = finding.invalidation_criteria[0].command
+    client = _verifier("[]")
+
+    judged = _verify(finding, client, tmp_path, monkeypatch)
+
+    assert (
+        client.chat.called,
+        _verdict(judged),
+        judged.invalidated_criteria_matched,
+        judged.invalidation_reason,
+    ) == (
+        False,
+        _INVALIDATED_BY_CRITERIA,
+        [command],
+        f"Invalidation criterion verified: {command}",
+    )
+
+
+def test_a_passing_run_of_the_cited_test_does_not_confirm_a_claim_against_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Golden tests/test_pipeline_protocol.py:114 (20260928-201857): a claim that the test is
+    wrong, whose verification criterion calls that test. The pass counts and is recorded, and
+    the finding stays unverified without a note, which leaves it to the verifier; that session
+    VERIFIED it by criteria (#1043). At this tip the catalog's masked-secret entry settles the
+    finding before its criteria run, so the criteria are replayed on their own."""
+    finding = _golden("pipeline-protocol-masking", tmp_path, monkeypatch)
+
+    updated = execute_finding_criteria(finding, repo_root=tmp_path)
+
+    assert (_verdict(updated), updated.verified_criteria_matched, updated.verification_note) == (
+        _NO_VERDICT,
+        [finding.verification_criteria[0].command],
+        None,
+    )
+
+
+_INDEXER_TEST = "from tests.test_rag_multi_project_indexer import"
+
+
+@pytest.mark.parametrize(
+    ("command", "counts"),
+    [
+        (_DIRECTION["test-rag-indexing"]["finding"]["invalidation_criteria"][0]["command"], True),
+        (f"python -c '{_INDEXER_TEST} test_multi_project_indexing as run; run(None)'", True),
+        # Another test of the module: the one that spans line 13.
+        (
+            f"python -c '{_INDEXER_TEST} test_detect_project_name; test_detect_project_name(None)'",
+            False,
+        ),
+        # A failure the script catches, or hands to a function, is not the command's.
+        (
+            f"python -c '{_INDEXER_TEST} test_multi_project_indexing\\ntry:\\n"
+            "    test_multi_project_indexing(None)\\nexcept Exception:\\n    pass'",
+            False,
+        ),
+        (
+            f"python -c 'import pytest; {_INDEXER_TEST} test_multi_project_indexing; "
+            "pytest.raises(TypeError, test_multi_project_indexing)'",
+            False,
+        ),
+    ],
+    ids=["s8", "alias", "another-test", "caught", "handed-on"],
+)
+def test_a_bare_call_of_the_test_that_spans_the_cited_line_counts(
+    command: str, counts: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A `python -c` script that calls, as a statement of its own, the test whose definition
+    spans the cited line, imported from the cited test module, checks the cited code: the
+    test's asserts fail the command (#1043)."""
+    finding = _golden("test-rag-indexing", tmp_path, monkeypatch)
+
+    assert counts_as_evidence(command, finding.location, tmp_path) is counts
+
+
+@pytest.mark.parametrize(
+    ("path", "source", "command"),
+    [
+        ("app.py", "\ndef f(x):\n    return x + 1\n", "python -c 'from app import f; f(1)'"),
+        (
+            "app.py",
+            "\ndef test_f():\n    assert False\n",
+            "python -c 'from app import test_f; test_f()'",
+        ),
+        (
+            "tests/test_app.py",
+            "\ndef make_app():\n    assert False\n",
+            "python -c 'from tests.test_app import make_app; make_app()'",
+        ),
+        (
+            "tests/test_app.py",
+            "\nasync def test_f():\n    assert False\n",
+            "python -c 'from tests.test_app import test_f; test_f()'",
+        ),
+    ],
+    ids=["function", "test-named-outside-tests", "helper-of-a-test-module", "async-test"],
+)
+def test_a_bare_call_of_a_cited_function_that_is_not_a_test_never_counts(
+    path: str, source: str, command: str, tmp_path: Path
+) -> None:
+    """A call that returns shows only that the function did not raise for those inputs. Only a
+    test's own asserts make the call a check: not a function of a module pytest does not
+    collect, not a test module's helper, and not an async test, whose bare call never runs it
+    (#1043)."""
+    cited = tmp_path / path
+    cited.parent.mkdir(parents=True, exist_ok=True)
+    cited.write_text(source, encoding="utf-8")
+
+    assert counts_as_evidence(command, f"{path}:2", tmp_path) is False
 
 
 def test_unexecutable_prose_criteria_does_not_manufacture_confidence() -> None:

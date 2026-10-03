@@ -28,6 +28,7 @@ from devops_cli.ai.review_schema import (
     ReviewSessionPayload,
     SavedFinding,
     VerificationCriterion,
+    _merge_two_findings,
     compute_verdict_distributions,
 )
 from devops_cli.commands.review import app
@@ -115,36 +116,45 @@ def test_verdict_invariants_enforcement_raises() -> None:
         assert_verdict_invariants([bad_mit_rep])
 
 
-def test_criteria_execution_verdict_finality(tmp_path: Path) -> None:
-    """Findings verified by criteria are not re-sent to the model or overwritten."""
+def test_criteria_execution_verdict_finality(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A finding a passing verification criterion supports is not final: the verifier is shown
+    it and its verdict applies, with the criterion still recorded as matched (#1043). Only a
+    criteria INVALIDATED verdict is final."""
+    monkeypatch.setattr(
+        "devops_cli.ai.review.verification._collect_rag_verification_blocks", lambda _: []
+    )
     py_file = tmp_path / "app.py"
     py_file.write_text("def test_func():\n    pass\n", encoding="utf-8")
 
+    command = "python -c 'from app import test_func; assert test_func() is None'"
     crit = VerificationCriterion(
-        description="test_func returns nothing",
-        command="python -c 'from app import test_func; assert test_func() is None'",
-        executable=True,
+        description="test_func returns nothing", command=command, executable=True
     )
     f_crit = Finding(
-        title="Missing function",
+        title="test_func returns None instead of a result",
         location=f"{py_file.name}:1",
         verification_criteria=[crit],
     )
 
     res_finding = execute_finding_criteria(f_crit, repo_root=tmp_path)
-    assert (res_finding.status, res_finding.verified, res_finding.verified_by) == (
-        "VERIFIED",
-        True,
-        "criteria",
-    )
+    assert (
+        res_finding.status,
+        res_finding.verified_by,
+        res_finding.confidence_score,
+        res_finding.verified_criteria_matched,
+    ) == ("UNVERIFIED", None, None, [command])
 
     mock_client = MagicMock()
     mock_client.chat.return_value = json.dumps(
         [
             {
                 "finding_id": 1,
-                "status": "INVALIDATED",
-                "reason": "Overwriting claim",
+                "status": "VERIFIED",
+                "verified": True,
+                "confidence_score": 0.8,
+                "reason": "test_func at line 1 has no return statement, so it returns None.",
             }
         ]
     )
@@ -158,12 +168,44 @@ def test_criteria_execution_verdict_finality(tmp_path: Path) -> None:
     )
 
     final_f = validated_res.findings[0]
-    assert (final_f.status, final_f.verified, final_f.verified_by) == (
-        "VERIFIED",
-        True,
-        "criteria",
-    )
-    mock_client.chat.assert_not_called()
+    assert (
+        mock_client.chat.call_count,
+        f_crit.title in mock_client.chat.call_args.kwargs["user"],
+        (final_f.status, final_f.verified, final_f.verified_by, final_f.confidence_score),
+        final_f.verified_criteria_matched,
+    ) == (1, True, ("VERIFIED", True, "llm", 0.8), [command])
+
+
+@pytest.mark.parametrize(
+    ("base", "other", "verified_by"),
+    [
+        (("VERIFIED", "llm"), ("VERIFIED", "human"), "llm"),
+        (("UNVERIFIED", None), ("VERIFIED", "llm"), "llm"),
+        (("INVALIDATED", "deterministic:syntax_error"), ("VERIFIED", "llm"), "llm"),
+        (("VERIFIED", None), ("VERIFIED", None), None),
+    ],
+    ids=["both-verified", "one-verified", "verified-over-invalidated", "no-adjudicator"],
+)
+def test_a_merge_keeps_the_adjudicator_of_the_verified_input(
+    base: tuple[str, str | None], other: tuple[str, str | None], verified_by: str | None
+) -> None:
+    """Merging duplicates into a VERIFIED finding keeps the adjudicator of a verified input. It
+    never names `criteria`, which settles no VERIFIED verdict, nor the adjudicator of an input
+    that was not verified (#1043)."""
+
+    def finding(status: str, by: str | None) -> Finding:
+        return Finding(
+            title="Shell command built from input",
+            location="app.py:2",
+            status=status,
+            verified=status == "VERIFIED",
+            reportable=status != "INVALIDATED",
+            verified_by=by,
+        )
+
+    merged = _merge_two_findings(finding(*base), finding(*other))
+
+    assert (merged.status, merged.verified_by) == ("VERIFIED", verified_by)
 
 
 def test_adversarial_debate_verdict_invariants() -> None:
