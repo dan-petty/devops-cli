@@ -9,20 +9,24 @@ cached.
 
 Every Item and Card field write also records the value it set in the card's job record, so a
 job can tell a person's change from its own by comparing a field with its record (ADR 0002).
+The record also holds a job's own marks on an Item, such as the Release whose admitted set it is
+in, which change no field. The run record is the job record of one draft issue card, the run
+record card, which holds what a job keeps about the repository as a whole.
 """
 
 from __future__ import annotations
 
-from collections.abc import Container, Iterable, Mapping, Sequence
+from collections.abc import Collection, Container, Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from enum import StrEnum
+from functools import lru_cache
 from typing import Protocol, cast, runtime_checkable
 
 from packaging.version import InvalidVersion, Version
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from devops_cli.config.constants import CONST_GH_PROJECT_JOB_RECORD_FIELD
-from devops_cli.config.defaults import DEFAULT_GH_PROJECT_OPTION_COLOR
+from devops_cli.config.defaults import DEFAULT_GH_PROJECT_OPTION_COLOR, DEFAULT_RELEASE_LABEL
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.validation import InvalidVersionError
 
@@ -70,7 +74,14 @@ class CloseReason(StrEnum):
 
 
 class ChangeKind(StrEnum):
-    """What happened to an Item, as the repository's issue events report it."""
+    """What happened to an Item or a Release.
+
+    The first six are what the repository's issue events report, and the GitHub adapter reads
+    them. GitHub reports none of the rest as an issue event: a poll finds them by comparing what
+    it reads with what it read before (ADR 0003). The in-memory adapter records every kind as it
+    happens, as such a poll sees it. The four release kinds carry the Release they concern; the
+    number of a cut, an un-cut or a ship is its release pull request's.
+    """
 
     JOINED_RELEASE = "joined_release"
     LEFT_RELEASE = "left_release"
@@ -78,28 +89,85 @@ class ChangeKind(StrEnum):
     UNLABELED = "unlabeled"
     CLOSED = "closed"
     REOPENED = "reopened"
+    FIELD_CHANGED = "field_changed"
+    BLOCKED_BY_ADDED = "blocked_by_added"
+    BLOCKED_BY_REMOVED = "blocked_by_removed"
+    COMMENTED = "commented"
+    EDITED = "edited"
+    RELEASE_STARTED = "release_started"
+    RELEASE_CUT = "release_cut"
+    RELEASE_UNCUT = "release_uncut"
+    RELEASE_SHIPPED = "release_shipped"
 
 
-JobRecord = dict[ItemField, str | None]
+# The kinds that concern a Release, not an Item.
+RELEASE_CHANGE_KINDS: frozenset[ChangeKind] = frozenset(
+    {
+        ChangeKind.RELEASE_STARTED,
+        ChangeKind.RELEASE_CUT,
+        ChangeKind.RELEASE_UNCUT,
+        ChangeKind.RELEASE_SHIPPED,
+    }
+)
+
+
+class JobMark(StrEnum):
+    """A job's own note, kept in a job record beside the fields it set.
+
+    A mark names a Release by its milestone number, which GitHub keeps when the milestone is
+    renamed. On an Item: `ADMITTED` names the Release whose admitted set the Item is in. `LEFT`
+    names where a person took the Item out of since a job last placed it: a Release, or
+    `backlog` (`CONST_ROADMAP_LEFT_BACKLOG`). Its return there is then never mistaken for the
+    job's own placement, and where the person put it counts as a person's placement; a job
+    that places the Item clears it. `NUDGED` holds when a job last nudged the Item, as an ISO
+    8601 time. `PENDING` holds a change a job began on the Item and has not finished, as JSON,
+    so its next run judges it again and finishes it.
+
+    In the run record: `STARTED` names the Release the job last started, or recorded at its
+    first run, and `SIZE` gives that Release's size then; a first run writes `SIZE` last.
+    """
+
+    ADMITTED = "Admitted"
+    LEFT = "Left"
+    NUDGED = "Nudged"
+    PENDING = "Pending"
+    STARTED = "Started"
+    SIZE = "Size"
+
+
+class PullRequestState(StrEnum):
+    """Whether a pull request is open, closed without merging, or merged."""
+
+    OPEN = "open"
+    CLOSED = "closed"
+    MERGED = "merged"
+
+
+JobRecord = dict[ItemField | JobMark, str | None]
 
 # ── Models ────────────────────────────────────────────────────────────────────
 
 
+@lru_cache(maxsize=4096)
+def _version_of(title: str) -> Version | None:
+    """The version a title names, or None; titles repeat on every Item, so each parses once."""
+    try:
+        return Version(title)
+    except InvalidVersion:
+        return None
+
+
 def parse_release_version(version: str) -> Version:
     """Parse a Release version, with or without its leading `v`."""
-    try:
-        return Version(version)
-    except InvalidVersion as exc:
-        raise InvalidVersionError(version[:256], tool_name="release") from exc
+    parsed = _version_of(version)
+    if parsed is None:
+        raise InvalidVersionError(version[:256], tool_name="release")
+    return parsed
 
 
 def is_release_title(title: str) -> bool:
     """Report whether a milestone title parses as a version, which makes the milestone a Release."""
-    try:
-        Version(title)
-    except InvalidVersion:
-        return False
-    return True
+    return _version_of(title) is not None
 
 
 def release_title(version: str) -> str:
@@ -167,7 +235,14 @@ class Item(BaseModel):
 
 
 class Change(BaseModel):
-    """One change to an Item, with who made it and when."""
+    """One change to an Item or a Release, with who made it and when.
+
+    `release` is the Release an Item joined or left, the Release a release change concerns, or
+    else the Release the Item is in when the change is read. `field` names the field a change
+    set, the Release for joining or leaving one, and `value` that field's value when the change
+    is read. `job_record` is the Item's job record when the change is read, so a change whose
+    value matches it is a job's own (ADR 0002).
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -177,6 +252,9 @@ class Change(BaseModel):
     at: datetime
     release: str | None = None
     label: str | None = None
+    field: ItemField | None = None
+    value: str | None = None
+    job_record: JobRecord = Field(default_factory=dict)
 
 
 class IssueRecord(BaseModel):
@@ -281,6 +359,51 @@ class Workflow(BaseModel):
     enabled: bool
 
 
+class Dependency(BaseModel):
+    """An issue an Item waits on, through GitHub's blocked-by link; it may be another repository's."""
+
+    model_config = ConfigDict(frozen=True)
+
+    number: int
+    url: str
+    repository: str
+    state: GitHubState
+    release: str | None = None
+
+
+class PullRequest(BaseModel):
+    """A pull request: where it goes, what it says, and when it last moved."""
+
+    model_config = ConfigDict(frozen=True)
+
+    number: int
+    url: str
+    state: PullRequestState = PullRequestState.OPEN
+    draft: bool = False
+    base: str = ""
+    head: str = ""
+    body: str = ""
+    labels: tuple[str, ...] = ()
+    release: str | None = None
+    updated_at: datetime | None = None
+    last_commit_at: datetime | None = None
+
+    @field_validator("state", mode="before")
+    @classmethod
+    def _lower_case_state(cls, state: object) -> object:
+        """GraphQL spells the state in capitals (`OPEN`), REST in lower case."""
+        return state.lower() if isinstance(state, str) else state
+
+
+class Branch(BaseModel):
+    """A branch and the commit at its head."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    sha: str
+
+
 # ── Rules both adapters apply ─────────────────────────────────────────────────
 
 
@@ -291,7 +414,7 @@ def as_utc(moment: datetime) -> datetime:
 
 def in_release(title: str | None, version: Version) -> bool:
     """Report whether a milestone title names the Release of `version`."""
-    return title is not None and is_release_title(title) and Version(title) == version
+    return title is not None and _version_of(title) == version
 
 
 def find_release(releases: Iterable[Release], version: str) -> Release | None:
@@ -345,6 +468,30 @@ def release_edits(
         "state": state,
     }
     return {name: change for name, change in requested.items() if change is not None}
+
+
+def with_marks(record: JobRecord, marks: Mapping[JobMark, str | None]) -> JobRecord:
+    """A copy of the job record with `marks` set or cleared in it."""
+    merged: JobRecord = dict(record)
+    for mark, value in marks.items():
+        merged[mark] = value
+    return merged
+
+
+def is_release_pull_request(
+    pull_request: PullRequest, version: Version, default_branch: str
+) -> bool:
+    """Whether `pull_request` is the Release's pull request, open or not: into the default branch,
+    with the `release` label and the Release's milestone.
+
+    Its head is no test: `devops release pr` opens it from `release/vX.Y.Z`, and #743's cut
+    from `chore/release-vX.Y.Z`. While one is open, the Release is cut, draft or not.
+    """
+    return (
+        pull_request.base == default_branch
+        and DEFAULT_RELEASE_LABEL in pull_request.labels
+        and in_release(pull_request.release, version)
+    )
 
 
 def require_option(
@@ -488,13 +635,25 @@ class RoadmapStore(Protocol):
     def add_item(self, number: int) -> None:
         """Put issue `number` on the board, raising if it is not an issue of this repository."""
 
-    def set_field(self, item: Item, field: ItemField, value: str | None) -> None:
-        """Set or clear one of the Item's fields, then record the value in its job record.
+    def set_field(
+        self,
+        item: Item,
+        field: ItemField,
+        value: str | None,
+        *,
+        marks: Mapping[JobMark, str | None] | None = None,
+    ) -> None:
+        """Record the value in the Item's job record, with `marks` set or cleared in the same
+        write, then set or clear the field.
 
-        A board field takes one of its board options; the Release takes an existing Release's
-        version. Anything else, or an Item no longer on the board, raises before the store
-        changes anything. The record keeps what the store set for the Item's other fields, even
-        when `item` was read before an earlier write.
+        The record comes first, so a field a write may have changed is never left without the
+        record of the job's value: by the record alone, a write that stops between the two
+        reads as the job's value a person changed since, so a job that has to tell the two
+        apart also reads whether the field changed. A board field takes one of its board
+        options; the Release takes an existing Release's version. Anything else, or an Item no
+        longer on the board, raises before the store changes anything. The record keeps what
+        the store set for the Item's other fields, even when `item` was read before an earlier
+        write.
         """
 
     def delete_release(self, version: str) -> None:
@@ -549,6 +708,69 @@ class RoadmapStore(Protocol):
     def workflows(self) -> list[Workflow]:
         """The board's built-in workflows."""
 
+    # ── What the release rules read and write (#740) ──
+
+    def set_marks(
+        self,
+        item: Item,
+        marks: Mapping[JobMark, str | None],
+        *,
+        recorded: Mapping[ItemField, str | None] | None = None,
+        forgotten: Collection[ItemField] = (),
+    ) -> None:
+        """Set or clear a job's marks in the Item's job record in one write, changing none of
+        its fields.
+
+        The same write can record a value for a field (`recorded`), or drop the value the record
+        holds for one (`forgotten`), as for a field no job has set: so a job takes back the
+        record of a field write it began and can't show it made. It raises like `set_field`
+        before the store changes anything: for an Item no longer on the board, or a board with
+        no job record field.
+        """
+
+    def run_record(self) -> JobRecord:
+        """The run record: the run record card's job record, empty while the board has none."""
+
+    def set_run_record(self, marks: Mapping[JobMark, str | None]) -> None:
+        """Set or clear marks in the run record in one write, putting the run record card on
+        the board first when it has none. A board with no job record field raises before any
+        write."""
+
+    def release_changes(self, number: int) -> list[Change]:
+        """Every time issue `number` joined or left a Release, oldest first, as its own events
+        report it."""
+
+    def dependencies(self, number: int) -> list[Dependency]:
+        """The issues issue `number` waits on through GitHub's blocked-by links, open and closed."""
+
+    def status_changed_at(self, number: int) -> datetime | None:
+        """When the Item's Status on the board last changed, or None when it has none."""
+
+    def open_pull_requests(self) -> list[PullRequest]:
+        """Every open pull request of the repository, with its last update and last commit."""
+
+    def release_pull_requests(self, version: str) -> list[PullRequest]:
+        """Every pull request, open, closed or merged, with the `release` label and the milestone
+        of the Release of `version`, raising if there is no such Release."""
+
+    def release_published(self, version: str) -> bool:
+        """Whether GitHub Release `vX.Y.Z` of `version` is published; a draft is not."""
+
+    def default_branch(self) -> Branch:
+        """The repository's default branch and its head commit."""
+
+    def branch(self, name: str) -> str | None:
+        """The head commit of branch `name`, or None when there is no such branch."""
+
+    def create_branch(self, name: str, sha: str) -> None:
+        """Create branch `name` at commit `sha`, raising if it already exists."""
+
+    def comment(self, number: int, body: str) -> None:
+        """Comment `body` on issue `number`."""
+
+    def comments_on(self, number: int) -> list[str]:
+        """The body of every comment on issue `number`, oldest first."""
+
 
 def get_roadmap_store(
     repo: str, *, board_owner: str | None = None, board_number: int | None = None
@@ -566,22 +788,28 @@ def get_roadmap_store(
 
 __all__ = [
     "BOARD_FIELDS",
+    "RELEASE_CHANGE_KINDS",
     "Board",
     "BoardEntry",
     "BoardField",
+    "Branch",
     "Candidate",
     "Card",
     "CardKind",
     "Change",
     "ChangeKind",
     "CloseReason",
+    "Dependency",
     "FieldOption",
     "FieldSpec",
     "GitHubState",
     "IssueRecord",
     "Item",
     "ItemField",
+    "JobMark",
     "JobRecord",
+    "PullRequest",
+    "PullRequestState",
     "Release",
     "RoadmapStore",
     "Workflow",
@@ -590,6 +818,7 @@ __all__ = [
     "find_release",
     "get_roadmap_store",
     "in_release",
+    "is_release_pull_request",
     "is_release_title",
     "join_items",
     "parse_release_version",
@@ -602,4 +831,5 @@ __all__ = [
     "require_option",
     "require_release",
     "select_candidates",
+    "with_marks",
 ]

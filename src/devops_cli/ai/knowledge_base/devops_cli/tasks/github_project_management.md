@@ -120,6 +120,10 @@ devops gh milestones list
 # Regenerate docs/ROADMAP.md from the milestones, issues and board (at the release cut)
 devops roadmap render --ref release/v0.2.25
 
+# Preview the current release's admission, cap, descoping and stall decisions, then make them
+devops roadmap reprioritize --dry-run
+devops roadmap reprioritize --confirm
+
 # Close a release milestone upon release merge or publish
 devops gh milestones close v0.2.14
 ```
@@ -192,7 +196,7 @@ AI coding agents have native access to GitHub project management through these F
 - **Projects**: `gh_project_list`, `gh_project_status`, `gh_project_audit`, `gh_project_sync`
 - **Views**: `gh_views_audit`, `gh_views_sync`, `gh_view_spec`
 - **Milestones**: `gh_milestone_list`, `gh_milestone_close`
-- **Roadmap**: `roadmap_render`, `roadmap_migrate` (preview only)
+- **Roadmap**: `roadmap_render`, `roadmap_migrate` (preview only), `roadmap_reprioritize` (previews unless `dry_run=False`)
 - **Labels**: `gh_label_list`, `gh_label_sync`
 
 ### Registered Dynamic System Resources

@@ -5652,6 +5652,23 @@ devops roadmap render [OPTIONS]
 | `--output`, `-o` | `path` | `docs/ROADMAP.md` | File render writes. |
 | `--dry-run` | `boolean` | - | Print the rendered file to stdout instead of writing it. |
 
+### `devops roadmap reprioritize`
+
+**Hold the current release to its rules: after it starts only a critical fix joins it, a fix that takes it over the cap descopes one unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, each with a reason comment. Once the release ships, close it, branch the next one and fill or trim it to the cap. The first run records the admitted set and moves nothing. Writes only with --confirm.**
+
+```bash
+devops roadmap reprioritize [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--confirm` | `boolean` | - | Make the changes on GitHub. Without it, reprioritize prints its plan only. |
+| `--dry-run` | `boolean` | - | Print each change with its reason, and write nothing. |
+
 ---
 
 ## devops pr
@@ -5881,8 +5898,8 @@ Grounding applies to every PR but the release PR (release/vX.Y.Z into the defaul
 and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
 body closes exactly one issue, and it adds, modifies or renames that issue's
 docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves CHANGELOG.md and
-docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. A base branch without
-docs/agent/tasks/ is exempt.
+docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. Into release/vX.Y.Z,
+the issue it closes is in release vX.Y.Z. A base branch without docs/agent/tasks/ is exempt.
 
 ```bash
 devops pr check-readiness [OPTIONS] <number>
@@ -6962,8 +6979,8 @@ Grounding applies to every PR but the release PR (release/vX.Y.Z into the defaul
 and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
 body closes exactly one issue, and it adds, modifies or renames that issue's
 docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves CHANGELOG.md and
-docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. A base branch without
-docs/agent/tasks/ is exempt.
+docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. Into release/vX.Y.Z,
+the issue it closes is in release vX.Y.Z. A base branch without docs/agent/tasks/ is exempt.
 
 ```bash
 devops gh pr check-readiness [OPTIONS] <number>

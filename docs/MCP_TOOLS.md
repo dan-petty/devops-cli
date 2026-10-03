@@ -123,6 +123,10 @@ Pass the domain name alone, for example `k8s`. |
 
 It never writes. A person reviews the plan and runs `devops roadmap migrate --confirm`. |
 | [`roadmap_render`](#roadmap-render) | Render docs/ROADMAP.md from GitHub's issues, milestones and board; prints it by default. |
+| [`roadmap_reprioritize`](#roadmap-reprioritize) | Hold the current release to its admission rule, cap and stall window, and start the next
+release once it ships; prints each change with its reason.
+
+It previews by default. `dry_run=False` makes the changes (`--confirm`). |
 | [`sandbox_deploy`](#sandbox-deploy) | Deploy an isolated workload container sandbox with security containment and port allocation. |
 | [`sandbox_exec`](#sandbox-exec) | Execute a command inside an active sandbox container. |
 | [`sandbox_network_policy`](#sandbox-network-policy) | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
@@ -1349,6 +1353,21 @@ It never writes. A person reviews the plan and runs `devops roadmap migrate --co
 ### `roadmap_render`
 
 Render docs/ROADMAP.md from GitHub's issues, milestones and board; prints it by default.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+| `ref` | `string` | No | - | - |
+| `dry_run` | `boolean` | No | `True` | - |
+
+### `roadmap_reprioritize`
+
+Hold the current release to its admission rule, cap and stall window, and start the next
+release once it ships; prints each change with its reason.
+
+It previews by default. `dry_run=False` makes the changes (`--confirm`).
 
 **Parameters:**
 

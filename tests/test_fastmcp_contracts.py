@@ -136,6 +136,7 @@ def test_fastmcp_tools_registration() -> None:
         "gh_run_view",
         "roadmap_migrate",
         "roadmap_render",
+        "roadmap_reprioritize",
         "pr_ready",
         "pr_diff",
         "pr_close",
@@ -1311,14 +1312,20 @@ def _roadmap_tool_parameters(name: str) -> dict[str, object]:
 
 
 def test_the_roadmap_tools_are_registered_and_migrate_only_previews() -> None:
-    """`roadmap_migrate` has no confirm parameter: a bulk change is never one tool call away."""
+    """`roadmap_migrate` has no confirm parameter: a bulk change is never one tool call away.
+
+    `roadmap_reprioritize` previews unless it is called with `dry_run=False` (#740).
+    """
     render = _roadmap_tool_parameters("roadmap_render")
     migrate = _roadmap_tool_parameters("roadmap_migrate")
+    reprioritize = _roadmap_tool_parameters("roadmap_reprioritize")
     assert (
         sorted(render),
         render["dry_run"].get("default"),  # type: ignore[attr-defined]
         sorted(migrate),
-    ) == (["dry_run", "ref", "repo"], True, ["ref", "repo"])
+        sorted(reprioritize),
+        reprioritize["dry_run"].get("default"),  # type: ignore[attr-defined]
+    ) == (["dry_run", "ref", "repo"], True, ["ref", "repo"], ["dry_run", "ref", "repo"], True)
 
 
 def test_the_roadmap_tools_resolve_to_the_roadmap_domain_and_hydrate() -> None:
@@ -1327,32 +1334,40 @@ def test_the_roadmap_tools_resolve_to_the_roadmap_domain_and_hydrate() -> None:
 
     before = mcp_server._is_advertised("roadmap_render")
     hydrated = mcp_server.hydrate_tool_domain("roadmap")["hydrated"]
-    after = mcp_server._is_advertised("roadmap_migrate")
+    after = (
+        mcp_server._is_advertised("roadmap_migrate"),
+        mcp_server._is_advertised("roadmap_reprioritize"),
+    )
     mcp_server.reset_hydrated_domains()
     assert (
         resolve_tool_domain("roadmap_render"),
         resolve_tool_domain("roadmap_migrate"),
+        resolve_tool_domain("roadmap_reprioritize"),
         before,
         hydrated,
         after,
-    ) == ("roadmap", "roadmap", False, True, True)
+    ) == ("roadmap", "roadmap", "roadmap", False, True, (True, True))
 
 
 def test_the_roadmap_tools_build_the_commands_argv() -> None:
     from unittest.mock import patch
 
-    from devops_cli.ai.mcp.server import roadmap_migrate, roadmap_render
+    from devops_cli.ai.mcp.server import roadmap_migrate, roadmap_render, roadmap_reprioritize
 
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
         roadmap_render()
         roadmap_render(repo="dan-petty/devops-cli", ref="release/v0.2.25", dry_run=False)
         roadmap_migrate(repo="dan-petty/devops-cli", ref="release/v0.2.25")
+        roadmap_reprioritize()
+        roadmap_reprioritize(repo="dan-petty/devops-cli", ref="release/v0.2.25", dry_run=False)
     head = ["uv", "run", "devops", "roadmap"]
     target = ["--repo", "dan-petty/devops-cli", "--ref", "release/v0.2.25"]
     assert [call.args[0] for call in run.call_args_list] == [
         [*head, "render", "--dry-run"],
         [*head, "render", *target],
         [*head, "migrate", "--dry-run", *target],
+        [*head, "reprioritize", "--dry-run"],
+        [*head, "reprioritize", *target, "--confirm"],
     ]
 
 

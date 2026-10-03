@@ -11,6 +11,7 @@ from typing import Annotated, Any, NamedTuple, cast
 from urllib.parse import urlencode
 
 import typer
+from packaging.version import Version
 
 from devops_cli.config.constants import (
     CONST_AGENT_TASK_FILE_RE,
@@ -44,6 +45,7 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
+from devops_cli.roadmap.store import in_release
 
 logger = logging.getLogger(__name__)
 
@@ -1581,14 +1583,23 @@ def _grounding_scope(
         return True, [blocker]
 
 
+class _ClosedItem(NamedTuple):
+    """The Release of the one issue a PR into `release/vX.Y.Z` closes, or why it wasn't read."""
+
+    release: str | None
+    error: str = ""
+
+
 class _Grounding(NamedTuple):
-    """What the grounding checks judge: the PR's base, the issues it closes, the files it changes."""
+    """What the grounding checks judge: the PR's base, the issues it closes, the files it changes,
+    and, into a release branch, the Release of the one issue it closes."""
 
     pr_num: int
     repo: str
     base: str
     issues: list[int]
     changed: _ChangedFilesRead
+    item: _ClosedItem | None = None
 
 
 def _closes_one_issue(grounding: _Grounding) -> str | None:
@@ -1667,6 +1678,38 @@ def _leaves_release_files_to_the_cut(grounding: _Grounding) -> str | None:
     )
 
 
+def _closes_an_item_of_its_release(grounding: _Grounding) -> str | None:
+    """A PR into `release/vX.Y.Z` closes an item of release vX.Y.Z (#740).
+
+    The release's scope is fixed when it starts, so work on an item of another release, or of
+    the backlog, waits for that release. It judges the one issue the body closes, which
+    `_closes_one_issue` requires; a PR into the default branch is not judged.
+    """
+    branch = CONST_RELEASE_BRANCH_RE.fullmatch(grounding.base)
+    if branch is None or grounding.item is None:
+        return None
+    issue = grounding.issues[0]
+    if grounding.item.error:
+        return MESSAGES.pr.grounding_item_unread.format(
+            number=grounding.pr_num, issue=issue, error=grounding.item.error
+        )
+    version = Version(branch["version"])
+    if in_release(grounding.item.release, version):
+        return None
+    placement = (
+        MESSAGES.pr.grounding_item_in_release.format(release=grounding.item.release)
+        if grounding.item.release
+        else MESSAGES.pr.grounding_item_in_backlog
+    )
+    return MESSAGES.pr.grounding_item_not_in_release.format(
+        number=grounding.pr_num,
+        issue=issue,
+        placement=placement,
+        release=f"v{version}",
+        base=grounding.base,
+    )
+
+
 # Each check names what is missing, or returns None. A check that needs what an earlier one
 # found missing returns None, so each failure is one blocker. A new rule is one more entry.
 _GROUNDING_CHECKS: tuple[Callable[[_Grounding], str | None], ...] = (
@@ -1674,13 +1717,37 @@ _GROUNDING_CHECKS: tuple[Callable[[_Grounding], str | None], ...] = (
     _changed_files_were_read,
     _changes_its_task_file,
     _leaves_release_files_to_the_cut,
+    _closes_an_item_of_its_release,
 )
+
+
+def _read_closed_item(
+    owner: str, repo_name: str, base: str, issues: list[int]
+) -> _ClosedItem | None:
+    """The Release of the one issue a PR into a release branch closes; None for any other PR."""
+    if CONST_RELEASE_BRANCH_RE.fullmatch(base) is None or len(issues) != 1:
+        return None
+    res = run_gh(
+        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/issues/{issues[0]}"],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode != 0:
+        return _ClosedItem(None, _gh_failure(res))
+    try:
+        issue = json.loads(res.stdout or "")
+    except json.JSONDecodeError as exc:
+        return _ClosedItem(None, f"malformed JSON: {exc}"[:CONST_MAX_ERROR_DETAIL_LENGTH])
+    milestone = issue.get("milestone") if isinstance(issue, dict) else None
+    title = milestone.get("title") if isinstance(milestone, dict) else None
+    return _ClosedItem(title if isinstance(title, str) else None)
 
 
 def _grounding_blockers(
     pr_data: dict[str, Any], pr_num: int, owner: str, repo_name: str, changed: _ChangedFilesRead
 ) -> list[str]:
-    """Require every item PR to close one issue, change its task file and leave shared files alone.
+    """Require every item PR to close one issue, change its task file and leave shared files
+    alone, and a PR into `release/vX.Y.Z` to close an item of that release.
 
     The release PR and release-process PRs deliver no single item and are exempt. It applies
     where the base holds `docs/agent/tasks/`. Where it does not apply, an unread file list is a
@@ -1696,7 +1763,9 @@ def _grounding_blockers(
     repo = f"{owner}/{repo_name}"
     linked = extract_linked_issues(str(pr_data.get("body") or ""), repo)
     base = _branch_ref(pr_data, "base")
-    grounding = _Grounding(pr_num, repo, base, [issue.number for issue in linked], changed)
+    issues = [issue.number for issue in linked]
+    item = _read_closed_item(owner, repo_name, base, issues)
+    grounding = _Grounding(pr_num, repo, base, issues, changed, item)
     return blockers + [found for check in _GROUNDING_CHECKS if (found := check(grounding))]
 
 
@@ -1849,8 +1918,8 @@ def check_readiness(
     and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
     body closes exactly one issue, and it adds, modifies or renames that issue's
     docs/agent/tasks/task-<issue>-*.md. Into a release/* branch it leaves CHANGELOG.md and
-    docs/ROADMAP.md to the cut and adds changelog.d/<issue>.md instead. A base branch without
-    docs/agent/tasks/ is exempt.
+    docs/ROADMAP.md to the cut and adds changelog.d/<issue>.md instead. Into release/vX.Y.Z,
+    the issue it closes is in release vX.Y.Z. A base branch without docs/agent/tasks/ is exempt.
     """
     owner, repo_name, pr_num, target_repo = _resolve_readiness_target(repo, number)
     pr_data = _fetch_pr_details(pr_num, target_repo)

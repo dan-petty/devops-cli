@@ -1643,10 +1643,15 @@ def _file(filename: str, status: str = "modified") -> dict[str, str]:
     return {"filename": filename, "status": status}
 
 
+def _issue(milestone: str | None = "v0.2.25") -> MagicMock:
+    """The `issues/{n}` reply for the issue a PR closes, in `milestone` or the backlog."""
+    return _gh_reply({"number": 704, "milestone": {"title": milestone} if milestone else None})
+
+
 _REPO = {"full_name": "dan-petty/devops-cli", "default_branch": "main"}
 _TASK_704 = _file("docs/agent/tasks/task-704-x.md")
-# The base keeps task files, and the PR changes #704's.
-_GROUNDED = {"/contents/": _gh_reply(), "/files?": _gh_reply([_TASK_704])}
+# The base keeps task files, the PR changes #704's, and #704 is in v0.2.25.
+_GROUNDED = {"/contents/": _gh_reply(), "/files?": _gh_reply([_TASK_704]), "/issues/": _issue()}
 
 
 def _ready_pr(**overrides: object) -> dict:
@@ -1732,10 +1737,17 @@ def test_a_clean_pull_request_reports_ready() -> None:
 # =============================================================================
 
 
-def _grounding_gh(files: object, task_dir: MagicMock | None = None) -> MagicMock:
-    """A recording `run_gh` stub for a base with task files and this list of changed files."""
+def _grounding_gh(
+    files: object, task_dir: MagicMock | None = None, issue: MagicMock | None = None
+) -> MagicMock:
+    """A recording `run_gh` stub for a base with task files, this list of changed files, and
+    the issue the PR closes, in v0.2.25 unless `issue` says otherwise."""
     files_reply = files if isinstance(files, MagicMock) else _gh_reply(files)
-    routes = {"/contents/": task_dir or _gh_reply(), "/files?": files_reply}
+    routes = {
+        "/contents/": task_dir or _gh_reply(),
+        "/files?": files_reply,
+        "/issues/": issue or _issue(),
+    }
     return MagicMock(side_effect=_readiness_gh(routes=routes))
 
 
@@ -1852,7 +1864,7 @@ def test_grounding_blocks_when_the_task_directory_lookup_fails() -> None:
     ]
 
 
-def test_grounding_reads_the_files_and_the_base_once_each() -> None:
+def test_grounding_reads_the_files_the_base_and_the_closed_issue_once_each() -> None:
     """The reader's argv is pinned: without `per_page=100`, `run_gh` stops after 30 files."""
     gh = _grounding_gh([_TASK_704])
     _blockers(_ready_pr(), gh=gh)
@@ -1864,6 +1876,7 @@ def test_grounding_reads_the_files_and_the_base_once_each() -> None:
             "--silent",
             f"repos/dan-petty/devops-cli/contents/docs/agent/tasks?ref={'b' * 40}",
         ],
+        ["gh", "api", "repos/dan-petty/devops-cli/issues/704"],
     ]
 
 
@@ -1892,11 +1905,13 @@ def test_grounding_reads_every_page_of_changed_files_through_the_pager() -> None
     from devops_cli.commands import pr as pr_module
 
     pages = {"1": [_file(f"src/m{n}.py") for n in range(100)], "2": [_TASK_704]}
+    issue = {"number": 704, "milestone": {"title": "v0.2.25"}}
 
     def subprocess_reply(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
         endpoint = urlsplit(cmd[-1])
         page = parse_qs(endpoint.query).get("page", [""])[0] if "/files" in endpoint.path else ""
         stdout = json.dumps(pages[page]) if page in pages else ""
+        stdout = json.dumps(issue) if endpoint.path.endswith("/issues/704") else stdout
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=stdout, stderr="")
 
     with (
@@ -2032,6 +2047,83 @@ def test_a_release_process_branch_from_a_fork_is_not_exempt() -> None:
     fork = {"ref": "chore/cut-v0.2.25", "repo": {"full_name": "fork/devops-cli"}}
     blockers = _blockers(_ready_pr(body="", head=fork), gh=_grounding_gh(_RELEASE_FILES))
     assert ["closes no issue" in blocker for blocker in blockers] == [True, False], blockers
+
+
+# =============================================================================
+# Grounding: a PR into release/vX.Y.Z closes an item of release vX.Y.Z (#740)
+# =============================================================================
+
+_INTO_V0226 = {"ref": "release/v0.2.26", "sha": "b" * 40, "repo": _REPO}
+
+
+@pytest.mark.parametrize(
+    ("milestone", "blocker"),
+    [
+        (
+            "v0.2.27",
+            "PR #335 closes #704, which is in v0.2.27, not in v0.2.26: a PR into "
+            "release/v0.2.26 delivers an item of v0.2.26, whose scope was fixed when it started.",
+        ),
+        (
+            None,
+            "PR #335 closes #704, which is in the backlog, not in v0.2.26: a PR into "
+            "release/v0.2.26 delivers an item of v0.2.26, whose scope was fixed when it started.",
+        ),
+        ("v0.2.26", None),
+    ],
+    ids=["another-release", "the-backlog", "its-release"],
+)
+def test_a_pr_into_a_release_branch_is_blocked_unless_it_closes_an_item_of_that_release(
+    milestone: str | None, blocker: str | None
+) -> None:
+    """A release's scope is fixed when it starts, so its branch takes only its own items.
+
+    The blocker names the item and the release it is in, or says it is in the backlog.
+    """
+    gh = _grounding_gh([_TASK_704], issue=_issue(milestone))
+    assert _blockers(_ready_pr(base=_INTO_V0226), gh=gh) == ([blocker] if blocker else [])
+
+
+def test_a_part_of_an_item_line_names_no_item_so_only_the_one_issue_rule_blocks_it() -> None:
+    """#704 dropped `Part N of #M`: a PR closes exactly one issue, and that issue is judged.
+
+    A body that only names a backlog item with `Part 1 of #704` closes nothing, so it gets
+    #704's one blocker, and no issue is read for the release check.
+    """
+    gh = _grounding_gh([_TASK_704], issue=_issue(None))
+    blockers = _blockers(_ready_pr(body="Part 1 of #704", base=_INTO_V0226), gh=gh)
+    endpoints = [call.args[0][-1] for call in gh.call_args_list]
+    assert (
+        ["closes no issue" in blocker for blocker in blockers],
+        any("/issues/" in endpoint for endpoint in endpoints),
+    ) == ([True], False)
+
+
+def test_an_issue_that_cannot_be_read_is_one_blocker_naming_it() -> None:
+    gh = _grounding_gh([_TASK_704], issue=_SERVER_ERROR)
+    assert _blockers(_ready_pr(base=_INTO_V0226), gh=gh) == [
+        "PR #335 is not grounded: the Release of #704 could not be read (gh: Server Error "
+        "(HTTP 500))."
+    ]
+
+
+@pytest.mark.parametrize(
+    "head",
+    [
+        {"ref": "release/v0.2.25", "sha": "a" * 40, "repo": _REPO},
+        {"ref": "feat/x", "sha": "a" * 40, "repo": _REPO},
+    ],
+    ids=["the-release-pr", "a-topic-pr"],
+)
+def test_prs_into_the_default_branch_are_not_judged_by_release(head: dict) -> None:
+    """The release PR is exempt from grounding, and a PR into `main` delivers no release's item.
+
+    Neither reads the issue it closes, whichever release that issue is in.
+    """
+    gh = _grounding_gh([_TASK_704], issue=_issue("v0.2.27"))
+    blockers = _blockers(_ready_pr(head=head, base=_MAIN_BASE), gh=gh)
+    endpoints = [call.args[0][-1] for call in gh.call_args_list]
+    assert (blockers, any("/issues/" in endpoint for endpoint in endpoints)) == ([], False)
 
 
 # =============================================================================

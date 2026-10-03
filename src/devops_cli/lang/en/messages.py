@@ -564,6 +564,15 @@ class PRMessages:
         "PR #{number} changes {files}: a PR into {base} leaves them to the cut, so open PRs "
         "never conflict on them. Add its changelog entry as {fragment} instead."
     )
+    grounding_item_not_in_release: str = (
+        "PR #{number} closes #{issue}, which is {placement}, not in {release}: a PR into "
+        "{base} delivers an item of {release}, whose scope was fixed when it started."
+    )
+    grounding_item_in_release: str = "in {release}"
+    grounding_item_in_backlog: str = "in the backlog"
+    grounding_item_unread: str = (
+        "PR #{number} is not grounded: the Release of #{issue} could not be read ({error})."
+    )
     changed_files_unread: str = "Could not read the files PR #{number} changes ({error})."
 
 
@@ -1004,6 +1013,178 @@ class RoadmapMessages:
     render_planned: str = "## Planned release: {title}"
     render_backlog: str = "## Backlog"
     render_empty: str = "No items."
+    # `devops roadmap reprioritize` (#740). Each reason completes its action's comment, and the
+    # placeholders are {release}, {next}, {cap}, {days} and {detail}.
+    reasons: dict[str, str] = field(
+        default_factory=lambda: {
+            "critical_fix": "a critical fix can join {release} after it starts.",
+            "admission": (
+                "after {release} started, only a critical fix can join it. A person can place "
+                "it in a planned release, and that placement stands."
+            ),
+            "p0_feature": (
+                "a P0 feature waits for the next release once {release} has started, and goes "
+                "first when {next} starts."
+            ),
+            "cut": (
+                "{release} is cut, so nothing joins it until its release pull request is "
+                "closed; a critical fix goes first into the next release."
+            ),
+            "cap": (
+                "critical fix {detail} took {release} over its size of {cap} items, and this "
+                "was its lowest-ranked unstarted item."
+            ),
+            "over_size": (
+                "{release} holds {detail} items, more than its size of {cap} and more than it "
+                "held when it started, and this was its lowest-ranked unstarted item."
+            ),
+            "blocked": "it is Blocked and had not started.",
+            "dependency": "it waits on {detail}, open outside {release}.",
+            "needs_split": "it is labeled needs-split, so it must be split before it fits one "
+            "pull request.",
+            "others_done": "every other item in {release} is done, and it had not started.",
+            "fix_stays": "an admitted critical fix leaves {release} only when it is Blocked.",
+            "stalled": (
+                "it had no status change, pull request update or commit for {days} days, so it "
+                "counts as not started again."
+            ),
+            "fix_stalled": (
+                "it had no status change, pull request update or commit for {days} days; as a "
+                "critical fix it stays in {release}."
+            ),
+            "review_idle": (
+                "this item has been in review for {days} days without a status change, pull "
+                "request update or commit, and it holds the cut of {release}."
+            ),
+            "shipped": (
+                "{release} shipped: its release pull request merged and GitHub Release "
+                "{release} is published."
+            ),
+            "not_ready_at_start": "it was New, not Ready, when {release} started.",
+            "fix_new_at_start": "a New critical fix stays in a starting release.",
+            "blocked_at_start": "a Blocked item can't join a starting release ({release}).",
+            "top_up": (
+                "{release} started with fewer than its {cap} items and was topped up to "
+                "{detail} from Ready items, critical fixes and P0 features first."
+            ),
+            "trim": (
+                "{release} started with more than {cap} items, and this was its lowest-ranked "
+                "unstarted item."
+            ),
+        }
+    )
+    # What each action did, in the item's one-line comment; {reason} is one of `reasons`.
+    actions: dict[str, str] = field(
+        default_factory=lambda: {
+            "keep": "Kept in {release}: {reason}",
+            "admit": "Admitted to {release}: {reason}",
+            "to_backlog": "Moved to the backlog: {reason}",
+            "to_next": "Moved to {target}: {reason}",
+            "ready": "Status set to Ready: {reason}",
+            "ready_to_next": "Status set to Ready and moved to {target}: {reason}",
+            "nudge": "Nudge: {reason}",
+            "pull_in": "Moved to {target}: {reason}",
+            "start_next": "{reason}",
+        }
+    )
+    reprioritize_comment: str = "{text} (devops roadmap reprioritize)"
+    reprioritize_title: str = "# Reprioritization of {repo}"
+    reprioritize_current: str = "Current release: {release} ({state})."
+    reprioritize_no_release: str = "No Release is open, so there is no current release."
+    reprioritize_first_run: str = (
+        "First run: the board has no run record yet, so this run records the admitted set of "
+        "{release} and moves nothing. The rules apply to changes made after it."
+    )
+    reprioritize_first_run_at_ship: str = (
+        "First run: the board has no run record yet, and {shipped} has shipped, so {release} "
+        "is under way. This run records the admitted set of {release}, closes every shipped "
+        "milestone still open and moves nothing. The rules apply to changes made after it."
+    )
+    reprioritize_unshipped: str = (
+        "{release} is closed but has not shipped: its release pull request has not merged, or "
+        "GitHub Release {release} is not published. {current} starts only once {release} "
+        "ships, so this run starts nothing. Reopen {release} if it was closed by mistake."
+    )
+    reprioritize_unmigrated: str = (
+        "#739's migration has not finished on this board: {problems}. Run `devops roadmap "
+        "migrate` first, then reprioritize."
+    )
+    reprioritize_unmigrated_missing: str = "its Status field has no {found} option"
+    reprioritize_unmigrated_merged: str = (
+        "its Status field still has {found}, which migrate merges into New"
+    )
+    reprioritize_unmigrated_epics: str = "release epics {found} are still open on it"
+    reprioritize_no_run_record: str = (
+        'The board has no "{card}" draft card, yet {count} item(s) carry this job\'s marks '
+        "({items}), so the job has run before: the card was deleted, archived, converted to "
+        'an issue or renamed. Put it back as a draft issue titled "{card}", unarchived. A first '
+        "run now would admit everything added to the current release since it started."
+    )
+    reprioritize_record_unreadable: str = (
+        'The "{card}" card is on the board, but its run record can\'t be read: its Started '
+        "mark is {started}, not a milestone number, so an older version of the job wrote it or "
+        "it was edited by hand. Set the Started mark in its Job record to the milestone number "
+        "of the release the job last started, as text: for the current release, {release}, "
+        'that is "{number}". Then run the job again.'
+    )
+    reprioritize_record_gone: str = (
+        'The "{card}" card names milestone #{number} as the release the job last started, and '
+        "the repository has no such milestone. Restore it, or set the card's Started mark to "
+        "the milestone number of the release under way."
+    )
+    reprioritize_behind: str = (
+        "{current} is older than {started}, the release the run record names as started, so "
+        "{current} never started and has no admitted set. This run holds no release to its "
+        "rules and moves nothing until {current} ships or is closed."
+    )
+    reprioritize_start: str = "{shipped} shipped, so {starting} starts."
+    reprioritize_start_after_close: str = (
+        "{starting} starts: the release the run record names is closed."
+    )
+    reprioritize_changes: str = "## Changes"
+    reprioritize_release_writes: str = "## Releases and branches"
+    reprioritize_records: str = "## Admitted set"
+    reprioritize_admits: str = "- {release} admits {items}."
+    reprioritize_cleared: str = (
+        "- {items} left {release} after it admitted them: their admitted marks are cleared, "
+        "and a return to {release} is judged again."
+    )
+    reprioritize_left: str = (
+        "- #{number} left {release}, where a job placed it, so a return to {release} is judged "
+        "again."
+    )
+    reprioritize_left_backlog: str = (
+        "- #{number} left the backlog, where a job placed it, so where a person puts it stands."
+    )
+    reprioritize_kept_out: str = (
+        "- #{number} was taken out of {release} by a person, as its issue's events show, so it "
+        "stays in the backlog: a person's placement stands."
+    )
+    reprioritize_change_line: str = "- #{number} {title}: {text}"
+    reprioritize_resumed_line: str = (
+        "- #{number} {title}: {text} (finishing what an earlier run began)"
+    )
+    reprioritize_dropped_line: str = (
+        "- #{number} {title}: not finishing what an earlier run began ({text}): a person has "
+        "changed the item since, or the rules no longer decide it, so what that run wrote is "
+        "put back."
+    )
+    reprioritize_unreadable_line: str = (
+        "- #{number} {title}: an earlier run left a change this run can't read, or one about a "
+        "release that is gone, so it is dropped."
+    )
+    reprioritize_run_record: str = (
+        "- The run record names {release}, holding {size} item(s), so the next run holds it "
+        "to its rules."
+    )
+    reprioritize_nothing: str = "Nothing to do: the current release already keeps its rules."
+    reprioritize_preview: str = (
+        "Nothing was written. Run again with --confirm to make these changes."
+    )
+    reprioritize_applied: str = "Made {changes} change(s) and {records} job-record mark(s)."
+    reprioritize_close_release: str = "close Release {release}"
+    reprioritize_create_release: str = "create Release {release}"
+    reprioritize_create_branch: str = "create branch {branch} at {sha}"
 
 
 @dataclass(frozen=True)

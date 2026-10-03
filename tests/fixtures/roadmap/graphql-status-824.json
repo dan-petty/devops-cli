@@ -1,0 +1,25 @@
+{
+  "data": {
+    "repository": {
+      "issue": {
+        "projectItems": {
+          "totalCount": 1,
+          "nodes": [
+            {
+              "project": {
+                "number": 2,
+                "owner": {
+                  "login": "dan-petty"
+                }
+              },
+              "fieldValueByName": {
+                "name": "Done",
+                "updatedAt": "2026-10-01T20:13:23Z"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
