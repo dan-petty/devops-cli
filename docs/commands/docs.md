@@ -18,7 +18,7 @@ devops docs generate [OPTIONS]
 |---|---|---|---|
 | `--output-dir`, `-o` | `path` | - | Target directory for generated documentation files (default: docs/). |
 | `--format`, `-f` | `string` | `markdown` | Output format type (table, json, yaml, markdown). |
-| `--sync-readme`, `--no-sync-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
+| `--sync-readme` / `--no-sync-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
 | `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
 
 ---
@@ -36,7 +36,7 @@ devops docs check [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--output-dir`, `-o` | `path` | - | Target directory for generated documentation files (default: docs/). |
-| `--check-readme`, `--no-check-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
+| `--check-readme` / `--no-check-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
 
 ---
 

@@ -7,7 +7,7 @@ GitHub project governance in `devops-cli` standardizes repository metadata acros
 2. **GitHub Issues Lifecycle & Triage**: Issue creation, taxonomy label enforcement (`type/*`, `scope/*`, `priority/*`), milestone linkage, and proactive triage auditing to guarantee zero unclassified or unmilestoned open issues.
 3. **GitHub Projects v2 Lifecycle**: Board creation, multi-board listing, card lifecycle reconciliation against `docs/agent/tasks/` (and `docs/agent/task.md`), and automated drift auditing against standardized template schemas.
 4. **Standardized Projects v2 Views**: Continuous auditing and synchronization of the 4 canonical views (`Sprint Kanban`, `Roadmap Timeline`, `Triage & Quality Table`, and `Value vs Effort Priority Matrix`) ensuring full alignment across `https://github.com/dan-petty/devops-cli/projects` and `https://github.com/dan-petty/devops-cli/issues/views`.
-5. **Roadmap Milestones**: Synchronized milestone lifecycle directly extracted from `docs/ROADMAP.md` release headings, providing issue completion ratios, health metrics, and automated milestone closure on release.
+5. **Roadmap Milestones**: GitHub is the roadmap's source of truth (ADR 0001): milestones are its releases, with issue completion ratios, health metrics and milestone closure on release. `devops roadmap render` writes `docs/ROADMAP.md` from them.
 6. **Declarative Label Taxonomy & PR Auditing**: Repository label synchronization driven by `.github/labels.yml`, enforcing strict categorization across `type/*`, `scope/*`, `priority/*`, `status/*`, and `review/*`.
 
 ---
@@ -17,7 +17,7 @@ GitHub project governance in `devops-cli` standardizes repository metadata acros
 ```mermaid
 graph TD
     A[Declarative Schemas<br/>.github/labels.yml & project-template.json] -->|devops gh labels sync| B[Remote GitHub Labels]
-    C[docs/ROADMAP.md Headings] -->|devops gh milestones sync| D[Remote GitHub Milestones]
+    D[Remote GitHub Milestones] -->|devops roadmap render| C[docs/ROADMAP.md View]
     E[docs/agent/tasks/ Lifecycles] -->|devops gh project sync| F[GitHub Projects v2 Items]
     G[docs/github-pages.config.yaml] -->|devops gh pages verify| H[GitHub Pages Deployment]
     I[Open Issues Queue] -->|devops gh issues triage| J[Triage Audit & Taxonomies]
@@ -34,10 +34,10 @@ graph TD
 
 | View Name | Layout | Group By | Purpose & Filtering |
 | :--- | :--- | :--- | :--- |
-| **Sprint Kanban** | Board | `Status` | Active sprint tracking (`Backlog`, `Ready`, `In Progress`, `In Review`, `Done`). Filtered to current milestone. |
+| **Sprint Kanban** | Board | `Status` | Active sprint tracking (`New`, `Ready`, `In Progress`, `In Review`, `Done`, `Blocked`). Filtered to current milestone. |
 | **Roadmap Timeline** | Roadmap | `Milestone` | Chronological release milestones with target delivery dates and status health. |
 | **Triage & Quality Table** | Table | None | Priority-ordered queue (`P0` to `P3`) filtering open defects (`type/bug`, `status/blocked`, `status/triage`). |
-| **Value vs Effort Priority Matrix** | Table | `Category` | Strategic portfolio matrix grouping deliverables into Quick Wins, Major Projects, Fill-Ins, and Foundation. |
+| **Value vs Effort Priority Matrix** | Table | `Value` | Items grouped by Value and sorted by Value, then Effort. |
 
 ---
 
@@ -117,8 +117,12 @@ devops gh labels audit
 # List release milestones and issue progress rates
 devops gh milestones list
 
-# Reconcile milestones with docs/ROADMAP.md
-devops gh milestones sync
+# Regenerate docs/ROADMAP.md from the milestones, issues and board (at the release cut)
+devops roadmap render --ref release/v0.2.25
+
+# Preview the current release's admission, cap, descoping and stall decisions, then make them
+devops roadmap reprioritize --dry-run
+devops roadmap reprioritize --confirm
 
 # Close a release milestone upon release merge or publish
 devops gh milestones close v0.2.14
@@ -184,14 +188,15 @@ devops gh milestones close v0.2.14
 
 ## 6. FastMCP Tool & Dynamic Resource Integration
 
-AI coding agents have native access to GitHub project management through 16 FastMCP tools and 4 dynamic system resources:
+AI coding agents have native access to GitHub project management through these FastMCP tools and 4 dynamic system resources:
 
 ### Registered FastMCP Tools
 - **Pages**: `gh_pages_status`, `gh_pages_build`, `gh_pages_verify`
 - **Issues**: `gh_issue_list`, `gh_issue_create`, `gh_issue_triage`, `gh_issue_status`
 - **Projects**: `gh_project_list`, `gh_project_status`, `gh_project_audit`, `gh_project_sync`
 - **Views**: `gh_views_audit`, `gh_views_sync`, `gh_view_spec`
-- **Milestones**: `gh_milestone_list`, `gh_milestone_sync`, `gh_milestone_close`
+- **Milestones**: `gh_milestone_list`, `gh_milestone_close`
+- **Roadmap**: `roadmap_render`, `roadmap_migrate` (preview only), `roadmap_reprioritize` (previews unless `dry_run=False`)
 - **Labels**: `gh_label_list`, `gh_label_sync`
 
 ### Registered Dynamic System Resources

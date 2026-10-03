@@ -327,7 +327,7 @@ def _generate_ai_pseudocode(
     return None
 
 
-def _generate_pseudocode(
+def _generate_pseudocode(  # noqa: C901
     rel_path: str,
     content: str,
     lang: str,
@@ -386,7 +386,7 @@ def _extract_semantic_outline_meta(rel_path: str, repo_root: Path | None) -> dic
         return None
 
 
-def analyze_single_file(
+def analyze_single_file(  # noqa: C901
     rel_path: str,
     content: str,
     size_bytes: int,

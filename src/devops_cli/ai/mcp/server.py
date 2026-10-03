@@ -7,7 +7,6 @@ import json
 import logging
 import re
 import subprocess
-from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastmcp import Context, FastMCP
@@ -25,12 +24,15 @@ from devops_cli.ai.mcp.argument_contract import (
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
+    CONST_AI_PROVIDER_IDS,
     CONST_FALCO_SEVERITY_LEVELS,
     CONST_FASTMCP_SERVER_LOGGER,
     CONST_MAX_SECURITY_STREAM_TAIL_LINES,
     CONST_MCP_EAGER_DOMAINS,
     CONST_MCP_LAZY_DOMAINS,
     CONST_MIN_SECURITY_STREAM_TAIL_LINES,
+    CONST_MODEL_ENDPOINT_MARKERS,
+    CONST_VERIFIED_BY_AGENT,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_FALLBACK_MODEL,
@@ -181,7 +183,7 @@ def review_pr(number: PullOrIssueNumber, post: bool = False, persona: str = "dev
 
 @mcp.tool()
 def review_findings(session_id: str = "", status: str = "") -> str:
-    """Inspect structured review findings for a session by verification status."""
+    """List a session's findings, filtered by status; each keeps the number verify_finding takes."""
     if session_id:
         _validate_mcp_arg("session_id", session_id)
     cmd = ["uv", "run", "devops", "review", "findings"]
@@ -196,9 +198,9 @@ def review_findings(session_id: str = "", status: str = "") -> str:
 
 @mcp.tool()
 def verify_finding(session_id: str, index: int, status: str, reason: str = "") -> str:
-    """Validate or invalidate a finding and record human feedback."""
+    """Record an agent's verdict on the finding `review_findings` numbers `index` (from 1)."""
     _validate_mcp_arg("session_id", session_id)
-    _validate_mcp_int_bound("index", index, min_val=0)
+    _validate_mcp_int_bound("index", index, min_val=1)
     _validate_mcp_arg("status", status)
     cmd = [
         "uv",
@@ -214,6 +216,9 @@ def verify_finding(session_id: str, index: int, status: str, reason: str = "") -
     ]
     if reason:
         cmd.extend(["--reason", reason])
+    # An MCP client is untrusted, so this tool records its verdict as an agent's. Last, so an
+    # earlier argument cannot override it.
+    cmd.extend(["--adjudicator", CONST_VERIFIED_BY_AGENT])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
@@ -273,11 +278,15 @@ def ssh_audit() -> str:
 
 @mcp.tool()
 def k8s_pods(namespace: str = "default") -> str:
-    """List Kubernetes pod status for the specified namespace."""
-    if namespace:
-        _validate_mcp_arg("namespace", namespace)
+    """List the pods of a Kubernetes namespace, or of every namespace when it is empty."""
+    if not namespace:
+        return _run_mcp_cmd(
+            ["uv", "run", "devops", "k8s", "pods", "-A"],
+            timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+        )
+    _validate_mcp_arg("namespace", namespace)
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "k8s", "status"],
+        ["uv", "run", "devops", "k8s", "pods", "-n", namespace],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 
@@ -502,7 +511,7 @@ def docker_stats() -> str:
 
 
 @mcp.tool()
-def docker_sign(
+def docker_sign(  # noqa: C901
     image: str,
     key: str | None = None,
     keyless: bool = True,
@@ -540,7 +549,7 @@ def docker_sign(
 
 
 @mcp.tool()
-def docker_verify(
+def docker_verify(  # noqa: C901
     image: str,
     key: str | None = None,
     certificate_identity: str | None = None,
@@ -625,24 +634,56 @@ def release_status() -> str:
 
 
 @mcp.tool()
-def release_epic_sync(
-    version: str | None = None,
-    all_milestones: bool = False,
-    dry_run: bool = True,
-    repo: str | None = None,
-) -> str:
-    """Provision, correlate, and synchronize parent release tracking epics for milestones."""
-    cmd = ["uv", "run", "devops", "release", "epic"]
-    if version:
-        _validate_mcp_arg("version", version)
-        cmd.append(version)
-    if all_milestones:
-        cmd.append("--all")
-    if dry_run:
-        cmd.append("--dry-run")
+def roadmap_render(repo: str | None = None, ref: str | None = None, dry_run: bool = True) -> str:
+    """Render docs/ROADMAP.md from GitHub's issues, milestones and board; prints it by default."""
+    cmd = ["uv", "run", "devops", "roadmap", "render"]
     if repo:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])
+    if ref:
+        _validate_mcp_arg("ref", ref)
+        cmd.extend(["--ref", ref])
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def roadmap_migrate(repo: str | None = None, ref: str | None = None) -> str:
+    """Preview the one-time move of the roadmap's source to GitHub: its plan and report.
+
+    It never writes. A person reviews the plan and runs `devops roadmap migrate --confirm`.
+    """
+    cmd = ["uv", "run", "devops", "roadmap", "migrate", "--dry-run"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    if ref:
+        _validate_mcp_arg("ref", ref)
+        cmd.extend(["--ref", ref])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def roadmap_reprioritize(
+    repo: str | None = None, ref: str | None = None, dry_run: bool = True
+) -> str:
+    """Hold the current release to its admission rule, cap and stall window, and start the next
+    release once it ships; prints each change with its reason.
+
+    It previews by default. `dry_run=False` makes the changes (`--confirm`).
+    """
+    cmd = ["uv", "run", "devops", "roadmap", "reprioritize"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    if ref:
+        _validate_mcp_arg("ref", ref)
+        cmd.extend(["--ref", ref])
+    if dry_run:
+        cmd.append("--dry-run")
+    else:
+        cmd.append("--confirm")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
@@ -789,7 +830,7 @@ def k8s_jaeger_info() -> str:
 
 @mcp.tool()
 def security_intel_package(package_name: str, version: str = "", ecosystem: str = "PyPI") -> str:
-    """Query OSV.dev and NVD vulnerability databases for package CVE intelligence."""
+    """Query the OSV.dev vulnerability database for package CVE intelligence."""
     _validate_mcp_arg("package_name", package_name)
     if version:
         _validate_mcp_arg("version", version)
@@ -822,7 +863,7 @@ def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
 
 @mcp.tool()
 def review_export_feedback(status: str = "ALL", output_path: str = "") -> str:
-    """Export review findings into JSONL feedback dataset for LLM alignment."""
+    """Append review verdicts the feedback dataset does not hold yet to the JSONL dataset."""
     cmd = ["uv", "run", "devops", "review", "export-feedback", "--status", status]
     if output_path:
         _validate_mcp_arg("output_path", output_path)
@@ -1128,17 +1169,16 @@ def config_audit_keys() -> str:
     )
 
 
+# An MCP caller is untrusted, so it names a trace and nothing runs: a command to profile ran
+# whatever program the caller named, with the user's full environment (#980).
 @mcp.tool()
-def telemetry_profile(command: str = "", trace_id: str = "") -> str:
-    """Run a command, or name a trace, and show its span waterfall as Jaeger recorded it."""
-    cmd = ["uv", "run", "devops", "telemetry", "profile"]
-    if command:
-        _validate_mcp_arg("command", command)
-        cmd.append(command)
-    if trace_id:
-        _validate_mcp_arg("trace_id", trace_id)
-        cmd.extend(["--trace-id", trace_id])
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+def telemetry_profile(trace_id: str) -> str:
+    """Show the span waterfall Jaeger recorded for a trace ID; the tool runs no command."""
+    _validate_mcp_arg("trace_id", trace_id)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "telemetry", "profile", "--trace-id", trace_id],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
 
 
 @mcp.tool()
@@ -1339,12 +1379,13 @@ def docker_sandbox(
         cmd.extend(["--local-whitelist", ",".join(local_whitelist)])
     if read_only:
         cmd.append("--read-only")
+    cmd.append("--")
     cmd.extend(command)
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
-def sandbox_deploy(
+def sandbox_deploy(  # noqa: C901
     image: str = "python:3.14-slim",
     name: str | None = None,
     ports: list[int] | None = None,
@@ -1545,24 +1586,6 @@ def gh_milestone_list(repo: str | None = None) -> str:
 
 
 @mcp.tool()
-def gh_milestone_sync(
-    repo: str | None = None,
-    dry_run: bool = True,
-    create_release_epics: bool = False,
-) -> str:
-    """Synchronize repository milestones from docs/ROADMAP.md."""
-    cmd = ["uv", "run", "devops", "gh", "milestones", "sync"]
-    if dry_run:
-        cmd.append("--dry-run")
-    if create_release_epics:
-        cmd.append("--create-release-epics")
-    if repo:
-        _validate_mcp_arg("repo", repo)
-        cmd.extend(["--repo", repo])
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
-
-
-@mcp.tool()
 def gh_project_status() -> str:
     """Inspect GitHub Projects v2 template configuration, fields, and view definitions."""
     return _run_mcp_cmd(
@@ -1573,7 +1596,7 @@ def gh_project_status() -> str:
 
 @mcp.tool()
 def gh_milestone_close(version: str, repo: str | None = None) -> str:
-    """Close a repository milestone matching the given version or title."""
+    """Close the release milestone of a version, with or without its v."""
     _validate_mcp_arg("version", version)
     cmd = ["uv", "run", "devops", "gh", "milestones", "close", version]
     if repo:
@@ -1591,7 +1614,7 @@ def gh_milestone_edit(
     due_on: str | None = None,
     repo: str | None = None,
 ) -> str:
-    """Edit an existing milestone title, description, state, or due date."""
+    """Edit a release milestone's title, description, state, or due date; others stay as they are."""
     _validate_mcp_arg("version", version)
     cmd = ["uv", "run", "devops", "gh", "milestones", "edit", version]
     if title:
@@ -1741,43 +1764,6 @@ def gh_issue_status(repo: str | None = None) -> str:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
-
-
-@mcp.tool()
-def gh_sync_roadmap(
-    milestone: str | None = None,
-    dry_run: bool = True,
-    limit: int = 20,
-    repo: str | None = None,
-) -> str:
-    """Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files."""
-    cmd = ["uv", "run", "devops", "gh", "issues", "sync-roadmap"]
-    if milestone:
-        _validate_mcp_arg("milestone", milestone)
-        cmd.extend(["--milestone", milestone])
-    if dry_run:
-        cmd.append("--dry-run")
-    if limit:
-        cmd.extend(["--limit", str(limit)])
-    if repo:
-        _validate_mcp_arg("repo", repo)
-        cmd.extend(["--repo", repo])
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
-
-
-@mcp.tool()
-def gh_issue_reconcile_roadmap(
-    dry_run: bool = True,
-    repo: str | None = None,
-) -> str:
-    """Reconcile repository issue milestones and local task files to match docs/ROADMAP.md declarations."""
-    cmd = ["uv", "run", "devops", "gh", "issues", "reconcile-roadmap"]
-    if dry_run:
-        cmd.append("--dry-run")
-    if repo:
-        _validate_mcp_arg("repo", repo)
-        cmd.extend(["--repo", repo])
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
@@ -2073,15 +2059,31 @@ def vault_sync(path: str, keys: list[str] | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
+def _validate_mcp_benchmark_target(provider: str, model: str) -> None:
+    """Refuse a provider outside the known ids, and a model that names its own server.
+
+    `devops ai benchmark` sends a `model@endpoint` entry's requests to that endpoint, and with
+    them the AI key, so only a person at the command line may name one (#954).
+    """
+    if provider not in CONST_AI_PROVIDER_IDS:
+        raise ValidationError(
+            ERRORS.mcp.unknown_provider.format(choices=", ".join(CONST_AI_PROVIDER_IDS)),
+            field="provider",
+        )
+    if any(marker in model for marker in CONST_MODEL_ENDPOINT_MARKERS):
+        raise ValidationError(ERRORS.mcp.model_names_endpoint, field="model")
+
+
 @mcp.tool()
 def benchmark_embeddings(
     provider: str = "ollama",
     model: str = "bge-m3",
     samples: int = 10,
 ) -> str:
-    """Benchmark embedding model inference latency, dimensions, and retrieval accuracy."""
+    """Benchmark embedding latency, dimensions, and retrieval accuracy on the configured servers."""
     _validate_mcp_arg("provider", provider)
     _validate_mcp_arg("model", model)
+    _validate_mcp_benchmark_target(provider, model)
     return _run_mcp_cmd(
         [
             "uv",
@@ -2100,36 +2102,6 @@ def benchmark_embeddings(
         ],
         timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     )
-
-
-@mcp.tool()
-def benchmark_suite(
-    models: str = "qwen2.5-coder:7b",
-    dataset: str = "",
-    provider: str = "ollama",
-    dry_run: bool = True,
-) -> str:
-    """Benchmark candidate models against feedback dataset for precision, recall, and hallucination scoring."""
-    _validate_mcp_arg("models", models)
-    _validate_mcp_arg("provider", provider)
-    cmd = [
-        "uv",
-        "run",
-        "devops",
-        "ai",
-        "benchmark",
-        "--suite",
-        "--models",
-        models,
-        "--provider",
-        provider,
-    ]
-    if dataset:
-        _validate_mcp_arg("dataset", dataset)
-        cmd.extend(["--dataset", dataset])
-    if dry_run:
-        cmd.append("--dry-run")
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
@@ -2601,7 +2573,7 @@ def ai_ingest_library(
     package: str,
     max_depth: int = 1,
 ) -> str:
-    """Introspect an installed Python package and extract its public API contract into .data/libraries/."""
+    """Introspect an installed Python package and extract its public API contract into the data directory's libraries/."""
     _validate_mcp_arg("package", package)
     cmd = [
         "uv",
@@ -2818,9 +2790,10 @@ def get_ai_spend_resource() -> str:
 @mcp.resource("resource://libraries/indexed")
 def get_indexed_libraries_resource() -> str:
     """Return JSON metadata of all indexed library contracts, module counts, and symbol counts."""
+    from devops_cli.ai.rag.library_store import library_contracts_dir
     from devops_cli.commands.ai_ingest import _load_local_contracts
 
-    contracts = _load_local_contracts(Path(".data/libraries"))
+    contracts = _load_local_contracts(library_contracts_dir())
     payload = [
         {
             "package_name": c.package_name,
@@ -2879,6 +2852,9 @@ def get_mcp_catalog_resource() -> str:
 
 
 _CODE_REVIEW_PROMPT_TEMPLATE = load_task_prompt("code_review_prompt.md")
+# The review pipeline sends `code_review_prompt.md` with the persona's reply schema; served here
+# alone, it needs a reply format of its own, which the pipeline's pages must not carry.
+_CODE_REVIEW_OUTPUT_FORMAT = load_task_prompt("mcp_code_review_output.md")
 _SECURITY_AUDIT_PROMPT_TEMPLATE = load_task_prompt("security_audit_prompt.md")
 _K8S_DIAGNOSTICS_PROMPT_TEMPLATE = load_task_prompt("k8s_diagnostics_prompt.md")
 _ARCHITECTURE_ANALYSIS_PROMPT_TEMPLATE = load_task_prompt("architecture_analysis_prompt.md")
@@ -2887,7 +2863,9 @@ _ARCHITECTURE_ANALYSIS_PROMPT_TEMPLATE = load_task_prompt("architecture_analysis
 @mcp.prompt()
 def code_review_prompt(persona: str = "devsecops", target: str = ".") -> str:
     """Prompt template for performing an AI code review with a specialized persona."""
-    rendered = _CODE_REVIEW_PROMPT_TEMPLATE.format(target=target)
+    rendered = (
+        f"{_CODE_REVIEW_PROMPT_TEMPLATE.format(target=target)}\n\n{_CODE_REVIEW_OUTPUT_FORMAT}"
+    )
     if persona:
         return f"Persona: {persona}\n\n{rendered}"
     return rendered
@@ -3040,7 +3018,7 @@ def hydrate_tool_domain(domain: str, ctx: Context | None = None) -> dict[str, An
 
     Call this before browsing a domain's tools. Available lazy domains include `argo`,
     `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
-    `prometheus`, `rag`, `release`, `repos`, `sandbox`, `scan`, `security`, `ssh`,
+    `prometheus`, `rag`, `release`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`,
     `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
     Pass the domain name alone, for example `k8s`.
     """

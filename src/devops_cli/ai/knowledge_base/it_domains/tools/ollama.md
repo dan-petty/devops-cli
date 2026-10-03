@@ -45,8 +45,8 @@ devops ai chat --prompt "Explain the Kubernetes Pod lifecycle."
 # Execute local AI code review with static scan only (fast 2s pass)
 devops ai review path . --static-scan-only
 
-# Execute local AI code review on the active repository branch
-devops ai review branch --provider ollama --model qwen3.8:27b
+# Execute local AI code review on the active repository branch, on a local model
+DEVOPS_CLI_AI_TASK_ANALYSIS_PROVIDER=ollama DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL=qwen3.8:27b devops ai review branch
 ```
 
 ### Standard `ollama` CLI Commands
@@ -78,15 +78,16 @@ curl http://localhost:11434/api/embeddings -d '{
 
 ## 4. Best Practice Guidance & Performance Tuning
 
-1. **Optimize Concurrency in Kubernetes / Host Daemons**:
-   - When deploying Ollama via Kubernetes ([`k8s/llm/profiles/ollama-profiles.yaml`](../../../../../../k8s/llm/profiles/ollama-profiles.yaml)), configure:
+1. **Size Concurrency to the KV Cache in Kubernetes / Host Daemons**:
+   - Ollama reserves KV cache for `OLLAMA_CONTEXT_LENGTH` × `OLLAMA_NUM_PARALLEL` tokens, so the tiers in [`k8s/llm/profiles/ollama-profiles.yaml`](../../../../../../k8s/llm/profiles/ollama-profiles.yaml) keep one model loaded and serve one request at a time:
      ```yaml
      env:
+       - name: OLLAMA_MAX_LOADED_MODELS
+         value: "1"
        - name: OLLAMA_NUM_PARALLEL
-         value: "2"
-       - name: OLLAMA_KV_CACHE_TYPE
-         value: "q4_0"
+         value: "1"
      ```
+   - `ollama-48gib-slow`, the background tier, keeps two models loaded (`OLLAMA_MAX_LOADED_MODELS: "2"`, `OLLAMA_KEEP_ALIVE: "-1"`): its embedding model and `qwen3-coder:30b`, the one generation model the gateway sends it, so neither evicts the other. Ollama also evicts a resident model when it predicts that a new one needs more than 80% of the free VRAM: qwen3-coder:30b is predicted to fit beside the embedder, while a dense ~30B model evicted it.
 2. **Model Quantization & Sizing**: Use `q4_K_M` or `q8_0` quantized models to maximize inference throughput while staying within workstation VRAM / RAM limits.
 3. **Constrain Review Token Generation**: Set `max_tokens: 2048` and `reasoning_effort: low` for code reviews to prevent long generation delays during multi-file reviews.
 4. **Context Window Sizing**: Set `num_ctx` appropriately (e.g. `8192` or `16384`) in Ollama modelfiles when reviewing large multi-file diffs.

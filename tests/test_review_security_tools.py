@@ -104,7 +104,9 @@ def test_pipeline_multi_scanner_aggregation(
     ]
 
     orchestrator = ReviewPipelineOrchestrator(
-        session_id="test-sec-tools", session_dir=tmp_path / "test-sec-tools"
+        session_id="test-sec-tools",
+        session_dir=tmp_path / "test-sec-tools",
+        target_dir=tmp_path,
     )
     payloads = orchestrator.init_per_file_payloads(
         file_paths=["Dockerfile", "src/main.py", "k8s/app.yaml"],

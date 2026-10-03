@@ -62,16 +62,27 @@ def test_task_switching_provider_does_not_inherit_global_api_base_url() -> None:
 @pytest.mark.parametrize(
     ("model", "expected"),
     [
-        ("litellm:devops-coder", ("devops-coder", GATEWAY_URL)),
-        ("portkey:devops-coder", ("devops-coder", "http://portkey.example.com:8787/v1")),
+        ("litellm:devops-coder", ("openai-chat:devops-coder", GATEWAY_URL, "ai.gateway_url")),
+        (
+            "portkey:devops-coder",
+            ("openai-chat:devops-coder", "http://portkey.example.com:8787/v1", "ai.portkey_url"),
+        ),
+        ("openai:gpt-4o", ("openai:gpt-4o", OPENAI_URL, "ai.api_base_url")),
+        ("devops-coder", ("openai-chat:devops-coder", OPENAI_URL, "ai.api_base_url")),
+        ("qwen3-coder:30b", ("openai-chat:qwen3-coder:30b", OPENAI_URL, "ai.api_base_url")),
     ],
 )
 def test_bridge_gateway_prefixes_use_their_configured_urls(
-    model: str, expected: tuple[str, str]
+    model: str, expected: tuple[str, str, str]
 ) -> None:
-    """Verify gateway model prefixes resolve to their configured gateways, not api_base_url."""
+    """Verify gateway prefixes go to their configured gateways, others to api_base_url.
+
+    A gateway speaks the OpenAI chat API, so its models are inferred as OpenAI chat models; a
+    bare name takes the configured provider's prefix.
+    """
     settings = Settings(
         ai=AIConfig(
+            provider="openai",
             api_base_url=OPENAI_URL,
             gateway_url=GATEWAY_URL,
             portkey_url="http://portkey.example.com:8787/v1",

@@ -13,6 +13,7 @@ from devops_cli.commands.gh import app as gh_app
 from devops_cli.commands.k8s import app as k8s_app
 from devops_cli.commands.mcp import app as mcp_app
 from devops_cli.commands.repos import app as repos_app
+from devops_cli.commands.roadmap import app as roadmap_app
 from devops_cli.commands.ssh import app as ssh_app
 from devops_cli.commands.telemetry import app as telemetry_app
 from devops_cli.commands.tls import app as tls_app
@@ -64,7 +65,12 @@ COMMAND_SPECS = [
     (main_app, ["repos", "sync", "--dry-run"]),
     (repos_app, ["sync", "--dry-run"]),
     (main_app, ["branches", "clean", "--dry-run"]),
-    (gh_app, ["issues", "sync-roadmap", "--help"]),
+    (gh_app, ["issues", "close-merged", "--help"]),
+    (main_app, ["roadmap", "--help"]),
+    (roadmap_app, ["--help"]),
+    (roadmap_app, ["migrate", "--help"]),
+    (roadmap_app, ["render", "--help"]),
+    (roadmap_app, ["reprioritize", "--help"]),
 ]
 
 

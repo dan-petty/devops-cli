@@ -130,7 +130,7 @@ def test_probe_tcp_timeout() -> None:
 
 
 class _MockHTTPHandler(BaseHTTPRequestHandler):
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         if self.path in ("/healthz", "/health", "/ready"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")

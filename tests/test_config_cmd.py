@@ -82,6 +82,8 @@ def test_config_show_includes_allow_private_network_and_active_path(
     custom_cfg.write_text(
         "ai:\n"
         "  allow_private_network: true\n"
+        "  hardware_cost_usd: 7000.0\n"
+        "  reference_model: gpt-4o\n"
         "  ollama_urls:\n"
         "    - http://example.com:11434\n"
         "    - http://example.com:11435\n",
@@ -90,12 +92,18 @@ def test_config_show_includes_allow_private_network_and_active_path(
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(custom_cfg))
 
     result = runner.invoke(app, ["show"])
-    assert result.exit_code == 0
-    assert "ai.allow_private_network" in result.stdout
-    assert "ai.ollama_urls" in result.stdout
-    assert "http://example.com:11434, http://example.com:11435" in result.stdout
-    assert "True" in result.stdout
-    assert str(custom_cfg) in result.stdout
+    assert (
+        result.exit_code,
+        "ai.allow_private_network" in result.stdout,
+        "ai.hardware_cost_usd" in result.stdout,
+        "7000.0" in result.stdout,
+        "ai.reference_model" in result.stdout,
+        "gpt-4o" in result.stdout,
+        "ai.ollama_urls" in result.stdout,
+        "http://example.com:11434, http://example.com:11435" in result.stdout,
+        "True" in result.stdout,
+        str(custom_cfg) in result.stdout,
+    ) == (0, True, True, True, True, True, True, True, True, True)
 
 
 def test_dotted_set_rejects_top_level_section_overwrite() -> None:

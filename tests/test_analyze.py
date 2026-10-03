@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
-from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -22,6 +20,7 @@ from devops_cli.commands.analyze import (
 )
 from devops_cli.main import app
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
+from devops_cli.models.git import ChangedFile
 
 runner = CliRunner()
 
@@ -271,13 +270,6 @@ def test_ai_analyze_branch_and_pr_execution(tmp_path: Path) -> None:
     worker_file = src_dir / "worker.py"
     worker_file.write_text("def do_work(): pass\n", encoding="utf-8")
 
-    mock_diff_proc = subprocess.CompletedProcess(
-        args=["git", "diff"],
-        returncode=0,
-        stdout="M\tsrc/worker.py\n",
-        stderr="",
-    )
-
     mock_pull = MagicMock()
     mock_pull.number = 42
     mock_pull.title = "Add worker"
@@ -295,7 +287,12 @@ def test_ai_analyze_branch_and_pr_execution(tmp_path: Path) -> None:
         patch(
             "devops_cli.git.operations.list_branches", return_value=MagicMock(current="feat/worker")
         ),
-        patch("devops_cli.core.process.run_subprocess", return_value=mock_diff_proc),
+        patch(
+            "devops_cli.git.operations.list_changed_files",
+            return_value=[ChangedFile(change_type="modified", path="src/worker.py")],
+        ),
+        patch("devops_cli.git.operations.resolve_merge_base", return_value="base-sha"),
+        patch("devops_cli.git.operations.read_file_at_revision", return_value=None),
         patch("devops_cli.core.repo.get_repo_origin_name", return_value="org/repo"),
         patch("devops_cli.config.settings.get_github_token", return_value="mock_token"),
         patch("devops_cli.github.client.GitHubClient.get_pull", return_value=mock_pull),
@@ -664,7 +661,7 @@ class RetainedClass:
 
 
 def test_apply_symbol_delta_to_meta(tmp_path: Path) -> None:
-    """Verify that _apply_symbol_delta_to_meta populates symbols_added, removed, and retained."""
+    """Verify that _apply_symbol_delta_to_meta lists an added file's symbols as added."""
     from devops_cli.commands.analyze import _apply_symbol_delta_to_meta
 
     meta = FileAnalysisMeta(path="test_mod.py")
@@ -673,10 +670,9 @@ def test_apply_symbol_delta_to_meta(tmp_path: Path) -> None:
     updated = _apply_symbol_delta_to_meta(
         meta=meta,
         repo=tmp_path,
-        base=None,
-        rel_path="test_mod.py",
+        base_revision="main",
+        change=ChangedFile(change_type="added", path="test_mod.py"),
         head_content=head_code,
-        change_type="added",
     )
 
     assert (
@@ -684,29 +680,6 @@ def test_apply_symbol_delta_to_meta(tmp_path: Path) -> None:
         len(updated.symbols_removed),
         len(updated.symbols_retained),
     ) == (True, 0, 0)
-
-
-@pytest.fixture
-def symbol_removal_repo(tmp_path: Path, git: Callable[..., None]) -> Path:
-    """A real repository whose `main` defines two functions and whose `feature` branch
-    removes one of them and adds another."""
-    git(tmp_path, "init", "--quiet", "-b", "main")
-    (tmp_path / "mod.py").write_text("def kept(): pass\ndef gone(): pass\n", encoding="utf-8")
-    git(tmp_path, "add", "mod.py")
-    git(tmp_path, "commit", "--quiet", "-m", "base")
-    git(tmp_path, "switch", "--quiet", "-c", "feature")
-    (tmp_path / "mod.py").write_text("def kept(): pass\ndef added(): pass\n", encoding="utf-8")
-    git(tmp_path, "commit", "--quiet", "-am", "remove gone")
-    return tmp_path
-
-
-def test_fetch_git_file_content_reads_the_base_revision(symbol_removal_repo: Path) -> None:
-    """The file is read at the base revision, not taken for a pathspec (#787)."""
-    from devops_cli.commands.analyze import _fetch_git_file_content
-
-    content = _fetch_git_file_content(symbol_removal_repo, "main", "mod.py")
-
-    assert content == "def kept(): pass\ndef gone(): pass\n"
 
 
 def test_apply_symbol_delta_reports_a_symbol_removed_since_the_base(
@@ -719,14 +692,60 @@ def test_apply_symbol_delta_reports_a_symbol_removed_since_the_base(
     updated = _apply_symbol_delta_to_meta(
         meta=FileAnalysisMeta(path="mod.py"),
         repo=symbol_removal_repo,
-        base="main",
-        rel_path="mod.py",
+        base_revision="main",
+        change=ChangedFile(change_type="modified", path="mod.py"),
         head_content=head,
-        change_type="modified",
     )
 
     assert (updated.symbols_removed, updated.symbols_added, updated.symbols_retained) == (
         ["gone"],
         ["added"],
         ["kept"],
+    )
+
+
+def test_analyze_branch_compares_a_renamed_file_with_its_old_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rename is analysed at its new path and its base read at the old one, at the merge base.
+
+    The plain `--name-status` parser kept `old_name.py<TAB>new_name.py` as one path, which does not
+    exist, and recorded the renamed file as deleted (#593).
+    """
+    monkeypatch.setenv("DEVOPS_CLI_DATA_ANALYSIS_DIR", str(tmp_path / "analysis"))
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "new_name.py").write_text("def moved(): pass\ndef fresh(): pass\n", "utf-8")
+    reads: list[tuple[str, str]] = []
+
+    def read(repo: Path, revision: str, rel_path: str) -> str:
+        reads.append((revision, rel_path))
+        return "def moved(): pass\ndef dropped(): pass\n"
+
+    renamed = ChangedFile(change_type="renamed", path="new_name.py", old_path="old_name.py")
+    with (
+        patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
+        patch("devops_cli.git.operations.resolve_merge_base", return_value="merge-sha"),
+        patch("devops_cli.git.operations.list_changed_files", return_value=[renamed]) as lister,
+        patch("devops_cli.git.operations.read_file_at_revision", side_effect=read),
+    ):
+        result = runner.invoke(
+            analyze_app, ["branch", "feature", "--base", "main", "--no-enhanced"]
+        )
+
+    saved = AnalysisMetadata.model_validate_json(
+        next((tmp_path / "analysis").glob("branch-*-metadata.json")).read_text("utf-8")
+    )
+    assert (
+        result.exit_code,
+        lister.call_args.args[1:],
+        reads,
+        [
+            (m.path, m.change_type, m.symbols_added, m.symbols_removed, m.symbols_retained)
+            for m in saved.files
+        ],
+    ) == (
+        0,
+        ("merge-sha", "feature"),
+        [("merge-sha", "old_name.py")],
+        [("new_name.py", "renamed", ["fresh"], ["dropped"], ["moved"])],
     )

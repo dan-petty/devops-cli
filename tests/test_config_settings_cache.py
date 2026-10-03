@@ -100,3 +100,28 @@ def test_saving_settings_discards_the_parsed_copy(
     settings.save_settings(loaded, target_path=tmp_path / "written.yaml")
 
     assert (before_save, len(settings._CONFIG_CACHE)) == (1, 0)
+
+
+def test_a_merge_with_the_project_layer_is_not_reused_while_a_review_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A review reads no project config it was not told to (#972), so the merge cached from the
+    same working directory before it began, project layer included, must not answer inside it;
+    nor the merge without the layer once it ends."""
+    from devops_cli.core.untrusted_trees import reading_untrusted_trees
+
+    user_config = _settled_config(tmp_path, _ALPHA)
+    project = tmp_path / "project"
+    (project / ".devops").mkdir(parents=True)
+    _settled_config(project / ".devops", _BRAVO)
+    monkeypatch.setattr(settings, "CONFIG_PATH", user_config)
+    monkeypatch.delenv("DEVOPS_CLI_CONFIG", raising=False)
+    monkeypatch.chdir(project)
+    settings.reset_settings_cache()
+
+    before = settings.load_settings().ai.model
+    with reading_untrusted_trees():
+        during = settings.load_settings().ai.model
+    after = settings.load_settings().ai.model
+
+    assert (before, during, after) == ("bravo", "alpha", "bravo")

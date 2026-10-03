@@ -85,7 +85,10 @@ class PlutoScanner(BaseSecurityScanner):
         ]
 
 
-def run_pluto_scan(target: Path = DEFAULT_CURRENT_PATH) -> ScanOutcome:
-    """Execute Pluto deprecated API scanner and return scan outcome."""
+def run_pluto_scan(target: Path = DEFAULT_CURRENT_PATH, *, isolated: bool = False) -> ScanOutcome:
+    """Execute Pluto deprecated API scanner and return scan outcome; `isolated` for a review.
+
+    Pluto reads no config or ignore file, so an isolated scan only runs it outside the tree.
+    """
     scanner = PlutoScanner()
-    return scanner.scan(target)
+    return scanner.scan(target, isolated=isolated)

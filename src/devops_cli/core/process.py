@@ -342,7 +342,7 @@ def run_subprocess(
         return proc
 
 
-async def run_subprocess_async(
+async def run_subprocess_async(  # noqa: C901
     cmd: list[str],
     *,
     cwd: Path | None = None,

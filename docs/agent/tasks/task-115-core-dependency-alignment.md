@@ -34,8 +34,5 @@ Perform scheduled alignment across core project dependencies (`typer`, `pydantic
 - [x] Ground issue in GitHub tracking (#115) with `status/in-progress`.
 - [x] Author task tracking file `docs/agent/tasks/task-115-core-dependency-alignment.md`.
 - [x] Checkout dedicated topic branch `chore/115-core-dependency-alignment`.
-- [ ] Run `uv lock --upgrade` and `uv sync`.
-- [ ] Verify test suite and quality gates pass cleanly.
-- [ ] Commit with concise Conventional Commit message.
-- [ ] Open Draft Pull Request targeting `release/v0.2.17`.
-- [ ] Transition PR to ready, verify merge readiness, squash-merge into `release/v0.2.17`, and close issue #115.
+- Not checked when merged: run `uv lock --upgrade` and `uv sync`.
+- Not checked when merged: verify test suite and quality gates pass cleanly.

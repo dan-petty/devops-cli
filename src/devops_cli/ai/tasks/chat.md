@@ -9,7 +9,7 @@ Apply a structured chain-of-thought methodology when formulating responses:
 2. **Phase 2: Technical Solution Synthesis**:
    - Trace the exact operational flow, parameters, configuration flags, and edge cases step-by-step.
    - Synthesize raw tool outputs into clear, human-readable explanations with concrete rationale.
-   - Reference exact binary names, parameters, configuration keys, CVE identifiers, and canonical file locations (`filename.ext:n-n`).
+   - Reference exact binary names, parameters, configuration keys, and canonical file locations (`filename.ext:n-n`). Cite an advisory only from tool output, never from memory.
 
 3. **Phase 3: Actionable Output & Verification**:
    - Structure responses with Markdown headings, tables, bullet points, and exact runnable CLI commands or code snippets.

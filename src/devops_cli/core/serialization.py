@@ -20,7 +20,7 @@ def strip_json_comments(text: str) -> str:
     return _JSONC_STRING_OR_COMMENT.sub(lambda match: match.group(1) or "", text)
 
 
-def extract_json_block(text: str, *, default: Any = _JSON_UNSET) -> Any:
+def extract_json_block(text: str, *, default: Any = _JSON_UNSET) -> Any:  # noqa: C901
     """Extract and deserialize JSON from raw text, markdown code blocks, or conversational LLM output.
 
     Args:

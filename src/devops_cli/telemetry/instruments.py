@@ -42,7 +42,27 @@ class Instrument:
 
 _SECONDS = (0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600)
 _REVIEW_SECONDS = (30, 60, 120, 300, 600, 900, 1800, 3600, 7200)
-_MILLISECONDS = (10, 25, 50, 100, 250, 500, 1000, 2500, 5000)
+# Up to 600 s, the top of the 300 to 600 s range set for `qdrant.timeout`, the longest a RAG query
+# waits on: a quantile past the top bucket comes out as its bound, so a top bucket of 5 s drew the
+# slow tail as a flat line (#975).
+_RAG_MILLISECONDS = (
+    10,
+    25,
+    50,
+    100,
+    250,
+    500,
+    1000,
+    2500,
+    5000,
+    10000,
+    15000,
+    30000,
+    60000,
+    120000,
+    300000,
+    600000,
+)
 
 COMMAND_TOTAL = Instrument(
     "devops_cli_command_total", InstrumentKind.COUNTER, "1", "Commands run, by command and status"
@@ -85,12 +105,64 @@ AI_SPEND_USD_TOTAL = Instrument(
     "USD",
     "Approximate LLM spend, by provider, model, server and backend",
 )
+AI_LOCAL_COST_EQUIVALENT_USD_TOTAL = Instrument(
+    "devops_cli_ai_local_cost_equivalent_usd_total",
+    InstrumentKind.COUNTER,
+    "USD",
+    "Equivalent hosted cloud spend avoided by local model execution",
+)
 RAG_QUERY_DURATION = Instrument(
     "devops_cli_rag_query_duration_ms",
     InstrumentKind.HISTOGRAM,
     "ms",
-    "RAG retrieval time",
-    _MILLISECONDS,
+    "RAG retrieval time, by stage: embedding, search, ranking, or total for the whole query",
+    _RAG_MILLISECONDS,
+)
+QDRANT_RETRIES_TOTAL = Instrument(
+    "devops_cli_qdrant_retries_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Qdrant requests retried after a transient error, by operation and error type",
+)
+
+_DAYS = (1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 14.0, 21.0, 30.0, 60.0, 90.0)
+
+PROJECT_RELEASES_TOTAL = Instrument(
+    "devops_cli_project_releases_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Total project releases tracked",
+)
+PROJECT_COMMITS_TOTAL = Instrument(
+    "devops_cli_project_commits_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Project commits count by release",
+)
+PROJECT_PRS_TOTAL = Instrument(
+    "devops_cli_project_prs_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Project pull requests merged by release",
+)
+PROJECT_CI_RUNS_TOTAL = Instrument(
+    "devops_cli_project_ci_runs_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "CI workflow runs by name, status and conclusion",
+)
+PROJECT_ITEMS_TOTAL = Instrument(
+    "devops_cli_project_items_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Project items by milestone, type, priority and state",
+)
+PROJECT_RELEASE_INTERVAL_DAYS = Instrument(
+    "devops_cli_project_release_interval_days",
+    InstrumentKind.HISTOGRAM,
+    "d",
+    "Days elapsed between consecutive project releases",
+    _DAYS,
 )
 
 INSTRUMENTS: tuple[Instrument, ...] = (
@@ -101,7 +173,15 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     AI_REQUESTS_TOTAL,
     AI_TOKENS_TOTAL,
     AI_SPEND_USD_TOTAL,
+    AI_LOCAL_COST_EQUIVALENT_USD_TOTAL,
     RAG_QUERY_DURATION,
+    QDRANT_RETRIES_TOTAL,
+    PROJECT_RELEASES_TOTAL,
+    PROJECT_COMMITS_TOTAL,
+    PROJECT_PRS_TOTAL,
+    PROJECT_CI_RUNS_TOTAL,
+    PROJECT_ITEMS_TOTAL,
+    PROJECT_RELEASE_INTERVAL_DAYS,
 )
 
 
@@ -133,6 +213,7 @@ def backend_name(served_by: str | None) -> str:
 
 
 __all__ = [
+    "AI_LOCAL_COST_EQUIVALENT_USD_TOTAL",
     "AI_REQUESTS_TOTAL",
     "AI_SPEND_USD_TOTAL",
     "AI_TOKENS_TOTAL",
@@ -140,6 +221,13 @@ __all__ = [
     "COMMAND_TOTAL",
     "FINDINGS_TOTAL",
     "INSTRUMENTS",
+    "PROJECT_CI_RUNS_TOTAL",
+    "PROJECT_COMMITS_TOTAL",
+    "PROJECT_ITEMS_TOTAL",
+    "PROJECT_PRS_TOTAL",
+    "PROJECT_RELEASES_TOTAL",
+    "PROJECT_RELEASE_INTERVAL_DAYS",
+    "QDRANT_RETRIES_TOTAL",
     "RAG_QUERY_DURATION",
     "REVIEW_DURATION",
     "Instrument",

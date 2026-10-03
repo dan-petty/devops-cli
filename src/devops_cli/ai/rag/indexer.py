@@ -80,7 +80,7 @@ def _load_gitignore_spec(root: Path) -> Any:
         return None
 
 
-def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bool:
+def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bool:  # noqa: C901
     """Determine if a path is an indexable code/doc file under root."""
     if not p.is_file() or p.is_symlink():
         return False
@@ -303,7 +303,11 @@ def resolve_qdrant_client(
     *,
     allow_private_network: bool | None = None,
 ) -> QdrantClient:
-    """Resolve authenticated QdrantClient using OS Keyring when api_key is not explicitly provided."""
+    """Resolve authenticated QdrantClient using OS Keyring when api_key is not explicitly provided.
+
+    Indexing's upserts and deletes go through this client, so each waits `qdrant.timeout` per
+    attempt, as a RAG search does.
+    """
     from devops_cli.config.settings import get_qdrant_api_key, load_settings
 
     settings = load_settings()
@@ -318,6 +322,7 @@ def resolve_qdrant_client(
         base_url=url,
         api_key=resolved_api_key,
         allow_private_network=private_net,
+        timeout=settings.qdrant.timeout,
     )
 
 

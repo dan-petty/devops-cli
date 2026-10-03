@@ -13,14 +13,13 @@ from devops_cli.ai.client.base import BaseLLMProviderMixin
 from devops_cli.ai.client.models import (
     LLMResponse,
     is_reasoning_model,
+    provider_finish_reason,
 )
-from devops_cli.ai.client.network import read_limited_json, stream_served_by
-from devops_cli.ai.client.streaming import (
-    _consume_streaming_lines,
-    _extract_openai_stream_chunk,
-)
+from devops_cli.ai.client.network import request_limited_json, stream_served_by
+from devops_cli.ai.client.streaming import _openai_stream_frame, _read_event_stream
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_SERVED_BY_HEADER,
+    CONST_OPENAI_FINISH_REASONS,
     CONST_URL_GITHUB_COPILOT_API_BASE,
     CONST_URL_OPENAI_API_BASE,
 )
@@ -148,6 +147,9 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             total_tokens=usage.get("total_tokens"),
             served_by=served_by,
             model=raw_json.get("model"),
+            finish_reason=provider_finish_reason(
+                CONST_OPENAI_FINISH_REASONS, first_choice.get("finish_reason")
+            ),
         )
 
     def _openai_compat_messages(
@@ -161,17 +163,16 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         headers = inject_trace_context(self._openai_compat_headers())
         payload = self._build_compat_payload(system, messages, enable_thinking=enable_thinking)
         try:
-            http_client = self._shared_client()
-            response = http_client.post(
+            raw_json, reply_headers = request_limited_json(
+                self._shared_client(),
+                "POST",
                 f"{self._api_base()}/chat/completions",
                 headers=headers,
                 json=payload,
                 timeout=self._request_timeout(),
             )
-            response.raise_for_status()
             wall_elapsed = time.monotonic() - start_time
-            raw_json = read_limited_json(response)
-            served_by = response.headers.get(CONST_AI_GATEWAY_SERVED_BY_HEADER)
+            served_by = reply_headers.get(CONST_AI_GATEWAY_SERVED_BY_HEADER)
             return self._parse_compat_response(raw_json, wall_elapsed, served_by)
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
@@ -202,9 +203,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                     response.read()
                 response.raise_for_status()
                 stream_served_by.set(response.headers.get(CONST_AI_GATEWAY_SERVED_BY_HEADER))
-                yield from _consume_streaming_lines(
-                    response, _extract_openai_stream_chunk, "Provider"
-                )
+                yield from _read_event_stream(response, _openai_stream_frame, "Provider")
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
@@ -212,14 +211,14 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
 
     def _openai_models(self) -> list[str]:
         try:
-            http_client = self._shared_client()
-            response = http_client.get(
+            listing, _headers = request_limited_json(
+                self._shared_client(),
+                "GET",
                 f"{self._api_base()}/models",
                 headers=self._openai_compat_headers(),
                 timeout=self._request_timeout(),
             )
-            response.raise_for_status()
-            return [model_info["id"] for model_info in read_limited_json(response).get("data", [])]
+            return [model_info["id"] for model_info in listing.get("data", [])]
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:

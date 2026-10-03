@@ -1,7 +1,4 @@
-import ast
-import asyncio
 import inspect
-import json
 import logging
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
@@ -20,7 +17,7 @@ from devops_cli.ai.agents.pydantic_agent import (
     Tool,
 )
 from devops_cli.ai.harness.constants import DEFAULT_ADVISOR_INSTRUCTIONS
-from devops_cli.exceptions.ai import HarnessExecutionError, HarnessValidationError
+from devops_cli.exceptions.ai import HarnessValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -68,17 +65,6 @@ def clamp_effort(effort: Any) -> Any:
     if str(effort).lower() in ("minimal", "min", "none", "off"):
         return MINIMUM_EFFORT_FLOOR
     return str(effort).lower()
-
-
-async def _invoke_agent_callable(agent_obj: Any, task: str) -> Any:
-    """Invoke an agent object supporting run_async, run, or callable protocols."""
-    if hasattr(agent_obj, "run_async") and callable(agent_obj.run_async):
-        return await agent_obj.run_async(task)
-    if hasattr(agent_obj, "run") and callable(agent_obj.run):
-        return agent_obj.run(task)
-    if callable(agent_obj):
-        return await agent_obj(task) if inspect.iscoroutinefunction(agent_obj) else agent_obj(task)
-    return str(agent_obj)
 
 
 class ModelOption(BaseModel):
@@ -225,7 +211,7 @@ class SubAgents(BaseCapability):
             call_counts=defaultdict(int),
         )
 
-    def load_disk_agents(self) -> list[SubAgent]:
+    def load_disk_agents(self) -> list[SubAgent]:  # noqa: C901
         """Auto-load markdown agent definitions from conventional or configured folders."""
         if self.agent_folders is None:
             return []
@@ -273,11 +259,11 @@ class SubAgents(BaseCapability):
             return target.models[0]
         return next(iter(self.models.keys()))
 
-    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
+    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:  # noqa: C901
         all_sub_agents = self.get_all_agents()
         agent_map = {sa.name: sa for sa in all_sub_agents}
 
-        def delegate_task(
+        def delegate_task(  # noqa: C901
             ctx: NativeRunContext[Any] = None,  # type: ignore[assignment]
             agent_name: str = "",
             task: str = "",
@@ -404,329 +390,6 @@ class SubAgents(BaseCapability):
                     f" ({v.description})" if isinstance(v, ModelOption) and v.description else ""
                 )
                 lines.append(f"- {k}{m_desc}")
-
-        return ["\n".join(lines)]
-
-
-class WorkflowAgent(BaseModel):
-    """Wrapper defining a child sub-agent inside a DynamicWorkflow catalog."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    agent: Any
-    name: str = ""
-    description: str = ""
-    output_type: type[Any] | None = None
-
-    def __init__(
-        self,
-        agent: Any,
-        *,
-        name: str | None = None,
-        description: str | None = None,
-        output_type: type[Any] | None = None,
-    ) -> None:
-        sub_name = str(name or getattr(agent, "name", "") or "sub_agent")
-        sub_desc = str(
-            description
-            or getattr(agent, "description", "")
-            or getattr(agent, "system_prompt", "")
-            or sub_name
-        )
-        super().__init__(
-            agent=agent,
-            name=sub_name,
-            description=sub_desc,
-            output_type=output_type
-            or getattr(agent, "output_schema", None)
-            or getattr(agent, "output_type", None),
-        )
-
-
-class DynamicWorkflow(BaseCapability):
-    """Capability allowing an orchestrator agent to coordinate a catalog of sub-agents via a sandboxed Python script."""
-
-    id: str = "dynamic_workflow"
-    agents: list[WorkflowAgent] = Field(default_factory=list)
-    tool_name: str = "run_workflow"
-    max_agent_calls: int = 50
-    max_retries: int = 3
-    forward_usage: bool = True
-    inherit_model: bool = False
-    sub_agent_usage_limits: Any | None = None
-    resource_limits: dict[str, Any] | str | None = None
-    description: str = ""
-    defer_loading: bool = False
-    call_counts: dict[str, int] = Field(default_factory=lambda: defaultdict(int))
-    completed_previews: list[str] = Field(default_factory=list)
-
-    def __init__(
-        self,
-        *,
-        agents: Sequence[WorkflowAgent | Any] = (),
-        tool_name: str = "run_workflow",
-        max_agent_calls: int = 50,
-        max_retries: int = 3,
-        forward_usage: bool = True,
-        inherit_model: bool = False,
-        sub_agent_usage_limits: Any | None = None,
-        resource_limits: dict[str, Any] | str | None = None,
-        id: str = "dynamic_workflow",
-        description: str | None = None,
-        defer_loading: bool = False,
-    ) -> None:
-        wrapped_agents: list[WorkflowAgent] = []
-        for ag in agents:
-            if isinstance(ag, WorkflowAgent):
-                wrapped_agents.append(ag)
-            else:
-                wrapped_agents.append(WorkflowAgent(ag))
-
-        resolved_id = str(id or "dynamic_workflow")
-        super().__init__(
-            id=resolved_id,
-            agents=wrapped_agents,
-            tool_name=tool_name,
-            max_agent_calls=max_agent_calls,
-            max_retries=max_retries,
-            forward_usage=forward_usage,
-            inherit_model=inherit_model,
-            sub_agent_usage_limits=sub_agent_usage_limits,
-            resource_limits=resource_limits,
-            description=str(description or ""),
-            defer_loading=defer_loading,
-            call_counts=defaultdict(int),
-            completed_previews=[],
-        )
-
-    def reveal(self, agent: WorkflowAgent | Any) -> None:
-        """Add a new sub-agent to the catalog mid-run."""
-        wrapped = agent if isinstance(agent, WorkflowAgent) else WorkflowAgent(agent)
-        name = wrapped.name
-        if not name or not name.isidentifier():
-            raise HarnessValidationError(f"Invalid agent name identifier: {name!r}")
-        if any(a.name == name for a in self.agents):
-            raise HarnessValidationError(
-                f"Agent name collision: {name!r} already exists in workflow catalog"
-            )
-        self.agents.append(wrapped)
-
-    async def _execute_sub_agent(self, agent_obj: Any, name_str: str, task: str) -> Any:
-        """Execute sub-agent invocation asynchronously with budgeting and error containment."""
-        total_calls = sum(self.call_counts.values())
-        if total_calls >= self.max_agent_calls:
-            preview_summary = "\n".join(self.completed_previews[-20:])
-            msg = f"Workflow budget exhausted: reached maximum agent calls ({self.max_agent_calls}).\nCompleted results preview:\n{preview_summary}"
-            raise HarnessExecutionError(msg)
-
-        self.call_counts[name_str] = self.call_counts.get(name_str, 0) + 1
-        resp = await _invoke_agent_callable(agent_obj, task)
-        result_val = _extract_response_data(resp)
-        val_preview = str(result_val)[:200]
-        self.completed_previews.append(f"[{name_str}]: {val_preview}")
-        return result_val
-
-    def _make_sub_agent_caller(self, agent_obj: Any, name_str: str) -> Callable[..., Any]:
-        """Construct sandboxed callable wrapper for sub-agent."""
-
-        async def _call_sub_agent(*args: Any, task: str | None = None, **kwargs: Any) -> Any:
-            if args:
-                raise HarnessValidationError(
-                    f"Sub-agent '{name_str}' must be called with keyword argument task='...'"
-                )
-            effective_task = str(task if task is not None else kwargs.get("task", ""))
-            return await self._execute_sub_agent(agent_obj, name_str, effective_task)
-
-        return _call_sub_agent
-
-    def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
-        async def run_workflow(code: str) -> Any:
-            """Execute a Python workflow script coordinating catalog sub-agents."""
-            printed_lines: list[str] = []
-
-            def _custom_print(*args: Any, **kwargs: Any) -> None:
-                sep = kwargs.get("sep", " ")
-                printed_lines.append(sep.join(str(a) for a in args))
-
-            import datetime
-            import math
-            import re
-            import typing
-            import unicodedata
-
-            def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
-                allowed_modules: dict[str, Any] = {
-                    "asyncio": asyncio,
-                    "json": json,
-                    "re": re,
-                    "math": math,
-                    "typing": typing,
-                    "unicodedata": unicodedata,
-                    "datetime": datetime,
-                }
-                top = name.split(".")[0]
-                if top in allowed_modules:
-                    return allowed_modules[top]
-                raise ImportError(f"Importing '{name}' is forbidden in sandboxed workflow.")
-
-            # Security: Whitelist allowed modules and provide strict safe builtins
-            safe_builtins: dict[str, Any] = {
-                "__import__": _safe_import,
-                "abs": abs,
-                "all": all,
-                "any": any,
-                "bool": bool,
-                "dict": dict,
-                "enumerate": enumerate,
-                "filter": filter,
-                "float": float,
-                "format": format,
-                "frozenset": frozenset,
-                "int": int,
-                "isinstance": isinstance,
-                "issubclass": issubclass,
-                "len": len,
-                "list": list,
-                "map": map,
-                "max": max,
-                "min": min,
-                "range": range,
-                "reversed": reversed,
-                "round": round,
-                "set": set,
-                "sorted": sorted,
-                "str": str,
-                "sum": sum,
-                "tuple": tuple,
-                "zip": zip,
-            }
-
-            sandbox_env: dict[str, Any] = {
-                "__builtins__": safe_builtins,
-                "asyncio": asyncio,
-                "json": json,
-                "re": re,
-                "math": math,
-                "typing": typing,
-                "unicodedata": unicodedata,
-                "datetime": datetime,
-                "print": _custom_print,
-            }
-
-            for wag in self.agents:
-                sandbox_env[wag.name] = self._make_sub_agent_caller(wag.agent, wag.name)
-
-            # Parse and compile code with AST security validation
-            try:
-                parsed = ast.parse(code, mode="exec")
-            except SyntaxError as syn_err:
-                return f"SyntaxError in workflow script: {syn_err}"
-
-            # AST Security Inspection: block dangerous nodes and dunder access
-            forbidden_modules = {
-                "os",
-                "sys",
-                "subprocess",
-                "shutil",
-                "socket",
-                "http",
-                "urllib",
-                "ctypes",
-            }
-            for node in ast.walk(parsed):
-                if isinstance(node, (ast.Import, ast.ImportFrom)):
-                    mod_name = (
-                        node.module
-                        if isinstance(node, ast.ImportFrom)
-                        else (node.names[0].name if node.names else "")
-                    )
-                    top_mod = (mod_name or "").split(".")[0]
-                    if top_mod in forbidden_modules or top_mod not in sandbox_env:
-                        return f"SecurityError: Importing module '{mod_name}' is forbidden in sandboxed workflow."
-                elif isinstance(node, ast.Attribute) and node.attr.startswith("__"):
-                    return f"SecurityError: Accessing private/dunder attribute '{node.attr}' is forbidden."
-
-            last_val_node: ast.expr | None = None
-            if parsed.body:
-                last_stmt = parsed.body[-1]
-                if isinstance(last_stmt, ast.Expr):
-                    parsed.body.pop()
-                    last_val_node = last_stmt.value
-
-            if last_val_node is not None:
-                parsed.body.append(ast.Return(value=last_val_node))
-            else:
-                parsed.body.append(ast.Return(value=ast.Constant(value=None)))
-
-            fn_def = ast.AsyncFunctionDef(
-                name="__dynamic_workflow_runner__",
-                args=ast.arguments(
-                    posonlyargs=[],
-                    args=[],
-                    kwonlyargs=[],
-                    kw_defaults=[],
-                    defaults=[],
-                ),
-                body=parsed.body,
-                decorator_list=[],
-            )
-            module_ast = ast.Module(body=[fn_def], type_ignores=[])
-            ast.fix_missing_locations(module_ast)
-
-            try:
-                compiled = compile(module_ast, filename="<workflow>", mode="exec")
-                exec(compiled, sandbox_env)  # nosec B102 - sandboxed execution of validated workflow AST
-                runner = sandbox_env["__dynamic_workflow_runner__"]
-                res = await runner()
-            except Exception as exc:
-                preview_summary = "\n".join(self.completed_previews[-20:])
-                err_msg = f"RuntimeError in workflow script: {exc}"
-                if preview_summary:
-                    err_msg += f"\nCompleted call previews:\n{preview_summary}"
-                return err_msg
-
-            stdout = "\n".join(printed_lines).strip()
-            if stdout and res is not None:
-                return {"output": stdout, "result": res}
-            elif stdout:
-                return {"output": stdout}
-            elif res is not None:
-                return res
-            return {}
-
-        return [
-            Tool.from_function(
-                run_workflow,
-                name=self.tool_name,
-                description="Coordinate a catalog of sub-agents by running a sandboxed Python script.",
-            )
-        ]
-
-    def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:
-        if self.defer_loading:
-            desc = (
-                self.description
-                or "DynamicWorkflow capability for coordinating catalog sub-agents."
-            )
-            return [f"DynamicWorkflow [{self.id}]: {desc}"]
-
-        lines = [
-            "Dynamic Workflow Capability enabled.",
-            "You can coordinate sub-agents by calling tool 'run_workflow(code=...)' with an async Python script.",
-            "Available sub-agents in catalog (call with 'await name(task=...)'):",
-        ]
-        for wag in self.agents:
-            out_desc = f" -> {wag.output_type.__name__}" if wag.output_type else " -> str"
-            desc_text = f": {wag.description}" if wag.description else ""
-            lines.append(f"- async def {wag.name}(*, task: str){out_desc}{desc_text}")
-
-        lines.append(
-            "\nScript Guidelines:\n"
-            "- Use 'await asyncio.gather(...)' for concurrent fan-out.\n"
-            "- Pass work with keyword argument 'task=...'.\n"
-            "- The value of the last expression in the script becomes the result.\n"
-            "- Sub-agent results returning structured data can be accessed via dictionary subscripts."
-        )
 
         return ["\n".join(lines)]
 

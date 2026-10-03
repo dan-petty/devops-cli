@@ -38,7 +38,7 @@ from devops_cli.telemetry.tracer import record_metric, trace_span
 app = new_typer(help=HELP.test.app, no_args_is_help=False)
 
 
-def find_changed_test_files(repo_root: Path, base_ref: str = "main") -> list[Path]:
+def find_changed_test_files(repo_root: Path, base_ref: str = "main") -> list[Path]:  # noqa: C901
     """Find test files corresponding to modified source files via git diff."""
     clean_ref = base_ref.strip()
     if clean_ref.startswith("-") or not re.match(r"^[a-zA-Z0-9_\-./~^]+$", clean_ref):
@@ -102,7 +102,7 @@ def find_changed_test_files(repo_root: Path, base_ref: str = "main") -> list[Pat
 
 
 @app.command("run")
-def run_test_cmd(
+def run_test_cmd(  # noqa: C901
     target: Annotated[
         Path | None,
         typer.Argument(help="Target test file or test directory."),

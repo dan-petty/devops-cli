@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,6 +14,7 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
 from devops_cli.dry_run import set_dry_run
+from devops_cli.prometheus.promql import selectors, validate_promql
 
 runner = CliRunner()
 
@@ -690,7 +692,7 @@ def test_k8s_apply_logs_and_urls(tmp_path: Path) -> None:
 
 
 def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
-    """Verify k8s client error branches, URL detection helpers, and rbac-audit."""
+    """Verify k8s client error branches and URL detection helpers."""
     from devops_cli.commands.k8s import (
         _detect_service_url,
         _extract_first_node_ip,
@@ -735,12 +737,7 @@ def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
         res_svc = _detect_service_url("ollama", "llm")
         assert res_svc == "http://192.0.2.49:31434"
 
-    # 5. rbac-audit
-    res_rbac = runner.invoke(app, ["rbac-audit", "--namespace", "kube-system"])
-    assert res_rbac.exit_code == 0
-    assert "cluster-admin-binding" in res_rbac.output
-
-    # 6. create-tls-secret missing files
+    # 5. create-tls-secret missing files
     res_missing_cert = runner.invoke(
         app,
         [
@@ -754,22 +751,29 @@ def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
     )
     assert res_missing_cert.exit_code == 1
 
-    # 7. contexts failure
+    # 6. contexts failure
     mock_cfg = MagicMock()
     mock_cfg.list_kube_config_contexts.side_effect = Exception("No kubeconfig")
     with patch("devops_cli.commands.k8s._k8s_clients", return_value=(mock_cfg, MagicMock())):
         res_ctx_fail = runner.invoke(app, ["contexts"])
         assert res_ctx_fail.exit_code == 1
 
-    # 8. status failure
+    # 7. status failure
     mock_client = MagicMock()
     mock_client.CoreV1Api.side_effect = Exception("Cluster error")
     with patch("devops_cli.commands.k8s._k8s_clients", return_value=(mock_cfg, mock_client)):
         res_stat_fail = runner.invoke(app, ["status"])
         assert res_stat_fail.exit_code == 1
 
-    # 9. port-forward command execution
+    # 8. port-forward command execution, recording its forwards under tmp_path rather than in
+    # the real state file of the directory the tests run from
+    from devops_cli.k8s.port_forward_daemon import PortForwardDaemonManager
+
     with (
+        patch(
+            "devops_cli.k8s.port_forward_daemon.get_daemon_manager",
+            return_value=PortForwardDaemonManager(state_file=tmp_path / "port_forwards.json"),
+        ),
         patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
         patch("subprocess.Popen") as mock_popen,
         patch("time.sleep"),
@@ -1110,16 +1114,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
         6,
     )
 
-    # 2. Ollama Helm values: unconstrained memory limits, baseline 4Gi requests
-    values_ollama = yaml.safe_load(
-        (repo_root / "k8s" / "llm" / "values-ollama.yaml").read_text(encoding="utf-8")
-    )
-    assert values_ollama["resources"]["requests"]["memory"] == "4Gi"
-    assert "limits" not in values_ollama["resources"] or "memory" not in values_ollama[
-        "resources"
-    ].get("limits", {})
-
-    # 3. Valkey: memory limit >= 2048Mi
+    # 2. Valkey: memory limit >= 2048Mi
     valkey_docs = list(
         yaml.safe_load_all((repo_root / "k8s" / "llm" / "valkey.yaml").read_text(encoding="utf-8"))
     )
@@ -1127,7 +1122,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     valkey_res = valkey_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
     assert valkey_res["limits"]["memory"] == "2048Mi"
 
-    # 4. Jaeger: memory limit >= 2048Mi
+    # 3. Jaeger: memory limit >= 2048Mi
     jaeger_docs = list(
         yaml.safe_load_all((repo_root / "k8s" / "otel" / "jaeger.yaml").read_text(encoding="utf-8"))
     )
@@ -1135,7 +1130,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     jaeger_res = jaeger_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
     assert jaeger_res["limits"]["memory"] == "2048Mi"
 
-    # 5. Registry: memory limit >= 2048Mi
+    # 4. Registry: memory limit >= 2048Mi
     reg_docs = list(
         yaml.safe_load_all(
             (repo_root / "k8s" / "registry" / "deployment.yaml").read_text(encoding="utf-8")
@@ -1145,7 +1140,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     reg_res = reg_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
     assert reg_res["limits"]["memory"] == "2048Mi"
 
-    # 6. ArgoCD values: elevated memory limits
+    # 5. ArgoCD values: elevated memory limits
     argo_values = yaml.safe_load(
         (repo_root / "k8s" / "argocd" / "values.yaml").read_text(encoding="utf-8")
     )
@@ -1154,35 +1149,35 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert argo_values["server"]["resources"]["limits"]["memory"] == "1024Mi"
     assert argo_values["redis"]["resources"]["limits"]["memory"] == "1024Mi"
 
-    # 7. Open WebUI values: elevated CPU and memory limits
+    # 6. Open WebUI values: elevated CPU and memory limits
     webui_values = yaml.safe_load(
         (repo_root / "k8s" / "llm" / "values-open-webui.yaml").read_text(encoding="utf-8")
     )
     assert webui_values["resources"]["limits"]["cpu"] == "4000m"
     assert webui_values["resources"]["limits"]["memory"] == "4Gi"
 
-    # 8. OTel values: elevated CPU and memory limits
+    # 7. OTel values: elevated CPU and memory limits
     otel_values = yaml.safe_load(
         (repo_root / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
     )
     assert otel_values["resources"]["limits"]["cpu"] == "1000m"
     assert otel_values["resources"]["limits"]["memory"] == "1024Mi"
 
-    # 9. Loki values: elevated singleBinary limits
+    # 8. Loki values: elevated singleBinary limits
     loki_values = yaml.safe_load(
         (repo_root / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
     )
     assert loki_values["singleBinary"]["resources"]["limits"]["cpu"] == "1000m"
     assert loki_values["singleBinary"]["resources"]["limits"]["memory"] == "2048Mi"
 
-    # 10. Fluent Bit values: elevated daemonset limits
+    # 9. Fluent Bit values: elevated daemonset limits
     fb_values = yaml.safe_load(
         (repo_root / "k8s" / "logging" / "fluent-bit-values.yaml").read_text(encoding="utf-8")
     )
     assert fb_values["resources"]["limits"]["cpu"] == "500m"
     assert fb_values["resources"]["limits"]["memory"] == "1024Mi"
 
-    # 11. K8s monitoring stack values: elevated requests and limits to eliminate OOM kills
+    # 10. K8s monitoring stack values: elevated requests and limits to eliminate OOM kills
     k8s_mon_values = yaml.safe_load(
         (repo_root / "k8s" / "monitoring" / "k8s-monitoring-values.yaml").read_text(
             encoding="utf-8"
@@ -1207,7 +1202,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
         "1024Mi",
     )
 
-    # 12. GPU Feature Discovery DaemonSet: Burstable QoS requests and limits
+    # 11. GPU Feature Discovery DaemonSet: Burstable QoS requests and limits
     gfd_docs = list(
         yaml.safe_load_all(
             (repo_root / "k8s" / "gpu-feature-discovery" / "daemonset.yaml").read_text(
@@ -1224,7 +1219,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert gfd_res["limits"]["cpu"] == "200m"
     assert gfd_res["limits"]["memory"] == "256Mi"
 
-    # 13. CoreDNS values and deployment patch: elevated memory limits (384Mi) to eliminate OOM kills
+    # 12. CoreDNS values and deployment patch: elevated memory limits (384Mi) to eliminate OOM kills
     coredns_values = yaml.safe_load(
         (repo_root / "k8s" / "coredns" / "values.yaml").read_text(encoding="utf-8")
     )
@@ -1239,6 +1234,89 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     coredns_dep = next(d for d in coredns_patch_docs if d and d.get("kind") == "Deployment")
     coredns_res = coredns_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
     assert coredns_res["limits"]["memory"] == "384Mi"
+
+
+# =============================================================================
+# Thirty Days Of Logs And Metrics (#550)
+# =============================================================================
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _repo_yaml(*parts: str) -> dict[str, Any]:
+    loaded: dict[str, Any] = yaml.safe_load(_REPO_ROOT.joinpath(*parts).read_text(encoding="utf-8"))
+    return loaded
+
+
+def _volume_alerts() -> dict[str, dict[str, Any]]:
+    """The `log-and-metric-retention` group's rules, by alert name.
+
+    The server's other groups (#549) are pinned in `tests/test_k8s_monitoring_alerting.py`.
+    """
+    values = _repo_yaml("k8s", "monitoring", "prometheus-values.yaml")
+    groups = values["serverFiles"]["alerting_rules.yml"]["groups"]
+    (group,) = [group for group in groups if group["name"] == "log-and-metric-retention"]
+    return {rule["alert"]: rule for rule in group["rules"]}
+
+
+def test_loki_deletes_logs_once_they_are_thirty_days_old() -> None:
+    """`retention_period` is applied only by the compactor, and only with retention on.
+
+    Without `compactor.retention_enabled` Loki kept every chunk whatever its age. Loki 3
+    refuses to start with retention on and no delete-request store, and that store opens
+    the unauthenticated log delete API, which `deletion_mode: disabled` closes.
+    """
+    loki = _repo_yaml("k8s", "logging", "loki-values.yaml")["loki"]
+    compactor, limits = loki["compactor"], loki["limits_config"]
+    assert (
+        compactor["retention_enabled"],
+        compactor["delete_request_store"],
+        limits["retention_period"],
+        limits["deletion_mode"],
+    ) == (True, "filesystem", "720h", "disabled")
+
+
+def test_both_volumes_hold_thirty_days_and_no_size_cap_cuts_them_short() -> None:
+    """Loki's volume holds 30 days of logs; Prometheus keeps 30 days under a looser size cap."""
+    loki = _repo_yaml("k8s", "logging", "loki-values.yaml")["singleBinary"]["persistence"]
+    server = _repo_yaml("k8s", "monitoring", "prometheus-values.yaml")["server"]
+    assert (
+        loki["enabled"],
+        loki["size"],
+        server["retention"],
+        server["retentionSize"],
+        server["persistentVolume"]["size"],
+    ) == (True, "20Gi", "30d", "16GB", "20Gi")
+
+
+def test_an_alert_fires_before_the_log_or_metric_volume_fills() -> None:
+    """Each alert is well-formed, waits out blips, and reads series that exist.
+
+    The disk alert follows Loki's and Prometheus's claims to the node holding them, since
+    local-path does not hold a volume to its claimed size. The size-cap alert reads only
+    series the Prometheus server serves about itself (`tests/fixtures/metrics/`).
+    """
+    alerts = _volume_alerts()
+    disk, cap = alerts["LogOrMetricVolumeDiskLow"], alerts["PrometheusNearRetentionSizeCap"]
+    served = _repo_yaml("tests", "fixtures", "metrics", "prometheus-server.yaml")["families"]
+    cap_series = {selector.metric for selector in selectors(cap["expr"])}
+    assert (
+        sorted(alerts),
+        all(validate_promql(rule["expr"]).valid for rule in alerts.values()),
+        all(rule["labels"]["severity"] == "warning" for rule in alerts.values()),
+        (disk["for"], cap["for"]),
+        'persistentvolumeclaim=~"storage-loki-0|prometheus-server"' in disk["expr"],
+        cap_series <= served.keys(),
+        "prometheus_tsdb_retention_limit_bytes" in cap_series,
+    ) == (
+        ["LogOrMetricVolumeDiskLow", "PrometheusNearRetentionSizeCap"],
+        True,
+        True,
+        ("30m", "1h"),
+        True,
+        True,
+        True,
+    )
 
 
 def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:
@@ -1364,4 +1442,88 @@ def test_extract_service_url_ingress_and_nodeport() -> None:
         "http://1.2.3.4:8080",
         "http://127.0.0.1:30080",
         None,
+    )
+
+
+def test_pyroscope_helm_release_and_grafana_datasource() -> None:
+    """Verify Pyroscope is configured as an infra Helm release and provisioned in Grafana."""
+    from devops_cli.commands.k8s.stack_lifecycle import (
+        _HELM_RELEASES_BY_STACK,
+        _HELM_REPOS_BY_STACK,
+    )
+
+    pyro_release = next(
+        (r for r in _HELM_RELEASES_BY_STACK["infra"] if r["name"] == "pyroscope"), None
+    )
+    assert pyro_release is not None
+
+    values_path = Path(pyro_release["values"])
+    assert values_path.is_file()
+    pyro_values = yaml.safe_load(values_path.read_text(encoding="utf-8"))
+
+    grafana_values = yaml.safe_load(
+        Path("k8s/monitoring/grafana-values.yaml").read_text(encoding="utf-8")
+    )
+    grafana_datasources = grafana_values["datasources"]["datasources.yaml"]["datasources"]
+    pyro_ds = next((ds for ds in grafana_datasources if ds.get("uid") == "pyroscope"), None)
+
+    assert (
+        (pyro_release["chart"], pyro_release["namespace"]),
+        pyro_release["chart"].split("/")[0] in _HELM_REPOS_BY_STACK["infra"],
+        pyro_values["pyroscope"]["service"]["port"],
+        pyro_values["architecture"]["microservices"]["enabled"],
+        pyro_values["alloy"]["alloy"]["enableReporting"],
+        pyro_ds is not None,
+        (pyro_ds["type"], pyro_ds["url"]) if pyro_ds else None,
+    ) == (
+        ("grafana/pyroscope", "monitoring"),
+        True,
+        4040,
+        False,
+        False,
+        True,
+        ("grafana-pyroscope-datasource", "http://pyroscope.monitoring.svc.cluster.local:4040"),
+    )
+
+
+def test_pyroscope_port_forward_and_proxy_targets() -> None:
+    """Verify Pyroscope networking, port-forwarding, and configuration targets."""
+    from devops_cli.commands.k8s.networking import (
+        _NODEPORT_KEYS_INFRA,
+        _PROXY_TARGETS_INFRA,
+        _build_port_forward_details,
+        _collect_port_forward_services,
+    )
+    from devops_cli.config.defaults import DEFAULT_PYROSCOPE_PORT, DEFAULT_PYROSCOPE_URL
+    from devops_cli.config.settings import Settings
+
+    pyro_proxy = next((t for t in _PROXY_TARGETS_INFRA if t[0] == "pyroscope.url"), None)
+    ports = {
+        "argocd": 8080,
+        "grafana": 8030,
+        "prometheus": 8090,
+        "jaeger": 16686,
+        "pyroscope": 4040,
+        "otel": 4318,
+    }
+    services = _collect_port_forward_services(["infra"], ports)
+    details = _build_port_forward_details(["infra"], ports)
+    pyro_svc = next((s for s in services if s[1] == "svc/pyroscope"), None)
+
+    assert (
+        DEFAULT_PYROSCOPE_PORT,
+        DEFAULT_PYROSCOPE_URL,
+        pyro_proxy,
+        "pyroscope.url" in _NODEPORT_KEYS_INFRA,
+        pyro_svc,
+        details.get("pyroscope.url"),
+        Settings().pyroscope.url,
+    ) == (
+        4040,
+        "http://localhost:4040",
+        ("pyroscope.url", "monitoring", ("pyroscope",), ("4040", "http2", "http")),
+        True,
+        ("monitoring", "svc/pyroscope", 4040, 4040),
+        "http://localhost:4040",
+        "http://localhost:4040",
     )

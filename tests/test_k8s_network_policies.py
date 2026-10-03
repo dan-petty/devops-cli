@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
 
 import pytest
 import yaml
+
+from devops_cli.commands.k8s.networking import _PROXY_TARGETS_INFRA
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
 
 TARGET_NAMESPACES = ("monitoring", "argocd", "llm", "otel")
 METADATA_SSRF_IP = "169.254.169.254/32"
+TRAEFIK_PEER = {
+    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
+    "podSelector": {"matchLabels": {"app.kubernetes.io/name": "traefik"}},
+}
+# The monitoring ports Traefik routes to (k8s/ingress/ingress-routes.yaml), plus Pyroscope (#943).
+MONITORING_TRAEFIK_PORTS = [80, 3000, 4040, 8080, 8081, 8082, 9090, 9100, 9400, 12345]
 
 
 @pytest.mark.parametrize("namespace", TARGET_NAMESPACES)
@@ -107,13 +116,131 @@ def test_argocd_networkpolicy_specifics() -> None:
 
 
 def test_monitoring_networkpolicy_specifics() -> None:
-    """Verify Monitoring specific ports and rules: Grafana (3000), Prometheus (9090)."""
+    """Verify Monitoring specific ports and rules: Grafana (3000), Prometheus (9090), Pyroscope (4040), cloudflared (2000)."""
     policy_path = K8S_DIR / "monitoring" / "networkpolicy.yaml"
     doc = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
     spec = doc.get("spec", {})
 
     ingress_rules = spec.get("ingress", [])
     allowed_ports = {p.get("port") for rule in ingress_rules for p in rule.get("ports", [])}
-    # UI ports 3000 (Grafana) and 9090 (Prometheus) must be allowed for ingress
-    assert 3000 in allowed_ports
-    assert 9090 in allowed_ports
+    egress_rules = spec.get("egress", [])
+    egress_ports = {p.get("port") for rule in egress_rules for p in rule.get("ports", [])}
+    # UI ports 3000 (Grafana), 9090 (Prometheus), 4040 (Pyroscope) allowed for ingress, and 2000 (cloudflared) for egress
+    assert (
+        3000 in allowed_ports,
+        9090 in allowed_ports,
+        4040 in allowed_ports,
+        2000 in egress_ports,
+    ) == (True, True, True, True)
+
+
+def test_monitoring_ingress_admits_no_world_cidr() -> None:
+    """Verify the monitoring perimeter admits Traefik by its selector and no address range (#953).
+
+    The cluster's policy engine, kube-router, matches an ingress `ipBlock` against the source
+    addresses of pods. The `0.0.0.0/0` peer next to the Traefik peer therefore admitted every pod
+    in the cluster to Prometheus, which has no authentication and accepts remote writes, and to
+    Grafana, which admits anonymous Viewers. Any range wider than one address admits pods the
+    same way, so an RFC 1918 range in its place fails too. External clients reach these ports
+    through cloudflared, which forwards only to Traefik.
+    """
+    doc = yaml.safe_load((K8S_DIR / "monitoring" / "networkpolicy.yaml").read_text("utf-8"))
+    ingress = doc["spec"]["ingress"]
+    cidrs = [
+        peer["ipBlock"]["cidr"]
+        for rule in ingress
+        for peer in rule.get("from", [])
+        if "ipBlock" in peer
+    ]
+    traefik_rules = [
+        (rule["from"], sorted(port["port"] for port in rule.get("ports", [])))
+        for rule in ingress
+        if TRAEFIK_PEER in rule.get("from", [])
+    ]
+
+    assert (
+        [cidr for cidr in cidrs if ipaddress.ip_network(cidr).num_addresses > 1],
+        traefik_rules,
+    ) == ([], [([TRAEFIK_PEER], MONITORING_TRAEFIK_PORTS)])
+
+
+def test_readme_proxy_caveat_names_every_monitoring_proxy_target() -> None:
+    """Verify k8s/README.md's proxy caveat names every monitoring Service it applies to (#953).
+
+    With no address range in the perimeter, a `k8s://` address the API server proxies reaches a
+    monitoring pod only while that pod runs on the control-plane node. `configure-urls
+    --addressing proxy` writes one for each monitoring target in `_PROXY_TARGETS_INFRA`, and the
+    caveat named Grafana and Prometheus but not Pyroscope.
+    """
+    readme = (K8S_DIR / "README.md").read_text("utf-8").splitlines()
+    caveat = next(line for line in readme if line.startswith("- `--addressing proxy`"))
+    unnamed = [
+        key
+        for key, namespace, _, _ in _PROXY_TARGETS_INFRA
+        if namespace == "monitoring" and key.split(".")[0].capitalize() not in caveat
+    ]
+
+    assert unnamed == []
+
+
+OTEL_COLLECTOR_PEER = {
+    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "otel"}},
+    "podSelector": {
+        "matchLabels": {
+            "app.kubernetes.io/name": "opentelemetry-collector",
+            "app.kubernetes.io/instance": "otel-collector",
+        }
+    },
+}
+MONITORING_NAMESPACE_PEER = {
+    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "monitoring"}}
+}
+
+
+def test_loki_ingress_from_otel_admits_only_the_collector() -> None:
+    """Verify Loki's 3100 ingress names the collector's pods in `otel`, not the whole namespace (#1100).
+
+    Loki runs with `auth_enabled: false`, so a namespace-only `otel` peer let Jaeger, or any
+    workload later deployed to `otel`, push and query logs. A peer that combines the namespace
+    selector with the collector release's pod labels, with `ports` in the same rule, was
+    checked against this cluster's kube-router before the change: the labelled pod connected
+    and an unlabelled pod in the same namespace was refused, from the same node and another.
+    """
+    doc = yaml.safe_load((K8S_DIR / "logging" / "networkpolicy.yaml").read_text("utf-8"))
+    loki_rules = [
+        (rule["from"], rule.get("ports"))
+        for rule in doc["spec"]["ingress"]
+        if {"protocol": "TCP", "port": 3100} in rule.get("ports", [])
+    ]
+
+    assert loki_rules == [
+        (
+            [MONITORING_NAMESPACE_PEER, OTEL_COLLECTOR_PEER],
+            [{"protocol": "TCP", "port": 3100}],
+        )
+    ]
+
+
+def test_loki_otel_peer_names_the_collector_release_the_stack_installs() -> None:
+    """Verify the `otel` peer's pod labels are the ones the collector release is installed with
+    (#1100). The chart labels its pods `app.kubernetes.io/instance` with the release name and
+    `app.kubernetes.io/name` with the chart name unless the values override it, so renaming the
+    release or overriding the name would cut the collector off from Loki without a failure."""
+    from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
+
+    collectors = [
+        release
+        for releases in _HELM_RELEASES_BY_STACK.values()
+        for release in releases
+        if release["chart"] == "open-telemetry/opentelemetry-collector"
+    ]
+    values = yaml.safe_load(Path(collectors[0]["values"]).read_text("utf-8")) or {}
+    labels = OTEL_COLLECTOR_PEER["podSelector"]["matchLabels"]
+
+    assert [(c["namespace"], c["name"]) for c in collectors] == [
+        ("otel", labels["app.kubernetes.io/instance"])
+    ]
+    assert (values.get("nameOverride"), collectors[0]["chart"].rsplit("/", 1)[1]) == (
+        None,
+        labels["app.kubernetes.io/name"],
+    )

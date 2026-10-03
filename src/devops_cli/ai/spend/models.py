@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_ai.messages import FinishReason
 
 
 class ModelPricing(BaseModel):
@@ -43,6 +44,8 @@ class SpendRecord(BaseModel):
     request_type: str = "chat"
     duration_seconds: float = 0.0
     stage: str | None = None
+    # Why the provider says the reply ended; None when it did not say.
+    finish_reason: FinishReason | None = None
 
 
 class ServerSpendSummary(BaseModel):

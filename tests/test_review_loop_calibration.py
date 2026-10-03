@@ -16,7 +16,6 @@ from devops_cli.ai.review.common_hallucinations import (
     _build_builtin_hallucinations,
     _check_signature_match,
     _is_degenerate_signature,
-    _synthesize_compound_signature,
     load_common_hallucinations,
 )
 from devops_cli.ai.review_schema import (
@@ -162,6 +161,7 @@ def test_builtin_catalog_loads_completely() -> None:
 
 def test_one_malformed_record_does_not_discard_the_baseline(tmp_path: Path) -> None:
     """A single invalid entry is skipped rather than silently emptying the catalog."""
+    judged = {"project": "p", "file": "a.py", "line": 1, "code_sha256": "0" * 64, "claim": ["exec"]}
     catalog = tmp_path / "common_hallucinations.json"
     catalog.write_text(
         json.dumps(
@@ -172,8 +172,16 @@ def test_one_malformed_record_does_not_discard_the_baseline(tmp_path: Path) -> N
                     "category": "general",
                     "description": "d",
                     "resolution": "r",
+                    "source": "person",
+                    "judged": judged,
                 },
-                {"id": "BROKEN-ENTRY", "name": "Broken", "category": "not_a_real_category"},
+                {
+                    "id": "BROKEN-ENTRY",
+                    "name": "Broken",
+                    "category": "not_a_real_category",
+                    "source": "person",
+                    "judged": judged,
+                },
             ]
         ),
         encoding="utf-8",
@@ -210,18 +218,6 @@ def test_structured_signatures_still_match() -> None:
 def test_invalid_signature_regex_does_not_fall_back_to_substring() -> None:
     """A malformed regex is skipped, never degraded into a broad substring match."""
     assert _check_signature_match("some server text", ["server("]) == []
-
-
-def test_synthesized_signature_requires_two_distinctive_keywords() -> None:
-    """Auto-learning emits a co-occurrence signature, or no signature at all."""
-    assert _synthesize_compound_signature(["unvalidated"]) == []
-    assert _synthesize_compound_signature(["error", "test"]) == []
-
-    compound = _synthesize_compound_signature(["informer", "watcher"])
-    assert len(compound) == 1
-    assert _check_signature_match("the informer never assigns its watcher", compound)
-    # Requires both tokens; one alone must not match.
-    assert _check_signature_match("the informer runs fine", compound) == []
 
 
 def test_confirmed_false_positives_are_catalogued() -> None:

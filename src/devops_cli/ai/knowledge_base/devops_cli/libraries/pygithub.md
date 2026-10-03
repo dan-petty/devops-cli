@@ -17,7 +17,7 @@
 
 In `devops-cli`:
 - **PR Management**: Powers `devops pr list`, `devops pr view`, `devops pr diff`, and `devops pr checks`.
-- **Review Comment Posting**: Formats multi-persona review findings into collapsible markdown comments and posts them to target PRs (`devops review pr <num> --post-pr`).
+- **Review Comment Posting**: Formats multi-persona review findings into collapsible markdown comments and posts them to target PRs (`devops review pr <num> --post`).
 - **Release Automation**: Automates version tag pushes, changelog publication, and GitHub Release asset creation (`devops release prepare`).
 
 ---

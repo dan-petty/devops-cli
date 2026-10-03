@@ -30,6 +30,12 @@ clusterMetrics:
         - container_oom_events_total
         - container_network_receive_errors_total
         - container_network_transmit_errors_total
+        - container_cpu_usage_seconds_total
+        - container_memory_working_set_bytes
+        - container_network_receive_packets_total
+        - container_network_transmit_packets_total
+        - container_network_receive_packets_dropped_total
+        - container_network_transmit_packets_dropped_total
   kube-state-metrics:
     metricsTuning:
       includeMetrics:
@@ -59,9 +65,23 @@ hostMetrics:
   linuxHosts:
     enabled: true
     metricsTuning:
-      useIntegrationAllowList: true
+      useIntegrationAllowList: false
+      # Beyond the chart's default list, the series that explain a host failure (#1080): boot time
+      # (an unclean restart), temperatures with their chip names, pressure stalls, memory errors
+      # (EDAC), the NVMe disk, free filesystem space, and the host units' state. node-exporter runs
+      # every collector these need by default except systemd, turned on under telemetryServices.
       includeMetrics:
         - node_time_seconds
+        - node_boot_time_seconds
+        - node_hwmon_temp_celsius
+        - node_hwmon_chip_names
+        - node_systemd_unit_state
+        - node_pressure_.*
+        - node_edac_correctable_errors_total
+        - node_edac_uncorrectable_errors_total
+        - node_nvme_info
+        - node_filesystem_avail_bytes
+        - node_filesystem_size_bytes
 
 clusterEvents:
   enabled: true
@@ -70,6 +90,53 @@ clusterEvents:
 podLogsViaLoki:
   enabled: true
   collector: alloy-logs
+
+# Each node's journal, read from /var/log/journal by the same alloy-logs DaemonSet (#1080). Kept:
+# kernel lines at every priority (GPU Xid, machine checks, thermal events); the host units, and
+# systemd's own lines about them (start, stop, exit, restart), at info and above; every other line
+# at warning and above. The units are the ones the systemd collector reports below. Lines carry
+# job="integrations/kubernetes/journal", instance (the node), unit, transport and level, with the
+# boot ID as structured metadata. Each unit may send 1 line/s after a burst of 10000, which covers a
+# boot and the 8h the reader goes back after a restart; kernel lines have no unit and no limit.
+nodeLogs:
+  enabled: true
+  collector: alloy-logs
+  journalLabels:
+    transport: transport
+  structuredMetadata:
+    boot_id: boot_id
+  extraDiscoveryRules: |
+    rule {
+      source_labels = ["__journal__transport"]
+      regex         = "kernel"
+      target_label  = "__tmp_keep"
+      replacement   = "true"
+    }
+    rule {
+      source_labels = ["__journal_priority", "__journal__systemd_unit", "__journal_unit"]
+      separator     = ";"
+      regex         = "[0-6];(.*;)?(k3s|k3s-agent|nvidia-power-limit|containerd|systemd-journald)\\.service(;.*)?"
+      target_label  = "__tmp_keep"
+      replacement   = "true"
+    }
+    rule {
+      source_labels = ["__journal_priority"]
+      regex         = "[0-4]"
+      target_label  = "__tmp_keep"
+      replacement   = "true"
+    }
+    rule {
+      source_labels = ["__tmp_keep"]
+      regex         = "true"
+      action        = "keep"
+    }
+  extraLogProcessingStages: |
+    stage.limit {
+      rate          = 1
+      burst         = 10000
+      by_label_name = "unit"
+      drop          = true
+    }
 
 prometheusOperatorObjects:
   enabled: true
@@ -106,6 +173,15 @@ telemetryServices:
         memory: 256Mi
   node-exporter:
     deploy: true
+    # Helm replaces a list, so the chart's filesystem exclusion is repeated here. The systemd
+    # collector reports only the host units (#1080) and reaches the host's D-Bus socket through the
+    # node root the chart already mounts at /host/root.
+    extraArgs:
+      - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|erofs|sysfs|tracefs|tmpfs|ramfs)$
+      - --collector.systemd
+      - --collector.systemd.unit-include=(k3s|k3s-agent|nvidia-power-limit|containerd|systemd-journald)\.service
+    env:
+      DBUS_SYSTEM_BUS_ADDRESS: unix:path=/host/root/run/dbus/system_bus_socket
     resources:
       requests:
         cpu: 50m

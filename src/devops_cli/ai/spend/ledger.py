@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterator
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from devops_cli.ai.spend.models import (
     BackendSpendSummary,
@@ -26,6 +26,9 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import load_settings
 
+if TYPE_CHECKING:
+    from pydantic_ai.messages import FinishReason
+
 _QUERY_CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS ai_spend_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,7 +45,8 @@ CREATE TABLE IF NOT EXISTS ai_spend_records (
     cached INTEGER NOT NULL DEFAULT 0,
     request_type TEXT NOT NULL DEFAULT 'chat',
     duration_seconds REAL NOT NULL DEFAULT 0.0,
-    stage TEXT
+    stage TEXT,
+    finish_reason TEXT
 );
 """
 _QUERY_IDX_TIMESTAMP = (
@@ -55,17 +59,20 @@ _QUERY_IDX_SERVED_BY = (
     "CREATE INDEX IF NOT EXISTS idx_spend_served_by ON ai_spend_records(served_by);"
 )
 _QUERY_IDX_STAGE = "CREATE INDEX IF NOT EXISTS idx_spend_stage ON ai_spend_records(stage);"
-# Ledgers created before served_by existed gain the column in place, keeping their rows.
+# Ledgers created before a column existed gain it in place, keeping their rows.
 _QUERY_TABLE_COLUMNS = "PRAGMA table_info(ai_spend_records);"
-_QUERY_ADD_SERVED_BY = "ALTER TABLE ai_spend_records ADD COLUMN served_by TEXT;"
-_QUERY_ADD_STAGE = "ALTER TABLE ai_spend_records ADD COLUMN stage TEXT;"
+_ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("served_by", "ALTER TABLE ai_spend_records ADD COLUMN served_by TEXT;"),
+    ("stage", "ALTER TABLE ai_spend_records ADD COLUMN stage TEXT;"),
+    ("finish_reason", "ALTER TABLE ai_spend_records ADD COLUMN finish_reason TEXT;"),
+)
 
 _QUERY_INSERT_RECORD = """
 INSERT INTO ai_spend_records (
     timestamp, provider, server, backend_info, served_by, model,
     prompt_tokens, completion_tokens, total_tokens,
-    cost_usd, cached, request_type, duration_seconds, stage
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    cost_usd, cached, request_type, duration_seconds, stage, finish_reason
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 """
 
 _QUERY_STAGE_BREAKDOWN = """
@@ -197,6 +204,15 @@ def _annotate_stages(stages: list[StageSpendSummary], ref_pricing: ModelPricing)
         )
 
 
+def _add_column(conn: sqlite3.Connection, add_column: str) -> None:
+    """Add a column, tolerating another process having added it first."""
+    try:
+        conn.execute(add_column)
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
+
+
 class SpendLedger:
     """Persistent thread-safe SQLite ledger recording AI token spend across backends."""
 
@@ -205,10 +221,12 @@ class SpendLedger:
             self.db_path = Path(db_path)
         else:
             settings = load_settings()
-            from devops_cli.core.repo import resolve_data_path
+            from devops_cli.core.repo import resolve_review_data_path
 
+            # Every AI command records its spend here, a review too, so a relative data
+            # directory resolves under the review data root for all of them (#972).
             self.db_path = (
-                resolve_data_path(settings.data.dir) / "ai" / DEFAULT_AI_SPEND_DB_FILENAME
+                resolve_review_data_path(settings.data.dir) / "ai" / DEFAULT_AI_SPEND_DB_FILENAME
             )
 
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -227,18 +245,9 @@ class SpendLedger:
         with contextlib.closing(self._get_connection()) as conn, conn:
             conn.execute(_QUERY_CREATE_TABLE)
             columns = {row["name"] for row in conn.execute(_QUERY_TABLE_COLUMNS).fetchall()}
-            if "served_by" not in columns:
-                try:
-                    conn.execute(_QUERY_ADD_SERVED_BY)
-                except sqlite3.OperationalError as exc:
-                    if "duplicate column name" not in str(exc).lower():
-                        raise
-            if "stage" not in columns:
-                try:
-                    conn.execute(_QUERY_ADD_STAGE)
-                except sqlite3.OperationalError as exc:
-                    if "duplicate column name" not in str(exc).lower():
-                        raise
+            for column, add_column in _ADDED_COLUMNS:
+                if column not in columns:
+                    _add_column(conn, add_column)
             conn.execute(_QUERY_IDX_SERVED_BY)
             conn.execute(_QUERY_IDX_STAGE)
             conn.execute(_QUERY_IDX_TIMESTAMP)
@@ -262,6 +271,7 @@ class SpendLedger:
         duration_seconds: float = 0.0,
         timestamp: str | None = None,
         stage: str | None = None,
+        finish_reason: FinishReason | None = None,
     ) -> SpendRecord | None:
         """Record an inference request in the persistent SQLite ledger."""
         ts = timestamp or datetime.now(UTC).isoformat()
@@ -287,6 +297,7 @@ class SpendLedger:
                         request_type,
                         round(duration_seconds, 4),
                         stage,
+                        finish_reason,
                     ),
                 )
                 rec_id = cursor.lastrowid
@@ -306,6 +317,7 @@ class SpendLedger:
                     request_type=request_type,
                     duration_seconds=duration_seconds,
                     stage=stage,
+                    finish_reason=finish_reason,
                 )
         except Exception:
             # Defensive logging: database failure must never crash user workflows
@@ -578,6 +590,25 @@ def _notify_call_observers(call: dict[str, Any]) -> None:
         observer(call)
 
 
+def _emit_local_cost_equivalent(
+    source: dict[str, str],
+    server: str | None,
+    provider: str | None,
+    prompt_tokens: int,
+    completion_tokens: int,
+) -> None:
+    from devops_cli.ai.spend.pricing import get_pricing_registry, is_local
+    from devops_cli.telemetry.instruments import AI_LOCAL_COST_EQUIVALENT_USD_TOTAL, emit
+
+    if not is_local(server=server, provider=provider):
+        return
+    ref_model = SpendLedger._resolve_reference_model()
+    ref_pricing = get_pricing_registry().get_pricing(ref_model)
+    local_equiv = ref_pricing.calculate_cost(prompt_tokens, completion_tokens)
+    if local_equiv > 0:
+        emit(AI_LOCAL_COST_EQUIVALENT_USD_TOTAL, local_equiv, source)
+
+
 def track_request_spend(
     *,
     provider: str,
@@ -592,8 +623,13 @@ def track_request_spend(
     duration_seconds: float = 0.0,
     stage: str | None = None,
     ledger: SpendLedger | None = None,
+    finish_reason: FinishReason | None = None,
 ) -> SpendRecord | None:
-    """Calculate pricing, persist to lifetime ledger, and emit OpenTelemetry metrics."""
+    """Calculate pricing, persist to lifetime ledger, and emit OpenTelemetry metrics.
+
+    ``finish_reason`` is why the provider says the reply ended, None when it did not say; the
+    ledger stores it and observers receive it.
+    """
     from devops_cli.ai.spend.pricing import get_pricing_registry
     from devops_cli.ai.spend.stage import resolve_spend_stage
     from devops_cli.telemetry.instruments import (
@@ -634,6 +670,7 @@ def track_request_spend(
             duration_seconds=duration_seconds,
             timestamp=now_utc.isoformat(),
             stage=effective_stage,
+            finish_reason=finish_reason,
         )
     except Exception:
         rec = None
@@ -649,6 +686,7 @@ def track_request_spend(
             "cached": cached,
             "request_type": request_type,
             "duration_seconds": duration_seconds,
+            "finish_reason": finish_reason,
         }
     )
     source = {
@@ -662,4 +700,12 @@ def track_request_spend(
     emit(AI_TOKENS_TOTAL, completion_tokens, source | {"type": "completion"})
     if cost:
         emit(AI_SPEND_USD_TOTAL, cost, source)
+    elif not cached:
+        _emit_local_cost_equivalent(
+            source=source,
+            server=server,
+            provider=provider,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
     return rec

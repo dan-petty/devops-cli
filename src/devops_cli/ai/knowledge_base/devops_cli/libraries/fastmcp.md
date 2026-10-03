@@ -41,7 +41,7 @@ In `devops-cli`:
    mcp = FastMCP("devops-cli")
    ```
 2. **`@mcp.tool` Decorator**: Registers typed Python functions as MCP tools, automatically extracting argument descriptions from docstrings and Pydantic schemas.
-3. **Lazy Tool Execution**: Internal modules are imported only when the specific tool is called by an AI client to maintain lightning-fast server startup.
+3. **Tools Run the `devops` CLI**: A tool validates its arguments with `_validate_mcp_arg`, which refuses a value starting with `-`, then passes a `["uv", "run", "devops", ...]` argv to `_run_mcp_cmd`. That runs the command in process through the MCP dispatcher, or as a subprocess, with a timeout, and returns its output with secrets masked. `devops docs check` resolves every such argv against the real CLI.
 4. **Transport Protocols**:
    - `mcp.run(transport="stdio")`: Standard I/O for IDE subprocess launch.
    - `mcp.run(transport="sse", host="127.0.0.1", port=8000)`: HTTP/SSE for remote networks.
@@ -51,17 +51,25 @@ In `devops-cli`:
 ## 5. Common & Advanced Usage Examples
 
 ### Declaring an MCP Tool in DevOps CLI
+Tools are declared in `src/devops_cli/ai/mcp/server.py` on its `mcp` server. `k8s_pods` runs `devops k8s pods`:
 ```python
-from fastmcp import FastMCP
-from devops_cli.commands.k8s import pods
-
-mcp = FastMCP("devops-cli")
+from devops_cli.ai.mcp.server import _run_mcp_cmd, _validate_mcp_arg, mcp
+from devops_cli.config.defaults import DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS
 
 
 @mcp.tool()
 def k8s_pods(namespace: str = "default") -> str:
-    """List running pods in a Kubernetes namespace with health status."""
-    return f"Pods in namespace '{namespace}' retrieved successfully."
+    """List the pods of a Kubernetes namespace, or of every namespace when it is empty."""
+    if not namespace:
+        return _run_mcp_cmd(
+            ["uv", "run", "devops", "k8s", "pods", "-A"],
+            timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+        )
+    _validate_mcp_arg("namespace", namespace)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "k8s", "pods", "-n", namespace],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
 ```
 
 ### Launching the MCP Server via CLI

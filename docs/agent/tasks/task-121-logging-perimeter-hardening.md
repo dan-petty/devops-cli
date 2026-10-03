@@ -35,10 +35,8 @@ Remediate DevSecOps review findings across the centralized Kubernetes logging ma
 - [x] Ground issue in GitHub tracking (#121) with `status/in-progress`.
 - [x] Author task tracking file `docs/agent/tasks/task-121-logging-perimeter-hardening.md`.
 - [x] Create dedicated topic branch `fix/121-logging-perimeter-hardening`.
-- [ ] Update `k8s/logging/fluent-bit-values.yaml` with loopback binding and namespace scoping.
-- [ ] Update `k8s/logging/networkpolicy.yaml` to restrict ingress to `monitoring` and `logging`.
-- [ ] Author unit tests in `tests/test_k8s_logging_security.py`.
-- [ ] Validate manifests with `devops k8s validate-policy`.
-- [ ] Run full test suite and CI quality gate.
-- [ ] Open Draft Pull Request targeting `release/v0.2.17`.
-- [ ] Transition PR to ready, verify merge readiness, squash-merge into `release/v0.2.17`, and close issue #121.
+- Not checked when merged: update `k8s/logging/fluent-bit-values.yaml` with loopback binding and namespace scoping.
+- Not checked when merged: update `k8s/logging/networkpolicy.yaml` to restrict ingress to `monitoring` and `logging`.
+- Not checked when merged: author unit tests in `tests/test_k8s_logging_security.py`.
+- Not checked when merged: validate manifests with `devops k8s validate-policy`.
+- Not checked when merged: run full test suite and CI quality gate.

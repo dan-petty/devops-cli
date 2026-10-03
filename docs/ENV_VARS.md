@@ -30,6 +30,9 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_AI_TASK_METADATA_MODEL` | `ai.tasks.metadata.model` | No | AI model override for metadata task |
 | `DEVOPS_CLI_AI_TASK_METADATA_OLLAMA_URLS` | `ai.tasks.metadata.ollama_urls` | No | Ollama URLs override for metadata task |
 | `DEVOPS_CLI_AI_TASK_METADATA_PROVIDER` | `ai.tasks.metadata.provider` | No | AI provider override for metadata task |
+| `DEVOPS_CLI_AI_TASK_VERIFICATION_MODEL` | `ai.tasks.verification.model` | No | AI model override for review verification task (layered on analysis) |
+| `DEVOPS_CLI_AI_TASK_VERIFICATION_OLLAMA_URLS` | `ai.tasks.verification.ollama_urls` | No | Ollama URLs override for review verification task (layered on analysis) |
+| `DEVOPS_CLI_AI_TASK_VERIFICATION_PROVIDER` | `ai.tasks.verification.provider` | No | AI provider override for review verification task (layered on analysis) |
 | `DEVOPS_CLI_ARGOCD_TOKEN` | `argocd.token` | 🔒 Yes | ArgoCD API token (stored in OS keyring) |
 | `DEVOPS_CLI_ARGOCD_URL` | `argocd.url` | No | ArgoCD service URL |
 | `DEVOPS_CLI_CLOUDFLARE_ACCOUNT_ID` | `cloudflare.account_id` | No | Cloudflare Account ID |
@@ -37,12 +40,12 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_CLOUDFLARE_DOMAIN` | `cloudflare.domain` | No | Root or zone domain name managed in Cloudflare |
 | `DEVOPS_CLI_CLOUDFLARE_TUNNEL` | `cloudflare.tunnel` | No | Cloudflare tunnel name or identifier |
 | `DEVOPS_CLI_CLOUDFLARE_ZONE_ID` | `cloudflare.zone_id` | No | Cloudflare Zone ID |
-| `DEVOPS_CLI_CONFIG` | *None* | No | Absolute path to project configuration file |
+| `DEVOPS_CLI_CONFIG` | *None* | No | Absolute path to project configuration file; outside devops-cli's own repository, the only one a `devops review` command reads |
 | `DEVOPS_CLI_DATA_ANALYSIS_DIR` | `data.analysis_dir` | No | Storage directory for pre-analysis metadata JSON files |
 | `DEVOPS_CLI_DATA_AUDIT_LOG_PATH` | `data.audit_log_path` | No | Path to structured audit JSONL log file |
 | `DEVOPS_CLI_DATA_BENCHMARKS_DIR` | `data.benchmarks_dir` | No | Storage directory for benchmark test runs and embedding leaderboard reports |
 | `DEVOPS_CLI_DATA_CACHE_DIR` | `data.cache_dir` | No | Storage directory for local response and retrieval cache |
-| `DEVOPS_CLI_DATA_DIR` | `data.dir` | No | Root data directory for local reviews, cache, logs, and artifacts (default: ./.data) |
+| `DEVOPS_CLI_DATA_DIR` | `data.dir` | No | Root data directory for local reviews, cache, logs, and artifacts (default: ./.data; outside devops-cli's own repository, ~/.local/share/devops-cli/.data for review data and a `devops review` command) |
 | `DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH` | `data.feedback_dataset_path` | No | Path to feedback fine-tuning dataset JSONL file |
 | `DEVOPS_CLI_DATA_LOGS_DIR` | `data.logs_dir` | No | Storage directory for CLI execution and SIEM audit logs |
 | `DEVOPS_CLI_DATA_MODELS_DIR` | `data.models_dir` | No | Storage directory for local model checkpoints and weights |
@@ -60,6 +63,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_PROMETHEUS_URL` | `prometheus.url` | No | Prometheus service URL |
 | `DEVOPS_CLI_QDRANT_API_KEY` | `qdrant.api_key` | 🔒 Yes | Qdrant API key (stored in OS keyring) |
 | `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX` | `qdrant.collection_prefix` | No | Prefix for Qdrant collection names |
+| `DEVOPS_CLI_QDRANT_TIMEOUT` | `qdrant.timeout` | No | Seconds each Qdrant request, a RAG search or an indexing upsert or delete, waits per attempt (default: 300) |
 | `DEVOPS_CLI_QDRANT_URL` | `qdrant.url` | No | Qdrant vector database server URL |
 | `DEVOPS_CLI_REPOS_BASE_DIR` | `repos.base_dir` | No | Base directory for cloned repositories |
 | `DEVOPS_CLI_RUNS_INDEX_PASSWORD` | `runs.index_password` | 🔒 Yes | Run index Valkey password (stored in OS keyring) |
@@ -67,12 +71,15 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_SSH_KEY_DIR` | `ssh.key_dir` | No | Directory for SSH key pairs |
 | `DEVOPS_CLI_SSH_KEY_PREFIX` | `ssh.key_prefix` | No | Prefix for generated SSH keys (defaults to devcontainer name or basename pwd) |
 | `DEVOPS_CLI_SSH_ROTATION_DAYS` | `ssh.rotation_days` | No | SSH key rotation interval in days |
+| `DEVOPS_CLI_TELEMETRY_ENABLED` | `telemetry.enabled` | No | Export OpenTelemetry traces and metrics: true or false (default: true) |
+| `DEVOPS_CLI_TELEMETRY_ENDPOINT` | `telemetry.endpoint` | No | OpenTelemetry collector that traces and metrics are exported to (default: OTEL_EXPORTER_OTLP_ENDPOINT, else http://localhost:4318) |
 | `DEVOPS_CLI_VALKEY_DB` | `valkey.db` | No | Valkey database index (default: 0) |
 | `DEVOPS_CLI_VALKEY_HOST` | `valkey.host` | No | Valkey workstation caching server host (default: 127.0.0.1) |
 | `DEVOPS_CLI_VALKEY_PASSWORD` | `valkey.password` | 🔒 Yes | Valkey authentication password (stored in OS keyring) |
 | `DEVOPS_CLI_VALKEY_PORT` | `valkey.port` | No | Valkey workstation caching server port (default: 6379) |
 | `DEVOPS_CLI_VALKEY_TIMEOUT` | `valkey.timeout` | No | Valkey network socket connection/read timeout in seconds (default: 5.0) |
 | `DEVOPS_CLI_WORKSPACE_FILE` | `workspace.file` | No | Path to VS Code workspace file |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *None* | No | OpenTelemetry's standard collector variable, read only when `telemetry.endpoint` is unset |
 
 ## Usage Notes
 

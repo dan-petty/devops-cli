@@ -52,7 +52,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Security & Audits** | Dependency Security Audit | Weekly / Pre-Release | `uv run devops ci audit` (`uv audit`) | Scans installed packages for known vulnerabilities | 0 known vulnerabilities |
 | **Security & Audits** | Static Security Scan (SAST) | Weekly / Pre-Release | `uv run devops ci security` (`bandit`) | Static security scan for code vulnerabilities | 0 high/medium issues identified |
 | **Security & Audits** | Kubernetes Manifest Scans | Per Manifest Change | `devops scan [kubelinter\|popeye\|pluto\|trivy]` | Validates manifests against K8s security best practices | Zero deprecated APIs or misconfigurations |
-| **Security & Audits** | Codebase Deduplication & Invariant Audit | Weekly / Pre-PR | `devops scan complexity` && `pytest tests/test_architectural_invariants.py` | Enforces complexity <= 10, nesting <= 5, and shared helper adoption | Zero invariant violations |
+| **Security & Audits** | Codebase Deduplication & Invariant Audit | Weekly / Pre-PR | `uv run ruff check .` && `pytest tests/test_architectural_invariants.py` | Ruff `C901` enforces complexity <= 10; the tests enforce nesting <= 5, the `C901` marker ceiling and shared helper adoption | Zero invariant violations |
 | **Observability & Diagnostics** | Command Output, Logs, Metrics & Trace Audit | Continuous / On Execution | `devops telemetry status` / `devops telemetry logfire-status` | Comprehensive review of command outputs, application logs (`.data/logs/`), metrics, and tracing spans for latency, misconfigurations, and warnings | Nominal latencies, zero unhandled errors/warnings |
 | **Workspace & Sync** | DevContainer Lifecycle Hooks | Daily / On Start | `devops devcontainer run-lifecycle --post-start` | Cross-platform container initialization tasks | All lifecycle tasks complete successfully |
 | **Workspace & Sync** | Multi-Repo Synchronization | Daily / On Demand | `devops repos sync` / `devops repos status` | Pulls upstream changes across all managed repos | All repositories up to date |
@@ -136,7 +136,7 @@ flowchart TD
 
 ---
 
-### Cadence B: Final Pre-Commit / Pre-PR Validation Stage
+### Cadence A (final stage): Pre-Commit / Pre-PR Validation
 
 Executed at the final stage of work after all iterative feature modifications and targeted tests pass:
 
@@ -233,10 +233,10 @@ sequenceDiagram
   - **No Standalone Agent Tracking Commits**: Updates to internal agent tracking files under `docs/agent/tasks/` must NEVER be committed in isolation; they must always be bundled atomically into the corresponding feature, fix, or refactoring deliverable commit.
 - **Issue Linkage, GitHub Projects & Issues Views Lifecycle (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**:
   - **Zero Disconnected PRs**: Every PR addressing an issue MUST explicitly link to it using canonical closing keywords (`Fixes #<id>`, `Closes #<id>`, `Resolves #<id>`), be added as a project item to the project board, and possess taxonomy labels (`type/*`, `scope/*`).
-  - **Automated Field Sync & State Progression**: Run `devops gh project sync` (or FastMCP `gh_project_sync`) after opening or updating PRs to reconcile the 6 custom project fields (`Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`) and transition the card to `In Review`.
-  - Reconcile task state transitions (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) in [`docs/agent/tasks/`](agent/tasks/README.md) and verify alignment with `.github/project-template.json` across the 4 canonical views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) displayed under `https://github.com/dan-petty/devops-cli/issues/views`.
+  - **Automated Field Sync & State Progression**: Run `devops gh project sync` (or FastMCP `gh_project_sync`) after opening or updating PRs to reconcile the `Status` and `Priority` project fields and transition the card to `In Review`. `Value` and `Effort` are set by a person or the roadmap jobs, never inferred.
+  - Reconcile task state transitions (`New` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) in [`docs/agent/tasks/`](agent/tasks/README.md) and verify alignment with `.github/project-template.json` across the 4 canonical views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) displayed under `https://github.com/dan-petty/devops-cli/issues/views`.
   - Ensure the project board is linked to the repository via `devops gh project link <number>` so it appears on `https://github.com/dan-petty/devops-cli/projects` and its views on `https://github.com/dan-petty/devops-cli/issues/views`. Audit views via `devops gh views list`, `devops gh views audit`, and `devops gh views spec`.
-  - Enforce taxonomy labels via `devops gh labels audit`, milestone alignment via `devops gh milestones sync`, and milestone closure upon release merge via `devops gh milestones close <version>`.
+  - Enforce taxonomy labels via `devops gh labels audit`, inspect milestone progress via `devops gh milestones list`, and close the milestone upon release merge via `devops gh milestones close <version>`. GitHub is the roadmap's source (ADR 0001): `devops roadmap render` regenerates `docs/ROADMAP.md` at the cut.
 
 ---
 
@@ -262,12 +262,12 @@ sequenceDiagram
 1. **Audit Open Tasks & Issues**: Ensure all milestone deliverables in `docs/ROADMAP.md` and `docs/agent/tasks/` are completed.
 2. **Execute Release Preparation**: Run `devops release prepare <version> --create-pr`.
    - Bumps version in `pyproject.toml` and `src/devops_cli/__init__.py`.
-   - Updates `CHANGELOG.md` converting `[Unreleased]` into the target version release block.
+   - Collects the `changelog.d/` fragments into the target version's block in `CHANGELOG.md` and deletes them, leaving `[Unreleased]` an empty heading.
    - Regenerates docs and updates README Command Matrix.
    - Creates topic branch `release/v<version>`, commits bumps, and opens a GitHub Release PR targeting `main` titled `feat(release): v<version>`.
 3. **Run Authoritative Release Check**: Run `uv run devops release check` to verify tree cleanliness, version matching, and CI validation.
 4. **Human Maintainer Merge**: The maintainer reviews and squash-merges the Release PR into `main`.
-5. **Automated Publishing & Milestone Closure**: GitHub Actions (`release.yml`) cuts the git tag, extracts release notes with `devops release notes`, creates the GitHub Release, closes the release milestone via `devops gh milestones close <version>`, and publishes the pre-built DevContainer image to GHCR.
+5. **Automated Publishing & Milestone Closure**: GitHub Actions (`release.yml`) cuts the git tag, extracts release notes with `devops release notes` (over GitHub's 125,000-character Release body limit, each entry's title alone and a link to the version's section of `CHANGELOG.md` at its tag), creates the GitHub Release, closes the release milestone via `devops gh milestones close <version>`, and publishes the pre-built DevContainer image to GHCR.
 6. **Post-Release DevContainer Validation**: Run `uv run devops devcontainer run-lifecycle --all` to verify container lifecycle tasks.
 7. **Next Active Milestone Initialization & Issue/Views Population**:
    - Cut and push the next release branch (`release/vX.Y.Z`) from `main`.
@@ -323,12 +323,12 @@ Executed weekly, prior to major releases, or when dependencies are updated.
      ```bash
      devops ai review verify <session-id> --index 1 --status INVALIDATED --reason "False positive on valid exception tuple"
      ```
-  3. Export benchmark feedback datasets for prompt tuning, DPO alignment, and model calibration:
+  3. Append the verdicts to the feedback dataset for prompt tuning, DPO alignment, and model calibration:
      ```bash
-     devops ai review export-feedback --status ALL --output .data/feedback.jsonl
+     devops ai review export-feedback --status ALL
      ```
   4. Continuous Self-Improvement Loop:
-     - Regularly analyze exported feedback in `.data/feedback.jsonl` to identify recurring false positives and refine persona domain prompts (`devsecops`, `architect`, `auditor`, `pm`, `qa`) and verification directives (`verify_finding.md`).
+     - Regularly analyze the feedback dataset, `.data/feedback_dataset.jsonl` (`data.feedback_dataset_path`), to identify recurring false positives and refine persona domain prompts (`devsecops`, `architect`, `auditor`, `pm`, `qa`) and verification directives (`verify_finding.md`).
 
 ---
 

@@ -2,22 +2,15 @@
 
 from __future__ import annotations
 
-import json
-import logging
 from pathlib import Path
 from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_BANDIT
-from devops_cli.config.defaults import (
-    DEFAULT_BANDIT_SEVERITY,
-    DEFAULT_CURRENT_PATH,
-    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-)
-from devops_cli.core.process import run_subprocess
-from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
-
-logger = logging.getLogger(__name__)
+from devops_cli.config.constants import CONST_REVIEW_SCAN_BANDIT_INI
+from devops_cli.config.defaults import DEFAULT_BANDIT_SEVERITY, DEFAULT_CURRENT_PATH
+from devops_cli.core.process import run_subprocess  # noqa: F401
+from devops_cli.security.base import BaseSecurityScanner, ScannerConfigFile, ScanOutcome
 
 
 def _parse_single_bandit_result(res: dict[str, Any], target_path: str = "") -> Finding:
@@ -60,6 +53,10 @@ class BanditScanner(BaseSecurityScanner):
     binary_name: str = BIN_BANDIT
     gating: ClassVar[bool] = True
     has_builtin_patterns: ClassVar[bool] = False
+    # Bandit reads a `.bandit` file it finds under a directory target unless `--ini` names one.
+    isolation_files: ClassVar[tuple[ScannerConfigFile, ...]] = (
+        ScannerConfigFile("--ini", ".bandit", CONST_REVIEW_SCAN_BANDIT_INI),
+    )
 
     def build_command(
         self,
@@ -67,20 +64,23 @@ class BanditScanner(BaseSecurityScanner):
         severity_level: str = DEFAULT_BANDIT_SEVERITY,
         **kwargs: Any,
     ) -> list[str]:
-        """Build argument command list for invoking Bandit."""
+        """Build argument command list for invoking Bandit.
+
+        `-q` keeps stdout to the JSON report: past 50 files Bandit draws a progress bar there.
+        """
         level_flag = "-ll" if severity_level.lower() == "medium" else "-lll"
 
         if isinstance(target_path, list):
             valid_files = [str(p.resolve()) for p in target_path if p.exists() and p.is_file()]
             if not valid_files:
                 return []
-            return [self.binary_name, *valid_files, level_flag, "-s", "B608", "-f", "json"]
+            return [self.binary_name, *valid_files, "-q", level_flag, "-s", "B608", "-f", "json"]
 
         if not target_path.exists():
             return []
         target_abs = target_path.resolve()
         if target_abs.is_file():
-            return [self.binary_name, str(target_abs), level_flag, "-s", "B608", "-f", "json"]
+            return [self.binary_name, str(target_abs), "-q", level_flag, "-s", "B608", "-f", "json"]
 
         return [
             self.binary_name,
@@ -88,6 +88,7 @@ class BanditScanner(BaseSecurityScanner):
             str(target_abs),
             "--exclude",
             ".venv,venv,node_modules,.data,repos,.git",
+            "-q",
             level_flag,
             "-s",
             "B608",
@@ -121,27 +122,13 @@ class BanditScanner(BaseSecurityScanner):
         ]
 
 
-def _execute_bandit_subprocess(
-    scanner: BanditScanner,
-    cmd: list[str],
-    target: Path | list[Path],
-) -> list[Finding]:
-    """Execute Bandit command and parse findings."""
-    try:
-        proc = run_subprocess(cmd, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, check=False)
-        if proc.stdout:
-            data = json.loads(proc.stdout)
-            if isinstance(data, dict):
-                return scanner.parse_output(data, target)
-    except Exception as exc:
-        logger.debug("Bandit scan execution skipped or failed: %s", exc)
-    return []
-
-
 def run_bandit_scan(
     target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     severity_level: str = DEFAULT_BANDIT_SEVERITY,
+    *,
+    isolated: bool = False,
 ) -> ScanOutcome:
-    """Execute Bandit Python security scanner subprocess and return scan outcome."""
+    """Execute Bandit Python security scanner subprocess and return scan outcome; `isolated` for
+    a review (#972)."""
     scanner = BanditScanner()
-    return scanner.scan(target, severity_level=severity_level)
+    return scanner.scan(target, isolated=isolated, severity_level=severity_level)

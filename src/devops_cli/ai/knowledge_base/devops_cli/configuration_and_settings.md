@@ -8,7 +8,7 @@ This document details the configuration management architecture, Pydantic settin
 
 Settings are resolved in the following priority order (highest to lowest):
 1. **CLI Flags & Arguments** (e.g. `--token`, `--model`, `--endpoint`, `--dry-run`)
-2. **Environment Variables** (e.g. `DEVOPS_CLI_AI_API_KEY`, `GITHUB_TOKEN`, `OTEL_EXPORTER_OTLP_ENDPOINT`)
+2. **Environment Variables** (e.g. `DEVOPS_CLI_AI_API_KEY`, `GITHUB_TOKEN`, `DEVOPS_CLI_TELEMETRY_ENDPOINT`)
 3. **Encrypted Secret Store** (OS Keyring via Python `keyring` library)
 4. **Persistent JSON Config** (`~/.config/devops-cli/config.json`)
 5. **Default Settings** (`devops_cli.config.defaults` and Pydantic field defaults)
@@ -53,7 +53,9 @@ All configuration values can be overridden via `DEVOPS_CLI_*` environment variab
 | `DEVOPS_CLI_AI_OLLAMA_URLS` | `ai.ollama_urls` | Comma-separated list of Ollama host endpoints (e.g. `http://192.0.2.10:11434,http://127.0.0.1:11434`) |
 | `DEVOPS_CLI_AI_OLLAMA_MAX_PARALLEL` | `ai.ollama_max_parallel` | Maximum concurrent requests dispatched per Ollama endpoint |
 | `GITHUB_TOKEN` | `github.token` | GitHub Personal Access Token for API and PR operations |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `telemetry.endpoint` | OTLP gRPC collector target (e.g. `http://localhost:4317`) |
+| `DEVOPS_CLI_TELEMETRY_ENABLED` | `telemetry.enabled` | Export OpenTelemetry traces and metrics (`true`, `false`) |
+| `DEVOPS_CLI_TELEMETRY_ENDPOINT` | `telemetry.endpoint` | OpenTelemetry collector (e.g. `http://localhost:4318`) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `telemetry.endpoint`, when unset | OpenTelemetry's standard variable, read only when no configuration names `telemetry.endpoint` |
 
 ---
 

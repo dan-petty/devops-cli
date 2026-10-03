@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import inspect
+import re
+from collections import Counter
 from pathlib import Path
 
 from pydantic_ai.tools import RunContext as NativeRunContext
@@ -72,6 +74,44 @@ def test_no_native_mcp_toolset_alias() -> None:
 
     assert not hasattr(ts_mod, "NativeMCPToolset")
     assert hasattr(ts_mod, "MCPToolset")
+
+
+def test_unused_sampling_model_and_os_access_classes_are_gone() -> None:
+    """MCPSamplingModel, MountDir, OSAccess and the harness ToolSearch left without aliases (#958).
+
+    No command built any of them. MCPSamplingModel called the SDK's async `create_message`
+    synchronously and returned placeholder text as the model's completion whenever sampling
+    failed. `devops_cli.ai.agents.ToolSearch` stays pydantic-ai's own capability.
+    """
+    import importlib.util
+
+    from pydantic_ai.capabilities import ToolSearch as NativeToolSearch
+
+    import devops_cli.ai as ai_pkg
+    import devops_cli.ai.agents as agents_pkg
+    import devops_cli.ai.agents.models as models_mod
+    import devops_cli.ai.agents.pydantic_agent as facade_mod
+    import devops_cli.ai.harness as harness_pkg
+
+    removed = {
+        ai_pkg: ("MountDir", "OSAccess", "ToolSearch"),
+        agents_pkg: ("MCPSamplingModel", "MountDir", "OSAccess"),
+        models_mod: ("MCPSamplingModel",),
+        facade_mod: ("MCPSamplingModel",),
+        harness_pkg: ("MountDir", "OSAccess", "ToolSearch"),
+    }
+    leftovers = [
+        f"{module.__name__}.{name}"
+        for module, names in removed.items()
+        for name in names
+        if hasattr(module, name) or name in getattr(module, "__all__", ())
+    ]
+
+    assert (
+        leftovers,
+        importlib.util.find_spec("devops_cli.ai.harness.os_access"),
+        agents_pkg.ToolSearch,
+    ) == ([], None, NativeToolSearch)
 
 
 def test_devops_cli_error_has_no_code_alias() -> None:
@@ -199,3 +239,35 @@ def test_common_hallucinations_mathematical_similarity() -> None:
     res = calculate_hallucination_similarity(finding, entry, file_path=Path("src/test.py"))
     assert res.similarity_score > 0.0
     assert res.matched_keywords
+
+
+def test_security_module_private_functions_all_have_callers() -> None:
+    """Every module-level `_private` function in `security/*.py` is used somewhere in src/ or tests/.
+
+    A private helper nobody calls is a dead copy of a live path, free to drift from it and to
+    mislead whoever reads it. A `def` in column 0 is a module-level definition by Python's
+    indentation grammar, which a regex reads at a fraction of the cost of parsing every module.
+    Most helpers are used in their own module, so only a name that appears there once, at its
+    `def`, is looked for across both trees.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    module_level_private_def = re.compile(r"^(?:async\s+)?def\s+(_[^\W_]\w*)", re.MULTILINE)
+    unused_at_home = [
+        (module.name, name)
+        for module in sorted((repo_root / "src/devops_cli/security").glob("*.py"))
+        for source in [module.read_text(encoding="utf-8")]
+        for identifiers in [Counter(re.findall(r"\b_\w+", source))]
+        for name in module_level_private_def.findall(source)
+        if identifiers[name] < 2
+    ]
+    sources = [
+        path.read_text(encoding="utf-8")
+        for tree in ("src", "tests")
+        for path in (repo_root / tree).rglob("*.py")
+    ]
+    uncalled = [
+        f"{module}:{name}"
+        for module, name in unused_at_home
+        if sum(len(re.findall(rf"\b{name}\b", text)) for text in sources if name in text) < 2
+    ]
+    assert uncalled == []

@@ -3,37 +3,74 @@
 from __future__ import annotations
 
 import ast
+import codecs
 import functools
+import io
 import json
 import logging
+import os
 import re
+import sys
+import tempfile
+import threading
+import tokenize
 import warnings
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.review.chunker import page_line_number
+from devops_cli.ai.review.classification import FileContextType, classify_file_context
 from devops_cli.ai.review.construct_validator import validate_construct_location
+from devops_cli.ai.review.judged_claims import cited_code
 from devops_cli.ai.review.verdicts import apply_verdict
-from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, extract_json_block
+from devops_cli.ai.review_schema import (
+    Finding,
+    ReviewResult,
+    SavedFinding,
+    _extract_code_symbols,
+    extract_json_block,
+    less_severe,
+)
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_AUTH_DISPATCH_PATTERNS,
     CONST_AUTH_HEADER_CLAIM_KEYWORDS,
     CONST_AUTH_HEADER_CODE_PATTERNS,
+    CONST_CACHE_DIR_NAME,
+    CONST_CITATION_OUT_OF_RANGE,
     CONST_COMPLIMENT_NEGATIONS,
     CONST_COMPLIMENT_PHRASES,
+    CONST_CRITERIA_NON_DISCRIMINATING,
+    CONST_CRITERION_PASSED_CLAIM_PATTERN,
+    CONST_FINISH_REASON_LENGTH,
     CONST_FIXTURE_CREDENTIAL_KEYWORDS,
     CONST_MASKED_SYNTAX_ERROR_PHRASES,
+    CONST_MITIGATION_UNPROVEN,
     CONST_MONOLOGUE_PREFIXES,
+    CONST_MYPY_CONFIG_LINE,
     CONST_PLACEHOLDER_VALUES,
+    CONST_SELF_NEGATING_MECHANISM_PATTERN,
+    CONST_SOURCE_CODING_DECLARATION,
+    CONST_TYPE_IGNORE_COMMENT,
+    CONST_TYPECHECK_PROBE_ANY_EXPR_COMMENT,
+    CONST_TYPECHECK_PROBE_CACHE_DIR_NAME,
+    CONST_TYPECHECK_PROBE_MYPY_CONFIG,
     CONST_UNINITIALIZED_CLAIM_KEYWORDS,
     CONST_VERIFICATION_UNAVAILABLE,
+    CONST_VERIFIER_CONTRADICTION,
+    CONST_VERIFIER_FINDING_FIELDS,
+    CONST_VERIFIER_INCONCLUSIVE,
+    CONST_VERIFIER_NO_VERDICT,
+    CONST_VERIFIER_REPLY_CUT,
+    CONST_VERIFIER_REPLY_UNPARSED,
+    CONST_VERIFIER_SELF_REFUTATION,
 )
 from devops_cli.config.defaults import (
     DEFAULT_DIFF_CONTEXT_LINES,
+    DEFAULT_MAX_AST_FILE_SIZE_BYTES,
     DEFAULT_MAX_RELATED_FILES,
     DEFAULT_RELATED_FILE_MAX_CHARS,
     DEFAULT_REVIEW_VERIFICATION_REPLY_BASE_TOKENS,
@@ -41,6 +78,8 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_VERIFICATION_REPLY_TOKENS_PER_FINDING,
     DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS,
 )
+from devops_cli.core.paths import safe_resolve_subpath
+from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.security.sanitizer import (
     mask_secrets,
     sanitize_prompt_boundary_tags,
@@ -187,8 +226,6 @@ def _read_and_mask_related_file(
     if _is_secret_path(rel_path):
         return None
     try:
-        from devops_cli.core.paths import safe_resolve_subpath
-
         resolved = safe_resolve_subpath(repo_root, rel_path, must_exist=True)
         if not resolved.is_file():
             return None
@@ -304,12 +341,13 @@ def _build_validation_prompt(
             + "\n</untrusted_rag_context>\n\n"
         )
 
+    # Only the claim as the reviewer wrote it. The reviewer's own confidence and status anchored
+    # the verdict, and the criteria results carried their run times, so a prompt for a finding
+    # whose criteria ran was never sent twice, and the release/v0.2.25 branch reviews replayed
+    # only 3 and 6 verifier replies from the response cache.
     findings_json = sanitize_prompt_boundary_tags(
         json.dumps(
-            [
-                {k: v for k, v in f.model_dump().items() if k not in {"verified", "mitigated"}}
-                for f in findings
-            ],
+            [f.model_dump(include=set(CONST_VERIFIER_FINDING_FIELDS)) for f in findings],
             indent=2,
             ensure_ascii=True,
         )
@@ -392,22 +430,12 @@ def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Find
         else:
             return None
 
-        res = apply_verdict(
+        return apply_verdict(
             finding,
             "INVALIDATED",
             by="deterministic:syntax_error",
             reason="Syntax validation passed cleanly via language parser (valid Python 3.14+ syntax)",
         )
-
-        try:
-            from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
-
-            auto_record_invalidated_finding(
-                res, file_path=file_path, reason=res.invalidation_reason
-            )
-        except Exception:
-            pass
-        return res
     except Exception as exc:
         logger.debug("Failed syntax error hallucination check for %s: %s", file_path, exc)
         return None
@@ -449,24 +477,15 @@ def _check_missing_symbol_hallucination(finding: Finding, file_path: Path) -> Fi
             tree = ast.parse(content)
         from devops_cli.ai.review.common_hallucinations import (
             _verify_symbol_defined_in_ast_or_module,
-            auto_record_invalidated_finding,
         )
 
         if _verify_symbol_defined_in_ast_or_module(finding, tree, file_path):
-            res = apply_verdict(
+            return apply_verdict(
                 finding,
                 "INVALIDATED",
                 by="deterministic:missing_symbol",
                 reason="Ground-truth AST and cross-module inspection confirmed symbol is defined in module or exports",
             )
-
-            try:
-                auto_record_invalidated_finding(
-                    res, file_path=file_path, reason=res.invalidation_reason
-                )
-            except Exception:
-                pass
-            return res
     except Exception:
         pass
     return None
@@ -486,22 +505,14 @@ def _content_has_auth_and_dispatch(content: str) -> bool:
     return has_auth and has_dispatch
 
 
-def _build_invalidated_auth_header_finding(finding: Finding, file_path: Path) -> Finding:
+def _build_invalidated_auth_header_finding(finding: Finding) -> Finding:
     """Construct invalidated finding for verified authorization header presence."""
-    from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
-
-    res = apply_verdict(
+    return apply_verdict(
         finding,
         "INVALIDATED",
         by="deterministic:missing_header",
         reason="Source code inspection confirmed Authorization header is dynamically configured before request dispatch",
     )
-
-    try:
-        auto_record_invalidated_finding(res, file_path=file_path, reason=res.invalidation_reason)
-    except Exception:
-        pass
-    return res
 
 
 def _check_missing_header_hallucination(finding: Finding, file_path: Path) -> Finding | None:
@@ -514,7 +525,7 @@ def _check_missing_header_hallucination(finding: Finding, file_path: Path) -> Fi
     try:
         content = _cited_window(finding, file_path, _HEADER_WINDOW_LINES)
         if content and _content_has_auth_and_dispatch(content):
-            return _build_invalidated_auth_header_finding(finding, file_path)
+            return _build_invalidated_auth_header_finding(finding)
     except Exception:
         pass
     return None
@@ -531,7 +542,7 @@ def _check_candidate_paths(base_dir: Path, rel_path: Path) -> Path | None:
     return None
 
 
-def _resolve_target_file(loc_file: str, repo_root: Path | None) -> Path | None:
+def _resolve_target_file(loc_file: str, repo_root: Path | None) -> Path | None:  # noqa: C901
     """Resolve finding location file path against repo_root or current working directory."""
     if not loc_file:
         return None
@@ -610,24 +621,102 @@ def _check_pathlib_resolve_hallucination(finding: Finding) -> Finding | None:
     return None
 
 
-# A real advisory identifier is all digits after the year. A finding that cites
-# `CVE-2023-xxxx` has named no advisory at all -- the model wrote the shape of evidence
-# where the evidence belongs. Matching the placeholder is cheaper and more certain than
-# asking a second model whether the vulnerability is real.
-_PLACEHOLDER_ADVISORY_PATTERN = re.compile(
-    r"\b(?:CVE-\d{4}-|GHSA-)[0-9a-z]*[xn?]{3,}", re.IGNORECASE
+# An advisory id as written: `CVE-<year>-<number>` or `GHSA-xxxx-xxxx-xxxx`, placeholder
+# characters included, so a placeholder is caught as the id it pretends to be.
+_ADVISORY_ID = re.compile(
+    r"\b(?:CVE-\d{4}-[0-9a-z?]+|GHSA-[0-9a-z?]+(?:-[0-9a-z?]+)*)", re.IGNORECASE
+)
+_ADVISORY_PLACEHOLDER_RUN = re.compile(r"[xn?]{3,}", re.IGNORECASE)
+_ASCENDING_DIGITS = "0123456789"
+_MIN_SEQUENTIAL_ADVISORY_DIGITS = 4
+
+
+def _is_placeholder_advisory(advisory: str) -> bool:
+    """Whether an advisory id is written as a placeholder: an `x`, `n` or `?` run, or a run of
+    ascending digits.
+
+    A model that cites `CVE-2023-xxxx`, or the sequence `CVE-2023-1234`, has written the shape of
+    evidence where the evidence belongs. A sequence can still be a published id (CVE-2016-1234
+    is a glibc advisory), so the check spares one this session's scan carries.
+    """
+    number = advisory.split("-", 2)[-1] if advisory.upper().startswith("CVE-") else advisory[5:]
+    sequential = len(number) >= _MIN_SEQUENTIAL_ADVISORY_DIGITS and (
+        _ASCENDING_DIGITS.startswith(number) or _ASCENDING_DIGITS[1:].startswith(number)
+    )
+    return sequential or _ADVISORY_PLACEHOLDER_RUN.search(number) is not None
+
+
+def _backed_advisories(dependencies: Sequence[Any]) -> frozenset[str]:
+    """Every advisory id, and every alias of one, this session's dependency scan found."""
+    return frozenset(
+        advisory.upper()
+        for dep in dependencies
+        for vulnerability in getattr(dep, "vulnerabilities", None) or ()
+        for advisory in (vulnerability.id, *getattr(vulnerability, "aliases", ()))
+    )
+
+
+def _strip_unbacked_advisories(finding: Finding, dependencies: Sequence[Any]) -> Finding:
+    """The finding without the advisories in its references no scanned dependency carries.
+
+    The CVEs a model cites come from its training, not from the code: session
+    `20261001-224227` cited Log4j, polkit and OpenSSH advisories against a Python CLI whose
+    dependencies the same run scanned clean, and the report headlined one. An advisory stays
+    only when a vulnerability record of this session carries it, by id or alias; a note says
+    which left. A finding left with no reference had that advisory as its only evidence.
+    """
+    backed = _backed_advisories(dependencies)
+
+    def unbacked_in(reference: str) -> set[str]:
+        return {advisory.upper() for advisory in _ADVISORY_ID.findall(reference)} - backed
+
+    unbacked = sorted(set().union(*map(unbacked_in, finding.references)))
+    if not unbacked:
+        return finding
+    listed = ", ".join(unbacked)
+    stripped = finding.model_copy(
+        update={
+            "references": [ref for ref in finding.references if not unbacked_in(ref)],
+            "reference_note": f"Removed {listed}: no dependency this session scanned carries it",
+        }
+    )
+    if stripped.references:
+        return stripped
+    return apply_verdict(
+        stripped,
+        "INVALIDATED",
+        by="deterministic:unbacked_advisory",
+        reason=f"Its only evidence was {listed}, which no dependency this session scanned carries",
+    )
+
+
+# The words of a claim about a package's published advisories: "CVE" or "CVEs", an id such as
+# CVE-2024-24762 included, a GHSA id, "advisory" or "advisories", "unpatched", "known
+# vulnerability" or "known vulnerabilities", and "vulnerable version".
+_ADVISORY_CLAIM = re.compile(
+    r"\bCVEs?\b|\bGHSA(?:-[0-9a-z]{4}){3}\b|\badvisor(?:y|ies)\b|\bunpatched\b"
+    r"|\bknown\s+vulnerabilit(?:y|ies)\b|\bvulnerable\s+versions?\b",
+    re.IGNORECASE,
 )
 
 
 def _check_scanned_clean_dependency(
     finding: Finding, dependencies: Sequence[Any]
 ) -> Finding | None:
-    """Invalidate a vulnerability claim against a dependency this run already scanned clean.
+    """Invalidate a claim that a dependency this run scanned clean carries a known advisory.
 
     The pipeline resolves advisories for every pinned dependency and writes the verdicts
     into the same artifact as the findings. When a claim names a package the scan reports
     `CLEAN` with no advisory records, the artifact contradicts itself, and the scan is the
     side with a source.
+
+    A CLEAN scan refutes one claim: that the dependency, at the version the project pins,
+    carries a published advisory. It says nothing about how the project's code uses the
+    package, about a manifest that names it, or about whether the pinned version is the
+    latest, so the finding must speak of advisories (`_ADVISORY_CLAIM`); "vulnerable" alone or
+    "outdated" does not. With every dependency a session scanned, "vulnerab" and a name such as
+    kubernetes invalidated a command injection in a Kubernetes client call and Semgrep's own
+    Kubernetes findings (#1044).
 
     Session `20260922-034125` reported FastAPI and Uvicorn as carrying unpatched CVEs while
     its own `external_dependencies` listed both `CLEAN` with an empty vulnerability list.
@@ -636,7 +725,7 @@ def _check_scanned_clean_dependency(
         return None
 
     text = f"{finding.title} {finding.description or ''}".lower()
-    if not any(word in text for word in ("vulnerab", "cve", "advisory", "outdated", "unpatched")):
+    if not _ADVISORY_CLAIM.search(text):
         return None
 
     named = [
@@ -663,24 +752,36 @@ def _check_scanned_clean_dependency(
     )
 
 
-def _check_placeholder_advisory_hallucination(finding: Finding) -> Finding | None:
+def _check_placeholder_advisory_hallucination(
+    finding: Finding, dependencies: Sequence[Any] = ()
+) -> Finding | None:
     """Invalidate a vulnerability claim whose only evidence is a placeholder advisory id.
 
-    A dependency finding stands on the advisory it names. When the identifier is a
-    placeholder, there is nothing to look up, and the surrounding claim was produced by the
-    same step that could not name it.
+    Dependency advisories come from the scanners, which look them up. When the identifier is
+    a placeholder, nothing was looked up, and the surrounding claim was produced by the same
+    step that could not name it. An id a record of `dependencies`, this session's scan, carries
+    was looked up, whatever its digits: the check invalidated Trivy's own finding of
+    CVE-2020-11111 (#948).
     """
     text = f"{finding.title} {finding.description or ''} {' '.join(finding.references or [])}"
-    match = _PLACEHOLDER_ADVISORY_PATTERN.search(text)
-    if match is None:
+    backed = _backed_advisories(dependencies)
+    placeholder = next(
+        (
+            advisory
+            for advisory in _ADVISORY_ID.findall(text)
+            if _is_placeholder_advisory(advisory) and advisory.upper() not in backed
+        ),
+        None,
+    )
+    if placeholder is None:
         return None
     return apply_verdict(
         finding,
         "INVALIDATED",
         by="deterministic:placeholder_advisory",
         reason=(
-            f"Cites the placeholder advisory identifier {match.group(0)!r}, which names "
-            "no published advisory; a dependency claim must cite a real one"
+            f"Cites {placeholder!r}, an advisory id written as a placeholder that no dependency "
+            "this session scanned carries; dependency advisories come from the scanners"
         ),
     )
 
@@ -1105,36 +1206,241 @@ _NONE_DEREFERENCE_CLAIM = re.compile(
 )
 
 
+# One probe at a time: concurrent verification workers would each make a cold pass over the
+# same imports, where the first warms the shared cache for the rest.
+_TYPECHECK_PROBE_LOCK = threading.Lock()
+
+
+def _typecheck_probe_cache_dir() -> Path:
+    """Where the probe keeps mypy's cache: devops-cli's cache directory, one per interpreter
+    and probe config.
+
+    A cold `mypy --strict` pass over a large module's imports takes about a minute, near the
+    probe's timeout, and the cache carries it across probes and reviews. It is data mypy reads,
+    never code it runs.
+    """
+    from devops_cli.ai.run_store import digest
+    from devops_cli.config.env import ENV_DATA_DIR
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
+
+    env_data_dir = os.environ.get(ENV_DATA_DIR)
+    cache_dir = (
+        Path(env_data_dir) / CONST_CACHE_DIR_NAME
+        if env_data_dir
+        else load_settings().data.cache_dir
+    )
+    key = digest([sys.executable, CONST_TYPECHECK_PROBE_MYPY_CONFIG])
+    return resolve_data_path(cache_dir) / CONST_TYPECHECK_PROBE_CACHE_DIR_NAME / key
+
+
+def _probe_command(probe_dir: Path, module: str, *options: str) -> list[str]:
+    """The probe's mypy command, its config written to `probe_dir`, with `options` added."""
+    config = probe_dir / "mypy.ini"
+    config.write_text(CONST_TYPECHECK_PROBE_MYPY_CONFIG, encoding="utf-8")
+    return [
+        sys.executable,
+        "-I",
+        "-m",
+        "mypy",
+        "--strict",
+        "--config-file",
+        str(config),
+        "--cache-dir",
+        str(_typecheck_probe_cache_dir()),
+        *options,
+        module,
+    ]
+
+
 @functools.lru_cache(maxsize=256)
 def _module_typechecks_clean(path_str: str, mtime: float) -> bool:
     """Report whether a module passes strict type checking.
+
+    The module belongs to the tree under review, which is untrusted, so nothing of that tree
+    may run (#946). `uv run` would sync the target's project and run its build backend, mypy
+    would load the config and plugins of the directory it starts in, and `python -m` would
+    import from there, or from a `PYTHONPATH` naming the target. So this interpreter's own mypy
+    checks the module in isolated mode (`-I`, which ignores `PYTHON*` variables and keeps the
+    working directory off `sys.path`), from an empty temporary directory, with devops-cli's
+    own config and its own cache.
 
     Cached on path and mtime: verification examines many findings against the same few
     files, and a type check per finding would dominate the run.
     """
     from devops_cli.core.process import run_subprocess
 
+    module = str(Path(path_str).absolute())
     try:
-        result = run_subprocess(
-            ["uv", "run", "mypy", "--strict", path_str],
-            check=False,
-            quiet=True,
-            timeout=DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS,
-        )
+        with (
+            _TYPECHECK_PROBE_LOCK,
+            tempfile.TemporaryDirectory(prefix="devops-typecheck-") as probe_dir,
+        ):
+            result = run_subprocess(
+                _probe_command(Path(probe_dir), module),
+                cwd=Path(probe_dir),
+                check=False,
+                quiet=True,
+                timeout=DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS,
+            )
     except Exception as exc:
         logger.debug("Type check probe failed for %s: %s", path_str, exc)
         return False
     return result.returncode == 0
 
 
+def _suppresses_type_errors(source: str) -> bool:
+    """Whether a module has mypy skip errors: a `type: ignore` comment or an inline `# mypy:` line.
+
+    The module belongs to the tree under review, so a strict pass it arranges that way proves
+    nothing (#972). Each is read where mypy reads it: `type: ignore` from the comments, `# mypy:`
+    from every line, so one inside a string counts. A module that does not tokenize counts as
+    one: nothing is claimed of it.
+    """
+    if CONST_MYPY_CONFIG_LINE.search(source):
+        return True
+    try:
+        comments = [
+            token.string
+            for token in tokenize.generate_tokens(io.StringIO(source).readline)
+            if token.type == tokenize.COMMENT
+        ]
+    except tokenize.TokenError, SyntaxError:
+        return True
+    return any(CONST_TYPE_IGNORE_COMMENT.search(comment) for comment in comments)
+
+
+def _text_mypy_reads(raw: bytes) -> str | None:
+    """A module's text as mypy decodes it, after any UTF-8 byte order mark; None for a module
+    that declares an encoding other than UTF-8, or is not UTF-8.
+
+    mypy decodes the module by its PEP 263 coding declaration before it reads a suppression, so a
+    module declaring UTF-7 can spell `# mypy:` as `+ACM- mypy:`, which a UTF-8 read does not see
+    (#972). A module in another encoding is not read at all: nothing is claimed of it.
+    """
+    if raw.startswith(codecs.BOM_UTF8):
+        raw = raw[len(codecs.BOM_UTF8) :]
+    first_two_lines = b"\n".join(raw.split(b"\n", 2)[:2])
+    for name in CONST_SOURCE_CODING_DECLARATION.findall(first_two_lines):
+        try:
+            if codecs.lookup(name.decode("ascii")).name != "utf-8":
+                return None
+        except LookupError:
+            return None
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+@functools.lru_cache(maxsize=256)
+def _module_suppresses_type_errors(path_str: str, mtime: float) -> bool:
+    """`_suppresses_type_errors` for a module on disk, read as mypy decodes it (`_text_mypy_reads`);
+    one too large, unreadable or not in UTF-8 counts."""
+    path = Path(path_str)
+    try:
+        if path.stat().st_size > DEFAULT_MAX_AST_FILE_SIZE_BYTES:
+            return True
+        source = _text_mypy_reads(path.read_bytes())
+    except OSError:
+        return True
+    return source is None or _suppresses_type_errors(source)
+
+
+def _reported_lines(stdout: str, module: str, probe_dir: Path) -> frozenset[int] | None:
+    """The lines of `module` mypy's JSON output reports errors on, or None for an error elsewhere
+    or output that does not parse. A clean pass prints a blank line."""
+    lines: set[int] = set()
+    for record_text in filter(str.strip, stdout.splitlines()):
+        try:
+            record = json.loads(record_text)
+            if record["severity"] != "error":
+                continue
+            if os.path.abspath(probe_dir / record["file"]) != module:
+                return None
+            lines.add(int(record["line"]))
+        except ValueError, KeyError, TypeError:
+            return None
+    return frozenset(lines)
+
+
+@functools.lru_cache(maxsize=256)
+def _any_typed_lines(path_str: str, mtime: float) -> frozenset[int] | None:
+    """The lines of a module that passed the probe holding an expression of type Any, or None
+    when mypy cannot tell.
+
+    A strict pass says nothing of such an expression: a function returning `Any` passes, and
+    dereferencing what it returns fails at run time all the same (#972). mypy checks the module
+    as a copy with `disallow-any-expr` set for it alone by an inline comment after its last line
+    (`--shadow-file`), so its lines keep their numbers and mypy reports them under the module's
+    own path. The module passed the probe, so each error is an expression of type Any. It runs
+    isolated as the probe does, under its lock, with its config and cache.
+    """
+    from devops_cli.core.process import run_subprocess
+
+    module = str(Path(path_str).absolute())
+    try:
+        source = Path(module).read_text(encoding="utf-8")
+        with (
+            _TYPECHECK_PROBE_LOCK,
+            tempfile.TemporaryDirectory(prefix="devops-typecheck-") as probe_dir,
+        ):
+            shadow = Path(probe_dir) / "shadow.py"
+            shadow.write_text(
+                f"{source}\n{CONST_TYPECHECK_PROBE_ANY_EXPR_COMMENT}\n", encoding="utf-8"
+            )
+            options = ("--output", "json", "--shadow-file", module, str(shadow))
+            result = run_subprocess(
+                _probe_command(Path(probe_dir), module, *options),
+                cwd=Path(probe_dir),
+                check=False,
+                quiet=True,
+                timeout=DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS,
+            )
+            if result.returncode not in (0, 1):
+                return None
+            return _reported_lines(result.stdout or "", module, Path(probe_dir))
+    except Exception as exc:
+        logger.debug("Any-expression probe failed for %s: %s", path_str, exc)
+        return None
+
+
+def _cites_an_any_line(location: str, any_lines: frozenset[int]) -> bool:
+    """Whether the lines `location` cites hold an expression of type Any; with no line cited,
+    whether any line does."""
+    _, cited = _parse_location(location)
+    if cited is None:
+        return bool(any_lines)
+    low, high = sorted(cited)
+    return any(low <= line <= high for line in any_lines)
+
+
+def _strict_pass_settles(finding: Finding, file_path: Path, mtime: float) -> bool:
+    """Whether the module's strict pass settles the None dereference `finding` claims.
+
+    It does not when the module suppresses mypy's errors, fails the probe, or holds an
+    expression of type Any on the cited lines, where the dereference is: the tree under review
+    controls all three (#972).
+    """
+    path_str = str(file_path)
+    if _module_suppresses_type_errors(path_str, mtime):
+        return False
+    if not _module_typechecks_clean(path_str, mtime):
+        return False
+    any_lines = _any_typed_lines(path_str, mtime)
+    return any_lines is not None and not _cites_an_any_line(finding.location, any_lines)
+
+
 def _check_none_dereference_hallucination(finding: Finding, file_path: Path) -> Finding | None:
     """Invalidate a claimed None dereference in a module that type checks strictly.
 
     A finding asserting an AttributeError on a possibly-None attribute is a claim about
-    types, and this repository already runs `mypy --strict` over the whole package. If the
-    cited module passes, the attribute is not Optional and the runtime failure described
-    cannot occur; if mypy cannot type check it cleanly for any reason, nothing is claimed
-    and the finding proceeds to the model verifier as before.
+    types. If the cited module passes `mypy --strict`, the attribute is not Optional and the
+    runtime failure described cannot occur; if mypy cannot type check it cleanly for any
+    reason, such as a target whose imports this interpreter cannot resolve, nothing is
+    claimed and the finding proceeds to the model verifier as before. Nor is anything claimed
+    of a module that has mypy skip errors, or where the cited lines hold an expression of type
+    Any (`_strict_pass_settles`, #972).
 
     This exists because two findings of exactly this shape were marked VERIFIED at 0.94
     confidence against fields the schema declares as plain `str`.
@@ -1149,10 +1455,10 @@ def _check_none_dereference_hallucination(finding: Finding, file_path: Path) -> 
         mtime = file_path.stat().st_mtime
     except OSError:
         return None
-    if not _module_typechecks_clean(str(file_path), mtime):
+    if not _strict_pass_settles(finding, file_path, mtime):
         return None
 
-    res = apply_verdict(
+    return apply_verdict(
         finding,
         "INVALIDATED",
         by="deterministic:none_dereference",
@@ -1161,13 +1467,6 @@ def _check_none_dereference_hallucination(finding: Finding, file_path: Path) -> 
             "described None dereference is not reachable"
         ),
     )
-    try:
-        from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
-
-        auto_record_invalidated_finding(res, file_path=file_path, reason=res.invalidation_reason)
-    except Exception:
-        pass
-    return res
 
 
 def _check_code_file_hallucinations(finding: Finding, file_path: Path) -> Finding | None:
@@ -1189,10 +1488,9 @@ def _check_code_file_hallucinations(finding: Finding, file_path: Path) -> Findin
 
 
 def _check_catalog_hallucination(finding: Finding, file_path: Path) -> Finding:
-    """Check finding against dynamic common hallucinations catalog."""
+    """Check finding against the builtin common hallucinations catalog."""
     try:
         from devops_cli.ai.review.common_hallucinations import (
-            auto_record_invalidated_finding,
             is_common_hallucination,
             verify_ground_truth_hallucination,
         )
@@ -1200,7 +1498,6 @@ def _check_catalog_hallucination(finding: Finding, file_path: Path) -> Finding:
         match = is_common_hallucination(finding, threshold=0.7, file_path=file_path)
         if match and verify_ground_truth_hallucination(finding, match.hallucination, file_path):
             entry = match.hallucination
-            auto_record_invalidated_finding(finding, file_path=file_path, reason=entry.resolution)
             return apply_verdict(
                 finding,
                 "INVALIDATED",
@@ -1231,25 +1528,75 @@ def _check_verdict_polarity_hallucination(finding: Finding) -> Finding | None:
 def _check_early_hallucinations(
     finding: Finding, dependencies: Sequence[Any] | None
 ) -> Finding | None:
+    """The verdict of the first early check that fires; the checks after it do not run.
+
+    `apply_verdict` writes on the finding itself, so a later check that also fired overwrote the
+    verdict and reason the first one gave: a manifest finding citing `CVE-2024-xxxx` that spoke
+    of Kubernetes best practices read "advisory scan reports kubernetes CLEAN" (#1044).
+    """
     title_lower = finding.title.lower()
     desc_lower = (finding.description or "").lower()
-    early_results = [
-        _check_verdict_polarity_hallucination(finding),
-        _check_pathlib_resolve_hallucination(finding),
-        _check_operational_protocol_hallucination(finding),
-        _check_localhost_default_url_hallucination(finding),
-        _check_posix_signal_zero_liveness_hallucination(finding),
-        _check_pre_1_0_breaking_change_hallucination(finding),
-        _check_conversational_monologue(title_lower, finding),
-        _check_benign_compliment(title_lower, finding),
-        _check_masked_placeholder_syntax_error(finding, title_lower, desc_lower),
-        _check_placeholder_advisory_hallucination(finding),
-        _check_scanned_clean_dependency(finding, dependencies or ()),
-    ]
-    for res in early_results:
-        if res:
+    early_checks = (
+        functools.partial(_check_verdict_polarity_hallucination, finding),
+        functools.partial(_check_pathlib_resolve_hallucination, finding),
+        functools.partial(_check_operational_protocol_hallucination, finding),
+        functools.partial(_check_localhost_default_url_hallucination, finding),
+        functools.partial(_check_posix_signal_zero_liveness_hallucination, finding),
+        functools.partial(_check_pre_1_0_breaking_change_hallucination, finding),
+        functools.partial(_check_conversational_monologue, title_lower, finding),
+        functools.partial(_check_benign_compliment, title_lower, finding),
+        functools.partial(_check_masked_placeholder_syntax_error, finding, title_lower, desc_lower),
+        functools.partial(_check_placeholder_advisory_hallucination, finding, dependencies or ()),
+        functools.partial(_check_scanned_clean_dependency, finding, dependencies or ()),
+    )
+    for check in early_checks:
+        if res := check():
             return res
     return None
+
+
+def record_cited_code(findings: Iterable[SavedFinding], root: Path | None) -> None:
+    """Record on each finding the code its location cites, as this review read it (#950).
+
+    The code is read only from a file that is not a secret file, inside the checkout `root`
+    belongs to (the working directory's without one). A verdict given later keys its claim on
+    it rather than on the file as it reads then, and the exported dataset carries it.
+    """
+    from devops_cli.core.repo import find_worktree_root
+
+    checkout = find_worktree_root(root or Path.cwd())
+    for finding in findings:
+        file_part = _parse_location(finding.location)[0]
+        file_path = (
+            _resolve_target_file(file_part, root)
+            if file_part and not _is_secret_path(file_part)
+            else None
+        )
+        finding.cited_code = (
+            cited_code(finding.location, file_path, checkout) if file_path else None
+        )
+
+
+def _check_judged_claim(
+    finding: Finding, file_path: Path, root: Path | None, consult: bool
+) -> Finding | None:
+    """Invalidate a finding whose claim a person already judged INVALIDATED (#950).
+
+    The match ignores the tool, persona and wording that raised the finding; it holds while the
+    line the location cites reads as it did when the person judged it, in the same project.
+    Nothing is consulted without `consult`.
+    """
+    from devops_cli.ai.review.common_hallucinations import find_judged_entry
+
+    entry = find_judged_entry(finding, file_path, root) if consult else None
+    if entry is None:
+        return None
+    return apply_verdict(
+        finding,
+        "INVALIDATED",
+        by="deterministic:person_verdict",
+        reason=f"A person judged this claim INVALIDATED [{entry.id}]: {entry.resolution}",
+    )
 
 
 def _run_file_level_deterministic_checks(
@@ -1258,16 +1605,26 @@ def _run_file_level_deterministic_checks(
     effective_root: Path | None,
     removed_symbols: set[str] | None,
     diff_hunks: list[tuple[int, int]] | None,
+    consult_judged: bool = True,
 ) -> Finding:
     finding = _drop_out_of_range_lines(finding, file_path)
+    if judged := _check_judged_claim(finding, file_path, effective_root, consult_judged):
+        return judged
     if code_res := _check_code_file_hallucinations(finding, file_path):
         return code_res
 
+    raised_at = finding.location
     finding = validate_construct_location(
         finding, file_path, removed_symbols=removed_symbols, diff_hunks=diff_hunks
     )
     if finding.status in {"INVALIDATED", "MITIGATED"}:
         return finding
+    # A person may have judged the line the finding was moved to, where the session saved it.
+    moved = finding.location != raised_at
+    if moved and (
+        judged := _check_judged_claim(finding, file_path, effective_root, consult_judged)
+    ):
+        return judged
 
     finding = _check_catalog_hallucination(finding, file_path)
     if finding.status in {"INVALIDATED", "MITIGATED"}:
@@ -1288,12 +1645,21 @@ def _deterministic_pre_verification(
     dependencies: Sequence[Any] | None = None,
     removed_symbols: set[str] | None = None,
     diff_hunks: list[tuple[int, int]] | None = None,
+    consult_judged: bool = True,
     **kwargs: Any,
 ) -> Finding:
-    """Run local deterministic parser, line boundary, and hallucination checks to invalidate obvious false positives."""
+    """Run local deterministic parser, line boundary, and hallucination checks to invalidate obvious false positives.
+
+    `consult_judged=False` leaves out the claims people judged, for a replay of findings whose
+    recorded verdicts may be those people's own.
+    """
     early_res = _check_early_hallucinations(finding, dependencies)
     if early_res:
         return early_res
+    if finding.status == "UNVERIFIED":
+        finding = _strip_unbacked_advisories(finding, dependencies or ())
+        if finding.status == "INVALIDATED":
+            return finding
 
     loc_file = finding.location.split(":")[0].strip()
     if not loc_file or _is_secret_path(loc_file):
@@ -1305,7 +1671,7 @@ def _deterministic_pre_verification(
         return finding
 
     return _run_file_level_deterministic_checks(
-        finding, file_path, effective_root, removed_symbols, diff_hunks
+        finding, file_path, effective_root, removed_symbols, diff_hunks, consult_judged
     )
 
 
@@ -1402,6 +1768,13 @@ def _is_placeholder(val: Any) -> bool:
     return not s or s in CONST_PLACEHOLDER_VALUES
 
 
+def _refutes(item: dict[str, Any], inv_matched: list[str]) -> bool:
+    """Whether a verdict refutes its finding: it matched invalidation criteria or says so."""
+    status = str(item.get("status") or "").strip().upper()
+    flagged = _verdict_bool(item.get("invalidated")) is True
+    return bool(inv_matched) or flagged or status == "INVALIDATED"
+
+
 def _verdict_status(item: dict[str, Any], inv_matched: list[str]) -> tuple[str, bool]:
     """The status and reportability a verdict supports.
 
@@ -1411,7 +1784,7 @@ def _verdict_status(item: dict[str, Any], inv_matched: list[str]) -> tuple[str, 
     """
     verified = _verdict_bool(item.get("verified"))
     status = str(item.get("status") or "").strip().upper()
-    refuted = bool(inv_matched) or _verdict_bool(item.get("invalidated")) or status == "INVALIDATED"
+    refuted = _refutes(item, inv_matched)
     confirmed = verified is True or status == "VERIFIED"
     if refuted and confirmed:
         return "UNVERIFIED", True
@@ -1485,28 +1858,150 @@ def _reason_confirms(reason: str, f: Finding) -> bool:
     )
 
 
-def _without_self_refutation(f: Finding, item: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
-    """The verdict with its invalidation withdrawn when it rests only on the finding's own claim.
+def _without_self_refutation(
+    f: Finding, item: dict[str, Any]
+) -> tuple[dict[str, Any], list[str], bool]:
+    """The verdict with its invalidation withdrawn when it rests only on the finding's own claim,
+    the invalidation criteria it still matches, and whether an invalidation was withdrawn.
 
     An invalidation whose matched criteria all restate the defect or its fix, or whose reason
     confirms the claimed condition, names no evidence against the finding; it leaves the
     finding unverified and in the report.
     """
     inv_matched = _verdict_list(item.get("invalidated_criteria_matched"))
+    if not _refutes(item, inv_matched):
+        return item, inv_matched, False
     genuine = [c for c in inv_matched if not _restates_the_finding(c, f)]
     reason = str(item.get("reason") or "").strip()
     if genuine and not _reason_confirms(reason, f):
-        return item, inv_matched
+        return item, inv_matched, False
     if not inv_matched and not _reason_confirms(reason, f):
-        return item, inv_matched
+        return item, inv_matched, False
     withdrawn = {**item, "invalidated": False}
     if str(item.get("status") or "").strip().upper() == "INVALIDATED":
         withdrawn["status"] = ""
-    return withdrawn, []
+    return withdrawn, [], True
 
 
-def _extract_citation_line(item: dict[str, Any], reason: str) -> int | None:
-    """Extract cited line number from verdict item or reason."""
+# A reason's words, an identifier (`validate_no_path_traversal`) kept whole.
+_REASON_WORD = re.compile(r"[a-z0-9_]+(?:'[a-z]+)?")
+# What a reason may put between a negation and the claim it denies: "no actual secret", "not
+# derived from untrusted user input".
+_DENIAL_FILLERS = frozenset(
+    {"a", "an", "the", "any", "actual", "such", "is", "are", "be", "being", "been", "was", "were"}
+)
+_DENIAL_BRIDGES = frozenset(
+    {("derived", "from"), ("coming", "from"), ("sourced", "from")}
+    | {("controlled", "by"), ("supplied", "by"), ("provided", "by")}
+)
+# "without" names a missing guard, as a confirmation does ("without a timeout"), and "already" a
+# check a mitigation points at; neither denies the claim.
+_NOT_A_DENIAL = frozenset({"without", "already"})
+# Words by which a claim negates what follows ("Missing timeout") or what precedes them ("TLS
+# verification disabled"): a reason that negates the same words agrees with it.
+_CLAIM_ABSENCE_BEFORE = frozenset(
+    {"no", "not", "never", "none", "without", "missing", "lack", "lacks", "lacking", "absent"}
+)
+_CLAIM_ABSENCE_AFTER = frozenset({"missing", "absent", "disabled"})
+# A denial names at least this many consecutive words of the claim: "no user input". One word
+# ("not the actual secret") is as often a confirmation's aside.
+_DENIAL_MIN_CLAIM_WORDS = 2
+_CLAIMS_A_CRITERION_PASSED = re.compile(CONST_CRITERION_PASSED_CLAIM_PATTERN, re.IGNORECASE)
+
+
+def _reason_words(text: str) -> list[str]:
+    return _REASON_WORD.findall(text.lower().replace("’", "'"))
+
+
+def _is_negation(word: str) -> bool:
+    return bool(_NEGATION.fullmatch(word)) or word.endswith("n't")
+
+
+def _negated_in_claim(claims: Sequence[str]) -> set[str]:
+    """The words a claim itself negates: up to five after "no", "not" or "missing", and up to
+    three before "missing" or "disabled"."""
+    negated: set[str] = set()
+    for claim in claims:
+        words = _reason_words(claim)
+        for i, word in enumerate(words):
+            if word in _CLAIM_ABSENCE_BEFORE or _is_negation(word):
+                negated.update(words[i + 1 : i + 6])
+            if word in _CLAIM_ABSENCE_AFTER:
+                negated.update(words[max(0, i - 3) : i])
+    return negated
+
+
+def _after_fillers(words: Sequence[str], start: int) -> int:
+    """The index of the first word from `start` that is neither a filler nor a bridge."""
+    i = start
+    while i < len(words):
+        if words[i] in _DENIAL_FILLERS:
+            i += 1
+        elif tuple(words[i : i + 2]) in _DENIAL_BRIDGES:
+            i += 2
+        else:
+            break
+    return i
+
+
+def _denial_of_the_claim(reason: str, f: Finding) -> str | None:
+    """The words in which a verdict's reason denies the finding's claim; None when it does not.
+
+    The mirror of `_reason_confirms`, on the same claim words and negations: a negation followed,
+    past fillers such as "the" or "derived from", by at least two consecutive words of the
+    claim that the claim does not negate itself. "No user input reaches this point" denies
+    "Untrusted user input in `importlib.import_module()`". A negated verb ("does not quote user
+    input"), a missing guard ("without a timeout") or one the claim says is missing ("no
+    timeout" against "Missing timeout") confirms the claim.
+    """
+    claims = [*(str(c) for c in f.verification_criteria), f.title]
+    claim_words = set().union(*(_claim_words(c) for c in claims)) - _negated_in_claim(claims)
+    words = _reason_words(reason)
+    for i, word in enumerate(words):
+        if not _is_negation(word) or word in _NOT_A_DENIAL:
+            continue
+        start = end = _after_fillers(words, i + 1)
+        while end < len(words) and words[end] in claim_words:
+            end += 1
+        if len(set(words[start:end])) >= _DENIAL_MIN_CLAIM_WORDS:
+            return " ".join(words[i:end])
+    return None
+
+
+def _claims_a_failed_criterion_passed(reason: str, f: Finding) -> str | None:
+    """The words in which a reason says a criterion passed, when no recorded run of one did."""
+    ran = [r for r in f.criteria_execution_results if r.executable]
+    if not ran or any(r.passed for r in ran):
+        return None
+    claim = _CLAIMS_A_CRITERION_PASSED.search(reason)
+    return " ".join(_reason_words(claim.group(0))) if claim else None
+
+
+def _contradiction_note(f: Finding, status: str, reason: str) -> str | None:
+    """Why a confirmation or mitigation is not applied when its own reason contradicts it.
+
+    A reason that denies the claim argues the finding away, and one that says a criterion
+    passed when its recorded run failed points at evidence that does not exist (#845).
+    """
+    if denial := _denial_of_the_claim(reason, f):
+        return (
+            f"{CONST_VERIFIER_CONTRADICTION}: the {status} verdict's reason denies the claim "
+            f"('{denial}')"
+        )
+    if passed := _claims_a_failed_criterion_passed(reason, f):
+        return (
+            f"{CONST_VERIFIER_CONTRADICTION}: the {status} verdict's reason says a criterion "
+            f"passed ('{passed}'), but its recorded run failed"
+        )
+    return None
+
+
+def _extract_citation_line(item: dict[str, Any]) -> int | None:
+    """The line a verdict cites under an explicit citation key.
+
+    The `location` a verdict echoes is the finding's own, and a number in its reason may be any
+    line, so neither cites the line that settles the claim.
+    """
     for key in ("citation_line", "cited_line", "line", "refutation_line"):
         val = item.get(key)
         if val is not None:
@@ -1514,18 +2009,6 @@ def _extract_citation_line(item: dict[str, Any], reason: str) -> int | None:
                 return int(val)
             except ValueError, TypeError:
                 pass
-    if reason:
-        m = re.search(r"\b(?:lines?|l)\s*#?\s*(\d+)\b", reason, re.IGNORECASE)
-        if m:
-            return int(m.group(1))
-        m2 = re.search(r":(\d+)\b", reason)
-        if m2:
-            return int(m2.group(1))
-    loc = item.get("location")
-    if loc and ":" in str(loc):
-        digits = re.findall(r"\d+", str(loc).split(":", 1)[1])
-        if digits:
-            return int(digits[0])
     return None
 
 
@@ -1581,7 +2064,6 @@ def _validate_citation_line(
             )
 
         from devops_cli.ai.review.construct_validator import extract_finding_construct_candidates
-        from devops_cli.ai.review_schema import _extract_code_symbols
 
         candidates = extract_finding_construct_candidates(f)
         if not candidates:
@@ -1609,6 +2091,14 @@ def _validate_citation_line(
         return True, citation_line, None
 
 
+# A refutation of the finding's criteria ("tautological", "the criteria only check that it
+# exists"), not of its claim. Without a cited line it says nothing about the code.
+_REFUTES_THE_CRITERIA = re.compile(r"tautolog|criteri\w+ (?:only|merely)|only confirms", re.I)
+_CRITERIA_REFUTATION_NOTE = (
+    "Refutation is about the criteria, not the code, and cites no line; downgraded to UNVERIFIED"
+)
+
+
 def _extract_finding_confidence(conf_val: Any, default: float | None) -> float | None:
     """Normalize confidence score to bounded float in [0.0, 1.0]."""
     if conf_val is None:
@@ -1619,17 +2109,166 @@ def _extract_finding_confidence(conf_val: Any, default: float | None) -> float |
         return default
 
 
-def _determine_mitigated_degradation_note(
-    reason: str, mech: str | None, perimeter: list[str]
-) -> str:
-    """Return specific reason why a claimed mitigation was degraded to UNVERIFIED."""
+def _mitigation_presence_gap(reason: str, mech: str | None, perimeter: list[str]) -> str | None:
+    """Which part of a mitigation the verdict leaves out; None when it names them all."""
     if not reason:
-        return "Mitigated verdict without explanation; degraded to UNVERIFIED"
+        return "no reason given"
     if not mech or _is_placeholder(mech):
-        return "Mitigated verdict without specified mitigating mechanism; degraded to UNVERIFIED"
+        return "no mitigating mechanism named"
     if not perimeter or _is_placeholder(perimeter):
-        return "Mitigated verdict without specified perimeter files; degraded to UNVERIFIED"
-    return ""
+        return "no perimeter files named"
+    return None
+
+
+_SELF_NEGATING_MECHANISM = re.compile(CONST_SELF_NEGATING_MECHANISM_PATTERN, re.IGNORECASE)
+
+
+def _reviewed_tree_roots(repo_root: Path | None) -> tuple[Path, ...]:
+    """The directories a verdict's files must lie in: the review's target and its repository.
+
+    A pull request's head is written outside any repository, so there only the pull request's
+    own files can be pointed at.
+    """
+    if repo_root is None:
+        return ()
+    from devops_cli.core.repo import find_repo_root
+
+    return tuple(dict.fromkeys((repo_root.resolve(), find_repo_root(repo_root))))
+
+
+def _file_in_reviewed_tree(path: str, roots: Sequence[Path]) -> Path | None:
+    """The file `path` names inside the reviewed tree, through `safe_resolve_subpath`.
+
+    None for a path that escapes the tree, absolute, through `..` or a symlink, and anything
+    but an existing file. A `:line` suffix is read as a location's. A finding's own location is
+    read with it: the pipeline writes that, and a scanner writes it absolute (#788).
+    """
+    file_part = _parse_location(path)[0]
+    if not file_part:
+        return None
+    for root in roots:
+        try:
+            resolved = safe_resolve_subpath(root, file_part, must_exist=True)
+        except DevOpsCLIError, OSError:
+            continue
+        if resolved.is_file():
+            return resolved
+    return None
+
+
+def _perimeter_file(path: str, roots: Sequence[Path]) -> Path | None:
+    """The file a verdict's perimeter path names in the reviewed tree; None for any absolute path.
+
+    The verifier is asked for repository-relative paths, so an absolute one, even to a file in
+    the tree, is refused before containment is checked.
+    """
+    if Path(_parse_location(path)[0]).is_absolute():
+        return None
+    return _file_in_reviewed_tree(path, roots)
+
+
+def _reviewed_text(path: Path) -> str | None:
+    """A reviewed file's text; None when it is too large or cannot be read."""
+    try:
+        if path.stat().st_size > DEFAULT_MAX_AST_FILE_SIZE_BYTES:
+            return None
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def _holds_any(path: Path, identifiers: Iterable[str]) -> bool:
+    """Whether the file names one of `identifiers` as a whole word, in any case."""
+    text = _reviewed_text(path) or ""
+    return any(re.search(rf"\b{re.escape(name)}\b", text, re.IGNORECASE) for name in identifiers)
+
+
+def _perimeter_gap(
+    perimeter: Sequence[str], roots: Sequence[Path]
+) -> tuple[list[Path], str | None]:
+    """The perimeter's files, or why one of them is not code in the reviewed tree."""
+    files: list[Path] = []
+    for path in perimeter:
+        resolved = _perimeter_file(path, roots)
+        if resolved is None:
+            return files, f"perimeter file `{path}` does not resolve inside the reviewed tree"
+        if classify_file_context(resolved) is FileContextType.DOCUMENTATION:
+            return files, f"perimeter file `{path}` is documentation, not code that enforces it"
+        files.append(resolved)
+    return files, None
+
+
+def _mitigation_evidence_gap(
+    f: Finding, mechanism: str, perimeter: Sequence[str], repo_root: Path | None
+) -> str | None:
+    """Why a mitigation points at no code in the reviewed tree that enforces it; None when it does.
+
+    Every perimeter file resolves inside the tree and is not documentation, such as a
+    conventions file, and the mechanism names an identifier (`_extract_code_symbols`) that a
+    perimeter file or the finding's own file holds. A mechanism that negates itself ("caught but
+    not logged") describes the defect.
+    """
+    if negation := _SELF_NEGATING_MECHANISM.search(mechanism):
+        return f"the mechanism describes the defect ('{negation.group(0)}'), not what limits it"
+    roots = _reviewed_tree_roots(repo_root)
+    files, gap = _perimeter_gap(perimeter, roots)
+    if gap:
+        return gap
+    identifiers = _extract_code_symbols(mechanism)
+    if not identifiers:
+        return "the mechanism names no code identifier"
+    finding_file = _file_in_reviewed_tree(f.location, roots)
+    if any(_holds_any(p, identifiers) for p in [*files, *filter(None, [finding_file])]):
+        return None
+    names = ", ".join(f"`{name}`" for name in sorted(identifiers)[:5])
+    return f"none of its identifiers ({names}) appears in a perimeter file or the finding's file"
+
+
+def _citation_outside_file(
+    f: Finding, citation_line: int | None, repo_root: Path | None
+) -> str | None:
+    """Why a confirmation's cited line is no line of the finding's file; None when it is one,
+    or when there is no citation, or no file in the reviewed tree to count lines in."""
+    if citation_line is None:
+        return None
+    file_part = _parse_location(f.location)[0]
+    if citation_line < 1:
+        return f"{CONST_CITATION_OUT_OF_RANGE}: line {citation_line} of `{file_part}`"
+    path = _file_in_reviewed_tree(file_part, _reviewed_tree_roots(repo_root))
+    text = _reviewed_text(path) if path else None
+    if text is None or citation_line <= len(lines := text.splitlines()):
+        return None
+    return (
+        f"{CONST_CITATION_OUT_OF_RANGE}: line {citation_line} of `{file_part}` ({len(lines)} lines)"
+    )
+
+
+def _unproven_mitigation_note(
+    f: Finding, reason: str, mechanism: str | None, perimeter: list[str], repo_root: Path | None
+) -> str | None:
+    """Why a MITIGATED verdict proves no mitigation; None when it points at one."""
+    gap = _mitigation_presence_gap(reason, mechanism, perimeter) or _mitigation_evidence_gap(
+        f, mechanism or "", perimeter, repo_root
+    )
+    return f"{CONST_MITIGATION_UNPROVEN}: {gap}" if gap else None
+
+
+def _claims_mitigation(item: dict[str, Any]) -> bool:
+    """Whether a verdict calls its finding mitigated, by flag or by status."""
+    status = str(item.get("status") or "").strip().upper()
+    return bool(_verdict_bool(item.get("mitigated"))) or status == "MITIGATED"
+
+
+def _resolve_refutation(
+    f: Finding, reason: str, citation_line: int | None, repo_root: Path | None
+) -> tuple[str, str, int | None, str | None, bool]:
+    """An INVALIDATED verdict, or UNVERIFIED with a note when its citation does not hold."""
+    if citation_line is None and _REFUTES_THE_CRITERIA.search(reason):
+        return "UNVERIFIED", "", None, _CRITERIA_REFUTATION_NOTE, True
+    is_valid, cit_line, note = _validate_citation_line(f, citation_line, repo_root)
+    if not is_valid:
+        return "UNVERIFIED", "", None, note, True
+    return "INVALIDATED", reason, cit_line, None, False
 
 
 def _resolve_status_and_verification_note(
@@ -1643,28 +2282,29 @@ def _resolve_status_and_verification_note(
     repo_root: Path | None,
     is_rep: bool,
 ) -> tuple[str, str, int | None, str | None, bool]:
-    """Resolve validated status, reason, citation line, verification note, and reportability."""
+    """Resolve validated status, reason, citation line, verification note, and reportability.
+
+    Each verdict is checked on its own (#845): a confirmation or mitigation whose reason
+    contradicts it is not applied, a mitigation stands only on code the reviewed tree holds,
+    and a confirmation only on a line its file has. One that fails is UNVERIFIED, reported,
+    with a note naming the check and no citation.
+    """
     if status_val == "INVALIDATED":
-        is_valid, cit_line, note = _validate_citation_line(f, citation_line, repo_root)
-        if not is_valid:
-            return "UNVERIFIED", "", None, note, True
-        return "INVALIDATED", reason, cit_line, None, False
-
-    if status_val == "MITIGATED":
-        note = (
-            "Mitigated verdict without specified mitigating mechanism"
-            if not mitigating_mechanism or _is_placeholder(mitigating_mechanism)
-            else None
-        )
-        return "MITIGATED", reason, citation_line, note, True
-
-    is_mitigated = (
-        _verdict_bool(item.get("mitigated")) or str(item.get("status", "")).upper() == "MITIGATED"
-    )
-    if is_mitigated and status_val == "UNVERIFIED":
-        note = _determine_mitigated_degradation_note(reason, mitigating_mechanism, perimeter_files)
-        return "UNVERIFIED", reason, citation_line, note or None, True
-
+        return _resolve_refutation(f, reason, citation_line, repo_root)
+    if status_val == "MITIGATED" and (
+        note := _contradiction_note(f, status_val, reason)
+        or _unproven_mitigation_note(f, reason, mitigating_mechanism, perimeter_files, repo_root)
+    ):
+        return "UNVERIFIED", "", None, note, True
+    if status_val == "VERIFIED" and (
+        note := _contradiction_note(f, status_val, reason)
+        or _citation_outside_file(f, citation_line, repo_root)
+    ):
+        return "UNVERIFIED", "", None, note, True
+    # A mitigation the verdict left unverified for want of a part it never named says which.
+    gap = _mitigation_presence_gap(reason, mitigating_mechanism, perimeter_files)
+    if gap and _claims_mitigation(item):
+        return status_val, reason, None, f"{CONST_MITIGATION_UNPROVEN}: {gap}", is_rep
     return status_val, reason, citation_line, None, is_rep
 
 
@@ -1685,9 +2325,12 @@ def _check_finding_polarity(
 def _resolve_finding_attributes(
     f: Finding, item: dict[str, Any]
 ) -> tuple[str, str, str | None, str | None]:
-    """Resolve updated severity, location, observed value, and expected value."""
-    new_sev = str(item.get("severity", "")).upper().strip()
-    sev = new_sev if new_sev and new_sev in _SEVERITY_RANK else f.severity
+    """Resolve updated severity, location, observed value, and expected value.
+
+    The verifier may only lower a severity (#948): it raised findings it had no more evidence
+    for than the persona.
+    """
+    sev = less_severe(f.severity, item.get("severity", ""))
     raw_loc = item.get("location")
     if raw_loc is None or str(raw_loc).strip().lower() in ("none", "null", ""):
         loc = f.location
@@ -1702,18 +2345,32 @@ def _resolve_finding_attributes(
     return sev, loc, final_obs, final_exp
 
 
-def _build_finding_verdict_kwargs(
-    status_val: str,
-    item: dict[str, Any],
-    final_reportable: bool,
+def _no_verdict_note(f: Finding, withdrawn: bool) -> str:
+    """Why a finding the verifier judged has no verdict, when no check of the verdict said.
+
+    A withdrawn self-refutation says so. Criteria that passed both ways sent the finding to the
+    verifier, and when it cannot decide either, that is still why. Otherwise the verifier was
+    inconclusive: it neither confirmed, refuted nor found a mitigation, or it both confirmed
+    and refuted.
+    """
+    if withdrawn:
+        return CONST_VERIFIER_SELF_REFUTATION
+    if f.verification_note == CONST_CRITERIA_NON_DISCRIMINATING:
+        return CONST_CRITERIA_NON_DISCRIMINATING
+    return CONST_VERIFIER_INCONCLUSIVE
+
+
+def _mitigation_fields(
+    status_val: str, item: dict[str, Any], mechanism: str | None, perimeter: list[str]
 ) -> dict[str, Any]:
-    """Build extra keyword arguments for apply_verdict."""
-    extra_kw: dict[str, Any] = {}
-    if status_val == "MITIGATED" and _verdict_bool(item.get("verified")) is False:
-        extra_kw["verified"] = False
-    if final_reportable is False:
-        extra_kw["reportable"] = False
-    return extra_kw
+    """The mitigation a MITIGATED verdict records; none for any other verdict."""
+    if status_val != "MITIGATED":
+        return {}
+    return {
+        "mitigating_mechanism": mechanism,
+        "perimeter_files": perimeter,
+        "regression_test": _extract_regression_test(item),
+    }
 
 
 def _apply_single_finding_verification(
@@ -1727,7 +2384,7 @@ def _apply_single_finding_verification(
         return f
 
     ver_matched = _verdict_list(item.get("verified_criteria_matched"))
-    item, inv_matched = _without_self_refutation(f, item)
+    item, inv_matched, withdrawn = _without_self_refutation(f, item)
     status_val, is_rep = _verdict_status(item, inv_matched)
     conf = _extract_finding_confidence(item.get("confidence_score"), f.confidence_score)
 
@@ -1735,10 +2392,9 @@ def _apply_single_finding_verification(
     merged_inv_matched = list(dict.fromkeys(f.invalidated_criteria_matched + inv_matched))
 
     raw_reason = str(item.get("reason") or "").strip()
-    raw_citation = _extract_citation_line(item, raw_reason)
+    raw_citation = _extract_citation_line(item)
     mitigating_mechanism = _extract_mitigating_mechanism(item, raw_reason)
     perimeter_files = _extract_perimeter_files(item, raw_reason)
-    regression_test = _extract_regression_test(item)
 
     status_val, reason, citation_line, verification_note, final_rep = (
         _resolve_status_and_verification_note(
@@ -1756,7 +2412,8 @@ def _apply_single_finding_verification(
 
     sev, loc, final_obs, final_exp = _resolve_finding_attributes(f, item)
     status_val, by, reason = _check_finding_polarity(final_obs, final_exp, status_val, reason)
-    extra_kw = _build_finding_verdict_kwargs(status_val, item, final_rep)
+    if status_val == "UNVERIFIED" and verification_note is None:
+        verification_note = _no_verdict_note(f, withdrawn)
 
     return apply_verdict(
         f,
@@ -1764,20 +2421,19 @@ def _apply_single_finding_verification(
         by=by,
         reason=reason if status_val in {"INVALIDATED", "MITIGATED"} else None,
         citation_line=citation_line,
-        mitigating_mechanism=mitigating_mechanism if status_val == "MITIGATED" else None,
-        perimeter_files=perimeter_files if status_val == "MITIGATED" else None,
-        regression_test=regression_test if status_val == "MITIGATED" else None,
         verification_note=verification_note,
         confidence_score=conf,
         verified_at=now_iso if status_val != "UNVERIFIED" else None,
         severity=sev,
+        severity_raw=(f.severity_raw or f.severity) if sev != f.severity else None,
         location=loc,
         observed_value=final_obs,
         expected_value=final_exp,
         verified_criteria_matched=merged_ver_matched,
         invalidated_criteria_matched=merged_inv_matched,
         criteria_execution_results=f.criteria_execution_results,
-        **extra_kw,
+        reportable=None if final_rep else False,
+        **_mitigation_fields(status_val, item, mitigating_mechanism, perimeter_files),
     )
 
 
@@ -1948,13 +2604,13 @@ def _run_deterministic_pre_verification_on_findings(
     repo_root: Path | None,
     dependencies: Sequence[Any] | None,
     analysis_metas: dict[str, Any] | None,
-    all_segments: list[str],
+    diff_segments: list[str],
 ) -> list[Finding]:
     """Apply deterministic pre-verification with removed symbol detection and diff hunk re-anchoring."""
     from devops_cli.ai.review.chunker import extract_diff_hunks, extract_file_diff_hunks
 
-    file_hunks = extract_file_diff_hunks(all_segments)
-    all_hunks = extract_diff_hunks("\n".join(all_segments))
+    file_hunks = extract_file_diff_hunks(diff_segments)
+    all_hunks = extract_diff_hunks("\n".join(diff_segments))
     return [
         _deterministic_pre_verification(
             f,
@@ -1971,46 +2627,60 @@ def _run_deterministic_pre_verification_on_findings(
     ]
 
 
+def _awaits_verdict(f: Finding) -> bool:
+    """Whether the verifier is shown the finding: one no deterministic check settled."""
+    return f.status == "UNVERIFIED" and f.verification_note != "cites removed symbol"
+
+
+def _without_verdict(findings: list[Finding], note: str) -> list[Finding]:
+    """The findings, each one the verifier was shown carrying `note` for why it has no verdict."""
+    return [
+        f.model_copy(update={"verification_note": note}) if _awaits_verdict(f) else f
+        for f in findings
+    ]
+
+
 def _apply_bound_verdicts_to_findings(
     findings: list[Finding],
     bound: dict[int, dict[str, Any]],
     repo_root: Path | None,
 ) -> list[Finding]:
-    """Apply bound verification verdicts to findings in order."""
+    """Apply bound verification verdicts to findings in order.
+
+    A finding the reply gave no verdict on is noted as such, apart from one the verifier
+    judged and left unverified, whose note says why its verdict settled nothing.
+    """
     now_iso = datetime.now().isoformat()
     validated: list[Finding] = []
     unresolved_idx = 0
     for f in findings:
-        if f.status != "UNVERIFIED" or f.verification_note == "cites removed symbol":
+        if not _awaits_verdict(f):
             validated.append(f)
             continue
         item = bound.get(unresolved_idx)
         unresolved_idx += 1
+        if item is None:
+            validated.append(f.model_copy(update={"verification_note": CONST_VERIFIER_NO_VERDICT}))
+            continue
         validated.append(_apply_single_finding_verification(f, item, now_iso, repo_root=repo_root))
     return validated
 
 
 def _parse_verifier_payload(response: str) -> list[Any] | None:
-    """Parse JSON block from verifier model reply."""
+    """The verdicts of a verifier reply; None when it holds no list of verdicts."""
     data = extract_json_block(response)
     if isinstance(data, dict):
         if "findings" in data and isinstance(data["findings"], list):
             data = data["findings"]
         elif "items" in data and isinstance(data["items"], list):
             data = data["items"]
-    return data if isinstance(data, list) and data else None
+    return data if isinstance(data, list) else None
 
 
 def _mark_degraded_findings(findings: list[Finding], exc: Exception) -> list[Finding]:
     """Annotate unverified findings with unavailable reason when verifier fails."""
     logger.warning("Verification did not complete: %s: %s", type(exc).__name__, exc)
-    reason = f"{CONST_VERIFICATION_UNAVAILABLE}: {type(exc).__name__}"
-    return [
-        f.model_copy(update={"verification_note": reason})
-        if f.status == "UNVERIFIED" and not f.verification_note
-        else f
-        for f in findings
-    ]
+    return _without_verdict(findings, f"{CONST_VERIFICATION_UNAVAILABLE}: {type(exc).__name__}")
 
 
 def _validate_segment_findings(
@@ -2021,29 +2691,27 @@ def _validate_segment_findings(
     repo_root: Path | None = None,
     enable_thinking: bool = True,
     conventions: str = "",
+    diff_text: str | None = None,
 ) -> tuple[ReviewResult, float | None, str | None]:
-    """Ask the LLM to verify each finding using enhanced analysis metadata of related files."""
+    """Ask the LLM to verify each finding using enhanced analysis metadata of related files.
+
+    `analysis_metas` is the review session's own metadata, whose removed symbols exempt a
+    finding from invalidation. Hunks to re-anchor such a finding come from `diff_text` when the
+    segments are not the diff itself, such as a file's numbered source.
+    """
     if not result.findings:
         return result, None, None
 
-    if analysis_metas is None and repo_root is not None:
-        from devops_cli.ai.analyze.cache import _load_file_analysis_metas
-
-        analysis_metas = _load_file_analysis_metas(None, repo_root=repo_root)
-
+    diff_segments = [diff_text] if diff_text is not None else all_segments
     pre_validated_findings = _run_deterministic_pre_verification_on_findings(
-        result.findings, repo_root, result.external_dependencies, analysis_metas, all_segments
+        result.findings, repo_root, result.external_dependencies, analysis_metas, diff_segments
     )
     result = result.model_copy(update={"findings": pre_validated_findings})
 
     unresolved_findings = [
         f.model_copy(update={"finding_id": i})
         for i, f in enumerate(
-            (
-                f
-                for f in pre_validated_findings
-                if f.status == "UNVERIFIED" and f.verification_note != "cites removed symbol"
-            ),
+            (f for f in pre_validated_findings if _awaits_verdict(f)),
             start=1,
         )
     ]
@@ -2066,14 +2734,21 @@ def _validate_segment_findings(
             )
         proc_sec = getattr(res_obj, "processing_seconds", None)
         b_info = getattr(res_obj, "backend_info", None)
-        if data := _parse_verifier_payload(str(res_obj)):
-            bound = _bind_verdicts_to_findings(unresolved_findings, data)
-            validated = _apply_bound_verdicts_to_findings(result.findings, bound, repo_root)
-            return result.model_copy(update={"findings": validated}), proc_sec, b_info
+        if getattr(res_obj, "finish_reason", None) == CONST_FINISH_REASON_LENGTH:
+            # A reply cut at its cap can still parse: JSON repair closes a verdict cut
+            # mid-reason, and in session 20261002-214641 such a fragment refuted a finding.
+            cut = _without_verdict(result.findings, CONST_VERIFIER_REPLY_CUT)
+            return result.model_copy(update={"findings": cut}), proc_sec, b_info
+        data = _parse_verifier_payload(str(res_obj))
+        if data is None:
+            unparsed = _without_verdict(result.findings, CONST_VERIFIER_REPLY_UNPARSED)
+            return result.model_copy(update={"findings": unparsed}), proc_sec, b_info
+        bound = _bind_verdicts_to_findings(unresolved_findings, data)
+        validated = _apply_bound_verdicts_to_findings(result.findings, bound, repo_root)
+        return result.model_copy(update={"findings": validated}), proc_sec, b_info
     except Exception as exc:
         degraded = _mark_degraded_findings(result.findings, exc)
         return result.model_copy(update={"findings": degraded}), proc_sec, b_info
-    return result, proc_sec, b_info
 
 
 def _merge_segment_results(results: list[ReviewResult | None]) -> ReviewResult | None:

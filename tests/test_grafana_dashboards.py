@@ -470,3 +470,95 @@ def test_cli_supports_dry_run() -> None:
     )
     assert result.exit_code == 0
     assert "lint_grafana_dashboards" in result.output
+
+
+def test_sre_dashboards_contain_heatmap_and_ratio_panels() -> None:
+    """Verify SRE dashboards include heatmap distributions and ratio-based saturation panels."""
+    ingress_report = lint_dashboard_file(_REPO_DASHBOARDS / "ingress-tunnel.json")
+    sre_report = lint_dashboard_file(_REPO_DASHBOARDS / "sre-service.json")
+
+    ingress_dash = json.loads(
+        (_REPO_DASHBOARDS / "ingress-tunnel.json").read_text(encoding="utf-8")
+    )
+    sre_dash = json.loads((_REPO_DASHBOARDS / "sre-service.json").read_text(encoding="utf-8"))
+
+    ingress_heatmaps = [p["title"] for p in ingress_dash["panels"] if p.get("type") == "heatmap"]
+    sre_heatmaps = [p["title"] for p in sre_dash["panels"] if p.get("type") == "heatmap"]
+
+    ingress_ratios = [
+        p["title"]
+        for p in ingress_dash["panels"]
+        if p.get("fieldConfig", {}).get("defaults", {}).get("unit") == "percent"
+    ]
+    sre_ratios = [
+        p["title"]
+        for p in sre_dash["panels"]
+        if p.get("fieldConfig", {}).get("defaults", {}).get("unit") == "percent"
+    ]
+
+    assert (
+        (len(ingress_report.errors), len(ingress_report.warnings)),
+        (len(sre_report.errors), len(sre_report.warnings)),
+        ingress_heatmaps,
+        sre_heatmaps,
+        ingress_ratios,
+        sre_ratios,
+    ) == (
+        (0, 0),
+        (0, 0),
+        ["Ingress Request Latency Distribution (Heatmap)"],
+        ["Service Request Duration Distribution (Heatmap)"],
+        [
+            "Cloudflare Tunnel Request Error Ratio (%)",
+            "Ingress Success Rate",
+            "Ingress Error Rate",
+            "Ingress HTTP Status Code Ratios (Success vs. Error %)",
+        ],
+        [
+            "Container Resource Saturation Ratios (% of Limit)",
+            "CPU Throttling & Network Packet Drop Ratios (%)",
+        ],
+    )
+
+
+def test_dashboards_contain_properly_labeled_sum_and_average_lines() -> None:
+    """Verify service, ingress, k8s, and LLM dashboards contain properly labeled sum/avg queries."""
+    sre_dash = json.loads((_REPO_DASHBOARDS / "sre-service.json").read_text(encoding="utf-8"))
+    ingress_dash = json.loads(
+        (_REPO_DASHBOARDS / "ingress-tunnel.json").read_text(encoding="utf-8")
+    )
+    nodes_dash = json.loads((_REPO_DASHBOARDS / "k8s-views-nodes.json").read_text(encoding="utf-8"))
+    pods_dash = json.loads((_REPO_DASHBOARDS / "k8s-views-pods.json").read_text(encoding="utf-8"))
+    llm_dash = json.loads((_REPO_DASHBOARDS / "llm-stack.json").read_text(encoding="utf-8"))
+
+    legends = {
+        (dash_name, p["title"]): [t.get("legendFormat") for t in p.get("targets", [])]
+        for dash_name, dash in (
+            ("sre", sre_dash),
+            ("ingress", ingress_dash),
+            ("nodes", nodes_dash),
+            ("pods", pods_dash),
+            ("llm", llm_dash),
+        )
+        for p in dash.get("panels", [])
+        if "title" in p
+    }
+
+    assert (
+        "Total (Sum)" in legends.get(("sre", "CPU Usage by Pod"), []),
+        "Average (Mean)" in legends.get(("sre", "CPU Usage by Pod"), []),
+        "Total (Sum)" in legends.get(("sre", "Memory Working Set by Pod"), []),
+        "Average (Mean)" in legends.get(("sre", "Memory Working Set by Pod"), []),
+        "Total (Sum)" in legends.get(("ingress", "Service Request Rate"), []),
+        "Average (Mean)" in legends.get(("ingress", "Service Request Rate"), []),
+        "Total (Sum)" in legends.get(("ingress", "Ingress & Tunnel Pod CPU Usage"), []),
+        "Average (Mean)" in legends.get(("ingress", "Ingress & Tunnel Pod CPU Usage"), []),
+        "Total (Sum)" in legends.get(("nodes", "CPU usage by Pod"), []),
+        "Average (Mean)" in legends.get(("nodes", "CPU usage by Pod"), []),
+        "Total (Sum)" in legends.get(("pods", "CPU Usage by container"), []),
+        "Average (Mean)" in legends.get(("pods", "CPU Usage by container"), []),
+        "Total (Sum)" in legends.get(("llm", "Requests per Deployment"), []),
+        "Average (Mean)" in legends.get(("llm", "Requests per Deployment"), []),
+        "Total (Sum)" in legends.get(("llm", "GPU Memory Used"), []),
+        "Average (Mean)" in legends.get(("llm", "GPU Memory Used"), []),
+    ) == (True,) * 16

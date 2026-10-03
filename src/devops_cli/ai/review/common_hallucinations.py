@@ -1,8 +1,14 @@
-"""Common AI Hallucinations catalog, similarity matching, and autonomous management.
+"""Common AI Hallucinations catalog, similarity matching, and the claims people disproved.
 
-Provides centralized tracking of recurring AI false positives (such as Python 3.14 PEP 758
+The builtin catalog ships curated recurring AI false positives (such as Python 3.14 PEP 758
 bracketless except clauses, masked secret placeholders, and synthetic test mock credentials),
-automatic learning from invalidated findings, and prioritized scrutiny during review verification.
+each matched by signature and confirmed against the target source before it invalidates.
+
+The learned catalog, in the data directory, holds only what a person's INVALIDATED verdict
+judged: one claim about one piece of code, which a later review suppresses exactly (#950). The
+machine teaches it nothing: entries the deterministic checks once taught it paired common words
+such as `exception` and `handling`, and would have invalidated real defects had their ground
+truth ever passed. They are purged from the ledger on its first load.
 
 SAFETY INVARIANT:
 No common English words (such as 'secret', 'token', 'test', 'error', 'syntax', 'code') may
@@ -13,31 +19,41 @@ be invalidated without concrete ground-truth proof in the target source file.
 from __future__ import annotations
 
 import ast
+import fcntl
+import hashlib
 import json
 import logging
 import os
 import re
 import warnings
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
-from contextvars import ContextVar
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from devops_cli.ai.review_schema import Finding
+from devops_cli.ai.review.judged_claims import JudgedClaim, cited_code, judged_claim, project_of
+from devops_cli.ai.review_schema import Finding, SavedFinding
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_HALLUCINATION_FORBIDDEN_WORDS,
     CONST_HALLUCINATIONS_FILE_NAME,
+    CONST_HALLUCINATIONS_LOCK_SUFFIX,
+    CONST_JUDGED_CLAIM_ID_PREFIX,
+    CONST_JUDGED_CLAIM_SOURCE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_HALLUCINATION_EXEMPLAR_CHARS,
     DEFAULT_HALLUCINATION_EXEMPLAR_COUNT,
     DEFAULT_HALLUCINATIONS_FILE_PATH,
 )
+from devops_cli.core.repo import find_worktree_root
+from devops_cli.exceptions.validation import ValidationError as InvalidEntryError
+from devops_cli.security.sanitizer import mask_secrets, sanitize_prompt_boundary_tags
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +89,11 @@ class CommonHallucinationEntry(BaseModel):
     resolution: str
     occurrence_count: int = 1
     last_seen: str = Field(default_factory=lambda: datetime.now().isoformat())
-    source: str = "builtin"  # "builtin" | "auto_learned" | "custom"
+    # "builtin", shipped with the tool, or "person": a person's INVALIDATED verdict judged it,
+    # and `occurrence_count` counts the verdicts that did.
+    source: str = "builtin"
+    # The claim a person's verdict suppresses; set on every learned entry and on no builtin one.
+    judged: JudgedClaim | None = None
 
 
 class HallucinationMatch(BaseModel):
@@ -97,13 +117,13 @@ def _build_builtin_hallucinations() -> list[CommonHallucinationEntry]:
     """Load the baseline verified common hallucinations catalog from its JSON file.
 
     Entries are validated individually: a single malformed record must never discard the
-    whole baseline, because silently falling back to an empty builtin catalog leaves only
-    auto-learned entries active and degrades verification without any visible signal.
+    whole baseline, because silently falling back to an empty builtin catalog leaves
+    verification matching no shipped entry, which degrades it without any visible signal.
     """
     if not (_BUILTIN_HALLUCINATIONS_FILE.exists() and _BUILTIN_HALLUCINATIONS_FILE.is_file()):
         logger.warning(
-            "Builtin hallucinations catalog missing at %s; verification will rely solely "
-            "on auto-learned entries",
+            "Builtin hallucinations catalog missing at %s; verification will match no "
+            "shipped entry",
             _BUILTIN_HALLUCINATIONS_FILE,
         )
         return []
@@ -144,12 +164,14 @@ def get_common_hallucinations_file_path() -> Path:
     """Resolve the persistent storage file path for common hallucinations catalog.
 
     Respects DEVOPS_CLI_DATA_DIR environment override; a relative location resolves under the
-    main worktree, so every worktree learns into one catalog.
+    review data root, so every worktree and command learns into and reads one catalog, and a
+    review started in another repository never reads one that repository commits
+    (`resolve_review_data_path`, #972).
     """
-    from devops_cli.core.repo import resolve_data_path
+    from devops_cli.core.repo import resolve_review_data_path
 
     env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
-    target = resolve_data_path(
+    target = resolve_review_data_path(
         Path(env_dir) / CONST_HALLUCINATIONS_FILE_NAME
         if env_dir
         else DEFAULT_HALLUCINATIONS_FILE_PATH
@@ -157,10 +179,6 @@ def get_common_hallucinations_file_path() -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     return target
 
-
-# Whether invalidations teach the catalog in this context. Evaluation replays of recorded
-# findings turn it off: replaying a verdict is not new evidence.
-_LEARNING: ContextVar[bool] = ContextVar("hallucination_catalog_learning", default=True)
 
 # A claim that a file does not parse. The word "syntax" alone is not one: "f-string syntax
 # interpolates user input into SQL" and "bare `except` clause" describe code that parses.
@@ -179,16 +197,6 @@ _UNTRUSTED_INPUT_CLAIM = re.compile(
 )
 
 
-@contextmanager
-def catalog_learning_disabled() -> Iterator[None]:
-    """Keep invalidations inside the block from teaching the catalog."""
-    token = _LEARNING.set(False)
-    try:
-        yield
-    finally:
-        _LEARNING.reset(token)
-
-
 def _builtin_ids() -> frozenset[str]:
     return frozenset(b.id for b in _build_builtin_hallucinations())
 
@@ -196,96 +204,144 @@ def _builtin_ids() -> frozenset[str]:
 def load_common_hallucinations(
     target_file: Path | None = None, include_builtin: bool = True
 ) -> list[CommonHallucinationEntry]:
-    """Load common hallucinations from disk, merging with built-ins when requested."""
-    fpath = target_file or get_common_hallucinations_file_path()
-    entries_by_id: dict[str, CommonHallucinationEntry] = {}
-
-    if include_builtin:
-        for b in _build_builtin_hallucinations():
-            entries_by_id[b.id] = b
-
-    # A learned copy of a builtin entry is ignored: learning used to widen builtin keywords
-    # and persist the copy, which then shadowed the shipped entry and its later fixes.
-    builtin_ids = _builtin_ids()
-    for entry in _read_ledger(fpath):
-        if entry.id not in builtin_ids:
-            entries_by_id[entry.id] = entry
-
-    return list(entries_by_id.values())
-
-
-def _read_ledger(fpath: Path) -> list[CommonHallucinationEntry]:
-    """The valid entries persisted in a ledger file; a malformed record is skipped alone."""
-    if not (fpath.exists() and fpath.is_file()):
-        return []
-    try:
-        raw_data = json.loads(fpath.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.debug("Failed reading common hallucinations from %s: %s", fpath, exc)
-        return []
-    entries: list[CommonHallucinationEntry] = []
-    for item in raw_data if isinstance(raw_data, list) else []:
-        try:
-            entries.append(CommonHallucinationEntry.model_validate(item))
-        except ValidationError as exc:
-            logger.debug("Skipping malformed hallucination record in %s: %s", fpath, exc)
-    return entries
+    """The builtin catalog, when requested, followed by the claims people judged."""
+    learned = _learned_entries(target_file or get_common_hallucinations_file_path())
+    return [*(_build_builtin_hallucinations() if include_builtin else []), *learned]
 
 
 def save_common_hallucinations(
-    entries: list[CommonHallucinationEntry], target_file: Path | None = None
+    entries: Sequence[CommonHallucinationEntry], target_file: Path | None = None
 ) -> None:
-    """Persist common hallucinations list to disk in JSON format."""
-    fpath = target_file or get_common_hallucinations_file_path()
-    fpath.parent.mkdir(parents=True, exist_ok=True)
+    """Replace the learned catalog with `entries`, under the ledger's lock."""
+    update_learned(lambda _: list(entries), target_file)
 
-    data = [entry.model_dump() for entry in entries]
-    temp_path = fpath.with_suffix(f".tmp-{uuid4().hex[:6]}")
-    temp_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    temp_path.replace(fpath)
+
+def update_learned(
+    change: Callable[[list[CommonHallucinationEntry]], list[CommonHallucinationEntry]],
+    target_file: Path | None = None,
+) -> list[CommonHallucinationEntry]:
+    """Read the learned catalog, apply `change` and write what it returns, holding the lock.
+
+    Verdicts and review threads read and write the ledger at once; without the lock, the
+    last writer dropped every entry the others had added since it read.
+    """
+    fpath = target_file or get_common_hallucinations_file_path()
+    with _ledger_lock(fpath):
+        updated = change(_validated(_purged(fpath), fpath))
+        _write_ledger([entry.model_dump(mode="json") for entry in updated], fpath)
+    return updated
 
 
 def register_common_hallucination(
     entry: CommonHallucinationEntry, target_file: Path | None = None
 ) -> CommonHallucinationEntry:
-    """Register or update a learned entry in the persistent catalog; builtin entries are fixed."""
-    if entry.id in _builtin_ids():
-        return entry
-    file_entries = load_common_hallucinations(target_file=target_file, include_builtin=False)
-    by_id = {e.id: e for e in file_entries}
+    """Record a claim a person judged, or count one more verdict on the claim already recorded.
 
-    builtins = {b.id: b for b in _build_builtin_hallucinations()}
-    existing = by_id.get(entry.id) or builtins.get(entry.id)
-
-    if existing:
-        safe_keywords = [
-            kw
-            for kw in (existing.pattern_keywords + entry.pattern_keywords)
-            if kw.lower() not in _FORBIDDEN_COMMON_WORDS
-        ]
-        combined_keywords = list(dict.fromkeys(safe_keywords))[:30]
-        combined_signatures = list(
-            dict.fromkeys(existing.signature_patterns + entry.signature_patterns)
-        )[:20]
-        updated = existing.model_copy(
-            update={
-                "occurrence_count": max(existing.occurrence_count + 1, entry.occurrence_count),
-                "last_seen": datetime.now().isoformat(),
-                "pattern_keywords": combined_keywords,
-                "signature_patterns": combined_signatures,
-                "resolution": entry.resolution or existing.resolution,
-            }
+    Only a person's judged claim is learned: anything else is refused.
+    """
+    if not _is_judged(entry.model_dump(mode="json")):
+        raise InvalidEntryError(
+            f"Only a claim a person judged is learned, not entry {entry.id[:64]!r}", field="entry"
         )
-        by_id[entry.id] = updated
-        entry = updated
-    else:
-        # Sanitize any forbidden words from new entry
-        safe_kw = [kw for kw in entry.pattern_keywords if kw.lower() not in _FORBIDDEN_COMMON_WORDS]
-        entry = entry.model_copy(update={"pattern_keywords": safe_kw})
-        by_id[entry.id] = entry
+    registered = entry
 
-    save_common_hallucinations(list(by_id.values()), target_file=target_file)
-    return entry
+    def merge(learned: list[CommonHallucinationEntry]) -> list[CommonHallucinationEntry]:
+        nonlocal registered
+        by_id = {e.id: e for e in learned}
+        if (existing := by_id.get(entry.id)) is not None:
+            registered = existing.model_copy(
+                update={
+                    "occurrence_count": existing.occurrence_count + 1,
+                    "last_seen": datetime.now().isoformat(),
+                    "resolution": entry.resolution or existing.resolution,
+                }
+            )
+        by_id[entry.id] = registered
+        return list(by_id.values())
+
+    update_learned(merge, target_file)
+    return registered
+
+
+@contextmanager
+def _ledger_lock(fpath: Path) -> Iterator[None]:
+    """Hold the ledger's lock; closing the lock file releases it."""
+    fpath.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = fpath.with_name(f"{fpath.name}{CONST_HALLUCINATIONS_LOCK_SUFFIX}")
+    with lock_path.open("a", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def _is_judged(item: object) -> bool:
+    """Whether a ledger record is a claim a person judged, the only kind the ledger keeps."""
+    return (
+        isinstance(item, dict)
+        and item.get("source") == CONST_JUDGED_CLAIM_SOURCE
+        and bool(item.get("judged"))
+    )
+
+
+def _learned_entries(fpath: Path) -> list[CommonHallucinationEntry]:
+    """The judged claims in the ledger; any other entry is purged first, under the lock."""
+    raw = _read_ledger(fpath)
+    if not all(_is_judged(item) for item in raw):
+        with _ledger_lock(fpath):
+            raw = _purged(fpath)
+    return _validated(raw, fpath)
+
+
+def _purged(fpath: Path) -> list[Any]:
+    """The ledger's judged claims, with every other entry removed from the file, once.
+
+    The deterministic checks taught the ledger entries whose signatures pair common words; the
+    first load after #950 removes them, and says so. Hold the lock while calling it.
+    """
+    raw = _read_ledger(fpath)
+    kept = [item for item in raw if _is_judged(item)]
+    if len(kept) < len(raw):
+        _write_ledger(kept, fpath)
+        logger.warning(
+            "Removed %d entries the review's own checks had taught the learned catalog at %s. "
+            "It now learns only from a person's INVALIDATED verdicts, each suppressing one claim "
+            "about one piece of code.",
+            len(raw) - len(kept),
+            fpath,
+        )
+    return kept
+
+
+def _read_ledger(fpath: Path) -> list[Any]:
+    """The records a ledger file holds; a file that cannot be read warns and holds none."""
+    if not fpath.is_file():
+        return []
+    try:
+        raw = json.loads(fpath.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Could not read the learned catalog at %s: %s", fpath, exc)
+        return []
+    if not isinstance(raw, list):
+        logger.warning("The learned catalog at %s is not a JSON list", fpath)
+        return []
+    return raw
+
+
+def _validated(raw: Iterable[Any], fpath: Path) -> list[CommonHallucinationEntry]:
+    """The valid entries among `raw`; a malformed record is skipped alone, with a warning."""
+    entries: list[CommonHallucinationEntry] = []
+    for item in raw:
+        try:
+            entries.append(CommonHallucinationEntry.model_validate(item))
+        except ValidationError as exc:
+            logger.warning("Skipping a malformed learned-catalog record in %s: %s", fpath, exc)
+    return entries
+
+
+def _write_ledger(raw: Sequence[Any], fpath: Path) -> None:
+    """Replace the ledger file with `raw` at once, so a reader never sees half of it."""
+    temp_path = fpath.with_suffix(f".tmp-{uuid4().hex[:6]}")
+    temp_path.write_text(json.dumps(list(raw), indent=2, ensure_ascii=False), encoding="utf-8")
+    temp_path.replace(fpath)
 
 
 # ── Text & Pattern Signature Matching ────────────────────────────────────────
@@ -302,28 +358,12 @@ def _check_file_pattern_match(file_name: str, patterns: list[str]) -> bool:
     )
 
 
-def _synthesize_compound_signature(keywords: list[str]) -> list[str]:
-    """Build a signature requiring two distinctive keywords to co-occur, or none at all."""
-    distinctive = [kw for kw in keywords if _is_distinctive_signature_token(kw)]
-    if len(distinctive) < 2:
-        return []
-    first, second = re.escape(distinctive[0]), re.escape(distinctive[1])
-    return [rf"(?=.*\b{first}\b)(?=.*\b{second}\b)"]
-
-
-def _is_distinctive_signature_token(token: str) -> bool:
-    """Report whether a token is specific enough to appear in a suppression signature."""
-    clean = token.lower().strip()
-    return bool(clean) and clean not in _FORBIDDEN_COMMON_WORDS and len(clean) > 4
-
-
 def _is_degenerate_signature(pattern: str) -> bool:
     """Detect a signature that is a bare prose word rather than a code identifier.
 
-    Auto-learning previously persisted single English words such as ``unvalidated``,
+    Auto-learning once persisted single English words such as ``unvalidated``,
     ``traversal``, and ``unbounded`` as complete signatures. Those match nearly every
-    genuine security finding, so they are rejected at match time rather than requiring a
-    data migration of catalogues already written to disk.
+    genuine security finding, so a builtin entry carrying one is rejected at match time.
 
     A bare *code identifier* remains a valid signature: ``DEFAULT_HTTP_BROKER`` and
     ``FastMCP`` name one specific symbol, whereas an all-lowercase alphabetic word is
@@ -721,7 +761,7 @@ def verify_ground_truth_hallucination(
     return verifier(finding, entry, file_path) if verifier else False
 
 
-def calculate_hallucination_similarity(
+def calculate_hallucination_similarity(  # noqa: C901
     finding: Finding, entry: CommonHallucinationEntry, file_path: Path | None = None
 ) -> HallucinationMatch:
     """Calculate similarity between a finding and a known common hallucination.
@@ -866,13 +906,14 @@ def find_similar_hallucinations(
     finding: Finding,
     threshold: float = 0.5,
     file_path: Path | None = None,
-    target_file: Path | None = None,
 ) -> list[HallucinationMatch]:
-    """Find all catalogued hallucinations matching the candidate finding."""
-    entries = load_common_hallucinations(target_file=target_file, include_builtin=True)
+    """Find the builtin entries matching the candidate finding.
+
+    A claim a person judged is matched exactly, by `find_judged_entry`, never by signature.
+    """
     matches: list[HallucinationMatch] = []
 
-    for entry in entries:
+    for entry in _build_builtin_hallucinations():
         m = calculate_hallucination_similarity(finding, entry, file_path=file_path)
         if m.similarity_score >= threshold:
             matches.append(m)
@@ -885,16 +926,57 @@ def is_common_hallucination(
     finding: Finding,
     threshold: float = 0.6,
     file_path: Path | None = None,
-    target_file: Path | None = None,
 ) -> HallucinationMatch | None:
     """Return top hallucination match if finding exceeds similarity threshold, else None."""
-    matches = find_similar_hallucinations(
-        finding, threshold=threshold, file_path=file_path, target_file=target_file
-    )
+    matches = find_similar_hallucinations(finding, threshold=threshold, file_path=file_path)
     return matches[0] if matches else None
 
 
-# ── Autonomous Management from Invalidation ──────────────────────────────────
+# ── The Claims People Judged ─────────────────────────────────────────────────
+
+
+def record_judged_claim(finding: SavedFinding, reason: str) -> CommonHallucinationEntry | None:
+    """Record the claim a person's INVALIDATED verdict on `finding` suppresses from now on.
+
+    The claim is keyed on the code the review recorded the finding citing. None when the review
+    recorded none, as a session saved before #950 did, or the finding names no code name of that
+    code: nothing is recorded then. The file as it reads now may hold code the person never saw.
+    """
+    claim = judged_claim(finding, finding.cited_code) if finding.cited_code else None
+    if claim is None:
+        return None
+    key_digest = hashlib.sha256(claim.model_dump_json().encode()).hexdigest()[:12].upper()
+    return register_common_hallucination(
+        CommonHallucinationEntry(
+            id=f"{CONST_JUDGED_CLAIM_ID_PREFIX}{key_digest}",
+            name=finding.title,
+            category=HallucinationCategory.GENERAL,
+            description=finding.description or finding.title,
+            resolution=reason,
+            source=CONST_JUDGED_CLAIM_SOURCE,
+            judged=claim,
+        )
+    )
+
+
+def find_judged_entry(
+    finding: Finding, file_path: Path, root: Path | None
+) -> CommonHallucinationEntry | None:
+    """The learned entry recording a person's verdict on the claim `finding` makes, if any.
+
+    `file_path` is the file the finding cites, in the checkout `root` belongs to (the working
+    directory's without one). It matches on that checkout's project, the file, the line the
+    location cites, the code there and the code names the finding gives, whichever tool or
+    persona raised either finding.
+    """
+    learned = load_common_hallucinations(include_builtin=False)
+    if not learned:
+        return None
+    cited = cited_code(finding.location, file_path, find_worktree_root(root or Path.cwd()))
+    claim = judged_claim(finding, cited) if cited else None
+    if claim is None:
+        return None
+    return next((e for e in learned if e.judged == claim), None)
 
 
 def _infer_hallucination_category(title: str, reason: str) -> HallucinationCategory:
@@ -932,149 +1014,73 @@ def _infer_hallucination_category(title: str, reason: str) -> HallucinationCateg
     return HallucinationCategory.GENERAL
 
 
-def auto_record_invalidated_finding(
-    finding: Finding,
-    file_path: Path | None = None,
-    reason: str | None = None,
-    target_file: Path | None = None,
-) -> CommonHallucinationEntry | None:
-    """Record a deterministically invalidated finding into the learned catalog.
-
-    Only invalidations with ground truth may teach: a parser, an AST or type check, a catalog
-    match that passed its own ground truth, or a person. An LLM verdict is not one; a wrongly
-    invalidated real defect learned here would be matched against future findings.
-    """
-    if not _LEARNING.get():
-        return None
-    effective_reason = reason or finding.invalidation_reason or ""
-    matches = find_similar_hallucinations(
-        finding, threshold=0.5, file_path=file_path, target_file=target_file
-    )
-
-    if matches:
-        top_match = matches[0]
-        entry = top_match.hallucination
-        if entry.source == "builtin":
-            # A builtin entry already covers this finding; its keywords are not widened.
-            return entry
-        safe_hints = [
-            h for h in _extract_keyword_hints(finding) if h not in _FORBIDDEN_COMMON_WORDS
-        ]
-        new_keywords = list(dict.fromkeys(entry.pattern_keywords + safe_hints))[:30]
-        # Never overwrite canonical resolution of builtin entries
-        resolution_to_use = entry.resolution
-        if entry.source != "builtin" and effective_reason:
-            resolution_to_use = effective_reason
-
-        updated_entry = entry.model_copy(
-            update={
-                "occurrence_count": entry.occurrence_count + 1,
-                "last_seen": datetime.now().isoformat(),
-                "pattern_keywords": new_keywords,
-                "resolution": resolution_to_use,
-            }
-        )
-        return register_common_hallucination(updated_entry, target_file=target_file)
-
-    # Synthesize new auto-learned entry if distinctive non-common reason or title is available
-    if not (effective_reason or finding.title):
-        return None
-
-    safe_keywords = [
-        kw
-        for kw in _extract_keyword_hints(finding, effective_reason)
-        if kw not in _FORBIDDEN_COMMON_WORDS and len(kw) > 4
-    ]
-    if not safe_keywords:
-        return None
-
-    cat = _infer_hallucination_category(finding.title, effective_reason)
-    loc_file = finding.location.split(":")[0].strip()
-    file_pat = [f"*{Path(loc_file).suffix}"] if loc_file and Path(loc_file).suffix else ["*"]
-
-    # Synthesize a compound signature requiring two distinctive keywords to co-occur.
-    # A single bare word (e.g. "unvalidated", "traversal", "unbounded") matches nearly
-    # every genuine security finding, so learning one would suppress true positives.
-    # With fewer than two distinctive keywords, emit no signature at all and rely on
-    # compound keyword matching, which already enforces the common-word guard.
-    sig = _synthesize_compound_signature(safe_keywords)
-
-    new_entry = CommonHallucinationEntry(
-        id=f"HALLUCINATION-AUTO-{uuid4().hex[:8].upper()}",
-        name=f"Auto-learned: {finding.title[:50]}",
-        category=cat,
-        description=finding.description or finding.title,
-        signature_patterns=sig,
-        pattern_keywords=safe_keywords[:15],
-        file_patterns=file_pat,
-        resolution=effective_reason or "Invalidated during review verification",
-        occurrence_count=1,
-        last_seen=datetime.now().isoformat(),
-        source="auto_learned",
-    )
-    return register_common_hallucination(new_entry, target_file=target_file)
-
-
-def _extract_keyword_hints(finding: Finding, extra_text: str = "") -> list[str]:
-    """Extract notable distinctive keyword hints, strictly filtering all forbidden common words."""
-    raw = f"{finding.title} {finding.description or ''} {extra_text}".lower()
-    words = re.findall(r"[a-z0-9_\-\*]{4,}", raw)
-    filtered = [w for w in words if w not in _FORBIDDEN_COMMON_WORDS and not w.isdigit()]
-    return list(dict.fromkeys(filtered))
-
-
 def remove_learned_hallucinations(
     ids: Iterable[str] | None = None, target_file: Path | None = None
 ) -> list[str]:
     """Remove learned entries by id, or all of them when no ids are given; return the removed."""
-    learned = load_common_hallucinations(target_file=target_file, include_builtin=False)
-    wanted = set(ids) if ids is not None else {e.id for e in learned}
-    removed = [e.id for e in learned if e.id in wanted]
-    if removed:
-        kept = [e for e in learned if e.id not in wanted]
-        save_common_hallucinations(kept, target_file=target_file)
+    removed: list[str] = []
+
+    def remove(learned: list[CommonHallucinationEntry]) -> list[CommonHallucinationEntry]:
+        wanted = set(ids) if ids is not None else {e.id for e in learned}
+        removed.extend(e.id for e in learned if e.id in wanted)
+        return [e for e in learned if e.id not in wanted]
+
+    update_learned(remove, target_file)
     return removed
 
 
 def render_negative_exemplars(
-    target_file: Path | None = None,
+    target: Path,
     limit: int = DEFAULT_HALLUCINATION_EXEMPLAR_COUNT,
     max_chars: int = DEFAULT_HALLUCINATION_EXEMPLAR_CHARS,
 ) -> str:
-    """Render the most frequently recorded false positives as a prompt block.
+    """Render the false positives a persona is told not to raise again, as a prompt block.
 
-    The ledger was written to on every deterministic invalidation and read back only at
-    verification time, which suppresses a finding *after* a model has been paid to produce
-    it. The same false positives recur: the top entry in this repository's ledger has been
-    recorded 225 times, and it is the PEP 758 multi-exception syntax claim that a rule in
-    the verifier prompt already exists to reject.
+    These are the claims people disproved in reviews of the target, the repository `target`
+    belongs to, the most often judged first: recurrence a person confirmed is what a reviewer
+    should stop repeating. Until a person has judged one there, the curated builtin entries are
+    shown instead, under a heading that does not claim they were reported against this codebase.
+    Another repository's judged claims are never shown: they describe code this review cannot see.
 
-    Showing a persona what it has repeatedly got wrong costs a few hundred tokens once per
-    segment; re-deriving those findings costs a generation and a verification each. Only
-    the head of the distribution is shown, because recurrence is concentrated there and the
-    tail would spend the budget without preventing anything.
-
-    Returns an empty string when the ledger is empty, so a first run against an unfamiliar
-    repository carries no block at all.
+    Showing a persona what has been disproved costs a few hundred tokens once per segment;
+    re-deriving those findings costs a generation and a verification each. Only the head of the
+    distribution is shown, because recurrence is concentrated there.
     """
-    # Only curated builtin entries: a learned entry may be a real defect that verification got
-    # wrong, and telling every reviewer not to raise it would hide it at the source.
-    entries = [
-        e
-        for e in load_common_hallucinations(target_file=target_file, include_builtin=True)
-        if e.source == "builtin"
-    ]
-    ranked = sorted(entries, key=lambda e: e.occurrence_count, reverse=True)[: max(0, limit)]
-    lines = [
-        f"- {(entry.description or entry.name or '').strip()[:max_chars]}"
-        for entry in ranked
-        if (entry.description or entry.name or "").strip()
-    ]
-    if not lines:
-        return ""
-    return (
-        "\n\n## Previously Recorded False Positives\n"
-        "Each of these was reported against this codebase and then disproved. Do not raise "
-        "them again unless the current source shows something the earlier finding did not.\n"
-        + "\n".join(lines)
+    project = project_of(target)
+    judged = sorted(
+        (
+            e
+            for e in load_common_hallucinations(include_builtin=False)
+            if e.judged is not None and e.judged.project == project
+        ),
+        key=lambda e: (e.occurrence_count, e.last_seen),
+        reverse=True,
     )
+    if judged:
+        lines = [_judged_exemplar(e) for e in judged[: max(0, limit)]]
+        return _exemplar_block("negative_exemplars_judged.md", lines, max_chars)
+    shipped = [e.description or e.name for e in _build_builtin_hallucinations()]
+    return _exemplar_block("negative_exemplars_shipped.md", shipped[: max(0, limit)], max_chars)
+
+
+def _judged_exemplar(entry: CommonHallucinationEntry) -> str:
+    """A judged claim as a persona is shown it: the title, the file, and why it is wrong."""
+    where = f" ({entry.judged.file})" if entry.judged else ""
+    why = f": {entry.resolution}" if entry.resolution else ""
+    return f"{entry.name}{where}{why}"
+
+
+def _exemplar_block(heading_prompt: str, lines: Sequence[str], max_chars: int) -> str:
+    """`lines` under the heading prompt names, each cut to `max_chars`; "" with no lines.
+
+    A judged claim's title and reason came from a model, a scanner and a person, so they are
+    masked and their prompt boundary tags escaped, as a target's conventions are.
+    """
+    shown = [
+        f"- {sanitize_prompt_boundary_tags(mask_secrets(line.strip()))[:max_chars]}"
+        for line in lines
+        if line.strip()
+    ]
+    if not shown:
+        return ""
+    return f"\n\n{load_task_prompt(heading_prompt)}\n" + "\n".join(shown)

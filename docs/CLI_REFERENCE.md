@@ -25,6 +25,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops mcp`](#devops-mcp) — FastMCP server and Model Context Protocol integrations.
 - [`devops docs`](#devops-docs) — Generate and validate CLI and architecture documentation.
 - [`devops release`](#devops-release) — Automate version bumps, changelogs, tags, and GitHub releases.
+- [`devops roadmap`](#devops-roadmap) — Read and write the roadmap on GitHub, its source of truth: issues, milestones and the project board.
 - [`devops pr`](#devops-pr) — GitHub Pull Request workflows and reviews.
 - [`devops gh`](#devops-gh) — GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation.
 - [`devops tf`](#devops-tf) — OpenTofu and Terraform Infrastructure-as-Code operations.
@@ -67,8 +68,8 @@ devops repos clone-org [OPTIONS] <org>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
-| `--private`, `--no-private` | `boolean` | `True` | - |
-| `--forks`, `--no-forks` | `boolean` | - | - |
+| `--private` / `--no-private` | `boolean` | `True` | - |
+| `--forks` / `--no-forks` | `boolean` | - | - |
 
 ### `devops repos clone`
 
@@ -117,7 +118,7 @@ devops repos update [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
-| `--pull`, `--no-pull` | `boolean` | `True` | - |
+| `--pull` / `--no-pull` | `boolean` | `True` | - |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops repos sync`
@@ -133,7 +134,7 @@ devops repos sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
-| `--pull`, `--no-pull` | `boolean` | `True` | - |
+| `--pull` / `--no-pull` | `boolean` | `True` | - |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -350,7 +351,7 @@ devops devcontainer init [OPTIONS] <repo_path>
 | `--python` | `string` | `3.14` | Python version for base template. |
 | `--image`, `-i` | `string` | - | Base container image (defaults to published devops-cli image). |
 | `--published`, `-p` | `boolean` | `True` | Use published GHCR image (defaults to True). |
-| `--minikube`, `--no-minikube` | `boolean` | `True` | Install the kubectl, helm and minikube devcontainer feature. |
+| `--minikube` / `--no-minikube` | `boolean` | `True` | Install the kubectl, helm and minikube devcontainer feature. |
 | `--home-volume` | `string` | - | Custom volume name for /home/vscode (defaults to `<project_name>-home`). |
 | `--force`, `-f` | `boolean` | - | Overwrite existing devcontainer.json and configurations. |
 
@@ -475,7 +476,7 @@ devops devcontainer bootstrap-k8s [OPTIONS]
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
 | `--stack`, `-s` | `string` | `infra` | Kubernetes stack to deploy (e.g. infra, llm, monitoring, all). |
-| `--deploy`, `--no-deploy` | `boolean` | `True` | Auto-deploy Kubernetes stack after cluster startup. |
+| `--deploy` / `--no-deploy` | `boolean` | `True` | Auto-deploy Kubernetes stack after cluster startup. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -714,7 +715,7 @@ devops k8s bootstrap [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--dir`, `-d` | `path` | `k8s` | Directory containing Kubernetes manifests. |
-| `--auto-start`, `--no-auto-start` | `boolean` | `True` | Auto-start minikube if stopped. |
+| `--auto-start` / `--no-auto-start` | `boolean` | `True` | Auto-start minikube if stopped. |
 | `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | all. |
 
 ### `devops k8s bootstrap-openwebui`
@@ -750,10 +751,10 @@ devops k8s deploy-stack [OPTIONS]
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
-| `--wait`, `--no-wait` | `boolean` | `True` | Wait for Helm releases and workloads to become ready before returning. |
+| `--wait` / `--no-wait` | `boolean` | `True` | Wait for Helm releases and workloads to become ready before returning. |
 | `--timeout`, `-t` | `string` | `10m` | Timeout for Helm operations when waiting. |
-| `--port-forward`, `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
-| `--configure-urls`, `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
+| `--port-forward` / `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
+| `--configure-urls` / `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
 
 ### `devops k8s sync-secrets`
 
@@ -831,13 +832,14 @@ devops k8s port-forward [OPTIONS]
 | `--grafana-port` | `integer` | `8030` | Local port for Grafana. |
 | `--prometheus-port` | `integer` | `8090` | Local port for Prometheus. |
 | `--jaeger-port` | `integer` | `16686` | Local port for Jaeger Query UI. |
+| `--pyroscope-port` | `integer` | `4040` | Local port for Pyroscope Continuous Profiling UI. |
 | `--otel-port` | `integer` | `4318` | Local port for OpenTelemetry OTLP Traces (HTTP). |
 | `--ollama-port` | `integer` | `11434` | Local port for Ollama. |
 | `--open-webui-port` | `integer` | `3000` | Local port for Open-WebUI. |
 | `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP. |
-| `--valkey-port` | `integer` | `<masked>` | Local port for Valkey. |
+| `--valkey-port` | `integer` | `6379` | Local port for Valkey. |
 | `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding. |
-| `--update-config`, `--no-update-config` | `boolean` | - | Update devops-cli configuration with port-forwarded service URLs. |
+| `--update-config` / `--no-update-config` | `boolean` | - | Update devops-cli configuration with port-forwarded service URLs. |
 
 ### `devops k8s port-forward-status`
 
@@ -889,7 +891,7 @@ devops k8s rbac-audit [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--namespace`, `-n` | `string` | - | - |
+| `--namespace`, `-n` | `string` | - | Audit only this namespace's RoleBindings and Roles; ClusterRoleBindings are always read. |
 
 ### `devops k8s lint`
 
@@ -965,7 +967,7 @@ devops k8s create-tls-secret [OPTIONS] <secret_name>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
 | `--cert` | `path` | `~/.config/devops-cli/tls/tls.crt` | Path to TLS certificate file (.crt or .pem). |
-| `--key` | `path` | `<masked>` | Path to TLS private key file (.key or .pem). |
+| `--key` | `path` | `~/.config/devops-cli/tls/tls.key` | Path to TLS private key file (.key or .pem). |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 
 ### `devops k8s enable-tls`
@@ -982,7 +984,7 @@ devops k8s enable-tls [OPTIONS]
 |---|---|---|---|
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates. |
-| `--secret-name` | `string` | `<masked>` | Name of the Kubernetes TLS secret to create or update. |
+| `--secret-name` | `string` | `homelab-tls` | Name of the Kubernetes TLS secret to create or update. |
 | `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | all. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files or resources if they exist. |
 
@@ -1005,7 +1007,7 @@ devops k8s validate [OPTIONS] <manifest_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--kubernetes-version`, `-v` | `string` | `master` | Target Kubernetes OpenAPI version. |
-| `--strict`, `--no-strict` | `boolean` | `True` | Disallow additional undeclared properties. |
+| `--strict` / `--no-strict` | `boolean` | `True` | Disallow additional undeclared properties. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
@@ -1053,7 +1055,7 @@ devops k8s stream-logs [OPTIONS] <pod_query>
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--container`, `-c` | `string` | - | Specific container name within the pod. |
 | `--tail`, `-t` | `integer` | `100` | Number of historical log lines to stream. |
-| `--follow`, `-f`, `--no-follow` | `boolean` | - | Continuously stream live log output. |
+| `--follow`, `-f` / `--no-follow` | `boolean` | - | Continuously stream live log output. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s diff-helm`
@@ -1139,7 +1141,7 @@ devops k8s security-stream [OPTIONS]
 | `--severity`, `-s` | `string` | - | Minimum severity filter threshold (Notice, Warning, Error, Critical). |
 | `--duration`, `-d` | `integer` | `30` | Observation streaming window duration in seconds. |
 | `--tail`, `-t` | `integer` | `100` | Number of historical log lines to stream. |
-| `--follow`, `-f`, `--no-follow` | `boolean` | - | Continuously stream live log output. |
+| `--follow`, `-f` / `--no-follow` | `boolean` | - | Continuously stream live log output. |
 | `--simulate` | `boolean` | - | Generate simulated kernel eBPF security anomalies for testing. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
@@ -1378,7 +1380,7 @@ devops docker sandbox [OPTIONS] <command>
 | `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
 | `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
 | `--read-only` | `boolean` | - | Mount workspace as read-only |
-| `--rootless`, `--root` | `boolean` | `True` | Run container with host user UID/GID |
+| `--rootless` / `--root` | `boolean` | `True` | Run container with host user UID/GID |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops docker sign`
@@ -1400,10 +1402,10 @@ devops docker sign [OPTIONS] <image>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--key`, `-k` | `string` | - | Path to private key or keyring:\<name\> |
-| `--keyless`, `--keyed` | `boolean` | `True` | Sign keylessly using OIDC/Fulcio |
+| `--keyless` / `--keyed` | `boolean` | `True` | Sign keylessly using OIDC/Fulcio |
 | `--oidc-token` | `string` | - | OIDC identity token or keyring:\<name\> for keyless signing |
 | `--annotation`, `-a` | `string` | - | Custom supply chain key=value annotations |
-| `--upload`, `--no-upload` | `boolean` | `True` | Upload signature to remote registry |
+| `--upload` / `--no-upload` | `boolean` | `True` | Upload signature to remote registry |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops docker verify`
@@ -2049,7 +2051,7 @@ devops argo rollouts analyze [OPTIONS] <name>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
 | `--error-rate-threshold`, `-e` | `float` | `1.0` | Maximum allowable HTTP 5xx error rate percentage before triggering automated rollback |
-| `--auto-abort`, `--no-auto-abort` | `boolean` | `True` | Automatically trigger rollout abort when metric analysis violates threshold |
+| `--auto-abort` / `--no-auto-abort` | `boolean` | `True` | Automatically trigger rollout abort when metric analysis violates threshold |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops argo fleet`
@@ -2320,7 +2322,7 @@ devops ci test [OPTIONS] <paths>
 | `-k` | `string` | - | Filter tests by keyword expression. |
 | `-x` | `boolean` | - | Stop after first failure. |
 | `-n`, `--numprocesses` | `string` | `auto` | Number of parallel worker processes. |
-| `--fallback`, `--no-fallback` | `boolean` | `True` | Run the full suite when a changed source has no covering tests, rather than reporting success without verifying it. |
+| `--fallback` / `--no-fallback` | `boolean` | `True` | Run the full suite when a changed source has no covering tests, rather than reporting success without verifying it. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci coverage`
@@ -2352,7 +2354,7 @@ devops ci lint [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
+| `--fix` / `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
 | `--check` | `boolean` | - | Check linting without applying automated fixes. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -2369,7 +2371,7 @@ devops ci format [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--check` | `boolean` | - | Check formatting without writing changes to files. |
-| `--fix`, `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
+| `--fix` / `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci typecheck`
@@ -2513,7 +2515,7 @@ devops ci run [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status. |
+| `--fix` / `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -2885,7 +2887,7 @@ devops ai prewarm [OPTIONS]
 |---|---|---|---|
 | `--model`, `-m` | `string` | - | Model name to prewarm or evict (defaults to configured AI model). |
 | `--keep-alive`, `-k` | `string` | `1h` | Keep-alive duration for loaded model (e.g. 1h, 24h, forever, or 0 for eviction). |
-| `--all-nodes`, `-a`, `--single-node` | `boolean` | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
+| `--all-nodes`, `-a` / `--single-node` | `boolean` | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
 | `--evict` | `boolean` | - | Evict the model from GPU VRAM immediately (sets keep_alive to 0). |
 | `--url`, `-u` | `string` | - | Specific Ollama node URL to target instead of all candidate nodes. |
 | `--json` | `boolean` | - | Output results as structured JSON. |
@@ -2921,11 +2923,11 @@ devops ai chat [OPTIONS]
 | `--persona`, `-p` | `string` | `architect` | Persona to chat with: devsecops, architect, pm, auditor, qa, challenger |
 | `--model`, `-m` | `string` | - | AI model identifier. |
 | `--context`, `-c` | `path` | - | Optional file to inject as background context (e.g. AGENTS.md). |
-| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
-| `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens. |
-| `--tools`, `--no-tools` | `boolean` | `True` | Enable DevOps agent tools. |
-| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
-| `--prewarm`, `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat. |
+| `--rag` / `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
+| `--stream` / `--no-stream` | `boolean` | `True` | Stream response tokens. |
+| `--tools` / `--no-tools` | `boolean` | `True` | Enable DevOps agent tools. |
+| `--thinking` / `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
+| `--prewarm` / `--no-prewarm` | `boolean` | `True` | Prewarm the model before starting chat. |
 | `--explain`, `-e` | `boolean` | - | Explain chat personas, tools, and reasoning modes. |
 
 ### `devops ai bundle-models`
@@ -2962,8 +2964,8 @@ devops ai pipeline [OPTIONS] <prompt>
 |---|---|---|---|
 | `--personas`, `-p` | `string` | `devsecops,architect,qa` | Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa). |
 | `--max-turns` | `integer` | `5` | Maximum tool turns per agent stage. |
-| `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
-| `--thinking`, `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
+| `--rag` / `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
+| `--thinking` / `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
 
 ### `devops ai token-count`
 
@@ -3042,7 +3044,7 @@ devops ai audit-library-usage [OPTIONS]
 |---|---|---|---|
 | `--package`, `-p` | `string` | - | Filter by package distribution name. |
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
-| `--contracts-dir` | `path` | - | Path to directory containing exported library contract JSON files. |
+| `--contracts-dir` | `path` | - | Path to directory containing exported library contract JSON files (default: libraries/ under the data directory where review data is kept). |
 | `--fail-on-breaking` | `boolean` | - | Exit with code 1 if any breaking API drift issues are detected. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -3066,9 +3068,9 @@ devops ai pack-context [OPTIONS] <target_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--referenced`, `-r` | `string` | - | Comma-separated list of symbols referenced by caller to prioritize during pruning. |
-| `--max-tokens` | `integer` | `<masked>` | Maximum token budget for packed context output. |
-| `--strip-private`, `--no-strip-private` | `boolean` | `True` | Strip unreferenced private functions, methods, and attributes. |
-| `--skeletonize`, `--no-skeletonize` | `boolean` | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
+| `--max-tokens` | `integer` | `1500` | Maximum token budget for packed context output. |
+| `--strip-private` / `--no-strip-private` | `boolean` | `True` | Strip unreferenced private functions, methods, and attributes. |
+| `--skeletonize` / `--no-skeletonize` | `boolean` | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -3091,7 +3093,7 @@ devops ai read [OPTIONS] <target_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--inspect`, `-i` | `boolean` | - | Enable multi-scale semantic outline and inspection scanner. |
-| `--level`, `-l` | `integer` | - | Focal zoom level: 0 (Topology: <200 tokens), 1 (Structural Outline: control flow & signatures), 2 (Deep Focal Window: line slice). |
+| `--level`, `-l` | `integer` | - | Focal zoom level: 0 (Topology: classes, functions, exports & hotspots), 1 (Structural Outline: control flow & signatures), 2 (Deep Focal Window: line slice). |
 | `--lines`, `-L` | `string` | - | Line range for Level 2 focal window (e.g. '40:80'). |
 | `--symbol`, `-s` | `string` | - | Target symbol name to inspect or focus on. |
 | `--format`, `-f` | `string` | `markdown` | Output format: 'text', 'markdown', or 'json'. |
@@ -3125,6 +3127,11 @@ devops ai diagram [OPTIONS] <diagram_type>
 
 **Measure the deterministic suppression layer against recorded review verdicts.**
 
+Measure the deterministic suppression layer against recorded review verdicts.
+
+The counts are reported for each labeller, and a label a deterministic check wrote is left
+out unless --include-deterministic: scoring the layer against its own labels is circular.
+
 ```bash
 devops ai prompt-eval [OPTIONS]
 ```
@@ -3134,7 +3141,8 @@ devops ai prompt-eval [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--persona`, `-p` | `string` | `devsecops` | Persona whose recorded findings to measure the layer against. |
-| `--dataset`, `-d` | `path` | - | Feedback dataset JSONL; a relative path is a data path under the main worktree, like data.feedback_dataset_path (default: the configured feedback dataset). |
+| `--dataset`, `-d` | `path` | - | Feedback dataset JSONL; a relative path resolves where review data is kept, like data.feedback_dataset_path: under the main worktree in devops-cli's own repository, else under ~/.local/share/devops-cli (default: the configured feedback dataset). |
+| `--include-deterministic` | `boolean` | - | Also count records a deterministic check labelled; scoring the layer against its own labels is circular, so they are excluded by default. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -3278,10 +3286,11 @@ devops ai review path [OPTIONS] <targets>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
+| `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
@@ -3301,8 +3310,8 @@ devops ai review path [OPTIONS] <targets>
 | `--watch`, `-w` | `boolean` | - | Continuously watch target paths for changes and re-run reviews. |
 | `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 #### `devops ai review branch`
 
@@ -3323,11 +3332,12 @@ devops ai review branch [OPTIONS] <branch_name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--repo` | `path` | `.` | Repository root directory (default: current directory). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
+| `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
@@ -3345,8 +3355,8 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 #### `devops ai review pr`
 
@@ -3367,11 +3377,12 @@ devops ai review pr [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
+| `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
@@ -3389,12 +3400,19 @@ devops ai review pr [OPTIONS] <number>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 #### `devops ai review findings`
 
 **Inspect structured findings for a review session.**
+
+Inspect structured findings for a review session.
+
+Each finding keeps its number, its place in findings.json, whatever filter the list
+applies, and `devops review verify --index` takes that number. With `--candidates` the list
+is candidates.json: every finding the review raised, the ones verification invalidated
+included, numbered for `devops review verify --candidate`.
 
 ```bash
 devops ai review findings [OPTIONS] <session>
@@ -3413,14 +3431,38 @@ devops ai review findings [OPTIONS] <session>
 | `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
 | `--status` | `string` | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED. |
 | `--unverified` | `boolean` | - | Show unverified findings only. |
-| `--invalidated` | `boolean` | - | Show invalidated findings only. |
+| `--invalidated` | `boolean` | - | Show INVALIDATED findings only. findings.json holds only those a later verdict invalidated; add --candidates for the ones verification invalidated. |
 | `--verified` | `boolean` | - | Show verified findings only. |
 | `--mitigated` | `boolean` | - | Filter findings by MITIGATED status |
+| `--candidates` | `boolean` | - | List candidates.json: every finding the review raised, with the ones verification dropped. |
+| `--severity` | `string` | - | Show only findings of this severity: CRITICAL, HIGH, MEDIUM, LOW or INFO (repeatable). |
 | `--details`, `-d` | `boolean` | - | Display full finding descriptions and fix recommendations. |
 
 #### `devops ai review verify`
 
-**Validate or invalidate a review finding, persisting feedback reasons.**
+**Record a person's or an agent's verdict on a review finding or candidate.**
+
+Record a person's or an agent's verdict on a review finding or candidate.
+
+Name one finding: `--index` takes the number `devops review findings` shows, `--title` a
+substring of exactly one title, and `--candidate` the number `review findings --candidates`
+shows. There is no default verdict, so `--status` is required. A candidate given VERIFIED
+or MITIGATED moves into findings.json, unless findings.json already reports its defect under
+another title: give that finding the verdict instead.
+
+A verdict on a finding in findings.json is recorded on the candidate it reports too, and a
+verdict on a candidate on its copy in findings.json, so both lists agree. When that copy also
+reports another candidate of the same persona, title, location and description, give the
+verdict to the copy with `--index`. Verdicts given on one session at once take turns.
+
+`--adjudicator` records who gave the verdict: `human`, the default, or `agent`, which an AI
+agent passes and the MCP `verify_finding` tool always sends. An agent cannot change a
+person's verdict. Only a person's verdict ranks review history, teaches the learned catalog
+(INVALIDATED) or records a mitigation in the ledger (MITIGATED). A later verdict withdraws
+what the finding's earlier verdicts recorded there that it no longer stands behind: the
+catalog entry once the finding is not INVALIDATED, so later reviews stop suppressing its
+claim, and the ledger entry once it is not MITIGATED. An entry another verdict also recorded
+stays, and one nothing else recorded is removed.
 
 ```bash
 devops ai review verify [OPTIONS] <session>
@@ -3437,9 +3479,11 @@ devops ai review verify [OPTIONS] <session>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
-| `--index`, `-i` | `integer` | - | 1-based finding index in session to verify. |
-| `--title`, `-t` | `string` | - | Match finding by substring in title. |
-| `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. |
+| `--index`, `-i` | `integer` | - | Number `review findings` shows for the finding: its place in findings.json, whatever filter the list applied. |
+| `--title`, `-t` | `string` | - | Substring of exactly one finding title in findings.json. |
+| `--candidate` | `integer` | - | Number `review findings --candidates` shows; a VERIFIED or MITIGATED verdict moves the candidate into findings.json. |
+| `--status` | `string` | - | Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. It withdraws what a person's earlier verdicts recorded that it no longer stands behind: the catalog entry of an INVALIDATED one, the ledger entry of a MITIGATED one. |
+| `--adjudicator` | `choice (human|agent)` | `human` | Who gives the verdict: human, or agent for an AI agent, which cannot change a person's verdict. Only a person's verdict ranks review history and teaches the learned catalog and mitigations ledger. |
 | `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
 | `--perimeter`, `-p` | `string` | - | Perimeter file path(s) protecting against finding recurrence (repeatable). |
 | `--regression-test` | `string` | - | Path to regression test guarding against finding recurrence. |
@@ -3478,14 +3522,22 @@ devops ai review benchmark [OPTIONS] <targets>
 |---|---|---|---|
 | `--runs`, `-n` | `integer` | `3` | Number of reviews to run; the report takes medians across them. |
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
+| `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
 
 #### `devops ai review export-feedback`
 
-**Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning.**
+**Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.**
+
+Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.
+
+Each session's findings.json and candidates.json are read, and only the findings whose
+verdict the dataset does not hold yet are appended. An export that finds none leaves the
+dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset
+changes no prompt and no later review.
 
 ```bash
 devops ai review export-feedback [OPTIONS]
@@ -3495,7 +3547,7 @@ devops ai review export-feedback [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | Output JSONL path for benchmark feedback dataset. |
+| `--output`, `-o` | `path` | - | JSONL dataset to append to (default: the configured data.feedback_dataset_path). |
 | `--reviews-dir` | `path` | - | Directory containing review sessions. |
 | `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 
@@ -3530,7 +3582,7 @@ devops ai review corpus generate [OPTIONS] <sources>
 
 ##### `devops ai review corpus score`
 
-**Score a review of a corpus: which injected defects it found, and what verification kept.**
+**Score one arm of reviews of a corpus: which injected defects each run found, and what verification kept.**
 
 ```bash
 devops ai review corpus score [OPTIONS] <corpus_dir>
@@ -3546,7 +3598,8 @@ devops ai review corpus score [OPTIONS] <corpus_dir>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | `string` | - | Review session to score (default: the latest review of the corpus). |
+| `--session`, `-s` | `string` | - | Review session to score (repeatable; default: the latest review of the corpus). The sessions must have run the same review prompts. |
+| `--runs`, `-n` | `integer` | - | Score the latest N reviews of the corpus together as one arm: how many runs found each injection, and each figure's mean and range across the runs. Refused with --session. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 #### `devops ai review samples`
@@ -3609,7 +3662,7 @@ devops ai review samples validate [OPTIONS] <names>
 |---|---|---|---|
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--review` | `boolean` | - | Also review each category's synthetic defect corpus and score it (calls the configured LLM). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
 
 #### `devops ai review templates`
@@ -3647,7 +3700,7 @@ devops ai review templates sweep [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ##### `devops ai review templates check`
@@ -3665,7 +3718,7 @@ devops ai review templates check [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 #### `devops ai review hallucinations`
@@ -3742,7 +3795,7 @@ devops ai analyze path [OPTIONS] <target>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
@@ -3765,7 +3818,7 @@ devops ai analyze branch [OPTIONS] <branch>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
@@ -3787,7 +3840,7 @@ devops ai analyze pr [OPTIONS] <pr_number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--enhanced`, `-e`, `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
+| `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
 
@@ -3825,7 +3878,7 @@ devops ai rag index [OPTIONS] <path>
 |---|---|---|---|
 | `--project`, `-p` | `string` | - | Project / repository name override. |
 | `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
-| `--include-kb`, `--no-include-kb` | `boolean` | `True` | Include bundled DevOps CLI Knowledge Base in docs collection. |
+| `--include-kb` / `--no-include-kb` | `boolean` | `True` | Include bundled DevOps CLI Knowledge Base in docs collection. |
 | `--collection`, `-c` | `string` | - | Target collection override. |
 | `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
 
@@ -3957,12 +4010,10 @@ devops ai benchmark [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434'). |
+| `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434'). A model@url runs on that server, which gets the AI key only when it is the configured api_base_url, gateway_url or provider API. |
 | `--servers`, `--ollama-urls` | `string` | - | Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434'). |
 | `--provider`, `-p` | `string` | - | AI or cloud provider. |
-| `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding', 'suite'. |
-| `--suite` | `boolean` | - | Run multi-model evaluation suite grounded in feedback datasets. |
-| `--dataset` | `path` | - | Feedback dataset JSONL for --suite; a relative path is a data path under the main worktree, like data.feedback_dataset_path (default: the configured feedback dataset). |
+| `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding'. |
 | `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes'). |
 | `--concurrency`, `-c` | `integer` | `4` | Number of concurrent model server workers (default: automatic per model count). |
 | `--output`, `-o` | `path` | - | Destination path for output report or artifacts. |
@@ -4129,7 +4180,7 @@ devops ai ingest index-libraries [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dir`, `-d` | `path` | `.data/libraries` | Path to directory containing exported library contract JSON files. |
+| `--dir`, `-d` | `path` | - | Path to directory containing exported library contract JSON files (default: libraries/ under the data directory where review data is kept). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 
@@ -4154,7 +4205,7 @@ devops ai ingest query-library [OPTIONS] <query>
 | `--package`, `-p` | `string` | - | Filter by package distribution name. |
 | `--exact`, `-e` | `boolean` | - | Perform exact qualified symbol lookup instead of semantic vector search. |
 | `--top-k`, `-k` | `integer` | `5` | Maximum number of items to return or display. |
-| `--contracts-dir` | `path` | `.data/libraries` | Path to directory containing exported library contract JSON files. |
+| `--contracts-dir` | `path` | - | Path to directory containing exported library contract JSON files (default: libraries/ under the data directory where review data is kept). |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 
 ### `devops ai ast`
@@ -4263,7 +4314,7 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--simulate`, `--no-simulate` | `boolean` | `True` | Simulate failover without altering active routing table. |
+| `--simulate` / `--no-simulate` | `boolean` | `True` | Simulate failover without altering active routing table. |
 | `--force` | `boolean` | - | Bypass model capability tier minimum checks during failover. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
@@ -4281,7 +4332,7 @@ devops ai gateway scale [OPTIONS]
 |---|---|---|---|
 | `--replicas`, `-r` | `integer` | - | Replica count for backend deployment. |
 | `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree for vLLM (e.g. 2). |
-| `--apply`, `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
+| `--apply` / `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 #### `devops ai gateway probe-backend`
@@ -4327,7 +4378,7 @@ devops ai gateway tune [OPTIONS]
 | `--concurrency`, `-c` | `string` | `1,4,8` | Comma-separated concurrency levels to measure. |
 | `--rounds` | `integer` | `2` | Requests per worker at each concurrency level. |
 | `--prompt-tokens` | `integer` | - | Prompt size in tokens (default: one review page for the analysis task). |
-| `--max-tokens` | `integer` | `<masked>` | Completion tokens requested per call. |
+| `--max-tokens` | `integer` | `200` | Completion tokens requested per call. |
 | `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
 | `--namespace`, `-n` | `string` | `llm` | Namespace of the gateway deployment. |
 | `--deployment` | `string` | `llm-gateway` | Gateway deployment to run the sweep in. |
@@ -4392,7 +4443,7 @@ devops ai runs connect [OPTIONS]
 | `--context` | `string` | - | Kubernetes context (default: current). |
 | `--namespace`, `-n` | `string` | `llm` | Namespace of the run index. |
 | `--service` | `string` | `valkey-runs` | Service of the run index's Valkey. |
-| `--secret` | `string` | `<masked>` | Secret holding the Valkey password. |
+| `--secret-name` | `string` | `valkey-runs-auth` | Name of the Secret holding the Valkey password. |
 
 #### `devops ai runs list`
 
@@ -4473,7 +4524,7 @@ devops ai runs check [OPTIONS] <run_id>
 | `--baseline`, `-b` | `string` | - | Override baseline run ID to compare against. |
 | `--max-recall-drop` | `float` | `0.0` | Maximum allowable relative drop in recall (e.g. 0.05 for 5%). |
 | `--max-duration-increase` | `float` | `0.15` | Maximum allowable relative increase in duration (e.g. 0.15 for 15%). |
-| `--max-tokens-increase` | `float` | `<masked>` | Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%). |
+| `--max-tokens-increase` | `float` | `0.2` | Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 #### `devops ai runs baseline`
@@ -4806,10 +4857,11 @@ devops review path [OPTIONS] <targets>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
+| `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
@@ -4829,8 +4881,8 @@ devops review path [OPTIONS] <targets>
 | `--watch`, `-w` | `boolean` | - | Continuously watch target paths for changes and re-run reviews. |
 | `--debounce-ms` | `integer` | `500` | Debounce window in milliseconds for filesystem watcher. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `devops review branch`
 
@@ -4851,11 +4903,12 @@ devops review branch [OPTIONS] <branch_name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--repo` | `path` | `.` | Repository root directory (default: current directory). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
+| `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
@@ -4873,8 +4926,8 @@ devops review branch [OPTIONS] <branch_name>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `devops review pr`
 
@@ -4895,11 +4948,12 @@ devops review pr [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--summary`, `-s` | `boolean` | - | Show segment metadata without running a full review. |
+| `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
+| `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |
 | `--explain`, `-e` | `boolean` | - | Explain code review personas, severity levels, and terminology. |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
 | `--pre-analysis-only` | `boolean` | - | Run pre-analysis only and skip subsequent stages. |
@@ -4917,12 +4971,19 @@ devops review pr [OPTIONS] <number>
 | `--force`, `-f` | `boolean` | - | Force fresh review execution without cache. |
 | `--append-cache` | `boolean` | - | Append cached response to the LLM prompt as context instead of using it directly as the final response. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
-| `--parallel`, `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
-| `--logfire`, `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
+| `--parallel` / `--no-parallel` | `boolean` | `True` | Execute multi-file review stages concurrently using async worker pool. |
+| `--logfire` / `--no-logfire` | `boolean` | - | Enable or disable Logfire structured observability and agent turn tracing. |
 
 ### `devops review findings`
 
 **Inspect structured findings for a review session.**
+
+Inspect structured findings for a review session.
+
+Each finding keeps its number, its place in findings.json, whatever filter the list
+applies, and `devops review verify --index` takes that number. With `--candidates` the list
+is candidates.json: every finding the review raised, the ones verification invalidated
+included, numbered for `devops review verify --candidate`.
 
 ```bash
 devops review findings [OPTIONS] <session>
@@ -4941,14 +5002,38 @@ devops review findings [OPTIONS] <session>
 | `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
 | `--status` | `string` | - | Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED. |
 | `--unverified` | `boolean` | - | Show unverified findings only. |
-| `--invalidated` | `boolean` | - | Show invalidated findings only. |
+| `--invalidated` | `boolean` | - | Show INVALIDATED findings only. findings.json holds only those a later verdict invalidated; add --candidates for the ones verification invalidated. |
 | `--verified` | `boolean` | - | Show verified findings only. |
 | `--mitigated` | `boolean` | - | Filter findings by MITIGATED status |
+| `--candidates` | `boolean` | - | List candidates.json: every finding the review raised, with the ones verification dropped. |
+| `--severity` | `string` | - | Show only findings of this severity: CRITICAL, HIGH, MEDIUM, LOW or INFO (repeatable). |
 | `--details`, `-d` | `boolean` | - | Display full finding descriptions and fix recommendations. |
 
 ### `devops review verify`
 
-**Validate or invalidate a review finding, persisting feedback reasons.**
+**Record a person's or an agent's verdict on a review finding or candidate.**
+
+Record a person's or an agent's verdict on a review finding or candidate.
+
+Name one finding: `--index` takes the number `devops review findings` shows, `--title` a
+substring of exactly one title, and `--candidate` the number `review findings --candidates`
+shows. There is no default verdict, so `--status` is required. A candidate given VERIFIED
+or MITIGATED moves into findings.json, unless findings.json already reports its defect under
+another title: give that finding the verdict instead.
+
+A verdict on a finding in findings.json is recorded on the candidate it reports too, and a
+verdict on a candidate on its copy in findings.json, so both lists agree. When that copy also
+reports another candidate of the same persona, title, location and description, give the
+verdict to the copy with `--index`. Verdicts given on one session at once take turns.
+
+`--adjudicator` records who gave the verdict: `human`, the default, or `agent`, which an AI
+agent passes and the MCP `verify_finding` tool always sends. An agent cannot change a
+person's verdict. Only a person's verdict ranks review history, teaches the learned catalog
+(INVALIDATED) or records a mitigation in the ledger (MITIGATED). A later verdict withdraws
+what the finding's earlier verdicts recorded there that it no longer stands behind: the
+catalog entry once the finding is not INVALIDATED, so later reviews stop suppressing its
+claim, and the ledger entry once it is not MITIGATED. An entry another verdict also recorded
+stays, and one nothing else recorded is removed.
 
 ```bash
 devops review verify [OPTIONS] <session>
@@ -4965,9 +5050,11 @@ devops review verify [OPTIONS] <session>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--session`, `-s` | `string` | - | Session ID or substring (default: latest). |
-| `--index`, `-i` | `integer` | - | 1-based finding index in session to verify. |
-| `--title`, `-t` | `string` | - | Match finding by substring in title. |
-| `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. |
+| `--index`, `-i` | `integer` | - | Number `review findings` shows for the finding: its place in findings.json, whatever filter the list applied. |
+| `--title`, `-t` | `string` | - | Substring of exactly one finding title in findings.json. |
+| `--candidate` | `integer` | - | Number `review findings --candidates` shows; a VERIFIED or MITIGATED verdict moves the candidate into findings.json. |
+| `--status` | `string` | - | Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. It withdraws what a person's earlier verdicts recorded that it no longer stands behind: the catalog entry of an INVALIDATED one, the ledger entry of a MITIGATED one. |
+| `--adjudicator` | `choice (human|agent)` | `human` | Who gives the verdict: human, or agent for an AI agent, which cannot change a person's verdict. Only a person's verdict ranks review history and teaches the learned catalog and mitigations ledger. |
 | `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
 | `--perimeter`, `-p` | `string` | - | Perimeter file path(s) protecting against finding recurrence (repeatable). |
 | `--regression-test` | `string` | - | Path to regression test guarding against finding recurrence. |
@@ -5006,14 +5093,22 @@ devops review benchmark [OPTIONS] <targets>
 |---|---|---|---|
 | `--runs`, `-n` | `integer` | `3` | Number of reviews to run; the report takes medians across them. |
 | `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
-| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Persona to review with: devsecops, architect, pm, auditor, qa or challenger; it wins over --all. Without it or --all, devsecops reviews alone. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
+| `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
 
 ### `devops review export-feedback`
 
-**Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning.**
+**Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.**
+
+Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.
+
+Each session's findings.json and candidates.json are read, and only the findings whose
+verdict the dataset does not hold yet are appended. An export that finds none leaves the
+dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset
+changes no prompt and no later review.
 
 ```bash
 devops review export-feedback [OPTIONS]
@@ -5023,7 +5118,7 @@ devops review export-feedback [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | Output JSONL path for benchmark feedback dataset. |
+| `--output`, `-o` | `path` | - | JSONL dataset to append to (default: the configured data.feedback_dataset_path). |
 | `--reviews-dir` | `path` | - | Directory containing review sessions. |
 | `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 
@@ -5058,7 +5153,7 @@ devops review corpus generate [OPTIONS] <sources>
 
 #### `devops review corpus score`
 
-**Score a review of a corpus: which injected defects it found, and what verification kept.**
+**Score one arm of reviews of a corpus: which injected defects each run found, and what verification kept.**
 
 ```bash
 devops review corpus score [OPTIONS] <corpus_dir>
@@ -5074,7 +5169,8 @@ devops review corpus score [OPTIONS] <corpus_dir>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | `string` | - | Review session to score (default: the latest review of the corpus). |
+| `--session`, `-s` | `string` | - | Review session to score (repeatable; default: the latest review of the corpus). The sessions must have run the same review prompts. |
+| `--runs`, `-n` | `integer` | - | Score the latest N reviews of the corpus together as one arm: how many runs found each injection, and each figure's mean and range across the runs. Refused with --session. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops review samples`
@@ -5137,7 +5233,7 @@ devops review samples validate [OPTIONS] <names>
 |---|---|---|---|
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--review` | `boolean` | - | Also review each category's synthetic defect corpus and score it (calls the configured LLM). |
-| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--all` | `boolean` | - | Review with devsecops, architect, qa, auditor and pm (not challenger). |
 | `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
 
 ### `devops review templates`
@@ -5175,7 +5271,7 @@ devops review templates sweep [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 #### `devops review templates check`
@@ -5193,7 +5289,7 @@ devops review templates check [OPTIONS]
 | `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 | `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
-| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--save` / `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops review hallucinations`
@@ -5302,7 +5398,7 @@ devops docs generate [OPTIONS]
 |---|---|---|---|
 | `--output-dir`, `-o` | `path` | - | Target directory for generated documentation files (default: docs/). |
 | `--format`, `-f` | `string` | `markdown` | Output format type (table, json, yaml, markdown). |
-| `--sync-readme`, `--no-sync-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
+| `--sync-readme` / `--no-sync-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
 | `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
 
 ### `devops docs check`
@@ -5318,7 +5414,7 @@ devops docs check [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--output-dir`, `-o` | `path` | - | Target directory for generated documentation files (default: docs/). |
-| `--check-readme`, `--no-check-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
+| `--check-readme` / `--no-check-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
 
 ### `devops docs sync-readme`
 
@@ -5396,12 +5492,12 @@ devops release prepare [OPTIONS] <version>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--sync-docs`, `--no-sync-docs` | `boolean` | `True` | Regenerate CLI reference docs and sync README matrix. |
-| `--changelog`, `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date. |
+| `--sync-docs` / `--no-sync-docs` | `boolean` | `True` | Regenerate CLI reference docs and sync README matrix. |
+| `--changelog` / `--no-changelog` | `boolean` | `True` | Ensure CHANGELOG.md contains release header with current date. |
 | `--create-pr`, `-p` | `boolean` | - | Create release branch, commit changes, and open a GitHub Release PR. |
 | `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
-| `--draft`, `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
+| `--draft` / `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
 
 ### `devops release pr`
@@ -5418,9 +5514,9 @@ devops release pr [OPTIONS]
 |---|---|---|---|
 | `--version`, `-v` | `string` | - | Target version string. |
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--draft`, `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
+| `--draft` / `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
 | `--labels`, `-l` | `string` | `release` | Comma-separated labels to attach. |
-| `--push`, `--no-push` | `boolean` | `True` | Push commits or tags to git remote. |
+| `--push` / `--no-push` | `boolean` | `True` | Push commits or tags to git remote. |
 | `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
@@ -5445,6 +5541,12 @@ devops release check [OPTIONS]
 
 **Print markdown release notes for a specified or current release version.**
 
+Print markdown release notes for a specified or current release version.
+
+Notes over GitHub's 125,000-character Release body limit are printed compact: each
+category and entry title without its sub-bullets, then a link to the version's section
+of CHANGELOG.md at its tag.
+
 ```bash
 devops release notes [OPTIONS]
 ```
@@ -5466,7 +5568,8 @@ Republish GitHub release descriptions from CHANGELOG.md.
 A release body is written once at publish time. Nothing in the repository could change
 it afterwards, so a release published before the workflow disabled GitHub's generated
 summary keeps carrying it, and an edited changelog entry never reaches the release it
-describes.
+describes. Notes over the Release body limit are sent in the compact form `release notes`
+prints.
 
 ```bash
 devops release sync-notes [OPTIONS]
@@ -5518,28 +5621,62 @@ devops release tag [OPTIONS]
 | `--message`, `-m` | `string` | - | Custom tag annotation message. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
 
-### `devops release epic`
+---
 
-**Provision, correlate, and synchronize parent release tracking epics for milestones.**
+## devops roadmap
+
+Read and write the roadmap on GitHub, its source of truth: issues, milestones and the project board.
+
+### `devops roadmap migrate`
+
+**Make GitHub the roadmap's source, once: bring the board in line with its template, fill unset Status, Priority, Value and Effort, retire release epics and milestones beyond the planning horizon, and record rejected roadmap ideas as issues closed as not planned. Prints the plan and a report, which lists the option renames, additions and removals a person makes in the board's field settings; writes only with --confirm, once the renames and additions are made.**
 
 ```bash
-devops release epic [OPTIONS] <version>
+devops roadmap migrate [OPTIONS]
 ```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<version>` | `string` | No | Target release milestone version (e.g. v0.2.21 or 0.2.21). Omit with --all. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--all`, `-a` | `boolean` | - | Synchronize release epics for all roadmap milestones |
-| `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
-| `--repo`, `-R` | `string` | - | Target repository |
-| `--dry-run` | `boolean` | - | Simulate release epic creation without modifying remote issues |
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--confirm` | `boolean` | - | Make the planned writes to GitHub. Without it, migrate prints its plan only. |
+| `--dry-run` | `boolean` | - | Print the plan and report, and write nothing. |
+
+### `devops roadmap render`
+
+**Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the backlog by priority.**
+
+```bash
+devops roadmap render [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--output`, `-o` | `path` | `docs/ROADMAP.md` | File render writes. |
+| `--dry-run` | `boolean` | - | Print the rendered file to stdout instead of writing it. |
+
+### `devops roadmap reprioritize`
+
+**Hold the current release to its rules: after it starts only a critical fix joins it, a fix that takes it over the cap descopes one unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, each with a reason comment. Once the release ships, close it, branch the next one and fill or trim it to the cap. The first run records the admitted set and moves nothing. Writes only with --confirm.**
+
+```bash
+devops roadmap reprioritize [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--confirm` | `boolean` | - | Make the changes on GitHub. Without it, reprioritize prints its plan only. |
+| `--dry-run` | `boolean` | - | Print each change with its reason, and write nothing. |
 
 ---
 
@@ -5624,7 +5761,7 @@ devops pr wait [OPTIONS] <number>
 | `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
 | `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
-| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
@@ -5649,7 +5786,7 @@ devops pr monitor [OPTIONS] <number>
 | `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
 | `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
-| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
@@ -5762,7 +5899,16 @@ devops pr close [OPTIONS] <number>
 
 ### `devops pr check-readiness`
 
-**Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state.**
+**Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.**
+
+Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
+
+Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
+and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
+body closes exactly one issue, and it adds, modifies or renames that issue's
+docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves CHANGELOG.md and
+docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. Into release/vX.Y.Z,
+the issue it closes is in release vX.Y.Z. A base branch without docs/agent/tasks/ is exempt.
 
 ```bash
 devops pr check-readiness [OPTIONS] <number>
@@ -5904,7 +6050,7 @@ devops pr threads resolve-all [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
+| `--only-replied` / `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---
@@ -5951,6 +6097,25 @@ devops gh rate-limit [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+### `devops gh metrics`
+
+**Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, and milestones.**
+
+```bash
+devops gh metrics [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--limit`, `-l` | `integer` | `10` | Number of recent releases to inspect |
+| `--ci-limit` | `integer` | `50` | Number of recent CI workflow runs to inspect |
+| `--milestone`, `-m` | `string` | - | Filter metrics to a specific milestone |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--json` | `boolean` | - | Emit structured JSON metrics report |
+| `--emit-telemetry` | `boolean` | - | Emit project and velocity metrics over OpenTelemetry to Prometheus |
 
 ### `devops gh labels`
 
@@ -6020,25 +6185,8 @@ devops gh milestones list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--state`, `-s` | `string` | `all` | Milestone state filter |
+| `--state`, `-s` | `string` | `all` | Milestone state filter (open, closed or all) |
 | `--repo`, `-R` | `string` | - | Target repository |
-
-#### `devops gh milestones sync`
-
-**Extract release milestones from ROADMAP.md and sync to repository.**
-
-```bash
-devops gh milestones sync [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
-| `--repo`, `-R` | `string` | - | Target repository |
-| `--create-release-epics` | `boolean` | - | Provision or synchronize release tracking epics for each milestone |
-| `--dry-run` | `boolean` | - | Simulate milestone extraction without creating remote records |
 
 #### `devops gh milestones status`
 
@@ -6052,7 +6200,7 @@ devops gh milestones status [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Milestone version or title (e.g. v0.2.11) |
+| `<name>` | `string` | Yes | Release version, with or without the v (e.g. v0.2.11) |
 
 **Options:**
 
@@ -6062,7 +6210,7 @@ devops gh milestones status [OPTIONS] <name>
 
 #### `devops gh milestones close`
 
-**Close a repository release milestone by title or version.**
+**Close the release milestone of a version, with or without its v.**
 
 ```bash
 devops gh milestones close [OPTIONS] <name>
@@ -6072,7 +6220,7 @@ devops gh milestones close [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Milestone version or title (e.g. v0.2.11) |
+| `<name>` | `string` | Yes | Release version, with or without the v (e.g. v0.2.11) |
 
 **Options:**
 
@@ -6082,7 +6230,7 @@ devops gh milestones close [OPTIONS] <name>
 
 #### `devops gh milestones edit`
 
-**Edit an existing milestone title, description, state, or due date.**
+**Edit a release milestone's title, description, state, or due date; fields left out stay as they are.**
 
 ```bash
 devops gh milestones edit [OPTIONS] <name>
@@ -6092,7 +6240,7 @@ devops gh milestones edit [OPTIONS] <name>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<name>` | `string` | Yes | Milestone version, title, or number (e.g. v0.2.21 or 34) |
+| `<name>` | `string` | Yes | Release version, with or without the v (e.g. v0.2.21) |
 
 **Options:**
 
@@ -6139,8 +6287,8 @@ devops gh project sync [OPTIONS]
 | `--task-file`, `-f` | `path` | `docs/agent/tasks` | Path to docs/agent/tasks directory |
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 | `--repo`, `-R` | `string` | - | Target repository |
-| `--dry-run`, `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
-| `--reconcile-fields`, `--no-reconcile-fields` | `boolean` | `True` | Also reconcile Status, Priority and Milestone from issue state and labels. |
+| `--dry-run` / `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
+| `--reconcile-fields` / `--no-reconcile-fields` | `boolean` | `True` | Also reconcile Status, Priority and Milestone from issue state and labels. |
 
 #### `devops gh project reconcile`
 
@@ -6468,40 +6616,6 @@ devops gh issues edit [OPTIONS] <number>
 | `--remove-label` | `string` | - | Taxonomy label to detach (repeatable). |
 | `--repo`, `-R` | `string` | - | Target repository |
 
-#### `devops gh issues reconcile-roadmap`
-
-**Reconcile existing issue milestones to match docs/ROADMAP.md specifications.**
-
-```bash
-devops gh issues reconcile-roadmap [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
-| `--tasks-dir`, `-t` | `path` | `docs/agent/tasks` | Directory for local per-task tracking files |
-| `--repo`, `-R` | `string` | - | Target repository |
-| `--dry-run` | `boolean` | - | Preview issue milestone reconciliation without mutations |
-
-#### `devops gh issues sync-roadmap`
-
-**Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files.**
-
-```bash
-devops gh issues sync-roadmap [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--milestone`, `-m` | `string` | - | Filter by release milestone (e.g. v0.2.20) |
-| `--dry-run` | `boolean` | - | Preview issue and task creation without modifying remote state |
-| `--limit`, `-L` | `integer` | `20` | Maximum issues to create |
-| `--repo`, `-R` | `string` | - | Target repository |
-
 #### `devops gh issues close-merged`
 
 **Close issues linked by merged pull requests. GitHub only honours closing keywords when a pull request merges into the default branch, so pull requests targeting a release branch leave their issues open.**
@@ -6728,7 +6842,7 @@ devops gh pr wait [OPTIONS] <number>
 | `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
 | `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
-| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
@@ -6753,7 +6867,7 @@ devops gh pr monitor [OPTIONS] <number>
 | `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
 | `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
-| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
@@ -6866,7 +6980,16 @@ devops gh pr close [OPTIONS] <number>
 
 #### `devops gh pr check-readiness`
 
-**Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state.**
+**Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.**
+
+Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
+
+Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
+and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
+body closes exactly one issue, and it adds, modifies or renames that issue's
+docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves CHANGELOG.md and
+docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. Into release/vX.Y.Z,
+the issue it closes is in release vX.Y.Z. A base branch without docs/agent/tasks/ is exempt.
 
 ```bash
 devops gh pr check-readiness [OPTIONS] <number>
@@ -7008,7 +7131,7 @@ devops gh pr threads resolve-all [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
+| `--only-replied` / `--all` | `boolean` | `True` | Only resolve threads that have received a reply from someone other than the thread opener. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---
@@ -7349,7 +7472,7 @@ devops tls ca [OPTIONS]
 | `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name. |
 | `--country`, `-c` | `string` | `US` | 2-letter country code. |
 | `--validity-days`, `-d` | `integer` | `3650` | Validity period in days. |
-| `--key-size`, `-k` | `integer` | `<masked>` | RSA key size in bits (2048 or 4096). |
+| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096). |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 
 ### `devops tls cert`
@@ -7370,7 +7493,7 @@ devops tls cert [OPTIONS]
 | `--ca-key` | `path` | - | Path to signing CA private key (ca.key). |
 | `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificate and key files. |
 | `--validity-days`, `-d` | `integer` | `365` | Validity period in days. |
-| `--key-size`, `-k` | `integer` | `<masked>` | RSA key size in bits (2048 or 4096). |
+| `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096). |
 | `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 
@@ -7439,7 +7562,7 @@ devops tls enable-k8s [OPTIONS]
 |---|---|---|---|
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--tls-dir` | `path` | `~/.config/devops-cli/tls` | Directory with generated TLS certificates. |
-| `--secret-name` | `string` | `<masked>` | Kubernetes TLS secret name to create. |
+| `--secret-name` | `string` | `homelab-tls` | Kubernetes TLS secret name to create. |
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
 
@@ -7472,7 +7595,7 @@ devops telemetry connect [OPTIONS]
 | `--context` | `string` | - | Kubernetes context of the cluster running the collector (default: current). |
 | `--namespace`, `-n` | `string` | `otel` | Namespace of the collector service. |
 | `--service` | `string` | `otel-collector-opentelemetry-collector` | Name of the collector service. |
-| `--save`, `--no-save` | `boolean` | `True` | Save the endpoint as telemetry.endpoint (default) or only check it. |
+| `--save` / `--no-save` | `boolean` | `True` | Save the endpoint as telemetry.endpoint (default) or only check it. |
 
 ### `devops telemetry logfire`
 
@@ -7505,7 +7628,7 @@ devops telemetry test [OPTIONS]
 
 ### `devops telemetry profile`
 
-**Run a command, or name a trace, and show its span waterfall as Jaeger recorded it.**
+**Run a devops-cli command, or name a trace, and show its span waterfall as Jaeger recorded it.**
 
 ```bash
 devops telemetry profile [OPTIONS] <command>
@@ -7515,7 +7638,7 @@ devops telemetry profile [OPTIONS] <command>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<command>` | `string` | No | CLI command string to profile and render waterfall for (e.g. 'devops k8s contexts'). |
+| `<command>` | `string` | No | devops-cli command line to run and profile; its first word must be 'devops' (e.g. 'devops k8s contexts'), and any other program is refused. |
 
 **Options:**
 
@@ -7532,6 +7655,28 @@ devops telemetry profile [OPTIONS] <command>
 ```bash
 devops telemetry open-ui
 ```
+
+### `devops telemetry semconv`
+
+**The GenAI semantic conventions that LLM span attributes are checked against.**
+
+```bash
+devops telemetry semconv COMMAND [ARGS]...
+```
+
+#### `devops telemetry semconv refresh`
+
+**Resolve the GenAI semantic conventions at a commit with weaver and rewrite the snapshot.**
+
+```bash
+devops telemetry semconv refresh [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--commit` | `string` | - | Full 40-character commit SHA of open-telemetry/semantic-conventions-genai to resolve. |
 
 ---
 
@@ -7745,7 +7890,7 @@ devops serve [OPTIONS]
 | `--reload`, `-r` | `boolean` | - | Enable auto-reload on code changes (development mode). |
 | `--workers`, `-w` | `integer` | `1` | Number of worker processes. |
 | `--log-level`, `-l` | `string` | `info` | Logging level (debug, info, warning, error). |
-| `--docs`, `--no-docs` | `boolean` | `True` | Enable or disable Swagger UI (/docs) and ReDoc (/redoc). |
+| `--docs` / `--no-docs` | `boolean` | `True` | Enable or disable Swagger UI (/docs) and ReDoc (/redoc). |
 
 ---
 
@@ -7828,7 +7973,7 @@ devops test sandbox [OPTIONS] <command>
 | `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
 | `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
 | `--read-only` | `boolean` | - | Mount workspace as read-only |
-| `--rootless`, `--root` | `boolean` | `True` | Run container with host user UID/GID |
+| `--rootless` / `--root` | `boolean` | `True` | Run container with host user UID/GID |
 | `--dry-run` | `boolean` | - | Simulate test execution. |
 
 ### `devops test profile-memory`
@@ -7852,7 +7997,7 @@ devops test profile-memory [OPTIONS] <target>
 | `--iterations`, `-i` | `integer` | `10` | Number of iterations to execute during profiling. |
 | `--top`, `-t` | `integer` | `10` | Number of top memory allocation lines to display. |
 | `--max-peak-mb` | `float` | `50.0` | Maximum acceptable peak memory threshold in megabytes. |
-| `--fail-on-leak`, `--ignore-leak` | `boolean` | `True` | Exit with non-zero status if socket leaks are detected. |
+| `--fail-on-leak` / `--ignore-leak` | `boolean` | `True` | Exit with non-zero status if socket leaks are detected. |
 | `--output`, `-o` | `path` | - | File path to export structured memory profiling report. |
 | `--json` | `boolean` | - | Format report output as JSON. |
 | `--dry-run` | `boolean` | - | Simulate test execution. |
@@ -7990,7 +8135,7 @@ devops vault login [OPTIONS]
 | `--role` | `string` | - | Vault role name (kubernetes method) |
 | `--role-id` | `string` | - | AppRole role_id |
 | `--secret-id` | `string` | - | AppRole secret_id |
-| `--store`, `--no-store` | `boolean` | `True` | Persist the issued token to the OS keyring |
+| `--store` / `--no-store` | `boolean` | `True` | Persist the issued token to the OS keyring |
 
 ### `devops vault leases`
 
@@ -8401,8 +8546,8 @@ devops sandbox logs [OPTIONS] <identifier>
 | `--follow`, `-f` | `boolean` | - | Follow log output continuously in live stream mode. |
 | `--tail`, `-n` | `integer` | `100` | Number of lines to show from the end of the logs (default: 100). |
 | `--timestamps`, `-t` | `boolean` | `True` | Show timestamps in log output. |
-| `--detect-panics`, `--no-detect-panics` | `boolean` | `True` | Automatically detect panics, stacktraces, and segfaults. |
-| `--archive-incidents`, `--no-archive-incidents` | `boolean` | `True` | Archive incident records to JSON files |
+| `--detect-panics` / `--no-detect-panics` | `boolean` | `True` | Automatically detect panics, stacktraces, and segfaults. |
+| `--archive-incidents` / `--no-archive-incidents` | `boolean` | `True` | Archive incident records to JSON files |
 | `--incident-dir` | `path` | - | Directory path to persist structured panic incident records. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -8494,7 +8639,7 @@ devops format [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--check` | `boolean` | - | Check formatting without writing changes to files. |
-| `--fix`, `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
+| `--fix` / `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -8517,7 +8662,7 @@ devops lint [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
+| `--fix` / `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
 | `--check` | `boolean` | - | Check linting without applying automated fixes. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

@@ -46,6 +46,4 @@ Establish clear repository instructions and documentation mandating that AI agen
 - [x] Update `src/devops_cli/ai/instruction_generator.py`.
 - [x] Update `docs/ROUTINE_TASKS.md` and `docs/SDLC.md`.
 - [x] Verify unit tests in `tests/test_instruction_generator.py`.
-- [ ] Run full CI quality gate (`devops ci`).
-- [ ] Open Pull Request targeting `release/v0.2.17`.
-- [ ] Monitor CI checks, transition to ready, verify merge readiness, and squash-merge into `release/v0.2.17`.
+- Not checked when merged: run full CI quality gate (`devops ci`).

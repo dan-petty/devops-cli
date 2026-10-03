@@ -85,10 +85,10 @@ def test_acquire_ollama_slot_config_defaults() -> None:
     """Verify slot leasing and network helpers bind to centralized defaults and constants."""
     import inspect
 
+    from devops_cli.ai.client import network
     from devops_cli.ai.client.network import (
         ALLOW_PRIVATE_NETWORK_ENV,
         acquire_ollama_slot,
-        read_limited_json,
         track_ollama_url,
     )
     from devops_cli.config.constants import CONST_AI_ALLOW_PRIVATE_NETWORK_ENV
@@ -99,12 +99,11 @@ def test_acquire_ollama_slot_config_defaults() -> None:
 
     sig_acquire = inspect.signature(acquire_ollama_slot)
     sig_track = inspect.signature(track_ollama_url)
-    sig_json = inspect.signature(read_limited_json)
 
     assert (
         sig_acquire.parameters["max_parallel"].default,
         sig_track.parameters["max_parallel"].default,
-        sig_json.parameters["limit_bytes"].default,
+        network.DEFAULT_AI_MAX_RESPONSE_BYTES,
         ALLOW_PRIVATE_NETWORK_ENV,
     ) == (
         DEFAULT_OLLAMA_MAX_PARALLEL,

@@ -3,16 +3,23 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 
-from devops_cli.config.constants import CONST_OTEL_COLLECTOR_NAMESPACE, CONST_OTEL_COLLECTOR_SERVICE
+from devops_cli.config.constants import (
+    CONST_DEVOPS_CLI_COMMAND,
+    CONST_DEVOPS_CLI_ENTRY_MODULE,
+    CONST_OTEL_COLLECTOR_NAMESPACE,
+    CONST_OTEL_COLLECTOR_SERVICE,
+)
 from devops_cli.config.defaults import (
     DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS,
     DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS,
     DEFAULT_TELEMETRY_TEST_NAME,
 )
+from devops_cli.config.env import ENV_TELEMETRY_ENABLED
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
@@ -46,6 +53,8 @@ app = new_typer(
     help=HELP.telemetry.app,
     no_args_is_help=True,
 )
+semconv_app = new_typer(help=HELP.telemetry.semconv, no_args_is_help=True)
+app.add_typer(semconv_app, name="semconv", help=HELP.telemetry.semconv)
 
 
 # =============================================================================
@@ -297,22 +306,44 @@ def _jaeger_url() -> str:
     return str(getattr(jaeger_cfg, "url", "") or "http://localhost:16686")
 
 
-def _run_profiled_command(command: str, tracer: OTelTelemetryClient) -> str:
-    """Run a command inside a profile span and return the trace it ran under.
+def _devops_entry_argv(command: str) -> list[str]:
+    """Return the argv that runs a devops-cli command line, refusing any other command line.
 
-    `run_subprocess` hands the child that trace through TRACEPARENT. The child gets the
-    caller's full environment, as if run directly, so its own telemetry settings reach it.
+    The first word must be `devops`. The rest runs under `python -P -m` the module the `devops`
+    script calls, in this interpreter, so neither another program nor another `devops` found
+    first on PATH is what gets started (#980). `-P` keeps the working directory off `sys.path`,
+    as it is for the `devops` script: plain `python -m` puts it first, so a `token.py` or a
+    `devops_cli/` in the directory profiled from would run in place of devops-cli's own code.
     """
     import shlex
+    import sys
 
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        words = []
+    if words[:1] != [CONST_DEVOPS_CLI_COMMAND]:
+        print_error(MESSAGES.telemetry.profile_devops_only)
+        raise typer.Exit(1)
+    return [sys.executable, "-P", "-m", CONST_DEVOPS_CLI_ENTRY_MODULE, *words[1:]]
+
+
+def _run_profiled_command(command: str, argv: list[str], tracer: OTelTelemetryClient) -> str:
+    """Run a devops-cli command inside a profile span and return the trace it ran under.
+
+    `run_subprocess` hands the child that trace through TRACEPARENT. The child keeps the
+    caller's full environment, as if run directly, so its own telemetry settings and the
+    credentials it would read reach it. That is safe only because `argv` always comes from
+    `_devops_entry_argv`: the environment goes to devops-cli itself, imported from where this
+    interpreter installed it and not from the working directory, and to no other program.
+    """
     from devops_cli.core.process import run_subprocess
 
-    cmd_args = shlex.split(command)
     with trace_span("telemetry.profile", attributes={"command.line": command}) as span_h:
         trace_id = tracer.current_trace_id or ""
         print_info(f"Profiling command: [bold]{command}[/bold] (Trace: {trace_id})", prefix=False)
         start_time = time.perf_counter()
-        proc = run_subprocess(cmd_args, capture_output=False, quiet=True, isolate_env=False)
+        proc = run_subprocess(argv, capture_output=False, quiet=True, isolate_env=False)
         span_h.set_attribute("cli.exit_code", proc.returncode)
         span_h.set_attribute("cli.elapsed_ms", (time.perf_counter() - start_time) * 1000)
     tracer.flush()
@@ -355,7 +386,8 @@ def telemetry_profile_cmd(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Run a command, or name a trace, and show its span waterfall as Jaeger recorded it."""
+    """Run a devops-cli command, or name a trace, and show its span waterfall as Jaeger recorded it."""
+    argv = _devops_entry_argv(command) if command else None
     if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops telemetry profile",
@@ -379,14 +411,15 @@ def telemetry_profile_cmd(
         raise typer.Exit(2)
 
     tracer = get_tracer()
-    if command:
+    if command and argv:
         if not tracer.enabled:
             print_error(
                 "Telemetry export is off, so the command's spans would never reach a collector. "
-                "Enable it (DEVOPS_TELEMETRY_ENABLED=true) and run the collector."
+                f"Enable it (telemetry.enabled, or {ENV_TELEMETRY_ENABLED}=true) and run the "
+                "collector."
             )
             raise typer.Exit(1)
-        trace_id = _run_profiled_command(command, tracer)
+        trace_id = _run_profiled_command(command, argv, tracer)
 
     jaeger_url = _jaeger_url()
     spans = _read_trace_from_jaeger(str(trace_id), jaeger_url)
@@ -458,3 +491,44 @@ def telemetry_open_ui_cmd() -> None:
     """Print and show the Jaeger Query UI endpoint for inspecting traces."""
     print_info(f"[bold]Jaeger Tracing UI:[/bold] {format_link(_jaeger_url())}", prefix=False)
     print_info(MESSAGES.telemetry.port_forward_tip, prefix=False)
+
+
+# =============================================================================
+# Command: devops telemetry semconv refresh
+# =============================================================================
+
+
+@semconv_app.command("refresh")
+def telemetry_semconv_refresh_cmd(
+    commit: Annotated[str, typer.Option("--commit", help=HELP.telemetry.semconv_commit)],
+) -> None:
+    """Resolve the GenAI semantic conventions at a commit with weaver and rewrite the snapshot."""
+    from devops_cli.exceptions import DevOpsCLIError
+    from devops_cli.telemetry.semconv import (
+        GENAI_SNAPSHOT_PATH,
+        refresh_genai_snapshot,
+        weaver_package_argv,
+    )
+
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops telemetry semconv refresh",
+            action="refresh_semconv_snapshot",
+            target=str(GENAI_SNAPSHOT_PATH),
+            details={"argv": weaver_package_argv("weaver", commit, Path("<tmp>/package"))},
+        )
+        return
+    try:
+        snapshot = refresh_genai_snapshot(commit, snapshot_path=GENAI_SNAPSHOT_PATH)
+    except DevOpsCLIError as exc:
+        print_error(exc.message, prefix=False)
+        raise typer.Exit(exc.exit_code) from exc
+    print_success(
+        MESSAGES.telemetry.semconv_refreshed.format(
+            path=GENAI_SNAPSHOT_PATH,
+            attributes=len(snapshot["attributes"]),
+            metrics=len(snapshot["metrics"]),
+            spans=len(snapshot["spans"]),
+            **snapshot["source"],
+        )
+    )

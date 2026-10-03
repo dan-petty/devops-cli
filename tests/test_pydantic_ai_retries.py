@@ -236,29 +236,25 @@ class TestPydanticAIRetriesSubsystem:
             resp = client.post("https://example.com/v1/chat/completions", json={"prompt": "hi"})
             assert (resp.status_code, resp.json(), attempts) == (200, {"status": "recovered"}, 3)
 
-    def test_read_limited_json_rejects_4xx_and_5xx_responses(self) -> None:
-        """Verify read_limited_json always treats 4xx and 5xx responses as HTTP errors and never parses them."""
-        from devops_cli.ai.client.network import read_limited_json
+    def test_request_limited_json_rejects_4xx_and_5xx_responses(self) -> None:
+        """Verify request_limited_json raises for 4xx and 5xx replies and never parses them."""
+        from devops_cli.ai.client.network import request_limited_json
 
-        req = httpx2.Request("POST", "https://example.com/ai")
-        resp_524 = httpx2.Response(
-            524,
-            text="<!DOCTYPE html><html><title>524: A timeout occurred</title></html>",
-            request=req,
+        bodies = {
+            524: "<!DOCTYPE html><html><title>524: A timeout occurred</title></html>",
+            500: '{"error": "internal"}',
+            404: '{"error": "not found"}',
+        }
+        transport = httpx2.MockTransport(
+            lambda request: httpx2.Response(
+                int(request.url.path.strip("/")), text=bodies[int(request.url.path.strip("/"))]
+            )
         )
-        with pytest.raises(httpx2.HTTPStatusError) as exc_info_524:
-            read_limited_json(resp_524)
+        raised: list[tuple[int, str]] = []
+        with httpx2.Client(transport=transport) as client:
+            for status in bodies:
+                with pytest.raises(httpx2.HTTPStatusError) as exc_info:
+                    request_limited_json(client, "POST", f"https://example.com/{status}")
+                raised.append((exc_info.value.response.status_code, exc_info.value.response.text))
 
-        resp_500 = httpx2.Response(500, text='{"error": "internal"}', request=req)
-        with pytest.raises(httpx2.HTTPStatusError) as exc_info_500:
-            read_limited_json(resp_500)
-
-        resp_404 = httpx2.Response(404, text='{"error": "not found"}', request=req)
-        with pytest.raises(httpx2.HTTPStatusError) as exc_info_404:
-            read_limited_json(resp_404)
-
-        assert (
-            exc_info_524.value.response.status_code,
-            exc_info_500.value.response.status_code,
-            exc_info_404.value.response.status_code,
-        ) == (524, 500, 404)
+        assert raised == list(bodies.items())

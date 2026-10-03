@@ -4,15 +4,21 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import pathspec
 
-from devops_cli.config.constants import CONST_BINARY_EXTENSIONS, CONST_GIT_DIR_NAME
+from devops_cli.config.constants import (
+    CONST_BINARY_EXTENSIONS,
+    CONST_GIT_DIR_NAME,
+    CONST_USER_DATA_ROOT,
+)
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import SecurityError
 
 logger = logging.getLogger(__name__)
@@ -191,13 +197,110 @@ def main_worktree_root(start_path: Path | str | None = None) -> Path:
     )
 
 
+@functools.cache
+def _own_source_dir() -> Path:
+    """The directory the running devops-cli's package is imported from."""
+    import devops_cli
+
+    return Path(devops_cli.__file__).resolve().parent
+
+
+def _is_installed_copy(package_dir: Path) -> bool:
+    """Whether `package_dir` lies where the interpreter installs distributions: its environment's
+    site-packages, the system's, or the user's."""
+    import site
+    import sysconfig
+
+    scheme = sysconfig.get_paths()
+    install_dirs = (
+        scheme["purelib"],
+        scheme["platlib"],
+        *site.getsitepackages(),
+        site.getusersitepackages(),
+    )
+    return any(package_dir.is_relative_to(Path(d).resolve()) for d in install_dirs)
+
+
+def _nearest_checkout(start: Path) -> Path | None:
+    """The nearest directory holding `.git` from `start` upward, or None outside any checkout."""
+    return next((d for d in (start, *start.parents) if (d / CONST_GIT_DIR_NAME).exists()), None)
+
+
+@functools.cache
+def _source_repository(package_dir: Path) -> Path | None:
+    """The shared git directory of the repository whose checkout holds devops-cli's package at
+    `package_dir`, or None: an installed copy, such as one in site-packages, is not that
+    repository's source even inside its checkout, and outside any checkout there is none."""
+    if _is_installed_copy(package_dir):
+        return None
+    checkout = _nearest_checkout(package_dir)
+    return _own_common_dir(checkout) if checkout is not None else None
+
+
+@functools.lru_cache(maxsize=64)
+def _repository_at(start: str) -> Path | None:
+    """The shared git directory of the nearest checkout holding `start`, or None outside one."""
+    checkout = _nearest_checkout(Path(start).resolve())
+    return _own_common_dir(checkout) if checkout is not None else None
+
+
+def is_own_source_repository(start_path: Path | str | None = None) -> bool:
+    """Whether the repository at `start_path`, by default the working directory, is the one whose
+    checkout holds the running devops-cli's own source (#972).
+
+    That repository's code already runs in this process, so its project config and its `.data`
+    are trusted as they were before #972: a review started there reads both, as any other command
+    does (`core.untrusted_trees.reads_untrusted_trees`, `review_data_root`). Every worktree of it
+    is that repository, since they share one git directory. A clone nested in its checkout, such
+    as one under `repos/` or `.data/samples/`, has a git directory of its own and is not: the
+    project config walk stops at that clone's root and would read what it commits. An installed
+    devops-cli, outside any checkout or in an environment's site-packages, trusts no repository.
+
+    Both lookups are cached: the source's for the process, the start's per absolute path.
+    """
+    source = _source_repository(_own_source_dir())
+    if source is None:
+        return False
+    return source == _repository_at(os.path.abspath(start_path or os.getcwd()))
+
+
 def resolve_data_path(path: Path, start_path: Path | str | None = None) -> Path:
     """A configured data path: as given when absolute, else under the main worktree.
 
     Every worktree of a repository shares one data directory, so removing a worktree keeps the
-    reviews, benchmarks and evaluations recorded in it.
+    benchmarks and analyses recorded in it. A review's own data resolves where every command finds
+    it (`resolve_review_data_path`).
+
+    While a review runs from a repository other than devops-cli's own, a relative path resolves
+    under the user-level data root instead (`reads_untrusted_trees`, #972). The repository the
+    command starts in may be the tree under review, and its `.data` holds whatever that tree's
+    author committed: a learned catalog that suppresses findings, review history, contracts and
+    cached replies. An absolute path is one the user named, and stands.
     """
-    return path if path.is_absolute() else (main_worktree_root(start_path) / path).resolve()
+    if path.is_absolute():
+        return path
+    base = CONST_USER_DATA_ROOT if reads_untrusted_trees() else main_worktree_root(start_path)
+    return (base / path).resolve()
+
+
+def review_data_root() -> Path:
+    """Where a relative path to data a review keeps resolves (#972): the main worktree when the
+    working directory is in devops-cli's own repository (`is_own_source_repository`), as every
+    data path there does, else the user-level data root, where a review started anywhere else
+    keeps it."""
+    return main_worktree_root() if is_own_source_repository() else CONST_USER_DATA_ROOT
+
+
+def resolve_review_data_path(path: Path) -> Path:
+    """A configured path to data a review keeps: as given when absolute, else under
+    `review_data_root`, whichever command reads or writes it (#972).
+
+    A review resolves every relative data path there (`resolve_data_path`). Other commands read
+    and write what it keeps -- its sessions, history and baselines, the hallucination catalog, the
+    mitigations ledger, the feedback dataset, runs, samples, library contracts and AI spend -- so
+    they resolve each there too, or a review's data would be in one place and theirs in another.
+    """
+    return path if path.is_absolute() else (review_data_root() / path).resolve()
 
 
 def read_gitignore_patterns(repo_root: Path) -> list[str]:

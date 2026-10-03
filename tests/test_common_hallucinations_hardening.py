@@ -9,9 +9,7 @@ from devops_cli.ai.review.common_hallucinations import (
     _FORBIDDEN_COMMON_WORDS,
     CommonHallucinationEntry,
     HallucinationCategory,
-    auto_record_invalidated_finding,
     calculate_hallucination_similarity,
-    find_similar_hallucinations,
     verify_ground_truth_hallucination,
 )
 from devops_cli.ai.review.verification import (
@@ -166,36 +164,6 @@ def test_calculate_similarity_matches_genuine_pep758_hallucination() -> None:
         )
     finally:
         tf_path.unlink(missing_ok=True)
-
-
-def test_auto_record_does_not_corrupt_existing_entry_resolution() -> None:
-    """Verify that auto_record_invalidated_finding does NOT overwrite canonical resolution of established entry."""
-    with NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
-        tf.write("[]")
-        catalog_path = Path(tf.name)
-
-    try:
-        # Create an unrelated finding that has an invalidation reason
-        finding = Finding(
-            severity="MEDIUM",
-            location="src/devops_cli/security/complexity.py:260-265",
-            title="Potential absolute path disclosure in findings",
-            description="The run_complexity_scan function constructs location using py_file",
-            invalidation_reason="Line 260 exceeds total file lines (222)",
-        )
-
-        # Record finding into isolated catalog
-        auto_record_invalidated_finding(
-            finding, reason="Line 260 exceeds total file lines (222)", target_file=catalog_path
-        )
-
-        # Check that PEP 758 entry in catalog (if present) does NOT have the corrupted resolution
-        matches = find_similar_hallucinations(finding, threshold=0.5, target_file=catalog_path)
-        for m in matches:
-            if m.hallucination.id == "HALLUCINATION-PEP758-EXCEPT":
-                assert "Line 260 exceeds" not in m.hallucination.resolution
-    finally:
-        catalog_path.unlink(missing_ok=True)
 
 
 def test_verify_ground_truth_dependency_ecosystem(tmp_path: Path) -> None:

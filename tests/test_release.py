@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -26,9 +28,24 @@ from devops_cli.commands.release import (
     _verify_release_versions,
     app,
 )
-from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.constants import (
+    CONST_GH_CLI,
+    CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS,
+    CONST_GITHUB_RELEASE_BODY_MAX_CHARS,
+)
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.store import GitHubState
+from tests.release_notes_examples import (
+    SYNTHETIC_CATEGORIES,
+    SYNTHETIC_ENTRY_COUNT,
+    synthetic_entry_detail,
+    synthetic_entry_title,
+    synthetic_release_section,
+)
 
 runner = CliRunner()
+# A Markdown task-list item, ticked or not, under any list marker and at any indent.
+_CHECKBOX_LINE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]", re.MULTILINE)
 
 
 @pytest.fixture
@@ -480,8 +497,19 @@ def test_release_notes_raw_and_missing(sample_project_dir: Path) -> None:
     assert res_no_notes.exit_code == 1
 
 
-def test_release_tag_push_and_errors(sample_project_dir: Path) -> None:
-    """Verify devops release tag push and error branches."""
+def test_release_tag_push_and_errors(
+    sample_project_dir: Path,
+    roadmap_store: InMemoryRoadmapStore,
+    roadmap_store_repos: list[str],
+    git: Callable[..., None],
+) -> None:
+    """Verify devops release tag push and error branches; a pushed tag closes its Release.
+
+    The Release closes in the tagged repository, which is not the checkout the tests run in.
+    """
+    git(sample_project_dir, "init", "--quiet")
+    git(sample_project_dir, "remote", "add", "origin", "https://github.com/example/tagged.git")
+    roadmap_store.create_release("v0.1.7")
     # Dry run
     from devops_cli.dry_run import set_dry_run
 
@@ -507,7 +535,13 @@ def test_release_tag_push_and_errors(sample_project_dir: Path) -> None:
         res_push = runner.invoke(
             app, ["tag", "--version", "0.1.7", "--push", "--root", str(sample_project_dir)]
         )
-        assert res_push.exit_code == 0
+    closed = roadmap_store.release("0.1.7")
+    assert (
+        res_push.exit_code,
+        "Closed release milestone for v0.1.7" in res_push.output,
+        closed.state if closed else None,
+        roadmap_store_repos,
+    ) == (0, True, GitHubState.CLOSED, ["example/tagged"])
 
 
 def test_release_pr_labels_and_draft(sample_project_dir: Path) -> None:
@@ -643,7 +677,9 @@ def test_release_pr_error_branches_and_breaking(sample_project_dir: Path) -> Non
         )
 
 
-def test_release_notes_tag_and_check_extended(sample_project_dir: Path) -> None:
+def test_release_notes_tag_and_check_extended(
+    sample_project_dir: Path, roadmap_store: InMemoryRoadmapStore
+) -> None:
     """Verify release notes formatting, tag creation/pushing, and check mismatch errors."""
     # 1. release notes raw and formatted
     res_notes_raw = runner.invoke(
@@ -689,6 +725,8 @@ def test_release_notes_tag_and_check_extended(sample_project_dir: Path) -> None:
         assert res_tag_ok.exit_code == 0
         assert any("tag" in c and "-a" in c and "v0.1.8" in c for c in called_cmds)
         assert any("push" in c and "--tags" in c for c in called_cmds)
+        # No Release v0.1.8 exists, so the pushed tag only warns that it closed none.
+        assert "Could not close milestone for v0.1.8: No Release '0.1.8'" in res_tag_ok.output
 
     # 4. release check version mismatch
     pyproject_file = sample_project_dir / "pyproject.toml"
@@ -851,7 +889,7 @@ def test_release_changelog_command(sample_project_dir: Path) -> None:
 
 
 def test_build_release_pr_body_draft_mode(sample_project_dir: Path) -> None:
-    """Verify _build_release_pr_body in draft mode formats milestone items, notes, and draft checklist."""
+    """Verify _build_release_pr_body in draft mode formats milestone items and has no checkbox."""
     import json
 
     from devops_cli.commands.release import _build_release_pr_body
@@ -879,19 +917,15 @@ def test_build_release_pr_body_draft_mode(sample_project_dir: Path) -> None:
         assert "- #117" in body
         assert "- #118" in body
         assert "- **#117**" not in body
-        assert "### Quality Gate Checklist" in body
-        assert "- [ ] Gated CI Quality Gate passing (`devops ci`)" in body
-        assert "- [ ] Documentation and Command Matrix in `README.md` synchronized" in body
-        assert (
-            "- [ ] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`"
-            in body
-        )
-        assert "- [ ] CodeQL & Static Analysis passing" in body
-        assert "- [ ] Milestone deliverables reviewed and merged into `release/v0.2.19`" in body
+        assert _CHECKBOX_LINE.search(body) is None
 
 
 def test_build_release_pr_body_ready_mode(sample_project_dir: Path) -> None:
-    """Verify _build_release_pr_body in ready mode formats included deliverables and completed checklist."""
+    """Verify _build_release_pr_body in ready mode formats included deliverables and no checkbox.
+
+    Its seven quality boxes were ticked on every ready release PR without reading anything;
+    the PR's own checks are what GitHub shows.
+    """
     from devops_cli.commands.release import _build_release_pr_body
 
     with patch(
@@ -913,11 +947,11 @@ def test_build_release_pr_body_ready_mode(sample_project_dir: Path) -> None:
                 draft=False,
                 pr_title="feat(release): v0.2.19",
             )
-            assert "### Included Deliverables" in body
-            assert "feat(security): cosign container signing (#213)" in body
-            assert "- [x] Gated CI Quality Gate passing (`devops ci`)" in body
-            assert "- [x] CodeQL & Static Analysis passing" in body
-            assert "- [x] Milestone deliverables reviewed and merged into `release/v0.2.19`" in body
+            assert (
+                "### Included Deliverables" in body,
+                "feat(security): cosign container signing (#213)" in body,
+                _CHECKBOX_LINE.search(body),
+            ) == (True, True, None)
 
 
 def test_resolve_clean_release_notes_stale_duplicate_fallback(sample_project_dir: Path) -> None:
@@ -1153,3 +1187,372 @@ def test_release_targets_the_nested_worktree_it_is_given(
     roots = (_get_project_root(nested), _get_project_root(main))
 
     assert roots == (nested.resolve(), main.resolve())
+
+
+# =============================================================================
+# The cut collects changelog.d/ fragments (#933)
+# =============================================================================
+
+_UNRELEASED_CHANGELOG = (
+    "# Changelog\n\n"
+    "## [Unreleased]\n\n"
+    "## [0.1.7] - 2026-08-13\n\n"
+    "### Added\n- Native DevContainer Lifecycle.\n"
+)
+# Three fragments whose categories overlap, each written out of Keep a Changelog order.
+_THREE_FRAGMENTS = {
+    "100.md": "### Changed\n- **Hundred Changed** (#100).\n\n### Added\n- **Hundred Added** (#100).\n",
+    "12.md": (
+        "### Fixed\n- **Twelve Fixed**:\n  - detail (#12).\n\n"
+        "### Added\n- **Twelve Added**:\n  - detail (#12).\n"
+    ),
+    "3.md": "### Security\n- **Three Security** (#3).\n\n### Fixed\n- **Three Fixed** (#3).\n",
+}
+_COLLECTED_CHANGELOG = (
+    "# Changelog\n\n"
+    "## [Unreleased]\n\n"
+    "## [0.1.8] - <date>\n\n"
+    "### Added\n- **Twelve Added**:\n  - detail (#12).\n- **Hundred Added** (#100).\n\n"
+    "### Changed\n- **Hundred Changed** (#100).\n\n"
+    "### Fixed\n- **Three Fixed** (#3).\n- **Twelve Fixed**:\n  - detail (#12).\n\n"
+    "### Security\n- **Three Security** (#3).\n\n"
+    "## [0.1.7] - 2026-08-13\n\n"
+    "### Added\n- Native DevContainer Lifecycle.\n"
+)
+
+
+def _with_fragments(project: Path, fragments: dict[str, str]) -> Path:
+    """Open `[Unreleased]` in the project's changelog and write `changelog.d/` with a README."""
+    (project / "CHANGELOG.md").write_text(_UNRELEASED_CHANGELOG, encoding="utf-8")
+    fragments_dir = project / "changelog.d"
+    fragments_dir.mkdir()
+    (fragments_dir / "README.md").write_text("Fragments.\n", encoding="utf-8")
+    for name, text in fragments.items():
+        (fragments_dir / name).write_text(text, encoding="utf-8")
+    return project
+
+
+def _changelog_with_date_masked(project: Path) -> str:
+    """The changelog with the cut's own date, which is today's, replaced by `<date>`."""
+    text = (project / "CHANGELOG.md").read_text(encoding="utf-8")
+    return re.sub(r"(## \[0\.1\.8\] - )\d{4}-\d{2}-\d{2}", r"\1<date>", text)
+
+
+def _left_in_changelog_d(project: Path) -> list[str]:
+    return sorted(path.name for path in (project / "changelog.d").iterdir())
+
+
+def test_the_cut_merges_three_fragments_into_one_section_and_deletes_them(
+    sample_project_dir: Path,
+) -> None:
+    """Categories in Keep a Changelog order, fragments in issue order within each, text intact.
+
+    Every PR into a release branch wrote at the top of `[Unreleased]`, so each merge made
+    every other open PR conflict: #928 and #932 each conflicted twice in one hour (#933).
+    """
+    project = _with_fragments(sample_project_dir, _THREE_FRAGMENTS)
+    with patch("devops_cli.commands.release.DocGenerator.write_all_docs"):
+        result = runner.invoke(app, ["prepare", "0.1.8", "--root", str(project)])
+    assert (
+        result.exit_code,
+        _changelog_with_date_masked(project),
+        _left_in_changelog_d(project),
+        _get_pyproject_version(project),
+    ) == (0, _COLLECTED_CHANGELOG, ["README.md"], "0.1.8"), result.output
+
+
+def test_release_changelog_update_collects_the_fragments_too(sample_project_dir: Path) -> None:
+    """`devops release changelog --update` writes the version's section the same way."""
+    project = _with_fragments(sample_project_dir, _THREE_FRAGMENTS)
+    with patch("devops_cli.commands.release._extract_git_commit_notes", return_value=None):
+        result = runner.invoke(
+            app, ["changelog", "--version", "0.1.8", "--update", "--root", str(project)]
+        )
+    assert (
+        result.exit_code,
+        _changelog_with_date_masked(project),
+        _left_in_changelog_d(project),
+    ) == (0, _COLLECTED_CHANGELOG, ["README.md"]), result.output
+
+
+@pytest.mark.parametrize(
+    ("name", "text", "reason"),
+    [
+        ("7.md", "### Improvements\n- x (#7).\n", "changelog.d/7.md:1 '### Improvements' is not"),
+        ("7.md", "A note first.\n\n### Added\n- x (#7).\n", "changelog.d/7.md:1 is outside a"),
+        ("notes.md", "### Added\n- x.\n", "changelog.d/notes.md is not a changelog fragment"),
+    ],
+    ids=["unknown-category", "text-outside-a-category", "misnamed-file"],
+)
+def test_a_bad_fragment_stops_the_cut_before_any_write(
+    sample_project_dir: Path, name: str, text: str, reason: str
+) -> None:
+    """The fragments are checked before the version bump, so a refusal leaves every file as it was."""
+    project = _with_fragments(sample_project_dir, {**_THREE_FRAGMENTS, name: text})
+    with patch("devops_cli.commands.release.DocGenerator.write_all_docs") as docs:
+        result = runner.invoke(app, ["prepare", "0.1.8", "--root", str(project)])
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        reason in output,
+        (project / "CHANGELOG.md").read_text(encoding="utf-8"),
+        _left_in_changelog_d(project),
+        (_get_pyproject_version(project), _get_init_version(project), docs.call_count),
+    ) == (
+        1,
+        True,
+        _UNRELEASED_CHANGELOG,
+        sorted([*_THREE_FRAGMENTS, name, "README.md"]),
+        ("0.1.7", "0.1.7", 0),
+    ), result.output
+
+
+@pytest.mark.parametrize("command", [["prepare", "0.1.8"], ["changelog", "-v", "0.1.8", "-u"]])
+def test_a_dry_run_cut_names_the_fragments_and_writes_nothing(
+    sample_project_dir: Path, command: list[str]
+) -> None:
+    """A dry run reads the fragments, so it refuses what the cut would, and deletes none."""
+    from devops_cli.dry_run import set_dry_run
+
+    project = _with_fragments(sample_project_dir, _THREE_FRAGMENTS)
+    set_dry_run(True)
+    try:
+        with patch("devops_cli.commands.release._extract_git_commit_notes", return_value=None):
+            result = runner.invoke(app, [*command, "--root", str(project)])
+    finally:
+        set_dry_run(False)
+    assert (
+        result.exit_code,
+        all(f"changelog.d/{name}" in result.output for name in ("3.md", "12.md", "100.md")),
+        (project / "CHANGELOG.md").read_text(encoding="utf-8"),
+        _left_in_changelog_d(project),
+        _get_pyproject_version(project),
+    ) == (0, True, _UNRELEASED_CHANGELOG, sorted([*_THREE_FRAGMENTS, "README.md"]), "0.1.7")
+
+
+@pytest.mark.parametrize(
+    "unreleased",
+    ["## [Unreleased]\n\n### Fixed\n- By hand.\n\n", "## [Unreleased]\n\n"],
+    ids=["unreleased-with-entries", "unreleased-empty"],
+)
+@pytest.mark.parametrize("readme_only", [True, False], ids=["readme-only", "no-directory"])
+def test_without_fragments_the_section_is_built_as_the_current_code_builds_it(
+    tmp_path: Path, unreleased: str, readme_only: bool
+) -> None:
+    """No fragment means no change: `[Unreleased]` is renamed, or filled from the commits."""
+    from devops_cli.commands.release import _plan_fragment_collection, _write_version_changelog
+
+    changelog = "# Changelog\n\n" + unreleased + "## [0.1.7] - 2026-08-13\n\n### Added\n- Old.\n"
+    project, before = tmp_path / "project", tmp_path / "before"
+    for root in (project, before):
+        root.mkdir()
+        (root / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
+    if readme_only:
+        (project / "changelog.d").mkdir()
+        (project / "changelog.d" / "README.md").write_text("Fragments.\n", encoding="utf-8")
+    commits = "### Changes in v0.1.8\n\n### Added\n- feat(a): one (#1)\n"
+    with patch("devops_cli.commands.release._extract_git_commit_notes", return_value=commits):
+        plan = _plan_fragment_collection(project, "0.1.8", "2026-10-02")
+        written = _write_version_changelog(project, "0.1.8", "2026-10-02", plan)
+        _update_changelog_header(before, "0.1.8", "2026-10-02")
+    assert (plan, written, (project / "CHANGELOG.md").read_text(encoding="utf-8")) == (
+        None,
+        True,
+        (before / "CHANGELOG.md").read_text(encoding="utf-8"),
+    )
+
+
+def test_a_release_commit_stages_changelog_d_only_where_it_exists(tmp_path: Path) -> None:
+    """The cut deletes the fragments, so the release commit records the deletions.
+
+    Naming a path that does not exist would fail the whole `git add`.
+    """
+    from devops_cli.commands.release import _release_paths
+
+    without = _release_paths(tmp_path)
+    (tmp_path / "changelog.d").mkdir()
+    assert (without[-1], _release_paths(tmp_path)[-1]) == ("docs/", "changelog.d/")
+
+
+# =============================================================================
+# Release notes fit GitHub's body limits (#1097)
+# =============================================================================
+
+_SECTION_HEADING = "## [0.2.25] - 2026-10-03"
+_SECTION_URL = "https://github.com/dan-petty/devops-cli/blob/v0.2.25/CHANGELOG.md#0225---2026-10-03"
+_REPO_CHANGELOG = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
+
+
+def _with_section(project: Path, body: str) -> Path:
+    """Put `body` in the project's changelog as the `[0.2.25]` section, above `[0.1.7]`."""
+    changelog = project / "CHANGELOG.md"
+    older = changelog.read_text(encoding="utf-8").split("## [0.1.7]", 1)[1]
+    changelog.write_text(f"# Changelog\n\n{_SECTION_HEADING}\n\n{body}\n\n## [0.1.7]{older}")
+    return project
+
+
+@pytest.fixture
+def repository_named(monkeypatch: pytest.MonkeyPatch) -> str:
+    """The repository GitHub Actions names; the project directory has no git origin."""
+    monkeypatch.setenv("GITHUB_REPOSITORY", "dan-petty/devops-cli")
+    return "dan-petty/devops-cli"
+
+
+def _no_github() -> Any:
+    """Every gh and git call fails, as offline: no milestone deliverables, no branch log."""
+    failed = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="")
+    return (
+        patch("devops_cli.commands.release.run_gh", return_value=failed),
+        patch("devops_cli.commands.release.run_subprocess", return_value=failed),
+    )
+
+
+def _pr_body(project: Path, version: str = "0.2.25") -> str:
+    from devops_cli.commands.release import _build_release_pr_body
+
+    gh, git = _no_github()
+    with gh, git:
+        return _build_release_pr_body(
+            repo_root=project,
+            target_ver=version,
+            base="main",
+            branch_name=f"release/v{version}",
+            draft=False,
+            pr_title=f"feat(release): v{version}",
+        )
+
+
+def test_release_notes_that_fit_are_printed_unchanged(sample_project_dir: Path) -> None:
+    """Below the limit the Release body is the changelog section, character for character."""
+    body = "### Added\n- **A Feature**:\n  - its detail (#1).\n\n### Fixed\n- **A Fix** (#2)."
+    _with_section(sample_project_dir, body)
+    result = runner.invoke(
+        app, ["notes", "--version", "0.2.25", "--raw", "--root", str(sample_project_dir)]
+    )
+    assert (result.exit_code, result.output) == (0, body + "\n")
+
+
+def test_a_200000_character_section_prints_under_the_release_limit_with_its_link(
+    sample_project_dir: Path, repository_named: str
+) -> None:
+    """Every category and title, no sub-bullet, and the section's link at its tag, last."""
+    _with_section(sample_project_dir, synthetic_release_section())
+    result = runner.invoke(
+        app, ["notes", "--version", "0.2.25", "--raw", "--root", str(sample_project_dir)]
+    )
+    titles = [synthetic_entry_title(number) for number in range(1, SYNTHETIC_ENTRY_COUNT + 1)]
+    assert result.exit_code == 0
+    assert len(result.output) < CONST_GITHUB_RELEASE_BODY_MAX_CHARS
+    assert [title for title in titles if title not in result.output] == []
+    assert [c for c in SYNTHETIC_CATEGORIES if f"### {c}\n" not in result.output] == []
+    assert synthetic_entry_detail(1, 1) not in result.output
+    assert result.output.endswith(f"[`CHANGELOG.md` at v0.2.25]({_SECTION_URL}).\n")
+
+
+def test_without_a_known_repository_the_pointer_names_the_file_and_tag(
+    sample_project_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No origin and no GITHUB_REPOSITORY: no URL can be built, so none is guessed."""
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    _with_section(sample_project_dir, synthetic_release_section())
+    result = runner.invoke(
+        app, ["notes", "--version", "0.2.25", "--raw", "--root", str(sample_project_dir)]
+    )
+    assert result.output.endswith("The full notes are in `CHANGELOG.md` at v0.2.25.\n")
+
+
+def test_the_changelog_fallback_prints_notes_that_fit_unchanged_and_fits_the_rest(
+    sample_project_dir: Path, repository_named: str
+) -> None:
+    """`release.yml` falls back to `release changelog --raw`; its output obeys the same rule."""
+    small = "* feat(auth): add oidc provider\n* fix(cli): handle timeout error\n"
+    large = "".join(f"* feat(x): change number {n} of a long release (#{n})\n" for n in range(3000))
+    outputs = []
+    for log in (small, large):
+        git_log = subprocess.CompletedProcess(args=[], returncode=0, stdout=log, stderr="")
+        with patch("devops_cli.commands.release.run_subprocess", return_value=git_log):
+            compiled = _extract_git_commit_notes(sample_project_dir, "0.1.8")
+            result = runner.invoke(
+                app, ["changelog", "--version", "0.1.8", "--raw", "--root", str(sample_project_dir)]
+            )
+        outputs.append((compiled, result.output))
+    (small_notes, small_output), (large_notes, large_output) = outputs
+    assert small_output == f"{small_notes}\n"
+    assert len(large_notes) > CONST_GITHUB_RELEASE_BODY_MAX_CHARS
+    assert len(large_output) <= CONST_GITHUB_RELEASE_BODY_MAX_CHARS
+    assert "Entries left out to fit: " in large_output
+    assert large_output.endswith(
+        "[`CHANGELOG.md` at v0.1.8](https://github.com/dan-petty/devops-cli/blob/v0.1.8/CHANGELOG.md).\n"
+    )
+
+
+def test_the_release_pr_body_fits_its_limit_with_every_title(
+    sample_project_dir: Path, repository_named: str
+) -> None:
+    """The PR limit is about half the Release one; the 210 titles still fit under it."""
+    body = _pr_body(_with_section(sample_project_dir, synthetic_release_section()))
+    titles = [synthetic_entry_title(number) for number in range(1, SYNTHETIC_ENTRY_COUNT + 1)]
+    assert len(body) <= CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS
+    assert [title for title in titles if title not in body] == []
+    assert f"({_SECTION_URL})." in body
+
+
+def test_the_release_pr_body_counts_its_other_sections_against_the_limit(
+    sample_project_dir: Path, repository_named: str
+) -> None:
+    """Notes that fit the limit alone are compacted when the deliverables push the body over."""
+    from devops_cli.commands.release import _build_release_pr_body
+
+    entry = "- **An Entry**:\n  - " + "d" * 300
+    notes = "### Added\n" + "\n".join([entry] * 200)
+    assert len(notes) < CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS
+    issues = [
+        {"number": n, "title": f"feat: deliverable {n}", "state": "CLOSED"} for n in range(400)
+    ]
+    listed = subprocess.CompletedProcess(
+        args=[], returncode=0, stdout=json.dumps(issues), stderr=""
+    )
+    _with_section(sample_project_dir, notes)
+    with (
+        patch("devops_cli.commands.release.run_gh", return_value=listed),
+        patch("devops_cli.commands.release._extract_branch_release_notes", return_value=None),
+    ):
+        body = _build_release_pr_body(
+            repo_root=sample_project_dir,
+            target_ver="0.2.25",
+            base="main",
+            branch_name="release/v0.2.25",
+            draft=False,
+            pr_title="feat(release): v0.2.25",
+        )
+    assert len(body) <= CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS
+    assert ("- #399" in body, "d" * 300 in body, f"({_SECTION_URL})." in body) == (
+        True,
+        False,
+        True,
+    )
+
+
+def test_every_section_of_this_repositorys_changelog_fits_both_limits(
+    sample_project_dir: Path, repository_named: str
+) -> None:
+    """Including v0.2.25's 196,525 characters once the cut is in this branch's CHANGELOG.md."""
+    from devops_cli.commands.release import _release_body_notes
+
+    changelog = _REPO_CHANGELOG.read_text(encoding="utf-8")
+    (sample_project_dir / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
+    versions = re.findall(r"^## \[(\d+\.\d+\.\d+)\]", changelog, re.MULTILINE)
+    sizes = {
+        version: (
+            len(_release_body_notes(sample_project_dir, version) or ""),
+            len(_pr_body(sample_project_dir, version)),
+        )
+        for version in versions
+    }
+    assert len(sizes) > 30
+    assert {
+        version: size
+        for version, size in sizes.items()
+        if size[0] >= CONST_GITHUB_RELEASE_BODY_MAX_CHARS
+        or size[1] > CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS
+    } == {}

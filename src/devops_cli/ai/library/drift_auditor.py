@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devops_cli.ai.rag.library_store import library_contracts_dir
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.models.library import FunctionSignature, LibraryContract
 
@@ -61,6 +62,8 @@ class DriftReport(BaseModel):
     findings: list[DriftFinding] = Field(default_factory=list)
     breaking_count: int = 0
     warning_count: int = 0
+    # Why the report could not be saved to disk; None once saved, or when no path was given.
+    save_error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -74,8 +77,13 @@ class DriftReport(BaseModel):
         }
 
     def save(self, path: Path) -> None:
-        """Save report to disk in JSON format."""
+        """Save report to disk in JSON format.
+
+        The previous report is removed first, so a write that fails cannot leave it in place
+        to pass as this run's.
+        """
         path.parent.mkdir(parents=True, exist_ok=True)
+        path.unlink(missing_ok=True)
         path.write_text(json.dumps(self.to_dict(), indent=2) + "\n", encoding="utf-8")
 
 
@@ -259,7 +267,7 @@ class LibraryDriftAuditor:
     """Audits workspace call sites against indexed library contracts to detect drift."""
 
     def __init__(self, contracts_dir: Path | None = None) -> None:
-        self.contracts_dir = contracts_dir or Path(".data/libraries")
+        self.contracts_dir = contracts_dir or library_contracts_dir()
 
     def _load_contracts(self, package_filter: str | None = None) -> dict[str, LibraryContract]:
         contracts: dict[str, LibraryContract] = {}
@@ -318,7 +326,9 @@ class LibraryDriftAuditor:
         if save_report_path is not None:
             try:
                 report.save(save_report_path)
-            except OSError:
-                pass
+            except OSError as exc:
+                # The findings are still returned; the caller reports the missing file.
+                logger.warning("Could not write drift report to %s: %s", save_report_path, exc)
+                report.save_error = str(exc)
 
         return report

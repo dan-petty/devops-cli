@@ -429,7 +429,7 @@ def _kubectl(
     cmd = ["kubectl", *(["--context", context] if context else []), *args]
     for attempt in range(1, _KUBECTL_ATTEMPTS + 1):
         try:
-            proc = subprocess.run(  # noqa: S603  # nosec B603 - fixed kubectl argv, no shell
+            proc = subprocess.run(  # nosec B603 - fixed kubectl argv, no shell
                 cmd,
                 input=input_data,
                 capture_output=True,

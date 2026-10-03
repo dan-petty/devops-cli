@@ -11,6 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.gh import app
+from devops_cli.config.constants import CONST_PROJECT_WORKFLOW_EXPECTATIONS
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.projects import (
     _fetch_project_workflow_nodes,
@@ -336,3 +337,31 @@ def test_a_fully_configured_board_reports_no_gap() -> None:
     with patch("devops_cli.commands.gh.get_project_workflows", return_value=workflows):
         result = _run_list()
     assert "Every expected automation is enabled" in result.output
+
+
+def test_the_expectations_match_the_board_as_its_owner_configured_it() -> None:
+    """Pins board 2's built-in workflows as set on 2026-10-01 (#739).
+
+    Added and reopened items are New. A linked pull request puts its issue In Review, which
+    reconcile would otherwise restore. Auto-close, auto-archive and auto-add are off, so they
+    have no entry: closure writes the summary, the jobs read every item, and intake is the one
+    way onto the board.
+    """
+    assert CONST_PROJECT_WORKFLOW_EXPECTATIONS == {
+        "Item added to project": "Set Status to New",
+        "Item closed": "Set Status to Done",
+        "Item reopened": "Set Status to New",
+        "Pull request linked to issue": "Set Status to In Review",
+        "Pull request merged": "Set Status to Done",
+    }
+
+
+def test_an_auto_add_workflow_left_off_is_not_reported_as_a_gap() -> None:
+    """The audit stops asking for auto-add now that intake is the way onto the board."""
+    workflows = [
+        _workflow("Item closed", 1, True),
+        _workflow("Auto-add sub-issues to project", 4, False),
+    ]
+    with patch("devops_cli.commands.gh.get_project_workflows", return_value=workflows):
+        result = _run_list()
+    assert (result.exit_code, "Every expected automation is enabled" in result.output) == (0, True)

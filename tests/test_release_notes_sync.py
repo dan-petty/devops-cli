@@ -179,3 +179,14 @@ def test_an_unreadable_release_is_skipped() -> None:
     ):
         result = runner.invoke(app, ["sync-notes", "--version", "0.2.21"])
     assert (edited.call_count, "could not be read" in result.output) == (0, True)
+
+
+def test_a_changelog_entry_too_long_for_a_release_is_republished_compact() -> None:
+    """GitHub refuses a Release body over 125,000 characters, so sync-notes sends what fits (#1097)."""
+    long_entries = "\n".join(f"- **Entry {n}**:\n  - " + "d" * 700 for n in range(200))
+    expected = f"### Added\n{long_entries}"
+    result, edited = _invoke(["--version", "0.2.21"], CHANGELOG_BODY, expected)
+    sent = edited.call_args.args[2]
+    assert (result.exit_code, len(expected) > 125_000, len(sent) <= 125_000) == (0, True, True)
+    assert "- **Entry 199**:" in sent
+    assert f"https://github.com/{REPO}/blob/v0.2.21/CHANGELOG.md#0221---" in sent

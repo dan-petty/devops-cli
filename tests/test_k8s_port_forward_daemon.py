@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from unittest.mock import PropertyMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s.networking import port_forward_status, port_forward_stop
@@ -22,6 +23,12 @@ dummy_app.command("status")(port_forward_status)
 dummy_app.command("stop")(port_forward_stop)
 
 
+def _own_start_ticks() -> int:
+    """This process's start time in clock ticks after boot, field 22 of /proc/self/stat."""
+    stat = Path("/proc/self/stat").read_bytes()
+    return int(stat[stat.rindex(b")") + 2 :].split()[19])
+
+
 def test_port_forward_info_model() -> None:
     """Test PortForwardInfo model serialization and liveness check."""
     info = PortForwardInfo(
@@ -32,6 +39,7 @@ def test_port_forward_info_model() -> None:
         remote_port=80,
         address="127.0.0.1",
         stack="infra",
+        start_ticks=_own_start_ticks(),
     )
     assert info.is_alive is True
 
@@ -43,6 +51,7 @@ def test_port_forward_info_model() -> None:
         remote_port=16686,
         address="127.0.0.1",
         stack="infra",
+        start_ticks=None,
     )
     assert dead_info.is_alive is False
 
@@ -58,6 +67,7 @@ def test_daemon_manager_save_and_list(tmp_path: Path) -> None:
         remote_port=11434,
         address="127.0.0.1",
         stack="llm",
+        start_ticks=_own_start_ticks(),
     )
     mgr.save_forwards([item])
 
@@ -78,19 +88,19 @@ def test_daemon_manager_stop_forwards(tmp_path: Path) -> None:
         remote_port=80,
         address="127.0.0.1",
         stack="infra",
+        start_ticks=None,
     )
     mgr.save_forwards([item])
 
-    # Termination now signals the forward's process group, so the group has to be
-    # resolvable; `os.kill` still stands in for the liveness probe in `is_alive`.
+    # Termination signals the forward's process group, so the group has to be resolvable.
     with (
-        patch("os.kill") as mock_kill,
+        patch.object(PortForwardInfo, "is_alive", new_callable=PropertyMock, return_value=True),
         patch("os.getpgid", side_effect=lambda pid: 4242 if pid else 7),
         patch("os.killpg") as mock_killpg,
     ):
         stopped = mgr.stop_forwards()
         assert stopped == 1
-        assert mock_kill.called and mock_killpg.called
+        assert mock_killpg.called
 
     remaining = mgr.list_forwards()
     assert len(remaining) == 0
@@ -118,6 +128,7 @@ def test_cli_port_forward_stop(tmp_path: Path) -> None:
             remote_port=9090,
             address="127.0.0.1",
             stack="infra",
+            start_ticks=None,
         )
         mgr.save_forwards([item])
         mock_get.return_value = mgr
@@ -147,6 +158,7 @@ def test_daemon_manager_stop_filter_and_dead_process(tmp_path: Path) -> None:
         remote_port=80,
         address="127.0.0.1",
         stack="infra",
+        start_ticks=None,
     )
     item2 = PortForwardInfo(
         pid=22222,
@@ -156,6 +168,7 @@ def test_daemon_manager_stop_filter_and_dead_process(tmp_path: Path) -> None:
         remote_port=9090,
         address="127.0.0.1",
         stack="infra",
+        start_ticks=None,
     )
     mgr.save_forwards([item1, item2])
 
@@ -234,3 +247,176 @@ def test_a_forward_is_started_in_its_own_session() -> None:
     source = inspect.getsource(networking)
     forward_call = source[source.index("kubectl") : source.index("active_forwards.append")]
     assert "start_new_session=True" in forward_call
+
+
+# =============================================================================
+# State file locking, atomic saves and reused pids (#961)
+# =============================================================================
+
+
+def test_concurrent_launches_keep_both_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two `devops k8s port-forward` runs at once both keep their forwards on record (#961).
+
+    Each run read the state file, started its forwards and saved, with no lock. A run that
+    read before the other saved wrote its own list over the other's, so those detached
+    forwards held their local ports but were never listed or stopped again.
+    """
+    import subprocess
+    import threading
+    from types import SimpleNamespace
+
+    from devops_cli.commands.k8s import networking
+    from devops_cli.k8s import port_forward_daemon as module
+
+    state_file = tmp_path / "port_forwards.json"
+    # Each run is its own process with its own manager; they share only the state file.
+    monkeypatch.setattr(
+        module, "get_daemon_manager", lambda: PortForwardDaemonManager(state_file=state_file)
+    )
+    first_spawning, second_spawned = threading.Event(), threading.Event()
+
+    def popen(cmd: list[str], **kwargs: object) -> MagicMock:
+        if "svc/ollama" in cmd:
+            second_spawned.set()
+        else:
+            first_spawning.set()
+            # Without a lock, the second run reads the state file while the first waits here.
+            second_spawned.wait(timeout=0.2)
+        return MagicMock(pid=os.getpid())
+
+    monkeypatch.setattr(
+        networking, "subprocess", SimpleNamespace(Popen=popen, DEVNULL=subprocess.DEVNULL)
+    )
+    first = threading.Thread(
+        target=networking._launch_port_forwards,
+        args=([("otel", "svc/jaeger", 16686, 16686)], None, "127.0.0.1", "infra"),
+    )
+    first.start()
+    first_spawning.wait(timeout=5)
+    networking._launch_port_forwards(
+        [("llm", "svc/ollama", 11434, 11434)], None, "127.0.0.1", "llm"
+    )
+    first.join(timeout=5)
+
+    listed = PortForwardDaemonManager(state_file=state_file).list_forwards()
+    assert sorted(f.service for f in listed) == ["svc/jaeger", "svc/ollama"]
+
+
+def test_a_failed_save_leaves_the_previous_state_intact(tmp_path: Path) -> None:
+    """The state file only changes by a whole-file replace (#961).
+
+    It was rewritten in place, so a read during a save, or a save cut short, saw truncated
+    JSON, which reads as no forwards at all, and the next save dropped every record.
+    """
+    state_file = tmp_path / "port_forwards.json"
+    mgr = PortForwardDaemonManager(state_file=state_file)
+    jaeger = PortForwardInfo(
+        pid=os.getpid(),
+        service="svc/jaeger",
+        namespace="otel",
+        local_port=16686,
+        remote_port=16686,
+        start_ticks=_own_start_ticks(),
+    )
+    mgr.save_forwards([jaeger])
+    before = state_file.read_bytes()
+
+    with (
+        patch("os.replace", side_effect=OSError("No space left on device")),
+        pytest.raises(OSError, match="No space left"),
+    ):
+        mgr.save_forwards([jaeger, jaeger.model_copy(update={"service": "svc/ollama"})])
+
+    assert (state_file.read_bytes(), [f.service for f in mgr.list_forwards()]) == (
+        before,
+        ["svc/jaeger"],
+    )
+
+
+def test_reused_pid_is_neither_listed_nor_signalled(tmp_path: Path) -> None:
+    """A recorded pid that now names another process is not a forward (#961).
+
+    The state file outlives container and WSL restarts, and pids are handed out again. A
+    record whose pid was live read as a running forward, and `port-forward stop` signalled
+    whatever process held that pid. The start time recorded at launch tells them apart.
+    """
+    state_file = tmp_path / "port_forwards.json"
+    mgr = PortForwardDaemonManager(state_file=state_file)
+    stale = PortForwardInfo(
+        pid=os.getpid(),
+        service="svc/grafana",
+        namespace="monitoring",
+        local_port=8030,
+        remote_port=80,
+        start_ticks=_own_start_ticks() + 1,
+    )
+    mgr.save_forwards([stale])
+    listed = mgr.list_forwards()
+    mgr.save_forwards([stale])
+
+    with patch("os.killpg") as killpg, patch("os.kill") as kill:
+        stopped = mgr.stop_forwards()
+
+    signals = [call.args for call in kill.call_args_list if call.args[1] != 0]
+    assert (listed, stopped, killpg.call_args_list, signals) == ([], 0, [], [])
+
+
+def test_without_proc_a_live_pid_is_a_running_forward(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Where /proc cannot be read, as on macOS, liveness falls back to signal 0 on the pid."""
+    from devops_cli.k8s import port_forward_daemon as module
+
+    monkeypatch.setattr(module, "_PROC_ROOT", tmp_path / "no-proc")
+    recorded = {
+        "service": "svc/qdrant",
+        "namespace": "llm",
+        "local_port": 6333,
+        "remote_port": 6333,
+        "start_ticks": None,
+    }
+    live = PortForwardInfo(pid=os.getpid(), **recorded)
+    gone = PortForwardInfo(pid=99999999, **recorded)
+
+    assert (module.process_start_ticks(os.getpid()), live.is_alive, gone.is_alive) == (
+        None,
+        True,
+        False,
+    )
+
+
+@pytest.mark.parametrize("operation", ["list", "stop"])
+def test_listing_and_stopping_wait_for_a_run_holding_the_lock(
+    tmp_path: Path, operation: str
+) -> None:
+    """A list or stop that prunes the state file waits while another run holds its lock (#961).
+
+    Without the lock, a stop during a start saved its list over the starting run's records.
+    """
+    import threading
+
+    state_file = tmp_path / "port_forwards.json"
+    holder = PortForwardDaemonManager(state_file=state_file)
+    holder.save_forwards([])
+    other = PortForwardDaemonManager(state_file=state_file)
+    finished = threading.Event()
+    run = other.list_forwards if operation == "list" else other.stop_forwards
+
+    with holder.locked():
+        worker = threading.Thread(target=lambda: (run(), finished.set()))
+        worker.start()
+        waited = not finished.wait(timeout=0.1)
+    worker.join(timeout=5)
+
+    assert (waited, finished.is_set()) == (True, True)
+
+
+def test_a_status_check_with_no_state_file_creates_nothing(tmp_path: Path) -> None:
+    """Listing with no state file returns nothing and leaves no directory or lock behind."""
+    state_file = tmp_path / "k8s" / "port_forwards.json"
+
+    listed = PortForwardDaemonManager(state_file=state_file).list_forwards()
+
+    assert (listed, state_file.parent.exists()) == ([], False)

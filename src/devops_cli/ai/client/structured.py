@@ -12,7 +12,7 @@ from typing import Any, TypeVar
 import json_repair
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from devops_cli.ai.client.models import AIClientError, LLMResponse
+from devops_cli.ai.client.models import AIClientError, LLMResponse, genai_provider_name
 from devops_cli.ai.schema_reflection import (
     SchemaReflectionReport,
     format_schema_validation_error,
@@ -238,7 +238,7 @@ class StructuredOutputMixin:
         with trace_span(
             "ai.client.chat_structured",
             attributes={
-                "gen_ai.system": provider_name,
+                "gen_ai.provider.name": genai_provider_name(provider_name),
                 "gen_ai.request.model": model_name,
                 "schema.name": getattr(schema, "__name__", str(schema)),
                 "max_retries": max_retries,

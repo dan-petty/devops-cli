@@ -1,5 +1,10 @@
 # Ollama Inference Workload Profiles Consolidated by Total VRAM Capacity (<llm_provider>-<vram_gib>).
 # Tiers: 16gib, 24gib, 32gib, 48gib, 64gib, 72gib, 96gib, 128gib.
+# Each tier keeps one model loaded and serves one request at a time. Ollama reserves KV cache for
+# OLLAMA_CONTEXT_LENGTH x OLLAMA_NUM_PARALLEL tokens, and four slots left a dense ~30B model too
+# little VRAM to load (#1061). The exception is ollama-48gib-slow, the background tier: it keeps
+# its embedding model and one background model loaded, since with one loaded each evicted the
+# other on every switch (#1064).
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -13,6 +18,7 @@ metadata:
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: 16gib
     llm.devops.io/total-vram-gib: "16"
+    llm.devops.io/speed-tier: fast
 spec:
   updateStrategy:
     type: RollingUpdate
@@ -28,6 +34,7 @@ spec:
         llm.devops.io/provider: ollama
         llm.devops.io/vram-gib: 16gib
         llm.devops.io/total-vram-gib: "16"
+        llm.devops.io/speed-tier: fast
     spec:
       runtimeClassName: nvidia
       affinity:
@@ -55,9 +62,9 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "48000"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "2"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q4_0
             - name: OLLAMA_NO_CLOUD
@@ -114,6 +121,7 @@ metadata:
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: 24gib
     llm.devops.io/total-vram-gib: "24"
+    llm.devops.io/speed-tier: slow
 spec:
   updateStrategy:
     type: RollingUpdate
@@ -129,6 +137,7 @@ spec:
         llm.devops.io/provider: ollama
         llm.devops.io/vram-gib: 24gib
         llm.devops.io/total-vram-gib: "24"
+        llm.devops.io/speed-tier: slow
     spec:
       runtimeClassName: nvidia
       affinity:
@@ -136,12 +145,9 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  # - key: nvidia.com/gpu.architecture
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  # - key: nvidia.com/gpu.family
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values: ["pascal", "maxwell", "kepler"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["24Gi", "28Gi"]
@@ -156,9 +162,9 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "48000"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_NO_CLOUD
@@ -259,7 +265,7 @@ spec:
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD
@@ -318,6 +324,7 @@ metadata:
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: 48gib
     llm.devops.io/total-vram-gib: "48"
+    llm.devops.io/speed-tier: fast
 spec:
   updateStrategy:
     type: RollingUpdate
@@ -333,6 +340,7 @@ spec:
         llm.devops.io/provider: ollama
         llm.devops.io/vram-gib: 48gib
         llm.devops.io/total-vram-gib: "48"
+        llm.devops.io/speed-tier: fast
     spec:
       runtimeClassName: nvidia
       affinity:
@@ -340,12 +348,9 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  # - key: nvidia.com/gpu.architecture
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  # - key: nvidia.com/gpu.family
-                  #   operator: NotIn
-                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values: ["ampere", "ada-lovelace", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["48Gi", "52Gi", "56Gi", "60Gi"]
@@ -362,7 +367,111 @@ spec:
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
+              value: "1"
+            - name: OLLAMA_KV_CACHE_TYPE
+              value: q8_0
+            - name: OLLAMA_SCHED_SPREAD
+              value: "1"
+            - name: OLLAMA_NO_CLOUD
+              value: "1"
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            requests:
+              cpu: 6000m
+              memory: 24Gi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
+      volumes:
+        - name: ollama-data
+          hostPath:
+            path: /var/lib/ollama
+            type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ollama-48gib-slow
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-48gib-slow
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/backend: ollama
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: 48gib
+    llm.devops.io/total-vram-gib: "48"
+    llm.devops.io/speed-tier: slow
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ollama-48gib-slow
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ollama-48gib-slow
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/backend: ollama
+        llm.devops.io/provider: ollama
+        llm.devops.io/vram-gib: 48gib
+        llm.devops.io/total-vram-gib: "48"
+        llm.devops.io/speed-tier: slow
+    spec:
+      runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values: ["pascal", "maxwell", "kepler"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["48Gi", "52Gi", "56Gi", "60Gi"]
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.34.4
+          env:
+            - name: OLLAMA_HOST
+              value: 0.0.0.0:11434
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_CONTEXT_LENGTH
+              value: "128000"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "2"    # its embedding model and qwen3-coder:30b stay loaded together
+            - name: OLLAMA_NUM_PARALLEL
+              value: "1"
+            - name: OLLAMA_KEEP_ALIVE
+              value: "-1"   # no reload after 5 idle minutes; the gateway sends it no third model
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD
@@ -421,6 +530,7 @@ metadata:
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: 64gib
     llm.devops.io/total-vram-gib: "64"
+    llm.devops.io/speed-tier: standard
 spec:
   updateStrategy:
     type: RollingUpdate
@@ -436,6 +546,7 @@ spec:
         llm.devops.io/provider: ollama
         llm.devops.io/vram-gib: 64gib
         llm.devops.io/total-vram-gib: "64"
+        llm.devops.io/speed-tier: standard
     spec:
       runtimeClassName: nvidia
       affinity:
@@ -465,7 +576,7 @@ spec:
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD
@@ -568,7 +679,7 @@ spec:
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD
@@ -681,7 +792,7 @@ spec:
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD
@@ -784,7 +895,7 @@ spec:
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD

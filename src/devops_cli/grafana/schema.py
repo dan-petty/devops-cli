@@ -106,6 +106,7 @@ class Panel(BaseModel):
     field_config: FieldConfig | None = Field(default=None, alias="fieldConfig")
     options: dict[str, Any] = Field(default_factory=dict)
     collapsed: bool | None = Field(default=None)
+    description: str | None = Field(default=None)
 
     @property
     def is_row(self) -> bool:
@@ -127,6 +128,7 @@ class Dashboard(BaseModel):
     schema_version: int = Field(default=CONST_GRAFANA_SCHEMA_VERSION, alias="schemaVersion")
     version: int = Field(default=1)
     panels: list[Panel] = Field(default_factory=list)
+    templating: dict[str, Any] = Field(default_factory=dict)
     time: dict[str, str] = Field(default_factory=lambda: {"from": "now-6h", "to": "now"})
     annotations: dict[str, Any] = Field(default_factory=dict)
     links: list[dict[str, Any]] = Field(default_factory=list)

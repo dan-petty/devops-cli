@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.labels import (
     LabelSpec,
     LabelSyncResult,
@@ -94,3 +98,41 @@ def test_audit_repository_labels() -> None:
     assert findings[0].pr_number == 10
     assert "Missing scope label" in findings[0].issue
     assert findings[1].pr_number == 12
+
+
+class _FailingLabelClient:
+    """A label client whose label list is empty and whose create raises the given error."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def get_labels(self, repo: str) -> list[dict[str, Any]]:
+        return []
+
+    def create_label(self, repo: str, name: str, color: str, description: str = "") -> None:
+        raise self.error
+
+    def edit_label(self, repo: str, name: str, color: str, description: str = "") -> None:
+        raise self.error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        GitHubOperationError("label create failed", operation="create_label"),
+        TypeError("raised inside create_label"),
+    ],
+    ids=["operation-error", "type-error"],
+)
+def test_sync_propagates_client_failure(error: Exception) -> None:
+    """A failed label mutation reaches the caller as the client raised it (#961).
+
+    A TypeError raised inside the call used to be caught and the call retried without the
+    repository, which no client accepts, so the caller saw a misleading TypeError about a
+    missing `repo` argument instead.
+    """
+    with pytest.raises(type(error)) as raised:
+        sync_repository_labels(
+            _FailingLabelClient(error), "o/r", [LabelSpec(name="type/bug", color="D73A4A")]
+        )
+    assert raised.value is error

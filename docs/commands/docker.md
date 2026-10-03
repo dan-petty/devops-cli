@@ -164,7 +164,7 @@ devops docker sandbox [OPTIONS] <command>
 | `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
 | `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
 | `--read-only` | `boolean` | - | Mount workspace as read-only |
-| `--rootless`, `--root` | `boolean` | `True` | Run container with host user UID/GID |
+| `--rootless` / `--root` | `boolean` | `True` | Run container with host user UID/GID |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -188,10 +188,10 @@ devops docker sign [OPTIONS] <image>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--key`, `-k` | `string` | - | Path to private key or keyring:\<name\> |
-| `--keyless`, `--keyed` | `boolean` | `True` | Sign keylessly using OIDC/Fulcio |
+| `--keyless` / `--keyed` | `boolean` | `True` | Sign keylessly using OIDC/Fulcio |
 | `--oidc-token` | `string` | - | OIDC identity token or keyring:\<name\> for keyless signing |
 | `--annotation`, `-a` | `string` | - | Custom supply chain key=value annotations |
-| `--upload`, `--no-upload` | `boolean` | `True` | Upload signature to remote registry |
+| `--upload` / `--no-upload` | `boolean` | `True` | Upload signature to remote registry |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

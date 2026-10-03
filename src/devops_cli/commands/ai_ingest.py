@@ -8,8 +8,9 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
+from devops_cli.ai.rag.library_store import library_contracts_dir
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
-from devops_cli.core.cli import new_typer
+from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.lang import HELP
 
 if TYPE_CHECKING:
@@ -42,7 +43,7 @@ def ingest_library(
     introspector = PackageIntrospector()
     try:
         contract = introspector.introspect_package(package_name, max_depth=max_depth)
-        target_dir = output_dir or Path(".data/libraries")
+        target_dir = output_dir or library_contracts_dir()
         saved_file = introspector.save_to_dir(contract, target_dir)
     except Exception as exc:
         print_error(f"Failed to ingest library '{package_name}': {exc}")
@@ -277,9 +278,9 @@ def _build_runtime_vector_store(
 
 @app.command(name="index-libraries")
 def index_libraries(
-    contracts_dir: Annotated[Path, typer.Option("--dir", "-d", help=HELP.ai.contracts_dir)] = Path(
-        ".data/libraries"
-    ),
+    contracts_dir: Annotated[
+        Path | None, typer.Option("--dir", "-d", help=HELP.ai.contracts_dir)
+    ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
     output_format: Annotated[
         str, typer.Option("--format", "-f", help=HELP.options.format_type)
@@ -288,8 +289,10 @@ def index_libraries(
     """Index exported library API contracts into Qdrant vector collection and Valkey cache."""
     import json
 
+    from devops_cli.ai.rag.embeddings import EmbeddingsError
     from devops_cli.output import print_warning, write_stdout
 
+    contracts_dir = contracts_dir or library_contracts_dir()
     contracts = _load_local_contracts(contracts_dir)
     if not contracts:
         print_warning(f"No library contract JSON files found in {contracts_dir}.")
@@ -297,8 +300,9 @@ def index_libraries(
 
     if not dry_run:
         store = _build_runtime_vector_store(contracts_dir, semantic_needed=True, dry_run=False)
-        for contract in contracts:
-            store.index_contract(contract)
+        with exit_on_error(EmbeddingsError):
+            for contract in contracts:
+                store.index_contract(contract)
 
     if output_format == "json":
         payload = [
@@ -319,8 +323,8 @@ def query_library(
     exact: Annotated[bool, typer.Option("--exact", "-e", help=HELP.ai.exact_lookup)] = False,
     top_k: Annotated[int, typer.Option("--top-k", "-k", help=HELP.options.limit)] = 5,
     contracts_dir: Annotated[
-        Path, typer.Option("--contracts-dir", help=HELP.ai.contracts_dir)
-    ] = Path(".data/libraries"),
+        Path | None, typer.Option("--contracts-dir", help=HELP.ai.contracts_dir)
+    ] = None,
     output_format: Annotated[
         str, typer.Option("--format", "-f", help=HELP.options.format_type)
     ] = DEFAULT_TABLE_FORMAT,
@@ -328,10 +332,11 @@ def query_library(
     """Search library contracts and documentation via semantic search or exact symbol lookup."""
     import json
 
+    from devops_cli.ai.rag.embeddings import EmbeddingsError
     from devops_cli.output import print_error, write_stdout
 
     store = _build_runtime_vector_store(
-        contracts_dir,
+        contracts_dir or library_contracts_dir(),
         semantic_needed=not exact,
         dry_run=False,
     )
@@ -347,7 +352,8 @@ def query_library(
         _render_query_exact_table(sig)
         return
 
-    results = store.search(query, package=package, top_k=top_k)
+    with exit_on_error(EmbeddingsError):
+        results = store.search(query, package=package, top_k=top_k)
     if output_format == "json":
         write_stdout(json.dumps([r.model_dump() for r in results], indent=2) + "\n")
         return

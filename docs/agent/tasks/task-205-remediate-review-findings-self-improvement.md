@@ -42,8 +42,8 @@ Remediate verified security, path containment, error handling, and formatting fi
 
 ## 2. Verification & Acceptance Criteria
 
-- [ ] All unit tests authored in canonical submodule test files pass 100%.
-- [ ] Non-existent file hallucinations are deterministically invalidated.
-- [ ] Architectural invariants satisfied (cyclomatic complexity $\le 10$, nesting depth $\le 5$).
-- [ ] All 10 `devops ci` quality gates pass cleanly.
-- [ ] `feedback_dataset.jsonl` updated via `devops review export-feedback`.
+- Not checked when merged: all unit tests authored in canonical submodule test files pass 100%.
+- Not checked when merged: non-existent file hallucinations are deterministically invalidated.
+- Not checked when merged: architectural invariants satisfied (cyclomatic complexity $\le 10$, nesting depth $\le 5$).
+- Not checked when merged: all 10 `devops ci` quality gates pass cleanly.
+- Not checked when merged: `feedback_dataset.jsonl` updated via `devops review export-feedback`.

@@ -283,6 +283,51 @@ def test_argo_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         assert res_bg_missing.exit_code == 1
 
 
+def test_argo_namespace_never_names_the_kubeconfig_context(tmp_path: Path) -> None:
+    """`--namespace` scopes the custom resources and never selects a kubeconfig context (#961).
+
+    Each workflows and rollouts command used to pass its namespace to the CRD service as
+    the context, so outside a pod `-n argocd` looked up a kubeconfig context named
+    `argocd`: an error, or another cluster when a context of that name existed.
+    """
+    from devops_cli.k8s.service import KubernetesService
+
+    succeeded = {
+        "metadata": {"name": "my-wf", "namespace": "argocd"},
+        "status": {"phase": "Succeeded", "nodes": {}},
+    }
+    crd_api = MagicMock()
+    crd_api.list_namespaced_custom_object.return_value = {"items": []}
+    crd_api.get_namespaced_custom_object.return_value = succeeded
+    crd_api.create_namespaced_custom_object.return_value = succeeded
+    contexts: list[str | None] = []
+
+    def custom_objects_api(self: KubernetesService, context: str | None = None) -> MagicMock:
+        contexts.append(context)
+        return crd_api
+
+    workflow = tmp_path / "wf.yaml"
+    workflow.write_text(
+        "apiVersion: argoproj.io/v1alpha1\nkind: Workflow\nmetadata:\n  name: my-wf\n",
+        encoding="utf-8",
+    )
+    invocations = [
+        ["workflows", "list", "--namespace", "argocd"],
+        ["workflows", "submit", str(workflow), "--namespace", "argocd", "--wait"],
+        ["workflows", "logs", "my-wf", "--namespace", "argocd"],
+        ["rollouts", "list", "--namespace", "argocd"],
+        ["rollouts", "status", "my-rollout", "--namespace", "argocd"],
+    ]
+    with (
+        patch.object(KubernetesService, "custom_objects_api", custom_objects_api),
+        patch.object(KubernetesService, "read_pod_logs", return_value=iter(())),
+    ):
+        exit_codes = [runner.invoke(argo_app, args).exit_code for args in invocations]
+
+    namespaces = {call.kwargs["namespace"] for call in crd_api.method_calls}
+    assert (exit_codes, set(contexts), namespaces) == ([0] * 5, {None}, {"argocd"})
+
+
 def test_argo_cd_apps_list_and_status_dry_run() -> None:
     """Verify argo cd apps list and status in dry-run mode."""
     from devops_cli.dry_run import set_dry_run

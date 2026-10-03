@@ -1,14 +1,27 @@
-"""Streaming utilities for token chunks and SSE event streams."""
+"""Streaming utilities for token chunks, and readers for providers' event and NDJSON streams."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncGenerator, AsyncIterable, Callable, Generator, Iterable
-from typing import Any
+from collections.abc import AsyncGenerator, AsyncIterable, Callable, Generator, Iterable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Final
 
 import httpx2
 
-from devops_cli.ai.client.models import MAX_STREAM_BYTES, AIClientError
+from devops_cli.ai.client.models import MAX_STREAM_BYTES, AIClientError, provider_finish_reason
+from devops_cli.ai.client.network import size_limit_text, stream_finish_reason
+from devops_cli.config.constants import (
+    CONST_ANTHROPIC_STOP_REASONS,
+    CONST_OLLAMA_DONE_REASONS,
+    CONST_OPENAI_FINISH_REASONS,
+)
+from devops_cli.config.defaults import DEFAULT_AI_STREAM_MAX_EVENT_BYTES
+from devops_cli.security.sanitizer import mask_secrets
+
+if TYPE_CHECKING:
+    from pydantic_ai.messages import FinishReason
 
 
 def _find_suffix_overlap(text: str, target: str) -> int:
@@ -65,7 +78,7 @@ class StreamingTokenProcessor:
         self._total_bytes += len(chunk.encode("utf-8"))
         if self._total_bytes > self.max_stream_bytes:
             raise AIClientError(
-                f"Stream exceeded maximum size limit of {self.max_stream_bytes // (1024 * 1024)}MB."
+                f"Stream exceeded maximum size limit of {size_limit_text(self.max_stream_bytes)}."
             )
 
     def _trigger_reasoning_start(self) -> None:
@@ -237,149 +250,283 @@ class StreamingTokenProcessor:
 StreamingReasoningSanitizer = StreamingTokenProcessor
 
 
-def _extract_ollama_stream_chunk(line: str) -> str | None:
-    """Extract content or thinking chunk from an Ollama stream line."""
-    if not line:
-        return None
+@dataclass(frozen=True, slots=True)
+class StreamFrame:
+    """What one provider frame means: text to yield, and whether and why the reply ended."""
+
+    chunk: str | None = None
+    # The provider's final word arrived: the stream is complete, even if reading goes on.
+    complete: bool = False
+    # Nothing after this frame is read.
+    last: bool = False
+    finish_reason: FinishReason | None = None
+    # The provider's own error message, which the reader raises.
+    error: str | None = None
+
+
+def _json_object(text: str) -> dict[str, Any]:
+    """A frame's JSON object; an empty one for anything else, which carries nothing to read."""
     try:
-        line_data = json.loads(line)
+        parsed = json.loads(text)
     except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _error_text(error: object) -> str:
+    """The message of an error frame's `error` value: a string, or an object with a message."""
+    if isinstance(error, dict):
+        return str(error.get("message") or error)
+    return str(error)
+
+
+def _ollama_message_text(message: object) -> str | None:
+    """A chat message's thinking, wrapped in think tags, or else its content."""
+    if not isinstance(message, dict):
         return None
-    msg = line_data.get("message", {})
-    content = msg.get("content", "")
-    thinking = msg.get("thinking", "")
-    if thinking:
+    if thinking := message.get("thinking"):
         return f"<think>{thinking}</think>"
-    if content:
-        return str(content)
+    content = message.get("content")
+    return str(content) if content else None
+
+
+def _ollama_stream_frame(line: str) -> StreamFrame:
+    """One line of an Ollama chat stream; `done: true` is its final frame, with `done_reason`."""
+    payload = _json_object(line)
+    if payload.get("error") is not None:
+        return StreamFrame(error=_error_text(payload["error"]))
+    done = payload.get("done") is True
+    return StreamFrame(
+        chunk=_ollama_message_text(payload.get("message")),
+        complete=done,
+        last=done,
+        finish_reason=provider_finish_reason(CONST_OLLAMA_DONE_REASONS, payload.get("done_reason")),
+    )
+
+
+def _claude_delta_text(delta: object) -> str | None:
+    """A content block delta's text, or its thinking wrapped in think tags."""
+    if not isinstance(delta, dict):
+        return None
+    delta_type = delta.get("type")
+    if delta_type == "text_delta" and delta.get("text"):
+        return str(delta["text"])
+    if delta_type == "thinking_delta" and delta.get("thinking"):
+        return f"<think>{delta['thinking']}</think>"
     return None
 
 
-def _extract_claude_stream_chunk(line: str) -> tuple[str | None, bool]:
-    """Extract content chunk from Claude SSE stream line. Returns (chunk, is_done)."""
-    if not line or not line.startswith("data:"):
-        return (None, False)
-    raw_data = line.removeprefix("data:").strip()
-    if raw_data == "[DONE]":
-        return (None, True)
-    try:
-        event_json = json.loads(raw_data)
-    except json.JSONDecodeError:
-        return (None, False)
-    if event_json.get("type") == "content_block_delta":
-        delta = event_json.get("delta", {})
-        delta_type = delta.get("type")
-        if delta_type == "text_delta":
-            text_val = delta.get("text", "")
-            if text_val:
-                return (str(text_val), False)
-        if delta_type == "thinking_delta":
-            think_val = delta.get("thinking", "")
-            if think_val:
-                return (f"<think>{think_val}</think>", False)
-    return (None, False)
+def _claude_message_delta(payload: dict[str, Any]) -> StreamFrame:
+    """`message_delta` carries the reply's stop reason, ahead of the final `message_stop`."""
+    delta = payload.get("delta")
+    stop_reason = delta.get("stop_reason") if isinstance(delta, dict) else None
+    return StreamFrame(
+        finish_reason=provider_finish_reason(CONST_ANTHROPIC_STOP_REASONS, stop_reason)
+    )
 
 
-def _extract_openai_stream_chunk(line: str) -> tuple[str | None, bool]:
-    """Extract content chunk from OpenAI SSE stream line. Returns (chunk, is_done)."""
-    if not line or not line.startswith("data:"):
-        return (None, False)
-    raw_data = line.removeprefix("data:").strip()
-    if raw_data == "[DONE]":
-        return (None, True)
-    try:
-        event_json = json.loads(raw_data)
-    except json.JSONDecodeError:
-        return (None, False)
-    choices = event_json.get("choices", [])
-    if choices:
-        delta = choices[0].get("delta", {})
-        reasoning = delta.get("reasoning_content") or delta.get("reasoning")
-        if reasoning:
-            return (f"<think>{reasoning}</think>", False)
-        content = delta.get("content")
-        if content:
-            return (str(content), False)
-    return (None, False)
+# The Anthropic Messages stream events that carry text, the reason, the end or an error. Every
+# other event (message_start, content_block_start, content_block_stop, ping) carries none.
+_CLAUDE_EVENT_FRAMES: Final[dict[str, Callable[[dict[str, Any]], StreamFrame]]] = {
+    "content_block_delta": lambda payload: StreamFrame(
+        chunk=_claude_delta_text(payload.get("delta"))
+    ),
+    "message_delta": _claude_message_delta,
+    "message_stop": lambda _payload: StreamFrame(complete=True, last=True),
+    "error": lambda payload: StreamFrame(error=_error_text(payload.get("error"))),
+}
 
 
-def _extract_ollama_stream_tuple(line: str) -> tuple[str | None, bool]:
-    """Extract content or thinking chunk from Ollama stream line as (chunk, is_done)."""
-    return (_extract_ollama_stream_chunk(line), False)
+def _claude_stream_frame(event: httpx2.ServerSentEvent) -> StreamFrame:
+    """One event of an Anthropic Messages stream; `message_stop` is its final frame.
+
+    Anthropic never sends `[DONE]`, so it is not read as an end.
+    """
+    payload = _json_object(event.data)
+    frame_for = _CLAUDE_EVENT_FRAMES.get(str(payload.get("type") or event.event))
+    return frame_for(payload) if frame_for else StreamFrame()
 
 
-def _extract_stream_chunk(line: str, provider: str) -> tuple[str | None, bool]:
-    """Unified chunk extractor dispatching to provider-specific parser."""
-    norm_p = provider.lower()
-    if norm_p in ("claude", "anthropic"):
-        return _extract_claude_stream_chunk(line)
-    if norm_p in ("openai", "copilot", "github_copilot"):
-        return _extract_openai_stream_chunk(line)
-    return _extract_ollama_stream_tuple(line)
+def _openai_delta_text(delta: object) -> str | None:
+    """A chat completion delta's reasoning, wrapped in think tags, or else its content."""
+    if not isinstance(delta, dict):
+        return None
+    if reasoning := delta.get("reasoning_content") or delta.get("reasoning"):
+        return f"<think>{reasoning}</think>"
+    content = delta.get("content")
+    return str(content) if content else None
 
 
-def _read_response_lines(
-    response: httpx2.Response,
-    chunk_extractor: Callable[[str], tuple[str | None, bool]],
+def _first_choice(payload: dict[str, Any]) -> dict[str, Any]:
+    """A completion chunk's first choice; an empty one when it has none, as a usage chunk."""
+    choices = payload.get("choices")
+    first = choices[0] if isinstance(choices, list) and choices else None
+    return first if isinstance(first, dict) else {}
+
+
+def _openai_stream_frame(event: httpx2.ServerSentEvent) -> StreamFrame:
+    """One event of an OpenAI-compatible chat completion stream.
+
+    A chunk with a finish reason completes the stream, and so does `[DONE]`, the server's own end
+    marker, with no reason before it. Reading goes on past the reason to `[DONE]` or EOF, so a
+    usage chunk sent after it is still read.
+    """
+    if event.data.strip() == "[DONE]":
+        return StreamFrame(complete=True, last=True)
+    payload = _json_object(event.data)
+    if payload.get("error") is not None:
+        return StreamFrame(error=_error_text(payload["error"]))
+    choice = _first_choice(payload)
+    reason = choice.get("finish_reason")
+    return StreamFrame(
+        chunk=_openai_delta_text(choice.get("delta")),
+        complete=reason is not None,
+        finish_reason=provider_finish_reason(CONST_OPENAI_FINISH_REASONS, reason),
+    )
+
+
+def _check_stream_size(total_bytes: int, provider_name: str, max_stream_bytes: int) -> None:
+    if total_bytes > max_stream_bytes:
+        raise AIClientError(
+            f"{provider_name} response exceeded maximum stream size "
+            f"({size_limit_text(max_stream_bytes)})."
+        )
+
+
+def _error_frame(provider_name: str, message: str) -> AIClientError:
+    """The provider's error frame as an error, its message masked and cut to 256 characters."""
+    return AIClientError(f"{provider_name} stream reported an error: {mask_secrets(message)[:256]}")
+
+
+def _read_frames[FrameT](
+    frames: Iterable[tuple[FrameT, int]],
+    parse_frame: Callable[[FrameT], StreamFrame],
     provider_name: str,
-    max_bytes: int,
-    initial_bytes: int,
-) -> Generator[tuple[str, int]]:
-    """Iterate response lines and yield (chunk_str, cumulative_bytes)."""
-    current_bytes = initial_bytes
-    for line in response.iter_lines():
-        line_bytes = len(line.encode("utf-8")) if isinstance(line, str) else len(line)
-        current_bytes += line_bytes
-        if current_bytes > max_bytes:
-            limit_str = (
-                f"{max_bytes // (1024 * 1024)}MB"
-                if max_bytes >= 1024 * 1024
-                else f"{max_bytes} bytes"
-            )
-            raise AIClientError(
-                f"{provider_name} response exceeded maximum stream size ({limit_str})."
-            )
-        chunk_str, is_done = chunk_extractor(line)
-        if is_done:
+    max_stream_bytes: int,
+) -> Generator[str]:
+    """Yield each frame's text as it arrives, until the provider's final frame.
+
+    Every frame counts towards `max_stream_bytes` before it is parsed, including frames that
+    carry no text. Once the stream is complete its finish reason is set in
+    `stream_finish_reason`. An error frame, and a stream that ends before its final frame,
+    raise `AIClientError`.
+    """
+    total_bytes = 0
+    complete = False
+    reason: FinishReason | None = None
+    for raw_frame, frame_bytes in frames:
+        total_bytes += frame_bytes
+        _check_stream_size(total_bytes, provider_name, max_stream_bytes)
+        frame = parse_frame(raw_frame)
+        if frame.error is not None:
+            raise _error_frame(provider_name, frame.error)
+        if frame.chunk:
+            yield frame.chunk
+        complete = complete or frame.complete
+        reason = frame.finish_reason or reason
+        if frame.last:
             break
-        if chunk_str is None:
-            continue
-        yield chunk_str, current_bytes
+    if not complete:
+        raise AIClientError(f"{provider_name} stream ended before its final frame.")
+    stream_finish_reason.set(reason)
 
 
-def _consume_streaming_lines(
+def _event_frames(
+    response: httpx2.Response, max_event_bytes: int
+) -> Iterator[tuple[httpx2.ServerSentEvent, int]]:
+    """Each server-sent event with the size of its data.
+
+    httpx2's EventSource splits lines on CR and LF alone, decodes a code point split across
+    chunks, and refuses an event over `max_event_bytes` and a body that is not
+    `text/event-stream`.
+    """
+    for event in httpx2.EventSource(response, max_event_size=max_event_bytes):
+        yield event, len(event.data.encode("utf-8"))
+
+
+def _check_line_size(line_bytes: int, provider_name: str, max_line_bytes: int) -> None:
+    if line_bytes > max_line_bytes:
+        raise AIClientError(
+            f"{provider_name} stream line exceeded the {size_limit_text(max_line_bytes)} limit."
+        )
+
+
+def _ndjson_line(raw: bytearray, provider_name: str, max_line_bytes: int) -> tuple[str, int]:
+    _check_line_size(len(raw), provider_name, max_line_bytes)
+    try:
+        return raw.decode("utf-8"), len(raw)
+    except UnicodeDecodeError as exc:
+        raise AIClientError(f"{provider_name} stream line is not UTF-8: {exc}") from exc
+
+
+def _ndjson_lines(
+    response: httpx2.Response, provider_name: str, max_line_bytes: int
+) -> Iterator[tuple[str, int]]:
+    """Each line of a newline-delimited JSON body with its size, split on LF alone.
+
+    A line is decoded once it is whole, so a code point split across chunks decodes intact and
+    a U+2028 inside a JSON string stays in its line. A line still unterminated past
+    `max_line_bytes` is refused rather than buffered; one unterminated at EOF is read as it is.
+    """
+    pending = bytearray()
+    for data in response.iter_bytes():
+        head, *rest = data.split(b"\n")
+        pending += head
+        for piece in rest:
+            yield _ndjson_line(pending, provider_name, max_line_bytes)
+            pending = bytearray(piece)
+        _check_line_size(len(pending), provider_name, max_line_bytes)
+    if pending:
+        yield _ndjson_line(pending, provider_name, max_line_bytes)
+
+
+@contextmanager
+def _read_failures(provider_name: str) -> Iterator[None]:
+    """Raise a failed read as `AIClientError`, never as an httpx2 request error.
+
+    The Ollama host loop fails over on request and transport errors, so one escaping here would
+    replay the request on the next host after output had been yielded. httpx2's SSEError, which
+    a refused content type or an oversized event raises, is a TransportError too, and a body
+    that fails to decompress raises a DecodingError.
+    """
+    try:
+        yield
+    except httpx2.SSEError as exc:
+        raise AIClientError(f"{provider_name} stream could not be read: {str(exc)[:256]}") from exc
+    except httpx2.RequestError as exc:
+        raise AIClientError(
+            f"{provider_name} streaming connection terminated unexpectedly: {str(exc)[:256]}"
+        ) from exc
+
+
+def _read_event_stream(
     response: httpx2.Response,
-    chunk_extractor: Callable[[str], tuple[str | None, bool]],
+    parse_event: Callable[[httpx2.ServerSentEvent], StreamFrame],
     provider_name: str,
     *,
-    max_stream_bytes: int | None = None,
+    max_event_bytes: int = DEFAULT_AI_STREAM_MAX_EVENT_BYTES,
+    max_stream_bytes: int = MAX_STREAM_BYTES,
 ) -> Generator[str]:
-    """Yield extracted tokens from an HTTP streaming response with bounded size and error safety."""
-    import devops_cli.ai.client as client_pkg
-    import devops_cli.ai.client.models as client_models
-
-    effective_max = (
-        max_stream_bytes
-        if max_stream_bytes is not None
-        else getattr(
-            client_pkg,
-            "MAX_STREAM_BYTES",
-            getattr(client_models, "MAX_STREAM_BYTES", MAX_STREAM_BYTES),
+    """Yield the text of a server-sent event stream as it arrives, until its final event."""
+    with _read_failures(provider_name):
+        yield from _read_frames(
+            _event_frames(response, max_event_bytes), parse_event, provider_name, max_stream_bytes
         )
-    )
-    total_bytes = 0
-    try:
-        for chunk_str, total_bytes in _read_response_lines(
-            response, chunk_extractor, provider_name, effective_max, total_bytes
-        ):
-            yield chunk_str
-    except (
-        httpx2.RemoteProtocolError,
-        httpx2.ReadTimeout,
-        httpx2.TransportError,
-        httpx2.ReadError,
-    ) as exc:
-        safe_err = str(exc)[:256]
-        raise AIClientError(
-            f"{provider_name} streaming connection terminated unexpectedly: {safe_err}"
-        ) from exc
+
+
+def _read_ndjson_stream(
+    response: httpx2.Response,
+    parse_line: Callable[[str], StreamFrame],
+    provider_name: str,
+    *,
+    max_line_bytes: int = DEFAULT_AI_STREAM_MAX_EVENT_BYTES,
+    max_stream_bytes: int = MAX_STREAM_BYTES,
+) -> Generator[str]:
+    """Yield the text of a newline-delimited JSON stream as it arrives, until its final line."""
+    with _read_failures(provider_name):
+        yield from _read_frames(
+            _ndjson_lines(response, provider_name, max_line_bytes),
+            parse_line,
+            provider_name,
+            max_stream_bytes,
+        )

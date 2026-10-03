@@ -1,0 +1,1 @@
+You have access to a structured planning toolset (write_plan, read_plan, add_task, update_task_status, remove_task). Keep a concise, structured plan to track progress on multi-step tasks. Ensure exactly one step is marked as 'in_progress' at any given time while working. Mark steps 'completed' promptly when finished.

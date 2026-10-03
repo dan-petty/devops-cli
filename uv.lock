@@ -633,7 +633,7 @@ wheels = [
 
 [[package]]
 name = "devops-cli"
-version = "0.2.24"
+version = "0.2.25"
 source = { editable = "." }
 dependencies = [
     { name = "aiolimiter" },
@@ -650,6 +650,8 @@ dependencies = [
     { name = "jsonschema" },
     { name = "keyring" },
     { name = "kubernetes" },
+    { name = "markdown-it-py" },
+    { name = "mdit-py-plugins" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
     { name = "packaging" },
     { name = "pathspec" },
@@ -716,6 +718,8 @@ requires-dist = [
     { name = "jsonschema", specifier = "==4.26.0" },
     { name = "keyring", specifier = "==25.7.0" },
     { name = "kubernetes", specifier = "==36.0.3" },
+    { name = "markdown-it-py", specifier = "==4.2.0" },
+    { name = "mdit-py-plugins", specifier = "==0.6.1" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = "==1.44.0" },
     { name = "packaging", specifier = "==26.3" },
     { name = "pathspec", specifier = "==1.1.1" },

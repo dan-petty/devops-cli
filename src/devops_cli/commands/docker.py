@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
@@ -24,6 +24,7 @@ from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.models.docker import BuildCacheReport, ContainerStatEntry
 from devops_cli.output import (
     TablePayload,
+    escape_text,
     format_docker_stats_table,
     format_duration,
     print_error,
@@ -37,6 +38,9 @@ from devops_cli.output import (
 from devops_cli.output import (
     format_bytes as _format_bytes,
 )
+
+if TYPE_CHECKING:
+    from devops_cli.security.dive import DiveAnalysisResult
 
 app = new_typer(help=HELP.docker.app, no_args_is_help=True)
 
@@ -131,7 +135,7 @@ def build(
         if "stream" in chunk:
             line = re.sub(r"[\x00-\x1f\x7f]", "", chunk["stream"]).rstrip()
             if line:
-                print_info(line, prefix=False)
+                print_info(line, prefix=False, safe=True)
     tag_suffix = f" ({tag})" if tag else ""
     print_success(MESSAGES.docker.built_image.format(short_id=image.short_id, suffix=tag_suffix))
 
@@ -162,10 +166,10 @@ def push(
     for chunk in client.images.push(image, stream=True, decode=True):
         if "status" in chunk and "progressDetail" not in chunk:
             clean_status = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["status"]))
-            print_info(clean_status, prefix=False)
+            print_info(clean_status, prefix=False, safe=True)
         elif "error" in chunk:
             clean_err = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["error"]))
-            print_error(clean_err, prefix=False)
+            print_error(clean_err, prefix=False, safe=True)
             raise typer.Exit(1)
     print_success(MESSAGES.docker.pushed_success)
 
@@ -363,7 +367,7 @@ def analyze_layers(
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
 ) -> None:
     """Analyze container image layer efficiency and wasted space using Dive."""
-    from devops_cli.output import format_json, print_muted, write_stdout
+    from devops_cli.output import format_json, print_muted, print_warning, write_stdout
     from devops_cli.security.dive import run_dive_analysis
 
     if dry_run or is_dry_run():
@@ -374,27 +378,38 @@ def analyze_layers(
         )
         return
 
-    print_muted(MESSAGES.docker.analyzing_layers.format(image=image))
+    if not json_output:
+        print_muted(MESSAGES.docker.analyzing_layers.format(image=image), safe=True)
     result = run_dive_analysis(image_name=image)
 
     if json_output:
         write_stdout(format_json(result.model_dump()) + "\n")
-        return
+    elif result.status != "ran":
+        print_warning(
+            MESSAGES.docker.layer_analysis_not_run.format(
+                status=result.status, reason=result.reason
+            ),
+            safe=True,
+        )
+    else:
+        _print_layer_analysis(result)
+    # Without a dive run there is nothing to report, which must not pass for a clean image.
+    if result.status != "ran":
+        raise typer.Exit(1)
 
-    rows = []
-    for lyr in result.layers:
-        size_mb = f"{lyr.size_bytes / (1024 * 1024):.2f}"
-        wasted_mb = f"{lyr.wasted_bytes / (1024 * 1024):.2f}"
-        rows.append([str(lyr.index), size_mb, wasted_mb, lyr.command[:80]])
 
+def _print_layer_analysis(result: DiveAnalysisResult) -> None:
+    """Print dive's per-layer table and the image's efficiency summary.
+
+    A layer command is the image's history, written by whoever built it, so it is shown as text.
+    """
+    rows = [
+        [str(lyr.index), f"{lyr.size_bytes / (1024 * 1024):.2f}", escape_text(lyr.command[:80])]
+        for lyr in result.layers
+    ]
     print_table(
-        title=MESSAGES.docker.table_title_layers.format(image=result.image_name),
-        columns=[
-            ("Layer", "right"),
-            ("Size (MB)", "right"),
-            ("Wasted (MB)", "right"),
-            "Command / Directive",
-        ],
+        title=MESSAGES.docker.table_title_layers.format(image=escape_text(result.image_name)),
+        columns=[("Layer", "right"), ("Size (MB)", "right"), "Command / Directive"],
         rows=rows,
     )
     eff_pct = result.efficiency_score * 100

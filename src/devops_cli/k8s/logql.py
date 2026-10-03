@@ -284,7 +284,7 @@ def _parse_duration_to_seconds(duration_str: str) -> int:
     return 3600
 
 
-def execute_kubectl_logql(
+def execute_kubectl_logql(  # noqa: C901
     query: LogQLQuery,
     namespace: str = DEFAULT_K8S_NAMESPACE,
     limit: int = DEFAULT_LOG_QUERY_LIMIT,

@@ -94,7 +94,7 @@ def unwrap_output_spec(spec: Any) -> tuple[Any, ...]:
     return (spec,)
 
 
-def extract_output_json_schema(spec: Any) -> dict[str, Any] | None:
+def extract_output_json_schema(spec: Any) -> dict[str, Any] | None:  # noqa: C901
     """Extract standard JSON schema dictionary from any OutputSpec or BaseModel.
 
     Inspects NativeOutput, ToolOutput, PromptedOutput, StructuredDict, TextOutput, and bare Pydantic models.

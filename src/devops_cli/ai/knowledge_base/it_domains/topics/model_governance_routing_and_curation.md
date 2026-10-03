@@ -115,7 +115,7 @@ Systems built solely around cutting-edge frontier models ("The Beyond") risk cat
 - **Agent Fleet Quiesce & Emergency Controls**:
   - Implement centralized shutdown/pause protocols (`devops ai quiesce`) to safely freeze running agent loops, background schedulers, and cron jobs during unexpected model failovers.
 - **Eval-Driven Hill-Climbing**:
-  - Replace subjective prompt adjustments with automated evaluation harnesses (`devops ai benchmark --suite`) tracking regression metrics across model transitions.
+  - Replace subjective prompt adjustments with automated evaluation harnesses (`devops review corpus score`, compared with `devops ai runs compare`) tracking regression metrics across model transitions.
 
 ---
 
@@ -125,11 +125,9 @@ Systems built solely around cutting-edge frontier models ("The Beyond") risk cat
 # Evaluate model curation safety and generate AI Bill of Materials (AIBOM)
 devops ai curate-model --model qwen/qwen2.5-coder-32b --check-safety --generate-aibom
 
-# Run two-axis adaptive routing benchmark across complexity and freshness tiers
-devops ai benchmark --suite routing-cost-eval --compare-all-frontier
-
-# Execute Sub-Agent Local Offloading review (Local explore/code + Frontier plan/verify)
-devops ai review branch --orchestration-shape big-small-big --local-model ollama/granite-code:8b
+# Score review arms on a synthetic defect corpus, then compare them
+devops review corpus score <corpus> --session <id> --json
+devops ai runs compare <run>
 
 # Run Model Dependency Chaos Engineering drill ("Chaos Monkey for Models")
 devops ai chaos-model --fallback-model ollama/qwen2.5-coder:14b --test-suite regression

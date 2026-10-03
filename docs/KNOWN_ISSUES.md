@@ -11,8 +11,8 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 - **Mitigation**: Execute `gh auth login` in terminal prior to `devops` commands, or set `DEVOPS_CLI_GH_CLI_TIMEOUT=15`.
 
 ### 2. Egress Controls for Internal Service URLs (SSRF Safety)
-- **Context**: `validate_service_url()` blocks loopback/private IP targets by default to prevent SSRF vulnerabilities. Connecting to internal cluster endpoints (Ollama, ArgoCD, Grafana) raises `ValueError`.
-- **Mitigation**: Set `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` in environment or devcontainer.
+- **Context**: `validate_service_url()` blocks loopback/private IP targets by default to prevent SSRF vulnerabilities. Connecting to internal cluster endpoints (Ollama, ArgoCD, Grafana) on a private address raises `ValueError`. The AI client, the pydantic-ai models, Qdrant and the embedding calls validate their configured URLs with `validate_configured_service_url()`, which lets a configured URL name loopback (`localhost`, `127.0.0.0/8`, `::1`), so the example config's local Ollama, Qdrant and gateway work as shipped; every other non-public host still needs the opt-in.
+- **Mitigation**: Set `ai.allow_private_network: true`, or `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` in environment or devcontainer.
 
 ### 3. Large Workspace Iteration Bounds
 - **Context**: Scanning workspace repositories or directories with nested symlinks can increase pagination latency.
@@ -32,7 +32,7 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 
 ### 7. AI Review False-Positive Detection & Invalidation Feedback Loop
 - **Context**: LLM review personas may occasionally hallucinate legacy syntax (e.g. Python 2 comma-separated exception handling), flag pre-submission secret redaction placeholders (`<masked-*>`, `[REDACTED]`, `{% raw %}${{ secrets.* }}{% endraw %}`), or cite historical research/evidence notes (`evidence/`, `docs/agent/archive/`) as live vulnerabilities.
-- **Mitigation**: Use `devops ai review verify --status INVALIDATED --reason "..."` to record verification feedback. Run `devops ai review export-feedback` to compile invalidation records into `.data/feedback_dataset.jsonl` for prompt benchmarking and tuning.
+- **Mitigation**: Use `devops ai review verify <session> --index <n> --status INVALIDATED --reason "..."`, with the number `devops ai review findings` shows, to record verification feedback. Run `devops ai review export-feedback` to compile invalidation records into `.data/feedback_dataset.jsonl` for prompt benchmarking and tuning.
 
 ### 8. Python 3.14 PEP 758 Multi-Exception Syntax & Pydantic Mutable Default Invariants
 - **Context**: Under Python 3.14+ (PEP 758), `except` and `except*` expressions allow brackets to be omitted when catching multiple exceptions without an `as` clause (e.g., `except Err1, Err2:`), which modern formatters like Ruff format by default. LLM reviewers frequently hallucinate that bracketless multi-exception syntax is legacy Python 2 or a syntax error. Additionally, Pydantic models must use `Field(default_factory=list|dict)` rather than mutable collections (`[]`, `{}`) for field defaults.

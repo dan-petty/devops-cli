@@ -14,11 +14,23 @@ spec:
     # 1. Intra-namespace communications (Fluent Bit -> Loki)
     - from:
         - podSelector: {}
-    # 2. Allow Grafana in monitoring namespace to query Loki (3100)
+    # 2. Allow Grafana/Alloy in monitoring and the OTel collector release in otel to push/query
+    # Loki (3100). The otel peer names the collector's pods: Loki has auth disabled, so a
+    # namespace-only peer would admit Jaeger and any other otel workload. Unlike the egress
+    # caveat in k8s/cloudflared/networkpolicy.yaml, this cluster's kube-router enforces an
+    # ingress peer that combines namespaceSelector and podSelector with `ports` in the same
+    # rule (checked live, #1100).
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+              app.kubernetes.io/instance: otel-collector
       ports:
         - protocol: TCP
           port: 3100

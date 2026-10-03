@@ -123,7 +123,7 @@ def estimate_hardware_requirements(
     )
 
 
-def detect_trust_remote_code(target_dir: Path) -> bool:
+def detect_trust_remote_code(target_dir: Path) -> bool:  # noqa: C901
     """Detect whether a model directory contains or triggers trust_remote_code execution."""
     if not target_dir.exists():
         return False

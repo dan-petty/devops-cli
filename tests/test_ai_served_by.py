@@ -16,6 +16,7 @@ from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.commands.ai_cost import app as cost_app
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
+from tests.llm_stream_fakes import route_llm_clients
 
 runner = CliRunner()
 
@@ -121,16 +122,11 @@ class TestClient:
         """Verify the gateway's serving-backend header reaches the response and the ledger."""
         spend = _capture_spend(monkeypatch)
 
-        def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
-            body = {"choices": [{"message": {"content": "OK"}}], "usage": {"completion_tokens": 1}}
-            return httpx2.Response(
-                200,
-                json=body,
-                headers={SERVED_BY_HEADER: VLLM},
-                request=httpx2.Request("POST", url),
-            )
-
-        monkeypatch.setattr(httpx2.Client, "post", fake_post)
+        body = {"choices": [{"message": {"content": "OK"}}], "usage": {"completion_tokens": 1}}
+        route_llm_clients(
+            monkeypatch,
+            lambda request: httpx2.Response(200, json=body, headers={SERVED_BY_HEADER: VLLM}),
+        )
 
         reply = _gateway_client().chat("You are terse.", "Reply with OK.", use_cache=False)
 
@@ -141,13 +137,10 @@ class TestClient:
     ) -> None:
         """Verify providers other than the gateway record no serving backend rather than a guess."""
         spend = _capture_spend(monkeypatch)
-        monkeypatch.setattr(
-            httpx2.Client,
-            "post",
-            lambda self, url, **kw: httpx2.Response(
-                200,
-                json={"choices": [{"message": {"content": "OK"}}]},
-                request=httpx2.Request("POST", url),
+        route_llm_clients(
+            monkeypatch,
+            lambda request: httpx2.Response(
+                200, json={"choices": [{"message": {"content": "OK"}}]}
             ),
         )
 
@@ -163,9 +156,8 @@ class TestClient:
         sse = b'data: {"choices": [{"delta": {"content": "OK"}}]}\n\ndata: [DONE]\n\n'
 
         def fake_send(self: Any, request: httpx2.Request, **kwargs: Any) -> httpx2.Response:
-            return httpx2.Response(
-                200, headers={SERVED_BY_HEADER: OLLAMA}, content=sse, request=request
-            )
+            headers = {SERVED_BY_HEADER: OLLAMA, "content-type": "text/event-stream"}
+            return httpx2.Response(200, headers=headers, content=sse, request=request)
 
         monkeypatch.setattr(httpx2.Client, "send", fake_send)
 

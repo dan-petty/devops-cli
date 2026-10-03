@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
-from devops_cli.config.defaults import DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS
+from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess  # noqa: F401
 from devops_cli.dry_run.state import is_dry_run  # noqa: F401
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
@@ -167,7 +167,7 @@ class TflintScanner(BaseSecurityScanner):
 def run_tflint_scan(
     target_dir: Path,
     config_file: Path | None = None,
-    timeout: float = DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
 ) -> ScanOutcome:
     """Execute TFLint static analysis on target_dir and return scan outcome."""
     scanner = TflintScanner()

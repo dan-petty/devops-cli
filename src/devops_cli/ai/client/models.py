@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.constants import (
+    CONST_GENAI_PROVIDER_NAMES,
     CONST_REASONING_MODEL_EXACT,
     CONST_REASONING_MODEL_PREFIXES,
     CONST_REASONING_MODEL_SUBSTRINGS,
@@ -14,6 +16,9 @@ from devops_cli.config.constants import (
 from devops_cli.config.env import ENV_AI_API_KEY
 from devops_cli.config.options import AI_API_KEY
 from devops_cli.exceptions import LLMInferenceError
+
+if TYPE_CHECKING:
+    from pydantic_ai.messages import FinishReason
 
 MAX_STREAM_BYTES = 50 * 1024 * 1024  # 50MB maximum streamed response size
 
@@ -95,6 +100,7 @@ class LLMResponse(str):
     prompt_eval_duration_ms: float | None
     served_by: str | None
     model: str | None
+    finish_reason: FinishReason | None
 
     def __new__(
         cls,
@@ -111,6 +117,7 @@ class LLMResponse(str):
         cached: bool = False,
         served_by: str | None = None,
         model: str | None = None,
+        finish_reason: FinishReason | None = None,
     ) -> LLMResponse:
         obj = str.__new__(cls, content)
         obj.processing_seconds = processing_seconds
@@ -126,6 +133,8 @@ class LLMResponse(str):
         # The backend a gateway routed the call to; None when no gateway named one.
         obj.served_by = served_by
         obj.model = model
+        # Why the provider says the reply ended; None when it did not say.
+        obj.finish_reason = finish_reason
         return obj
 
     @property
@@ -152,7 +161,12 @@ class LLMResponse(str):
             input_tokens=self.prompt_tokens or 0,
             output_tokens=self.completion_tokens or 0,
         )
-        return ModelResponse(parts=parts, model_name=model_name or self.backend_info, usage=usage)
+        return ModelResponse(
+            parts=parts,
+            model_name=model_name or self.backend_info,
+            usage=usage,
+            finish_reason=self.finish_reason,
+        )
 
     @classmethod
     def from_model_response(
@@ -183,6 +197,7 @@ class LLMResponse(str):
             total_tokens=tot_tokens,
             cached=cached,
             model=response.model_name,
+            finish_reason=response.finish_reason,
         )
 
 
@@ -204,6 +219,18 @@ def _is_json_error_payload(raw_str: str) -> bool:
         return has_err_val or (err_code is not None and bool(err_code))
     except json.JSONDecodeError, TypeError, ValueError:
         return False
+
+
+def provider_finish_reason(
+    table: Mapping[str, FinishReason | None], value: object
+) -> FinishReason | None:
+    """A provider's own stop value as a FinishReason; None when it is absent or unmapped."""
+    return table.get(value) if isinstance(value, str) else None
+
+
+def genai_provider_name(provider: str) -> str:
+    """The conventions' `gen_ai.provider.name` for a provider id: its well-known value or the id."""
+    return CONST_GENAI_PROVIDER_NAMES.get(provider, provider)
 
 
 def is_reasoning_model(model: str | None) -> bool:

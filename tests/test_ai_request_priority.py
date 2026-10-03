@@ -199,4 +199,4 @@ def test_llm_client_chat_defaults_to_high_priority(monkeypatch: pytest.MonkeyPat
     attrs = {
         a["key"]: next(iter(a["value"].values())) for a in dispatch_spans[0].get("attributes", [])
     }
-    assert attrs.get("gen_ai.request.priority") == "high"
+    assert attrs.get("llm.request.priority") == "high"

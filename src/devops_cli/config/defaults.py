@@ -76,6 +76,9 @@ DEFAULT_OLLAMA_MAX_PARALLEL: int = 2
 DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS: float = 900.0
 DEFAULT_OLLAMA_SLOT_POLL_INTERVAL_SECONDS: float = 2.0
 DEFAULT_AI_MAX_RESPONSE_BYTES: int = 50 * 1024 * 1024  # 50 MiB limit
+# The most one streamed event, or one unterminated stream line, may hold before the stream is
+# refused: httpx2's DEFAULT_MAX_EVENT_SIZE_BYTES. MAX_STREAM_BYTES still bounds the whole stream.
+DEFAULT_AI_STREAM_MAX_EVENT_BYTES: int = 1024 * 1024
 DEFAULT_AI_PREWARM_KEEP_ALIVE: str = "1h"
 DEFAULT_AI_EVICT_KEEP_ALIVE: int = 0
 DEFAULT_AI_MAX_RETRIES: int = 4
@@ -94,7 +97,11 @@ DEFAULT_VLLM_SERVED_MODEL_NAME: str = "qwen3-coder:30b"
 DEFAULT_VLLM_SINGLE_CLUSTER_URL: str = "http://vllm-16gib.llm.svc.cluster.local:8000/v1"
 DEFAULT_VLLM_SINGLE_MODEL: str = "Qwen/Qwen2.5-Coder-14B-Instruct-AWQ"
 DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME: str = "qwen2.5-coder-14b-instruct"
-DEFAULT_OLLAMA_CLUSTER_URL: str = "http://ollama-16gib.llm.svc.cluster.local:11434"
+# The default Ollama tier's Service (k8s/llm/profiles/services.yaml).
+DEFAULT_OLLAMA_CLUSTER_SERVICE: str = "ollama-16gib"
+DEFAULT_OLLAMA_CLUSTER_URL: str = (
+    f"http://{DEFAULT_OLLAMA_CLUSTER_SERVICE}.llm.svc.cluster.local:11434"
+)
 DEFAULT_AI_GATEWAY_ENABLED: bool = False
 DEFAULT_AI_GATEWAY_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS: float = 5.0
@@ -196,7 +203,7 @@ DEFAULT_RAG_EMBEDDING_URL: str | None = None
 DEFAULT_RAG_EMBEDDING_CACHE_SIZE: int = 1024  # Max entries in in-memory embedding LRU cache
 DEFAULT_RAG_EMBEDDING_TIMEOUT: float = 15.0  # Bounded timeout for fast failover across nodes
 DEFAULT_RAG_EMBEDDING_BATCH_SIZE: int = 32  # Dynamic batch starting size
-DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE: int = 1  # Minimum single-chunk fallback size
+DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE: int = 1  # Smallest batch: one text, whose failure raises
 DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS: float = 2.0  # Target latency ceiling
 DEFAULT_RAG_EMBEDDING_BACKOFF_BASE_SECONDS: float = 0.5  # Base delay for exponential backoff
 DEFAULT_RAG_EMBEDDING_MAX_BACKOFF_SECONDS: float = 2.0  # Max delay cap for backoff
@@ -211,6 +218,7 @@ DEFAULT_RAG_CACHE_DIR = DEFAULT_RAG_DATA_DIR
 DEFAULT_JAEGER_URL = "http://localhost:16686"
 DEFAULT_OTEL_ENDPOINT = "http://localhost:4318"
 DEFAULT_LOKI_URL = "http://localhost:3100"
+DEFAULT_PYROSCOPE_URL = "http://localhost:4040"
 
 # ── Tool & Agent Defaults ─────────────────────────────────────────────────────
 DEFAULT_TOOL_READ_MAX_BYTES: int = 4000
@@ -237,6 +245,14 @@ DEFAULT_KUBELINTER_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_POPEYE_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_PLUTO_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_VULNERABILITY_LOOKUP_TIMEOUT_SECONDS: float = 10.0
+DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS: float = 300.0
+DEFAULT_SEMGREP_TIMEOUT_SECONDS: float = 300.0
+# The most files one Semgrep run of a review names; each batch has its own timeout, so one that
+# runs out of time loses only its files (#1079). With p/default, 328 files took 285 s of the
+# 300 s timeout at a one-minute load average of 33, about 0.87 s a file: 100 files take about
+# 87 s at that rate, under half the timeout.
+DEFAULT_SEMGREP_REVIEW_BATCH_FILES: int = 100
+
 
 # ── Telemetry HTTP Defaults ───────────────────────────────────────────────────
 DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS: float = 1.0
@@ -346,9 +362,13 @@ DEFAULT_RERANKER_BONUS: float = 0.15
 DEFAULT_RERANKER_INTENT_BOOST: float = 0.1
 DEFAULT_RAG_MAX_CHARS: int = 32000
 DEFAULT_RAG_INVESTIGATION_MAX_CHARS: int = 24000
+DEFAULT_RAG_INVESTIGATION_MAX_QUERY_CHARS: int = 2048  # Longer lookup queries are cut
 DEFAULT_RAG_MAX_PER_FILE: int = 8
 DEFAULT_RAG_UPSERT_BATCH_SIZE: int = 64
 DEFAULT_QDRANT_RETRY_ATTEMPTS: int = 3
+# `qdrant.timeout`: how long each Qdrant request, a search or an indexing upsert or delete, waits
+# per attempt. 60 s is too short for a homelab Qdrant search; 300 to 600 s suits one (#975).
+DEFAULT_QDRANT_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_QDRANT_DISTANCE: str = "Cosine"
 DEFAULT_AI_PROMPT_TEST: str = "Reply with exactly one word: OK"
 DEFAULT_AI_PIPELINE_PROMPT: str = (
@@ -398,11 +418,18 @@ DEFAULT_REVIEW_LINE_OVERLAP_TOLERANCE: int = 2
 DEFAULT_REVIEW_TITLE_SIMILARITY_THRESHOLD: float = 0.5
 DEFAULT_REVIEW_MAX_TITLE_LENGTH: int = 200
 DEFAULT_REVIEW_MAX_SUMMARY_PREVIEW_LENGTH: int = 300
+# Recurring defect classes a review's headline names; the Key Bad Patterns section lists them all.
+DEFAULT_REVIEW_HEADLINE_THEMES: int = 3
 DEFAULT_LOCATION_CONTEXT_LINES: int = 12
 DEFAULT_DIFF_CONTEXT_LINES: int = 12
 DEFAULT_MAX_RELATED_FILES: int = 3
 DEFAULT_RELATED_FILE_MAX_CHARS: int = 1500
 DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS: Final[float] = 5.0
+# python and python3 criteria import the reviewed code, which takes most of their time. Replaying
+# the 1,115 python criteria that hit the 5 s limit in 14 saved review sessions through the sandbox,
+# with the repository's .venv first on PATH and four at a time, gave p50 6.2 s, p95 15.4 s and
+# p99 22.5 s; 99.6% finished within 30 s (#847).
+DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS: Final[float] = 30.0
 DEFAULT_CRITERIA_MAX_OUTPUT_BYTES: Final[int] = 4096
 DEFAULT_HOST_SANDBOX_BINARY: Final[str] = "/usr/bin/bwrap"
 DEFAULT_PRE_ANALYSIS_WORKERS: int = 4
@@ -456,6 +483,7 @@ DEFAULT_GRAFANA_FOLDER_ID: int = 0
 DEFAULT_PROMETHEUS_PORT: int = 8090
 DEFAULT_JAEGER_PORT: int = 16686
 DEFAULT_OTEL_PORT: int = 4318
+DEFAULT_PYROSCOPE_PORT: int = 4040
 DEFAULT_OLLAMA_PORT: int = 11434
 DEFAULT_OPEN_WEBUI_PORT: int = 3000
 DEFAULT_QDRANT_PORT: int = 6333
@@ -487,6 +515,9 @@ DEFAULT_TELEMETRY_TEST_NAME: str = "devops-cli.manual_test"
 # `telemetry profile` polls Jaeger until a trace stops growing, for at most this long.
 DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS: float = 10.0
 DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS: float = 0.5
+# Longest one weaver call may take in `telemetry semconv refresh`; packaging the GenAI
+# registry, two git clones included, took about 9 s.
+DEFAULT_SEMCONV_WEAVER_TIMEOUT_SECONDS: float = 300.0
 
 # ── AI Formatting & XML Prompt Serialization Defaults ────────────────────────
 DEFAULT_XML_INDENT: str = "  "
@@ -663,6 +694,9 @@ DEFAULT_PROJECT_NAME: str = "devops-cli"
 DEFAULT_DEPENDENCY_MIN_SEVERITY: str = "HIGH"
 DEFAULT_SBOM_FORMAT: str = "cyclonedx"
 DEFAULT_MAX_COMPLEXITY: int = 10
+# The C901 markers src/ and tests/ may carry: the functions over the cap when Ruff began
+# enforcing it (#586). It only goes down; a function over the cap is decomposed instead.
+DEFAULT_C901_SUPPRESSION_CEILING: int = 66
 DEFAULT_MAX_NESTING_DEPTH: int = 5
 DEFAULT_QUANTIZATION_BITS: int = 16
 
@@ -702,6 +736,8 @@ DEFAULT_ARGO_SYNC_MODE: str = "api"
 DEFAULT_GH_STATE_ALL: str = "all"
 DEFAULT_ISSUE_STATE: str = "open"
 DEFAULT_GH_ISSUE_LIMIT: int = 30
+# `gh label list` stops at 30 unless asked for more; .github/labels.yml alone holds 31.
+DEFAULT_GH_LABEL_LIST_LIMIT: int = 1000
 DEFAULT_GH_PAGES_LIMIT: int = 5
 DEFAULT_PR_MONITOR_TIMEOUT_SECONDS: int = 300
 DEFAULT_PR_MONITOR_INTERVAL_SECONDS: int = 60
@@ -716,6 +752,29 @@ DEFAULT_GH_GRAPHQL_MAX_COST_PER_QUERY: int = 100
 DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC: int = 25
 DEFAULT_GH_QUOTA_MAX_AGE_SECONDS: float = 300.0
 DEFAULT_GH_MAX_PAGINATED_PAGES: int = 100
+DEFAULT_GH_REST_PER_PAGE: int = 100
+DEFAULT_GH_PROJECT_ITEM_LIMIT: int = 5000
+DEFAULT_GH_PROJECT_FIELD_LIMIT: int = 100
+DEFAULT_GH_PROJECT_LIST_LIMIT: int = 100
+DEFAULT_GH_PROJECT_WORKFLOW_LIMIT: int = 50
+DEFAULT_GH_PROJECT_OPTION_COLOR: str = "GRAY"
+DEFAULT_ROADMAP_MEMORY_REPO: str = "example/roadmap"
+DEFAULT_ROADMAP_MEMORY_ACTOR: str = "devops-cli"
+DEFAULT_ROADMAP_MEMORY_BOARD_NUMBER: int = 1
+DEFAULT_ROADMAP_MEMORY_DEFAULT_BRANCH: str = "main"
+DEFAULT_ROADMAP_MEMORY_HEAD_SHA: str = "0" * 40
+# Open pull requests one GraphQL read returns; a repository with more raises instead of
+# reading part of them.
+DEFAULT_GH_OPEN_PULL_REQUEST_LIMIT: int = 100
+# Boards one issue's card listing reads its Status from.
+DEFAULT_GH_PROJECT_ITEMS_PER_ISSUE: int = 20
+# How often the stall check makes reprioritization due when nothing else has changed.
+DEFAULT_ROADMAP_STALL_CHECK_HOURS: int = 24
+# `.github/roadmap.toml` keys a repository may leave out. `board` has no default.
+DEFAULT_ROADMAP_RELEASE_CAP: int = 12
+DEFAULT_ROADMAP_DISCOVERY_THRESHOLD: int = 24
+DEFAULT_ROADMAP_PLANNING_HORIZON: int = 2
+DEFAULT_ROADMAP_STALL_DAYS: int = 14
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0
 DEFAULT_GH_SECONDARY_RATE_WAIT: float = 60.0
 DEFAULT_GH_SECONDARY_MAX_CAP: float = 300.0
@@ -730,6 +789,7 @@ DEFAULT_PROFILER_MAX_PEAK_MB: float = 100.0
 DEFAULT_PROFILER_TARGET: str = "http-pool"
 DEFAULT_WATERFALL_SLOTS: int = 24
 DEFAULT_JAEGER_TIMEOUT_SECONDS: float = 5.0
+DEFAULT_PYROSCOPE_TIMEOUT_SECONDS: float = 5.0
 DEFAULT_LOGFIRE_TIMEOUT_MILLIS: int = 30000
 DEFAULT_DOCS_SERIES: str = "v0.2"
 
@@ -830,8 +890,16 @@ DEFAULT_HTTP_KEEPALIVE_EXPIRY_SECONDS: float = 30.0
 # every segment and prevents almost nothing.
 DEFAULT_HALLUCINATION_EXEMPLAR_COUNT: Final[int] = 8
 DEFAULT_HALLUCINATION_EXEMPLAR_CHARS: Final[int] = 160
+# The most lines of a finding's location a session records as its cited excerpt, and a person's
+# verdict hashes into the claim it suppresses (#950). A finding's range is a few lines; a model
+# that cites a whole file should not copy it into every session file and dataset record.
+DEFAULT_CITED_EXCERPT_MAX_LINES: Final[int] = 40
 
 # How long a finished background command waits for its reader threads to bank the rest of
 # the pipe before its output is reported. `poll()` returns an exit status before the
 # readers have necessarily drained, so rendering immediately truncated the output.
 DEFAULT_SHELL_DRAIN_TIMEOUT_SECONDS: Final[float] = 2.0
+# How long a stopped background command's process group has to exit after SIGTERM before its
+# remaining members get SIGKILL, and how often the group is probed meanwhile (#958).
+DEFAULT_SHELL_STOP_GRACE_SECONDS: Final[float] = 3.0
+DEFAULT_SHELL_STOP_POLL_SECONDS: Final[float] = 0.05

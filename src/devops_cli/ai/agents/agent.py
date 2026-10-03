@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 from collections import defaultdict
 from collections.abc import AsyncGenerator, Callable, Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 if TYPE_CHECKING:
     from devops_cli.ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
@@ -38,10 +39,12 @@ from devops_cli.ai.agents.runner import (
     _TOOL_FEEDBACK_TEMPLATE,
     _TOOL_PROTOCOL_TEMPLATE,
     _append_deferred_request,
+    _await_outside_event_loop,
     _build_deferred_agent_response,
     _create_deferred_tool_request,
     _create_tool_retry_message,
     _detect_tool_intent,
+    _event_loop_running,
     _execute_single_tool,
     _execute_stream_tool_step,
     _find_deferred_tool_handler,
@@ -58,6 +61,7 @@ from devops_cli.ai.agents.tools import (
     AbstractToolset,
     AgentSpec,
     AgentTool,
+    FunctionToolset,
     Tool,
     ToolCall,
     ToolReturn,
@@ -74,6 +78,8 @@ from devops_cli.exceptions import UnexpectedModelBehavior
 from devops_cli.models.ai import ChatMessage
 
 AgentToolset = AbstractToolset | PyAIAbstractToolset[Any]
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 DepsT = TypeVar("DepsT")
@@ -97,26 +103,42 @@ class SystemPrompt(str):
         return func
 
 
+def _resolve_toolset_instructions(ts: Any, ctx: RunContext[Any] | None) -> Any:
+    """Call a toolset's instructions hook the way its class defines it.
+
+    devops-cli's ``AbstractToolset`` answers synchronously. Every other toolset, devops-cli's
+    ``FunctionToolset`` among them, answers with a coroutine that needs a context, the run's own
+    when there is one, and renders dynamic instructions too. Inside a running event loop that
+    coroutine cannot run, so devops-cli's ``FunctionToolset`` gives its static text synchronously.
+    """
+    if isinstance(ts, AbstractToolset) or (
+        isinstance(ts, FunctionToolset) and _event_loop_running()
+    ):
+        return ts.get_instructions()
+    pending = ts.get_instructions(ctx if ctx is not None else RunContext[Any]())
+    return _await_outside_event_loop(
+        pending, skipped=f"the instructions of toolset {type(ts).__name__!r}"
+    )
+
+
 def _extract_single_toolset_instructions(ts: Any, ctx: RunContext[Any] | None) -> list[str]:
-    """Safely extract system prompt instructions from a toolset instance."""
-    try:
-        if not isinstance(ts, (AbstractToolset, PyAIAbstractToolset)):
-            return []
-        try:
-            instructions = (
-                cast(Any, ts).get_instructions(ctx)
-                if ctx is not None
-                else cast(Any, ts).get_instructions()
-            )
-        except TypeError:
-            instructions = cast(Any, ts).get_instructions()
-
-        if inspect.iscoroutine(instructions):
-            instructions.close()
-            return []
-    except Exception:
+    """Extract a toolset's system prompt instructions, logging a toolset that fails to give them."""
+    if not isinstance(ts, (AbstractToolset, PyAIAbstractToolset)):
         return []
+    try:
+        instructions = _resolve_toolset_instructions(ts, ctx)
+    except Exception:
+        logger.warning(
+            "Skipped the instructions of toolset %r: getting them failed",
+            type(ts).__name__,
+            exc_info=True,
+        )
+        return []
+    return _instruction_texts(instructions)
 
+
+def _instruction_texts(instructions: Any) -> list[str]:
+    """Flatten a str, an instruction part's ``content``, or a list or tuple of either."""
     if instructions is None:
         return []
     if isinstance(instructions, str):
@@ -201,7 +223,7 @@ class PydanticAgent[T, DepsT = Any]:
             tools=tools,
         )
 
-    def __init__(
+    def __init__(  # noqa: C901
         self,
         model: str | Any | None = None,
         system_prompt: str | None = None,
@@ -584,7 +606,7 @@ class PydanticAgent[T, DepsT = Any]:
             include_type_defs=include_type_defs,
         )
 
-    def _build_system_prompt_with_tools(
+    def _build_system_prompt_with_tools(  # noqa: C901
         self, ctx: RunContext[Any] | None = None, *, skip_memory_summary: bool = False
     ) -> str:
         base_prompt: str = str(self.system_prompt)
@@ -654,7 +676,7 @@ class PydanticAgent[T, DepsT = Any]:
 
         return "\n\n".join(prompt_parts)
 
-    def _dispatch_tool_calls(
+    def _dispatch_tool_calls(  # noqa: C901
         self,
         tool_calls_info: list[Any],
         tool_calls: list[ToolCall],
@@ -698,7 +720,7 @@ class PydanticAgent[T, DepsT = Any]:
                 resolved = (
                     deferred_tool_results
                     if deferred_tool_results is not None
-                    else _find_deferred_tool_handler(self.capabilities, req)
+                    else _find_deferred_tool_handler(self.capabilities, req, ctx)
                 )
 
                 if resolved is None:
@@ -775,7 +797,7 @@ class PydanticAgent[T, DepsT = Any]:
                 messages.append(ChatMessage(role="user", content=extra_content))
         return executed_any, already_called, deferred_requests
 
-    def run(
+    def run(  # noqa: C901
         self,
         user_prompt: str,
         *,

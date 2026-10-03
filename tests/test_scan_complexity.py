@@ -116,6 +116,49 @@ def test_analyze_class_method_distinction(tmp_path: Path) -> None:
     assert method.is_method is True
 
 
+def test_a_def_directly_in_a_function_body_is_measured_on_its_own(tmp_path: Path) -> None:
+    """A closure's branches belong to the closure, not to the function that defines it."""
+    sample = tmp_path / "closure.py"
+    sample.write_text(
+        "def outer(x):\n"
+        "    def inner(y):\n"
+        "        if y:\n"
+        "            return 1\n"
+        "        if y > 2:\n"
+        "            return 2\n"
+        "    return inner\n",
+        encoding="utf-8",
+    )
+    rep = analyze_file_complexity(sample)
+    assert sorted(
+        (f.name, f.cyclomatic_complexity, f.max_nesting_depth) for f in rep.functions
+    ) == [
+        ("inner", 3, 2),
+        ("outer", 1, 1),
+    ]
+
+
+def test_a_class_directly_in_a_function_body_has_methods(tmp_path: Path) -> None:
+    """A class defined in a function gives methods; a def nested in a method is not one."""
+    sample = tmp_path / "local_class.py"
+    sample.write_text(
+        "def factory():\n"
+        "    class C:\n"
+        "        def m(self):\n"
+        "            def helper():\n"
+        "                return 1\n"
+        "            return helper()\n"
+        "    return C\n",
+        encoding="utf-8",
+    )
+    rep = analyze_file_complexity(sample)
+    assert sorted((f.name, f.is_method) for f in rep.functions) == [
+        ("factory", False),
+        ("helper", False),
+        ("m", True),
+    ]
+
+
 def test_complexity_boolops_match_and_syntax_error(tmp_path: Path) -> None:
     """Verify boolops, match/case statements, nested functions, and unparseable syntax."""
     # 1. BoolOp, Match, and Nested function

@@ -48,7 +48,9 @@ def test_review_pipeline_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     """Test 6-stage review pipeline initialization and execution."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
     mock_llm = _create_mock_review_llm()
-    orchestrator = ReviewPipelineOrchestrator(session_id="test-session", llm_client=mock_llm)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="test-session", llm_client=mock_llm, target_dir=tmp_path
+    )
 
     # Stage 1: Pre-analysis refresh
     meta_dict = orchestrator.run_pre_analysis_refresh(tmp_path)
@@ -97,7 +99,9 @@ def test_consolidated_report_keeps_every_candidate_with_its_verification_status(
     import json
 
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    orchestrator = ReviewPipelineOrchestrator(session_id="candidates", llm_client=MagicMock())
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="candidates", llm_client=MagicMock(), target_dir=tmp_path
+    )
     kept = SavedFinding(
         location="src/a.py:3",
         title="Kept",
@@ -129,7 +133,7 @@ def test_consolidated_report_keeps_every_candidate_with_its_verification_status(
 
 def test_get_server_info_formatting() -> None:
     """Test server info formatting under different LLM client configurations."""
-    orchestrator = ReviewPipelineOrchestrator(session_id="test-info")
+    orchestrator = ReviewPipelineOrchestrator(session_id="test-info", target_dir=Path("."))
 
     # None or basic client
     info_default = orchestrator._get_server_info()
@@ -150,7 +154,7 @@ def test_get_server_info_formatting() -> None:
 def test_init_per_file_payloads_path_matching(tmp_path: Path, monkeypatch) -> None:
     """init_per_file_payloads matches metadata by exact and normalized suffix paths."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    orchestrator = ReviewPipelineOrchestrator(session_id="test-path-matching")
+    orchestrator = ReviewPipelineOrchestrator(session_id="test-path-matching", target_dir=tmp_path)
 
     meta_full = FileAnalysisMeta(
         path="src/devops_cli/ai/agents/__init__.py",
@@ -223,7 +227,7 @@ def test_consolidated_report_findings_sorted_by_severity_and_confidence(
     from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
 
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    orchestrator = ReviewPipelineOrchestrator(session_id="sort-test-session")
+    orchestrator = ReviewPipelineOrchestrator(session_id="sort-test-session", target_dir=tmp_path)
 
     f_low = SavedFinding(
         severity="LOW",
@@ -321,7 +325,7 @@ def test_consolidate_duplicate_findings_across_personas(tmp_path: Path, monkeypa
     from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
 
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    orchestrator = ReviewPipelineOrchestrator(session_id="dedup-test-session")
+    orchestrator = ReviewPipelineOrchestrator(session_id="dedup-test-session", target_dir=tmp_path)
 
     # devsecops reports High severity finding
     f_secops = SavedFinding(
@@ -416,7 +420,9 @@ def test_criteria_based_verification_and_reportability(
     """
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
 
-    orchestrator = ReviewPipelineOrchestrator(session_id="criteria-test", llm_client=MagicMock())
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="criteria-test", llm_client=MagicMock(), target_dir=tmp_path
+    )
 
     f_reportable = SavedFinding(
         severity="HIGH",
@@ -510,7 +516,9 @@ def test_persona_and_persona_title_distinctness(
         "devops_cli.ai.agents.pipeline.MultiAgentPipeline.run",
         return_value=pipeline_result_mock,
     ):
-        orchestrator = ReviewPipelineOrchestrator(session_id="persona-test", llm_client=mock_client)
+        orchestrator = ReviewPipelineOrchestrator(
+            session_id="persona-test", llm_client=mock_client, target_dir=tmp_path
+        )
         payload = FileReviewPayload(file_path="task.yml")
         orchestrator.execute_multi_persona_review(
             [payload],
@@ -556,7 +564,9 @@ def test_ai_scratchpad_thoughts_collection_across_stages(
         return_value=pipeline_result_mock,
     ):
         orchestrator = ReviewPipelineOrchestrator(
-            session_id="thoughts-test", llm_client=mock_client
+            session_id="thoughts-test",
+            llm_client=mock_client,
+            target_dir=tmp_path,
         )
         payload = FileReviewPayload(file_path="src/auth.py")
         orchestrator.execute_multi_persona_review(
@@ -586,7 +596,9 @@ def test_generate_consolidated_report_with_intelligence_tables(
     from devops_cli.models.vulnerability import DependencySpec, NetworkReference
 
     orchestrator = ReviewPipelineOrchestrator(
-        session_id="intel-tables-test", llm_client=MagicMock()
+        session_id="intel-tables-test",
+        llm_client=MagicMock(),
+        target_dir=tmp_path,
     )
     payload = FileReviewPayload(
         file_path="src/main.py",
@@ -629,7 +641,7 @@ def test_generate_consolidated_report_with_intelligence_tables(
 
     data_out, report_md = orchestrator.generate_consolidated_report([payload])
 
-    assert "## External Dependencies (OSV.dev & NVD)" in report_md
+    assert "## External Dependencies (OSV.dev)" in report_md
     assert (
         "| Severity | Dependency | Version Range | Ecosystem | "
         "Security Status | Location |" in report_md
@@ -725,6 +737,7 @@ def test_generate_consolidated_report_prints_findings_and_review_summary(
         session_id="summary-output-test",
         session_dir=session_dir,
         llm_client=MagicMock(),
+        target_dir=tmp_path,
     )
     finding = SavedFinding(
         severity="HIGH",
@@ -753,8 +766,8 @@ def test_generate_consolidated_report_prints_findings_and_review_summary(
     assert "src/auth.py:42" in captured
     assert "Hardcoded Credential" in captured
     assert "VERIFIED" in captured
-    assert "External Dependencies Security Audit" in captured
-    assert "Network References & Endpoints Security Audit" in captured
+    assert "Dependencies: none declared in the reviewed files." in captured
+    assert "Network references: none in the reviewed files." in captured
     assert "Review Summary" in captured
     assert "Files Reviewed" in captured
     assert "Reportable Findings" in captured
@@ -772,7 +785,9 @@ def test_generate_consolidated_report_clean_review_summary(
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
 
     orchestrator = ReviewPipelineOrchestrator(
-        session_id="clean-summary-test", llm_client=MagicMock()
+        session_id="clean-summary-test",
+        llm_client=MagicMock(),
+        target_dir=tmp_path,
     )
     payload = FileReviewPayload(
         file_path="src/clean_code.py",
@@ -854,7 +869,7 @@ def test_review_pipeline_dependency_and_network_auditing() -> None:
         VulnerabilityRecord,
     )
 
-    orchestrator = ReviewPipelineOrchestrator(session_id="audit-test")
+    orchestrator = ReviewPipelineOrchestrator(session_id="audit-test", target_dir=Path("."))
 
     # 1. Linked files
     meta1 = FileAnalysisMeta(
@@ -1332,7 +1347,9 @@ def test_multi_persona_review_tracks_unparsed_replies_and_degrades_stage(
     mock_llm.chat.return_value = "Everything looks clean and well implemented."
     mock_llm.complete.return_value = "Everything looks clean and well implemented."
 
-    orchestrator = ReviewPipelineOrchestrator(session_id="unparsed-test", llm_client=mock_llm)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="unparsed-test", llm_client=mock_llm, target_dir=tmp_path
+    )
     payloads = orchestrator.init_per_file_payloads(["src/clean.py"], {})
 
     with profiling() as profiler:
@@ -1397,7 +1414,9 @@ def test_multi_persona_review_tracks_bare_empty_list_and_degrades_partially_on_m
     mock_llm.chat.side_effect = _fake_chat
     mock_llm.complete.side_effect = _fake_chat
 
-    orchestrator = ReviewPipelineOrchestrator(session_id="mixed-test", llm_client=mock_llm)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="mixed-test", llm_client=mock_llm, target_dir=tmp_path
+    )
     payloads = orchestrator.init_per_file_payloads(["src/app.py"], {})
 
     with profiling() as profiler:
@@ -1513,7 +1532,9 @@ def test_generate_consolidated_report_records_active_personas(
 
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
     orchestrator = ReviewPipelineOrchestrator(
-        session_id="persona-record-test", llm_client=MagicMock()
+        session_id="persona-record-test",
+        llm_client=MagicMock(),
+        target_dir=tmp_path,
     )
     finding = SavedFinding(
         location="src/sample.py:10",

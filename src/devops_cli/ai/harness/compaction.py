@@ -305,7 +305,7 @@ class ToolOutputLimits(BaseCapability):
             serializer=serializer,
         )
 
-    def reduce_output(
+    def reduce_output(  # noqa: C901
         self, tool_name: str, output: Any, tool_call_id: str = ""
     ) -> tuple[Any, bool]:
         """Measure tool return size and apply winning reduction band."""
@@ -660,7 +660,7 @@ class SummarizingCompaction(BaseCapability):
     receipts: bool = False
     transcript_handle_provider: Any | None = None
 
-    def compact_messages(self, messages: list[Any]) -> list[Any]:
+    def compact_messages(self, messages: list[Any]) -> list[Any]:  # noqa: C901
         """Compress the middle turns into a concise summary block."""
         if len(messages) <= self.keep_tail + 2:
             return list(messages)

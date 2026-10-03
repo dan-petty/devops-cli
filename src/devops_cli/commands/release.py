@@ -5,21 +5,26 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+import os
 import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, NamedTuple
 
 import typer
 
 from devops_cli.config.constants import (
     CONST_CHANGELOG_FILENAME,
+    CONST_CHANGELOG_FRAGMENTS_DIR,
     CONST_CONVENTIONAL_COMMIT_CATEGORIES,
     CONST_CONVENTIONAL_COMMIT_CATEGORY_ORDER,
     CONST_DOCS_DIR_NAME,
     CONST_GH_CLI,
     CONST_GIT_MAIN_BRANCH,
+    CONST_GITHUB_HTTPS_PREFIX,
+    CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS,
+    CONST_GITHUB_RELEASE_BODY_MAX_CHARS,
     CONST_INIT_PY_PATH,
     CONST_PYPROJECT_FILENAME,
     CONST_README_FILENAME,
@@ -31,7 +36,15 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
+from devops_cli.release.changelog_fragments import (
+    changelog_heading_anchor,
+    collect_changelog_fragments,
+    find_changelog_section,
+    read_changelog_fragments,
+)
+from devops_cli.release.notes_compaction import fit_release_notes
 
 logger = logging.getLogger(__name__)
 
@@ -136,14 +149,54 @@ def _is_git_clean(root: Path) -> bool:
 
 def _extract_changelog_notes(root: Path, version: str) -> str | None:
     """Extract release notes for a specific version from CHANGELOG.md."""
-    changelog_file = _resolve_safe_project_path(root, "CHANGELOG.md")
+    changelog_file = _resolve_safe_project_path(root, CONST_CHANGELOG_FILENAME)
     if not changelog_file.exists():
         return None
-    content = changelog_file.read_text(encoding="utf-8")
-    cleaned_ver = version.lstrip("v")
-    pattern = rf"^##\s+\[v?{re.escape(cleaned_ver)}\][^\n]*\n(.*?)(?=^##\s+\[|\Z)"
-    match = re.search(pattern, content, re.MULTILINE | re.DOTALL)
-    return match.group(1).strip() if match else None
+    section = find_changelog_section(
+        changelog_file.read_text(encoding="utf-8"), version.lstrip("v")
+    )
+    return section.body.strip() if section else None
+
+
+def _full_notes_pointer(root: Path, version: str, repo: str | None = None) -> str:
+    """Where a version's full notes are: its CHANGELOG.md section at the version's tag.
+
+    It is a link when the repository is known, from `repo`, the git origin or the
+    `GITHUB_REPOSITORY` GitHub Actions sets; otherwise it names the file and the tag.
+    """
+    from devops_cli.core.repo import get_repo_origin_name
+
+    repo = repo or get_repo_origin_name(root) or os.environ.get("GITHUB_REPOSITORY")
+    if not repo:
+        return MESSAGES.release.notes_full_notes_unlinked.format(version=version)
+    changelog_file = _resolve_safe_project_path(root, CONST_CHANGELOG_FILENAME)
+    changelog = changelog_file.read_text(encoding="utf-8") if changelog_file.exists() else ""
+    section = find_changelog_section(changelog, version)
+    anchor = f"#{changelog_heading_anchor(section.heading)}" if section else ""
+    url = f"{CONST_GITHUB_HTTPS_PREFIX}{repo}/blob/v{version}/{CONST_CHANGELOG_FILENAME}{anchor}"
+    return MESSAGES.release.notes_full_notes_linked.format(version=version, url=url)
+
+
+def _notes_within(
+    root: Path, version: str, notes: str, budget: int, repo: str | None = None
+) -> str:
+    """`notes` if they fit in `budget` characters, else their compact form (#1097).
+
+    Notes that fit need no pointer to the full notes, so none is built for them.
+    """
+    if len(notes) <= budget:
+        return notes
+    return fit_release_notes(notes, budget, _full_notes_pointer(root, version, repo))
+
+
+# A Release body is the notes and the newline `--raw` ends them with.
+_RELEASE_NOTES_BUDGET = CONST_GITHUB_RELEASE_BODY_MAX_CHARS - len("\n")
+
+
+def _release_body_notes(root: Path, version: str, repo: str | None = None) -> str | None:
+    """The notes a version's GitHub Release carries, within GitHub's Release body limit."""
+    notes = _resolve_release_notes(root, version)
+    return _notes_within(root, version, notes, _RELEASE_NOTES_BUDGET, repo) if notes else None
 
 
 def _extract_docs_release_notes(root: Path, version: str) -> str | None:
@@ -450,6 +503,87 @@ def _update_changelog_header(root: Path, new_version: str, release_date: str | N
     return False
 
 
+class _FragmentCollection(NamedTuple):
+    """The CHANGELOG.md text a cut writes, and the fragments it deletes once that is written."""
+
+    changelog_file: Path
+    text: str
+    fragments: tuple[Path, ...]
+
+
+def _plan_fragment_collection(root: Path, version: str, today: str) -> _FragmentCollection | None:
+    """Read every fragment and the CHANGELOG.md they make, raising before anything is written.
+
+    None when `changelog.d/` holds no fragment, or there is no CHANGELOG.md section to place them
+    by: the version's section is then written as before.
+    """
+    fragments = read_changelog_fragments(
+        _resolve_safe_project_path(root, CONST_CHANGELOG_FRAGMENTS_DIR)
+    )
+    changelog_file = _resolve_safe_project_path(root, CONST_CHANGELOG_FILENAME)
+    if not fragments or not changelog_file.exists():
+        return None
+    content = changelog_file.read_text(encoding="utf-8")
+    text = collect_changelog_fragments(content, version, today, fragments)
+    if text is None:
+        return None
+    return _FragmentCollection(changelog_file, text, tuple(fragment.path for fragment in fragments))
+
+
+def _plan_changelog_or_exit(
+    root: Path, version: str, today: str, update_changelog: bool
+) -> _FragmentCollection | None:
+    """Plan the fragment collection when the changelog is to be written, exiting 1 on a refusal."""
+    if not update_changelog:
+        return None
+    try:
+        return _plan_fragment_collection(root, version, today)
+    except ValidationError as exc:
+        _get("print_error")(str(exc), prefix=False, safe=True)
+        raise typer.Exit(1) from exc
+
+
+def _fragment_names(collection: _FragmentCollection | None) -> list[str]:
+    """The fragments a run collects, as their repository paths."""
+    paths = collection.fragments if collection is not None else ()
+    return [f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{path.name}" for path in paths]
+
+
+def _write_version_changelog(
+    root: Path, version: str, today: str, collection: _FragmentCollection | None
+) -> bool:
+    """Write the version's CHANGELOG.md section, from the fragments when there are any.
+
+    The fragments are deleted in the same run, once the text holding their entries is written.
+    """
+    if collection is None:
+        return _update_changelog_header(root, version, today)
+    from devops_cli.output import write_text_file
+
+    write_text_file(collection.changelog_file, collection.text)
+    for fragment in collection.fragments:
+        fragment.unlink()
+    return True
+
+
+def _release_paths(root: Path) -> list[str]:
+    """The paths a release commit stages.
+
+    `changelog.d/` is among them where it exists, so the commit records the fragments the cut
+    deleted; naming a path that does not exist would fail the whole `git add`.
+    """
+    paths = [
+        CONST_PYPROJECT_FILENAME,
+        str(CONST_INIT_PY_PATH),
+        CONST_CHANGELOG_FILENAME,
+        CONST_README_FILENAME,
+        f"{CONST_DOCS_DIR_NAME}/",
+    ]
+    if (root / CONST_CHANGELOG_FRAGMENTS_DIR).is_dir():
+        paths.append(f"{CONST_CHANGELOG_FRAGMENTS_DIR}/")
+    return paths
+
+
 def _format_release_title(
     version: str, prefix: str = DEFAULT_RELEASE_TYPE, breaking: bool = False
 ) -> str:
@@ -614,6 +748,8 @@ def release_prepare(
         raise typer.Exit(1)
 
     repo_root = _get_project_root(root)
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    collection = _plan_changelog_or_exit(repo_root, clean_version, today, update_changelog)
 
     if is_dry_run():
         render_dry_run_result(
@@ -626,6 +762,7 @@ def release_prepare(
                 "init_target": str(repo_root / "src/devops_cli/__init__.py"),
                 "sync_docs": sync_docs,
                 "update_changelog": update_changelog,
+                "changelog_fragments": _fragment_names(collection),
                 "create_pr": create_pr,
                 "draft": draft,
                 "release_type": release_type,
@@ -666,14 +803,12 @@ def release_prepare(
             MESSAGES.release.updated_init.format(version=clean_version), prefix=False
         )
 
-    # 3. Update CHANGELOG.md
-    if update_changelog:
-        today = datetime.now(UTC).strftime("%Y-%m-%d")
-        if _update_changelog_header(repo_root, clean_version, today):
-            _get("print_info")(
-                MESSAGES.release.updated_changelog.format(version=clean_version, date=today),
-                prefix=False,
-            )
+    # 3. Update CHANGELOG.md, collecting changelog.d/ when it holds fragments
+    if update_changelog and _write_version_changelog(repo_root, clean_version, today, collection):
+        _get("print_info")(
+            MESSAGES.release.updated_changelog.format(version=clean_version, date=today),
+            prefix=False,
+        )
 
     # 4. Regenerate documentation & sync README Command Matrix
     if sync_docs:
@@ -725,18 +860,7 @@ def _commit_and_push_release_branch(
     branch_name: str, release_title: str, push: bool, repo_root: Path
 ) -> None:
     """Stage release files, create release commit, and optionally push to remote."""
-    _get("run_subprocess")(
-        [
-            "git",
-            "add",
-            CONST_PYPROJECT_FILENAME,
-            str(CONST_INIT_PY_PATH),
-            "CHANGELOG.md",
-            CONST_README_FILENAME,
-            f"{CONST_DOCS_DIR_NAME}/",
-        ],
-        cwd=repo_root,
-    )
+    _get("run_subprocess")(["git", "add", *_release_paths(repo_root)], cwd=repo_root)
     commit_proc = _get("run_subprocess")(["git", "commit", "-m", release_title], cwd=repo_root)
     if commit_proc.returncode != 0 and "nothing to commit" not in str(commit_proc.stdout):
         _get("print_warning")(f"Note: {commit_proc.stderr or commit_proc.stdout}", prefix=False)
@@ -919,21 +1043,6 @@ def _resolve_clean_release_notes(
     return f"### Added\n- Initial release branch preparation and quality certification for v{cleaned_ver}."
 
 
-def _build_quality_checklist(branch_name: str, draft: bool) -> str:
-    """Build standardized Gated quality checklist for release PR."""
-    pr_checked = " " if draft else "x"
-    return (
-        "### Quality Gate Checklist\n"
-        f"- [{pr_checked}] Gated CI Quality Gate passing (`devops ci`)\n"
-        f"- [{pr_checked}] Documentation and Command Matrix in `README.md` synchronized\n"
-        f"- [{pr_checked}] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`\n"
-        f"- [{pr_checked}] CodeQL & Static Analysis passing\n"
-        f"- [{pr_checked}] Pre-commit & CI validation passing\n"
-        f"- [{pr_checked}] Milestone deliverables reviewed and merged into `{branch_name}`\n"
-        f"- [{pr_checked}] Final release readiness verified before converting from draft"
-    )
-
-
 def _build_release_pr_body(
     repo_root: Path,
     target_ver: str,
@@ -946,7 +1055,6 @@ def _build_release_pr_body(
     cleaned_ver = target_ver.lstrip("v")
     deliverables = _fetch_milestone_deliverables(repo_root, cleaned_ver, base, branch_name)
     notes = _resolve_clean_release_notes(repo_root, cleaned_ver, base, branch_name)
-    checklist = _build_quality_checklist(branch_name, draft)
 
     sections = [
         f"## {pr_title}",
@@ -958,9 +1066,11 @@ def _build_release_pr_body(
         sections.append(f"{heading}\n" + "\n".join(deliverables))
 
     if notes:
-        sections.append(f"### Release Notes\n{notes}")
+        notes_heading = "### Release Notes\n"
+        rest = len("\n\n".join(sections)) + len("\n\n") + len(notes_heading) + len("\n")
+        budget = CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS - rest
+        sections.append(notes_heading + _notes_within(repo_root, cleaned_ver, notes, budget))
 
-    sections.append(checklist)
     return "\n\n".join(sections).strip() + "\n"
 
 
@@ -1287,7 +1397,12 @@ def release_notes(
         typer.Option("--root", "-r", help=HELP.options.root),
     ] = None,
 ) -> None:
-    """Print markdown release notes for a specified or current release version."""
+    """Print markdown release notes for a specified or current release version.
+
+    Notes over GitHub's 125,000-character Release body limit are printed compact: each
+    category and entry title without its sub-bullets, then a link to the version's section
+    of CHANGELOG.md at its tag.
+    """
     from devops_cli.output import (
         print_error,
         print_panel,
@@ -1301,7 +1416,7 @@ def release_notes(
         print_error("Could not determine target release version.", prefix=False)
         raise typer.Exit(1)
 
-    notes = _resolve_release_notes(repo_root, target_ver)
+    notes = _release_body_notes(repo_root, target_ver)
     if not notes:
         print_warning(MESSAGES.release.notes_not_found.format(version=target_ver), prefix=False)
         raise typer.Exit(1)
@@ -1343,7 +1458,7 @@ def _sync_one_release(repo: str, tag: str, repo_root: Path, dry_run: bool) -> st
     if published is None:
         return MESSAGES.release.notes_unreadable.format(tag=tag)
 
-    expected = _resolve_release_notes(repo_root, tag.lstrip("v"))
+    expected = _release_body_notes(repo_root, tag.lstrip("v"), repo)
     if not expected:
         return MESSAGES.release.notes_no_changelog.format(tag=tag)
 
@@ -1383,7 +1498,8 @@ def release_sync_notes(
     A release body is written once at publish time. Nothing in the repository could change
     it afterwards, so a release published before the workflow disabled GitHub's generated
     summary keeps carrying it, and an edited changelog entry never reaches the release it
-    describes.
+    describes. Notes over the Release body limit are sent in the compact form `release notes`
+    prints.
     """
     from devops_cli.commands.gh import _resolve_repo
     from devops_cli.github.release_notes import list_published_releases
@@ -1458,6 +1574,7 @@ def release_changelog(
         raise typer.Exit(1)
 
     today = datetime.now(UTC).strftime("%Y-%m-%d")
+    collection = _plan_changelog_or_exit(repo_root, target_ver, today, update)
     compiled_notes = (
         _extract_git_commit_notes(repo_root, target_ver)
         or f"### Changes in v{target_ver}\n\n* Release v{target_ver}"
@@ -1468,12 +1585,18 @@ def release_changelog(
             command="devops release changelog",
             action="compile_release_changelog",
             target=target_ver,
-            details={"version": target_ver, "update": update, "raw": raw, "from_tag": from_tag},
+            details={
+                "version": target_ver,
+                "update": update,
+                "raw": raw,
+                "from_tag": from_tag,
+                "changelog_fragments": _fragment_names(collection),
+            },
         )
         return
 
     if update:
-        if _update_changelog_header(repo_root, target_ver, today):
+        if _write_version_changelog(repo_root, target_ver, today, collection):
             print_success(
                 MESSAGES.release.updated_changelog.format(version=target_ver, date=today),
                 prefix=False,
@@ -1481,7 +1604,9 @@ def release_changelog(
         return
 
     if raw:
-        write_stdout(compiled_notes + "\n")
+        write_stdout(
+            _notes_within(repo_root, target_ver, compiled_notes, _RELEASE_NOTES_BUDGET) + "\n"
+        )
         return
 
     print_panel(
@@ -1498,18 +1623,7 @@ def release_changelog(
 
 def _commit_release_tag_changes(repo_root: Path, release_title: str) -> None:
     """Stage release files and create commit before tagging."""
-    _get("run_subprocess")(
-        [
-            "git",
-            "add",
-            CONST_PYPROJECT_FILENAME,
-            str(CONST_INIT_PY_PATH),
-            CONST_CHANGELOG_FILENAME,
-            CONST_README_FILENAME,
-            f"{CONST_DOCS_DIR_NAME}/",
-        ],
-        cwd=repo_root,
-    )
+    _get("run_subprocess")(["git", "add", *_release_paths(repo_root)], cwd=repo_root)
     _get("run_subprocess")(
         ["git", "commit", "-m", release_title],
         cwd=repo_root,
@@ -1603,95 +1717,18 @@ def release_tag(
 
 
 def _close_release_milestone_safe(repo_root: Path, version: str) -> None:
-    """Attempt to close the repository release milestone without raising on network or auth failure."""
-    try:
-        from devops_cli.commands.gh import (
-            _close_milestone_gh_cli,
-            _get_github_client,
-            _resolve_repo,
-        )
-        from devops_cli.github.milestones import close_repository_milestone
-
-        target_repo = _resolve_repo()
-        client = _get_github_client()
-        ok = (
-            close_repository_milestone(client, target_repo, version)
-            if client
-            else _close_milestone_gh_cli(target_repo, version)
-        )
-        if ok:
-            _get("print_success")(
-                f"Closed release milestone for v{version.lstrip('v')}.", prefix=False
-            )
-    except Exception as exc:
-        _get("print_warning")(
-            f"Note: Could not close milestone for v{version}: {exc}", prefix=False
-        )
-
-
-def _display_release_epic_results(res: Any, mode_text: str, repo: str) -> None:
-    """Format and display release epic synchronization results."""
-    _get("print_success")(
-        f"{mode_text}Release Epics synchronized for {repo}: "
-        f"{res.created_count} created, {res.updated_count} updated, {res.unchanged_count} unchanged "
-        f"across {res.total_milestones} milestone(s)."
-    )
-    for ep in res.epics:
-        num_str = f"#{ep['issue_number']}" if ep.get("issue_number") else "new"
-        _get("print_info")(
-            f"  - {ep['version']}: {num_str} ({ep['action']}) — "
-            f"{ep['completed']}/{ep['deliverables']} deliverables ({ep['percent']}%)"
-        )
-
-
-@app.command("epic", help=HELP.release.epic)
-def release_epic_cmd(
-    version: Annotated[
-        str | None,
-        typer.Argument(
-            help="Target release milestone version (e.g. v0.2.21 or 0.2.21). Omit with --all."
-        ),
-    ] = None,
-    all_milestones: Annotated[
-        bool,
-        typer.Option("--all", "-a", help="Synchronize release epics for all roadmap milestones"),
-    ] = False,
-    roadmap: Annotated[
-        Path,
-        typer.Option("--roadmap", "-r", help="Path to docs/ROADMAP.md file"),
-    ] = Path("docs/ROADMAP.md"),
-    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option(
-            "--dry-run", help="Simulate release epic creation without modifying remote issues"
-        ),
-    ] = False,
-) -> None:
-    """Provision, correlate, and synchronize parent release tracking epics for milestones."""
+    """Close the Release of `version` in the tagged repository, warning when GitHub can't."""
     from devops_cli.commands.gh import _resolve_repo
-    from devops_cli.github.release_epics import sync_all_release_epics
+    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.exceptions import DevOpsCLIError
+    from devops_cli.roadmap import store as roadmap_store
 
-    target_repo = repo or _resolve_repo()
-    if not target_repo or "/" not in target_repo:
-        _get("print_error")("Cannot resolve target repository.")
-        raise typer.Exit(1)
-
-    if not version and not all_milestones:
-        _get("print_error")("Specify a milestone version (e.g. v0.2.21) or use --all.")
-        raise typer.Exit(1)
-
-    target_ver = version if not all_milestones else None
-    mode_text = "[yellow][DRY RUN][/yellow] " if dry_run else ""
-
+    target_repo = _resolve_repo(get_repo_origin_name(repo_root))
     try:
-        res = sync_all_release_epics(
-            repo=target_repo,
-            roadmap_path=roadmap,
-            dry_run=dry_run,
-            version_filter=target_ver,
+        closed = roadmap_store.get_roadmap_store(target_repo).close_release(version)
+    except DevOpsCLIError as exc:
+        _get("print_warning")(
+            f"Note: Could not close milestone for v{version}: {exc}", prefix=False, safe=True
         )
-        _display_release_epic_results(res, mode_text, target_repo)
-    except Exception as exc:
-        _get("print_error")(f"Failed to synchronize release epics: {exc}")
-        raise typer.Exit(1)
+        return
+    _get("print_success")(f"Closed release milestone for {closed.title}.", prefix=False)

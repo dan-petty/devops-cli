@@ -1,25 +1,147 @@
-"""Unit tests for EmbeddingsEngine (Ollama, OpenAI, deterministic fallback)."""
+"""Unit tests for EmbeddingsEngine (Ollama, OpenAI, and the EmbeddingsError a failure raises)."""
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx2
 import pytest
 
-from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
 from devops_cli.config.settings import AIConfig
 
 
-def test_deterministic_fallback_embeddings() -> None:
-    ai_cfg = AIConfig(provider="custom", ollama_urls=[])
-    engine = EmbeddingsEngine(ai_cfg)
-    embs = engine.embed_texts(["hello world", "test query"])
-    assert len(embs) == 2
-    assert len(embs[0]) == 768
-    # Ensure cosine normalization (~1.0 magnitude)
-    norm = sum(v * v for v in embs[0]) ** 0.5
-    assert 0.99 <= norm <= 1.01
+def _fixed_vectors(width: int, value: float = 0.5) -> Any:
+    """A `_dispatch_embed` stand-in that answers every text with the same vector."""
+    return lambda self, texts: [[value] * width for _ in texts]
+
+
+def test_no_provider_configured_raises_and_caches_nothing() -> None:
+    """With no provider and no Ollama URLs, embedding raises rather than inventing a vector."""
+    mock_valkey = _MockValkey()
+    engine = EmbeddingsEngine(
+        AIConfig(provider="custom", ollama_urls=[]), valkey_client=mock_valkey
+    )
+
+    with pytest.raises(EmbeddingsError) as raised:
+        engine.embed_texts(["hello world", "test query"])
+
+    assert (raised.value.message, raised.value.details, engine._cache.size, mock_valkey.store) == (
+        f"Embedding model {engine.model} has no provider: the embedding task's provider 'custom' "
+        "is not ollama, openai, copilot or gateway, and no Ollama URLs are set. "
+        "Set ai.tasks.embedding.provider",
+        {"model": engine.model, "provider": "custom"},
+        0,
+        {},
+    )
+
+
+def _ollama_engine(monkeypatch: pytest.MonkeyPatch, nodes: list[str]) -> EmbeddingsEngine:
+    """An Ollama engine over `nodes` whose URLs are not resolved."""
+    monkeypatch.setattr(
+        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
+    )
+    ai_cfg = AIConfig(provider="ollama", ollama_urls=nodes, allow_private_network=True)
+    ai_cfg.tasks.embedding.model = "bge-m3"
+    return EmbeddingsEngine(ai_cfg, valkey_client=None)
+
+
+def test_ollama_raises_after_every_node_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When every node fails a single text, the error names the model and each node's failure.
+
+    The batch of two is halved once, and the first text failing everywhere ends the call: no
+    further request is sent for the second text.
+    """
+    posts: list[str] = []
+
+    def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        if url.endswith("/api/embed"):
+            posts.append(url)
+        if url.startswith("http://example.com:11434/"):
+            return httpx2.Response(404, json={"error": 'model "bge-m3" not found'})
+        raise httpx2.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx2.Client, "post", fake_post)
+    engine = _ollama_engine(monkeypatch, ["http://example.com:11434", "http://example.com:11435"])
+
+    with pytest.raises(EmbeddingsError) as raised:
+        engine.embed_texts(["first chunk", "second chunk"])
+
+    assert (raised.value.message, raised.value.details["model"], len(posts)) == (
+        "Embedding model bge-m3 produced no embeddings: "
+        "http://example.com:11434/api/embed answered HTTP 404: "
+        '{"error":"model \\"bge-m3\\" not found"}; '
+        "http://example.com:11435/api/embed failed: ConnectError: connection refused",
+        "bge-m3",
+        4,
+    )
+
+
+def test_ollama_parallel_batches_raise_when_one_fails_everywhere(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Batches embedded in parallel fail the call with the failing batch's EmbeddingsError."""
+
+    def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        if "unservable" in kwargs["json"]["input"][0]:
+            return httpx2.Response(404, json={"error": "model not found"})
+        return httpx2.Response(
+            200, json={"embeddings": [[0.5] * 4 for _ in kwargs["json"]["input"]]}
+        )
+
+    monkeypatch.setattr(httpx2.Client, "post", fake_post)
+    engine = _ollama_engine(monkeypatch, ["http://example.com:11434"])
+    engine._current_batch_size = 1
+
+    with pytest.raises(EmbeddingsError, match=re.escape("answered HTTP 404")):
+        engine.embed_texts(["chunk one", "unservable chunk", "chunk three"])
+
+
+@pytest.mark.parametrize(
+    ("reply", "failure"),
+    [
+        (
+            httpx2.Response(
+                400, json={"error": {"message": "model 'bge-m3:latest' is not loaded"}}
+            ),
+            'answered HTTP 400: {"error":{"message":"model \'bge-m3:latest\' is not loaded"}}',
+        ),
+        (httpx2.Response(200, json={"data": []}), "returned 0 embeddings for 1 texts"),
+        (
+            httpx2.Response(200, text="<html>bad gateway</html>"),
+            "returned 0 embeddings for 1 texts",
+        ),
+        (httpx2.ConnectError("connection refused"), "failed: ConnectError: connection refused"),
+    ],
+    ids=["http-400", "no-data", "not-json", "unreachable"],
+)
+def test_gateway_failures_raise_naming_model_endpoint_and_error(
+    monkeypatch: pytest.MonkeyPatch, reply: httpx2.Response | Exception, failure: str
+) -> None:
+    """A gateway that answers with an error, a malformed reply or not at all raises."""
+
+    def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+    monkeypatch.setattr(
+        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(httpx2.Client, "post", fake_post)
+    ai_cfg = AIConfig(provider="gateway", gateway_url="https://example.com/v1")
+    ai_cfg.tasks.embedding.model = "bge-m3:latest"
+    engine = EmbeddingsEngine(ai_cfg, api_key="sk-gateway", valkey_client=None)
+
+    with pytest.raises(EmbeddingsError) as raised:
+        engine.embed_query("where is the retry policy")
+
+    assert (raised.value.message, raised.value.details["model"]) == (
+        "Embedding model bge-m3:latest produced no embeddings: "
+        f"https://example.com/v1/embeddings {failure}",
+        "bge-m3:latest",
+    )
 
 
 def test_dynamic_probe_ollama_embed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -56,7 +178,7 @@ def test_dynamic_probe_ollama_show_metadata(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_dynamic_probe_openai_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "devops_cli.ai.rag.embeddings.validate_service_url", lambda *args, **kwargs: None
+        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
     )
 
     def fake_post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx2.Response:
@@ -112,7 +234,7 @@ def test_openai_embeddings_success(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
     monkeypatch.setattr(
-        "devops_cli.ai.rag.embeddings.validate_service_url", lambda *args, **kwargs: None
+        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
     ai_cfg = AIConfig(provider="openai", allow_private_network=True)
@@ -209,14 +331,12 @@ def test_embeddings_engine_cache_hits_avoid_api(monkeypatch: pytest.MonkeyPatch)
     """EmbeddingsEngine returns cached results without re-calling the provider."""
     call_count = 0
 
-    def fake_deterministic(
-        self: object, texts: list[str], dimensions: int | None = None
-    ) -> list[list[float]]:
+    def fake_dispatch(self: object, texts: list[str]) -> list[list[float]]:
         nonlocal call_count
         call_count += 1
         return [[float(i) for i in range(4)] for _ in texts]
 
-    monkeypatch.setattr(EmbeddingsEngine, "_deterministic_fallback", fake_deterministic)
+    monkeypatch.setattr(EmbeddingsEngine, "_dispatch_embed", fake_dispatch)
     ai_cfg = AIConfig(provider="custom", ollama_urls=[])
     engine = EmbeddingsEngine(ai_cfg)
 
@@ -232,14 +352,12 @@ def test_embeddings_engine_embed_query_cached(monkeypatch: pytest.MonkeyPatch) -
     """embed_query returns from cache on repeated calls without re-calling the provider."""
     call_count = 0
 
-    def fake_deterministic(
-        self: object, texts: list[str], dimensions: int | None = None
-    ) -> list[list[float]]:
+    def fake_dispatch(self: object, texts: list[str]) -> list[list[float]]:
         nonlocal call_count
         call_count += 1
         return [[0.5] * 8 for _ in texts]
 
-    monkeypatch.setattr(EmbeddingsEngine, "_deterministic_fallback", fake_deterministic)
+    monkeypatch.setattr(EmbeddingsEngine, "_dispatch_embed", fake_dispatch)
     ai_cfg = AIConfig(provider="custom", ollama_urls=[])
     engine = EmbeddingsEngine(ai_cfg)
 
@@ -256,12 +374,7 @@ async def test_ollama_embedding_model_properties_and_embed(
     """Verify OllamaEmbeddingModel conforms to Pydantic AI EmbeddingModel protocol."""
     from devops_cli.ai.rag.embeddings import OllamaEmbeddingModel
 
-    def fake_deterministic(
-        self: object, texts: list[str], dimensions: int | None = None
-    ) -> list[list[float]]:
-        return [[0.2] * 384 for _ in texts]
-
-    monkeypatch.setattr(EmbeddingsEngine, "_deterministic_fallback", fake_deterministic)
+    monkeypatch.setattr(EmbeddingsEngine, "_dispatch_embed", _fixed_vectors(384, 0.2))
     ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
     model = OllamaEmbeddingModel(model_name="all-minilm", ai_config=ai_cfg, dimensions=384)
 
@@ -290,17 +403,7 @@ def test_embeddings_engine_to_embedder(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify EmbeddingsEngine.to_embedder returns an operational Pydantic AI Embedder."""
     from devops_cli.ai.agents import Embedder
 
-    def fake_deterministic(
-        self: object, texts: list[str], dimensions: int | None = None
-    ) -> list[list[float]]:
-        return [[0.3] * 512 for _ in texts]
-
-    monkeypatch.setattr(EmbeddingsEngine, "_deterministic_fallback", fake_deterministic)
-    monkeypatch.setattr(
-        EmbeddingsEngine,
-        "_dispatch_embed",
-        lambda self, texts: [[0.3] * 512 for _ in texts],
-    )
+    monkeypatch.setattr(EmbeddingsEngine, "_dispatch_embed", _fixed_vectors(512, 0.3))
     ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
     engine = EmbeddingsEngine(ai_cfg)
 
@@ -421,7 +524,7 @@ def test_adaptive_batch_sizing_halves_on_latency_degradation() -> None:
     assert engine._current_batch_size == 16
 
 
-def test_sub_batch_splitting_and_single_chunk_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sub_batch_splitting(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify failing large batches automatically subdivide into smaller slices."""
     ai_cfg = AIConfig(
         provider="ollama",
@@ -431,7 +534,7 @@ def test_sub_batch_splitting_and_single_chunk_fallback(monkeypatch: pytest.Monke
     engine = EmbeddingsEngine(ai_cfg, batch_size=4)
 
     # Monkeypatch node batch query: fails for batches of size >= 4, succeeds for batches < 4
-    def fake_query_batch(base_url: str, batch_texts: list[str]) -> list[list[float]] | None:
+    def fake_query_batch(base_url: str, batch_texts: list[str]) -> list[list[float]]:
         if len(batch_texts) >= 4:
             raise httpx2.ReadTimeout("Timeout on large batch of 4")
         return [[0.5] * 256 for _ in batch_texts]
@@ -513,7 +616,7 @@ def test_valkey_l2_chunk_cache_stores_fresh_embeddings(monkeypatch: pytest.Monke
     assert any(c[0] == key and c[2] == 604800 for c in mock_valkey.set_calls)
 
 
-def test_valkey_offline_graceful_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_valkey_offline_does_not_stop_embedding(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify engine functions normally when Valkey raises connection errors."""
 
     class _FailingValkey:
@@ -523,6 +626,7 @@ def test_valkey_offline_graceful_fallback(monkeypatch: pytest.MonkeyPatch) -> No
         def set(self, key: str, value: str, ex: int | None = None) -> None:
             raise RuntimeError("Valkey socket connection refused")
 
+    monkeypatch.setattr(EmbeddingsEngine, "_dispatch_embed", _fixed_vectors(768))
     ai_cfg = AIConfig(provider="custom", ollama_urls=[])
     engine = EmbeddingsEngine(ai_cfg, valkey_client=_FailingValkey())
 
@@ -554,20 +658,6 @@ def test_valkey_l2_cache_query_vs_document_isolation(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(engine, "_dispatch_embed", lambda texts: [query_vec for _ in texts])
     engine.embed_texts(["sample text"], is_query=True)
     assert query_key in mock_valkey.store
-
-
-def test_valkey_l2_does_not_cache_deterministic_fallback() -> None:
-    """Verify deterministic fallback vectors are NOT cached to Valkey L2 to prevent cache poisoning."""
-    mock_valkey = _MockValkey()
-    ai_cfg = AIConfig(provider="offline_provider", ollama_urls=[])
-    engine = EmbeddingsEngine(ai_cfg, valkey_client=mock_valkey)
-
-    # Calling embed_texts with no provider endpoints triggers deterministic fallback
-    results = engine.embed_texts(["fallback chunk test"])
-    assert len(results) == 1
-    # Valkey store should be completely empty
-    assert len(mock_valkey.store) == 0
-    assert len(mock_valkey.set_calls) == 0
 
 
 def test_init_valkey_fast_probe_offline(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -647,7 +737,7 @@ def test_init_valkey_runs_without_l2_when_valkey_refuses(monkeypatch: pytest.Mon
 def _capture_embedding_posts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
     """Record (url, authorization, model) for each embeddings POST and answer with a vector."""
     monkeypatch.setattr(
-        "devops_cli.ai.rag.embeddings.validate_service_url", lambda *args, **kwargs: None
+        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
     )
     calls: list[tuple[str, str, str]] = []
 

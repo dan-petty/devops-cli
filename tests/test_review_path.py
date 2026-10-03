@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -34,6 +35,7 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import AIConfig
 from devops_cli.main import app
 from devops_cli.models.ai import ChatMessage
+from tests.llm_stream_fakes import route_client
 
 runner = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
@@ -99,19 +101,19 @@ def test_load_agents_md_returns_empty_when_missing(tmp_path: Path) -> None:
     assert _load_agents_md(tmp_path) == ""
 
 
-def test_persona_system_prompt_includes_agents_md_when_present() -> None:
+def test_persona_system_prompt_includes_agents_md_when_present(tmp_path: Path) -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
 
-    prompt = _persona_system_prompt(persona, "Use latest Python by policy.")
+    prompt = _persona_system_prompt(persona, "Use latest Python by policy.", tmp_path)
 
     assert persona.system_prompt in prompt
     assert "Use latest Python by policy." in prompt
     assert "Do not raise findings that merely restate or contradict" in prompt
 
 
-def test_persona_system_prompt_unchanged_when_no_agents_md() -> None:
+def test_persona_system_prompt_unchanged_when_no_agents_md(tmp_path: Path) -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
-    prompt = _persona_system_prompt(persona, "")
+    prompt = _persona_system_prompt(persona, "", tmp_path)
 
     assert prompt.startswith(persona.system_prompt)
     assert "Security & Prompt Isolation Guardrails" in prompt
@@ -239,7 +241,7 @@ def test_paginate_file_diff_block_rolling_window_overlap() -> None:
     assert "line 000" in windows[0]
 
 
-def test_run_review_three_steps_combines_segments() -> None:
+def test_run_review_three_steps_combines_segments(tmp_path: Path) -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
     calls: list[str] = []
 
@@ -266,6 +268,7 @@ def test_run_review_three_steps_combines_segments() -> None:
         ReviewClients(analysis=DummyClient(), compose=DummyClient()),
         agents_md="",
         build_prompt=lambda content, title: f"{title}:{content}",
+        target_dir=tmp_path,
     )
 
     # 2 review (step 2) + 1 recompose (step 3) (metadata step 1 uses fast static extraction)
@@ -275,7 +278,7 @@ def test_run_review_three_steps_combines_segments() -> None:
     assert any("Per-segment review outputs" in c for c in calls)
 
 
-def test_run_review_never_sends_empty_user_prompt() -> None:
+def test_run_review_never_sends_empty_user_prompt(tmp_path: Path) -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
     calls: list[str] = []
 
@@ -298,6 +301,7 @@ def test_run_review_never_sends_empty_user_prompt() -> None:
         ReviewClients(analysis=DummyClient(), compose=DummyClient()),
         agents_md="",
         build_prompt=lambda content, title: f"{title}\n{content}",
+        target_dir=tmp_path,
     )
 
     # 2 review + 1 recompose
@@ -305,7 +309,7 @@ def test_run_review_never_sends_empty_user_prompt() -> None:
     assert all(call.strip() for call in calls)
 
 
-def test_run_review_metadata_includes_filenames() -> None:
+def test_run_review_metadata_includes_filenames(tmp_path: Path) -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
     review_calls: list[str] = []
 
@@ -337,6 +341,7 @@ def test_run_review_metadata_includes_filenames() -> None:
         ReviewClients(analysis=DummyClient(), compose=DummyClient()),
         agents_md="",
         build_prompt=lambda content, title: f"{title}\n{content}",
+        target_dir=tmp_path,
     )
 
     assert result == "done"
@@ -346,7 +351,7 @@ def test_run_review_metadata_includes_filenames() -> None:
 
 
 def test_run_review_dry_run_skips_client_calls(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
     call_count = 0
@@ -373,6 +378,7 @@ def test_run_review_dry_run_skips_client_calls(
         ReviewClients(analysis=DummyClient(), compose=DummyClient()),
         agents_md="",
         build_prompt=lambda content, title: f"{title}:{content}",
+        target_dir=tmp_path,
     )
 
     assert call_count == 0
@@ -382,7 +388,7 @@ def test_run_review_dry_run_skips_client_calls(
     assert any("[dry-run]" in f.title for f in result.findings)
 
 
-def test_run_review_single_segment_skips_recompose() -> None:
+def test_run_review_single_segment_skips_recompose(tmp_path: Path) -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
     calls: list[str] = []
 
@@ -407,6 +413,7 @@ def test_run_review_single_segment_skips_recompose() -> None:
         ReviewClients(analysis=DummyClient(), compose=DummyClient()),
         agents_md="",
         build_prompt=lambda content, title: f"{title}:{content}",
+        target_dir=tmp_path,
     )
 
     # 1 review (step 2); step 1 uses fast static metadata extraction and step 3 (recompose) skipped
@@ -428,25 +435,17 @@ def test_review_client_uses_long_read_timeout_for_chat_requests(
     client = LLMClient(
         AIConfig(provider="ollama"), request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS
     )
-    seen: dict[str, Any] = {}
-
-    class DummyClient:
-        def post(self, *args: object, **kwargs: object) -> object:
-            seen["timeout"] = kwargs.get("timeout")
-            return type(
-                "Response",
-                (),
-                {
-                    "raise_for_status": lambda self: None,
-                    "json": lambda self: {"message": {"content": "ok"}},
-                },
-            )()
-
-    monkeypatch.setattr(type(client), "_shared_client", lambda self: DummyClient())
+    sent = route_client(
+        client,
+        monkeypatch,
+        lambda request: httpx2.Response(200, json={"message": {"content": "ok"}}),
+    )
 
     client._ollama_messages("system", [ChatMessage(role="user", content="user")])
 
-    assert seen["timeout"].read == DEFAULT_REVIEW_TIMEOUT_SECONDS
+    assert [request.extensions["timeout"]["read"] for request in sent] == [
+        DEFAULT_REVIEW_TIMEOUT_SECONDS
+    ]
 
 
 def test_review_path_append_cache_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

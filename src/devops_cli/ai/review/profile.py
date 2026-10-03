@@ -3,8 +3,9 @@
 A review is a pipeline of stages (payloads, persona review, verification, reranking, report).
 Without a breakdown, a change to gateway weights or models could only be judged by total wall
 time, which also moves with the number of candidate findings a run happens to produce. A profile
-records each stage and every LLM call made during it, and is written next to the session's
-findings as `profile.json`.
+records each stage, every LLM call made during it and digests of the review prompts and of the
+target's conventions the session ran with, and is written next to the session's findings as
+`profile.json`.
 
 Calls are observed through the spend ledger, the one place every LLM call passes through with its
 tokens and the backend the gateway routed it to. The current stage travels in a context variable,
@@ -30,8 +31,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devops_cli.ai.personas import review_prompt_digest
 from devops_cli.ai.spend.ledger import observe_llm_calls
-from devops_cli.config.constants import CONST_PERSONA_REPLY_UNPARSED
+from devops_cli.config.constants import (
+    CONST_FINISH_REASON_LENGTH,
+    CONST_FINISH_REASON_UNKNOWN,
+    CONST_PERSONA_REPLY_UNPARSED,
+)
 
 PROFILE_FILENAME = "profile.json"
 BENCHMARKS_DIRNAME = "benchmarks"
@@ -89,6 +95,10 @@ class StageProfile(BaseModel):
     cost_usd: float = 0.0
     backends: dict[str, int] = Field(default_factory=dict)
     activity: dict[str, BackendActivity] = Field(default_factory=dict)
+    # Replies by why the provider says they ended, `unknown` when it did not say.
+    finish_reasons: dict[str, int] = Field(default_factory=dict)
+    # Replies cut at their token cap (`length`), by serving backend, keyed like `backends`.
+    truncated: dict[str, int] = Field(default_factory=dict)
 
     def busy_share(self, backend: str) -> float:
         """The share of the stage's wall time the backend had a call in flight."""
@@ -103,6 +113,11 @@ class ReviewProfile(BaseModel):
 
     session_id: str
     target: str
+    # The review prompts the session ran with, so runs of one prompt set can be told apart.
+    prompt_digest: str = ""
+    # The target's conventions (`AGENTS.md` and `.devops/review.md`) its prompts carried, which
+    # the prompt digest does not cover; empty when they carried none.
+    conventions_digest: str = ""
     files: int = 0
     total_wall_seconds: float = 0.0
     llm_calls: int = 0
@@ -117,10 +132,19 @@ class ReviewProfile(BaseModel):
     # How each static analyzer took part: ran, built-in patterns, not installed or no files. A
     # scan that found nothing is clean only for the analyzers that ran.
     static_analyzers: dict[str, str] = Field(default_factory=dict)
+    # Why each failed analyzer failed, as review.md says, such as "timed out after 300 s".
+    static_analyzer_reasons: dict[str, str] = Field(default_factory=dict)
+    # How long each analyzer's scans ran, in seconds, summed over its runs (#1079).
+    static_analyzer_seconds: dict[str, float] = Field(default_factory=dict)
     persona_outcomes: dict[str, int] = Field(default_factory=dict)
     persona_replies: list[dict[str, Any]] = Field(default_factory=list)
     unparsed_personas: list[str] = Field(default_factory=list)
     stages: list[StageProfile] = Field(default_factory=list)
+
+    @property
+    def truncated_replies(self) -> int:
+        """Replies cut at their token cap, whichever backend served them."""
+        return sum(s.finish_reasons.get(CONST_FINISH_REASON_LENGTH, 0) for s in self.stages)
 
     @property
     def seconds_per_candidate(self) -> float | None:
@@ -156,6 +180,9 @@ class ReviewProfiler:
         self._findings = (0, 0, 0)
         self._verdict_distributions: dict[str, dict[str, int | float]] = {}
         self._static_analyzers: dict[str, str] = {}
+        self._static_analyzer_reasons: dict[str, str] = {}
+        self._static_analyzer_seconds: dict[str, float] = {}
+        self._conventions = ""
         self._persona_replies: list[dict[str, Any]] = []
         self._persona_outcomes: dict[str, int] = {}
         self._unparsed_personas: set[str] = set()
@@ -199,14 +226,24 @@ class ReviewProfiler:
             stage.prompt_tokens += int(call.get("prompt_tokens") or 0)
             stage.completion_tokens += int(call.get("completion_tokens") or 0)
             stage.cost_usd = round(stage.cost_usd + float(call.get("cost_usd") or 0.0), 6)
+            reason = call.get("finish_reason") or CONST_FINISH_REASON_UNKNOWN
+            stage.finish_reasons[reason] = stage.finish_reasons.get(reason, 0) + 1
             served_by = call.get("served_by")
             if served_by:
-                stage.backends[served_by] = stage.backends.get(served_by, 0) + 1
-                # Observers run as a call finishes, so it started its duration ago.
-                end = time.monotonic()
-                duration = max(0.0, float(call.get("duration_seconds") or 0.0))
-                by_backend = self._intervals.setdefault(name, {})
-                by_backend.setdefault(served_by, []).append((end - duration, end))
+                self._observe_served_call(stage, served_by, call)
+
+    def _observe_served_call(
+        self, stage: StageProfile, served_by: str, call: dict[str, Any]
+    ) -> None:
+        """Credit a call to the backend that served it; the caller holds the lock."""
+        stage.backends[served_by] = stage.backends.get(served_by, 0) + 1
+        if call.get("finish_reason") == CONST_FINISH_REASON_LENGTH:
+            stage.truncated[served_by] = stage.truncated.get(served_by, 0) + 1
+        # Observers run as a call finishes, so it started its duration ago.
+        end = time.monotonic()
+        duration = max(0.0, float(call.get("duration_seconds") or 0.0))
+        by_backend = self._intervals.setdefault(stage.name, {})
+        by_backend.setdefault(served_by, []).append((end - duration, end))
 
     def add_stage_time(self, name: str, seconds: float) -> None:
         with self._lock:
@@ -225,11 +262,27 @@ class ReviewProfiler:
         if verdict_distributions is not None:
             self._verdict_distributions = dict(verdict_distributions)
 
-    def set_static_analyzers(self, states: dict[str, str]) -> None:
+    def set_static_analyzers(
+        self, states: dict[str, str], reasons: dict[str, str] | None = None
+    ) -> None:
+        """Record how each static analyzer took part, and why each that failed did."""
         self._static_analyzers = dict(states)
+        self._static_analyzer_reasons = dict(reasons or {})
+
+    def add_static_analyzer_seconds(self, name: str, seconds: float) -> None:
+        """Add a scan's run time to its analyzer's."""
+        with self._lock:
+            total = self._static_analyzer_seconds.get(name, 0.0) + seconds
+            self._static_analyzer_seconds[name] = total
+
+    def set_conventions(self, conventions: str) -> None:
+        """Record the target conventions the review's prompts carry, as they were rendered."""
+        self._conventions = conventions
 
     def build(self, *, session_id: str, target: str, files: int = 0) -> ReviewProfile:
         """Assemble the profile of everything recorded so far."""
+        from devops_cli.ai.run_store import digest
+
         with self._lock:
             stages = [s.model_copy(deep=True) for s in self._stages.values()]
             intervals = {k: {b: list(v) for b, v in d.items()} for k, d in self._intervals.items()}
@@ -246,6 +299,8 @@ class ReviewProfiler:
         return ReviewProfile(
             session_id=session_id,
             target=target,
+            prompt_digest=review_prompt_digest(),
+            conventions_digest=digest(self._conventions) if self._conventions else "",
             files=files,
             total_wall_seconds=round(time.monotonic() - self._started, 3),
             llm_calls=sum(s.llm_calls for s in stages),
@@ -258,6 +313,10 @@ class ReviewProfiler:
             reported_findings=reported,
             verdict_distributions=dict(self._verdict_distributions),
             static_analyzers=dict(self._static_analyzers),
+            static_analyzer_reasons=dict(self._static_analyzer_reasons),
+            static_analyzer_seconds={
+                name: round(seconds, 3) for name, seconds in self._static_analyzer_seconds.items()
+            },
             persona_outcomes=outcomes,
             persona_replies=replies,
             unparsed_personas=unparsed,

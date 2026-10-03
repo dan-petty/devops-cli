@@ -304,7 +304,7 @@ def test_ensure_collection_creates_quantized_collections() -> None:
     client.get_collection_info = MagicMock(return_value=None)  # type: ignore[method-assign]
     captured: dict[str, Any] = {}
 
-    def _capture(operation: Any, description: str) -> Any:
+    def _capture(operation: Any, *labels: str) -> Any:
         native = MagicMock()
         native.create_collection.side_effect = lambda **kwargs: captured.update(kwargs)
         return operation(native)

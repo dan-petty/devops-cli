@@ -6,7 +6,7 @@ import importlib
 import json
 import sys
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 import typer
 
@@ -104,19 +104,29 @@ def _workspace_data_from_repos(root: Path) -> dict[str, Any]:
     }
 
 
+def _refuse_unreadable(message: str, ws_file: Path) -> NoReturn:
+    """Report a workspace file that cannot be read and exit 1 before anything saves over it."""
+    _get("print_error")(message.format(ws_file=str(ws_file)))
+    raise typer.Exit(1)
+
+
 def _load(ws_file: Path) -> dict[str, Any]:
-    if ws_file.exists():
-        try:
-            if ws_file.stat().st_size > DEFAULT_MAX_AST_FILE_SIZE_BYTES:  # 50 MiB guard
-                _get("print_warning")(ERRORS.workspace.file_too_large.format(ws_file=str(ws_file)))
-                return {"folders": [], "settings": {}}
-            data = json.loads(ws_file.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and "folders" in data and isinstance(data["folders"], list):
-                return data
-            _get("print_warning")(ERRORS.workspace.malformed.format(ws_file=str(ws_file)))
-        except json.JSONDecodeError:
-            _get("print_warning")(ERRORS.workspace.corrupted.format(ws_file=str(ws_file)))
-    return {"folders": [], "settings": {}}
+    """Read the workspace file, or start from empty defaults when it does not exist yet.
+
+    A file that exists but cannot be read as a workspace stops the command: saving the
+    defaults over it would drop every folder and setting it holds.
+    """
+    if not ws_file.exists():
+        return {"folders": [], "settings": {}}
+    if ws_file.stat().st_size > DEFAULT_MAX_AST_FILE_SIZE_BYTES:  # 50 MiB guard
+        _refuse_unreadable(ERRORS.workspace.file_too_large, ws_file)
+    try:
+        data = json.loads(ws_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError, UnicodeDecodeError:
+        _refuse_unreadable(ERRORS.workspace.corrupted, ws_file)
+    if not (isinstance(data, dict) and isinstance(data.get("folders"), list)):
+        _refuse_unreadable(ERRORS.workspace.malformed, ws_file)
+    return data
 
 
 # NOTE (Design Justification - OWASP A01:2021): _is_safe_workspace_file restricts

@@ -492,6 +492,19 @@ class Thinking(BaseCapability):
         return [f"Thinking capability is enabled (effort={self.effort})."]
 
 
+def _accepts_positional_arguments(func: Callable[..., Any], count: int) -> bool:
+    """Whether ``func`` can be called with ``count`` positional arguments and nothing else.
+
+    ``**kwargs`` and keyword-only parameters take no positional argument, so
+    ``handler(requests, **kw)`` accepts one and not two.
+    """
+    try:
+        inspect.signature(func).bind(*[None] * count)
+    except TypeError:
+        return False
+    return True
+
+
 class HandleDeferredToolCalls(BaseCapability):
     """Capability providing inline handling of deferred tool calls and approvals."""
 
@@ -508,16 +521,19 @@ class HandleDeferredToolCalls(BaseCapability):
     def handle_deferred(
         self, requests: DeferredToolRequests, ctx: RunContext[Any] | None = None
     ) -> DeferredToolResults | None:
-        """Execute the deferred tool call handler callback."""
+        """Execute the deferred tool call handler callback.
+
+        The call is chosen by the handler's signature alone. A handler that can be called with
+        the requests alone, such as ``(requests)`` or ``(requests, **kwargs)``, gets them alone.
+        Any other gets ``(ctx, requests)``, as pydantic-ai calls it, with a fresh ``RunContext``
+        when none is given, as ``ProcessHistory`` and ``ProcessEventStream`` do.
+        """
         if not callable(self.handler):
             return None
-        import inspect
-
-        sig = inspect.signature(self.handler)
         res: Any = (
-            self.handler(ctx, requests)
-            if (len(sig.parameters) >= 2 and ctx is not None)
-            else self.handler(requests)
+            self.handler(requests)
+            if _accepts_positional_arguments(self.handler, 1)
+            else self.handler(ctx if ctx is not None else RunContext(), requests)
         )
         if isinstance(res, DeferredToolResults):
             return res

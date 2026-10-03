@@ -27,6 +27,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git, is_safe_subpath
 from devops_cli.lang import ERRORS, MESSAGES
+from devops_cli.models.vulnerability import VulnerabilityRecord
 
 logger = logging.getLogger(__name__)
 
@@ -364,8 +365,9 @@ def rag_search(
     category: str | None = None,
 ) -> str:
     """Perform semantic vector retrieval over indexed workspace code, polyglot repos, and docs."""
+    from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
+
     try:
-        from devops_cli.ai.rag.embeddings import EmbeddingsEngine
         from devops_cli.ai.rag.qdrant import QdrantClient
         from devops_cli.ai.rag.retriever import SemanticRetriever
         from devops_cli.config.settings import get_ai_api_key, get_qdrant_api_key, load_settings
@@ -377,6 +379,7 @@ def rag_search(
             base_url=qdrant_url,
             api_key=get_qdrant_api_key(settings),
             allow_private_network=settings.ai.allow_private_network,
+            timeout=settings.qdrant.timeout,
         )
         if not qdrant.is_alive():
             return f"RAG vector database unavailable at {qdrant_url}. Fallback: use search_code."
@@ -399,28 +402,38 @@ def rag_search(
         if not context.results:
             return f"No semantic matches found in vector store for: {query}"
         return context.formatted_text
+    except EmbeddingsError as exc:
+        return MESSAGES.rag.search_embedding_failed.format(error=exc.message)
     except Exception as exc:
         return f"RAG search error: {exc}"
+
+
+def _osv_records_reply(
+    package_name: str, ecosystem: str, records: list[VulnerabilityRecord]
+) -> str:
+    """The reply to a lookup OSV answered: its advisory records, or that it has none."""
+    if not records:
+        return f"No known vulnerabilities found in OSV for {package_name} ({ecosystem})."
+    lines = [f"Found {len(records)} vulnerability record(s) for {package_name}:"]
+    for record in records:
+        fixed = record.fixed_version or "None"
+        lines.append(f"- [{record.id}] Severity: {record.severity} | Fixed: {fixed}")
+        if record.summary:
+            lines.append(f"  Summary: {record.summary[:150]}")
+    return "\n".join(lines)
 
 
 def scan_osv(
     package_name: str, version: str = "", ecosystem: str = DEFAULT_PACKAGE_ECOSYSTEM
 ) -> str:
-    """Query OSV.dev and NVD vulnerability databases for known package security flaws."""
+    """Query the OSV.dev vulnerability database for known package security flaws."""
     try:
         from devops_cli.security.vulnerability_lookup import OSVClient
 
-        client = OSVClient()
-        vulns = client.query_package(package_name, version=version, ecosystem=ecosystem)
-        if not vulns:
-            return f"No known vulnerabilities found in OSV/NVD for {package_name} ({ecosystem})."
-        lines = [f"Found {len(vulns)} vulnerability record(s) for {package_name}:"]
-        for record in vulns:
-            fixed = record.fixed_version or "None"
-            lines.append(f"- [{record.id}] Severity: {record.severity} | Fixed: {fixed}")
-            if record.summary:
-                lines.append(f"  Summary: {record.summary[:150]}")
-        return "\n".join(lines)
+        lookup = OSVClient().query_package(package_name, version=version, ecosystem=ecosystem)
+        if lookup.status != "ok":
+            return f"OSV lookup failed: {lookup.reason}"
+        return _osv_records_reply(package_name, ecosystem, lookup.vulnerabilities)
     except Exception as exc:
         return f"OSV vulnerability query error: {exc}"
 
@@ -522,6 +535,10 @@ def docker_analyze_layers(image: str) -> str:
         from devops_cli.security.dive import run_dive_analysis
 
         result = run_dive_analysis(image_name=image)
+        if result.status == "unavailable":
+            return f"Dive not available: {result.reason}"
+        if result.status == "failed":
+            return f"Dive analysis failed: {result.reason}"
         eff_pct = result.efficiency_score * 100
         wasted_mb = result.wasted_bytes / (1024 * 1024)
         total_mb = result.total_bytes / (1024 * 1024)

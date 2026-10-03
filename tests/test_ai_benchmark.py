@@ -10,25 +10,16 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.benchmark.runner import BenchmarkRunner
-from devops_cli.ai.benchmark.suite import (
-    BenchmarkSuiteRunner,
-    calculate_suite_metrics,
-    evaluate_architectural_compliance,
-    load_feedback_benchmark_dataset,
-)
 from devops_cli.ai.benchmark.tasks import BENCHMARK_TASKS, get_benchmark_tasks
 from devops_cli.commands.ai import app as ai_app
+from devops_cli.config.constants import CONST_URL_OPENAI_API_BASE
 from devops_cli.models.benchmark import (
     BenchmarkReport,
-    BenchmarkSuiteEvaluation,
-    BenchmarkSuiteReport,
     BenchmarkTask,
     ModelBenchmarkSummary,
-    ModelSuiteMetrics,
     PeerGrade,
     TaskResponse,
 )
-from devops_cli.output import format_benchmark_suite_table
 
 runner = CliRunner()
 
@@ -218,6 +209,45 @@ def test_benchmark_runner_concurrent_execution() -> None:
     # 2 evaluator models * 2 candidate models * 1 task * 2 servers = 8 peer grades
     assert len(report.peer_grades) == 8
     assert len(report.leaderboard) == 2
+
+
+@pytest.mark.parametrize(
+    ("provider", "api_base_url", "model", "key"),
+    [
+        ("openai", "https://example.com/v1", "m@https://example.com:8443", ""),
+        ("openai", "https://example.com/v1", "m@https://example.com", "sk-test-configured"),
+        ("gateway", None, "m@https://example.com:8443", "sk-test-configured"),
+        ("openai", None, f"m@{CONST_URL_OPENAI_API_BASE}/v1", "sk-test-configured"),
+        ("claude", None, f"m@{CONST_URL_OPENAI_API_BASE}/v1", ""),
+    ],
+    ids=[
+        "named-endpoint",
+        "configured-api-base-url",
+        "gateway-sends-to-gateway-url",
+        "configured-provider-api",
+        "another-provider-api",
+    ],
+)
+@pytest.mark.usefixtures("mock_keyring")
+def test_benchmark_client_gets_key_only_for_configured_endpoint(
+    monkeypatch: pytest.MonkeyPatch, provider: str, api_base_url: str | None, model: str, key: str
+) -> None:
+    """Verify the chat benchmark's client carries the AI key only to where the configuration
+    sends it: the configured api_base_url, the configured gateway_url (a gateway client sends
+    only there, whatever the model names) or the configured provider's own API. The three differ
+    by port or host, so each row that expects the key gets it from one of them alone. An
+    endpoint the model names, including another provider's API, gets '' (#954). No request is
+    sent: the client is only built."""
+    from devops_cli.config.settings import load_settings
+
+    monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", "sk-test-configured")
+    settings = load_settings()
+    settings.ai.provider = provider
+    settings.ai.api_base_url = api_base_url
+    settings.ai.gateway_url = "https://example.com:4000/v1"
+    b_runner = BenchmarkRunner(models=[model], tasks=[BENCHMARK_TASKS[0]], settings=settings)
+
+    assert b_runner._client_for_model(model)._api_key == key
 
 
 def test_benchmark_filtering_invalid_defaults_and_judge_weighting() -> None:
@@ -652,284 +682,25 @@ def test_embedding_eval_dataset_parsers() -> None:
     assert len(corpus) >= len(all_pairs)
 
 
-def test_suite_models_and_metrics_calculation() -> None:
-    """Verify calculation of precision, recall, F1, hallucination rate, and throughput."""
-    evals = [
-        BenchmarkSuiteEvaluation(
-            model="qwen-test",
-            case_id="c1",
-            persona="devsecops",
-            predicted_vulnerability=True,
-            is_true_positive=True,
-            invariant_compliant=True,
-            latency_ms=100.0,
-            tokens_generated=50,
-        ),
-        BenchmarkSuiteEvaluation(
-            model="qwen-test",
-            case_id="c2",
-            persona="devsecops",
-            predicted_vulnerability=False,
-            is_true_negative=True,
-            invariant_compliant=True,
-            latency_ms=100.0,
-            tokens_generated=50,
-        ),
-        BenchmarkSuiteEvaluation(
-            model="qwen-test",
-            case_id="c3",
-            persona="qa",
-            predicted_vulnerability=True,
-            is_false_positive=True,  # Hallucination!
-            invariant_compliant=True,
-            latency_ms=100.0,
-            tokens_generated=50,
-        ),
-        BenchmarkSuiteEvaluation(
-            model="qwen-test",
-            case_id="c4",
-            persona="architecture",
-            predicted_vulnerability=False,
-            is_false_negative=True,
-            invariant_compliant=False,
-            latency_ms=100.0,
-            tokens_generated=50,
-        ),
-    ]
-    metrics = calculate_suite_metrics(evals, model="qwen-test", provider="ollama")
+def test_the_feedback_suite_is_gone() -> None:
+    """Verify `ai benchmark --suite` and its module are deleted (#950): the suite sent empty
+    prompts, from two task files that never existed, and scored the fix as the code under
+    test. #413's corpus arms replace it."""
+    import importlib.util
 
-    assert metrics.total_cases == 4
-    assert metrics.true_positives == 1
-    assert metrics.false_positives == 1
-    assert metrics.true_negatives == 1
-    assert metrics.false_negatives == 1
-    assert metrics.precision == 0.5
-    assert metrics.recall == 0.5
-    assert metrics.f1_score == 0.5
-    assert metrics.hallucination_rate == 0.5
-    assert metrics.accuracy == 0.5
-    assert metrics.avg_latency_ms == 100.0
-    assert metrics.total_tokens == 200
-    assert metrics.avg_tokens_per_second == 500.0
-    assert metrics.architectural_compliance_rate == 0.75
-    assert 0.0 <= metrics.overall_score <= 100.0
-
-
-def test_evaluate_architectural_compliance() -> None:
-    """Verify AST compliance calculation against cyclomatic complexity and nesting depth."""
-    compliant_code = """
-def clean_function(val: int) -> int:
-    if val > 0:
-        return val * 2
-    return 0
-"""
-    comp, nest, compliant = evaluate_architectural_compliance(
-        compliant_code, max_complexity=10, max_nesting=5
-    )
-    assert comp <= 10
-    assert nest <= 5
-    assert compliant is True
-
-    complex_code = """
-def overly_complex_function(data: list[int]) -> int:
-    total = 0
-    if len(data) > 0:
-        for a in data:
-            if a > 1:
-                for b in range(a):
-                    if b > 2:
-                        while b < 10:
-                            if b % 2 == 0:
-                                total += 1
-                                for c in range(b):
-                                    if c > 0:
-                                        total += c
-                            b += 1
-    return total
-"""
-    comp2, nest2, compliant2 = evaluate_architectural_compliance(
-        complex_code, max_complexity=10, max_nesting=5
-    )
-    assert comp2 > 5
-    assert nest2 >= 6
-    assert compliant2 is False
-
-    empty_comp, empty_nest, empty_compliant = evaluate_architectural_compliance("")
-    assert empty_compliant is True
-
-    invalid_comp, invalid_nest, invalid_compliant = evaluate_architectural_compliance(
-        "def invalid syntax (("
-    )
-    assert invalid_compliant is False
-
-
-def test_load_feedback_benchmark_dataset_fallback() -> None:
-    """Verify loading baseline feedback benchmark dataset when no dataset file is provided."""
-    cases = load_feedback_benchmark_dataset(None)
-    assert len(cases) >= 6
-
-    # Verify presence of ground truth positive and negative cases
-    positives = [c for c in cases if c.is_vulnerability]
-    negatives = [c for c in cases if not c.is_vulnerability]
-    assert len(positives) >= 3
-    assert len(negatives) >= 3
-
-    # Check specific critical findings
-    case_ids = {c.case_id for c in cases}
-    assert "sec-ssrf-webhook-fetch" in case_ids
-    assert "qa-pep758-bracketless-except" in case_ids
-
-
-def test_load_feedback_benchmark_dataset_custom_file(tmp_path: Path) -> None:
-    """Verify loading feedback cases from custom JSONL file."""
-    dataset_file = tmp_path / "custom_feedback.jsonl"
-    record_1 = {
-        "id": "finding-1",
-        "persona": "devsecops",
-        "title": "Custom Hardcoded Token Leak",
-        "severity": "high",
-        "location": "src/auth.py:10",
-        "description": "Plaintext secret detected",
-        "status": "VALIDATED",
-        "verified": True,
-        "code_snippet": "TOKEN = 'secret'",
-    }
-    record_2 = {
-        "id": "finding-2",
-        "persona": "qa",
-        "title": "False Positive Syntax Hallucination",
-        "severity": "medium",
-        "location": "src/parser.py:20",
-        "description": "Bracketless exception flagged as syntax error",
-        "status": "INVALIDATED",
-        "verified": False,
-        "invalidation_reason": "PEP 758 valid syntax",
-    }
-    dataset_file.write_text(f"{json.dumps(record_1)}\n{json.dumps(record_2)}\n", encoding="utf-8")
-
-    cases = load_feedback_benchmark_dataset(dataset_file)
-    assert len(cases) == 2
-    assert cases[0].case_id == "finding-1"
-    assert cases[0].is_vulnerability is True
-    assert cases[1].case_id == "finding-2"
-    assert cases[1].is_vulnerability is False
-
-
-def test_load_feedback_benchmark_dataset_security_traversal(tmp_path: Path) -> None:
-    """Verify rejection of symlinks and path traversal attempts."""
-    symlink_file = tmp_path / "symlink_dataset.jsonl"
-    real_file = tmp_path / "real.jsonl"
-    real_file.write_text("{}\n", encoding="utf-8")
-    symlink_file.symlink_to(real_file)
-
-    from devops_cli.exceptions import SecurityError
-
-    with pytest.raises(SecurityError, match="must not be a symbolic link"):
-        load_feedback_benchmark_dataset(symlink_file)
-
-
-def test_benchmark_suite_runner_simulation(tmp_path: Path) -> None:
-    """Verify execution of BenchmarkSuiteRunner in dry-run mode."""
-    runner_inst = BenchmarkSuiteRunner(
-        models=["qwen-coder:7b", "weak-test-model:1b"],
-        is_dry_run=True,
-    )
-    report = runner_inst.run()
-
-    assert report.total_cases >= 6
-    assert len(report.models_evaluated) == 2
-    assert len(report.leaderboard) == 2
-    assert len(report.recommendations) >= 1
-    assert report.is_dry_run is True
-
-    # Higher quality model should lead leaderboard over weak model
-    assert report.leaderboard[0].model == "qwen-coder:7b"
-    assert report.leaderboard[0].overall_score >= report.leaderboard[1].overall_score
-
-    # Verify Markdown report generation
-    md = runner_inst.to_markdown(report)
-    assert "# AI Benchmark Evaluation Suite Report" in md
-    assert "Leaderboard Summary" in md
-    assert "qwen-coder:7b" in md
-
-
-def test_benchmark_suite_runner_live_mocked() -> None:
-    """Verify live model execution with mocked LLMClient responses."""
-    runner_inst = BenchmarkSuiteRunner(
-        models=["mock-model:7b"],
-        is_dry_run=False,
-    )
-    mock_client = MagicMock()
-    mock_client.chat.return_value = (
-        "VERDICT: VULNERABILITY DETECTED\n"
-        "Confidence: 0.95\n"
-        "Reasoning: Genuine SSRF vulnerability found.\n"
-        "```python\ndef remediate_ssrf(url: str) -> bool:\n    return True\n```"
-    )
-
-    with patch.object(runner_inst, "_client_for_model", return_value=mock_client):
-        report = runner_inst.run()
-        assert len(report.leaderboard) == 1
-        metrics = report.leaderboard[0]
-        assert metrics.model == "mock-model:7b"
-        assert metrics.true_positives >= 1
-        assert metrics.architectural_compliance_rate >= 0.9
-
-
-def test_benchmark_suite_cli(tmp_path: Path) -> None:
-    """Verify CLI devops ai benchmark --suite invocations across formats."""
-    # Test dry-run suite execution
     res = runner.invoke(ai_app, ["benchmark", "--suite", "--dry-run"])
-    assert res.exit_code == 0
-    assert "AI Benchmark Evaluation Suite" in res.output or "Leaderboard" in res.output
 
-    # Test JSON output format
-    res_json = runner.invoke(ai_app, ["benchmark", "--suite", "--format", "json", "--dry-run"])
-    assert res_json.exit_code == 0
-    data = json.loads(res_json.output)
-    assert "leaderboard" in data
-    assert "session_id" in data
-
-    # Test Markdown output format
-    res_md = runner.invoke(ai_app, ["benchmark", "--suite", "--format", "markdown", "--dry-run"])
-    assert res_md.exit_code == 0
-    assert "# AI Benchmark Evaluation Suite Report" in res_md.output
-
-    # Test export to custom file
-    out_file = tmp_path / "custom_suite_report.json"
-    res_out = runner.invoke(
-        ai_app,
-        ["benchmark", "--suite", "--output", str(out_file), "--dry-run"],
-    )
-    assert res_out.exit_code == 0
-    assert out_file.exists()
+    assert (res.exit_code, importlib.util.find_spec("devops_cli.ai.benchmark.suite")) == (2, None)
 
 
-def test_format_benchmark_suite_table() -> None:
-    """Verify TablePayload generation for benchmark suite leaderboard."""
-    metrics = ModelSuiteMetrics(
-        model="qwen-coder:7b",
-        overall_score=94.5,
-        precision=0.95,
-        recall=0.92,
-        f1_score=0.935,
-        hallucination_rate=0.04,
-        architectural_compliance_rate=1.0,
-        avg_latency_ms=85.0,
-        avg_tokens_per_second=120.0,
-        true_positives=5,
-        false_positives=0,
-        true_negatives=5,
-        false_negatives=0,
-    )
-    report = BenchmarkSuiteReport(
-        session_id="20260908-test",
-        total_cases=10,
-        models_evaluated=["qwen-coder:7b"],
-        leaderboard=[metrics],
-        is_dry_run=True,
-    )
-    table_payload = format_benchmark_suite_table(report)
-    assert table_payload.title
-    assert len(table_payload.rows) == 1
-    assert table_payload.rows[0][1] == "qwen-coder:7b"
+@pytest.mark.parametrize("benchmark_type", ["suite", "chats"])
+def test_an_unknown_benchmark_type_is_refused(benchmark_type: str) -> None:
+    """Verify `--type` takes only auto, chat or embedding: `--type suite`, which #950 removed,
+    ran the chat tasks benchmark, which calls models, instead of failing."""
+    with (
+        patch("devops_cli.commands.benchmark._execute_tasks_benchmark") as tasks,
+        patch("devops_cli.commands.benchmark._execute_embedding_benchmark") as embedding,
+    ):
+        res = runner.invoke(ai_app, ["benchmark", "--type", benchmark_type, "--dry-run"])
+
+    assert (res.exit_code != 0, tasks.called, embedding.called) == (True, False, False)
