@@ -14,6 +14,15 @@ from devops_cli.commands.k8s.networking import _collect_port_forward_services
 REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
 
+# The host units whose journal reaches Loki at info and above and whose state Prometheus keeps (#1080).
+HOST_UNITS = ("k3s", "k3s-agent", "nvidia-power-limit", "containerd", "systemd-journald")
+HOST_UNIT_PATTERN = f"({'|'.join(HOST_UNITS)})\\.service"
+
+
+def _k8s_monitoring_values() -> Any:
+    with open(K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
 
 def test_k8s_monitoring_cadvisor_and_ksm_metrics_tuning() -> None:
     """Verify that cAdvisor and kube-state-metrics includeMetrics contain all dashboard metrics."""
@@ -71,6 +80,88 @@ def test_k8s_monitoring_cadvisor_and_ksm_metrics_tuning() -> None:
         required_ksm.issubset(ksm_inc),
         use_integration_allow_list,
     ) == (True, True, False)
+
+
+def test_node_journals_reach_loki_through_the_alloy_logs_daemonset() -> None:
+    """Each node's journal reaches Loki through the alloy-logs DaemonSet that already reads pod
+    logs, with no other agent (#1080). Kernel lines are kept at every priority (GPU Xid, MCE and
+    thermal lines), the host units and systemd's own lines about them at info and above, and every
+    other line at warning and above. Each unit has its own rate limit; kernel lines have none."""
+    values = _k8s_monitoring_values()
+    node_logs = values["nodeLogs"]
+    rules = " ".join(node_logs["extraDiscoveryRules"].split())
+    stages = " ".join(node_logs["extraLogProcessingStages"].split())
+    alloy_unit_pattern = HOST_UNIT_PATTERN.replace("\\", "\\\\")  # Alloy strings escape "\"
+
+    assert (
+        node_logs["enabled"],
+        node_logs["collector"],
+        values["collectors"][node_logs["collector"]]["presets"],
+        node_logs.get("journal", {}).get("units", []),
+        node_logs["journalLabels"],
+        node_logs["structuredMetadata"],
+        'source_labels = ["__journal__transport"] regex = "kernel" target_label = "__tmp_keep"'
+        in rules,
+        'source_labels = ["__journal_priority", "__journal__systemd_unit", "__journal_unit"]'
+        f' separator = ";" regex = "[0-6];(.*;)?{alloy_unit_pattern}(;.*)?"'
+        ' target_label = "__tmp_keep"' in rules,
+        'source_labels = ["__journal_priority"] regex = "[0-4]" target_label = "__tmp_keep"'
+        in rules,
+        'source_labels = ["__tmp_keep"] regex = "true" action = "keep"' in rules,
+        stages,
+    ) == (
+        True,
+        "alloy-logs",
+        ["daemonset", "filesystem-log-reader"],
+        [],
+        {"transport": "transport"},
+        {"boot_id": "boot_id"},
+        True,
+        True,
+        True,
+        True,
+        'stage.limit { rate = 1 burst = 10000 by_label_name = "unit" drop = true }',
+    )
+
+
+def test_host_metrics_keep_the_series_that_explain_a_host_failure() -> None:
+    """Prometheus keeps each node's boot time, temperatures, pressure, memory and NVMe health,
+    filesystem space and the host units' state (#1080). The systemd collector is the one the
+    chart's node-exporter leaves off: it reads unit state over the host's D-Bus socket, which the
+    node's root mount already exposes, and only for the host units."""
+    values = _k8s_monitoring_values()
+    tuning = values["hostMetrics"]["linuxHosts"]["metricsTuning"]
+    exporter = values["telemetryServices"]["node-exporter"]
+
+    assert (
+        tuning["useIntegrationAllowList"],
+        tuning["includeMetrics"],
+        exporter["extraArgs"],
+        exporter["env"],
+    ) == (
+        False,
+        [
+            "node_time_seconds",
+            "node_boot_time_seconds",
+            "node_hwmon_temp_celsius",
+            "node_hwmon_chip_names",
+            "node_systemd_unit_state",
+            "node_pressure_.*",
+            "node_edac_correctable_errors_total",
+            "node_edac_uncorrectable_errors_total",
+            "node_nvme_info",
+            "node_filesystem_avail_bytes",
+            "node_filesystem_size_bytes",
+        ],
+        [
+            "--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs"
+            "|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs"
+            "|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|erofs|sysfs|tracefs|tmpfs|ramfs)$",
+            "--collector.systemd",
+            f"--collector.systemd.unit-include={HOST_UNIT_PATTERN}",
+        ],
+        {"DBUS_SYSTEM_BUS_ADDRESS": "unix:path=/host/root/run/dbus/system_bus_socket"},
+    )
 
 
 def test_k8s_monitoring_ksm_telemetry_service_config() -> None:
