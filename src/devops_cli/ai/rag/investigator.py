@@ -23,7 +23,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import Settings
 from devops_cli.lang import MESSAGES
-from devops_cli.security.sanitizer import mask_secrets
+from devops_cli.security.sanitizer import redact_text
 from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
@@ -74,9 +74,9 @@ def _report_lookup_failure(exc: Exception) -> None:
         first = not _FAILURE_REPORTED.is_set()
         _FAILURE_REPORTED.set()
     if first:
-        logger.warning(MESSAGES.rag.lookup_failed.format(error=mask_secrets(str(exc))[:256]))
+        logger.warning(MESSAGES.rag.lookup_failed.format(error=redact_text(str(exc))[:256]))
     else:
-        logger.debug("RAG investigation skipped due to error: %s", exc)
+        logger.debug("RAG investigation skipped due to error: %s", redact_text(str(exc))[:256])
 
 
 def _get_or_create_retriever(
