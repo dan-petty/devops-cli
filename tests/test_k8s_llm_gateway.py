@@ -366,6 +366,24 @@ class TestK8sLLMGatewayManifests:
             True,
         )
 
+    def test_every_ollama_tier_keeps_one_model_and_serves_one_request(self) -> None:
+        """Verify each tier reserves KV cache for one context: Ollama sizes it by NUM_PARALLEL (#1061)."""
+        docs = list(yaml.safe_load_all(OLLAMA_PROFILES_MANIFEST.read_text(encoding="utf-8")))
+        settings = {
+            d["metadata"]["name"]: {
+                var["name"]: var.get("value")
+                for container in d["spec"]["template"]["spec"]["containers"]
+                for var in container.get("env", [])
+                if var["name"] in ("OLLAMA_MAX_LOADED_MODELS", "OLLAMA_NUM_PARALLEL")
+            }
+            for d in docs
+            if d and d.get("kind") == "DaemonSet"
+        }
+
+        assert settings == {
+            name: {"OLLAMA_MAX_LOADED_MODELS": "1", "OLLAMA_NUM_PARALLEL": "1"} for name in settings
+        }
+
     @pytest.mark.parametrize("service_name", ["ollama-16gib", "ollama-48gib"])
     def test_ollama_services_stay_behind_the_gateway(self, service_name: str) -> None:
         """Verify Ollama Services are cluster-internal; LAN clients use the authenticated gateway."""
