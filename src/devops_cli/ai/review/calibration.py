@@ -6,8 +6,9 @@ verdicts, each rule below caps a severity, none raises one, and a capped finding
 severity it was given as `severity_raw`:
 
 - CRITICAL requires VERIFIED.
-- A hedged title ("Potential", "May", "Could") is MEDIUM at most unless executed criteria
-  verified it.
+- A hedged title ("Potential", "May", "Could") is MEDIUM at most, whoever verified it. Criteria
+  settle no VERIFIED verdict, since a pass can check the opposite of the claim, and the
+  verifier's confirmation is not evidence enough to lift the cap (#1043).
 - A finding in a test or a document is LOW at most unless it concerns a verified secret. A
   secret scanner's match is that verification: a secret pasted into a task file or a changelog
   fragment is still a secret.
@@ -26,7 +27,6 @@ from devops_cli.ai.review.category_metrics import resolve_finding_category
 from devops_cli.ai.review.classification import FileContextType, classify_file_context
 from devops_cli.ai.review_schema import DefectClass, Finding, less_severe
 from devops_cli.config.constants import (
-    CONST_REVIEW_EVIDENTIAL_ADJUDICATORS,
     CONST_REVIEW_HEDGE_WORDS,
     CONST_REVIEW_SECRET_SCAN_TITLE_PREFIXES,
     CONST_REVIEW_TEST_DIR_NAMES,
@@ -74,12 +74,8 @@ def _is_unverified(finding: Finding, path: PurePosixPath) -> bool:
     return not _is_verified(finding, path)
 
 
-def _is_hedged_without_evidence(finding: Finding, path: PurePosixPath) -> bool:
-    hedged = not CONST_REVIEW_HEDGE_WORDS.isdisjoint(_WORDS.findall(finding.title.lower()))
-    evidenced = (
-        _is_verified(finding, path) and finding.verified_by in CONST_REVIEW_EVIDENTIAL_ADJUDICATORS
-    )
-    return hedged and not evidenced
+def _is_hedged(finding: Finding, _path: PurePosixPath) -> bool:
+    return not CONST_REVIEW_HEDGE_WORDS.isdisjoint(_WORDS.findall(finding.title.lower()))
 
 
 def _is_secret_scan_match(finding: Finding) -> bool:
@@ -109,7 +105,7 @@ def _is_in_test_or_document(finding: Finding, path: PurePosixPath) -> bool:
 # Each rule, given the finding and the file it cites, and the severity it caps the finding at.
 _SEVERITY_CAPS: tuple[tuple[Callable[[Finding, PurePosixPath], bool], str], ...] = (
     (_is_unverified, CONST_SEVERITY_HIGH),
-    (_is_hedged_without_evidence, CONST_SEVERITY_MEDIUM),
+    (_is_hedged, CONST_SEVERITY_MEDIUM),
     (_is_in_test_or_document, CONST_SEVERITY_LOW),
 )
 

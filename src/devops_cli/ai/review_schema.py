@@ -1136,7 +1136,11 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         verified = True
         mitigated = False
         reportable = True
-        verified_by = base.verified_by or other.verified_by or "criteria"
+        # The adjudicator of a verified input: a merge invents none (#1043).
+        verified_by = next(
+            (f.verified_by for f in (base, other) if f.status == "VERIFIED" and f.verified_by),
+            None,
+        )
     elif best_status == "INVALIDATED":
         verified = False
         mitigated = False

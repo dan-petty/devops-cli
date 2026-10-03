@@ -1,10 +1,17 @@
 """What a passing verification or invalidation criterion proves about its finding.
 
-A verdict the criteria settle is final: the model never sees the finding. In review session
-`20261001-224227`, 36 findings were VERIFIED by criteria and none of their 37 passing commands
-checked the cited code. One was a regex echoed against a literal, on a CRITICAL finding that
-cited CVE-2021-44228; others were `git log --grep` over the history and version prints, and 97%
-of the passing `python -c` criteria asserted nothing.
+The criteria settle only one verdict: a passing invalidation criterion that counts as evidence
+settles INVALIDATED, and the verifier never sees the finding. A passing verification criterion
+that counts is recorded in `verified_criteria_matched`, and the verifier judges the finding
+(#1043). The rule below tells whether a command runs the cited code and checks the outcome, not
+which side of the claim its pass supports, and that depends on what the claim means. In review
+session `20261003-012555` both verification criteria of a false finding, that `PurePosixPath`
+has no `full_match`, asserted that the cited function returns the right value: the opposite of
+the claim, which passed because the claim is false. Filed as invalidation, the same pass is a
+correct refutation. In session `20261001-224227`, 36 findings were VERIFIED by criteria and none
+of their 37 passing commands checked the cited code. One was a regex echoed against a literal,
+on a CRITICAL finding that cited CVE-2021-44228; others were `git log --grep` over the history
+and version prints, and 97% of the passing `python -c` criteria asserted nothing (#846).
 
 A passing command is evidence only when it runs the code the finding cites and checks the
 outcome (#846):
@@ -18,6 +25,9 @@ outcome (#846):
   only through its import. Testing that something exists (`assert f`, `f is not None`,
   `Path(...).exists()`) or reflecting on it (`hasattr`, `co_varnames`) shows only that the code
   is there.
+- `python -c` that calls, as a statement of its own, the test whose definition spans the cited
+  line, imported from the cited test module: the test's own asserts are the check (#1043). A
+  bare call of any other function shows only that it did not raise for those inputs.
 - Anything else (`grep`, `git grep`, `git log`, `wc`, `cat`, `head`, `tail`, `find`) finds,
   counts or prints code, and never counts.
 """
@@ -32,11 +42,16 @@ import warnings
 from collections.abc import Callable, Sequence
 from pathlib import Path, PurePosixPath
 
+from devops_cli.ai.ast_cache import global_ast_cache
+from devops_cli.ai.review_schema import _parse_location
 from devops_cli.config.constants import (
     CONST_EXISTENCE_CRITERIA_CALLS,
     CONST_EXIT_CRITERIA_CALLS,
     CONST_PARSING_CRITERIA_CALLS,
+    CONST_PYTEST_FILE_PATTERNS,
+    CONST_PYTEST_FUNCTION_PREFIX,
     CONST_PYTHON_CRITERIA_BINARIES,
+    CONST_PYTHON_FILE_SUFFIX,
     CONST_READING_CRITERIA_CALLS,
     CONST_REFLECTION_CRITERIA_ATTRIBUTES,
     CONST_REFLECTION_CRITERIA_CALLS,
@@ -48,6 +63,9 @@ _NOTHING, _TEXT, _CODE = 0, 1, 2
 
 # Whether a module name, or a string literal naming a file, is one the finding cites.
 _Cites = Callable[[str], bool]
+# Whether a name a module defines, given the module and then the name, is a test the finding
+# cites.
+_CitesTest = Callable[[str, str], bool]
 
 
 def python_invocation(args: Sequence[str]) -> tuple[str, str] | None:
@@ -124,6 +142,17 @@ def _imported_names(tree: ast.Module, cites_module: _Cites) -> set[str]:
     return names
 
 
+def _test_names(tree: ast.Module, cites_test: _CitesTest) -> set[str]:
+    """The names the script binds to a cited test, imported from its module."""
+    return {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module and not node.level
+        for alias in node.names
+        if cites_test(node.module, alias.name)
+    }
+
+
 def _names(target: ast.AST) -> list[str]:
     return [node.id for node in ast.walk(target) if isinstance(node, ast.Name)]
 
@@ -172,12 +201,16 @@ class _Script:
     is ever given does.
     """
 
-    def __init__(self, tree: ast.Module, cites_module: _Cites, cites_file: _Cites) -> None:
+    def __init__(
+        self, tree: ast.Module, cites_module: _Cites, cites_file: _Cites, cites_test: _CitesTest
+    ) -> None:
         self._tree = tree
         self._cites_file = cites_file
         self._imported = _imported_names(tree, cites_module)
         self._carries = dict.fromkeys(self._imported, _CODE)
         bindings = [b for node in ast.walk(tree) if (b := _binding(node)) is not None]
+        # A cited test's name the script binds again may no longer be the test.
+        self._tests = _test_names(tree, cites_test) - {n for names, _ in bindings for n in names}
         readers: dict[str, list[int]] = {}
         for at, (_, sources) in enumerate(bindings):
             for name in {n for source in sources for n in _names(source)}:
@@ -305,14 +338,29 @@ class _Script:
             return any(self.checks(case, inner) for case in node.cases)
         return any(self.checks(child, guarded) for child in ast.iter_child_nodes(node))
 
+    def runs_a_cited_test(self) -> bool:
+        """Whether the script calls a cited test as a statement of its own, so that the test's
+        asserts fail the command. A call inside a `try`, or one handed to another function such
+        as `pytest.raises`, may have its failure caught."""
+        return any(
+            isinstance(statement, ast.Expr)
+            and isinstance(statement.value, ast.Call)
+            and isinstance(statement.value.func, ast.Name)
+            and statement.value.func.id in self._tests
+            for statement in self._tree.body
+        )
 
-def _script_checks(args: list[str], cites_module: _Cites, cites_file: _Cites) -> bool:
+
+def _script_checks(
+    args: list[str], cites_module: _Cites, cites_file: _Cites, cites_test: _CitesTest
+) -> bool:
     """Whether a `python -c` command checks what the code it cites does, without reflecting."""
     script = _python_script(args)
     tree = _parse(script) if script is not None else None
     if tree is None or _reflects(tree):
         return False
-    return _Script(tree, cites_module, cites_file).checks()
+    read = _Script(tree, cites_module, cites_file, cites_test)
+    return read.checks() or read.runs_a_cited_test()
 
 
 def _split(command: str) -> list[str]:
@@ -326,17 +374,35 @@ def _outside_the_standard_library(module: str) -> bool:
     return module.partition(".")[0] not in sys.stdlib_module_names
 
 
+def _collected_by_pytest(path: PurePosixPath) -> bool:
+    """Whether pytest collects tests from a file, by its default `python_files` patterns."""
+    return any(path.match(pattern) for pattern in CONST_PYTEST_FILE_PATTERNS)
+
+
+def _may_be_a_cited_test(module: str, name: str) -> bool:
+    """Whether a name a module defines may be a test some finding cites: named as pytest names a
+    test, in a module pytest collects tests from."""
+    path = PurePosixPath(*module.split(".")).with_suffix(CONST_PYTHON_FILE_SUFFIX)
+    return (
+        name.startswith(CONST_PYTEST_FUNCTION_PREFIX)
+        and _outside_the_standard_library(module)
+        and _collected_by_pytest(path)
+    )
+
+
 def is_tautological_criterion(command: str) -> bool:
     """Whether a command proves nothing about any finding, whatever its exit status.
 
     Only a `python -c` script that checks what a module it imports does, or a file it reads and
-    parses, can count; which finding it counts for is `counts_as_evidence`'s question. A finding
-    cites reviewed code, never the standard library.
+    parses, or that calls a test it imports, can count; which finding it counts for is
+    `counts_as_evidence`'s question. A finding cites reviewed code, never the standard library.
     """
     args = _split(command)
     if not args:
         return True
-    return not _script_checks(args, _outside_the_standard_library, lambda _file: True)
+    return not _script_checks(
+        args, _outside_the_standard_library, lambda _file: True, _may_be_a_cited_test
+    )
 
 
 def _cited_paths(location: str, repo_root: Path) -> list[PurePosixPath]:
@@ -374,6 +440,49 @@ def _module_names(paths: list[PurePosixPath]) -> set[str]:
     return names
 
 
+def _test_module(path: PurePosixPath, root: Path) -> ast.Module | None:
+    """The syntax tree of a cited file inside `root` that pytest collects tests from; None for
+    any other file."""
+    if not _collected_by_pytest(path):
+        return None
+    try:
+        file = (root / path).resolve()
+    except OSError, RuntimeError:
+        return None
+    tree = global_ast_cache.get_ast(file) if file.is_relative_to(root) else None
+    return tree if isinstance(tree, ast.Module) else None
+
+
+def _is_a_test_over(function: ast.FunctionDef, start: int, end: int) -> bool:
+    """Whether a function is named as a test and its definition, decorators included, spans
+    lines `start` to `end`."""
+    first = min(
+        (decorator.lineno for decorator in function.decorator_list), default=function.lineno
+    )
+    return (
+        function.name.startswith(CONST_PYTEST_FUNCTION_PREFIX)
+        and first <= start
+        and end <= (function.end_lineno or function.lineno)
+    )
+
+
+def _cited_test(location: str, paths: list[PurePosixPath], root: Path) -> str | None:
+    """The test whose definition spans the lines `location` cites in a cited test module.
+
+    Only a module's own functions are read: a test method is not imported from the module, and
+    an async test is left out, since a bare call only creates its coroutine.
+    """
+    _, start, end = _parse_location(location)
+    if start is None or end is None:
+        return None
+    for path in paths:
+        tree = _test_module(path, root)
+        if tree is not None:
+            functions = (node for node in tree.body if isinstance(node, ast.FunctionDef))
+            return next((f.name for f in functions if _is_a_test_over(f, start, end)), None)
+    return None
+
+
 def counts_as_evidence(command: str, location: str, repo_root: Path) -> bool:
     """Whether a passing command shows anything about the code a finding at `location` cites."""
     args = _split(command)
@@ -384,8 +493,10 @@ def counts_as_evidence(command: str, location: str, repo_root: Path) -> bool:
     root = repo_root.resolve()
     # A cited Python file counts only through its import: reading its source is a grep.
     files = {str(base / path) for path in paths if path.suffix != ".py" for base in (Path(), root)}
+    test = _cited_test(location, paths, root)
     return _script_checks(
         args,
         lambda module: any(module == m or module.startswith(f"{m}.") for m in modules),
         lambda literal: posixpath.normpath(literal) in files,
+        lambda module, name: name == test and module in modules,
     )

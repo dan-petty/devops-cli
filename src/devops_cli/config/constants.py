@@ -1368,6 +1368,11 @@ CONST_EXISTENCE_CRITERIA_CALLS: Final[frozenset[str]] = frozenset(
 CONST_EXIT_CRITERIA_CALLS: Final[frozenset[str]] = frozenset(
     {"_exit", "exit", "quit", "SystemExit"}
 )
+# How pytest finds tests by default: the files it collects (`python_files`) and how it names a
+# test function (`python_functions`). A `python -c` criterion that calls the cited test is
+# checked by that test's own asserts (#1043).
+CONST_PYTEST_FILE_PATTERNS: Final[tuple[str, ...]] = ("test_*.py", "*_test.py")
+CONST_PYTEST_FUNCTION_PREFIX: Final[str] = "test"
 
 # ── Review Schemas & Deterministic Verification Constants ─────────────────────
 CONST_ABSENCE_FINDING_MARKERS: Final[tuple[str, ...]] = (
@@ -2994,14 +2999,10 @@ CONST_REVIEW_ROUTED_PATH_PATTERNS: Final[tuple[str, ...]] = (
 # `x.spec.js`) collect.
 CONST_REVIEW_TEST_DIR_NAMES: Final[frozenset[str]] = frozenset({"tests", "test", "__tests__"})
 CONST_REVIEW_TEST_STEM_SUFFIXES: Final[tuple[str, ...]] = ("_test", ".test", ".spec")
-# Words that hedge a finding's claim. A hedged title is MEDIUM at most unless evidence verified it.
+# Words that hedge a finding's claim. A hedged title is MEDIUM at most, whoever verified it.
 CONST_REVIEW_HEDGE_WORDS: Final[frozenset[str]] = frozenset(
     {"potential", "potentially", "possible", "possibly", "may", "might", "could"}
 )
-# Who verifies a finding with evidence rather than a model's reading, during a review: executed
-# criteria. A hedged claim keeps a severity above MEDIUM only on their verdict. A person's verdict
-# comes after the report, whose severities it leaves as they are.
-CONST_REVIEW_EVIDENTIAL_ADJUDICATORS: Final[frozenset[str]] = frozenset({"criteria"})
 # How a secret scanner titles its findings: Gitleaks (`[GITLEAKS]`, `[GITLEAKS:<rule>]`) and
 # Trivy's secret rules (`[SECRET]`). The match is the secret's evidence, so a finding titled so is
 # not capped as a test or document finding.

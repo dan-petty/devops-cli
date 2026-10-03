@@ -12,12 +12,14 @@ import json
 import re
 from collections import Counter
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
 from devops_cli.ai.review.calibration import calibrate_severity
 from devops_cli.ai.review.category_metrics import compute_category_metrics, resolve_finding_category
 from devops_cli.ai.review.history import HistoryFinding
+from devops_cli.ai.review.verdicts import VerifiedBy
 from devops_cli.ai.review_schema import DefectClass, Finding, SavedFinding
 from devops_cli.config.constants import (
     CONST_REVIEW_CWE_DEFECT_CLASSES,
@@ -124,16 +126,8 @@ _CAPS = [
         "CRITICAL",
         "CRITICAL",
     ),
-    # A hedged title is MEDIUM at most unless VERIFIED by evidential criteria.
+    # A hedged title is MEDIUM at most, whoever verified it.
     ("src/app.py:1", "Potential SSRF in the webhook fetcher", "VERIFIED", "llm", "HIGH", "MEDIUM"),
-    (
-        "src/app.py:1",
-        "Potential SSRF in the webhook fetcher",
-        "VERIFIED",
-        "criteria",
-        "HIGH",
-        "HIGH",
-    ),
     # Calibration runs when the report is written, before any person's verdict.
     (
         "src/app.py:1",
@@ -187,6 +181,26 @@ def test_severity_caps(
         capped,
         None if capped == severity else severity,
     )
+
+
+@pytest.mark.parametrize("verified_by", get_args(VerifiedBy))
+def test_no_adjudicator_lifts_the_hedge_cap(verified_by: str) -> None:
+    """Verify a hedged title VERIFIED by any adjudicator is MEDIUM at most. A passing criterion
+    can check the opposite of the claim, and none of the verifier's 19 confirmations in sessions
+    `20261003-005122` and `20261003-012555` was strictly valid, so neither is evidence enough to
+    lift the cap (#1043)."""
+    finding = calibrate_severity(
+        SavedFinding(
+            title="Potential SSRF in the webhook fetcher",
+            location="src/app.py:1",
+            severity="HIGH",
+            status="VERIFIED",
+            verified=True,
+            verified_by=verified_by,
+        )
+    )
+
+    assert (finding.severity, finding.severity_raw) == ("MEDIUM", "HIGH")
 
 
 def test_a_capped_severity_keeps_the_first_raw_value() -> None:

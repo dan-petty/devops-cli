@@ -474,33 +474,24 @@ class _CriteriaVerdict(NamedTuple):
 
 
 def _evaluate_criteria_verdict(
-    matched_ver: list[str],
-    matched_inv: list[str],
-    proving: list[str],
-    refuting: list[str],
-    verification_commands: set[str],
-    exec_results: list[Any],
+    matched_ver: list[str], matched_inv: list[str], refuting: list[str]
 ) -> _CriteriaVerdict | None:
-    """The verdict the criteria settle, or None when they leave the finding for the model.
+    """The verdict the criteria settle, or None when they leave the finding for the verifier.
 
     `matched_ver` and `matched_inv` hold every passing verification and invalidation command,
-    and `proving` and `refuting` those of them that count as evidence
+    and `refuting` those invalidation commands that count as evidence
     (`criteria_evidence.counts_as_evidence`). Criteria that pass on both sides, counting or
-    not, cannot tell the defect from its absence; otherwise a passing command that does not
-    count settles nothing. A finding is VERIFIED only once every verification command has run.
+    not, cannot tell the defect from its absence. A refuting command settles INVALIDATED.
+    Nothing settles VERIFIED: the evidence rule shows that a command checks the cited code, not
+    which side of the claim its pass supports, and a verification criterion that asserts the
+    code's correct behaviour passes because the claim is false (#1043). A passing verification
+    command that counts is recorded as matched, and the verifier judges the finding.
     """
     if matched_ver and matched_inv:
         return _CriteriaVerdict("UNVERIFIED", note=CONST_CRITERIA_NON_DISCRIMINATING)
     if refuting:
         return _CriteriaVerdict(
             "INVALIDATED", "criteria", 0.0, f"Invalidation criterion verified: {refuting[0]}"
-        )
-    completed = {
-        r.command for r in exec_results if r.command in verification_commands and r.exit_code != -1
-    }
-    if proving and completed == verification_commands:
-        return _CriteriaVerdict(
-            "VERIFIED", "criteria", round(len(proving) / len(verification_commands), 2)
         )
     return None
 
@@ -535,12 +526,7 @@ def _reconcile_finding_from_criteria(
             dict.fromkeys(finding.invalidated_criteria_matched + refuting)
         ),
     }
-    verification_commands = {
-        c.command for c in finding.verification_criteria if c.executable and c.command
-    }
-    verdict = _evaluate_criteria_verdict(
-        matched_ver, matched_inv, proving, refuting, verification_commands, exec_results
-    )
+    verdict = _evaluate_criteria_verdict(matched_ver, matched_inv, refuting)
     if verdict is None:
         return finding.model_copy(update=records)
     return apply_verdict(
