@@ -1,15 +1,18 @@
-"""`devops roadmap`: the roadmap on GitHub, its one-time migration and its generated view.
+"""`devops roadmap`: the roadmap on GitHub, its one-time migration, its generated view and the
+current release's rules.
 
-Both commands read `.github/roadmap.toml` through the contents API at `--ref`, then open the
+Every command reads `.github/roadmap.toml` through the contents API at `--ref`, then opens the
 roadmap store on the board it names. `migrate` writes to GitHub only with `--confirm`, and only
 once a person has made the option edits its plan lists; `render` writes no GitHub state, only
-`docs/ROADMAP.md`, which git review covers.
+`docs/ROADMAP.md`, which git review covers. `reprioritize` writes GitHub state only with
+`--confirm`, and never a commit.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -36,6 +39,11 @@ from devops_cli.roadmap.migrate import (
     require_option_edits_made,
 )
 from devops_cli.roadmap.render import render_roadmap
+from devops_cli.roadmap.reprioritize import (
+    apply_reprioritization,
+    plan_reprioritization,
+    render_plan,
+)
 from devops_cli.roadmap.store import RoadmapStore
 
 app = new_typer(help=HELP.roadmap.app, no_args_is_help=True)
@@ -121,4 +129,34 @@ def render_cmd(
     sections = sum(line.startswith("## ") for line in text.splitlines())
     print_success(
         MESSAGES.roadmap.render_written.format(path=output, items=items, sections=sections)
+    )
+
+
+@app.command("reprioritize", help=HELP.roadmap.reprioritize)
+def reprioritize_cmd(
+    repo: RepoOption = None,
+    ref: RefOption = None,
+    confirm: Annotated[
+        bool, typer.Option("--confirm", help=HELP.roadmap.reprioritize_confirm)
+    ] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help=HELP.roadmap.reprioritize_dry_run)
+    ] = False,
+) -> None:
+    """Hold the current release to its rules, and start the next one once it ships."""
+    with _exit_on_failure("Could not plan reprioritization"):
+        target, config, store = _open_roadmap(repo, ref)
+        plan = plan_reprioritization(store, repo=target, config=config, now=datetime.now(UTC))
+    write_stdout(render_plan(plan))
+    if not plan.has_writes:
+        return
+    if dry_run or is_dry_run() or not confirm:
+        print_info(MESSAGES.roadmap.reprioritize_preview)
+        return
+    with _exit_on_failure("Reprioritization stopped part-way; run it again to continue"):
+        apply_reprioritization(store, plan)
+    print_success(
+        MESSAGES.roadmap.reprioritize_applied.format(
+            changes=len(plan.release_writes) + len(plan.changes), records=plan.records
+        )
     )

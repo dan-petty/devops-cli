@@ -2165,6 +2165,7 @@ CONST_GH_MUTATION_VERBS: Final[frozenset[str]] = frozenset(
         "comment",
         "item-edit",
         "item-add",
+        "item-create",
         "item-delete",
         "field-create",
         "field-delete",
@@ -2353,6 +2354,39 @@ CONST_ROADMAP_MATRIX_REJECTED_STATUS: Final[str] = "❌ Rejected"
 CONST_ROADMAP_NOT_BUILDING_MARKER: Final[str] = "not building"
 # A workflow whose name starts with this adds issues to the board behind intake's back.
 CONST_ROADMAP_AUTO_ADD_WORKFLOW_PREFIX: Final[str] = "Auto-add"
+# The board's Status options (`.github/project-template.json`) the release rules read. An item
+# is started once it is in progress, in review or done; every other Status, or none, is
+# unstarted (CONTEXT.md).
+CONST_ROADMAP_STATUS_NEW: Final[str] = "New"
+CONST_ROADMAP_STATUS_READY: Final[str] = "Ready"
+CONST_ROADMAP_STATUS_IN_PROGRESS: Final[str] = "In Progress"
+CONST_ROADMAP_STATUS_IN_REVIEW: Final[str] = "In Review"
+CONST_ROADMAP_STATUS_DONE: Final[str] = "Done"
+CONST_ROADMAP_STATUS_BLOCKED: Final[str] = "Blocked"
+CONST_ROADMAP_STARTED_STATUSES: Final[frozenset[str]] = frozenset(
+    {CONST_ROADMAP_STATUS_IN_PROGRESS, CONST_ROADMAP_STATUS_IN_REVIEW, CONST_ROADMAP_STATUS_DONE}
+)
+# The Status options #739's template replaces with New: while the board still has one,
+# `devops roadmap migrate` has cards left to move, and its release epics are still Items.
+CONST_ROADMAP_PREMIGRATE_STATUSES: Final[frozenset[str]] = frozenset({"Backlog", "Todo"})
+# A critical fix is a P0 item that fixes a defect or a security advisory (CONTEXT.md): the
+# board's P0 Priority option and one of these `type/*` labels.
+CONST_ROADMAP_CRITICAL_PRIORITY: Final[str] = "P0-Critical"
+CONST_ROADMAP_CRITICAL_FIX_LABELS: Final[frozenset[str]] = frozenset({"type/bug", "type/security"})
+# A person applies it to an item too big for one pull request; reprioritization descopes it.
+CONST_ROADMAP_NEEDS_SPLIT_LABEL: Final[str] = "needs-split"
+# The `Left` mark of an item a person took out of the backlog, where a job last placed it; every
+# other `Left` mark names a Release.
+CONST_ROADMAP_LEFT_BACKLOG: Final[str] = "backlog"
+# The draft issue card whose job record is the run record: what a roadmap job keeps about the
+# repository as a whole, such as the Release reprioritization last started. The store finds it
+# by this title.
+CONST_ROADMAP_RUN_RECORD_TITLE: Final[str] = "Roadmap run record"
+CONST_ROADMAP_RUN_RECORD_BODY: Final[str] = (
+    "The roadmap jobs keep their run record in this card's Job record field, such as the "
+    "release `devops roadmap reprioritize` last started. Leave the card on the board: without "
+    "it, the job refuses to run until the card is back."
+)
 CONST_GH_PROJECT_SINGLE_SELECT_TYPE: Final[str] = "SINGLE_SELECT"
 CONST_GH_PROJECT_TEXT_TYPE: Final[str] = "TEXT"
 CONST_GH_RAW_CONTENT_ACCEPT: Final[str] = "Accept: application/vnd.github.raw+json"

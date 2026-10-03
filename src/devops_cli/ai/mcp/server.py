@@ -665,6 +665,29 @@ def roadmap_migrate(repo: str | None = None, ref: str | None = None) -> str:
 
 
 @mcp.tool()
+def roadmap_reprioritize(
+    repo: str | None = None, ref: str | None = None, dry_run: bool = True
+) -> str:
+    """Hold the current release to its admission rule, cap and stall window, and start the next
+    release once it ships; prints each change with its reason.
+
+    It previews by default. `dry_run=False` makes the changes (`--confirm`).
+    """
+    cmd = ["uv", "run", "devops", "roadmap", "reprioritize"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    if ref:
+        _validate_mcp_arg("ref", ref)
+        cmd.extend(["--ref", ref])
+    if dry_run:
+        cmd.append("--dry-run")
+    else:
+        cmd.append("--confirm")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def docs_compact(
     series: str = "v0.2",
     dry_run: bool = True,

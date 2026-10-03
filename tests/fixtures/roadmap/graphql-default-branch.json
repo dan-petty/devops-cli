@@ -1,0 +1,12 @@
+{
+  "data": {
+    "repository": {
+      "defaultBranchRef": {
+        "name": "main",
+        "target": {
+          "oid": "e6ce3db5b7a61a17217c6a590b0f33c70438fed6"
+        }
+      }
+    }
+  }
+}

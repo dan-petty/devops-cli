@@ -888,6 +888,17 @@ class RoadmapCommandHelp:
     migrate_dry_run: str = "Print the plan and report, and write nothing."
     render_dry_run: str = "Print the rendered file to stdout instead of writing it."
     output: str = "File render writes."
+    reprioritize: str = (
+        "Hold the current release to its rules: after it starts only a critical fix joins it, "
+        "a fix that takes it over the cap descopes one unstarted item, and Blocked, dependent, "
+        "needs-split and stalled items are descoped, each with a reason comment. Once the "
+        "release ships, close it, branch the next one and fill or trim it to the cap. The first "
+        "run records the admitted set and moves nothing. Writes only with --confirm."
+    )
+    reprioritize_confirm: str = (
+        "Make the changes on GitHub. Without it, reprioritize prints its plan only."
+    )
+    reprioritize_dry_run: str = "Print each change with its reason, and write nothing."
 
 
 @dataclass(frozen=True)

@@ -1,0 +1,42 @@
+{
+  "data": {
+    "repository": {
+      "milestone": {
+        "pullRequests": {
+          "totalCount": 1,
+          "nodes": [
+            {
+              "number": 905,
+              "url": "https://github.com/dan-petty/devops-cli/pull/905",
+              "state": "MERGED",
+              "isDraft": false,
+              "baseRefName": "main",
+              "headRefName": "release/v0.2.24",
+              "body": "## feat(release): v0.2.24",
+              "updatedAt": "2026-10-01T22:39:30Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "release"
+                  }
+                ]
+              },
+              "milestone": {
+                "title": "v0.2.24"
+              },
+              "commits": {
+                "nodes": [
+                  {
+                    "commit": {
+                      "committedDate": "2026-10-01T22:25:55Z"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

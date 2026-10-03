@@ -70,6 +70,7 @@ COMMAND_SPECS = [
     (roadmap_app, ["--help"]),
     (roadmap_app, ["migrate", "--help"]),
     (roadmap_app, ["render", "--help"]),
+    (roadmap_app, ["reprioritize", "--help"]),
 ]
 
 

@@ -117,6 +117,11 @@
   color: "0E8A16"
   description: "All quality gates passed and approved by maintainer for merge"
 
+# ── Roadmap Labels ──────────────────────────────────────────────────────────
+- name: "needs-split"
+  color: "FBCA04"
+  description: "Too big for one pull request; reprioritization descopes it until it is split"
+
 # ── Review Feedback Labels ──────────────────────────────────────────────────
 - name: "review/approved"
   color: "0E8A16"

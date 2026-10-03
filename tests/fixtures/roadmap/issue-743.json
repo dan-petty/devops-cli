@@ -1,0 +1,23 @@
+{
+  "number": 743,
+  "title": "feat(release): item closure summaries, generated changelog and automatic release cut (`devops roadmap close`)",
+  "html_url": "https://github.com/dan-petty/devops-cli/issues/743",
+  "repository_url": "https://api.github.com/repos/dan-petty/devops-cli",
+  "state": "open",
+  "state_reason": null,
+  "labels": [
+    {
+      "name": "type/feature"
+    },
+    {
+      "name": "priority/p1-high"
+    },
+    {
+      "name": "scope/release"
+    }
+  ],
+  "milestone": {
+    "number": 44,
+    "title": "v0.2.26"
+  }
+}

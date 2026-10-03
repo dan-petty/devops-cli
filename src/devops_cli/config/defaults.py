@@ -756,6 +756,15 @@ DEFAULT_GH_PROJECT_OPTION_COLOR: str = "GRAY"
 DEFAULT_ROADMAP_MEMORY_REPO: str = "example/roadmap"
 DEFAULT_ROADMAP_MEMORY_ACTOR: str = "devops-cli"
 DEFAULT_ROADMAP_MEMORY_BOARD_NUMBER: int = 1
+DEFAULT_ROADMAP_MEMORY_DEFAULT_BRANCH: str = "main"
+DEFAULT_ROADMAP_MEMORY_HEAD_SHA: str = "0" * 40
+# Open pull requests one GraphQL read returns; a repository with more raises instead of
+# reading part of them.
+DEFAULT_GH_OPEN_PULL_REQUEST_LIMIT: int = 100
+# Boards one issue's card listing reads its Status from.
+DEFAULT_GH_PROJECT_ITEMS_PER_ISSUE: int = 20
+# How often the stall check makes reprioritization due when nothing else has changed.
+DEFAULT_ROADMAP_STALL_CHECK_HOURS: int = 24
 # `.github/roadmap.toml` keys a repository may leave out. `board` has no default.
 DEFAULT_ROADMAP_RELEASE_CAP: int = 12
 DEFAULT_ROADMAP_DISCOVERY_THRESHOLD: int = 24

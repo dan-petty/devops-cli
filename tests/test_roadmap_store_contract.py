@@ -23,6 +23,8 @@ from devops_cli.roadmap.store import (
     FieldSpec,
     GitHubState,
     ItemField,
+    JobMark,
+    PullRequestState,
     RoadmapStore,
 )
 
@@ -120,6 +122,25 @@ def test_editing_an_unknown_release_raises(store: InMemoryRoadmapStore) -> None:
 def test_renaming_a_release_onto_another_version_raises(store: InMemoryRoadmapStore) -> None:
     with pytest.raises(GitHubOperationError, match="already exists"):
         store.edit_release("0.2.25", title="v0.2.24")
+
+
+def test_a_renamed_release_keeps_its_number_issues_and_pull_requests(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """GitHub keeps a milestone by its number, so a rename moves no issue out of it."""
+    item = store.seed_issue("planned", release="v0.2.25", on_board=True)
+    pull_request = store.as_actor("alice").open_pull_request(
+        "cut", base="main", head="release/v0.2.25", labels=("release",), release="v0.2.25"
+    )
+    before = store.release("v0.2.25")
+    renamed = store.as_actor("alice").edit_release("v0.2.25", title="v0.3.0")
+    found = store.item(item)
+    assert (
+        renamed.number == (before.number if before else None),
+        found.release if found else None,
+        [p.number for p in store.release_pull_requests("v0.3.0")],
+        store.items(release="v0.2.25"),
+    ) == (True, "v0.3.0", [pull_request], [])
 
 
 def test_items_in_a_release_are_its_open_and_closed_items(store: InMemoryRoadmapStore) -> None:
@@ -448,8 +469,20 @@ def test_an_issue_is_opened_then_closed_as_not_planned_with_a_comment(
             "not_planned",
         ),
         ["Not planned (ADR 0001)."],
-        [(ChangeKind.CLOSED, opened.number)],
+        [(ChangeKind.COMMENTED, opened.number), (ChangeKind.CLOSED, opened.number)],
     )
+
+
+def test_a_person_reopens_a_closed_issue_in_its_release(store: InMemoryRoadmapStore) -> None:
+    number = store.seed_issue("done", release="v0.2.25", on_board=True)
+    store.close_issue(number, CloseReason.COMPLETED, "Delivered.")
+    since = store.changes_since(datetime.min)
+    store.as_actor("alice").reopen_issue(number)
+    found = store.item(number)
+    assert (
+        (found.state, found.state_reason, found.release) if found else None,
+        [(c.kind, c.release) for c in store.changes_since(datetime.min)[len(since) :]],
+    ) == ((GitHubState.OPEN, None, "v0.2.25"), [(ChangeKind.REOPENED, "v0.2.25")])
 
 
 def test_closing_a_pull_request_raises(store: InMemoryRoadmapStore) -> None:
@@ -514,4 +547,270 @@ def test_workflows_lists_the_boards_built_in_workflows(store: InMemoryRoadmapSto
     assert [(w.name, w.enabled) for w in store.workflows()] == [
         ("Item closed", True),
         ("Auto-add sub-issues to project", False),
+    ]
+
+
+# ── What the release rules read and write (#740) ──────────────────────────────
+
+
+def test_marks_are_kept_in_the_job_record_and_change_no_field(store: InMemoryRoadmapStore) -> None:
+    item = store.item(store.seed_issue("admitted", release="v0.2.25", on_board=True))
+    assert item is not None
+    store.set_marks(item, {JobMark.ADMITTED: "v0.2.25", JobMark.PENDING: "{}"})
+    store.set_field(item, ItemField.STATUS, "Ready")
+    store.set_marks(item, {JobMark.ADMITTED: None, JobMark.PENDING: None})
+    written = store.item(item.number)
+    assert (
+        (written.release, written.status, written.job_record) if written else None,
+        [change.kind for change in store.changes_since(datetime.min)],
+    ) == (
+        (
+            "v0.2.25",
+            "Ready",
+            {JobMark.ADMITTED: None, JobMark.PENDING: None, ItemField.STATUS: "Ready"},
+        ),
+        [ChangeKind.FIELD_CHANGED],
+    )
+
+
+def test_a_field_write_records_marks_with_its_value_and_a_persons_records_neither(
+    store: InMemoryRoadmapStore,
+) -> None:
+    item = store.item(store.seed_issue("moved", release="v0.2.25", on_board=True))
+    assert item is not None
+    store.set_marks(item, {JobMark.ADMITTED: "v0.2.25"})
+    store.set_field(item, ItemField.RELEASE, None, marks={JobMark.PENDING: "{}"})
+    store.as_actor("alice").set_field(
+        item, ItemField.STATUS, "Ready", marks={JobMark.PENDING: None}
+    )
+    written = store.item(item.number)
+    assert ((written.release, written.status, written.job_record) if written else None) == (
+        None,
+        "Ready",
+        {JobMark.ADMITTED: "v0.2.25", ItemField.RELEASE: None, JobMark.PENDING: "{}"},
+    )
+
+
+def test_marks_can_record_a_fields_value_or_forget_it_without_setting_the_field(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """A job records the value of a field write it begins before the field is set, as GitHub's
+    first call does, and takes that record back, value or none, when the write never landed."""
+    item = store.item(store.seed_issue("begun", release="v0.2.25", on_board=True))
+    assert item is not None
+    store.set_field(item, ItemField.STATUS, "Ready")
+    store.set_marks(item, {JobMark.PENDING: "{}"}, recorded={ItemField.RELEASE: None})
+    begun = store.item(item.number)
+    store.set_marks(
+        item,
+        {JobMark.PENDING: None},
+        recorded={ItemField.STATUS: "In Progress"},
+        forgotten=(ItemField.RELEASE,),
+    )
+    taken_back = store.item(item.number)
+    assert (
+        (begun.release, begun.job_record) if begun else None,
+        (taken_back.release, taken_back.status, taken_back.job_record) if taken_back else None,
+        [change.kind for change in store.changes_since(datetime.min)],
+    ) == (
+        ("v0.2.25", {ItemField.STATUS: "Ready", ItemField.RELEASE: None, JobMark.PENDING: "{}"}),
+        ("v0.2.25", "Ready", {ItemField.STATUS: "In Progress", JobMark.PENDING: None}),
+        [ChangeKind.FIELD_CHANGED],
+    )
+
+
+def test_marks_refuse_an_item_off_the_board_and_a_board_without_a_job_record_field(
+    store: InMemoryRoadmapStore,
+) -> None:
+    item = store.item(store.seed_issue("on the board", on_board=True))
+    assert item is not None
+    gone = item.model_copy(update={"number": store.seed_issue("never on the board")})
+    writes = store.job_writes()
+    unrecorded = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, job_record_field=False)
+    unrecorded_item = unrecorded.item(unrecorded.seed_issue("unrecorded", on_board=True))
+    assert unrecorded_item is not None
+    with pytest.raises(GitHubOperationError, match="not on the board"):
+        store.set_marks(gone, {JobMark.NUDGED: "2026-10-02T12:00:00+00:00"})
+    with pytest.raises(GitHubOperationError, match="Job record"):
+        unrecorded.set_marks(unrecorded_item, {JobMark.ADMITTED: "v0.2.25"})
+    assert (store.job_writes(), unrecorded.item(unrecorded_item.number)) == (
+        writes,
+        unrecorded_item,
+    )
+
+
+def test_the_run_record_is_one_draft_cards_job_record_that_only_a_job_writes(
+    store: InMemoryRoadmapStore,
+) -> None:
+    before = (store.run_record(), [card.kind for card in store.cards()])
+    store.as_actor("alice").set_run_record({JobMark.STARTED: "v0.2.24"})
+    by_a_person = store.run_record()
+    store.set_run_record({JobMark.STARTED: "v0.2.24"})
+    store.set_run_record({JobMark.STARTED: "v0.2.25"})
+    unrecorded = InMemoryRoadmapStore(board_options=BOARD_OPTIONS, job_record_field=False)
+    with pytest.raises(GitHubOperationError, match="Job record"):
+        unrecorded.set_run_record({JobMark.STARTED: "v0.2.25"})
+    assert (
+        before,
+        by_a_person,
+        store.run_record(),
+        [(card.kind, card.job_record) for card in store.cards()],
+        unrecorded.run_record(),
+    ) == (
+        ({}, []),
+        {},
+        {JobMark.STARTED: "v0.2.25"},
+        [(CardKind.DRAFT_ISSUE, {JobMark.STARTED: "v0.2.25"})],
+        {},
+    )
+
+
+def test_release_changes_are_one_issues_joins_and_leaves_oldest_first(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    person = store.as_actor("alice")
+    moved = store.item(store.seed_issue("moved", on_board=True))
+    other = store.item(store.seed_issue("other", on_board=True))
+    assert moved is not None and other is not None
+    person.set_field(moved, ItemField.RELEASE, "v0.2.25")
+    person.set_field(other, ItemField.RELEASE, "v0.2.25")
+    clock.now += timedelta(hours=1)
+    person.set_field(moved, ItemField.STATUS, "Ready")
+    person.set_field(moved, ItemField.RELEASE, None)
+    assert [
+        (c.kind, c.number, c.release, c.actor) for c in store.release_changes(moved.number)
+    ] == [
+        (ChangeKind.JOINED_RELEASE, moved.number, "v0.2.25", "alice"),
+        (ChangeKind.LEFT_RELEASE, moved.number, "v0.2.25", "alice"),
+    ]
+
+
+def test_dependencies_are_the_blocked_by_links_as_their_issues_are_now(
+    store: InMemoryRoadmapStore,
+) -> None:
+    waiting = store.seed_issue("waits", release="v0.2.25", on_board=True)
+    planned = store.seed_issue("planned", release="v0.2.25")
+    shipped = store.seed_issue("shipped", state=GitHubState.CLOSED, release="v0.2.24")
+    person = store.as_actor("alice")
+    person.link_dependency(waiting, planned)
+    person.link_dependency(waiting, shipped)
+    assert (
+        [(d.number, d.repository, d.state, d.release) for d in store.dependencies(waiting)],
+        store.dependencies(planned),
+        [(c.kind, c.number, c.release) for c in store.changes_since(datetime.min)],
+    ) == (
+        [
+            (planned, "example/roadmap", GitHubState.OPEN, "v0.2.25"),
+            (shipped, "example/roadmap", GitHubState.CLOSED, "v0.2.24"),
+        ],
+        [],
+        [(ChangeKind.BLOCKED_BY_ADDED, waiting, "v0.2.25")] * 2,
+    )
+
+
+def test_status_changed_at_is_when_anyone_last_changed_the_status(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    item = store.item(store.seed_issue("in progress", on_board=True))
+    assert item is not None
+    never = store.status_changed_at(item.number)
+    store.as_actor("alice").set_field(item, ItemField.STATUS, "In Progress")
+    by_alice = clock.now
+    clock.now += timedelta(hours=1)
+    store.set_field(item, ItemField.PRIORITY, "P1-High")
+    assert (never, store.status_changed_at(item.number)) == (None, by_alice)
+
+
+def test_pull_requests_open_and_the_releases_own_whatever_their_state(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    person = store.as_actor("alice")
+    release = {"base": "main", "labels": ("release",), "release": "v0.2.25"}
+    closed = person.open_pull_request("first cut", head="release/v0.2.25", **release)
+    person.close_pull_request(closed)
+    cut = person.open_pull_request("cut", head="chore/release-v0.2.25", draft=True, **release)
+    topic = person.open_pull_request(
+        "feat", base="release/v0.2.25", head="feat/x", body="Closes #1"
+    )
+    clock.now += timedelta(hours=1)
+    person.push_to_pull_request(topic)
+    with pytest.raises(GitHubOperationError, match="No Release"):
+        store.release_pull_requests("9.9.9")
+    assert (
+        [(p.number, p.draft, p.updated_at, p.last_commit_at) for p in store.open_pull_requests()],
+        [(p.number, p.state) for p in store.release_pull_requests("0.2.25")],
+        [(c.kind, c.number) for c in store.changes_since(datetime.min)],
+    ) == (
+        [
+            (cut, True, clock.now - timedelta(hours=1), clock.now - timedelta(hours=1)),
+            (topic, False, clock.now, clock.now),
+        ],
+        [(closed, PullRequestState.CLOSED), (cut, PullRequestState.OPEN)],
+        [
+            (ChangeKind.RELEASE_CUT, closed),
+            (ChangeKind.RELEASE_UNCUT, closed),
+            (ChangeKind.RELEASE_CUT, cut),
+        ],
+    )
+
+
+def test_a_release_is_published_once_its_github_release_is(store: InMemoryRoadmapStore) -> None:
+    before = store.release_published("0.2.25")
+    store.as_actor("alice").publish_release("0.2.25")
+    assert (
+        before,
+        store.release_published("0.2.25"),
+        store.release_published("v0.2.25"),
+        store.release_published("v0.2.24"),
+        [(c.kind, c.release) for c in store.changes_since(datetime.min)],
+    ) == (False, True, True, False, [(ChangeKind.RELEASE_SHIPPED, "v0.2.25")])
+
+
+def test_a_branch_is_read_by_its_name_and_created_only_once(store: InMemoryRoadmapStore) -> None:
+    head = store.default_branch()
+    missing = store.branch("release/v0.2.26")
+    store.create_branch("release/v0.2.26", head.sha)
+    with pytest.raises(GitHubOperationError, match="already exists"):
+        store.create_branch("release/v0.2.26", "f" * 40)
+    assert (head.name, missing, store.branch("release/v0.2.26")) == ("main", None, head.sha)
+
+
+def test_a_comment_is_kept_on_its_issue(store: InMemoryRoadmapStore) -> None:
+    number = store.seed_issue("commented", release="v0.2.25", on_board=True)
+    store.comment(number, "Moved to the backlog.")
+    with pytest.raises(GitHubOperationError, match="not an issue"):
+        store.comment(store.seed_issue("a pull request", pull_request=True), "no")
+    assert (
+        store.comments_on(number),
+        [(c.kind, c.number, c.release) for c in store.changes_since(datetime.min)],
+    ) == (["Moved to the backlog."], [(ChangeKind.COMMENTED, number, "v0.2.25")])
+
+
+def test_a_change_reads_the_value_and_job_record_as_they_are_now(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """A job placed the item, then a person moved it to the backlog: the job's change now reads
+    as no longer matching the record, which is what tells it from the job's own."""
+    item = store.item(store.seed_issue("placed", on_board=True))
+    assert item is not None
+    store.set_field(item, ItemField.RELEASE, "v0.2.25")
+    store.as_actor("alice").set_field(item, ItemField.RELEASE, None)
+    assert [
+        (c.kind, c.release, c.field, c.value, c.job_record)
+        for c in store.changes_since(datetime.min)
+    ] == [
+        (
+            ChangeKind.JOINED_RELEASE,
+            "v0.2.25",
+            ItemField.RELEASE,
+            None,
+            {ItemField.RELEASE: "v0.2.25"},
+        ),
+        (
+            ChangeKind.LEFT_RELEASE,
+            "v0.2.25",
+            ItemField.RELEASE,
+            None,
+            {ItemField.RELEASE: "v0.2.25"},
+        ),
     ]

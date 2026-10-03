@@ -157,14 +157,14 @@ def test_cli_milestones_list_names_a_failed_read(
     res = runner.invoke(milestones_app, ["list", "--repo", REPO])
     assert (
         res.exit_code,
-        f"Could not read milestones in {REPO} (exit 1)" in res.output,
+        f"Could not read milestones (page 1) in {REPO} (exit 1)" in res.output,
         "No milestones found" in res.output,
         unreadable_github_roadmap,
     ) == (
         1,
         True,
         False,
-        [["api", "--paginate", f"repos/{REPO}/milestones?state=all&per_page=100"]],
+        [["api", f"repos/{REPO}/milestones?state=all&per_page=100&page=1"]],
     )
 
 
