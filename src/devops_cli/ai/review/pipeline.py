@@ -4,8 +4,9 @@ Example:
     >>> from devops_cli.ai.client import LLMClient
     >>> from devops_cli.ai.review import ReviewPipelineOrchestrator
     >>>
-    >>> orchestrator = ReviewPipelineOrchestrator(session_id="session-001")
-    >>> metadata = orchestrator.run_pre_analysis_refresh()
+    >>> from pathlib import Path
+    >>> orchestrator = ReviewPipelineOrchestrator(session_id="session-001", target_dir=Path("."))
+    >>> metadata = orchestrator.run_pre_analysis_refresh(Path("."))
     >>> payloads = orchestrator.init_per_file_payloads(["src/main.py"], metadata)
     >>> orchestrator.execute_multi_persona_review(payloads, {"src/main.py": "def main(): pass"})
     >>> orchestrator.execute_finding_verification(payloads)
@@ -120,7 +121,6 @@ from devops_cli.config.constants import (
     CONST_VERIFICATION_UNAVAILABLE,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_CURRENT_PATH,
     DEFAULT_LOCATION_CONTEXT_LINES,
     DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS,
     DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
@@ -1805,7 +1805,8 @@ class ReviewPipelineOrchestrator:
         self,
         session_id: str | None = None,
         llm_client: LLMClient | None = None,
-        target_dir: Path = DEFAULT_CURRENT_PATH,
+        *,
+        target_dir: Path,
         session_dir: Path | None = None,
         concurrency: int | None = None,
         parallel: bool = True,
@@ -1915,7 +1916,7 @@ class ReviewPipelineOrchestrator:
 
     def run_pre_analysis_refresh(
         self,
-        target_dir: Path = DEFAULT_CURRENT_PATH,
+        target_dir: Path,
         target_type: Literal["branch", "pr", "path"] = "path",
         target_ref: str = ".",
         force_refresh: bool = False,

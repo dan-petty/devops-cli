@@ -384,9 +384,9 @@ def test_a_branch_cannot_loosen_its_own_review(
     [orchestrator] = built
     prompts = (
         _persona_system_prompt(
-            PERSONAS[Persona.DEVSECOPS], orchestrator._read_target_conventions()
+            PERSONAS[Persona.DEVSECOPS], orchestrator._read_target_conventions(), root
         ),
-        _persona_system_prompt(PERSONAS[Persona.DEVSECOPS], persona_loop.call_args.args[4]),
+        _persona_system_prompt(PERSONAS[Persona.DEVSECOPS], persona_loop.call_args.args[4], root),
         _verifier_conventions(orchestrator),
     )
 
@@ -438,9 +438,9 @@ def test_a_ci_checkout_reviews_the_branch_under_its_origins_conventions(
     )
     prompts = (
         _persona_system_prompt(
-            PERSONAS[Persona.DEVSECOPS], orchestrator._read_target_conventions()
+            PERSONAS[Persona.DEVSECOPS], orchestrator._read_target_conventions(), root
         ),
-        _persona_system_prompt(PERSONAS[Persona.DEVSECOPS], agents_md),
+        _persona_system_prompt(PERSONAS[Persona.DEVSECOPS], agents_md, root),
         _verifier_conventions(orchestrator),
     )
 

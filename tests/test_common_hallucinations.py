@@ -445,9 +445,7 @@ def test_cataloged_hallucinations_matching() -> None:
 
 
 def _entry(name: str, description: str, count: int):
-    """Build one claim a person judged in a review of the working directory's repository."""
-    from devops_cli.ai.review.judged_claims import project_of
-
+    """Build one claim a person judged in a review of the `target` project."""
     return CommonHallucinationEntry(
         id=name,
         name=description,
@@ -456,11 +454,11 @@ def _entry(name: str, description: str, count: int):
         resolution="Disproved against the source.",
         occurrence_count=count,
         source="person",
-        judged=_judged(project=project_of(Path.cwd())),
+        judged=_judged(),
     )
 
 
-def test_the_most_frequent_false_positives_are_shown_first() -> None:
+def test_the_most_frequent_false_positives_are_shown_first(tmp_path: Path) -> None:
     """Recurrence is concentrated in a few entries; the tail spends tokens for nothing.
 
     The claims people judged most often come first: the shipped entries' counts never changed,
@@ -472,11 +470,11 @@ def test_the_most_frequent_false_positives_are_shown_first() -> None:
 
     entries = [_entry("rare", "Rarely seen claim", 1), _entry("common", "Frequent claim", 99)]
     with patch.object(module, "load_common_hallucinations", return_value=entries):
-        rendered = module.render_negative_exemplars(limit=1)
+        rendered = module.render_negative_exemplars(tmp_path / "target", limit=1)
     assert ("Frequent claim" in rendered, "Rarely seen claim" in rendered) == (True, False)
 
 
-def test_the_exemplar_block_is_bounded() -> None:
+def test_the_exemplar_block_is_bounded(tmp_path: Path) -> None:
     """This is prepended to every segment for every persona, so its size is a budget."""
     from unittest.mock import patch
 
@@ -484,11 +482,11 @@ def test_the_exemplar_block_is_bounded() -> None:
 
     entries = [_entry(f"e{i}", "x" * 4000, i) for i in range(40)]
     with patch.object(module, "load_common_hallucinations", return_value=entries):
-        rendered = module.render_negative_exemplars(limit=5, max_chars=100)
+        rendered = module.render_negative_exemplars(tmp_path / "target", limit=5, max_chars=100)
     assert len(rendered) < 1000
 
 
-def test_an_empty_ledger_contributes_nothing() -> None:
+def test_an_empty_ledger_contributes_nothing(tmp_path: Path) -> None:
     """A first review of an unfamiliar repository must not carry an empty heading."""
     from unittest.mock import patch
 
@@ -498,10 +496,10 @@ def test_an_empty_ledger_contributes_nothing() -> None:
         patch.object(module, "load_common_hallucinations", return_value=[]),
         patch.object(module, "_build_builtin_hallucinations", return_value=[]),
     ):
-        assert module.render_negative_exemplars() == ""
+        assert module.render_negative_exemplars(tmp_path) == ""
 
 
-def test_the_persona_prompt_carries_the_exemplars() -> None:
+def test_the_persona_prompt_carries_the_exemplars(tmp_path: Path) -> None:
     """Injection is the point; rendering the block and not using it would change nothing."""
     from unittest.mock import patch
 
@@ -514,11 +512,11 @@ def test_the_persona_prompt_carries_the_exemplars() -> None:
         "render_negative_exemplars",
         return_value="\n\n## Previously Recorded False Positives\n- A disproved claim",
     ):
-        prompt = runner_module._persona_system_prompt(persona, "")
+        prompt = runner_module._persona_system_prompt(persona, "", tmp_path)
     assert "A disproved claim" in prompt
 
 
-def test_the_exemplars_survive_alongside_project_conventions() -> None:
+def test_the_exemplars_survive_alongside_project_conventions(tmp_path: Path) -> None:
     """A target that ships an AGENTS.md takes a different branch; both must carry them."""
     from unittest.mock import patch
 
@@ -527,5 +525,5 @@ def test_the_exemplars_survive_alongside_project_conventions() -> None:
 
     persona = type("P", (), {"system_prompt": "You review code."})()
     with patch.object(module, "render_negative_exemplars", return_value="\n- A disproved claim"):
-        prompt = runner_module._persona_system_prompt(persona, "# Conventions")
+        prompt = runner_module._persona_system_prompt(persona, "# Conventions", tmp_path)
     assert ("A disproved claim" in prompt, "# Conventions" in prompt) == (True, True)

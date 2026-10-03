@@ -175,7 +175,11 @@ def test_a_pr_review_reads_the_base_at_the_merge_base_and_records_the_delta(
     with patch("devops_cli.github.client.GitHubClient", return_value=gh):
         *_, base_revision = _prepare_pr_content(7, "base/app", "token", head_dir=head_dir)
     orchestrator = ReviewPipelineOrchestrator(
-        session_id="pr-7", llm_client=MagicMock(), session_dir=tmp_path / "session", concurrency=1
+        session_id="pr-7",
+        llm_client=MagicMock(),
+        session_dir=tmp_path / "session",
+        concurrency=1,
+        target_dir=tmp_path,
     )
     metadata = orchestrator.run_pre_analysis_refresh(
         target_dir=head_dir, target_type="pr", target_ref="7", base_revision=base_revision

@@ -101,19 +101,19 @@ def test_load_agents_md_returns_empty_when_missing(tmp_path: Path) -> None:
     assert _load_agents_md(tmp_path) == ""
 
 
-def test_persona_system_prompt_includes_agents_md_when_present() -> None:
+def test_persona_system_prompt_includes_agents_md_when_present(tmp_path: Path) -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
 
-    prompt = _persona_system_prompt(persona, "Use latest Python by policy.")
+    prompt = _persona_system_prompt(persona, "Use latest Python by policy.", tmp_path)
 
     assert persona.system_prompt in prompt
     assert "Use latest Python by policy." in prompt
     assert "Do not raise findings that merely restate or contradict" in prompt
 
 
-def test_persona_system_prompt_unchanged_when_no_agents_md() -> None:
+def test_persona_system_prompt_unchanged_when_no_agents_md(tmp_path: Path) -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
-    prompt = _persona_system_prompt(persona, "")
+    prompt = _persona_system_prompt(persona, "", tmp_path)
 
     assert prompt.startswith(persona.system_prompt)
     assert "Security & Prompt Isolation Guardrails" in prompt
@@ -241,7 +241,7 @@ def test_paginate_file_diff_block_rolling_window_overlap() -> None:
     assert "line 000" in windows[0]
 
 
-def test_run_review_three_steps_combines_segments() -> None:
+def test_run_review_three_steps_combines_segments(tmp_path: Path) -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
     calls: list[str] = []
 
@@ -268,6 +268,7 @@ def test_run_review_three_steps_combines_segments() -> None:
         ReviewClients(analysis=DummyClient(), compose=DummyClient()),
         agents_md="",
         build_prompt=lambda content, title: f"{title}:{content}",
+        target_dir=tmp_path,
     )
 
     # 2 review (step 2) + 1 recompose (step 3) (metadata step 1 uses fast static extraction)
@@ -277,7 +278,7 @@ def test_run_review_three_steps_combines_segments() -> None:
     assert any("Per-segment review outputs" in c for c in calls)
 
 
-def test_run_review_never_sends_empty_user_prompt() -> None:
+def test_run_review_never_sends_empty_user_prompt(tmp_path: Path) -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
     calls: list[str] = []
 
@@ -300,6 +301,7 @@ def test_run_review_never_sends_empty_user_prompt() -> None:
         ReviewClients(analysis=DummyClient(), compose=DummyClient()),
         agents_md="",
         build_prompt=lambda content, title: f"{title}\n{content}",
+        target_dir=tmp_path,
     )
 
     # 2 review + 1 recompose
@@ -307,7 +309,7 @@ def test_run_review_never_sends_empty_user_prompt() -> None:
     assert all(call.strip() for call in calls)
 
 
-def test_run_review_metadata_includes_filenames() -> None:
+def test_run_review_metadata_includes_filenames(tmp_path: Path) -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
     review_calls: list[str] = []
 
@@ -339,6 +341,7 @@ def test_run_review_metadata_includes_filenames() -> None:
         ReviewClients(analysis=DummyClient(), compose=DummyClient()),
         agents_md="",
         build_prompt=lambda content, title: f"{title}\n{content}",
+        target_dir=tmp_path,
     )
 
     assert result == "done"
@@ -348,7 +351,7 @@ def test_run_review_metadata_includes_filenames() -> None:
 
 
 def test_run_review_dry_run_skips_client_calls(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
     call_count = 0
@@ -375,6 +378,7 @@ def test_run_review_dry_run_skips_client_calls(
         ReviewClients(analysis=DummyClient(), compose=DummyClient()),
         agents_md="",
         build_prompt=lambda content, title: f"{title}:{content}",
+        target_dir=tmp_path,
     )
 
     assert call_count == 0
@@ -384,7 +388,7 @@ def test_run_review_dry_run_skips_client_calls(
     assert any("[dry-run]" in f.title for f in result.findings)
 
 
-def test_run_review_single_segment_skips_recompose() -> None:
+def test_run_review_single_segment_skips_recompose(tmp_path: Path) -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
     calls: list[str] = []
 
@@ -409,6 +413,7 @@ def test_run_review_single_segment_skips_recompose() -> None:
         ReviewClients(analysis=DummyClient(), compose=DummyClient()),
         agents_md="",
         build_prompt=lambda content, title: f"{title}:{content}",
+        target_dir=tmp_path,
     )
 
     # 1 review (step 2); step 1 uses fast static metadata extraction and step 3 (recompose) skipped

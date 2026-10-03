@@ -151,6 +151,7 @@ def test_the_persona_loop_hands_its_subject_to_findings_json(tmp_path: Path) -> 
             all_personas=False,
             persona=Persona.DEVSECOPS,
             subject=subject,
+            target_dir=tmp_path,
         )
 
     saved = json.loads((tmp_path / "findings.json").read_text(encoding="utf-8"))
