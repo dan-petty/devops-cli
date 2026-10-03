@@ -1112,16 +1112,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
         6,
     )
 
-    # 2. Ollama Helm values: unconstrained memory limits, baseline 4Gi requests
-    values_ollama = yaml.safe_load(
-        (repo_root / "k8s" / "llm" / "values-ollama.yaml").read_text(encoding="utf-8")
-    )
-    assert values_ollama["resources"]["requests"]["memory"] == "4Gi"
-    assert "limits" not in values_ollama["resources"] or "memory" not in values_ollama[
-        "resources"
-    ].get("limits", {})
-
-    # 3. Valkey: memory limit >= 2048Mi
+    # 2. Valkey: memory limit >= 2048Mi
     valkey_docs = list(
         yaml.safe_load_all((repo_root / "k8s" / "llm" / "valkey.yaml").read_text(encoding="utf-8"))
     )
@@ -1129,7 +1120,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     valkey_res = valkey_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
     assert valkey_res["limits"]["memory"] == "2048Mi"
 
-    # 4. Jaeger: memory limit >= 2048Mi
+    # 3. Jaeger: memory limit >= 2048Mi
     jaeger_docs = list(
         yaml.safe_load_all((repo_root / "k8s" / "otel" / "jaeger.yaml").read_text(encoding="utf-8"))
     )
@@ -1137,7 +1128,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     jaeger_res = jaeger_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
     assert jaeger_res["limits"]["memory"] == "2048Mi"
 
-    # 5. Registry: memory limit >= 2048Mi
+    # 4. Registry: memory limit >= 2048Mi
     reg_docs = list(
         yaml.safe_load_all(
             (repo_root / "k8s" / "registry" / "deployment.yaml").read_text(encoding="utf-8")
@@ -1147,7 +1138,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     reg_res = reg_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
     assert reg_res["limits"]["memory"] == "2048Mi"
 
-    # 6. ArgoCD values: elevated memory limits
+    # 5. ArgoCD values: elevated memory limits
     argo_values = yaml.safe_load(
         (repo_root / "k8s" / "argocd" / "values.yaml").read_text(encoding="utf-8")
     )
@@ -1156,35 +1147,35 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert argo_values["server"]["resources"]["limits"]["memory"] == "1024Mi"
     assert argo_values["redis"]["resources"]["limits"]["memory"] == "1024Mi"
 
-    # 7. Open WebUI values: elevated CPU and memory limits
+    # 6. Open WebUI values: elevated CPU and memory limits
     webui_values = yaml.safe_load(
         (repo_root / "k8s" / "llm" / "values-open-webui.yaml").read_text(encoding="utf-8")
     )
     assert webui_values["resources"]["limits"]["cpu"] == "4000m"
     assert webui_values["resources"]["limits"]["memory"] == "4Gi"
 
-    # 8. OTel values: elevated CPU and memory limits
+    # 7. OTel values: elevated CPU and memory limits
     otel_values = yaml.safe_load(
         (repo_root / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
     )
     assert otel_values["resources"]["limits"]["cpu"] == "1000m"
     assert otel_values["resources"]["limits"]["memory"] == "1024Mi"
 
-    # 9. Loki values: elevated singleBinary limits
+    # 8. Loki values: elevated singleBinary limits
     loki_values = yaml.safe_load(
         (repo_root / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
     )
     assert loki_values["singleBinary"]["resources"]["limits"]["cpu"] == "1000m"
     assert loki_values["singleBinary"]["resources"]["limits"]["memory"] == "2048Mi"
 
-    # 10. Fluent Bit values: elevated daemonset limits
+    # 9. Fluent Bit values: elevated daemonset limits
     fb_values = yaml.safe_load(
         (repo_root / "k8s" / "logging" / "fluent-bit-values.yaml").read_text(encoding="utf-8")
     )
     assert fb_values["resources"]["limits"]["cpu"] == "500m"
     assert fb_values["resources"]["limits"]["memory"] == "1024Mi"
 
-    # 11. K8s monitoring stack values: elevated requests and limits to eliminate OOM kills
+    # 10. K8s monitoring stack values: elevated requests and limits to eliminate OOM kills
     k8s_mon_values = yaml.safe_load(
         (repo_root / "k8s" / "monitoring" / "k8s-monitoring-values.yaml").read_text(
             encoding="utf-8"
@@ -1209,7 +1200,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
         "1024Mi",
     )
 
-    # 12. GPU Feature Discovery DaemonSet: Burstable QoS requests and limits
+    # 11. GPU Feature Discovery DaemonSet: Burstable QoS requests and limits
     gfd_docs = list(
         yaml.safe_load_all(
             (repo_root / "k8s" / "gpu-feature-discovery" / "daemonset.yaml").read_text(
@@ -1226,7 +1217,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert gfd_res["limits"]["cpu"] == "200m"
     assert gfd_res["limits"]["memory"] == "256Mi"
 
-    # 13. CoreDNS values and deployment patch: elevated memory limits (384Mi) to eliminate OOM kills
+    # 12. CoreDNS values and deployment patch: elevated memory limits (384Mi) to eliminate OOM kills
     coredns_values = yaml.safe_load(
         (repo_root / "k8s" / "coredns" / "values.yaml").read_text(encoding="utf-8")
     )

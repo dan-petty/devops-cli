@@ -24,6 +24,7 @@ from devops_cli.commands.k8s.networking import (
     _verify_url_reachability,
     configure_urls,
 )
+from devops_cli.config.defaults import DEFAULT_OLLAMA_CLUSTER_SERVICE
 from devops_cli.config.settings import Settings, ValkeyConfig
 
 runner = CliRunner()
@@ -311,7 +312,7 @@ def test_configure_urls_persists_all_llm_endpoints(
         settings.valkey.url,
         settings.valkey.port,
     ) == (
-        ["http://localhost:ollama"],
+        [f"http://localhost:{DEFAULT_OLLAMA_CLUSTER_SERVICE}"],
         "http://localhost:open-webui",
         "http://localhost:qdrant",
         "tcp://localhost:6379",
