@@ -210,6 +210,21 @@ Two alerts in `serverFiles.alerting_rules.yml` (`monitoring/prometheus-values.ya
 
 Prometheus evaluates them and Grafana's alert list shows them. No Alertmanager is deployed yet, so they notify no one.
 
+## Host Journals and Health Metrics
+
+Each node sends its journal to Loki and its health series to Prometheus through the k8s-monitoring chart (`monitoring/k8s-monitoring-values.yaml`), with no agent installed on the host:
+
+- **Journal (`nodeLogs`)**: the `alloy-logs` DaemonSet, which already reads pod logs, reads `/var/log/journal`. It keeps kernel lines at every priority, the `k3s`, `k3s-agent`, `nvidia-power-limit`, `containerd` and `systemd-journald` units and systemd's own lines about them at info and above, and every other line at warning and above. Each unit may send 1 line/s after a burst of 10,000; kernel lines have no limit. Lines carry `job="integrations/kubernetes/journal"`, `instance` (the node), `unit`, `transport` and `level`, with the boot ID as structured metadata (`boot_id`).
+- **What the journal reader drops**: counted only on each `alloy-logs` pod's own `/metrics` (port 12345), which Prometheus does not scrape. Every entry the keep rules drop counts as `loki_source_journal_target_parsing_errors_total{error="empty_labels"}`, so that series counts the filter at work, not errors; lines the rate limit cuts count per unit in `loki_process_dropped_lines_by_label_total{label_name="unit"}`.
+- **Metrics (`hostMetrics`)**: beyond the chart's default list, `node_boot_time_seconds`, `node_hwmon_temp_celsius` with `node_hwmon_chip_names`, `node_pressure_*`, the EDAC correctable and uncorrectable error counters, `node_nvme_info`, filesystem size and free space, and `node_systemd_unit_state` for the units above. node-exporter's systemd collector reads unit state over the host's D-Bus socket, reached through the node root the chart mounts at `/host/root`.
+
+```text
+{job="integrations/kubernetes/journal", transport="kernel"}               # LogQL: kernel lines
+{job="integrations/kubernetes/journal", unit=~"k3s(-agent)?\\.service"}   # LogQL: k3s
+changes(node_boot_time_seconds[30d])                                       # PromQL: reboots per node
+node_systemd_unit_state{state="failed"} == 1                               # PromQL: failed host units
+```
+
 ## Teardown
 
 ```bash
@@ -325,7 +340,7 @@ k8s/
 │   ├── service-aliases.yaml  # Alias Services for Prometheus and Grafana
 │   ├── dcgm-exporter-values.yaml # Helm values for nvidia/dcgm-exporter (GPU metrics)
 │   ├── grafana-values.yaml   # Helm values for grafana/grafana (datasources, dashboard sidecar)
-│   ├── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, and gateway monitors)
+│   ├── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, node journals, and gateway monitors)
 │   ├── prometheus-operator-crds-values.yaml # Helm values for prometheus-community/prometheus-operator-crds (ServiceMonitor and other monitoring.coreos.com CRDs)
 │   ├── prometheus-values.yaml # Helm values for prometheus-community/prometheus (server only)
 │   └── dashboards/
