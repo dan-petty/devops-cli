@@ -76,6 +76,44 @@ def test_no_native_mcp_toolset_alias() -> None:
     assert hasattr(ts_mod, "MCPToolset")
 
 
+def test_unused_sampling_model_and_os_access_classes_are_gone() -> None:
+    """MCPSamplingModel, MountDir, OSAccess and the harness ToolSearch left without aliases (#958).
+
+    No command built any of them. MCPSamplingModel called the SDK's async `create_message`
+    synchronously and returned placeholder text as the model's completion whenever sampling
+    failed. `devops_cli.ai.agents.ToolSearch` stays pydantic-ai's own capability.
+    """
+    import importlib.util
+
+    from pydantic_ai.capabilities import ToolSearch as NativeToolSearch
+
+    import devops_cli.ai as ai_pkg
+    import devops_cli.ai.agents as agents_pkg
+    import devops_cli.ai.agents.models as models_mod
+    import devops_cli.ai.agents.pydantic_agent as facade_mod
+    import devops_cli.ai.harness as harness_pkg
+
+    removed = {
+        ai_pkg: ("MountDir", "OSAccess", "ToolSearch"),
+        agents_pkg: ("MCPSamplingModel", "MountDir", "OSAccess"),
+        models_mod: ("MCPSamplingModel",),
+        facade_mod: ("MCPSamplingModel",),
+        harness_pkg: ("MountDir", "OSAccess", "ToolSearch"),
+    }
+    leftovers = [
+        f"{module.__name__}.{name}"
+        for module, names in removed.items()
+        for name in names
+        if hasattr(module, name) or name in getattr(module, "__all__", ())
+    ]
+
+    assert (
+        leftovers,
+        importlib.util.find_spec("devops_cli.ai.harness.os_access"),
+        agents_pkg.ToolSearch,
+    ) == ([], None, NativeToolSearch)
+
+
 def test_devops_cli_error_has_no_code_alias() -> None:
     """DevOpsCLIError should only expose .error_code and not maintain a .code alias."""
     err = DevOpsCLIError("Something failed", error_code="E_FAILED")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import concurrent.futures
 import inspect
 import json
@@ -11,6 +12,7 @@ from collections.abc import Callable, Sequence
 from typing import Any, cast
 
 from pydantic import BaseModel
+from pydantic_ai.capabilities import AbstractCapability
 
 from devops_cli.ai.agents.capabilities import (
     BaseCapability,
@@ -20,6 +22,7 @@ from devops_cli.ai.agents.capabilities import (
     ToolApproved,
     ToolCallPart,
     ToolDenied,
+    _accepts_positional_arguments,
 )
 from devops_cli.ai.agents.context import (
     AgentHooks,
@@ -243,23 +246,82 @@ def _create_tool_retry_message(detected_tool: str, tool_obj: AgentTool | Tool) -
     return ChatMessage(role="user", content=content)
 
 
+def _event_loop_running() -> bool:
+    """Whether this thread is inside a running event loop, where no coroutine can be run to completion."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
+
+
+def _await_outside_event_loop(pending: Any, *, skipped: str) -> Any:
+    """Return ``pending``, or the value of the coroutine it is, run on a fresh event loop.
+
+    The tool loop is synchronous, so an async hook's coroutine is run to completion here. Inside
+    a running event loop that cannot be done from synchronous code: the coroutine is closed and
+    a debug record names what was ``skipped``, so the omission is never silent.
+    """
+    if not inspect.iscoroutine(pending):
+        return pending
+    if not _event_loop_running():
+        return asyncio.run(pending)
+    pending.close()
+    logger.debug("Skipped %s: a coroutine cannot be run inside the running event loop", skipped)
+    return None
+
+
+def _overrides_native_deferred_hook(cap: Any) -> bool:
+    """Whether the capability defines pydantic-ai's deferred hook rather than inheriting its no-op."""
+    hook = getattr(type(cap), "handle_deferred_tool_calls", None)
+    return hook is not None and hook is not AbstractCapability.handle_deferred_tool_calls
+
+
+def _call_deferred_hook(cap: Any, req: DeferredToolRequests, ctx: RunContext[Any]) -> Any:
+    """Call the deferred hook one capability defines and return its answer, a coroutine if async.
+
+    pydantic-ai's ``handle_deferred_tool_calls(ctx, *, requests)`` is async and every capability
+    inherits it, so only an override is called. A ``handle_deferred`` method gets the requests,
+    and the context too when it can take a second positional argument.
+    """
+    if _overrides_native_deferred_hook(cap):
+        return cap.handle_deferred_tool_calls(ctx, requests=req)
+    hook = getattr(cap, "handle_deferred", None)
+    if not callable(hook):
+        return None
+    return hook(req, ctx) if _accepts_positional_arguments(hook, 2) else hook(req)
+
+
 def _find_deferred_tool_handler(
     capabilities: Sequence[BaseCapability],
     req: DeferredToolRequests,
+    ctx: RunContext[Any] | None = None,
 ) -> DeferredToolResults | None:
-    """Find and execute a capability handler for deferred tool requests."""
+    """Resolve deferred tool requests through the capabilities' deferred hooks, in order.
+
+    The first ``HandleDeferredToolCalls`` decides. Before it, any other capability whose hook
+    returns results resolves them. ``ctx`` is the run's context, passed on to every hook;
+    without one a hook gets a fresh ``RunContext``. An async hook cannot run inside a running
+    event loop, and a later capability must not decide in its place, so the lookup stops there
+    and the requests go back to the caller.
+    """
+    run_ctx = ctx if ctx is not None else RunContext[Any]()
     for cap in capabilities:
         if isinstance(cap, HandleDeferredToolCalls):
-            return cap.handle_deferred(req)
-        handler_hook = getattr(cap, "handle_deferred_tool_calls", None) or getattr(
-            cap, "handle_deferred", None
-        )
-        if callable(handler_hook):
-            res = handler_hook(req)
-            if isinstance(res, DeferredToolResults):
-                return res
-            if res is not None:
-                return cast(DeferredToolResults, res)
+            return cap.handle_deferred(req, run_ctx)
+        answer = _call_deferred_hook(cap, req, run_ctx)
+        if inspect.iscoroutine(answer):
+            if _event_loop_running():
+                answer.close()
+                logger.warning(
+                    "Left the deferred tool requests to the caller: the deferred tool hook of "
+                    "capability %r is async and cannot run inside the running event loop",
+                    type(cap).__name__,
+                )
+                return None
+            answer = asyncio.run(answer)
+        if isinstance(answer, DeferredToolResults):
+            return answer
     return None
 
 

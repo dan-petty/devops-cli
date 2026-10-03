@@ -3389,3 +3389,10 @@ CONST_RETRYABLE_HTTP_STATUS_CODES: Final[tuple[int, ...]] = (
     529,  # Site Is Overloaded (Anthropic / OpenAI)
     530,  # Site Is Frozen / Origin DNS Error (Cloudflare)
 )
+
+# ── SQLite Database Names ────────────────────────────────────────────────────
+# The names `sqlite3.connect` opens as a database private to that one connection (#958):
+# `:memory:` is held in memory and the empty name is a temporary file, and each is gone when the
+# connection closes. Without `uri=True` no other name does that, so the set is complete. A store
+# that opens a connection per call loses every write to either.
+CONST_SQLITE_PER_CONNECTION_DATABASES: Final[frozenset[str]] = frozenset({":memory:", ""})
