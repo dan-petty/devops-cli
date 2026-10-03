@@ -40,7 +40,7 @@ def test_no_provider_configured_raises_and_caches_nothing() -> None:
 def _ollama_engine(monkeypatch: pytest.MonkeyPatch, nodes: list[str]) -> EmbeddingsEngine:
     """An Ollama engine over `nodes` whose URLs are not resolved."""
     monkeypatch.setattr(
-        "devops_cli.ai.rag.embeddings.validate_service_url", lambda *args, **kwargs: None
+        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
     )
     ai_cfg = AIConfig(provider="ollama", ollama_urls=nodes, allow_private_network=True)
     ai_cfg.tasks.embedding.model = "bge-m3"
@@ -127,7 +127,7 @@ def test_gateway_failures_raise_naming_model_endpoint_and_error(
         return reply
 
     monkeypatch.setattr(
-        "devops_cli.ai.rag.embeddings.validate_service_url", lambda *args, **kwargs: None
+        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(httpx2.Client, "post", fake_post)
     ai_cfg = AIConfig(provider="gateway", gateway_url="https://example.com/v1")
@@ -178,7 +178,7 @@ def test_dynamic_probe_ollama_show_metadata(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_dynamic_probe_openai_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "devops_cli.ai.rag.embeddings.validate_service_url", lambda *args, **kwargs: None
+        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
     )
 
     def fake_post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx2.Response:
@@ -234,7 +234,7 @@ def test_openai_embeddings_success(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
     monkeypatch.setattr(
-        "devops_cli.ai.rag.embeddings.validate_service_url", lambda *args, **kwargs: None
+        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
     ai_cfg = AIConfig(provider="openai", allow_private_network=True)
@@ -737,7 +737,7 @@ def test_init_valkey_runs_without_l2_when_valkey_refuses(monkeypatch: pytest.Mon
 def _capture_embedding_posts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
     """Record (url, authorization, model) for each embeddings POST and answer with a vector."""
     monkeypatch.setattr(
-        "devops_cli.ai.rag.embeddings.validate_service_url", lambda *args, **kwargs: None
+        "devops_cli.ai.rag.embeddings.validate_configured_service_url", lambda *args, **kwargs: None
     )
     calls: list[tuple[str, str, str]] = []
 

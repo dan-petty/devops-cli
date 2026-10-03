@@ -59,21 +59,43 @@ _EXCLUDE_BASE_URL_PROVIDERS: set[type[Provider[Any]]] = {
 }
 
 
+def is_pydantic_ai_provider(name: str) -> bool:
+    """Whether ``name`` names a provider: one registered here, or one pydantic-ai knows.
+
+    A provider whose optional package is not installed still names one.
+    """
+    if name.lower().strip() in _PYDANTIC_PROVIDERS:
+        return True
+    try:
+        infer_provider_class(name)
+    except ImportError:
+        return True
+    except ValueError:
+        return False
+    return True
+
+
 def create_pydantic_ai_provider(
     provider: str,
     base_url: str | None = None,
     api_key: str | None = None,
+    *,
+    allow_private_network: bool = False,
     **kwargs: Any,
 ) -> Provider[Any]:
     """Create and configure a native Pydantic AI Provider instance.
 
     Configures endpoint URLs, API keys, and client parameters according to provider type.
+    ``base_url`` follows `validate_configured_service_url`: loopback is allowed, and any other
+    non-public host needs ``allow_private_network``.
     """
     prov_name = provider.lower().strip()
     if base_url is not None:
-        from devops_cli.http.validation import validate_service_url
+        from devops_cli.core.validation import validate_configured_service_url
 
-        validate_service_url(base_url, purpose=prov_name, allow=True)
+        validate_configured_service_url(
+            base_url, purpose=prov_name, allow_private=allow_private_network
+        )
 
     provider_cls = _PYDANTIC_PROVIDERS.get(prov_name)
     if provider_cls is None:
@@ -105,5 +127,6 @@ __all__ = [
     "get_provider",
     "infer_provider",
     "infer_provider_class",
+    "is_pydantic_ai_provider",
     "register_provider",
 ]

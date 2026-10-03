@@ -542,6 +542,29 @@ def test_make_review_clients() -> None:
     assert clients.compose is not None
 
 
+def test_review_clients_wait_a_configured_task_timeout() -> None:
+    """Verify a configured analysis, verification or compose timeout replaces the review default."""
+    from devops_cli.config.defaults import DEFAULT_REVIEW_TIMEOUT_SECONDS
+    from devops_cli.config.settings import AITaskOverride, Settings
+
+    st = Settings()
+    st.ai.tasks.analysis = AITaskOverride(timeout=30.0)
+    st.ai.tasks.compose = AITaskOverride(timeout=45.0)
+    configured = _make_review_clients(st)
+    st.ai.tasks.verification = AITaskOverride(model="devops-reasoning", timeout=60.0)
+    verifier = _make_review_clients(st).verification
+    defaults = _make_review_clients(Settings())
+
+    assert (
+        configured.analysis._request_timeout().read,
+        configured.verification._request_timeout().read,
+        configured.compose._request_timeout().read,
+        verifier._request_timeout().read,
+        defaults.analysis._request_timeout().read,
+        defaults.compose._request_timeout().read,
+    ) == (30.0, 30.0, 45.0, 60.0, DEFAULT_REVIEW_TIMEOUT_SECONDS, DEFAULT_REVIEW_TIMEOUT_SECONDS)
+
+
 def test_get_current_git_branch() -> None:
     """Verify active branch name detection and detached HEAD handling."""
     from devops_cli.ai.review.runner import _get_current_git_branch

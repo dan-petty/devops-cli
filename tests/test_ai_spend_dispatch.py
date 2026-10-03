@@ -56,18 +56,6 @@ def test_llm_client_dispatch_records_spend(monkeypatch: pytest.MonkeyPatch) -> N
 
     monkeypatch.setattr(spend_mod, "track_request_spend", mock_track_spend)
 
-    req = httpx2.Request("POST", "http://localhost:11434")
-    mock_resp = httpx2.Response(
-        200,
-        request=req,
-        json={
-            "message": {"content": "Test response"},
-            "prompt_eval_count": 15,
-            "eval_count": 25,
-        },
-    )
-    monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: mock_resp)
-
     cfg = AIConfig(
         provider="ollama",
         model="llama3:8b",
@@ -75,6 +63,18 @@ def test_llm_client_dispatch_records_spend(monkeypatch: pytest.MonkeyPatch) -> N
         allow_private_network=True,
     )
     client = LLMClient(cfg)
+    route_client(
+        client,
+        monkeypatch,
+        lambda request: httpx2.Response(
+            200,
+            json={
+                "message": {"content": "Test response"},
+                "prompt_eval_count": 15,
+                "eval_count": 25,
+            },
+        ),
+    )
     resp = client.chat(system="system prompt", user="user message")
 
     assert (len(recorded), resp.content) == (1, "Test response")

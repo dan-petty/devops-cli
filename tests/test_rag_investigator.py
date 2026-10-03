@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -44,6 +45,29 @@ def test_investigate_rag_context_qdrant_unreachable() -> None:
 
         res = investigate_rag_context("architecture design", settings=st)
         assert res is None
+
+
+def test_a_refused_rag_backend_is_reported_once(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verify a RAG backend the SSRF guard refuses warns once per run, not only at debug."""
+    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
+    st = Settings()
+    st.ai.rag.enabled = True
+    st.qdrant.url = "http://192.0.2.10:6333"
+
+    with caplog.at_level(logging.DEBUG, logger="devops_cli.ai.rag.investigator"):
+        results = [investigate_rag_context(query, settings=st) for query in ("first", "second")]
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "devops_cli.ai.rag.investigator" and record.levelno == logging.WARNING
+    ]
+
+    assert (results, ["Refusing non-public Qdrant URL" in message for message in warnings]) == (
+        [None, None],
+        [True],
+    )
 
 
 def test_investigate_rag_context_success() -> None:

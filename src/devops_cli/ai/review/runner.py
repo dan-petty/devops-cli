@@ -68,7 +68,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
-from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
+from devops_cli.config.settings import AIConfig, Settings, get_ai_api_key, load_settings
 from devops_cli.core.process import run_subprocess as _run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git, is_safe_subpath
 from devops_cli.dry_run import is_dry_run
@@ -1586,35 +1586,29 @@ def _make_review_clients(
     name what differs, such as a stronger model on the same gateway.
     """
     api_key = get_ai_api_key(settings)
-    analysis_config = settings.ai.for_task("analysis")
-    analysis = LLMClient(
-        analysis_config,
-        api_key=api_key,
-        request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
-        cache_enabled=cache_enabled,
-        append_cache=append_cache,
-    )
-    verification = (
-        LLMClient(
-            analysis_config.for_task("verification"),
+
+    def review_client(task_config: AIConfig) -> LLMClient:
+        # A task's configured timeout wins; unset, a review waits the review default rather
+        # than the client's general one.
+        return LLMClient(
+            task_config,
             api_key=api_key,
-            request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+            request_timeout_seconds=task_config.timeout or DEFAULT_REVIEW_TIMEOUT_SECONDS,
             cache_enabled=cache_enabled,
             append_cache=append_cache,
         )
+
+    analysis_config = settings.ai.for_task("analysis")
+    analysis = review_client(analysis_config)
+    verification = (
+        review_client(analysis_config.for_task("verification"))
         if settings.ai.tasks.verification.model_dump(exclude_none=True)
         else analysis
     )
     return ReviewClients(
         analysis=analysis,
         verification=verification,
-        compose=LLMClient(
-            settings.ai.for_task("compose"),
-            api_key=api_key,
-            request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
-            cache_enabled=cache_enabled,
-            append_cache=append_cache,
-        ),
+        compose=review_client(settings.ai.for_task("compose")),
     )
 
 

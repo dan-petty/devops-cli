@@ -647,6 +647,10 @@ class RAGMessages:
         "point ai.tasks.embedding at a backend that serves it, or set ai.rag.enabled: false."
     )
     search_embedding_failed: str = "RAG search unavailable: {error}. Fallback: use search_code."
+    lookup_failed: str = (
+        "RAG lookup failed, so prompts go on without retrieved context: {error}. Later failures "
+        "this run are logged at debug level."
+    )
 
 
 @dataclass(frozen=True)

@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import CachePoint
+from pydantic_ai.exceptions import UserError
 from pydantic_ai.messages import UserPromptPart
 from pydantic_ai.models.fallback import FallbackModel
 from pydantic_ai.usage import UsageLimits
@@ -24,18 +25,22 @@ from devops_cli.ai.review_schema import ReviewResult
 from devops_cli.config.constants import (
     CONST_AI_CASCADE_PROVIDERS,
     CONST_AI_DEFAULT_CACHE_MARKER_KIND,
+    CONST_AI_GATEWAY_DEFAULT_ROUTE,
+    CONST_AI_GATEWAY_PROVIDER,
+    CONST_AI_GATEWAY_URL_SETTINGS,
     CONST_AI_PROMPT_CACHE_TTL_5M,
     CONST_AI_PROMPT_CACHE_TTLS,
+    CONST_AI_PYDANTIC_MODEL_PREFIXES,
+    CONST_URL_GITHUB_COPILOT_API_BASE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_AGENT_PERSONA,
     DEFAULT_AI_CONTEXT_TOKEN_BUDGET,
     DEFAULT_AI_END_STRATEGY,
-    DEFAULT_AI_GATEWAY_URL,
     DEFAULT_CURRENT_PATH,
-    DEFAULT_PORTKEY_GATEWAY_URL,
 )
-from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
+from devops_cli.config.settings import AIConfig, Settings, get_ai_api_key, load_settings
+from devops_cli.exceptions import ConfigurationError, InvalidURLError, SSRFBlockedError
 
 logger = logging.getLogger(__name__)
 
@@ -66,57 +71,105 @@ def is_pydantic_ai_available() -> bool:
         return False
 
 
-def _extract_provider_and_target(model_str: str) -> tuple[str, str]:
-    """Extract provider prefix and target model name."""
-    if ":" in model_str:
-        prov, target = model_str.split(":", 1)
-        return prov, target
-    return model_str, "devops-chat"
+def _gateway_prefix(model_str: str) -> str | None:
+    """The gateway (`litellm` or `portkey`) a model name's prefix names, or None."""
+    prefix, sep, _ = model_str.partition(":")
+    return prefix if sep and prefix in CONST_AI_GATEWAY_URL_SETTINGS else None
+
+
+def _model_prefix_and_target(model_str: str, ai_cfg: AIConfig) -> tuple[str, str]:
+    """The pydantic-ai prefix a remote model is inferred with, and the name it is sent under.
+
+    A gateway prefix (`litellm:`, `portkey:`) is kept. Under provider `gateway` every other
+    name is a route of `ai.gateway_provider`'s gateway, sent whole as `LLMClient` sends it,
+    even one whose text before its first colon names a provider (`mistral:7b` is an Ollama
+    tag). Otherwise a name prefixed with a provider's name keeps that prefix, and any other
+    name, as `devops-review` or `qwen3-coder:30b`, takes the prefix `ai.provider` maps to.
+    """
+    from devops_cli.ai.providers import is_pydantic_ai_provider
+
+    prefix, sep, target = model_str.partition(":")
+    if sep and prefix in CONST_AI_GATEWAY_URL_SETTINGS:
+        return prefix, target
+    if ai_cfg.provider == CONST_AI_GATEWAY_PROVIDER:
+        return ai_cfg.gateway_provider, model_str
+    if sep and is_pydantic_ai_provider(prefix):
+        return prefix, target
+    return CONST_AI_PYDANTIC_MODEL_PREFIXES.get(ai_cfg.provider, ""), model_str
 
 
 def _resolve_remote_provider_endpoint(
     model_str: str, active_settings: Settings
-) -> tuple[str, str | None]:
-    """Resolve target model string and base URL for remote gateway or inference providers."""
-    prov, target = _extract_provider_and_target(model_str)
+) -> tuple[str, str | None, str]:
+    """The name pydantic-ai infers a remote model from, its base URL, and the setting naming it.
+
+    A gateway's model is inferred as an OpenAI chat model sent to that gateway's URL; any
+    other is sent to `ai.api_base_url`, or to Copilot's API for provider `copilot` when that
+    is unset.
+    """
     ai_cfg = active_settings.ai
-    gateway_urls = {
-        "litellm": ai_cfg.gateway_url or DEFAULT_AI_GATEWAY_URL,
-        "portkey": ai_cfg.portkey_url or DEFAULT_PORTKEY_GATEWAY_URL,
-    }
-    if prov in gateway_urls:
-        return target, gateway_urls[prov]
-    return model_str, ai_cfg.api_base_url
+    prefix, target = _model_prefix_and_target(model_str, ai_cfg)
+    if setting := CONST_AI_GATEWAY_URL_SETTINGS.get(prefix):
+        gateway_url = getattr(ai_cfg, setting) or AIConfig.model_fields[setting].default
+        return f"openai-chat:{target}", gateway_url, f"ai.{setting}"
+    copilot_base = CONST_URL_GITHUB_COPILOT_API_BASE if ai_cfg.provider == "copilot" else None
+    name = f"{prefix}:{target}" if prefix else target
+    return name, ai_cfg.api_base_url or copilot_base, "ai.api_base_url"
 
 
 def _resolve_remote_inferred_model(model_str: str, active_settings: Settings) -> Any:
-    """Infer model instance using configured remote provider endpoint."""
+    """Infer a remote model that is sent to the endpoint its settings name.
+
+    Raises ConfigurationError naming the endpoint's setting when its URL cannot be used, such
+    as a non-public host without `ai.allow_private_network`, and naming `ai.provider` and
+    `ai.model` when pydantic-ai cannot infer the model, rather than leaving pydantic-ai to send
+    the prompts to the vendor's own endpoint.
+    """
     from pydantic_ai.models import infer_model
 
     from devops_cli.ai.providers import create_pydantic_ai_provider
 
-    target_name, base_url = _resolve_remote_provider_endpoint(model_str, active_settings)
-    api_key = get_ai_api_key(active_settings) or getattr(active_settings.ai, "api_key", None)
+    name, base_url, setting = _resolve_remote_provider_endpoint(model_str, active_settings)
+    api_key = get_ai_api_key(active_settings)
+    allow_private = active_settings.ai.allow_private_network
 
     def _provider_factory(prov_name: str) -> Any:
-        return create_pydantic_ai_provider(prov_name, base_url=base_url, api_key=api_key)
+        return create_pydantic_ai_provider(
+            prov_name, base_url=base_url, api_key=api_key, allow_private_network=allow_private
+        )
 
-    return infer_model(target_name, provider_factory=_provider_factory)
+    try:
+        return infer_model(name, provider_factory=_provider_factory)
+    except (InvalidURLError, SSRFBlockedError) as exc:
+        reason = exc.details.get("reason", exc.message)
+        raise ConfigurationError(
+            f"{setting} cannot serve model {model_str!r}: {reason}", key=setting
+        ) from exc
+    except (UserError, ValueError, ImportError) as exc:
+        # UserError: pydantic-ai knows no such model or has no key for it. ValueError: a name
+        # left unprefixed, under a provider that maps to none, reads its tag's base as one.
+        # ImportError: the prefix names a provider whose optional package is not installed.
+        prefix = name.partition(":")[0] if ":" in name else "<none>"
+        logger.debug("pydantic-ai cannot infer a model prefixed %r: %s", prefix, type(exc).__name__)
+        raise ConfigurationError(
+            f"ai.model {model_str!r} cannot be resolved for ai.provider "
+            f"{active_settings.ai.provider!r}: {str(exc)[:256]}",
+            key="ai.model",
+        ) from exc
 
 
 def _resolve_ollama_model(model_str: str, active_settings: Settings) -> Any:
-    """Resolve Ollama model instance with configured cluster URLs and parameters."""
+    """Resolve an Ollama model on the configured cluster URLs, parameters and timeout."""
     from devops_cli.ai.models.ollama import create_ollama_model
 
-    ai_cfg = getattr(active_settings, "ai", None)
-    urls = ai_cfg.get_ollama_urls if ai_cfg and hasattr(ai_cfg, "get_ollama_urls") else []
+    ai_cfg = active_settings.ai
     return create_ollama_model(
         model_str,
-        urls=urls,
-        api_key=getattr(ai_cfg, "api_key", None) if ai_cfg else None,
-        temperature=getattr(ai_cfg, "temperature", None) if ai_cfg else None,
-        max_tokens=getattr(ai_cfg, "max_tokens", None) if ai_cfg else None,
-        reasoning_effort=getattr(ai_cfg, "reasoning_effort", None) if ai_cfg else None,
+        urls=ai_cfg.get_ollama_urls,
+        temperature=ai_cfg.temperature,
+        max_tokens=ai_cfg.max_tokens,
+        reasoning_effort=ai_cfg.reasoning_effort,
+        timeout=ai_cfg.timeout,
     )
 
 
@@ -131,14 +184,13 @@ def _is_testing_mode_active() -> bool:
 
 
 def _resolve_string_model(model_str: str, active_settings: Settings) -> Any:
-    """Resolve string model identifier into Ollama or remote inferred model."""
-    provider = getattr(active_settings.ai, "provider", "ollama")
-    if model_str.startswith("ollama:") or provider == "ollama":
+    """Resolve a model name: a gateway-prefixed one at its gateway under any provider, an
+    `ollama:` one or any other under provider `ollama` on Ollama, the rest remotely."""
+    if not _gateway_prefix(model_str) and (
+        model_str.startswith("ollama:") or active_settings.ai.provider == "ollama"
+    ):
         return _resolve_ollama_model(model_str, active_settings)
-    try:
-        return _resolve_remote_inferred_model(model_str, active_settings)
-    except Exception:
-        return model_str
+    return _resolve_remote_inferred_model(model_str, active_settings)
 
 
 def _wrap_model_concurrency(model_obj: Any, model_concurrency: AnyConcurrencyLimit) -> Any:
@@ -279,7 +331,9 @@ def create_pydantic_ai_agent(
         if resolved_model is not None:
             kwargs["model"] = resolved_model
         return Agent(**kwargs)
-    except Exception as exc:
+    except (TypeError, UserError) as exc:
+        # The native Agent refused its arguments; a ConfigurationError from resolving the
+        # model is the user's to fix and is not swallowed here.
         logger.debug("Native PydanticAI agent unavailable, creating PydanticAgent: %s", exc)
         return _fallback_pydantic_agent(
             client=client,
@@ -351,6 +405,18 @@ def create_cached_user_prompt(
     return UserPromptPart(content=[prompt, CachePoint(ttl=target_ttl)])
 
 
+def _cascade_member(item: str | Any, ai_cfg: AIConfig) -> str | Any:
+    """The model a cascade member names: a bare `litellm` or `portkey` is that gateway's default
+    chat route, a bare `ollama` is `ai.model` on Ollama, and anything else is a model already."""
+    if not isinstance(item, str):
+        return item
+    if item in CONST_AI_GATEWAY_URL_SETTINGS:
+        return f"{item}:{CONST_AI_GATEWAY_DEFAULT_ROUTE}"
+    if item == "ollama":
+        return f"ollama:{ai_cfg.model.removeprefix('ollama:')}"
+    return item
+
+
 def build_fallback_cascade_model(
     models_or_providers: Sequence[str | Any] = CONST_AI_CASCADE_PROVIDERS,
     settings: Settings | None = None,
@@ -358,12 +424,15 @@ def build_fallback_cascade_model(
 ) -> Any:
     """Build a FallbackModel cascading across multiple providers or models.
 
-    Tries each resolved model in sequence upon errors (e.g. LiteLLM -> Portkey -> Ollama).
+    Tries each resolved model in sequence upon errors, by default LiteLLM's and Portkey's
+    default chat route and then `ai.model` on Ollama (`_cascade_member`).
     """
     active_settings = settings or load_settings()
     resolved_models: list[Any] = []
     for item in models_or_providers:
-        m = resolve_pydantic_ai_model(item, settings=active_settings)
+        m = resolve_pydantic_ai_model(
+            _cascade_member(item, active_settings.ai), settings=active_settings
+        )
         if m is not None:
             resolved_models.append(m)
 

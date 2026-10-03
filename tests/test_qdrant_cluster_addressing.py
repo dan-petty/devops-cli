@@ -75,7 +75,7 @@ def test_the_prefix_carries_no_leading_or_trailing_slash() -> None:
 
 def _store(url: str) -> QdrantClient:
     """Build a store without contacting anything."""
-    with patch("devops_cli.ai.rag.qdrant.validate_service_url"):
+    with patch("devops_cli.ai.rag.qdrant.validate_configured_service_url"):
         return QdrantClient(base_url=url, api_key=None)
 
 
@@ -110,14 +110,14 @@ def test_a_cluster_address_skips_host_based_egress_validation() -> None:
 
     What is actually dialled is the API server from the kubeconfig.
     """
-    with patch("devops_cli.ai.rag.qdrant.validate_service_url") as validate:
+    with patch("devops_cli.ai.rag.qdrant.validate_configured_service_url") as validate:
         QdrantClient(base_url=CLUSTER_URL, api_key=None)
     validate.assert_not_called()
 
 
 def test_a_direct_address_is_still_validated() -> None:
     """Skipping validation for cluster addresses must not skip it for everything."""
-    with patch("devops_cli.ai.rag.qdrant.validate_service_url") as validate:
+    with patch("devops_cli.ai.rag.qdrant.validate_configured_service_url") as validate:
         QdrantClient(base_url=DIRECT_URL, api_key=None)
     validate.assert_called_once()
 
@@ -149,5 +149,5 @@ def test_an_unreachable_store_reports_not_alive() -> None:
 @pytest.mark.parametrize("url", [CLUSTER_URL, DIRECT_URL])
 def test_a_store_accepts_either_address_form(url: str) -> None:
     """A configuration can move between the two without code changes."""
-    with patch("devops_cli.ai.rag.qdrant.validate_service_url"):
+    with patch("devops_cli.ai.rag.qdrant.validate_configured_service_url"):
         assert QdrantClient(base_url=url, api_key=None).base_url == url.rstrip("/")

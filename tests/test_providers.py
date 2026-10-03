@@ -114,32 +114,33 @@ def test_ollama_provider() -> None:
         assert call_kwargs["json"]["reasoning_effort"] == "low"
 
 
-def test_ollama_provider_url_validation_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test helper functions for Ollama URL validation and SSRF protection."""
-    from devops_cli.ai.providers.ollama import (
-        _is_loopback_or_private_allowed,
-        _validate_ollama_url,
-    )
-    from devops_cli.config.env import ENV_AI_ALLOW_PRIVATE_NETWORK
-    from devops_cli.exceptions.validation import ValidationError
+def _ollama_provider_outcome(url: str, *, allow_private: bool = False) -> str:
+    """Whether the Ollama provider sends a chat to `url`, or the error that refuses it."""
+    from devops_cli.exceptions import SSRFBlockedError
 
-    assert _is_loopback_or_private_allowed("http://localhost:11434") is True
-    assert _is_loopback_or_private_allowed("http://127.0.0.1:11434") is True
-    assert _is_loopback_or_private_allowed("http://[::1]:11434") is True
+    config = AIConfig(provider="ollama", ollama_urls=[url], allow_private_network=allow_private)
+    try:
+        OllamaProvider(config).generate([ChatMessage(role="user", content="hi")])
+    except SSRFBlockedError as exc:
+        return type(exc).__name__
+    return "sent"
+
+
+def test_ollama_provider_takes_the_configured_url_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify the provider reaches a configured loopback URL and refuses other private hosts."""
+    from devops_cli.config.env import ENV_AI_ALLOW_PRIVATE_NETWORK
 
     monkeypatch.delenv(ENV_AI_ALLOW_PRIVATE_NETWORK, raising=False)
-    assert _is_loopback_or_private_allowed("http://192.168.1.100:11434") is False
-    assert _is_loopback_or_private_allowed("http://192.168.1.100:11434", allow_private=True) is True
+    reply = MagicMock()
+    reply.json.return_value = {"message": {"content": "ok"}}
 
-    monkeypatch.setenv(ENV_AI_ALLOW_PRIVATE_NETWORK, "true")
-    assert _is_loopback_or_private_allowed("http://192.168.1.100:11434") is True
-
-    # Validate that _validate_ollama_url accepts loopback
-    _validate_ollama_url("http://localhost:11434")
-
-    # Validate that _validate_ollama_url rejects invalid scheme
-    with pytest.raises(ValidationError):
-        _validate_ollama_url("ftp://localhost:11434")
+    with patch("httpx2.post", return_value=reply):
+        assert (
+            _ollama_provider_outcome("http://localhost:11434"),
+            _ollama_provider_outcome("http://[::1]:11434"),
+            _ollama_provider_outcome("http://192.0.2.10:11434"),
+            _ollama_provider_outcome("http://192.0.2.10:11434", allow_private=True),
+        ) == ("sent", "sent", "SSRFBlockedError", "sent")
 
 
 def test_openai_provider() -> None:

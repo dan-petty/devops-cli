@@ -25,8 +25,8 @@ from devops_cli.config.defaults import (
     DEFAULT_QDRANT_URL,
     DEFAULT_RAG_TOP_K,
 )
+from devops_cli.core.validation import validate_configured_service_url
 from devops_cli.exceptions import DevOpsCLIError, InvalidURLError
-from devops_cli.http.validation import validate_service_url
 from devops_cli.telemetry import record_metric, trace_span
 from devops_cli.telemetry.instruments import QDRANT_RETRIES_TOTAL, emit
 
@@ -177,7 +177,9 @@ class QdrantClient:
         from devops_cli.k8s.service_proxy import is_service_url
 
         if not is_service_url(self.base_url):
-            validate_service_url(self.base_url, "Qdrant", allow=self.allow_private_network)
+            validate_configured_service_url(
+                self.base_url, "Qdrant", allow_private=self.allow_private_network
+            )
 
         self._client: NativeQdrantClient | None = None
         # Retrieval searches its collections at once, so they would otherwise each build one.

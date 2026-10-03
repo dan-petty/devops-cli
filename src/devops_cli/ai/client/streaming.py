@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Final
 import httpx2
 
 from devops_cli.ai.client.models import MAX_STREAM_BYTES, AIClientError, provider_finish_reason
-from devops_cli.ai.client.network import stream_finish_reason
+from devops_cli.ai.client.network import size_limit_text, stream_finish_reason
 from devops_cli.config.constants import (
     CONST_ANTHROPIC_STOP_REASONS,
     CONST_OLLAMA_DONE_REASONS,
@@ -78,7 +78,7 @@ class StreamingTokenProcessor:
         self._total_bytes += len(chunk.encode("utf-8"))
         if self._total_bytes > self.max_stream_bytes:
             raise AIClientError(
-                f"Stream exceeded maximum size limit of {self.max_stream_bytes // (1024 * 1024)}MB."
+                f"Stream exceeded maximum size limit of {size_limit_text(self.max_stream_bytes)}."
             )
 
     def _trigger_reasoning_start(self) -> None:
@@ -385,19 +385,11 @@ def _openai_stream_frame(event: httpx2.ServerSentEvent) -> StreamFrame:
     )
 
 
-def _size_limit_text(limit_bytes: int) -> str:
-    return (
-        f"{limit_bytes // (1024 * 1024)}MB"
-        if limit_bytes >= 1024 * 1024
-        else f"{limit_bytes} bytes"
-    )
-
-
 def _check_stream_size(total_bytes: int, provider_name: str, max_stream_bytes: int) -> None:
     if total_bytes > max_stream_bytes:
         raise AIClientError(
             f"{provider_name} response exceeded maximum stream size "
-            f"({_size_limit_text(max_stream_bytes)})."
+            f"({size_limit_text(max_stream_bytes)})."
         )
 
 
@@ -455,7 +447,7 @@ def _event_frames(
 def _check_line_size(line_bytes: int, provider_name: str, max_line_bytes: int) -> None:
     if line_bytes > max_line_bytes:
         raise AIClientError(
-            f"{provider_name} stream line exceeded the {_size_limit_text(max_line_bytes)} limit."
+            f"{provider_name} stream line exceeded the {size_limit_text(max_line_bytes)} limit."
         )
 
 

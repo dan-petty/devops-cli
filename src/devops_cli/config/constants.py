@@ -2231,9 +2231,32 @@ CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama", "vllm")
 CONST_AI_PROMPT_CACHE_TTL_5M: Final[str] = "5m"
 CONST_AI_PROMPT_CACHE_TTL_1H: Final[str] = "1h"
 CONST_AI_PROMPT_CACHE_TTLS: Final[tuple[str, ...]] = ("5m", "1h")
+# The default fallback cascade, by path: a bare `litellm` or `portkey` member is that gateway's
+# default chat route (CONST_AI_GATEWAY_DEFAULT_ROUTE), and a bare `ollama` member is `ai.model`
+# on Ollama itself.
 CONST_AI_CASCADE_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey", "ollama")
+CONST_AI_GATEWAY_DEFAULT_ROUTE: Final[str] = "devops-chat"
+# The pydantic-ai model prefix a bare model name takes from `ai.provider`. OpenAI and Copilot
+# models use the chat completions API, as `LLMClient` does, which OpenAI-compatible servers at
+# `ai.api_base_url` serve. Provider `gateway` takes its gateway's prefix (`ai.gateway_provider`);
+# `ollama` models resolve through Ollama.
+CONST_AI_PYDANTIC_MODEL_PREFIXES: Final[dict[str, str]] = {
+    "openai": "openai-chat",
+    "claude": "anthropic",
+    "copilot": "openai-chat",
+}
+# Each gateway model prefix and the `ai` setting naming its URL. Both gateways speak the OpenAI
+# chat API, so their models are inferred as `openai-chat:<model>` and sent to that URL.
+CONST_AI_GATEWAY_URL_SETTINGS: Final[dict[str, str]] = {
+    "litellm": "gateway_url",
+    "portkey": "portkey_url",
+}
 CONST_AI_DEFAULT_CACHE_MARKER_KIND: Final[str] = "cache-point"
 CONST_AI_ALLOW_PRIVATE_NETWORK_ENV: Final[str] = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
+# The loopback host name (RFC 6761). With the loopback addresses, which `ipaddress` recognises,
+# it names the workstation itself, so a configured service URL may use it without
+# `ai.allow_private_network` (`validate_configured_service_url`).
+CONST_LOOPBACK_HOSTNAME: Final[str] = "localhost"
 CONST_CLOUD_METADATA_HOSTS: Final[frozenset[str]] = frozenset(
     {"169.254.169.254", "fd00:ec2::254", "metadata.google.internal", "metadata"}
 )

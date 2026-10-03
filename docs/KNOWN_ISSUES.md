@@ -11,8 +11,8 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 - **Mitigation**: Execute `gh auth login` in terminal prior to `devops` commands, or set `DEVOPS_CLI_GH_CLI_TIMEOUT=15`.
 
 ### 2. Egress Controls for Internal Service URLs (SSRF Safety)
-- **Context**: `validate_service_url()` blocks loopback/private IP targets by default to prevent SSRF vulnerabilities. Connecting to internal cluster endpoints (Ollama, ArgoCD, Grafana) raises `ValueError`.
-- **Mitigation**: Set `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` in environment or devcontainer.
+- **Context**: `validate_service_url()` blocks loopback/private IP targets by default to prevent SSRF vulnerabilities. Connecting to internal cluster endpoints (Ollama, ArgoCD, Grafana) on a private address raises `ValueError`. The AI client, the pydantic-ai models, Qdrant and the embedding calls validate their configured URLs with `validate_configured_service_url()`, which lets a configured URL name loopback (`localhost`, `127.0.0.0/8`, `::1`), so the example config's local Ollama, Qdrant and gateway work as shipped; every other non-public host still needs the opt-in.
+- **Mitigation**: Set `ai.allow_private_network: true`, or `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` in environment or devcontainer.
 
 ### 3. Large Workspace Iteration Bounds
 - **Context**: Scanning workspace repositories or directories with nested symlinks can increase pagination latency.

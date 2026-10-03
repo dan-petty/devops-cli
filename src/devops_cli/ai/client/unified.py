@@ -25,7 +25,6 @@ from devops_cli.ai.client.models import (
 )
 from devops_cli.ai.client.network import (
     ALLOW_PRIVATE_NETWORK_ENV,
-    read_limited_json,
     validate_base_url,
 )
 from devops_cli.ai.client.ollama import OllamaProviderMixin
@@ -45,7 +44,6 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_CONNECT_TIMEOUT_SECONDS,
     DEFAULT_AI_CONTEXT_WINDOW,
     DEFAULT_AI_GATEWAY_URL,
-    DEFAULT_AI_MAX_RESPONSE_BYTES,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import AIConfig
@@ -163,12 +161,6 @@ class LLMClient(
     """Unified client for interacting with AI models across different providers."""
 
     _ALLOW_PRIVATE_NETWORK_ENV = ALLOW_PRIVATE_NETWORK_ENV
-    _active_ollama_requests = network.active_ollama_requests
-    _ollama_active_lock = network.ollama_active_lock
-    _ollama_semaphores = network.ollama_semaphores
-    _ollama_sem_lock = network.ollama_sem_lock
-    _global_ollama_url_index = network.global_ollama_url_index
-    _global_ollama_url_lock = network.global_ollama_url_lock
 
     @classmethod
     def _load_and_increment_rr_index(cls, n: int) -> int:
@@ -205,8 +197,6 @@ class LLMClient(
         self._custom_endpoint = custom_endpoint
         self._request_timeout_seconds = request_timeout_seconds
         self._ollama_thinking_supported: bool | None = None
-        self._ollama_url_index = 0
-        self._ollama_url_lock = threading.Lock()
 
         cache_cfg = getattr(config, "cache", None)
         if cache_enabled is None:
@@ -341,8 +331,13 @@ class LLMClient(
         return True
 
     def _request_timeout(self) -> httpx2.Timeout:
+        """The caller's timeout, else the task's configured `timeout`, else the HTTP default."""
         return request_timeout(
-            read=self._request_timeout_seconds or DEFAULT_HTTP_TIMEOUT_SECONDS,
+            read=(
+                self._request_timeout_seconds
+                or self._config.timeout
+                or DEFAULT_HTTP_TIMEOUT_SECONDS
+            ),
             connect=DEFAULT_AI_CONNECT_TIMEOUT_SECONDS,
         )
 
@@ -356,25 +351,10 @@ class LLMClient(
             "on",
         )
 
-    def _validate_base_url(
-        self,
-        base_url: str,
-        purpose: str = "API",
-        *,
-        allow_loopback_for_local_tooling: bool = False,
-    ) -> str:
+    def _validate_base_url(self, base_url: str, purpose: str = "API") -> str:
         return validate_base_url(
-            base_url,
-            purpose=purpose,
-            allow_private_network=self._allow_private_network(),
-            allow_loopback_for_local_tooling=allow_loopback_for_local_tooling,
+            base_url, purpose=purpose, allow_private_network=self._allow_private_network()
         )
-
-    @staticmethod
-    def _read_limited_json(
-        response: httpx2.Response, limit_bytes: int = DEFAULT_AI_MAX_RESPONSE_BYTES
-    ) -> dict[str, Any]:
-        return read_limited_json(response, limit_bytes=limit_bytes)
 
     def _dispatch_messages(
         self,
