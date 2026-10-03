@@ -94,7 +94,7 @@ def test_a_review_with_only_bandit_is_not_reported_as_a_clean_scan(
     for scan in ("_scan_kubernetes_manifests", "_scan_container_and_lockfiles"):
         monkeypatch.setattr(pipeline, scan, lambda paths: [])
     for scan in ("_scan_secrets", "_scan_semgrep"):
-        monkeypatch.setattr(pipeline, scan, lambda paths: [])
+        monkeypatch.setattr(pipeline, scan, lambda paths, *_, **__: [])
     printed: list[str] = []
     monkeypatch.setattr(pipeline, "print_info", lambda text, **_: printed.append(text))
     orchestrator = ReviewPipelineOrchestrator(session_id="s516", target_dir=tmp_path)
@@ -199,7 +199,7 @@ def test_the_report_masks_a_secret_in_a_failed_analyzer_s_output(
     for scan in ("_scan_kubernetes_manifests", "_scan_container_and_lockfiles"):
         monkeypatch.setattr(pipeline, scan, lambda paths: [])
     for scan in ("_scan_secrets", "_scan_semgrep"):
-        monkeypatch.setattr(pipeline, scan, lambda paths: [])
+        monkeypatch.setattr(pipeline, scan, lambda paths, *_, **__: [])
     monkeypatch.setattr(pipeline, "print_info", lambda text, **_: None)
     orchestrator = ReviewPipelineOrchestrator(session_id="s915", target_dir=tmp_path)
 
@@ -211,4 +211,40 @@ def test_the_report_masks_a_secret_in_a_failed_analyzer_s_output(
         False,
         "| Bandit | failed: Scanner exited with code 1; output was not JSON, starting "
         '"fatal: could not authenticate with <masked-github-token>" |',
+    )
+
+
+def test_a_scanner_timeout_reads_timed_out_in_the_report_and_the_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a scanner that ran out of time says so (#1079). Semgrep's row read `failed:
+    Scanner execution failed: Command '['semgrep', 'scan', …`, cut before the timeout, and the
+    profile said only `failed`. The profile also keeps how long each analyzer ran."""
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "devops_cli.security.bandit.run_bandit_scan", lambda *_, **__: ScanOutcome("ran")
+    )
+    for scan in ("_scan_kubernetes_manifests", "_scan_container_and_lockfiles", "_scan_secrets"):
+        monkeypatch.setattr(pipeline, scan, lambda *_, **__: [])
+    monkeypatch.setattr(
+        "devops_cli.security.base.run_subprocess",
+        MagicMock(side_effect=subprocess.TimeoutExpired(["semgrep", "scan"], 300.0)),
+    )
+    monkeypatch.setattr(pipeline, "print_info", lambda text, **_: None)
+    orchestrator = ReviewPipelineOrchestrator(session_id="s1079", target_dir=tmp_path)
+
+    with profiling() as profiler:
+        orchestrator._run_static_scanners(["app.py"])
+    profile = profiler.build(session_id="s1079", target=str(tmp_path))
+    report = orchestrator._build_consolidated_markdown_report("s1079", "now", [], [], [])
+
+    section = report.split("## Static Analyzers\n", 1)[1].split("\n\n", 1)[0]
+    assert (
+        [row for row in section.splitlines() if row.startswith("| Semgrep ")],
+        profile.static_analyzer_reasons,
+        sorted(profile.static_analyzer_seconds),
+    ) == (
+        ["| Semgrep | failed: timed out after 300 s |"],
+        {"Semgrep": "timed out after 300 s"},
+        ["Semgrep"],
     )

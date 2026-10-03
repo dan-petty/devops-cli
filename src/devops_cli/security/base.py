@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar, NamedTuple
@@ -16,6 +19,7 @@ from unittest.mock import NonCallableMock
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.constants import (
     CONST_MAX_ERROR_DETAIL_LENGTH,
+    CONST_SCAN_STATUS_PRECEDENCE,
     CONST_SCANNER_STDOUT_EXCERPT_CHARS,
 )
 from devops_cli.config.defaults import DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS
@@ -106,6 +110,94 @@ class ScanOutcome(list[Finding]):
                 other.reason,
             )
         return super().__eq__(other)
+
+
+def merge_outcomes(outcomes: list[ScanOutcome]) -> ScanOutcome:
+    """Combine the outcomes of one scanner's runs, keeping every finding, the worst status and
+    each distinct reason, from the first run's start to the last run's end."""
+    status = min(
+        (o.status for o in outcomes),
+        key=lambda s: (
+            CONST_SCAN_STATUS_PRECEDENCE.index(s) if s in CONST_SCAN_STATUS_PRECEDENCE else 0
+        ),
+    )
+    findings = [f for o in outcomes for f in o.findings]
+    reasons = dict.fromkeys(o.reason for o in outcomes if o.reason)
+    merged = ScanOutcome(status, findings, "; ".join(reasons))
+    starts = [o.started_utc for o in outcomes if o.started_utc]
+    ends = [o.ended_utc for o in outcomes if o.ended_utc]
+    merged.started_utc, merged.ended_utc = min(starts, default=None), max(ends, default=None)
+    return merged
+
+
+class MaterializedTargets(NamedTuple):
+    """Targets linked or copied under a scan's working directory, each with the path it came from.
+
+    A scanner names each by its path relative to the working directory, its path in the scanned
+    tree, and reports what it finds under that name, which `origin` maps back (#1079).
+    """
+
+    origins: dict[str, Path]
+
+    @property
+    def names(self) -> list[str]:
+        """The targets' paths relative to the working directory, in the order they were given,
+        each led by `./`: a file the tree names `-`, `--autofix` or `--config=x.yml` is still a
+        file to the scanner, never an option or its stdin, as an absolute path never was."""
+        return [os.path.join(os.curdir, name) for name in self.origins]
+
+    def origin(self, name: str) -> str:
+        """The path a target the scanner reported as `name`, with or without the `./` it was
+        named with, came from; `name` if none did."""
+        return str(self.origins.get(Path(name).as_posix(), name))
+
+
+def _file_inside(target: Path, root: Path) -> Path | None:
+    """The regular file `target` resolves to when it lies inside `root`, else None.
+
+    Resolving follows every link, so no link in the tree leads a scan out of it.
+    """
+    try:
+        real = target.resolve(strict=True)
+    except OSError, RuntimeError:
+        return None
+    return real if real.is_relative_to(root) and real.is_file() else None
+
+
+def _link_or_copy(source: Path, destination: Path) -> bool:
+    """Hard-link `source` at `destination`, or copy it when linking fails, as across
+    filesystems. A file already at `destination` stays: False."""
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists(follow_symlinks=False):
+            return False
+        try:
+            os.link(source, destination)
+        except OSError:
+            shutil.copyfile(source, destination)
+    except OSError as exc:
+        logger.debug("Could not place scan target %s: %s", source, exc)
+        return False
+    return True
+
+
+def materialize_targets(targets: Iterable[Path], tree: Path, workdir: Path) -> MaterializedTargets:
+    """Place each target file that lies in `tree` under `workdir` at its path in the tree.
+
+    A scanner run from `workdir` then names every target relative to its working directory,
+    and finds no other file of the tree there: no config, ignore or rule file it did not name
+    (#972, #1079). A target that resolves outside the tree, through a link or otherwise, is left
+    out, and a file named twice, directly and through a link, is placed once.
+    """
+    root = tree.resolve()
+    origins: dict[str, Path] = {}
+    for target in targets:
+        if (real := _file_inside(target, root)) is None:
+            continue
+        name = real.relative_to(root).as_posix()
+        if name not in origins and _link_or_copy(real, workdir / name):
+            origins[name] = target
+    return MaterializedTargets(origins)
 
 
 def _evaluate_preflight(
@@ -349,29 +441,45 @@ class BaseSecurityScanner(ABC):
         target_path: Any,
         timeout: float,
     ) -> ScanOutcome:
-        """Execute scanner command subprocess with output parsing and fallback handling."""
+        """Execute scanner command subprocess with output parsing and fallback handling.
+
+        The scanner gets an empty stdin, never the caller's, such as a stdio MCP server's
+        request stream, so no target it is named makes it read one (#1079)."""
 
         @trace_span(f"security.{self.name}")
         def _run() -> ScanOutcome:
             try:
-                proc = self._run_subprocess(cmd, cwd=cwd_dir, timeout=timeout, check=False)
+                proc = self._run_subprocess(
+                    cmd, cwd=cwd_dir, timeout=timeout, check=False, input=""
+                )
                 is_valid_json, data = _parse_json_or_ndjson(proc.stdout)
                 if not is_valid_json:
                     return _handle_non_json_output(self, proc, target_path)
                 return _handle_json_output(
                     self, data, proc.returncode, proc.stderr or "", target_path
                 )
+            except subprocess.TimeoutExpired as exc:
+                timed_out = f"timed out after {exc.timeout:g} s"
+                return self._failed_run(
+                    target_path, timed_out, f"{timed_out}; used built-in patterns"
+                )
             except Exception as exc:
-                logger.debug("Scanner '%s' failed: %s; running fallback.", self.name, exc)
-                if _has_builtin_patterns(self):
-                    return ScanOutcome(
-                        "built-in patterns",
-                        self.fallback_scan(target_path),
-                        f"Scanner error: {exc}; used built-in patterns",
-                    )
-                return ScanOutcome("failed", [], f"Scanner execution failed: {exc}")
+                return self._failed_run(
+                    target_path,
+                    f"Scanner execution failed: {exc}",
+                    f"Scanner error: {exc}; used built-in patterns",
+                )
 
         return _run()
+
+    def _failed_run(self, target_path: Any, failed: str, fallen_back: str) -> ScanOutcome:
+        """The outcome of a run that raised: the built-in patterns' findings with the
+        `fallen_back` reason when the scanner has them, else a failure with the `failed` one.
+        A timeout's reason says how long the run had, never the command (#1079)."""
+        logger.debug("Scanner '%s' failed: %s", self.name, failed)
+        if _has_builtin_patterns(self):
+            return ScanOutcome("built-in patterns", self.fallback_scan(target_path), fallen_back)
+        return ScanOutcome("failed", [], failed)
 
     def scan(
         self,
@@ -397,19 +505,33 @@ class BaseSecurityScanner(ABC):
         preflight = _evaluate_preflight(self, target_path, **kwargs)
         if preflight is not None:
             return preflight
-
-        cmd = self.build_command(target_path, **kwargs)
-        if not cmd:
-            return ScanOutcome("not_applicable", [], f"Empty command generated for {self.name}")
-
         if not isolated:
-            return self._run_scanner_command(
-                cmd, self._resolve_cwd(target_path), target_path, timeout
+            return self._run_built_command(
+                target_path, self._resolve_cwd(target_path), timeout, [], **kwargs
             )
         with tempfile.TemporaryDirectory(prefix=f"devops-scan-{self.name}-") as scan_dir:
             workdir = Path(scan_dir)
-            isolated_cmd = [*cmd, *self._hand_isolation_files(workdir)]
-            return self._run_scanner_command(isolated_cmd, workdir, target_path, timeout)
+            handed = self._hand_isolation_files(workdir)
+            targets = self.isolated_targets(target_path, workdir, **kwargs)
+            return self._run_built_command(targets, workdir, timeout, handed, **kwargs)
+
+    def _run_built_command(
+        self, target_path: Any, cwd: Path, timeout: float, handed: list[str], **kwargs: Any
+    ) -> ScanOutcome:
+        """Build the scanner's command for `target_path` and run it from `cwd`, with the flags
+        that name the files devops-cli handed it."""
+        cmd = self.build_command(target_path, **kwargs)
+        if not cmd:
+            return ScanOutcome("not_applicable", [], f"Empty command generated for {self.name}")
+        return self._run_scanner_command([*cmd, *handed], cwd, target_path, timeout)
+
+    def isolated_targets(self, target_path: Any, workdir: Path, **kwargs: Any) -> Any:
+        """The targets an isolated scan names from `workdir`: as given.
+
+        A scanner that reads a target outside its working directory differently from one
+        inside it opts in to `materialize_targets` here, as Semgrep does (#1079).
+        """
+        return target_path
 
     def _hand_isolation_files(self, workdir: Path) -> list[str]:
         """Write the scanner's isolation files into `workdir`, returning the flags that name them.
@@ -426,4 +548,11 @@ class BaseSecurityScanner(ABC):
         return flags
 
 
-__all__ = ["BaseSecurityScanner", "ScanOutcome", "ScannerConfigFile"]
+__all__ = [
+    "BaseSecurityScanner",
+    "MaterializedTargets",
+    "ScanOutcome",
+    "ScannerConfigFile",
+    "materialize_targets",
+    "merge_outcomes",
+]

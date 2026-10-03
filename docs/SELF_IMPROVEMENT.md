@@ -386,7 +386,10 @@ Every review writes `profile.json` next to its `findings.json`: wall time per st
 payloads, persona review, verification, re-ranking, report), the LLM calls, prompt and completion
 tokens made during each stage, the backends the gateway routed them to, and the candidate,
 verified and reported finding counts. The profile's session ID is an attribute of the session's
-`review.session` span, so a slow stage can be followed into its trace.
+`review.session` span, so a slow stage can be followed into its trace. It also records how each
+static analyzer took part (`static_analyzers`), why each that failed did, as review.md's Static
+Analyzers table says, such as `timed out after 300 s` (`static_analyzer_reasons`), and how many
+seconds each analyzer's scans ran (`static_analyzer_seconds`).
 
 Each stage also counts its replies by the reason the provider gave for their end
 (`finish_reasons`, with `unknown` when it gave none), and the replies cut at their token cap by

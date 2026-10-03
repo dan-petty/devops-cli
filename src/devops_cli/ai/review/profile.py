@@ -132,6 +132,10 @@ class ReviewProfile(BaseModel):
     # How each static analyzer took part: ran, built-in patterns, not installed or no files. A
     # scan that found nothing is clean only for the analyzers that ran.
     static_analyzers: dict[str, str] = Field(default_factory=dict)
+    # Why each failed analyzer failed, as review.md says, such as "timed out after 300 s".
+    static_analyzer_reasons: dict[str, str] = Field(default_factory=dict)
+    # How long each analyzer's scans ran, in seconds, summed over its runs (#1079).
+    static_analyzer_seconds: dict[str, float] = Field(default_factory=dict)
     persona_outcomes: dict[str, int] = Field(default_factory=dict)
     persona_replies: list[dict[str, Any]] = Field(default_factory=list)
     unparsed_personas: list[str] = Field(default_factory=list)
@@ -176,6 +180,8 @@ class ReviewProfiler:
         self._findings = (0, 0, 0)
         self._verdict_distributions: dict[str, dict[str, int | float]] = {}
         self._static_analyzers: dict[str, str] = {}
+        self._static_analyzer_reasons: dict[str, str] = {}
+        self._static_analyzer_seconds: dict[str, float] = {}
         self._conventions = ""
         self._persona_replies: list[dict[str, Any]] = []
         self._persona_outcomes: dict[str, int] = {}
@@ -256,8 +262,18 @@ class ReviewProfiler:
         if verdict_distributions is not None:
             self._verdict_distributions = dict(verdict_distributions)
 
-    def set_static_analyzers(self, states: dict[str, str]) -> None:
+    def set_static_analyzers(
+        self, states: dict[str, str], reasons: dict[str, str] | None = None
+    ) -> None:
+        """Record how each static analyzer took part, and why each that failed did."""
         self._static_analyzers = dict(states)
+        self._static_analyzer_reasons = dict(reasons or {})
+
+    def add_static_analyzer_seconds(self, name: str, seconds: float) -> None:
+        """Add a scan's run time to its analyzer's."""
+        with self._lock:
+            total = self._static_analyzer_seconds.get(name, 0.0) + seconds
+            self._static_analyzer_seconds[name] = total
 
     def set_conventions(self, conventions: str) -> None:
         """Record the target conventions the review's prompts carry, as they were rendered."""
@@ -297,6 +313,10 @@ class ReviewProfiler:
             reported_findings=reported,
             verdict_distributions=dict(self._verdict_distributions),
             static_analyzers=dict(self._static_analyzers),
+            static_analyzer_reasons=dict(self._static_analyzer_reasons),
+            static_analyzer_seconds={
+                name: round(seconds, 3) for name, seconds in self._static_analyzer_seconds.items()
+            },
             persona_outcomes=outcomes,
             persona_replies=replies,
             unparsed_personas=unparsed,
