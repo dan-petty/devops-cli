@@ -9,15 +9,20 @@ entries under Keep a Changelog's `###` categories.
 The cut reads every fragment, checks them all before anything is written, and merges their
 entries into the version's section: categories in Keep a Changelog order, fragments in issue
 order within a category, each fragment's text unchanged.
+
+The release notes read the same text back (#1097): a version's section with its heading, each
+category's entries as markdown-it-py's CommonMark parser finds them, and the anchor GitHub gives
+the heading, from mdit-py-plugins' anchors plugin, whose slug follows GitHub's.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from functools import cache
 from itertools import chain
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 from devops_cli.config.constants import (
     CONST_CHANGELOG_FILENAME,
@@ -28,6 +33,10 @@ from devops_cli.config.constants import (
 )
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import ERRORS
+
+if TYPE_CHECKING:
+    from markdown_it import MarkdownIt
+    from markdown_it.token import Token
 
 # A Markdown ATX heading. Only `### <category>` belongs among entries: a `##` line would open a
 # version section of its own once the text is in CHANGELOG.md.
@@ -44,6 +53,25 @@ class ChangelogFragment(NamedTuple):
     path: Path
     issue: int
     categories: Categories
+
+
+class ChangelogEntry(NamedTuple):
+    """One entry of a category: its title lines, the lines below it (its sub-bullets), and its block.
+
+    `block` is markdown-it-py's token type for the block, less `_open`: `list_item` for a list
+    entry, else `paragraph`, `heading`, `fence` and so on.
+    """
+
+    title: tuple[str, ...]
+    details: tuple[str, ...]
+    block: str
+
+
+class ChangelogSection(NamedTuple):
+    """A version's section of a changelog: its `## [X.Y.Z] - date` line, then its body."""
+
+    heading: str
+    body: str
 
 
 def _refusal(template: str, source: str, **fields: object) -> ValidationError:
@@ -89,6 +117,55 @@ def parse_changelog_categories(text: str, source: str, first_line: int = 1) -> C
     return {category: _trimmed(lines) for category, lines in categories.items()}
 
 
+@cache
+def _commonmark(anchors: bool = False) -> MarkdownIt:
+    """A CommonMark parser; with `anchors`, each heading gets the id GitHub would give it."""
+    from markdown_it import MarkdownIt
+    from mdit_py_plugins.anchors import anchors_plugin
+
+    parser = MarkdownIt("commonmark")
+    return parser.use(anchors_plugin, min_level=1, max_level=6) if anchors else parser
+
+
+def _entry(lines: Sequence[str], tokens: list[Token], index: int) -> ChangelogEntry | None:
+    """The entry a top-level block opens: a list item's first paragraph and the rest, or a block.
+
+    A list holds entries rather than being one, and closing tokens and nested blocks open none.
+    """
+    token = tokens[index]
+    if token.map is None or token.nesting == -1 or token.type.endswith("_list_open"):
+        return None
+    start, end = token.map
+    block = token.type.removesuffix("_open")
+    if block != "list_item":
+        return ChangelogEntry(tuple(lines[start:end]), (), block) if token.level == 0 else None
+    if token.level != 1:
+        return None
+    first = tokens[index + 1]
+    title_end = first.map[1] if first.type == "paragraph_open" and first.map else start + 1
+    return ChangelogEntry(
+        tuple(lines[start:title_end]), tuple(_trimmed(list(lines[title_end:end]))), block
+    )
+
+
+def parse_changelog_entries(lines: Sequence[str]) -> tuple[ChangelogEntry, ...]:
+    """Each entry in a category's lines, as `parse_changelog_categories` gives them.
+
+    An entry is a top-level list item: its title is the item's first paragraph and its details
+    the lines below, its sub-bullets. Any other top-level block, such as a heading or a
+    paragraph, is an entry of its own with no details.
+    """
+    tokens = _commonmark().parse("\n".join(lines))
+    entries = (_entry(lines, tokens, index) for index in range(len(tokens)))
+    return tuple(entry for entry in entries if entry is not None)
+
+
+def changelog_heading_anchor(heading: str) -> str:
+    """The anchor GitHub gives a heading line: `0225---2026-10-03` for `## [0.2.25] - 2026-10-03`."""
+    tokens = _commonmark(anchors=True).parse(heading)
+    return next((str(token.attrs["id"]) for token in tokens if token.type == "heading_open"), "")
+
+
 def _read_fragment(path: Path) -> ChangelogFragment:
     """Read one fragment, raising for a misnamed file or one that holds no entry."""
     shown = f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{path.name}"
@@ -129,6 +206,15 @@ def _find_section(changelog: str, name: str) -> re.Match[str] | None:
         changelog,
         re.MULTILINE | re.DOTALL,
     )
+
+
+def find_changelog_section(changelog: str, version: str) -> ChangelogSection | None:
+    """The `## [version]` section of a changelog (a `v` before the version allowed), or None."""
+    section = _find_section(changelog, version)
+    if section is None:
+        return None
+    heading = changelog[section.start() : section.start("body")].rstrip("\n")
+    return ChangelogSection(heading, section["body"])
 
 
 def _merge_into(

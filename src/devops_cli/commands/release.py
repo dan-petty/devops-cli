@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+import os
 import re
 import sys
 from datetime import UTC, datetime
@@ -21,6 +22,9 @@ from devops_cli.config.constants import (
     CONST_DOCS_DIR_NAME,
     CONST_GH_CLI,
     CONST_GIT_MAIN_BRANCH,
+    CONST_GITHUB_HTTPS_PREFIX,
+    CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS,
+    CONST_GITHUB_RELEASE_BODY_MAX_CHARS,
     CONST_INIT_PY_PATH,
     CONST_PYPROJECT_FILENAME,
     CONST_README_FILENAME,
@@ -35,9 +39,12 @@ from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.release.changelog_fragments import (
+    changelog_heading_anchor,
     collect_changelog_fragments,
+    find_changelog_section,
     read_changelog_fragments,
 )
+from devops_cli.release.notes_compaction import fit_release_notes
 
 logger = logging.getLogger(__name__)
 
@@ -142,14 +149,54 @@ def _is_git_clean(root: Path) -> bool:
 
 def _extract_changelog_notes(root: Path, version: str) -> str | None:
     """Extract release notes for a specific version from CHANGELOG.md."""
-    changelog_file = _resolve_safe_project_path(root, "CHANGELOG.md")
+    changelog_file = _resolve_safe_project_path(root, CONST_CHANGELOG_FILENAME)
     if not changelog_file.exists():
         return None
-    content = changelog_file.read_text(encoding="utf-8")
-    cleaned_ver = version.lstrip("v")
-    pattern = rf"^##\s+\[v?{re.escape(cleaned_ver)}\][^\n]*\n(.*?)(?=^##\s+\[|\Z)"
-    match = re.search(pattern, content, re.MULTILINE | re.DOTALL)
-    return match.group(1).strip() if match else None
+    section = find_changelog_section(
+        changelog_file.read_text(encoding="utf-8"), version.lstrip("v")
+    )
+    return section.body.strip() if section else None
+
+
+def _full_notes_pointer(root: Path, version: str, repo: str | None = None) -> str:
+    """Where a version's full notes are: its CHANGELOG.md section at the version's tag.
+
+    It is a link when the repository is known, from `repo`, the git origin or the
+    `GITHUB_REPOSITORY` GitHub Actions sets; otherwise it names the file and the tag.
+    """
+    from devops_cli.core.repo import get_repo_origin_name
+
+    repo = repo or get_repo_origin_name(root) or os.environ.get("GITHUB_REPOSITORY")
+    if not repo:
+        return MESSAGES.release.notes_full_notes_unlinked.format(version=version)
+    changelog_file = _resolve_safe_project_path(root, CONST_CHANGELOG_FILENAME)
+    changelog = changelog_file.read_text(encoding="utf-8") if changelog_file.exists() else ""
+    section = find_changelog_section(changelog, version)
+    anchor = f"#{changelog_heading_anchor(section.heading)}" if section else ""
+    url = f"{CONST_GITHUB_HTTPS_PREFIX}{repo}/blob/v{version}/{CONST_CHANGELOG_FILENAME}{anchor}"
+    return MESSAGES.release.notes_full_notes_linked.format(version=version, url=url)
+
+
+def _notes_within(
+    root: Path, version: str, notes: str, budget: int, repo: str | None = None
+) -> str:
+    """`notes` if they fit in `budget` characters, else their compact form (#1097).
+
+    Notes that fit need no pointer to the full notes, so none is built for them.
+    """
+    if len(notes) <= budget:
+        return notes
+    return fit_release_notes(notes, budget, _full_notes_pointer(root, version, repo))
+
+
+# A Release body is the notes and the newline `--raw` ends them with.
+_RELEASE_NOTES_BUDGET = CONST_GITHUB_RELEASE_BODY_MAX_CHARS - len("\n")
+
+
+def _release_body_notes(root: Path, version: str, repo: str | None = None) -> str | None:
+    """The notes a version's GitHub Release carries, within GitHub's Release body limit."""
+    notes = _resolve_release_notes(root, version)
+    return _notes_within(root, version, notes, _RELEASE_NOTES_BUDGET, repo) if notes else None
 
 
 def _extract_docs_release_notes(root: Path, version: str) -> str | None:
@@ -1019,7 +1066,10 @@ def _build_release_pr_body(
         sections.append(f"{heading}\n" + "\n".join(deliverables))
 
     if notes:
-        sections.append(f"### Release Notes\n{notes}")
+        notes_heading = "### Release Notes\n"
+        rest = len("\n\n".join(sections)) + len("\n\n") + len(notes_heading) + len("\n")
+        budget = CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS - rest
+        sections.append(notes_heading + _notes_within(repo_root, cleaned_ver, notes, budget))
 
     return "\n\n".join(sections).strip() + "\n"
 
@@ -1347,7 +1397,12 @@ def release_notes(
         typer.Option("--root", "-r", help=HELP.options.root),
     ] = None,
 ) -> None:
-    """Print markdown release notes for a specified or current release version."""
+    """Print markdown release notes for a specified or current release version.
+
+    Notes over GitHub's 125,000-character Release body limit are printed compact: each
+    category and entry title without its sub-bullets, then a link to the version's section
+    of CHANGELOG.md at its tag.
+    """
     from devops_cli.output import (
         print_error,
         print_panel,
@@ -1361,7 +1416,7 @@ def release_notes(
         print_error("Could not determine target release version.", prefix=False)
         raise typer.Exit(1)
 
-    notes = _resolve_release_notes(repo_root, target_ver)
+    notes = _release_body_notes(repo_root, target_ver)
     if not notes:
         print_warning(MESSAGES.release.notes_not_found.format(version=target_ver), prefix=False)
         raise typer.Exit(1)
@@ -1403,7 +1458,7 @@ def _sync_one_release(repo: str, tag: str, repo_root: Path, dry_run: bool) -> st
     if published is None:
         return MESSAGES.release.notes_unreadable.format(tag=tag)
 
-    expected = _resolve_release_notes(repo_root, tag.lstrip("v"))
+    expected = _release_body_notes(repo_root, tag.lstrip("v"), repo)
     if not expected:
         return MESSAGES.release.notes_no_changelog.format(tag=tag)
 
@@ -1443,7 +1498,8 @@ def release_sync_notes(
     A release body is written once at publish time. Nothing in the repository could change
     it afterwards, so a release published before the workflow disabled GitHub's generated
     summary keeps carrying it, and an edited changelog entry never reaches the release it
-    describes.
+    describes. Notes over the Release body limit are sent in the compact form `release notes`
+    prints.
     """
     from devops_cli.commands.gh import _resolve_repo
     from devops_cli.github.release_notes import list_published_releases
@@ -1548,7 +1604,9 @@ def release_changelog(
         return
 
     if raw:
-        write_stdout(compiled_notes + "\n")
+        write_stdout(
+            _notes_within(repo_root, target_ver, compiled_notes, _RELEASE_NOTES_BUDGET) + "\n"
+        )
         return
 
     print_panel(

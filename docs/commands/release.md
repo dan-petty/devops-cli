@@ -95,6 +95,12 @@ devops release check [OPTIONS]
 
 **Print markdown release notes for a specified or current release version.**
 
+Print markdown release notes for a specified or current release version.
+
+Notes over GitHub's 125,000-character Release body limit are printed compact: each
+category and entry title without its sub-bullets, then a link to the version's section
+of CHANGELOG.md at its tag.
+
 ```bash
 devops release notes [OPTIONS]
 ```
@@ -118,7 +124,8 @@ Republish GitHub release descriptions from CHANGELOG.md.
 A release body is written once at publish time. Nothing in the repository could change
 it afterwards, so a release published before the workflow disabled GitHub's generated
 summary keeps carrying it, and an edited changelog entry never reaches the release it
-describes.
+describes. Notes over the Release body limit are sent in the compact form `release notes`
+prints.
 
 ```bash
 devops release sync-notes [OPTIONS]

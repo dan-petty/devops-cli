@@ -28,9 +28,20 @@ from devops_cli.commands.release import (
     _verify_release_versions,
     app,
 )
-from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.constants import (
+    CONST_GH_CLI,
+    CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS,
+    CONST_GITHUB_RELEASE_BODY_MAX_CHARS,
+)
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState
+from tests.release_notes_examples import (
+    SYNTHETIC_CATEGORIES,
+    SYNTHETIC_ENTRY_COUNT,
+    synthetic_entry_detail,
+    synthetic_entry_title,
+    synthetic_release_section,
+)
 
 runner = CliRunner()
 # A Markdown task-list item, ticked or not, under any list marker and at any indent.
@@ -1361,3 +1372,187 @@ def test_a_release_commit_stages_changelog_d_only_where_it_exists(tmp_path: Path
     without = _release_paths(tmp_path)
     (tmp_path / "changelog.d").mkdir()
     assert (without[-1], _release_paths(tmp_path)[-1]) == ("docs/", "changelog.d/")
+
+
+# =============================================================================
+# Release notes fit GitHub's body limits (#1097)
+# =============================================================================
+
+_SECTION_HEADING = "## [0.2.25] - 2026-10-03"
+_SECTION_URL = "https://github.com/dan-petty/devops-cli/blob/v0.2.25/CHANGELOG.md#0225---2026-10-03"
+_REPO_CHANGELOG = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
+
+
+def _with_section(project: Path, body: str) -> Path:
+    """Put `body` in the project's changelog as the `[0.2.25]` section, above `[0.1.7]`."""
+    changelog = project / "CHANGELOG.md"
+    older = changelog.read_text(encoding="utf-8").split("## [0.1.7]", 1)[1]
+    changelog.write_text(f"# Changelog\n\n{_SECTION_HEADING}\n\n{body}\n\n## [0.1.7]{older}")
+    return project
+
+
+@pytest.fixture
+def repository_named(monkeypatch: pytest.MonkeyPatch) -> str:
+    """The repository GitHub Actions names; the project directory has no git origin."""
+    monkeypatch.setenv("GITHUB_REPOSITORY", "dan-petty/devops-cli")
+    return "dan-petty/devops-cli"
+
+
+def _no_github() -> Any:
+    """Every gh and git call fails, as offline: no milestone deliverables, no branch log."""
+    failed = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="")
+    return (
+        patch("devops_cli.commands.release.run_gh", return_value=failed),
+        patch("devops_cli.commands.release.run_subprocess", return_value=failed),
+    )
+
+
+def _pr_body(project: Path, version: str = "0.2.25") -> str:
+    from devops_cli.commands.release import _build_release_pr_body
+
+    gh, git = _no_github()
+    with gh, git:
+        return _build_release_pr_body(
+            repo_root=project,
+            target_ver=version,
+            base="main",
+            branch_name=f"release/v{version}",
+            draft=False,
+            pr_title=f"feat(release): v{version}",
+        )
+
+
+def test_release_notes_that_fit_are_printed_unchanged(sample_project_dir: Path) -> None:
+    """Below the limit the Release body is the changelog section, character for character."""
+    body = "### Added\n- **A Feature**:\n  - its detail (#1).\n\n### Fixed\n- **A Fix** (#2)."
+    _with_section(sample_project_dir, body)
+    result = runner.invoke(
+        app, ["notes", "--version", "0.2.25", "--raw", "--root", str(sample_project_dir)]
+    )
+    assert (result.exit_code, result.output) == (0, body + "\n")
+
+
+def test_a_200000_character_section_prints_under_the_release_limit_with_its_link(
+    sample_project_dir: Path, repository_named: str
+) -> None:
+    """Every category and title, no sub-bullet, and the section's link at its tag, last."""
+    _with_section(sample_project_dir, synthetic_release_section())
+    result = runner.invoke(
+        app, ["notes", "--version", "0.2.25", "--raw", "--root", str(sample_project_dir)]
+    )
+    titles = [synthetic_entry_title(number) for number in range(1, SYNTHETIC_ENTRY_COUNT + 1)]
+    assert result.exit_code == 0
+    assert len(result.output) < CONST_GITHUB_RELEASE_BODY_MAX_CHARS
+    assert [title for title in titles if title not in result.output] == []
+    assert [c for c in SYNTHETIC_CATEGORIES if f"### {c}\n" not in result.output] == []
+    assert synthetic_entry_detail(1, 1) not in result.output
+    assert result.output.endswith(f"[`CHANGELOG.md` at v0.2.25]({_SECTION_URL}).\n")
+
+
+def test_without_a_known_repository_the_pointer_names_the_file_and_tag(
+    sample_project_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No origin and no GITHUB_REPOSITORY: no URL can be built, so none is guessed."""
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    _with_section(sample_project_dir, synthetic_release_section())
+    result = runner.invoke(
+        app, ["notes", "--version", "0.2.25", "--raw", "--root", str(sample_project_dir)]
+    )
+    assert result.output.endswith("The full notes are in `CHANGELOG.md` at v0.2.25.\n")
+
+
+def test_the_changelog_fallback_prints_notes_that_fit_unchanged_and_fits_the_rest(
+    sample_project_dir: Path, repository_named: str
+) -> None:
+    """`release.yml` falls back to `release changelog --raw`; its output obeys the same rule."""
+    small = "* feat(auth): add oidc provider\n* fix(cli): handle timeout error\n"
+    large = "".join(f"* feat(x): change number {n} of a long release (#{n})\n" for n in range(3000))
+    outputs = []
+    for log in (small, large):
+        git_log = subprocess.CompletedProcess(args=[], returncode=0, stdout=log, stderr="")
+        with patch("devops_cli.commands.release.run_subprocess", return_value=git_log):
+            compiled = _extract_git_commit_notes(sample_project_dir, "0.1.8")
+            result = runner.invoke(
+                app, ["changelog", "--version", "0.1.8", "--raw", "--root", str(sample_project_dir)]
+            )
+        outputs.append((compiled, result.output))
+    (small_notes, small_output), (large_notes, large_output) = outputs
+    assert small_output == f"{small_notes}\n"
+    assert len(large_notes) > CONST_GITHUB_RELEASE_BODY_MAX_CHARS
+    assert len(large_output) <= CONST_GITHUB_RELEASE_BODY_MAX_CHARS
+    assert "Entries left out to fit: " in large_output
+    assert large_output.endswith(
+        "[`CHANGELOG.md` at v0.1.8](https://github.com/dan-petty/devops-cli/blob/v0.1.8/CHANGELOG.md).\n"
+    )
+
+
+def test_the_release_pr_body_fits_its_limit_with_every_title(
+    sample_project_dir: Path, repository_named: str
+) -> None:
+    """The PR limit is about half the Release one; the 210 titles still fit under it."""
+    body = _pr_body(_with_section(sample_project_dir, synthetic_release_section()))
+    titles = [synthetic_entry_title(number) for number in range(1, SYNTHETIC_ENTRY_COUNT + 1)]
+    assert len(body) <= CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS
+    assert [title for title in titles if title not in body] == []
+    assert f"({_SECTION_URL})." in body
+
+
+def test_the_release_pr_body_counts_its_other_sections_against_the_limit(
+    sample_project_dir: Path, repository_named: str
+) -> None:
+    """Notes that fit the limit alone are compacted when the deliverables push the body over."""
+    from devops_cli.commands.release import _build_release_pr_body
+
+    entry = "- **An Entry**:\n  - " + "d" * 300
+    notes = "### Added\n" + "\n".join([entry] * 200)
+    assert len(notes) < CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS
+    issues = [
+        {"number": n, "title": f"feat: deliverable {n}", "state": "CLOSED"} for n in range(400)
+    ]
+    listed = subprocess.CompletedProcess(
+        args=[], returncode=0, stdout=json.dumps(issues), stderr=""
+    )
+    _with_section(sample_project_dir, notes)
+    with (
+        patch("devops_cli.commands.release.run_gh", return_value=listed),
+        patch("devops_cli.commands.release._extract_branch_release_notes", return_value=None),
+    ):
+        body = _build_release_pr_body(
+            repo_root=sample_project_dir,
+            target_ver="0.2.25",
+            base="main",
+            branch_name="release/v0.2.25",
+            draft=False,
+            pr_title="feat(release): v0.2.25",
+        )
+    assert len(body) <= CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS
+    assert ("- #399" in body, "d" * 300 in body, f"({_SECTION_URL})." in body) == (
+        True,
+        False,
+        True,
+    )
+
+
+def test_every_section_of_this_repositorys_changelog_fits_both_limits(
+    sample_project_dir: Path, repository_named: str
+) -> None:
+    """Including v0.2.25's 196,525 characters once the cut is in this branch's CHANGELOG.md."""
+    from devops_cli.commands.release import _release_body_notes
+
+    changelog = _REPO_CHANGELOG.read_text(encoding="utf-8")
+    (sample_project_dir / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
+    versions = re.findall(r"^## \[(\d+\.\d+\.\d+)\]", changelog, re.MULTILINE)
+    sizes = {
+        version: (
+            len(_release_body_notes(sample_project_dir, version) or ""),
+            len(_pr_body(sample_project_dir, version)),
+        )
+        for version in versions
+    }
+    assert len(sizes) > 30
+    assert {
+        version: size
+        for version, size in sizes.items()
+        if size[0] >= CONST_GITHUB_RELEASE_BODY_MAX_CHARS
+        or size[1] > CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS
+    } == {}

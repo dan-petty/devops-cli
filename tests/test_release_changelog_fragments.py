@@ -9,9 +9,14 @@ import pytest
 
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.release.changelog_fragments import (
+    ChangelogEntry,
     ChangelogFragment,
+    ChangelogSection,
+    changelog_heading_anchor,
     collect_changelog_fragments,
+    find_changelog_section,
     parse_changelog_categories,
+    parse_changelog_entries,
     read_changelog_fragments,
 )
 
@@ -201,3 +206,61 @@ def test_prose_under_unreleased_names_changelog_and_its_line() -> None:
 def test_a_changelog_without_a_release_heading_has_no_place_for_the_section() -> None:
     """The caller then writes the section as before, and keeps the fragments."""
     assert collect_changelog_fragments(_HEAD, "0.1.8", "2026-10-02", [_FIX_12]) is None
+
+
+# =============================================================================
+# Reading a category's entries and a version's section
+# =============================================================================
+
+
+def test_each_entry_is_its_title_and_the_lines_below_it() -> None:
+    """A lazy continuation stays in its entry; an item's wrapped first paragraph is its title."""
+    lines = parse_changelog_categories(
+        "### Fixed\n"
+        "- **A Fix (`devops x`)**:\n  - detail (#12).\n#12 wraps here.\n\n"
+        "- **B**: one\n  wraps\n\n  - sub\n"
+        "- Plain entry (#3).\n",
+        "changelog.d/12.md",
+    )["Fixed"]
+    assert parse_changelog_entries(lines) == (
+        ChangelogEntry(
+            ("- **A Fix (`devops x`)**:",), ("  - detail (#12).", "#12 wraps here."), "list_item"
+        ),
+        ChangelogEntry(("- **B**: one", "  wraps"), ("  - sub",), "list_item"),
+        ChangelogEntry(("- Plain entry (#3).",), (), "list_item"),
+    )
+
+
+def test_a_block_outside_any_list_is_an_entry_of_its_own() -> None:
+    """A heading or a paragraph between lists is kept whole, an empty item as its line."""
+    lines = ["### Changes in v1.0.0", "", "Some prose", "over two lines.", "", "1. first", "-"]
+    assert parse_changelog_entries(lines) == (
+        ChangelogEntry(("### Changes in v1.0.0",), (), "heading"),
+        ChangelogEntry(("Some prose", "over two lines."), (), "paragraph"),
+        ChangelogEntry(("1. first",), (), "list_item"),
+        ChangelogEntry(("-",), (), "list_item"),
+    )
+
+
+def test_a_versions_section_is_its_heading_line_and_body() -> None:
+    """`v` before the version is accepted; the next `## [` ends the section."""
+    changelog = (
+        _HEAD + "## [Unreleased]\n\n## [v0.1.8] - 2026-10-02\n\n### Fixed\n- x.\n\n" + _OLDER
+    )
+    assert find_changelog_section(changelog, "0.1.8") == ChangelogSection(
+        "## [v0.1.8] - 2026-10-02", "\n### Fixed\n- x.\n\n"
+    )
+    assert find_changelog_section(changelog, "0.1.9") is None
+
+
+@pytest.mark.parametrize(
+    ("heading", "anchor"),
+    [
+        ("## [0.2.25] - 2026-10-03", "0225---2026-10-03"),
+        ("## [Unreleased]", "unreleased"),
+        ("## [1.0.0-rc.1] - 2026_01_02", "100-rc1---2026_01_02"),
+    ],
+)
+def test_a_headings_anchor_is_the_one_github_gives_it(heading: str, anchor: str) -> None:
+    """Lower case, punctuation but `-` and `_` dropped, each space a `-`, as GitHub renders it."""
+    assert changelog_heading_anchor(heading) == anchor

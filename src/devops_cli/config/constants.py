@@ -69,6 +69,10 @@ CONST_KEEP_A_CHANGELOG_CATEGORIES: Final[tuple[str, ...]] = (
     "Fixed",
     "Security",
 )
+# GitHub refuses a Release body over 125,000 characters and a pull request body over 65,536.
+# `devops release notes` and `devops release pr` fit a version's notes under them (#1097).
+CONST_GITHUB_RELEASE_BODY_MAX_CHARS: Final[int] = 125_000
+CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS: Final[int] = 65_536
 CONST_CURRENT_DIR = Path(".")
 CONST_ROOT_DIR = Path("/")
 CONST_SRC_DIR_NAME = "src"
