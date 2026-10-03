@@ -675,15 +675,33 @@ def _strip_unbacked_advisories(finding: Finding, dependencies: Sequence[Any]) ->
     )
 
 
+# The words of a claim about a package's published advisories: "CVE" or "CVEs", an id such as
+# CVE-2024-24762 included, a GHSA id, "advisory" or "advisories", "unpatched", "known
+# vulnerability" or "known vulnerabilities", and "vulnerable version".
+_ADVISORY_CLAIM = re.compile(
+    r"\bCVEs?\b|\bGHSA(?:-[0-9a-z]{4}){3}\b|\badvisor(?:y|ies)\b|\bunpatched\b"
+    r"|\bknown\s+vulnerabilit(?:y|ies)\b|\bvulnerable\s+versions?\b",
+    re.IGNORECASE,
+)
+
+
 def _check_scanned_clean_dependency(
     finding: Finding, dependencies: Sequence[Any]
 ) -> Finding | None:
-    """Invalidate a vulnerability claim against a dependency this run already scanned clean.
+    """Invalidate a claim that a dependency this run scanned clean carries a known advisory.
 
     The pipeline resolves advisories for every pinned dependency and writes the verdicts
     into the same artifact as the findings. When a claim names a package the scan reports
     `CLEAN` with no advisory records, the artifact contradicts itself, and the scan is the
     side with a source.
+
+    A CLEAN scan refutes one claim: that the dependency, at the version the project pins,
+    carries a published advisory. It says nothing about how the project's code uses the
+    package, about a manifest that names it, or about whether the pinned version is the
+    latest, so the finding must speak of advisories (`_ADVISORY_CLAIM`); "vulnerable" alone or
+    "outdated" does not. With every dependency a session scanned, "vulnerab" and a name such as
+    kubernetes invalidated a command injection in a Kubernetes client call and Semgrep's own
+    Kubernetes findings (#1044).
 
     Session `20260922-034125` reported FastAPI and Uvicorn as carrying unpatched CVEs while
     its own `external_dependencies` listed both `CLEAN` with an empty vulnerability list.
@@ -692,7 +710,7 @@ def _check_scanned_clean_dependency(
         return None
 
     text = f"{finding.title} {finding.description or ''}".lower()
-    if not any(word in text for word in ("vulnerab", "cve", "advisory", "outdated", "unpatched")):
+    if not _ADVISORY_CLAIM.search(text):
         return None
 
     named = [
@@ -1345,23 +1363,29 @@ def _check_verdict_polarity_hallucination(finding: Finding) -> Finding | None:
 def _check_early_hallucinations(
     finding: Finding, dependencies: Sequence[Any] | None
 ) -> Finding | None:
+    """The verdict of the first early check that fires; the checks after it do not run.
+
+    `apply_verdict` writes on the finding itself, so a later check that also fired overwrote the
+    verdict and reason the first one gave: a manifest finding citing `CVE-2024-xxxx` that spoke
+    of Kubernetes best practices read "advisory scan reports kubernetes CLEAN" (#1044).
+    """
     title_lower = finding.title.lower()
     desc_lower = (finding.description or "").lower()
-    early_results = [
-        _check_verdict_polarity_hallucination(finding),
-        _check_pathlib_resolve_hallucination(finding),
-        _check_operational_protocol_hallucination(finding),
-        _check_localhost_default_url_hallucination(finding),
-        _check_posix_signal_zero_liveness_hallucination(finding),
-        _check_pre_1_0_breaking_change_hallucination(finding),
-        _check_conversational_monologue(title_lower, finding),
-        _check_benign_compliment(title_lower, finding),
-        _check_masked_placeholder_syntax_error(finding, title_lower, desc_lower),
-        _check_placeholder_advisory_hallucination(finding, dependencies or ()),
-        _check_scanned_clean_dependency(finding, dependencies or ()),
-    ]
-    for res in early_results:
-        if res:
+    early_checks = (
+        functools.partial(_check_verdict_polarity_hallucination, finding),
+        functools.partial(_check_pathlib_resolve_hallucination, finding),
+        functools.partial(_check_operational_protocol_hallucination, finding),
+        functools.partial(_check_localhost_default_url_hallucination, finding),
+        functools.partial(_check_posix_signal_zero_liveness_hallucination, finding),
+        functools.partial(_check_pre_1_0_breaking_change_hallucination, finding),
+        functools.partial(_check_conversational_monologue, title_lower, finding),
+        functools.partial(_check_benign_compliment, title_lower, finding),
+        functools.partial(_check_masked_placeholder_syntax_error, finding, title_lower, desc_lower),
+        functools.partial(_check_placeholder_advisory_hallucination, finding, dependencies or ()),
+        functools.partial(_check_scanned_clean_dependency, finding, dependencies or ()),
+    )
+    for check in early_checks:
+        if res := check():
             return res
     return None
 
