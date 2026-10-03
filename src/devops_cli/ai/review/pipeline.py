@@ -3541,6 +3541,31 @@ class ReviewPipelineOrchestrator:
         lines.append("")
         return lines
 
+    @staticmethod
+    def _build_criteria_outcomes_section(findings: list[SavedFinding] | None) -> list[str]:
+        """Count the executable criteria by how each ended: passed, failed, timed out or not run.
+
+        Only a passed or failed criterion ran to its own exit status. One stopped at its time
+        limit, one the sandbox could not start (no bubblewrap, a spawn error) and one it stopped
+        for its output all have exit code -1, which `_evaluate_criteria_verdict` treats as not
+        run; none says anything about the code, so none is counted as failed.
+        """
+        results = [r for f in findings or [] for r in f.criteria_execution_results if r.executable]
+        if not results:
+            return []
+        passed = sum(r.passed for r in results)
+        failed = sum(not r.passed and r.exit_code not in (None, -1) for r in results)
+        timed_out = sum(r.timed_out for r in results)
+        not_run = len(results) - passed - failed - timed_out
+        return [
+            "## Executable Criteria",
+            "",
+            "| Passed | Failed | Timed Out | Not Run |",
+            "|---|---|---|---|",
+            f"| {passed} | {failed} | {timed_out} | {not_run} |",
+            "",
+        ]
+
     def _build_consolidated_markdown_report(
         self,
         session_id: str,
@@ -3605,6 +3630,7 @@ class ReviewPipelineOrchestrator:
         dist_lines = self._build_verdict_distributions_section(candidate_findings or all_findings)
         if dist_lines:
             lines.extend(dist_lines)
+        lines.extend(self._build_criteria_outcomes_section(candidate_findings or all_findings))
 
         if self.errored_files:
             lines.append("## Skipped / Errored Files")

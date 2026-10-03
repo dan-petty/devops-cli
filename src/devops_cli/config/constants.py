@@ -1120,20 +1120,20 @@ REVIEW_STRONG_SYMBOL_MIN_LENGTH: Final[int] = 6
 REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD: Final[float] = 0.35
 
 # ── Executable Verification Criteria Constants ──────────────────────────────
-# Closed, read-only allowlist of executable binaries for finding verification criteria.
+# Closed, read-only allowlist of executable binaries for finding verification criteria. Each one
+# resolves inside the host sandbox: the system's under `/usr`, and python, python3 and ruff from
+# the reviewed repository's `.venv/bin`. pytest is not offered (see `CONST_PYTEST_MODULES`): a
+# passing existing test demonstrates no defect.
 CONST_ALLOWED_CRITERIA_BINARIES: Final[frozenset[str]] = frozenset(
     {
         "cat",
-        "file",
         "find",
         "git",
         "grep",
         "head",
         "jq",
-        "pytest",
         "python",
         "python3",
-        "rg",
         "ruff",
         "tail",
         "test",
@@ -1174,6 +1174,31 @@ CONST_DISALLOWED_SHELL_TOKENS: Final[frozenset[str]] = frozenset(
         "`",
         "$(",
         "${",
+    }
+)
+
+# pytest and its implementation package, and the functions that start its test runner. A python
+# criterion may import pytest, for `pytest.raises` or a test module that imports it, but may not
+# run tests, either as `python -m pytest` or by calling `pytest.main` in `python -c`, whose exit
+# status that call does not even set: a passing existing test demonstrates no defect.
+CONST_PYTEST_MODULES: Final[frozenset[str]] = frozenset({"_pytest", "pytest"})
+CONST_PYTEST_RUNNER_FUNCTIONS: Final[frozenset[str]] = frozenset({"console_main", "main"})
+# Calls that import a module by its name as a string (`__import__('pytest')`).
+CONST_IMPORT_BY_NAME_CALLS: Final[frozenset[str]] = frozenset({"__import__", "import_module"})
+
+# `find` actions that run a command, which may be any binary rather than an allowlisted one, or
+# that write or delete files. A `find` criterion may only search.
+CONST_FORBIDDEN_FIND_ACTIONS: Final[frozenset[str]] = frozenset(
+    {
+        "-delete",
+        "-exec",
+        "-execdir",
+        "-fls",
+        "-fprint",
+        "-fprint0",
+        "-fprintf",
+        "-ok",
+        "-okdir",
     }
 )
 
@@ -1226,28 +1251,6 @@ CONST_EXISTENCE_CRITERIA_CALLS: Final[frozenset[str]] = frozenset(
 CONST_EXIT_CRITERIA_CALLS: Final[frozenset[str]] = frozenset(
     {"_exit", "exit", "quit", "SystemExit"}
 )
-# pytest options that make it exit 0 without running a test: it lists, describes or plans them.
-CONST_PYTEST_NON_RUNNING_OPTIONS: Final[frozenset[str]] = frozenset(
-    {
-        "--cache-show",
-        "--co",
-        "--collect-only",
-        "--collectonly",
-        "--fixtures",
-        "--fixtures-per-test",
-        "--funcargs",
-        "--help",
-        "--markers",
-        "--setup-only",
-        "--setup-plan",
-        "--version",
-        "-V",
-        "-h",
-    }
-)
-# pytest's short options that take a value: in a cluster such as `-qh`, the letters after one
-# of them are its value, not flags.
-CONST_PYTEST_SHORT_OPTIONS_WITH_VALUE: Final[frozenset[str]] = frozenset("Wckmnopr")
 
 # ── Review Schemas & Deterministic Verification Constants ─────────────────────
 CONST_ABSENCE_FINDING_MARKERS: Final[tuple[str, ...]] = (
@@ -3147,6 +3150,11 @@ CONST_HOST_SANDBOX_DEFAULT_ENV: tuple[tuple[str, str], ...] = (
 )
 CONST_HOST_SANDBOX_SYSTEM_SYMLINKS: tuple[str, ...] = ("/bin", "/lib", "/lib64", "/sbin")
 CONST_HOST_SANDBOX_SYSTEM_DIRS: tuple[str, ...] = ("/usr",)
+# The reviewed repository's virtualenv `bin`, relative to its root, which leads the sandbox PATH.
+CONST_HOST_SANDBOX_VIRTUALENV_BIN: tuple[str, ...] = (".venv", "bin")
+# CPython's standard-library landmark below an installation prefix (`lib/python3.14/os.py`,
+# `lib/python3.14t/os.py` for a free-threaded build), which `getpath` itself looks for.
+CONST_PYTHON_STDLIB_LANDMARK_GLOB: str = "lib/python3.*/os.py"
 
 # Maximum window duration permitted for Prometheus pool load queries (30 days in seconds)
 # to prevent resource exhaustion and unbounded range vectors (CWE-400).

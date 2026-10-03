@@ -514,6 +514,8 @@ class CriterionExecutionResult(BaseModel):
     duration_seconds: float = 0.0
     passed: bool = False
     error: str | None = None
+    # Stopped at its time limit, as opposed to run to a failing exit.
+    timed_out: bool = False
 
     def __hash__(self) -> int:
         return hash((self.command, self.exit_code, self.passed, self.error))

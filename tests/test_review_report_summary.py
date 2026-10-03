@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-from devops_cli.ai.review_schema import SavedFinding
+from devops_cli.ai.review_schema import CriterionExecutionResult, SavedFinding
 
 
 def _make_dummy_pipeline(tmp_path: Path) -> ReviewPipelineOrchestrator:
@@ -450,3 +450,82 @@ def test_consolidated_markdown_report_none_severity(tmp_path: Path) -> None:
     )
     assert "| **INFORMATIONAL** |" in report_md
     assert "### 1. [INFORMATIONAL] Finding with None severity" in report_md
+
+
+def test_report_counts_timed_out_and_unrun_criteria_apart_from_failed_ones(tmp_path: Path) -> None:
+    """Only a criterion that ran to a non-zero exit is counted as failed (#847).
+
+    One stopped at its time limit is counted as timed out, and one the sandbox could not start or
+    stopped for its output as not run.
+    """
+    passed = CriterionExecutionResult(
+        command="python -c 'assert True'", executable=True, exit_code=0, passed=True
+    )
+    failed = CriterionExecutionResult(
+        command="python -c 'assert False'", executable=True, exit_code=1
+    )
+    timed_out = CriterionExecutionResult(
+        command="python -c 'while True: pass'",
+        executable=True,
+        exit_code=-1,
+        error="Criterion execution timed out after 15.0s",
+        timed_out=True,
+    )
+    sandbox_error = CriterionExecutionResult(
+        command="git log -n 1",
+        executable=True,
+        exit_code=-1,
+        error="bubblewrap binary /usr/bin/bwrap is not available on host system",
+    )
+    output_cap = CriterionExecutionResult(
+        command="git log",
+        executable=True,
+        exit_code=-1,
+        error="Output exceeded maximum limit of 4096 bytes",
+    )
+    candidates = [
+        SavedFinding(
+            id=1,
+            severity="HIGH",
+            location="src/app.py:3",
+            title="Page drops its last item",
+            criteria_execution_results=[passed, failed, timed_out],
+        ),
+        SavedFinding(
+            id=2,
+            severity="LOW",
+            location="src/app.py:9",
+            title="Unbounded retry",
+            status="INVALIDATED",
+            reportable=False,
+            criteria_execution_results=[sandbox_error, output_cap],
+        ),
+    ]
+    report_md = _make_dummy_pipeline(tmp_path)._build_consolidated_markdown_report(
+        session_id="test-criteria-session",
+        generated_at="2026-10-02T12:00:00Z",
+        reportable_findings=candidates[:1],
+        all_deps=[],
+        all_nets=[],
+        candidate_findings=candidates,
+    )
+    section = report_md.split("## Executable Criteria", 1)[-1].split("\n## ", 1)[0]
+    assert (
+        "## Executable Criteria" in report_md,
+        "| Passed | Failed | Timed Out | Not Run |" in section,
+        "| 1 | 1 | 1 | 2 |" in section,
+    ) == (True, True, True)
+
+
+def test_report_without_executed_criteria_has_no_criteria_section(tmp_path: Path) -> None:
+    """A review whose criteria never ran leaves the criteria section out (#847)."""
+    finding = SavedFinding(id=1, severity="LOW", location="src/app.py:1", title="Prose only")
+    report_md = _make_dummy_pipeline(tmp_path)._build_consolidated_markdown_report(
+        session_id="test-no-criteria",
+        generated_at="2026-10-02T12:00:00Z",
+        reportable_findings=[finding],
+        all_deps=[],
+        all_nets=[],
+        candidate_findings=[finding],
+    )
+    assert "## Executable Criteria" not in report_md

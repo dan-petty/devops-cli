@@ -3,14 +3,71 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from devops_cli.ai.review.review_environment import execute_criterion_command
+from devops_cli.config.constants import CONST_ALLOWED_CRITERIA_BINARIES
 from devops_cli.sandbox.host import HostSandbox
 from devops_cli.sandbox.models import SandboxPolicy
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_SYSTEM_PATH = "/usr/local/bin:/usr/bin:/bin"
+
+
+def _sandbox_options(args: list[str]) -> list[str]:
+    """The bubblewrap options of a compiled command line, before the `--` that ends them."""
+    return args[: args.index("--")]
+
+
+def _binds(args: list[str]) -> list[list[str]]:
+    """Every bind option of a compiled command line, as `[flag, source, destination]`."""
+    options = _sandbox_options(args)
+    return [options[i : i + 3] for i, flag in enumerate(options) if flag in {"--ro-bind", "--bind"}]
+
+
+def _bound_paths(args: list[str]) -> list[Path]:
+    """Every path a compiled command line binds into the sandbox."""
+    return [Path(destination) for _, _, destination in _binds(args)]
+
+
+def _repo_binds(args: list[str]) -> list[list[str]]:
+    """The bind options of a compiled command line beyond the system toolchain mounts."""
+    system = _binds([*HostSandbox()._resolve_system_mounts(), "--"])
+    return [bind for bind in _binds(args) if bind not in system]
+
+
+def _sandbox_path(args: list[str]) -> str:
+    """The PATH a compiled command line gives the sandboxed command."""
+    options = _sandbox_options(args)
+    return next(
+        options[i + 2]
+        for i, flag in enumerate(options)
+        if flag == "--setenv" and options[i + 1] == "PATH"
+    )
+
+
+def _python_installation(prefix: Path) -> Path:
+    """A minimal CPython installation under `prefix`: its interpreter and stdlib landmark."""
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "lib" / "python3.14").mkdir(parents=True)
+    (prefix / "lib" / "python3.14" / "os.py").write_text("", encoding="utf-8")
+    interpreter = prefix / "bin" / "python3.14"
+    interpreter.write_text("", encoding="utf-8")
+    return interpreter
+
+
+def _repo_with_virtualenv(repo: Path, interpreter: Path) -> Path:
+    """A repository whose `.venv/bin/python` links to `interpreter`, as `uv venv` makes it."""
+    (repo / ".git").mkdir(parents=True)
+    venv_bin = repo / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "python").symlink_to(interpreter)
+    return repo
 
 
 def test_host_sandbox_reads_repo(tmp_path: Path) -> None:
@@ -244,3 +301,162 @@ def test_terminate_process_group_guards_devcontainer() -> None:
         _terminate_process_group(-5)
         _terminate_process_group(os.getpid())
         assert mock_killpg.called is False
+
+
+def test_every_allowlisted_criteria_binary_resolves_inside_the_sandbox_mounts() -> None:
+    """Every allowlisted criteria binary is on the sandbox PATH at a path the sandbox binds (#847)."""
+    args = HostSandbox().build_bwrap_args(["true"], cwd=_PROJECT_ROOT)
+    bound = _bound_paths(args)
+    sandbox_path = _sandbox_path(args)
+
+    def resolves_inside_mounts(binary: str) -> bool:
+        found = shutil.which(binary, path=sandbox_path)
+        return found is not None and any(Path(found).resolve().is_relative_to(b) for b in bound)
+
+    unresolved = sorted(b for b in CONST_ALLOWED_CRITERIA_BINARIES if not resolves_inside_mounts(b))
+    assert unresolved == []
+
+
+def test_host_sandbox_runs_the_repo_environment_tools() -> None:
+    """Live test: ruff and python come from the reviewed repository's own virtualenv (#847)."""
+    sandbox = HostSandbox()
+    ruff = sandbox.execute(["ruff", "--version"], cwd=_PROJECT_ROOT)
+    python = sandbox.execute(["python", "-c", "pass"], cwd=_PROJECT_ROOT)
+    prefix = sandbox.execute(["python", "-c", "import sys; print(sys.prefix)"], cwd=_PROJECT_ROOT)
+    assert (
+        ruff.passed,
+        ruff.stdout.startswith("ruff "),
+        python.passed,
+        python.error,
+        prefix.stdout.strip(),
+    ) == (True, True, True, None, str(_PROJECT_ROOT / ".venv"))
+
+
+def test_python_criterion_imports_the_repo_test_dependencies() -> None:
+    """Live test: a criterion importing pytest runs under the repository's interpreter (#847).
+
+    In review session 20261002-214641 the invalidation criterion for
+    `tests/test_security_bandit.py:142-154`, which imports that test module and so pytest, failed
+    with `No module named 'pytest'` under the system Python.
+    """
+    result = execute_criterion_command("python -c 'import pytest'", cwd=_PROJECT_ROOT)
+    assert (
+        result.executable,
+        result.exit_code,
+        result.passed,
+        result.timed_out,
+        result.stderr,
+    ) == (True, 0, True, False, "")
+
+
+def test_sandbox_path_without_a_virtualenv_is_the_system_path(tmp_path: Path) -> None:
+    """A repository without `.venv/bin` keeps the system PATH and binds nothing more (#847)."""
+    (tmp_path / ".git").mkdir()
+    args = HostSandbox().build_bwrap_args(["true"], cwd=tmp_path)
+    assert (_sandbox_path(args), _repo_binds(args)) == (
+        _SYSTEM_PATH,
+        [["--ro-bind", str(tmp_path), str(tmp_path)]],
+    )
+
+
+def test_sandbox_path_puts_the_repo_virtualenv_first(tmp_path: Path) -> None:
+    """A repository's `.venv/bin` leads the PATH; an interpreter under `/usr` needs no bind (#847)."""
+    repo = _repo_with_virtualenv(tmp_path / "repo", Path("/usr/bin/python3"))
+    args = HostSandbox().build_bwrap_args(["true"], cwd=repo)
+    assert (_sandbox_path(args), _repo_binds(args)) == (
+        f"{repo / '.venv' / 'bin'}:{_SYSTEM_PATH}",
+        [["--ro-bind", str(repo), str(repo)]],
+    )
+
+
+def test_sandbox_binds_the_virtualenv_interpreter_installation_read_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An interpreter installed outside the mounts, as uv installs one, is bound read-only (#847)."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    installation = tmp_path / "home" / ".local" / "share" / "uv" / "python" / "cpython-3.14"
+    repo = _repo_with_virtualenv(tmp_path / "repo", _python_installation(installation))
+    sandbox = HostSandbox(policy=SandboxPolicy(read_only=False))
+    args = sandbox.build_bwrap_args(["true"], cwd=repo)
+    assert (_sandbox_path(args), _repo_binds(args)) == (
+        f"{repo / '.venv' / 'bin'}:{_SYSTEM_PATH}",
+        [
+            ["--bind", str(repo), str(repo)],
+            ["--ro-bind", str(installation), str(installation)],
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "no stdlib landmark",
+        "home directory",
+        "credential directory",
+        "above the repository",
+        "missing interpreter",
+    ],
+)
+def test_sandbox_never_binds_an_interpreter_prefix_the_repository_could_aim_elsewhere(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    """The repository sets where `.venv/bin/python` links, so only a Python installation is bound.
+
+    A virtualenv whose interpreter cannot be bound would only fail, so the system PATH stands (#847).
+    """
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    prefixes = {
+        "no stdlib landmark": tmp_path / "opt" / "tool",
+        "home directory": home,
+        "credential directory": home / ".ssh" / "python",
+        "above the repository": tmp_path / "workspace",
+        "missing interpreter": tmp_path / "opt" / "python",
+    }
+    prefix = prefixes[case]
+    interpreter = _python_installation(prefix)
+    if case == "no stdlib landmark":
+        (prefix / "lib" / "python3.14" / "os.py").unlink()
+    if case == "missing interpreter":
+        interpreter = prefix / "bin" / "python3.13"
+    repo = _repo_with_virtualenv(tmp_path / "workspace" / "repo", interpreter)
+    args = HostSandbox().build_bwrap_args(["true"], cwd=repo)
+    assert (_sandbox_path(args), _repo_binds(args)) == (
+        _SYSTEM_PATH,
+        [["--ro-bind", str(repo), str(repo)]],
+    )
+
+
+def test_sandbox_ignores_a_virtualenv_linked_from_outside_the_repository(tmp_path: Path) -> None:
+    """A `.venv` that links outside the bound repository is not put on the PATH (#847)."""
+    outside = tmp_path / "outside-venv"
+    (outside / "bin").mkdir(parents=True)
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".venv").symlink_to(outside)
+    args = HostSandbox().build_bwrap_args(["true"], cwd=repo)
+    assert (_sandbox_path(args), _repo_binds(args)) == (
+        _SYSTEM_PATH,
+        [["--ro-bind", str(repo), str(repo)]],
+    )
+
+
+def test_host_sandbox_reports_a_timeout_apart_from_a_failure(tmp_path: Path) -> None:
+    """A command stopped at its time limit is marked timed out; one that exits non-zero is not (#847)."""
+    stub_bwrap = tmp_path / "bwrap"
+    stub_bwrap.write_text("#!/bin/sh\n", encoding="utf-8")
+    stub_bwrap.chmod(0o755)
+    sandbox = HostSandbox(bwrap_binary=stub_bwrap)
+    hung, failing = MagicMock(), MagicMock()
+    hung.communicate.side_effect = subprocess.TimeoutExpired(cmd="python", timeout=0.1)
+    hung.pid = 999999
+    failing.communicate.return_value = (b"", b"AssertionError\n")
+    failing.returncode = 1
+    failing.pid = 999998
+    with patch("subprocess.Popen", side_effect=[hung, failing]):
+        timed_out = sandbox.execute(["python", "-c", "pass"], cwd=tmp_path, timeout=0.1)
+        failed = sandbox.execute(["python", "-c", "assert False"], cwd=tmp_path)
+    assert (
+        (timed_out.passed, timed_out.exit_code, timed_out.timed_out),
+        (failed.passed, failed.exit_code, failed.timed_out),
+    ) == ((False, -1, True), (False, 1, False))

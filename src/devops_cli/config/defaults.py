@@ -416,6 +416,11 @@ DEFAULT_DIFF_CONTEXT_LINES: int = 12
 DEFAULT_MAX_RELATED_FILES: int = 3
 DEFAULT_RELATED_FILE_MAX_CHARS: int = 1500
 DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS: Final[float] = 5.0
+# python and python3 criteria import the reviewed code, which takes most of their time. Replaying
+# the 1,115 python criteria that hit the 5 s limit in 14 saved review sessions through the sandbox,
+# with the repository's .venv first on PATH and four at a time, gave p50 6.2 s, p95 15.4 s and
+# p99 22.5 s; 99.6% finished within 30 s (#847).
+DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS: Final[float] = 30.0
 DEFAULT_CRITERIA_MAX_OUTPUT_BYTES: Final[int] = 4096
 DEFAULT_HOST_SANDBOX_BINARY: Final[str] = "/usr/bin/bwrap"
 DEFAULT_PRE_ANALYSIS_WORKERS: int = 4

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import selectors
@@ -11,12 +12,17 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, NamedTuple
 
 from devops_cli.config import (
     DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS,
     DEFAULT_CRITERIA_MAX_OUTPUT_BYTES,
     DEFAULT_HOST_SANDBOX_BINARY,
+)
+from devops_cli.config.constants import (
+    CONST_HOST_SANDBOX_VIRTUALENV_BIN,
+    CONST_PYTHON_STDLIB_LANDMARK_GLOB,
+    CONST_SANDBOX_SENSITIVE_SUBPATHS,
 )
 from devops_cli.core.repo import (
     _gitdir_named_by,
@@ -36,6 +42,17 @@ class HostSandboxResult:
     duration_seconds: float
     passed: bool
     error: str | None = None
+    timed_out: bool = False
+
+
+class _SandboxOutcome(NamedTuple):
+    """How a sandboxed process ended, before its output is bounded and formatted."""
+
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    error: str | None
+    timed_out: bool = False
 
 
 def _terminate_process_group(pid: int, sig: signal.Signals = signal.SIGTERM) -> None:
@@ -78,7 +95,7 @@ def _is_mock_subprocess(proc: Any) -> bool:
     )
 
 
-def _communicate_mock(proc: Any, timeout: float) -> tuple[int | None, str, str, str | None]:
+def _communicate_mock(proc: Any, timeout: float) -> _SandboxOutcome:
     """Communicate with mocked subprocess in test environments."""
     try:
         raw_out, raw_err = proc.communicate(timeout=timeout)
@@ -92,9 +109,11 @@ def _communicate_mock(proc: Any, timeout: float) -> tuple[int | None, str, str, 
             if isinstance(raw_err, bytes)
             else (raw_err or "")
         )
-        return proc.returncode, out_str, err_str, None
+        return _SandboxOutcome(proc.returncode, out_str, err_str, None)
+    except subprocess.TimeoutExpired as exc:
+        return _SandboxOutcome(-1, "", "", str(exc), timed_out=True)
     except Exception as exc:
-        return -1, "", "", str(exc)
+        return _SandboxOutcome(-1, "", "", str(exc))
 
 
 def _drain_ready_channel(
@@ -206,22 +225,24 @@ def _build_bounded_result(
     stderr_buf: bytearray,
     timed_out: bool,
     limit_exceeded: bool,
-) -> tuple[int | None, str, str, str | None]:
+) -> _SandboxOutcome:
     """Compile final returncode, strings, and error message."""
     out_str = stdout_buf[:max_output_bytes].decode("utf-8", errors="replace")
     err_str = stderr_buf[:max_output_bytes].decode("utf-8", errors="replace")
     if timed_out:
-        return -1, out_str, err_str, f"Criterion execution timed out after {timeout}s"
+        timeout_msg = f"Criterion execution timed out after {timeout}s"
+        return _SandboxOutcome(-1, out_str, err_str, timeout_msg, timed_out=True)
     if limit_exceeded:
-        return -1, out_str, err_str, f"Output exceeded maximum limit of {max_output_bytes} bytes"
-    return proc.returncode, out_str, err_str, None
+        limit_msg = f"Output exceeded maximum limit of {max_output_bytes} bytes"
+        return _SandboxOutcome(-1, out_str, err_str, limit_msg)
+    return _SandboxOutcome(proc.returncode, out_str, err_str, None)
 
 
 def _communicate_bounded(
     proc: Any,
     timeout: float,
     max_output_bytes: int,
-) -> tuple[int | None, str, str, str | None]:
+) -> _SandboxOutcome:
     """Stream stdout and stderr with timeout and byte limit, terminating on breach."""
     if _is_mock_subprocess(proc):
         return _communicate_mock(proc, timeout)
@@ -250,7 +271,7 @@ def _run_sandbox_process(
     timeout: float,
     max_output_bytes: int = DEFAULT_CRITERIA_MAX_OUTPUT_BYTES,
     pids_limit: int | None = None,
-) -> tuple[int | None, str, str, str | None]:
+) -> _SandboxOutcome:
     """Spawn and communicate with the sandbox subprocess safely with resource limits.
 
     Note on process limits (pids_limit): bubblewrap does not natively provide a
@@ -276,30 +297,28 @@ def _run_sandbox_process(
     except Exception as exc:
         if proc is not None:
             _terminate_process_group(proc.pid, signal.SIGKILL)
-        return -1, "", "", f"Subprocess error: {exc}"
+        return _SandboxOutcome(-1, "", "", f"Subprocess error: {exc}")
 
 
 def _format_sandbox_result(
-    exit_code: int | None,
-    raw_stdout: str,
-    raw_stderr: str,
-    err_msg: str | None,
+    outcome: _SandboxOutcome,
     duration: float,
     max_output_bytes: int,
 ) -> HostSandboxResult:
     """Format and bound sandbox execution results."""
-    stdout_bounded = (raw_stdout or "")[:max_output_bytes]
-    stderr_bounded = (raw_stderr or "")[:max_output_bytes]
-    effective_err = err_msg
-    if exit_code != 0 and stderr_bounded.strip().startswith("bwrap:"):
+    stdout_bounded = (outcome.stdout or "")[:max_output_bytes]
+    stderr_bounded = (outcome.stderr or "")[:max_output_bytes]
+    effective_err = outcome.error
+    if outcome.exit_code != 0 and stderr_bounded.strip().startswith("bwrap:"):
         effective_err = f"Host sandbox error: {stderr_bounded.strip()}"
     return HostSandboxResult(
-        exit_code=exit_code,
+        exit_code=outcome.exit_code,
         stdout=stdout_bounded,
         stderr=stderr_bounded,
         duration_seconds=round(duration, 3),
-        passed=exit_code == 0 and effective_err is None,
+        passed=outcome.exit_code == 0 and effective_err is None,
         error=effective_err,
+        timed_out=outcome.timed_out,
     )
 
 
@@ -312,6 +331,65 @@ def _mount_linked_worktree_git_dirs(mount_args: list[str], root: Path) -> None:
     if common_dir is not None and common_dir.exists() and not common_dir.is_relative_to(root):
         if gitdir is None or not common_dir.is_relative_to(gitdir):
             mount_args.extend(["--ro-bind", str(common_dir), str(common_dir)])
+
+
+def _effective_repo_root(resolved_cwd: Path, repo_root: Path | None) -> Path:
+    """The repository the sandbox binds: `repo_root`, or the nearest one above `resolved_cwd`."""
+    if repo_root is not None:
+        return repo_root.resolve()
+    return _repo_root_candidates(resolved_cwd)[0].resolve()
+
+
+def _repo_virtualenv_bin(root: Path) -> Path | None:
+    """The reviewed repository's own `.venv/bin`, when it is a directory inside `root`.
+
+    A `.venv` that links out of the repository is passed over: the sandbox binds only the
+    repository, so nothing it links to would be there.
+    """
+    venv_bin = root.joinpath(*CONST_HOST_SANDBOX_VIRTUALENV_BIN)
+    try:
+        resolved = venv_bin.resolve(strict=True)
+    except OSError, RuntimeError:
+        return None
+    return venv_bin if resolved.is_dir() and resolved.is_relative_to(root) else None
+
+
+def _is_python_installation(prefix: Path, root: Path) -> bool:
+    """Whether `prefix` is a Python installation the sandbox may bind, and nothing more.
+
+    The reviewed repository can aim its virtualenv's `python` link anywhere on the host, so a
+    prefix qualifies only when it holds CPython's standard library, contains neither the home
+    directory nor the repository, and passes through no credential directory.
+    """
+    guarded = [root]
+    with contextlib.suppress(RuntimeError):
+        guarded.append(Path.home().resolve())
+    if any(path.is_relative_to(prefix) for path in guarded):
+        return False
+    if any(part in CONST_SANDBOX_SENSITIVE_SUBPATHS for part in prefix.parts):
+        return False
+    return any(prefix.glob(CONST_PYTHON_STDLIB_LANDMARK_GLOB))
+
+
+def _virtualenv_interpreter_binds(
+    venv_bin: Path, root: Path, visible: tuple[Path, ...]
+) -> list[str] | None:
+    """The read-only binds a virtualenv's `python` needs to start, or None if it cannot.
+
+    A virtualenv's `python` links to the interpreter it was made from: one under `/usr`, or one
+    uv or pyenv installed elsewhere, such as below the home directory. Outside the mounts the
+    link would dangle, so that installation is bound, if it is one.
+    """
+    try:
+        interpreter = (venv_bin / "python").resolve(strict=True)
+    except OSError, RuntimeError:
+        return None
+    if any(interpreter.is_relative_to(path) for path in visible):
+        return []
+    prefix = interpreter.parent.parent
+    if not _is_python_installation(prefix, root):
+        return None
+    return ["--ro-bind", str(prefix), str(prefix)]
 
 
 class HostSandbox:
@@ -355,11 +433,7 @@ class HostSandbox:
     ) -> tuple[list[str], Path]:
         """Resolve nearest repository root and working directory mounts on top of tmpfs."""
         resolved_cwd = cwd.resolve()
-        if repo_root is not None:
-            effective_root = repo_root.resolve()
-        else:
-            candidates = _repo_root_candidates(resolved_cwd)
-            effective_root = candidates[0].resolve()
+        effective_root = _effective_repo_root(resolved_cwd, repo_root)
 
         mount_args: list[str] = []
         for tmp_dir, opts in self.policy.tmpfs.items():
@@ -375,6 +449,22 @@ class HostSandbox:
 
         _mount_linked_worktree_git_dirs(mount_args, effective_root)
         return mount_args, resolved_cwd
+
+    def _resolve_repo_environment(self, root: Path) -> tuple[list[str], dict[str, str]]:
+        """Read-only mounts and environment that run the reviewed repository's own tools.
+
+        With a `.venv/bin` in the repository, it leads the PATH, so `python` is the repository's
+        interpreter with its dependencies, not the host's, and tools such as ruff are found.
+        Without one, or with one whose `python` the sandbox cannot start, the policy's PATH
+        stands.
+        """
+        venv_bin = _repo_virtualenv_bin(root)
+        visible = (*map(Path, self.policy.system_dirs), root)
+        binds = None if venv_bin is None else _virtualenv_interpreter_binds(venv_bin, root, visible)
+        if venv_bin is None or binds is None:
+            return [], {}
+        policy_path = dict(self.policy.default_env).get("PATH")
+        return binds, {"PATH": os.pathsep.join(filter(None, (str(venv_bin), policy_path)))}
 
     def _build_env_args(self, env: dict[str, str] | None = None) -> list[str]:
         """Construct sanitized environment variables forbidding credential leaks."""
@@ -396,8 +486,13 @@ class HostSandbox:
         repo_root: Path | None = None,
         env: dict[str, str] | None = None,
     ) -> list[str]:
-        """Compile complete bubblewrap argument list."""
+        """Compile complete bubblewrap argument list.
+
+        The caller's `env` wins over the repository's environment, which wins over the policy's.
+        """
         mount_args, resolved_cwd = self._resolve_repo_mounts(cwd, repo_root)
+        root = _effective_repo_root(resolved_cwd, repo_root)
+        env_mounts, repo_env = self._resolve_repo_environment(root)
         return (
             [
                 str(self.bwrap_binary),
@@ -412,7 +507,8 @@ class HostSandbox:
             ]
             + self._resolve_system_mounts()
             + mount_args
-            + self._build_env_args(env)
+            + env_mounts
+            + self._build_env_args(repo_env | (env or {}))
             + ["--chdir", str(resolved_cwd), "--"]
             + command_args
         )
@@ -439,19 +535,11 @@ class HostSandbox:
 
         bwrap_cmd = self.build_bwrap_args(args, cwd, repo_root, env)
         t_start = time.monotonic()
-        exit_code, stdout, stderr, err_msg = _run_sandbox_process(
+        outcome = _run_sandbox_process(
             bwrap_cmd,
             timeout,
             max_output_bytes=max_output_bytes,
             pids_limit=self.policy.pids_limit,
         )
         duration = time.monotonic() - t_start
-
-        return _format_sandbox_result(
-            exit_code=exit_code,
-            raw_stdout=stdout,
-            raw_stderr=stderr,
-            err_msg=err_msg,
-            duration=duration,
-            max_output_bytes=max_output_bytes,
-        )
+        return _format_sandbox_result(outcome, duration, max_output_bytes)
