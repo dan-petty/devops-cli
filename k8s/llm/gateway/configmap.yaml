@@ -22,13 +22,6 @@ data:
       - model_name: devops-chat
         litellm_params:
           model: ollama_chat/qwen3.8:27b
-          api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
-          model_info:
-            max_input_tokens: 128000
-          weight: 1
-      - model_name: devops-chat
-        litellm_params:
-          model: ollama_chat/qwen3.8:27b
           api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
           model_info:
             max_input_tokens: 128000
@@ -51,41 +44,39 @@ data:
           model: ollama_chat/qwen3-coder:30b
           api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
 
+      # ollama-48gib-slow is the background tier, in no interactive or review pool: it serves one
+      # request at a time, so a background job there would queue in front of review calls. Its
+      # profile keeps two models loaded, the embedding model and qwen3-coder:30b, and this list
+      # sends it no other. A third model would evict one of them, and Ollama predicts a dense
+      # ~30B model too large to fit beside the embedder, so it evicts the embedder (#1064).
       # mode: embedding makes health checks embed rather than generate, which bge-m3 rejects.
       - model_name: bge-m3:latest
         litellm_params:
           model: ollama/bge-m3:latest
-          api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
-          weight: 1
-        model_info:
-          mode: embedding
-      - model_name: bge-m3:latest
-        litellm_params:
-          model: ollama/bge-m3:latest
           api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
           weight: 3
         model_info:
           mode: embedding
 
-      - model_name: embeddinggemma:300m
+      # Background tier: ollama-48gib-slow's only generation model. Batch and --watch jobs reach
+      # it through environment overrides (k8s/README.md), and devops-review falls back to it.
+      # No max_input_tokens: LiteLLM writes a deployment's model_info into the cost-map entry
+      # that every ollama_chat/qwen3-coder:30b deployment reads, so it would become the window
+      # of the pinned and interactive groups too. The tier's context length caps it instead.
+      - model_name: devops-background
         litellm_params:
-          model: ollama/embeddinggemma:300m
-          api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
-          weight: 1
-        model_info:
-          mode: embedding
-      - model_name: embeddinggemma:300m
-        litellm_params:
-          model: ollama/embeddinggemma:300m
+          model: ollama_chat/qwen3-coder:30b
           api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
-          weight: 3
-        model_info:
-          mode: embedding
+          # Under the review client's 1,200 s read timeout, so a call the client abandoned frees
+          # the tier's one slot, and no gateway retry re-queues the same work on that slot.
+          timeout: 1100
+          num_retries: 0
 
-      # devops-review: unified virtual model spread across the dual-GPU inference engines.
-      # Dynamic concurrency-aware weighted routing directs traffic:
-      # - vLLM on dual-GPU node (2x RTX 3090, TP=2, 48GiB VRAM): continuous dynamic batching engine.
-      # - Ollama on multi-GPU Volta node (Tesla V100 64GiB VRAM): dedicated inference worker.
+      # devops-review: one model name spread over the interactive Ollama tiers, each deployment
+      # weighted by its throughput:
+      # - qwen3-coder:30b on ollama-48gib-fast (2x RTX 3090) and ollama-64gib-standard (Tesla V100).
+      # - gpt-oss:20b on ollama-16gib-fast.
+      # The background tier (ollama-48gib-slow) is left out; it is devops-review's fallback.
       - model_name: devops-review
         litellm_params:
           model: ollama_chat/qwen3-coder:30b
@@ -96,11 +87,6 @@ data:
           model: ollama_chat/qwen3-coder:30b
           api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
           weight: 6
-      - model_name: devops-review
-        litellm_params:
-          model: ollama_chat/qwen3-coder:30b
-          api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
-          weight: 1
       - model_name: devops-review
         litellm_params:
           model: ollama_chat/gpt-oss:20b
@@ -120,11 +106,6 @@ data:
           model: ollama_chat/qwen3-coder:30b
           api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
           weight: 6
-      - model_name: qwen3-coder:30b
-        litellm_params:
-          model: ollama_chat/qwen3-coder:30b
-          api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
-          weight: 1
 
       - model_name: gpt-oss:20b
         litellm_params:
@@ -146,13 +127,6 @@ data:
           model_info:
             max_input_tokens: 128000
           weight: 3
-      - model_name: gemma4:31b
-        litellm_params:
-          model: ollama_chat/gemma4:31b
-          api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
-          model_info:
-            max_input_tokens: 128000
-          weight: 1
 
       - model_name: qwen3.8:27b
         litellm_params:
@@ -161,13 +135,6 @@ data:
           model_info:
             max_input_tokens: 96000
           weight: 5
-      - model_name: qwen3.8:27b
-        litellm_params:
-          model: ollama_chat/qwen3.8:27b
-          api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
-          model_info:
-            max_input_tokens: 128000
-          weight: 1
       - model_name: qwen3.8:27b
         litellm_params:
           model: ollama_chat/qwen3.8:27b
@@ -214,6 +181,13 @@ data:
       fallbacks:
         - devops-reasoning: [devops-coder]
         - devops-coder: [devops-reasoning, devops-chat]
+        # Once devops-review's retries fail, timeouts included. The router's 1,500 s timeout
+        # outlasts the review client's 1,200 s, so a call that timed out here was already given
+        # up, and the background tier spends up to 1,100 s on a reply nobody reads. With
+        # context_window_fallbacks set, an oversized devops-review prompt re-raises instead.
+        # No devops-chat rule: fallbacks chain, so devops-coder and devops-reasoning failures
+        # would reach the background tier through devops-chat.
+        - devops-review: [devops-background]
       # Prompt too long for the model: escalate to a larger context window.
       context_window_fallbacks:
         - devops-chat: [devops-coder, devops-reasoning]
