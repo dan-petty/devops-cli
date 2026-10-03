@@ -24,12 +24,14 @@ from devops_cli.ai.mcp.argument_contract import (
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
+    CONST_AI_PROVIDER_IDS,
     CONST_FALCO_SEVERITY_LEVELS,
     CONST_FASTMCP_SERVER_LOGGER,
     CONST_MAX_SECURITY_STREAM_TAIL_LINES,
     CONST_MCP_EAGER_DOMAINS,
     CONST_MCP_LAZY_DOMAINS,
     CONST_MIN_SECURITY_STREAM_TAIL_LINES,
+    CONST_MODEL_ENDPOINT_MARKERS,
     CONST_VERIFIED_BY_AGENT,
 )
 from devops_cli.config.defaults import (
@@ -2034,15 +2036,31 @@ def vault_sync(path: str, keys: list[str] | None = None) -> str:
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
+def _validate_mcp_benchmark_target(provider: str, model: str) -> None:
+    """Refuse a provider outside the known ids, and a model that names its own server.
+
+    `devops ai benchmark` sends a `model@endpoint` entry's requests to that endpoint, and with
+    them the AI key, so only a person at the command line may name one (#954).
+    """
+    if provider not in CONST_AI_PROVIDER_IDS:
+        raise ValidationError(
+            ERRORS.mcp.unknown_provider.format(choices=", ".join(CONST_AI_PROVIDER_IDS)),
+            field="provider",
+        )
+    if any(marker in model for marker in CONST_MODEL_ENDPOINT_MARKERS):
+        raise ValidationError(ERRORS.mcp.model_names_endpoint, field="model")
+
+
 @mcp.tool()
 def benchmark_embeddings(
     provider: str = "ollama",
     model: str = "bge-m3",
     samples: int = 10,
 ) -> str:
-    """Benchmark embedding model inference latency, dimensions, and retrieval accuracy."""
+    """Benchmark embedding latency, dimensions, and retrieval accuracy on the configured servers."""
     _validate_mcp_arg("provider", provider)
     _validate_mcp_arg("model", model)
+    _validate_mcp_benchmark_target(provider, model)
     return _run_mcp_cmd(
         [
             "uv",

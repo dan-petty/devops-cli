@@ -1164,7 +1164,9 @@ class InstallCommandHelp:
 class BenchmarkCommandHelp:
     app: str = "Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks."
     models: str = (
-        "Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434')."
+        "Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434'). "
+        "A model@url runs on that server, which gets the AI key only when it is the configured "
+        "api_base_url, gateway_url or provider API."
     )
     ollama_urls: str = (
         "Comma-separated Ollama server URLs for concurrent execution "

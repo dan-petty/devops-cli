@@ -34,7 +34,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
 | [`argo_rollout_analyze`](#argo-rollout-analyze) | Analyze progressive rollout metric gates and trigger automated rollback on threshold violation. |
 | [`argo_status`](#argo-status) | Check ArgoCD application health and sync status. |
-| [`benchmark_embeddings`](#benchmark-embeddings) | Benchmark embedding model inference latency, dimensions, and retrieval accuracy. |
+| [`benchmark_embeddings`](#benchmark-embeddings) | Benchmark embedding latency, dimensions, and retrieval accuracy on the configured servers. |
 | [`branches_list`](#branches-list) | List git branches across repositories with tracking status and stale detection. |
 | [`ci_run`](#ci-run) | Run devops-cli complete quality gate (pytest, ruff check, ruff format, mypy). |
 | [`config_audit_keys`](#config-audit-keys) | Audit OS Keyring health, token state, and zero-plaintext secret compliance. |
@@ -480,7 +480,7 @@ Check ArgoCD application health and sync status.
 
 ### `benchmark_embeddings`
 
-Benchmark embedding model inference latency, dimensions, and retrieval accuracy.
+Benchmark embedding latency, dimensions, and retrieval accuracy on the configured servers.
 
 **Parameters:**
 

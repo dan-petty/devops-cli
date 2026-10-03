@@ -12,6 +12,7 @@ from typer.testing import CliRunner
 from devops_cli.ai.benchmark.runner import BenchmarkRunner
 from devops_cli.ai.benchmark.tasks import BENCHMARK_TASKS, get_benchmark_tasks
 from devops_cli.commands.ai import app as ai_app
+from devops_cli.config.constants import CONST_URL_OPENAI_API_BASE
 from devops_cli.models.benchmark import (
     BenchmarkReport,
     BenchmarkTask,
@@ -208,6 +209,45 @@ def test_benchmark_runner_concurrent_execution() -> None:
     # 2 evaluator models * 2 candidate models * 1 task * 2 servers = 8 peer grades
     assert len(report.peer_grades) == 8
     assert len(report.leaderboard) == 2
+
+
+@pytest.mark.parametrize(
+    ("provider", "api_base_url", "model", "key"),
+    [
+        ("openai", "https://example.com/v1", "m@https://example.com:8443", ""),
+        ("openai", "https://example.com/v1", "m@https://example.com", "sk-test-configured"),
+        ("gateway", None, "m@https://example.com:8443", "sk-test-configured"),
+        ("openai", None, f"m@{CONST_URL_OPENAI_API_BASE}/v1", "sk-test-configured"),
+        ("claude", None, f"m@{CONST_URL_OPENAI_API_BASE}/v1", ""),
+    ],
+    ids=[
+        "named-endpoint",
+        "configured-api-base-url",
+        "gateway-sends-to-gateway-url",
+        "configured-provider-api",
+        "another-provider-api",
+    ],
+)
+@pytest.mark.usefixtures("mock_keyring")
+def test_benchmark_client_gets_key_only_for_configured_endpoint(
+    monkeypatch: pytest.MonkeyPatch, provider: str, api_base_url: str | None, model: str, key: str
+) -> None:
+    """Verify the chat benchmark's client carries the AI key only to where the configuration
+    sends it: the configured api_base_url, the configured gateway_url (a gateway client sends
+    only there, whatever the model names) or the configured provider's own API. The three differ
+    by port or host, so each row that expects the key gets it from one of them alone. An
+    endpoint the model names, including another provider's API, gets '' (#954). No request is
+    sent: the client is only built."""
+    from devops_cli.config.settings import load_settings
+
+    monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", "sk-test-configured")
+    settings = load_settings()
+    settings.ai.provider = provider
+    settings.ai.api_base_url = api_base_url
+    settings.ai.gateway_url = "https://example.com:4000/v1"
+    b_runner = BenchmarkRunner(models=[model], tasks=[BENCHMARK_TASKS[0]], settings=settings)
+
+    assert b_runner._client_for_model(model)._api_key == key
 
 
 def test_benchmark_filtering_invalid_defaults_and_judge_weighting() -> None:
