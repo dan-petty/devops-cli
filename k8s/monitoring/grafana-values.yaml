@@ -71,6 +71,16 @@ datasources:
         url: http://pyroscope.monitoring.svc.cluster.local:4040
         access: proxy
         isDefault: false
+      # The prometheus chart's Alertmanager (#549): its alerts and silences in Grafana's Alerting.
+      - name: Alertmanager
+        type: alertmanager
+        uid: alertmanager
+        url: http://prometheus-alertmanager.monitoring.svc.cluster.local:9093
+        access: proxy
+        isDefault: false
+        jsonData:
+          implementation: prometheus
+          handleGrafanaManagedAlerts: false
 
 dashboardProviders:
   dashboardproviders.yaml:

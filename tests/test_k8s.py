@@ -1249,10 +1249,14 @@ def _repo_yaml(*parts: str) -> dict[str, Any]:
 
 
 def _volume_alerts() -> dict[str, dict[str, Any]]:
-    """The server's alerting rules, by alert name."""
+    """The `log-and-metric-retention` group's rules, by alert name.
+
+    The server's other groups (#549) are pinned in `tests/test_k8s_monitoring_alerting.py`.
+    """
     values = _repo_yaml("k8s", "monitoring", "prometheus-values.yaml")
     groups = values["serverFiles"]["alerting_rules.yml"]["groups"]
-    return {rule["alert"]: rule for group in groups for rule in group["rules"]}
+    (group,) = [group for group in groups if group["name"] == "log-and-metric-retention"]
+    return {rule["alert"]: rule for rule in group["rules"]}
 
 
 def test_loki_deletes_logs_once_they_are_thirty_days_old() -> None:
