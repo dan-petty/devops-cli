@@ -226,7 +226,8 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             ENV_DEVOPS_CLI_CONFIG,
             None,
             False,
-            "Absolute path to project configuration file",
+            "Absolute path to project configuration file; outside devops-cli's own "
+            "repository, the only one a `devops review` command reads",
         ),
         EnvVarSpec(
             ENV_GITHUB_TOKEN,
@@ -587,7 +588,9 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             ENV_DATA_DIR,
             opt.DATA_DIR,
             False,
-            "Root data directory for local reviews, cache, logs, and artifacts (default: ./.data)",
+            "Root data directory for local reviews, cache, logs, and artifacts (default: ./.data; "
+            "outside devops-cli's own repository, ~/.local/share/devops-cli/.data for review data "
+            "and a `devops review` command)",
         ),
         EnvVarSpec(
             ENV_DATA_ANALYSIS_DIR,

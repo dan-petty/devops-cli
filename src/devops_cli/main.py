@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import contextlib
 import time
 from importlib import import_module
 from typing import Final
@@ -11,7 +12,7 @@ import click
 import typer
 
 from devops_cli import __version__
-from devops_cli.config.constants import CONST_CLI_ROOT_LEVEL_COMMANDS
+from devops_cli.config.constants import CONST_CLI_ROOT_LEVEL_COMMANDS, CONST_REVIEW_COMMAND_WORDS
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import dry_run_requested_by_environment, is_dry_run, set_dry_run
 from devops_cli.lang import HELP
@@ -80,6 +81,14 @@ app = new_typer(
 )
 
 
+def _runs_a_review(command_name: str, args: list[str]) -> bool:
+    """Whether the command line runs a `devops review` command, under `devops review` or
+    `devops ai review`. `devops ai` takes no option with a value, so its first word that is not an
+    option names its subcommand."""
+    subcommand = next((arg for arg in args if not arg.startswith("-")), "")
+    return not CONST_REVIEW_COMMAND_WORDS.isdisjoint({(command_name,), (command_name, subcommand)})
+
+
 def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
     module = import_module(module_path)
     module_app = module.app
@@ -99,24 +108,37 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
         )
         return
 
+    from devops_cli.core.untrusted_trees import reading_untrusted_trees
     from devops_cli.telemetry import trace_span
     from devops_cli.telemetry.instruments import COMMAND_DURATION, COMMAND_TOTAL, emit
 
+    # A review reads a tree devops-cli does not own, so it takes no project config from the
+    # repository it starts in, unless that is devops-cli's own repository (#972). The rule holds
+    # before the span below opens, since opening it builds the process's tracer from the config:
+    # a project layer read there would name the endpoint every span of the review is exported to.
+    rule = (
+        reading_untrusted_trees()
+        if _runs_a_review(command_name, args)
+        else contextlib.nullcontext()
+    )
     args_summary = " ".join(effective_args) if effective_args else ""
     start_time = time.perf_counter()
-    with trace_span(
-        f"cli.{command_name}",
-        attributes={
-            "cli.command": command_name,
-            "code.function": command_name,
-            "code.namespace": module_path,
-            "cli.args": args_summary,
-            "cli.args_count": len(effective_args),
-            "cli.module": module_path,
-            "cli.version": __version__,
-            "cli.is_dry_run": is_dry_run(),
-        },
-    ) as span_h:
+    with (
+        rule,
+        trace_span(
+            f"cli.{command_name}",
+            attributes={
+                "cli.command": command_name,
+                "code.function": command_name,
+                "code.namespace": module_path,
+                "cli.args": args_summary,
+                "cli.args_count": len(effective_args),
+                "cli.module": module_path,
+                "cli.version": __version__,
+                "cli.is_dry_run": is_dry_run(),
+            },
+        ) as span_h,
+    ):
         span_h.add_event("command_delegated", {"command": command_name, "module": module_path})
         try:
             result = command.main(

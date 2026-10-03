@@ -165,8 +165,9 @@ class AICommandHelp:
         "labels is circular, so they are excluded by default."
     )
     dataset_path: str = (
-        "Feedback dataset JSONL; a relative path is a data path under the main worktree, like "
-        "data.feedback_dataset_path (default: the configured feedback dataset)."
+        "Feedback dataset JSONL; a relative path resolves where review data is kept, like "
+        "data.feedback_dataset_path: under the main worktree in devops-cli's own repository, else "
+        "under ~/.local/share/devops-cli (default: the configured feedback dataset)."
     )
     test_gen: str = "Synthesize unit test suites for functions and modules via LLM."
     test_function: str = "Specific function to synthesize tests for."
@@ -192,7 +193,10 @@ class AICommandHelp:
     query_library: str = (
         "Search library contracts and documentation via semantic search or exact symbol lookup."
     )
-    contracts_dir: str = "Path to directory containing exported library contract JSON files."
+    contracts_dir: str = (
+        "Path to directory containing exported library contract JSON files "
+        "(default: libraries/ under the data directory where review data is kept)."
+    )
     exact_lookup: str = "Perform exact qualified symbol lookup instead of semantic vector search."
     package_name: str = "Filter by package distribution name."
     multilingual: str = "Enable multilingual polyglot scanning across Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell and Markdown."

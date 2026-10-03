@@ -221,10 +221,12 @@ class SpendLedger:
             self.db_path = Path(db_path)
         else:
             settings = load_settings()
-            from devops_cli.core.repo import resolve_data_path
+            from devops_cli.core.repo import resolve_review_data_path
 
+            # Every AI command records its spend here, a review too, so a relative data
+            # directory resolves under the review data root for all of them (#972).
             self.db_path = (
-                resolve_data_path(settings.data.dir) / "ai" / DEFAULT_AI_SPEND_DB_FILENAME
+                resolve_review_data_path(settings.data.dir) / "ai" / DEFAULT_AI_SPEND_DB_FILENAME
             )
 
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

@@ -199,15 +199,16 @@ def new_run(
 
 
 def runs_dir() -> Path:
-    """The directory run records are kept in, one subdirectory per mechanism."""
+    """The directory run records are kept in, one subdirectory per mechanism: under the review
+    data root when relative, where a review records its runs (`resolve_review_data_path`, #972)."""
     from devops_cli.config.settings import load_settings
-    from devops_cli.core.repo import resolve_data_path
+    from devops_cli.core.repo import resolve_review_data_path
 
     env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     directory = (
         Path(env_data_dir) / CONST_RUNS_DIR_NAME if env_data_dir else load_settings().data.runs_dir
     )
-    return resolve_data_path(directory)
+    return resolve_review_data_path(directory)
 
 
 def save_run(record: RunRecord, root: Path | None = None) -> Path:

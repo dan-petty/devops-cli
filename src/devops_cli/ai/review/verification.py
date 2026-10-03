@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import ast
+import codecs
 import functools
+import io
 import json
 import logging
 import os
@@ -11,6 +13,7 @@ import re
 import sys
 import tempfile
 import threading
+import tokenize
 import warnings
 from collections.abc import Iterable, Sequence
 from datetime import datetime
@@ -47,8 +50,12 @@ from devops_cli.config.constants import (
     CONST_MASKED_SYNTAX_ERROR_PHRASES,
     CONST_MITIGATION_UNPROVEN,
     CONST_MONOLOGUE_PREFIXES,
+    CONST_MYPY_CONFIG_LINE,
     CONST_PLACEHOLDER_VALUES,
     CONST_SELF_NEGATING_MECHANISM_PATTERN,
+    CONST_SOURCE_CODING_DECLARATION,
+    CONST_TYPE_IGNORE_COMMENT,
+    CONST_TYPECHECK_PROBE_ANY_EXPR_COMMENT,
     CONST_TYPECHECK_PROBE_CACHE_DIR_NAME,
     CONST_TYPECHECK_PROBE_MYPY_CONFIG,
     CONST_UNINITIALIZED_CLAIM_KEYWORDS,
@@ -1227,6 +1234,25 @@ def _typecheck_probe_cache_dir() -> Path:
     return resolve_data_path(cache_dir) / CONST_TYPECHECK_PROBE_CACHE_DIR_NAME / key
 
 
+def _probe_command(probe_dir: Path, module: str, *options: str) -> list[str]:
+    """The probe's mypy command, its config written to `probe_dir`, with `options` added."""
+    config = probe_dir / "mypy.ini"
+    config.write_text(CONST_TYPECHECK_PROBE_MYPY_CONFIG, encoding="utf-8")
+    return [
+        sys.executable,
+        "-I",
+        "-m",
+        "mypy",
+        "--strict",
+        "--config-file",
+        str(config),
+        "--cache-dir",
+        str(_typecheck_probe_cache_dir()),
+        *options,
+        module,
+    ]
+
+
 @functools.lru_cache(maxsize=256)
 def _module_typechecks_clean(path_str: str, mtime: float) -> bool:
     """Report whether a module passes strict type checking.
@@ -1250,21 +1276,8 @@ def _module_typechecks_clean(path_str: str, mtime: float) -> bool:
             _TYPECHECK_PROBE_LOCK,
             tempfile.TemporaryDirectory(prefix="devops-typecheck-") as probe_dir,
         ):
-            config = Path(probe_dir) / "mypy.ini"
-            config.write_text(CONST_TYPECHECK_PROBE_MYPY_CONFIG, encoding="utf-8")
             result = run_subprocess(
-                [
-                    sys.executable,
-                    "-I",
-                    "-m",
-                    "mypy",
-                    "--strict",
-                    "--config-file",
-                    str(config),
-                    "--cache-dir",
-                    str(_typecheck_probe_cache_dir()),
-                    module,
-                ],
+                _probe_command(Path(probe_dir), module),
                 cwd=Path(probe_dir),
                 check=False,
                 quiet=True,
@@ -1276,6 +1289,148 @@ def _module_typechecks_clean(path_str: str, mtime: float) -> bool:
     return result.returncode == 0
 
 
+def _suppresses_type_errors(source: str) -> bool:
+    """Whether a module has mypy skip errors: a `type: ignore` comment or an inline `# mypy:` line.
+
+    The module belongs to the tree under review, so a strict pass it arranges that way proves
+    nothing (#972). Each is read where mypy reads it: `type: ignore` from the comments, `# mypy:`
+    from every line, so one inside a string counts. A module that does not tokenize counts as
+    one: nothing is claimed of it.
+    """
+    if CONST_MYPY_CONFIG_LINE.search(source):
+        return True
+    try:
+        comments = [
+            token.string
+            for token in tokenize.generate_tokens(io.StringIO(source).readline)
+            if token.type == tokenize.COMMENT
+        ]
+    except tokenize.TokenError, SyntaxError:
+        return True
+    return any(CONST_TYPE_IGNORE_COMMENT.search(comment) for comment in comments)
+
+
+def _text_mypy_reads(raw: bytes) -> str | None:
+    """A module's text as mypy decodes it, after any UTF-8 byte order mark; None for a module
+    that declares an encoding other than UTF-8, or is not UTF-8.
+
+    mypy decodes the module by its PEP 263 coding declaration before it reads a suppression, so a
+    module declaring UTF-7 can spell `# mypy:` as `+ACM- mypy:`, which a UTF-8 read does not see
+    (#972). A module in another encoding is not read at all: nothing is claimed of it.
+    """
+    if raw.startswith(codecs.BOM_UTF8):
+        raw = raw[len(codecs.BOM_UTF8) :]
+    first_two_lines = b"\n".join(raw.split(b"\n", 2)[:2])
+    for name in CONST_SOURCE_CODING_DECLARATION.findall(first_two_lines):
+        try:
+            if codecs.lookup(name.decode("ascii")).name != "utf-8":
+                return None
+        except LookupError:
+            return None
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+@functools.lru_cache(maxsize=256)
+def _module_suppresses_type_errors(path_str: str, mtime: float) -> bool:
+    """`_suppresses_type_errors` for a module on disk, read as mypy decodes it (`_text_mypy_reads`);
+    one too large, unreadable or not in UTF-8 counts."""
+    path = Path(path_str)
+    try:
+        if path.stat().st_size > DEFAULT_MAX_AST_FILE_SIZE_BYTES:
+            return True
+        source = _text_mypy_reads(path.read_bytes())
+    except OSError:
+        return True
+    return source is None or _suppresses_type_errors(source)
+
+
+def _reported_lines(stdout: str, module: str, probe_dir: Path) -> frozenset[int] | None:
+    """The lines of `module` mypy's JSON output reports errors on, or None for an error elsewhere
+    or output that does not parse. A clean pass prints a blank line."""
+    lines: set[int] = set()
+    for record_text in filter(str.strip, stdout.splitlines()):
+        try:
+            record = json.loads(record_text)
+            if record["severity"] != "error":
+                continue
+            if os.path.abspath(probe_dir / record["file"]) != module:
+                return None
+            lines.add(int(record["line"]))
+        except ValueError, KeyError, TypeError:
+            return None
+    return frozenset(lines)
+
+
+@functools.lru_cache(maxsize=256)
+def _any_typed_lines(path_str: str, mtime: float) -> frozenset[int] | None:
+    """The lines of a module that passed the probe holding an expression of type Any, or None
+    when mypy cannot tell.
+
+    A strict pass says nothing of such an expression: a function returning `Any` passes, and
+    dereferencing what it returns fails at run time all the same (#972). mypy checks the module
+    as a copy with `disallow-any-expr` set for it alone by an inline comment after its last line
+    (`--shadow-file`), so its lines keep their numbers and mypy reports them under the module's
+    own path. The module passed the probe, so each error is an expression of type Any. It runs
+    isolated as the probe does, under its lock, with its config and cache.
+    """
+    from devops_cli.core.process import run_subprocess
+
+    module = str(Path(path_str).absolute())
+    try:
+        source = Path(module).read_text(encoding="utf-8")
+        with (
+            _TYPECHECK_PROBE_LOCK,
+            tempfile.TemporaryDirectory(prefix="devops-typecheck-") as probe_dir,
+        ):
+            shadow = Path(probe_dir) / "shadow.py"
+            shadow.write_text(
+                f"{source}\n{CONST_TYPECHECK_PROBE_ANY_EXPR_COMMENT}\n", encoding="utf-8"
+            )
+            options = ("--output", "json", "--shadow-file", module, str(shadow))
+            result = run_subprocess(
+                _probe_command(Path(probe_dir), module, *options),
+                cwd=Path(probe_dir),
+                check=False,
+                quiet=True,
+                timeout=DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS,
+            )
+            if result.returncode not in (0, 1):
+                return None
+            return _reported_lines(result.stdout or "", module, Path(probe_dir))
+    except Exception as exc:
+        logger.debug("Any-expression probe failed for %s: %s", path_str, exc)
+        return None
+
+
+def _cites_an_any_line(location: str, any_lines: frozenset[int]) -> bool:
+    """Whether the lines `location` cites hold an expression of type Any; with no line cited,
+    whether any line does."""
+    _, cited = _parse_location(location)
+    if cited is None:
+        return bool(any_lines)
+    low, high = sorted(cited)
+    return any(low <= line <= high for line in any_lines)
+
+
+def _strict_pass_settles(finding: Finding, file_path: Path, mtime: float) -> bool:
+    """Whether the module's strict pass settles the None dereference `finding` claims.
+
+    It does not when the module suppresses mypy's errors, fails the probe, or holds an
+    expression of type Any on the cited lines, where the dereference is: the tree under review
+    controls all three (#972).
+    """
+    path_str = str(file_path)
+    if _module_suppresses_type_errors(path_str, mtime):
+        return False
+    if not _module_typechecks_clean(path_str, mtime):
+        return False
+    any_lines = _any_typed_lines(path_str, mtime)
+    return any_lines is not None and not _cites_an_any_line(finding.location, any_lines)
+
+
 def _check_none_dereference_hallucination(finding: Finding, file_path: Path) -> Finding | None:
     """Invalidate a claimed None dereference in a module that type checks strictly.
 
@@ -1283,7 +1438,9 @@ def _check_none_dereference_hallucination(finding: Finding, file_path: Path) -> 
     types. If the cited module passes `mypy --strict`, the attribute is not Optional and the
     runtime failure described cannot occur; if mypy cannot type check it cleanly for any
     reason, such as a target whose imports this interpreter cannot resolve, nothing is
-    claimed and the finding proceeds to the model verifier as before.
+    claimed and the finding proceeds to the model verifier as before. Nor is anything claimed
+    of a module that has mypy skip errors, or where the cited lines hold an expression of type
+    Any (`_strict_pass_settles`, #972).
 
     This exists because two findings of exactly this shape were marked VERIFIED at 0.94
     confidence against fields the schema declares as plain `str`.
@@ -1298,7 +1455,7 @@ def _check_none_dereference_hallucination(finding: Finding, file_path: Path) -> 
         mtime = file_path.stat().st_mtime
     except OSError:
         return None
-    if not _module_typechecks_clean(str(file_path), mtime):
+    if not _strict_pass_settles(finding, file_path, mtime):
         return None
 
     return apply_verdict(

@@ -7,9 +7,10 @@ from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_BANDIT
+from devops_cli.config.constants import CONST_REVIEW_SCAN_BANDIT_INI
 from devops_cli.config.defaults import DEFAULT_BANDIT_SEVERITY, DEFAULT_CURRENT_PATH
 from devops_cli.core.process import run_subprocess  # noqa: F401
-from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
+from devops_cli.security.base import BaseSecurityScanner, ScannerConfigFile, ScanOutcome
 
 
 def _parse_single_bandit_result(res: dict[str, Any], target_path: str = "") -> Finding:
@@ -52,6 +53,10 @@ class BanditScanner(BaseSecurityScanner):
     binary_name: str = BIN_BANDIT
     gating: ClassVar[bool] = True
     has_builtin_patterns: ClassVar[bool] = False
+    # Bandit reads a `.bandit` file it finds under a directory target unless `--ini` names one.
+    isolation_files: ClassVar[tuple[ScannerConfigFile, ...]] = (
+        ScannerConfigFile("--ini", ".bandit", CONST_REVIEW_SCAN_BANDIT_INI),
+    )
 
     def build_command(
         self,
@@ -120,7 +125,10 @@ class BanditScanner(BaseSecurityScanner):
 def run_bandit_scan(
     target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     severity_level: str = DEFAULT_BANDIT_SEVERITY,
+    *,
+    isolated: bool = False,
 ) -> ScanOutcome:
-    """Execute Bandit Python security scanner subprocess and return scan outcome."""
+    """Execute Bandit Python security scanner subprocess and return scan outcome; `isolated` for
+    a review (#972)."""
     scanner = BanditScanner()
-    return scanner.scan(target, severity_level=severity_level)
+    return scanner.scan(target, isolated=isolated, severity_level=severity_level)

@@ -33,6 +33,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_CORPUS_SEED,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.core.untrusted_trees import reading_untrusted_trees
 from devops_cli.dry_run import is_dry_run, set_dry_run
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
@@ -152,6 +153,11 @@ def review_main(
     ] = False,
 ) -> None:
     """Multi-persona AI code review with confidence calibration and finding verification."""
+    # Every review command reads a tree devops-cli does not own, or what a review of one wrote,
+    # so none takes the project config or the data directory from the repository it starts in,
+    # unless that is devops-cli's own repository (#972); the commands that read a session resolve
+    # the data directory as the review did.
+    ctx.with_resource(reading_untrusted_trees())
     if explain:
         from devops_cli.ai.explain import render_explanation
 
@@ -957,7 +963,11 @@ def list_findings(
     target_session = session or session_opt
     session_dir = _find_session_dir(target_session)
     if not session_dir:
-        print_warning("No review sessions found in .data/reviews/", prefix=False)
+        # A review's data directory may not be the repository's `.data` (#972), so say where.
+        reviews_dir = runner._get_reviews_base_dir()
+        print_warning(
+            MESSAGES.review.no_review_sessions_found.format(reviews_dir=reviews_dir), prefix=False
+        )
         raise typer.Exit(0)
 
     file_name = CONST_REVIEW_CANDIDATES_FILENAME if candidates else CONST_REVIEW_FINDINGS_FILENAME

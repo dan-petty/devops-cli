@@ -251,7 +251,7 @@ devops ai audit-library-usage [OPTIONS]
 |---|---|---|---|
 | `--package`, `-p` | `string` | - | Filter by package distribution name. |
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
-| `--contracts-dir` | `path` | - | Path to directory containing exported library contract JSON files. |
+| `--contracts-dir` | `path` | - | Path to directory containing exported library contract JSON files (default: libraries/ under the data directory where review data is kept). |
 | `--fail-on-breaking` | `boolean` | - | Exit with code 1 if any breaking API drift issues are detected. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -356,7 +356,7 @@ devops ai prompt-eval [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--persona`, `-p` | `string` | `devsecops` | Persona whose recorded findings to measure the layer against. |
-| `--dataset`, `-d` | `path` | - | Feedback dataset JSONL; a relative path is a data path under the main worktree, like data.feedback_dataset_path (default: the configured feedback dataset). |
+| `--dataset`, `-d` | `path` | - | Feedback dataset JSONL; a relative path resolves where review data is kept, like data.feedback_dataset_path: under the main worktree in devops-cli's own repository, else under ~/.local/share/devops-cli (default: the configured feedback dataset). |
 | `--include-deterministic` | `boolean` | - | Also count records a deterministic check labelled; scoring the layer against its own labels is circular, so they are excluded by default. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -1420,7 +1420,7 @@ devops ai ingest index-libraries [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dir`, `-d` | `path` | `.data/libraries` | Path to directory containing exported library contract JSON files. |
+| `--dir`, `-d` | `path` | - | Path to directory containing exported library contract JSON files (default: libraries/ under the data directory where review data is kept). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 
@@ -1445,7 +1445,7 @@ devops ai ingest query-library [OPTIONS] <query>
 | `--package`, `-p` | `string` | - | Filter by package distribution name. |
 | `--exact`, `-e` | `boolean` | - | Perform exact qualified symbol lookup instead of semantic vector search. |
 | `--top-k`, `-k` | `integer` | `5` | Maximum number of items to return or display. |
-| `--contracts-dir` | `path` | `.data/libraries` | Path to directory containing exported library contract JSON files. |
+| `--contracts-dir` | `path` | - | Path to directory containing exported library contract JSON files (default: libraries/ under the data directory where review data is kept). |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 
 ---

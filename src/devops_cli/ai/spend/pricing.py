@@ -20,7 +20,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_PRICING_OVERRIDES_FILENAME,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.core.repo import resolve_data_path
+from devops_cli.core.repo import resolve_review_data_path
 
 
 def _normalize_model_name(model: str) -> str:
@@ -216,7 +216,8 @@ class PricingRegistry:
             self.data_dir = Path(data_dir)
         else:
             settings = load_settings()
-            self.data_dir = resolve_data_path(Path(settings.data.dir))
+            # Beside the spend ledger, which a review records into too (#972).
+            self.data_dir = resolve_review_data_path(Path(settings.data.dir))
         self.ai_dir = self.data_dir / "ai"
         self.overrides_path = self.ai_dir / DEFAULT_AI_PRICING_OVERRIDES_FILENAME
         self.snapshot_path = self.ai_dir / "pricing_snapshot.json"

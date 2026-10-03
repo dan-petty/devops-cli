@@ -6,10 +6,11 @@ import json
 import logging
 import os
 import sys
+import tempfile
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, NamedTuple
 from unittest.mock import NonCallableMock
 
 from devops_cli.ai.review_schema import Finding
@@ -242,6 +243,14 @@ def _is_mocked(module_name: str | None, attr_name: str) -> Any:
     return target if isinstance(target, NonCallableMock) else None
 
 
+class ScannerConfigFile(NamedTuple):
+    """A config or ignore file devops-cli hands a scanner, and the flag that names it."""
+
+    flag: str
+    name: str
+    text: str
+
+
 class BaseSecurityScanner(ABC):
     """Abstract base class for declarative security and static analysis tools."""
 
@@ -249,6 +258,9 @@ class BaseSecurityScanner(ABC):
     binary_name: str = "scanner"
     gating: ClassVar[bool] = True
     has_builtin_patterns: ClassVar[bool] = False
+    # The files an isolated scan hands the scanner in place of the config and ignore files it
+    # would read from its working directory or the scanned tree (#972).
+    isolation_files: ClassVar[tuple[ScannerConfigFile, ...]] = ()
 
     @abstractmethod
     def build_command(self, target_path: Any, **kwargs: Any) -> list[str]:
@@ -365,15 +377,22 @@ class BaseSecurityScanner(ABC):
         self,
         target_path: Any,
         timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
+        *,
+        isolated: bool = False,
         **kwargs: Any,
     ) -> ScanOutcome:
-        """Execute scanner with applicability pre-flight checking, timeouts, and fallback recovery."""
+        """Execute scanner with applicability pre-flight checking, timeouts, and fallback recovery.
+
+        An `isolated` scan takes nothing from the scanned tree: a review's (#972).
+        """
         started = _utc_now()
-        outcome = self._execute(target_path, timeout, **kwargs)
+        outcome = self._execute(target_path, timeout, isolated, **kwargs)
         outcome.started_utc, outcome.ended_utc = started, _utc_now()
         return outcome
 
-    def _execute(self, target_path: Any, timeout: float, **kwargs: Any) -> ScanOutcome:
+    def _execute(
+        self, target_path: Any, timeout: float, isolated: bool, **kwargs: Any
+    ) -> ScanOutcome:
         """Run the pre-flight checks, then the scanner command."""
         preflight = _evaluate_preflight(self, target_path, **kwargs)
         if preflight is not None:
@@ -383,8 +402,28 @@ class BaseSecurityScanner(ABC):
         if not cmd:
             return ScanOutcome("not_applicable", [], f"Empty command generated for {self.name}")
 
-        cwd_dir = self._resolve_cwd(target_path)
-        return self._run_scanner_command(cmd, cwd_dir, target_path, timeout)
+        if not isolated:
+            return self._run_scanner_command(
+                cmd, self._resolve_cwd(target_path), target_path, timeout
+            )
+        with tempfile.TemporaryDirectory(prefix=f"devops-scan-{self.name}-") as scan_dir:
+            workdir = Path(scan_dir)
+            isolated_cmd = [*cmd, *self._hand_isolation_files(workdir)]
+            return self._run_scanner_command(isolated_cmd, workdir, target_path, timeout)
+
+    def _hand_isolation_files(self, workdir: Path) -> list[str]:
+        """Write the scanner's isolation files into `workdir`, returning the flags that name them.
+
+        An isolated scan runs in `workdir`, a temporary directory outside the scanned tree, so
+        the scanner finds no config or ignore file of the tree's in its working directory, and
+        each it would look for in the tree is named explicitly: devops-cli's own (#972).
+        """
+        flags: list[str] = []
+        for config_file in self.isolation_files:
+            path = workdir / config_file.name
+            path.write_text(config_file.text, encoding="utf-8")
+            flags.extend((config_file.flag, str(path)))
+        return flags
 
 
-__all__ = ["BaseSecurityScanner", "ScanOutcome"]
+__all__ = ["BaseSecurityScanner", "ScanOutcome", "ScannerConfigFile"]

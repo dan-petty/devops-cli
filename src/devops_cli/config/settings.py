@@ -90,6 +90,7 @@ from devops_cli.config.defaults import (
     DEFAULT_WORKSPACE_FILE,
 )
 from devops_cli.config.env import OPTION_TO_ENV_VAR
+from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
@@ -776,8 +777,11 @@ _ConfigCacheEntry = tuple[Path | None, tuple[_FileStamp, _FileStamp], dict[str, 
 
 _CONFIG_CACHE_LOCK = threading.Lock()
 # Keyed on everything that selects which files are read -- the global path (tests rebind
-# it), DEVOPS_CLI_CONFIG, and the working directory the project lookup walks up from.
-_CONFIG_CACHE: dict[tuple[str, str, str], _ConfigCacheEntry] = {}
+# it), DEVOPS_CLI_CONFIG, the working directory the project lookup walks up from, and whether the
+# rule for a command that reads a tree it does not own holds, which skips that lookup (#972). The
+# rule's check of the working directory's repository is cached in `core.repo`, so the key costs no
+# walk of the tree.
+_CONFIG_CACHE: dict[tuple[str, str, str, bool], _ConfigCacheEntry] = {}
 
 
 def _file_stamp(path: Path | None) -> _FileStamp:
@@ -827,7 +831,12 @@ def _merged_config_data() -> dict[str, Any]:
     The caller receives a copy, since the settings built from this mapping are mutable and
     a caller editing one before saving must not rewrite what every later load sees.
     """
-    cache_key = (str(CONFIG_PATH), os.environ.get(PROJECT_CONFIG_ENV, ""), os.getcwd())
+    cache_key = (
+        str(CONFIG_PATH),
+        os.environ.get(PROJECT_CONFIG_ENV, ""),
+        os.getcwd(),
+        reads_untrusted_trees(),
+    )
     with _CONFIG_CACHE_LOCK:
         entry = _CONFIG_CACHE.get(cache_key)
     if entry is not None:
@@ -856,7 +865,12 @@ def reset_settings_cache() -> None:
 
 
 def load_settings() -> Settings:
-    """Load settings: global config → project config → env vars (each layer wins)."""
+    """Load settings: global config → project config → env vars (each layer wins).
+
+    While a command that reads a tree it does not own runs, such as a review, from a repository
+    other than devops-cli's own, the project layer is only the file `DEVOPS_CLI_CONFIG` names
+    (`_find_project_config_path`, #972).
+    """
     raw = _merged_config_data()
 
     settings = Settings.model_validate(raw)
@@ -884,12 +898,22 @@ def _match_dir_candidate(d: Path, candidate_names: tuple[str, ...]) -> Path | No
 
 
 def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
-    """Locate candidate project/devcontainer config file from env, base_dir, or ancestor directories."""
+    """Locate candidate project/devcontainer config file from env, base_dir, or ancestor directories.
+
+    While a command that reads a tree it does not own runs, such as a review, only the file
+    `DEVOPS_CLI_CONFIG` names counts (#972). The walk would find a config the tree under review
+    commits, which could name the gateway its model traffic and API key go to; a project config
+    is a feature for the user's own repositories, and naming one is the explicit opt-in. The walk
+    still runs in devops-cli's own repository, whose code already runs in this process
+    (`reads_untrusted_trees`, `core.repo.is_own_source_repository`).
+    """
     env_config = os.environ.get(PROJECT_CONFIG_ENV)
     if env_config:
         env_p = Path(env_config).resolve()
         if not env_p.is_dir():
             return env_p
+    if reads_untrusted_trees():
+        return None
 
     candidate_names = (
         PROJECT_CONFIG_FILENAME,

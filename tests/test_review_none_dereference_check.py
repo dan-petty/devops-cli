@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import configparser
+import json
 import os
 import subprocess
 import sys
 import threading
 import time
 import tomllib
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -17,8 +20,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from devops_cli.ai.review.verification import (
+    _any_typed_lines,
     _check_none_dereference_hallucination,
+    _module_suppresses_type_errors,
     _module_typechecks_clean,
+    _reported_lines,
+    _suppresses_type_errors,
 )
 from devops_cli.ai.review_schema import Finding
 
@@ -28,7 +35,8 @@ _REPOSITORY = Path(__file__).resolve().parents[1]
 @pytest.fixture(autouse=True)
 def clear_typecheck_cache() -> None:
     """The probe is cached on path and mtime; tests must not share verdicts."""
-    _module_typechecks_clean.cache_clear()
+    for cached in (_module_suppresses_type_errors, _module_typechecks_clean, _any_typed_lines):
+        cached.cache_clear()
 
 
 def _finding(title: str, description: str = "", location: str = "a.py:1-2") -> Finding:
@@ -36,9 +44,14 @@ def _finding(title: str, description: str = "", location: str = "a.py:1-2") -> F
     return Finding(severity="CRITICAL", location=location, title=title, description=description)
 
 
-def _typecheck(clean: bool) -> Any:  # type: ignore[valid-type]
-    """Patch the type-check probe to report a verdict."""
-    return patch("devops_cli.ai.review.verification._module_typechecks_clean", return_value=clean)
+@contextmanager
+def _typecheck(clean: bool) -> Iterator[None]:
+    """Patch the type-check probe to report a verdict, with no line holding an `Any` expression."""
+    with (
+        patch("devops_cli.ai.review.verification._module_typechecks_clean", return_value=clean),
+        patch("devops_cli.ai.review.verification._any_typed_lines", return_value=frozenset()),
+    ):
+        yield
 
 
 @pytest.fixture
@@ -306,6 +319,120 @@ def test_one_probe_runs_at_a_time(tmp_path: Path) -> None:
     assert (verdicts, running[1]) == ([True] * 4, 1)
 
 
+def test_a_suppression_is_read_where_mypy_reads_it() -> None:
+    """A `type: ignore` comment or an inline `# mypy:` line, in any spacing, has mypy skip
+    errors, and the probe claims nothing of a module holding one (#972). mypy takes `type: ignore`
+    from comments alone, but `# mypy:` from any line that starts with it, one inside a string
+    too. The same words elsewhere in a string or comment do not count, and a module that does not
+    tokenize counts as suppressing."""
+    assert [
+        _suppresses_type_errors(source)
+        for source in (
+            "value = 'type: ignore'\n",
+            "value = len(x)  # type:ignore[arg-type]\n",
+            "#mypy: ignore-errors\nvalue = 1\n",
+            "value = 1  # see the mypy: docs\n",
+            "value = 'unterminated\n",
+            '_NOTES = """\n# mypy: ignore-errors\n"""\n',
+            "value = '# mypy: ignore-errors'\n",
+        )
+    ] == [False, True, True, False, True, True, False]
+
+
+@pytest.mark.parametrize(
+    ("raw", "suppresses"),
+    [
+        (b"# -*- coding: utf-8 -*-\nvalue: int = 1\n", False),
+        (b"\xef\xbb\xbf# mypy: ignore-errors\nvalue: int = 1\n", True),
+        (b"# coding: utf-7\n+ACM- mypy: ignore-errors\nvalue: int = 1\n", True),
+        (b"# coding: utf-8 coding: utf-7\nvalue = f()  +ACM- type: ignore\n", True),
+        (b"#!/usr/bin/env python\n# coding: latin-1\nvalue: int = 1\n", True),
+    ],
+    ids=["utf-8 declared", "byte order mark", "utf-7", "utf-7 after utf-8", "latin-1"],
+)
+def test_a_suppression_is_read_from_the_text_mypy_decodes(
+    raw: bytes, suppresses: bool, tmp_path: Path
+) -> None:
+    """mypy decodes a module by its byte order mark or PEP 263 coding declaration before it
+    reads either suppression, so a module declaring UTF-7 hides `+ACM- mypy: ignore-errors`, a
+    `# mypy:` line to mypy, from a UTF-8 read. The probe reads the module after its byte order
+    mark and claims nothing of one that declares any encoding but UTF-8 (#972); with mypy 2.3.1
+    the UTF-7 modules had it INVALIDATE a real `Optional` dereference."""
+    module = tmp_path / "mod.py"
+    module.write_bytes(raw)
+
+    assert _module_suppresses_type_errors(str(module), 1.0) is suppresses
+
+
+def test_the_any_pass_reads_the_error_lines_mypy_reports_for_the_module(tmp_path: Path) -> None:
+    """mypy's JSON output names each error's file and line; notes are not errors. An error in
+    another file, or output that is not JSON, says nothing of the module."""
+    module = str(tmp_path / "mod.py")
+
+    def records(*items: dict[str, Any]) -> str:
+        return "".join(json.dumps(item) + "\n" for item in items)
+
+    error = {"file": module, "line": 9, "severity": "error"}
+    note = {"file": module, "line": 4, "severity": "note"}
+    elsewhere = {"file": str(tmp_path / "other.py"), "line": 2, "severity": "error"}
+    assert [
+        _reported_lines(stdout, module, tmp_path)
+        for stdout in (records(error, note), records(error, elsewhere), "not json\n", "\n")
+    ] == [frozenset({9}), None, None, frozenset()]
+
+
+def test_the_any_pass_checks_a_copy_of_the_module_with_disallow_any_expr_appended(
+    tmp_path: Path,
+) -> None:
+    """mypy checks a copy of the module with an inline `# mypy: disallow-any-expr` after its last
+    line, so the option holds for that module alone and its lines keep their numbers. The copy is
+    written outside the tree under review, and the run is isolated as the probe is (#972)."""
+    target = tmp_path / "target"
+    module = target / "mod.py"
+    module.parent.mkdir()
+    module.write_text("value: str = ''\n", encoding="utf-8")
+    calls: list[dict[str, Any]] = []
+
+    def run(cmd: list[str], **kwargs: Any) -> MagicMock:
+        shadow = Path(cmd[cmd.index("--shadow-file") + 2])
+        calls.append({**_probe_call(cmd, kwargs.get("cwd")), "shadow": shadow.read_text()})
+        error = {"file": str(module), "line": 1, "severity": "error"}
+        return MagicMock(returncode=1, stdout=json.dumps(error) + "\n")
+
+    with patch("devops_cli.core.process.run_subprocess", side_effect=run):
+        lines = _any_typed_lines(str(module), 1.0)
+
+    [call] = calls
+    assert (
+        lines,
+        call["cmd"][:5],
+        call["cmd"][-6:-1],
+        call["cmd"][-1],
+        call["shadow"],
+        call["cwd"].is_relative_to(target),
+        Path(call["cmd"][-2]).parent == call["cwd"],
+    ) == (
+        frozenset({1}),
+        [sys.executable, "-I", "-m", "mypy", "--strict"],
+        ["--output", "json", "--shadow-file", str(module), call["cmd"][-2]],
+        str(module),
+        "value: str = ''\n\n# mypy: disallow-any-expr\n",
+        False,
+        True,
+    )
+
+
+def test_the_any_pass_claims_nothing_when_mypy_cannot_answer(tmp_path: Path) -> None:
+    """mypy exits 2 when it crashes or cannot run; the lines are then unknown and the probe
+    leaves the finding to the model verifier."""
+    module = tmp_path / "mod.py"
+    module.write_text("value: str = ''\n", encoding="utf-8")
+    with patch(
+        "devops_cli.core.process.run_subprocess", return_value=MagicMock(returncode=2, stdout="")
+    ):
+        assert _any_typed_lines(str(module), 1.0) is None
+
+
 # Prints where `-m mypy` would import mypy from, in the interpreter the probe starts.
 _WHERE_MYPY_IMPORTS_FROM = "import importlib.util; print(importlib.util.find_spec('mypy').origin)"
 
@@ -383,26 +510,53 @@ def test_a_review_started_inside_a_hostile_repository_runs_nothing_of_it(
             _finding("AttributeError when value is None", location="module.py:2"), module
         )
 
-    [call] = calls
+    # The strict pass, then the pass naming the lines that hold an `Any` expression (#972),
+    # whose copy of the module is written outside the repository too.
     assert (
         result is not None,
-        call["cmd"][:4],
-        call["cwd"].is_relative_to(target),
-        call["config"].is_relative_to(target) if call["config"] else None,
-        call["cache"].is_relative_to(target) if call["cache"] else None,
-        _plugins(call["config_text"]),
-        sorted(name for name, value in call["env"].items() if str(target) in value),
-        call["mypy"].is_relative_to(target),
+        [
+            (
+                call["cmd"][:4],
+                call["cwd"].is_relative_to(target),
+                call["config"].is_relative_to(target) if call["config"] else None,
+                call["cache"].is_relative_to(target) if call["cache"] else None,
+                _plugins(call["config_text"]),
+                sorted(name for name, value in call["env"].items() if str(target) in value),
+                call["mypy"].is_relative_to(target),
+                [
+                    Path(arg).is_relative_to(target)
+                    for arg in call["cmd"][call["cmd"].index("--shadow-file") + 2 :][:1]
+                ]
+                if "--shadow-file" in call["cmd"]
+                else None,
+            )
+            for call in calls
+        ],
         marker.exists(),
     ) == (
         True,
-        [sys.executable, "-I", "-m", "mypy"],
-        False,
-        False,
-        False,
-        ["pydantic.mypy"],
-        ["PYTHONPATH"],
-        False,
+        [
+            (
+                [sys.executable, "-I", "-m", "mypy"],
+                False,
+                False,
+                False,
+                ["pydantic.mypy"],
+                ["PYTHONPATH"],
+                False,
+                None,
+            ),
+            (
+                [sys.executable, "-I", "-m", "mypy"],
+                False,
+                False,
+                False,
+                ["pydantic.mypy"],
+                ["PYTHONPATH"],
+                False,
+                [False],
+            ),
+        ],
         False,
     )
 

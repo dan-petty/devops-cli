@@ -175,7 +175,14 @@ def run_semgrep_scan(
     target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     config: str = DEFAULT_SEMGREP_CONFIG,
     timeout: float = DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
+    *,
+    isolated: bool = False,
 ) -> ScanOutcome:
-    """Execute Semgrep AST pattern scanner and return scan outcome."""
+    """Execute Semgrep AST pattern scanner and return scan outcome; `isolated` for a review.
+
+    Semgrep takes its rules from `--config` alone and applies no `.semgrepignore` to a file named
+    on its command line, as a review names each, so an isolated scan only runs it outside the
+    tree (#972).
+    """
     scanner = SemgrepScanner()
-    return scanner.scan(target, config=config, timeout=timeout)
+    return scanner.scan(target, timeout=timeout, isolated=isolated, config=config)

@@ -17,7 +17,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_gateway_routes`](#ai-gateway-routes) | List registered virtual models and target backend inference instances. |
 | [`ai_gateway_status`](#ai-gateway-status) | Probe LLM Gateway health, latency, and circuit breaker metrics. |
 | [`ai_harness_status`](#ai-harness-status) | Inspect the AI agent harness slots as configured: provider, model, skills and tools. |
-| [`ai_ingest_library`](#ai-ingest-library) | Introspect an installed Python package and extract its public API contract into .data/libraries/. |
+| [`ai_ingest_library`](#ai-ingest-library) | Introspect an installed Python package and extract its public API contract into the data directory's libraries/. |
 | [`ai_inspect_symbol`](#ai-inspect-symbol) | Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts. |
 | [`ai_pack_context`](#ai-pack-context) | Pack and prune source code context to fit token budget while preserving signatures and types. |
 | [`ai_prewarm_models`](#ai-prewarm-models) | Prewarm local LLM models into GPU VRAM or proactively evict them across candidate cluster nodes. |
@@ -284,7 +284,7 @@ Inspect the AI agent harness slots as configured: provider, model, skills and to
 
 ### `ai_ingest_library`
 
-Introspect an installed Python package and extract its public API contract into .data/libraries/.
+Introspect an installed Python package and extract its public API contract into the data directory's libraries/.
 
 **Parameters:**
 
