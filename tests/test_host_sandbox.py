@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -317,29 +318,53 @@ def test_every_allowlisted_criteria_binary_resolves_inside_the_sandbox_mounts() 
     assert unresolved == []
 
 
-def test_host_sandbox_runs_the_repo_environment_tools() -> None:
+def _project_with_its_own_environment(root: Path) -> Path:
+    """A project whose `.venv` links to this interpreter and holds a `ruff` and a dependency of its
+    own, as `uv sync` leaves a reviewed project. The test builds it rather than reading this
+    checkout's `.venv`, whose layout depends on how the host installed Python (GitHub CI's differs
+    from the devcontainer's)."""
+    interpreter = Path(sys.executable).resolve()
+    venv = root / ".venv"
+    site_packages = (
+        venv / "lib" / f"python{sys.version_info[0]}.{sys.version_info[1]}" / "site-packages"
+    )
+    site_packages.mkdir(parents=True)
+    (site_packages / "reviewed_dependency.py").write_text("ONE = 1\n", encoding="utf-8")
+    (venv / "bin" / "python").parent.mkdir(parents=True, exist_ok=True)
+    (venv / "bin" / "python").symlink_to(interpreter)
+    ruff = venv / "bin" / "ruff"
+    ruff.write_text("#!/bin/sh\necho 'ruff 0.0.0'\n", encoding="utf-8")
+    ruff.chmod(0o755)
+    (venv / "pyvenv.cfg").write_text(f"home = {interpreter.parent}\n", encoding="utf-8")
+    (root / ".git").mkdir()
+    return root
+
+
+def test_host_sandbox_runs_the_repo_environment_tools(tmp_path: Path) -> None:
     """Live test: ruff and python come from the reviewed repository's own virtualenv (#847)."""
+    project = _project_with_its_own_environment(tmp_path)
     sandbox = HostSandbox()
-    ruff = sandbox.execute(["ruff", "--version"], cwd=_PROJECT_ROOT)
-    python = sandbox.execute(["python", "-c", "pass"], cwd=_PROJECT_ROOT)
-    prefix = sandbox.execute(["python", "-c", "import sys; print(sys.prefix)"], cwd=_PROJECT_ROOT)
+    ruff = sandbox.execute(["ruff", "--version"], cwd=project)
+    python = sandbox.execute(["python", "-c", "pass"], cwd=project)
+    prefix = sandbox.execute(["python", "-c", "import sys; print(sys.prefix)"], cwd=project)
     assert (
         ruff.passed,
         ruff.stdout.startswith("ruff "),
         python.passed,
         python.error,
         prefix.stdout.strip(),
-    ) == (True, True, True, None, str(_PROJECT_ROOT / ".venv"))
+    ) == (True, True, True, None, str(project / ".venv"))
 
 
-def test_python_criterion_imports_the_repo_test_dependencies() -> None:
+def test_python_criterion_imports_the_repo_test_dependencies(tmp_path: Path) -> None:
     """Live test: a criterion importing pytest runs under the repository's interpreter (#847).
 
     In review session 20261002-214641 the invalidation criterion for
     `tests/test_security_bandit.py:142-154`, which imports that test module and so pytest, failed
     with `No module named 'pytest'` under the system Python.
     """
-    result = execute_criterion_command("python -c 'import pytest'", cwd=_PROJECT_ROOT)
+    project = _project_with_its_own_environment(tmp_path)
+    result = execute_criterion_command("python -c 'import reviewed_dependency'", cwd=project)
     assert (
         result.executable,
         result.exit_code,
