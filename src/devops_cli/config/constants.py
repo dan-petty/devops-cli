@@ -963,6 +963,10 @@ CONST_OTEL_METRIC_UNIT_ONE = "1"
 CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA = 1
 CONST_OTEL_SERVICE_NAME = "devops-cli"
 CONST_OTEL_OTLP_HTTP_PORT = 4318
+# Every type a `# TYPE` line of the Prometheus text exposition format (0.0.4) may give a metric.
+CONST_PROMETHEUS_EXPOSITION_METRIC_TYPES: Final[frozenset[str]] = frozenset(
+    {"counter", "gauge", "histogram", "summary", "untyped"}
+)
 # The GenAI semantic conventions, which have no tagged release, are pinned to a commit and
 # resolved by weaver (the version the conventions repository pins in its versions.env).
 CONST_SEMCONV_GENAI_REPO: Final[str] = "open-telemetry/semantic-conventions-genai"
