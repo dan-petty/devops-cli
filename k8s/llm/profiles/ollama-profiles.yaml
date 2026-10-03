@@ -1,5 +1,8 @@
 # Ollama Inference Workload Profiles Consolidated by Total VRAM Capacity (<llm_provider>-<vram_gib>).
 # Tiers: 16gib, 24gib, 32gib, 48gib, 64gib, 72gib, 96gib, 128gib.
+# Each tier keeps one model loaded and serves one request at a time. Ollama reserves KV cache for
+# OLLAMA_CONTEXT_LENGTH x OLLAMA_NUM_PARALLEL tokens, and four slots left a dense ~30B model too
+# little VRAM to load (#1061).
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -57,9 +60,9 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "48000"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "2"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q4_0
             - name: OLLAMA_NO_CLOUD
@@ -157,9 +160,9 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "48000"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_NO_CLOUD
@@ -258,9 +261,9 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "48000"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD
@@ -360,9 +363,9 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "128000"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD
@@ -462,9 +465,9 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "128000"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD
@@ -567,9 +570,9 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "160000"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD
@@ -670,9 +673,9 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "192000"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD
@@ -783,9 +786,9 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "224000"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD
@@ -886,9 +889,9 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "256000"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
+              value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD
