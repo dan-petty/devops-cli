@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,6 +14,7 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
 from devops_cli.dry_run import set_dry_run
+from devops_cli.prometheus.promql import selectors, validate_promql
 
 runner = CliRunner()
 
@@ -1232,6 +1234,85 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     coredns_dep = next(d for d in coredns_patch_docs if d and d.get("kind") == "Deployment")
     coredns_res = coredns_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
     assert coredns_res["limits"]["memory"] == "384Mi"
+
+
+# =============================================================================
+# Thirty Days Of Logs And Metrics (#550)
+# =============================================================================
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _repo_yaml(*parts: str) -> dict[str, Any]:
+    loaded: dict[str, Any] = yaml.safe_load(_REPO_ROOT.joinpath(*parts).read_text(encoding="utf-8"))
+    return loaded
+
+
+def _volume_alerts() -> dict[str, dict[str, Any]]:
+    """The server's alerting rules, by alert name."""
+    values = _repo_yaml("k8s", "monitoring", "prometheus-values.yaml")
+    groups = values["serverFiles"]["alerting_rules.yml"]["groups"]
+    return {rule["alert"]: rule for group in groups for rule in group["rules"]}
+
+
+def test_loki_deletes_logs_once_they_are_thirty_days_old() -> None:
+    """`retention_period` is applied only by the compactor, and only with retention on.
+
+    Without `compactor.retention_enabled` Loki kept every chunk whatever its age. Loki 3
+    refuses to start with retention on and no delete-request store, and that store opens
+    the unauthenticated log delete API, which `deletion_mode: disabled` closes.
+    """
+    loki = _repo_yaml("k8s", "logging", "loki-values.yaml")["loki"]
+    compactor, limits = loki["compactor"], loki["limits_config"]
+    assert (
+        compactor["retention_enabled"],
+        compactor["delete_request_store"],
+        limits["retention_period"],
+        limits["deletion_mode"],
+    ) == (True, "filesystem", "720h", "disabled")
+
+
+def test_both_volumes_hold_thirty_days_and_no_size_cap_cuts_them_short() -> None:
+    """Loki's volume holds 30 days of logs; Prometheus keeps 30 days under a looser size cap."""
+    loki = _repo_yaml("k8s", "logging", "loki-values.yaml")["singleBinary"]["persistence"]
+    server = _repo_yaml("k8s", "monitoring", "prometheus-values.yaml")["server"]
+    assert (
+        loki["enabled"],
+        loki["size"],
+        server["retention"],
+        server["retentionSize"],
+        server["persistentVolume"]["size"],
+    ) == (True, "20Gi", "30d", "16GB", "20Gi")
+
+
+def test_an_alert_fires_before_the_log_or_metric_volume_fills() -> None:
+    """Each alert is well-formed, waits out blips, and reads series that exist.
+
+    The disk alert follows Loki's and Prometheus's claims to the node holding them, since
+    local-path does not hold a volume to its claimed size. The size-cap alert reads only
+    series the Prometheus server serves about itself (`tests/fixtures/metrics/`).
+    """
+    alerts = _volume_alerts()
+    disk, cap = alerts["LogOrMetricVolumeDiskLow"], alerts["PrometheusNearRetentionSizeCap"]
+    served = _repo_yaml("tests", "fixtures", "metrics", "prometheus-server.yaml")["families"]
+    cap_series = {selector.metric for selector in selectors(cap["expr"])}
+    assert (
+        sorted(alerts),
+        all(validate_promql(rule["expr"]).valid for rule in alerts.values()),
+        all(rule["labels"]["severity"] == "warning" for rule in alerts.values()),
+        (disk["for"], cap["for"]),
+        'persistentvolumeclaim=~"storage-loki-0|prometheus-server"' in disk["expr"],
+        cap_series <= served.keys(),
+        "prometheus_tsdb_retention_limit_bytes" in cap_series,
+    ) == (
+        ["LogOrMetricVolumeDiskLow", "PrometheusNearRetentionSizeCap"],
+        True,
+        True,
+        ("30m", "1h"),
+        True,
+        True,
+        True,
+    )
 
 
 def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:

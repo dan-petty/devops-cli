@@ -3,7 +3,13 @@
 # Repo:  https://prometheus-community.github.io/helm-charts
 
 server:
+  # Metrics are kept 30 days by time (#550). The size cap only guards the disk: measured on
+  # 2026-10-03 the TSDB grew 0.16 GB a day over its first three days, redeploys and power
+  # losses included (about 5 GB in 30 days), and #1080's host series add under 0.1 GB, so time
+  # retention deletes blocks long before 16 GiB is reached.
+  # Units are powers of two. The cap sits at 80% of the 20Gi volume, leaving room for compaction.
   retention: 30d
+  retentionSize: 16GB
 
   extraArgs:
     web.enable-remote-write-receiver: ""
@@ -74,3 +80,60 @@ scrapeConfigs:
       - action: replace
         target_label: cluster
         replacement: homelab-k3s
+
+# Alerts before the log or metric volume fills (#550). Prometheus evaluates them and Grafana's
+# alert list shows them; they reach no receiver until an Alertmanager is added (#549).
+serverFiles:
+  alerting_rules.yml:
+    groups:
+      - name: log-and-metric-retention
+        rules:
+          # local-path keeps a volume on its node's root filesystem and does not hold it to its
+          # claimed size, so the volume fills when that filesystem does. Each claim is followed
+          # through its pod to the node, so the alert moves with the volume.
+          - alert: LogOrMetricVolumeDiskLow
+            expr: |
+              min by (instance) (
+                node_filesystem_avail_bytes{mountpoint="/"}
+                / node_filesystem_size_bytes{mountpoint="/"}
+              )
+              * on (instance) group_right ()
+              label_replace(
+                max by (node, namespace, persistentvolumeclaim) (
+                  kube_pod_spec_volumes_persistentvolumeclaims_info{namespace=~"logging|monitoring", persistentvolumeclaim=~"storage-loki-0|prometheus-server"}
+                  * on (namespace, pod) group_left (node)
+                  max by (namespace, pod, node) (kube_pod_info)
+                ),
+                "instance", "$1", "node", "(.+)"
+              )
+              < 0.10
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: The disk holding {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is almost full.
+              description: >-
+                The root filesystem of node {{ $labels.node }}, which holds
+                {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}, has
+                {{ $value | humanizePercentage }} free. When it fills, Loki stops accepting logs
+                or Prometheus stops writing samples.
+          # The size cap is set well above 30 days of samples, so time retention is what deletes
+          # history. This fires before the cap would start deleting blocks younger than 30 days.
+          - alert: PrometheusNearRetentionSizeCap
+            expr: |
+              (
+                prometheus_tsdb_storage_blocks_bytes
+                + prometheus_tsdb_wal_storage_size_bytes
+                + prometheus_tsdb_head_chunks_storage_size_bytes
+              )
+              / prometheus_tsdb_retention_limit_bytes
+              > 0.8
+              and prometheus_tsdb_retention_limit_bytes > 0
+            for: 1h
+            labels:
+              severity: warning
+            annotations:
+              summary: Prometheus storage is near its retention size cap.
+              description: >-
+                Prometheus uses {{ $value | humanizePercentage }} of server.retentionSize. At the
+                cap it deletes blocks before they are 30 days old.
