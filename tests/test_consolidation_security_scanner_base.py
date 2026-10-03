@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import errno
 import json
+import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -14,7 +16,7 @@ from devops_cli.config.constants import (
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_SCANNER_STDOUT_EXCERPT_CHARS,
 )
-from devops_cli.security.base import BaseSecurityScanner
+from devops_cli.security.base import BaseSecurityScanner, materialize_targets
 from devops_cli.security.dive import DiveAnalysisResult
 from devops_cli.security.registry import ScannerRegistry, global_scanner_registry
 
@@ -508,3 +510,45 @@ def test_dive_scanner_skips_directory_without_image(tmp_path: Path) -> None:
     with patch("devops_cli.security.base.check_binary", return_value=True):
         findings = scanner.scan(dir_path)
         assert findings == []
+
+
+def test_materialized_targets_are_hard_links_else_copies_and_replace_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A target is hard-linked under the working directory at its path in the tree, or copied
+    when the link fails, as across filesystems; a file already there, such as one devops-cli
+    handed the scanner, is never replaced (#1079). Each is named `./<its path>`, and a result
+    reported with or without the `./` maps back to the tree's file."""
+    tree = tmp_path / "tree"
+    (tree / "src").mkdir(parents=True)
+    linked, copied, taken = (tree / "src" / name for name in ("linked.py", "copied.py", "taken.py"))
+    for target in (linked, copied, taken):
+        target.write_text(target.name, encoding="utf-8")
+    workdir = tmp_path / "work"
+    (workdir / "src").mkdir(parents=True)
+    (workdir / "src" / "taken.py").write_text("devops-cli's own", encoding="utf-8")
+    link = os.link
+
+    def cross_device_for_copied(source: Any, destination: Any, **kwargs: Any) -> None:
+        if Path(source).name == "copied.py":
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        link(source, destination, **kwargs)
+
+    monkeypatch.setattr(os, "link", cross_device_for_copied)
+    staged = materialize_targets([linked, copied, taken], tree, workdir)
+
+    assert (
+        staged.names,
+        [staged.origin(name) for name in ("src/linked.py", "./src/copied.py")],
+        (workdir / "src" / "linked.py").samefile(linked),
+        (workdir / "src" / "copied.py").samefile(copied),
+        (workdir / "src" / "copied.py").read_text(encoding="utf-8"),
+        (workdir / "src" / "taken.py").read_text(encoding="utf-8"),
+    ) == (
+        [os.path.join(os.curdir, "src", name) for name in ("linked.py", "copied.py")],
+        [str(linked), str(copied)],
+        True,
+        False,
+        "copied.py",
+        "devops-cli's own",
+    )

@@ -247,6 +247,11 @@ DEFAULT_PLUTO_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_VULNERABILITY_LOOKUP_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_SEMGREP_TIMEOUT_SECONDS: float = 300.0
+# The most files one Semgrep run of a review names; each batch has its own timeout, so one that
+# runs out of time loses only its files (#1079). With p/default, 328 files took 285 s of the
+# 300 s timeout at a one-minute load average of 33, about 0.87 s a file: 100 files take about
+# 87 s at that rate, under half the timeout.
+DEFAULT_SEMGREP_REVIEW_BATCH_FILES: int = 100
 
 
 # ── Telemetry HTTP Defaults ───────────────────────────────────────────────────

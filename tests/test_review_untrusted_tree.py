@@ -18,6 +18,7 @@ point the source location at a repository under `tmp_path`.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -676,6 +677,141 @@ def test_review_scanners_are_handed_devops_owned_config_and_ignore_files(
         "semgrep": ({}, False),
         "trivy": ({"--config": CONST_REVIEW_SCAN_TRIVY_CONFIG, "--ignorefile": ""}, False),
     }
+
+
+# A Semgrep rule a repository could commit, matching every Python expression.
+_PLANTED_SEMGREP_RULE = (
+    "rules:\n  - id: planted\n    languages: [python]\n    severity: ERROR\n"
+    "    message: planted\n    pattern: $X\n"
+)
+
+
+def _semgrep_runs(
+    tree: Path, files: list[str], record: Callable[[list[str], Path], Any]
+) -> list[Any]:
+    """Run the review's static scanners over `files` of `tree` and return what `record` saw of
+    each Semgrep run, from its command and working directory while it ran."""
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+
+    seen: list[Any] = []
+
+    def scanner(cmd: list[str], cwd: Path | None = None, **_: Any) -> Any:
+        if Path(cmd[0]).name == "semgrep":
+            seen.append(record(cmd, Path(cwd or ".")))
+        return subprocess.CompletedProcess(cmd, 0, "{}", "")
+
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="semgrep", target_dir=tree, llm_client=MagicMock()
+    )
+    with patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=scanner)):
+        orchestrator._run_static_scanners(files)
+    return seen
+
+
+def test_semgrep_takes_no_ignore_config_or_rule_file_from_the_tree(scanned_tree: Path) -> None:
+    """Semgrep runs on its targets linked or copied under its working directory (#1079). Only
+    the targets are there: the tree's `.semgrepignore`, `.semgrep.yml` and `.semgrep/` rule stay
+    out, and the rules still come from `--config` alone."""
+    (scanned_tree / ".semgrep.yml").write_text(_PLANTED_SEMGREP_RULE, encoding="utf-8")
+    (scanned_tree / ".semgrep").mkdir()
+    (scanned_tree / ".semgrep" / "planted.yml").write_text(_PLANTED_SEMGREP_RULE, encoding="utf-8")
+
+    def workdir_files_and_rules(cmd: list[str], workdir: Path) -> tuple[list[str], str]:
+        files = sorted(path.relative_to(workdir).as_posix() for path in workdir.rglob("*"))
+        return files, cmd[cmd.index("--config") + 1]
+
+    runs = _semgrep_runs(
+        scanned_tree, ["app.py", "deploy.yaml", "Dockerfile"], workdir_files_and_rules
+    )
+
+    assert runs == [(["Dockerfile", "app.py", "deploy.yaml"], "p/default")]
+
+
+def test_no_symlink_in_the_tree_takes_semgrep_outside_it(
+    hostile_repo: Path, tmp_path: Path
+) -> None:
+    """A reviewed file that is a link out of the tree reached Semgrep as the path it pointed to,
+    so Semgrep read a file outside the tree. Semgrep now reads only files inside it: a link to a
+    file outside is left out, a link to a file inside is that file, and a linked directory's
+    files resolve outside and are left out too."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.py").write_text("TOKEN = 'outside the tree'\n", encoding="utf-8")
+    (hostile_repo / "leak.py").symlink_to(outside / "secret.py")
+    (hostile_repo / "linked").symlink_to(outside, target_is_directory=True)
+    (hostile_repo / "alias.py").symlink_to(hostile_repo / "app.py")
+
+    def named_and_read(cmd: list[str], workdir: Path) -> tuple[list[str], bool]:
+        names = cmd[cmd.index("--quiet") + 1 :]
+        read = [(workdir / name).resolve() for name in names]
+        return names, any(path.is_relative_to(outside) for path in read)
+
+    runs = _semgrep_runs(
+        hostile_repo, ["app.py", "leak.py", "linked/secret.py", "alias.py"], named_and_read
+    )
+
+    assert runs == [([os.path.join(os.curdir, "app.py")], False)]
+
+
+# Root files a reviewed tree can add whose names Semgrep reads as options or, for `-`, as its
+# stdin: `--config=planted.yml` loads the tree's rule file, `--autofix` and `-a` rewrite the
+# reviewed files through their hard links, and `--version` replaces the scan.
+_OPTION_LIKE_NAMES = ("-", "-a", "--autofix", "--version", "--config=planted.yml")
+
+
+def test_a_file_the_tree_names_like_an_option_is_only_a_file_to_semgrep(
+    hostile_repo: Path,
+) -> None:
+    """A review named each materialized target by its bare path in the tree, so a root file
+    named like an option reached Semgrep's command line as that option, and one named `-` made
+    it read its stdin, under `devops mcp` the client's request stream (#1079). Each target is
+    now named `./<its path>`: Semgrep takes none as an option, each finding lands on the file
+    it was found in, and no scanner of the review gets the caller's stdin."""
+    (hostile_repo / "planted.yml").write_text(_PLANTED_SEMGREP_RULE, encoding="utf-8")
+    for name in _OPTION_LIKE_NAMES:
+        (hostile_repo / name).write_text("x = 1\n", encoding="utf-8")
+    reviewed = ["app.py", "planted.yml", *_OPTION_LIKE_NAMES]
+    targets: list[str] = []
+    stdins: set[str | None] = set()
+
+    def scanner(cmd: list[str], cwd: Path | None = None, **kwargs: Any) -> Any:
+        stdins.add(kwargs.get("input"))
+        if Path(cmd[0]).name != "semgrep":
+            return subprocess.CompletedProcess(cmd, 0, "{}", "")
+        named = cmd[cmd.index("--quiet") + 1 :]
+        targets.extend(named)
+        results = [
+            {
+                "check_id": "local.rule",
+                "path": os.path.normpath(name),
+                "start": {"line": 1},
+                "end": {"line": 1},
+                "extra": {"message": "found", "severity": "WARNING"},
+            }
+            for name in named
+        ]
+        return subprocess.CompletedProcess(cmd, 0, json.dumps({"results": results}), "")
+
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="semgrep", target_dir=hostile_repo, llm_client=MagicMock()
+    )
+    with patch("devops_cli.security.base.run_subprocess", MagicMock(side_effect=scanner)):
+        findings = orchestrator._run_static_scanners(reviewed)
+
+    root = hostile_repo.resolve()
+    assert (
+        [name for name in targets if name.startswith("-")],
+        sorted(os.path.normpath(name) for name in targets),
+        sorted(finding.location for found in findings.values() for finding in found),
+        stdins,
+    ) == (
+        [],
+        sorted(reviewed),
+        sorted(f"{root / name}:1" for name in reviewed),
+        {""},
+    )
 
 
 # =============================================================================

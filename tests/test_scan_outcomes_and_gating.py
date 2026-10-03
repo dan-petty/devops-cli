@@ -316,14 +316,8 @@ def _leaks(outcome: ScanOutcome, notes: list[str], output: str) -> list[tuple[st
     [
         ("scan", RuntimeError(_LEAKY_ERROR)),
         ("command", RuntimeError(_LEAKY_ERROR)),
-        (
-            "command",
-            subprocess.TimeoutExpired(
-                ["leaky-bin", f"--url={_URL}", f"--token={_TOKEN}", "x" * 5000], 30
-            ),
-        ),
     ],
-    ids=["the scanner raises", "its command raises", "its command times out"],
+    ids=["the scanner raises", "its command raises"],
 )
 def test_a_scanner_error_reaches_the_outcome_sarif_and_cli_masked_and_bounded(
     tmp_path: Path, raised_by: str, error: Exception
@@ -353,6 +347,24 @@ def test_a_scanner_error_reaches_the_outcome_sarif_and_cli_masked_and_bounded(
         [f"leaky: failed: {outcome.reason}"],
         True,
         False,
+        0,
+    )
+
+
+def test_a_scanner_timeout_says_how_long_it_had_and_quotes_no_command(tmp_path: Path) -> None:
+    """Verify a timeout's reason is the time the command had, in the outcome, SARIF and the CLI
+    (#1079): it quoted the command, cut to the cap before the timeout, with its secrets masked."""
+    timeout = subprocess.TimeoutExpired(
+        ["leaky-bin", f"--url={_URL}", f"--token={_TOKEN}", "x" * 5000], 30
+    )
+    with patch("devops_cli.security.base.run_subprocess", side_effect=timeout):
+        outcome, notes, output, exit_code = _report_one_scanner(tmp_path, _LeakyScanner())
+
+    assert (outcome.status, _leaks(outcome, notes, output), outcome.reason, notes, exit_code) == (
+        "failed",
+        [],
+        "timed out after 30 s",
+        ["leaky: failed: timed out after 30 s"],
         0,
     )
 

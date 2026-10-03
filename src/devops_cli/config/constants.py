@@ -248,6 +248,16 @@ CONST_REVIEW_SCAN_KUBELINTER_CONFIG = "checks: {}\n"
 CONST_REVIEW_SCAN_TRIVY_CONFIG = "{}\n"
 CONST_REVIEW_SCAN_GITLEAKS_CONFIG = "[extend]\nuseDefault = true\n"
 CONST_REVIEW_SCAN_BANDIT_INI = "[bandit]\n"
+# Every status a scan outcome can have, most severe first: outcomes merged into one, such as a
+# scanner's per-file or per-batch runs, report the worst status any of them had.
+CONST_SCAN_STATUS_PRECEDENCE: Final[tuple[str, ...]] = (
+    "failed",
+    "unavailable",
+    "dry-run",
+    "built-in patterns",
+    "ran",
+    "not_applicable",
+)
 # Click context meta key the `devops ci` group sets when a subcommand only prints its help,
 # so the gate does not announce the root it would check.
 CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_shows_help"

@@ -553,18 +553,12 @@ def _scan_kubernetes_manifests(
     findings: list[SavedFinding] = []
     for yp in yaml_paths:
         kl = run_kubelinter_scan(yp, isolated=True)
-        if outcomes is not None and (
-            "Kube-linter" not in outcomes or getattr(kl, "status", None) == "failed"
-        ):
-            outcomes["Kube-linter"] = kl
+        _observe_outcome(outcomes, "Kube-linter", kl)
         if kl:
             findings.extend(_wrap_static_findings(kl))
 
         pl = run_pluto_scan(yp, isolated=True)
-        if outcomes is not None and (
-            "Pluto" not in outcomes or getattr(pl, "status", None) == "failed"
-        ):
-            outcomes["Pluto"] = pl
+        _observe_outcome(outcomes, "Pluto", pl)
         if pl:
             findings.extend(_wrap_static_findings(pl))
     return findings
@@ -581,10 +575,7 @@ def _scan_container_and_lockfiles(
     for dp in docker_lock_paths:
         scan_t = "config" if "docker" in dp.name.lower() else "fs"
         t_findings = run_trivy_scan(dp, scan_type=scan_t, isolated=True)
-        if outcomes is not None and (
-            "Trivy" not in outcomes or getattr(t_findings, "status", None) == "failed"
-        ):
-            outcomes["Trivy"] = t_findings
+        _observe_outcome(outcomes, "Trivy", t_findings)
         if t_findings:
             findings.extend(_wrap_static_findings(t_findings))
     return findings
@@ -1212,24 +1203,46 @@ def _scan_secrets(
     from devops_cli.security.gitleaks import run_gitleaks_scan
 
     gl = run_gitleaks_scan(paths, ignore_tests=True, isolated=True)
-    if outcomes is not None:
-        outcomes["Gitleaks"] = gl
+    _observe_outcome(outcomes, "Gitleaks", gl)
     return _wrap_static_findings(gl)
 
 
 def _scan_semgrep(
     paths: list[Path],
     outcomes: dict[str, Any] | None = None,
+    *,
+    tree: Path,
 ) -> list[SavedFinding]:
-    """Run Semgrep AST static analysis."""
+    """Run Semgrep AST static analysis on the reviewed files of `tree`, linked or copied under
+    its working directory (#1079)."""
     if not paths:
         return []
     from devops_cli.security.semgrep import run_semgrep_scan
 
-    sg = run_semgrep_scan(paths, isolated=True)
-    if outcomes is not None:
-        outcomes["Semgrep"] = sg
+    sg = run_semgrep_scan(paths, reviewed_tree=tree)
+    _observe_outcome(outcomes, "Semgrep", sg)
     return _wrap_static_findings(sg)
+
+
+def _run_seconds(outcome: Any) -> float | None:
+    """How long a scan ran, from its start and end; None when it did not record them."""
+    started = getattr(outcome, "started_utc", None)
+    ended = getattr(outcome, "ended_utc", None)
+    if not (started and ended):
+        return None
+    return (datetime.fromisoformat(ended) - datetime.fromisoformat(started)).total_seconds()
+
+
+def _observe_outcome(outcomes: dict[str, Any] | None, name: str, outcome: Any) -> None:
+    """Keep an analyzer's outcome for the report, its first or a failed one, and add the time
+    the scan ran to the review's profile."""
+    if outcomes is not None and (
+        name not in outcomes or getattr(outcome, "status", None) == ANALYZER_FAILED
+    ):
+        outcomes[name] = outcome
+    seconds = _run_seconds(outcome)
+    if seconds is not None and (profiler := active_profiler()):
+        profiler.add_static_analyzer_seconds(name, seconds)
 
 
 def _call_scanner_helper(
@@ -2029,7 +2042,7 @@ class ReviewPipelineOrchestrator:
                 py_paths = [p for p in all_resolved if p.suffix == ".py"]
                 if py_paths:
                     bandit_res = run_bandit_scan(py_paths, isolated=True)
-                    observed_outcomes["Bandit"] = bandit_res
+                    _observe_outcome(observed_outcomes, "Bandit", bandit_res)
                     all_static_findings.extend(_wrap_static_findings(bandit_res))
 
                 # 2. Pluto & Kube-linter scan for Kubernetes manifests
@@ -2063,7 +2076,9 @@ class ReviewPipelineOrchestrator:
                     _call_scanner_helper(_scan_secrets, secret_paths, observed_outcomes)
                 )
                 all_static_findings.extend(
-                    _call_scanner_helper(_scan_semgrep, all_resolved, observed_outcomes)
+                    _scan_semgrep(
+                        all_resolved, observed_outcomes, tree=reviewed_tree(self.target_dir)
+                    )
                 )
                 self._record_static_analyzers(
                     {
@@ -2108,7 +2123,7 @@ class ReviewPipelineOrchestrator:
             self.static_analyzers, observed_outcomes
         )
         if profiler := active_profiler():
-            profiler.set_static_analyzers(self.static_analyzers)
+            profiler.set_static_analyzers(self.static_analyzers, self.static_analyzer_reasons)
 
     def _extract_dependencies_and_network_references(
         self, file_paths: list[str]
