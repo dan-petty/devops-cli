@@ -4,6 +4,9 @@ A relative data directory resolved against the current worktree, so each worktre
 reviews, benchmarks and evaluations, and removing it deleted them: the first full sample
 validation (#505) was lost that way. Linked worktrees now resolve to the main worktree, and
 repositories cloned under the workspace's `repos/` keep sharing the workspace's (#582).
+
+None of the repositories here is devops-cli's own (`conftest.isolate_own_source_repository`), so
+the data a review keeps resolves under the user-level data root for every command (#972).
 """
 
 from __future__ import annotations
@@ -259,22 +262,28 @@ def test_a_git_file_without_a_shared_directory_and_no_git_keep_their_own_root(
 
 
 def test_reviews_saved_from_a_worktree_outlive_it(
-    repo_with_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    repo_with_worktree: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    isolate_user_data_root: Path,
 ) -> None:
-    """Verify a review run in a linked worktree saves into the main worktree's data directory."""
+    """Verify a review run in a linked worktree saves into no worktree's data directory: review
+    data is kept under the user-level data root (#972), which removing a worktree leaves alone."""
     main, linked = repo_with_worktree
     monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
     monkeypatch.chdir(linked)
 
     reviews = _get_reviews_base_dir()
 
-    assert reviews == (main / ".data" / "reviews").resolve()
+    assert reviews == (isolate_user_data_root / ".data" / "reviews").resolve()
 
 
 def test_the_spend_ledger_is_shared_from_any_directory(
-    repo_with_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    repo_with_worktree: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    isolate_user_data_root: Path,
 ) -> None:
-    """Verify the ledger no longer lands under whatever directory the command ran in."""
+    """Verify the ledger no longer lands under whatever directory the command ran in: it is kept
+    under the user-level data root, where a review records its spend too (#972)."""
     from devops_cli.ai.spend.ledger import SpendLedger
     from devops_cli.config.defaults import DEFAULT_AI_SPEND_DB_FILENAME
 
@@ -285,7 +294,9 @@ def test_the_spend_ledger_is_shared_from_any_directory(
 
     ledger = SpendLedger()
 
-    assert ledger.db_path == (main / ".data").resolve() / "ai" / DEFAULT_AI_SPEND_DB_FILENAME
+    assert ledger.db_path == (
+        (isolate_user_data_root / ".data").resolve() / "ai" / DEFAULT_AI_SPEND_DB_FILENAME
+    )
 
 
 def _stale(path: Path) -> Path:
@@ -606,10 +617,12 @@ def test_workspace_clean_names_the_directory_it_prunes(
 
 
 def test_a_relative_data_dir_override_keeps_one_hallucination_catalog(
-    repo_with_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    repo_with_worktree: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    isolate_user_data_root: Path,
 ) -> None:
-    """Verify a relative `DEVOPS_CLI_DATA_DIR` places the catalog under the main worktree from
-    either worktree, as the review, sample and run directories already do."""
+    """Verify a relative `DEVOPS_CLI_DATA_DIR` places the catalog under the user-level data root
+    from either worktree, as the review, sample and run directories are (#972)."""
     main, linked = repo_with_worktree
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", "shared-data")
 
@@ -618,7 +631,10 @@ def test_a_relative_data_dir_override_keeps_one_hallucination_catalog(
         monkeypatch.chdir(start)
         catalogs.append(get_common_hallucinations_file_path())
 
-    assert catalogs == [(main / "shared-data" / CONST_HALLUCINATIONS_FILE_NAME).resolve()] * 2
+    assert (
+        catalogs
+        == [(isolate_user_data_root / "shared-data" / CONST_HALLUCINATIONS_FILE_NAME).resolve()] * 2
+    )
 
 
 @pytest.mark.parametrize("layout", ["repo_with_worktree", "nested_worktree"])
@@ -631,9 +647,11 @@ def test_prompt_evaluation_reads_shared_data_and_the_current_worktrees_sources(
     caught: int,
     request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
+    isolate_user_data_root: Path,
 ) -> None:
-    """Verify the recorded verdicts come from the main worktree's dataset while the sources they
-    cite are read from the worktree the command runs in.
+    """Verify the recorded verdicts come from the dataset under the user-level data root, where
+    `devops review export-feedback` appends them (#972), while the sources they cite are read
+    from the worktree the command runs in.
 
     The linked worktree fixed the file the finding claims does not parse, so run there the
     finding is invalidated; the main checkout still holds the broken version, so run there the
@@ -643,7 +661,7 @@ def test_prompt_evaluation_reads_shared_data_and_the_current_worktrees_sources(
     """
     main, worktree = request.getfixturevalue(layout)
     _write_dataset(
-        main / ".data" / "feedback_dataset.jsonl",
+        isolate_user_data_root / ".data" / "feedback_dataset.jsonl",
         [
             {
                 "title": "Syntax error in parser",
@@ -863,9 +881,10 @@ def test_workspace_clean_refuses_the_parent_of_the_worktree_it_runs_in_without_g
 def test_workspace_clean_in_a_clone_under_repos_prunes_the_workspace_data(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, init_repo: Callable[[Path], Path]
 ) -> None:
-    """Verify cleanup, reviews and the analysis cache of a repository cloned under the workspace's
-    `repos/` all use the workspace's data directory, where its reviews are written, and cleanup
-    leaves a `.data` of the clone's own alone."""
+    """Verify cleanup and the analysis cache of a repository cloned under the workspace's `repos/`
+    use the workspace's data directory, and cleanup leaves a `.data` of the clone's own alone.
+    Its reviews are kept under the user-level data root, as any repository's but devops-cli's
+    own are (#972)."""
     workspace = init_repo(tmp_path / "workspace")
     clone = init_repo(workspace / "repos" / "owner" / "tool")
     shared = _stale(workspace / ".data" / "reviews" / "old.json")
@@ -879,13 +898,13 @@ def test_workspace_clean_in_a_clone_under_repos_prunes_the_workspace_data(
         summary.pruned_files,
         shared.exists(),
         clone_own.exists(),
-        _get_reviews_base_dir(),
+        _get_reviews_base_dir().is_relative_to(workspace),
         analysis_directory(clone),
     ) == (
         ["reviews/old.json"],
         False,
         True,
-        (workspace / ".data" / "reviews").resolve(),
+        False,
         (workspace / ".data" / "analysis").resolve(),
     )
 
@@ -972,18 +991,20 @@ def test_the_library_drift_report_is_saved_in_the_shared_analysis_directory(
     assert saved == [(main / ".data" / "analysis").resolve() / "api_drift_report.json"]
 
 
-def test_dataset_help_says_a_relative_dataset_is_under_the_main_worktree() -> None:
-    """Verify the `--dataset` help of `devops ai prompt-eval` tells the user a relative path is a
-    data path under the main worktree."""
+def test_dataset_help_says_where_a_relative_dataset_resolves() -> None:
+    """Verify the `--dataset` help of `devops ai prompt-eval` tells the user a relative path
+    resolves where review data is kept: under the main worktree in devops-cli's own repository,
+    else under the user-level data root (#972)."""
     result = CliRunner().invoke(ai_app, ["prompt-eval", "--help"], terminal_width=200)
     # Under GitHub Actions Typer forces a terminal, and with TERM=dumb Rich renders 80 columns
     # whatever COLUMNS says, so the help wraps and a table border can split the phrase.
     text = " ".join(result.output.replace("│", " ").split())
 
-    assert (result.exit_code, "under the main worktree" in text) == (
-        0,
-        True,
-    )
+    assert (
+        result.exit_code,
+        "under the main worktree in devops-cli's own repository, else under "
+        "~/.local/share/devops-cli" in text,
+    ) == (0, True)
 
 
 def _age_tree(root: Path) -> None:
@@ -1026,9 +1047,9 @@ def test_workspace_clean_in_a_submodule_prunes_the_superprojects_data(
     git: Callable[..., None],
     init_repo: Callable[[Path], Path],
 ) -> None:
-    """Verify cleanup, reviews and the analysis cache of a submodule use the superproject's data
+    """Verify cleanup and the analysis cache of a submodule use the superproject's data
     directory, as a clone under `repos/` uses the workspace's, and cleanup leaves a `.data` of
-    the submodule's own alone."""
+    the submodule's own alone. Its reviews are kept under the user-level data root (#972)."""
     library = init_repo(tmp_path / "library")
     superproject = init_repo(tmp_path / "superproject")
     git(
@@ -1054,14 +1075,14 @@ def test_workspace_clean_in_a_submodule_prunes_the_superprojects_data(
         summary.pruned_files,
         shared.exists(),
         submodule_own.exists(),
-        _get_reviews_base_dir(),
+        _get_reviews_base_dir().is_relative_to(superproject),
         analysis_directory(submodule),
     ) == (
         superproject.resolve(),
         ["reviews/old.json"],
         False,
         True,
-        (superproject / ".data" / "reviews").resolve(),
+        False,
         (superproject / ".data" / "analysis").resolve(),
     )
 
@@ -1089,24 +1110,28 @@ def test_a_worktree_of_a_bare_repository_keeps_its_own_data_directory(
         main_worktree_root(worktree),
         summary.pruned_files,
         own.exists(),
-        _get_reviews_base_dir(),
+        analysis_directory(worktree),
         (bare / ".data").exists(),
     ) == (
         worktree.resolve(),
         ["reviews/old.json"],
         False,
-        (worktree / ".data" / "reviews").resolve(),
+        (worktree / ".data" / "analysis").resolve(),
         False,
     )
 
 
 @pytest.mark.parametrize("configured", [None, "shared-data"])
 def test_dashboard_controller_and_sandbox_data_is_shared_from_an_outside_worktree(
-    repo_with_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, configured: str | None
+    repo_with_worktree: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    configured: str | None,
+    isolate_user_data_root: Path,
 ) -> None:
-    """Verify the dashboard's review list, the controller's checkpoints and the sandbox registry
-    and incidents use the main worktree's data directory from a linked worktree outside it, by
-    default and with a relative `DEVOPS_CLI_DATA_DIR`, not a `.data` lost with the worktree."""
+    """Verify the controller's checkpoints and the sandbox registry and incidents use the main
+    worktree's data directory from a linked worktree outside it, by default and with a relative
+    `DEVOPS_CLI_DATA_DIR`, not a `.data` lost with the worktree; and that the dashboard's review
+    list reads the reviews under the user-level data root, where a review writes them (#972)."""
     from devops_cli.ai.controller.manager import ConstellationManager
     from devops_cli.sandbox.logs import resolve_incident_dir
     from devops_cli.sandbox.registry import get_default_sandbox_registry_path
@@ -1114,7 +1139,8 @@ def test_dashboard_controller_and_sandbox_data_is_shared_from_an_outside_worktre
 
     main, linked = repo_with_worktree
     data = main / (configured or ".data")
-    (data / "reviews").mkdir(parents=True)
+    reviews = (isolate_user_data_root / (configured or ".data") / "reviews").resolve()
+    reviews.mkdir(parents=True)
     if configured is None:
         monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
     else:
@@ -1130,7 +1156,7 @@ def test_dashboard_controller_and_sandbox_data_is_shared_from_an_outside_worktre
 
     data = data.resolve()
     assert resolved == (
-        data / "reviews",
+        reviews,
         data,
         data / "sandbox" / "instances.json",
         data / "sandbox" / "incidents",
@@ -1164,3 +1190,27 @@ def test_the_ci_cache_is_kept_in_the_shared_cache_directory_per_worktree(
         get_ci_cache("fp", root=other) is None,
         (root / "sub" / ".data").exists(),
     ) == (1, True, True, False)
+
+
+def test_a_relative_data_path_resolves_under_the_user_level_root_while_a_review_runs(
+    repo_with_worktree: tuple[Path, Path],
+    isolate_user_data_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The repository a review starts in may be the tree under review, whose `.data` holds
+    whatever its author committed (#972). While a review runs, a relative data path resolves under
+    the user-level data root; an absolute one is a location the user named and stands; once the
+    review ends, the main worktree's data directory is shared by every worktree again."""
+    from devops_cli.core.untrusted_trees import reading_untrusted_trees
+
+    main, linked = repo_with_worktree
+    monkeypatch.chdir(linked)
+    named = (main / "named-data").resolve()
+    with reading_untrusted_trees(), reading_untrusted_trees():
+        during = (resolve_data_path(Path(".data/reviews")), resolve_data_path(named))
+    after = resolve_data_path(Path(".data/reviews"))
+
+    assert (during, after) == (
+        ((isolate_user_data_root / ".data/reviews").resolve(), named),
+        (main / ".data/reviews").resolve(),
+    )

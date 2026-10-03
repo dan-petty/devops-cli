@@ -53,6 +53,18 @@ def _repo_root(directory: Path) -> Path | None:
     return None
 
 
+def reviewed_tree(target: Path) -> Path:
+    """The tree a review of `target` reads: the checkout holding it, or outside one its directory.
+
+    Everything inside it is the reviewed tree's to write, so nothing a review trusts may come
+    from there, unless it is devops-cli's own repository (#972). A file target counts its whole
+    checkout, not only its folder.
+    """
+    resolved = target.resolve()
+    directory = resolved if resolved.is_dir() else resolved.parent
+    return _repo_root(directory) or directory
+
+
 def _is_corpus_root(directory: Path, read_file: _FileReader) -> bool:
     """Whether a defect corpus's manifest marks the directory as the root of a corpus.
 
@@ -165,9 +177,10 @@ def _read_candidate_conventions_file(directory: Path, read_file: _FileReader) ->
 
 
 def _get_reviews_base_dir() -> Path:
-    """Resolve and ensure the review data storage directory."""
+    """Resolve and ensure the review data storage directory, under the review data root when
+    relative, for whichever command reads or writes it (`resolve_review_data_path`, #972)."""
     from devops_cli.config.settings import load_settings
-    from devops_cli.core.repo import resolve_data_path
+    from devops_cli.core.repo import resolve_review_data_path
 
     env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     if env_data_dir:
@@ -175,7 +188,7 @@ def _get_reviews_base_dir() -> Path:
     else:
         settings = load_settings()
         d = settings.data.reviews_dir
-    d = resolve_data_path(d)
+    d = resolve_review_data_path(d)
     d.mkdir(parents=True, exist_ok=True)
     return d
 

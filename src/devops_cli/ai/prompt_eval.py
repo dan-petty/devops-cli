@@ -37,7 +37,7 @@ from devops_cli.config.constants import (
     CONST_VERIFIED_BY_UNKNOWN,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.core.repo import find_worktree_root, main_worktree_root
+from devops_cli.core.repo import find_worktree_root, review_data_root
 from devops_cli.exceptions import SecurityError
 
 _MAX_DATASET_BYTES = 50 * 1024 * 1024
@@ -194,10 +194,11 @@ def evaluate_persona_prompts(
     rather than netted, because they are not interchangeable, and both are reported for each
     labeller. A record a deterministic check labelled is excluded unless `include_deterministic`.
 
-    The dataset is shared data, read from the main worktree; the sources the recorded findings
-    cite are read from the worktree the command runs in, as a review of it would read them.
+    The dataset is the one `devops review export-feedback` appends to, a relative one under the
+    review data root (`review_data_root`, #972); the sources the recorded findings cite are read from the
+    worktree the command runs in, as a review of it would read them.
     """
-    records = _load_records(_resolve_dataset_path(dataset_path, main_worktree_root()), persona)
+    records = _load_records(_resolve_dataset_path(dataset_path, review_data_root()), persona)
     source_root = find_worktree_root()
 
     excluded: Counter[str] = Counter()

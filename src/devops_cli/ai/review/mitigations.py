@@ -17,7 +17,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.ai.review_schema import Finding
-from devops_cli.core.repo import find_repo_root, resolve_data_path
+from devops_cli.core.repo import find_repo_root, resolve_review_data_path
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +25,10 @@ _CANONICAL_LEDGER_PATH = Path("mitigated_findings.json")
 DEFAULT_MITIGATIONS_LEDGER_PATH = _CANONICAL_LEDGER_PATH
 
 
-def resolve_ledger_path(path: Path | None = None, start_path: Path | str | None = None) -> Path:
-    """Resolve the effective ledger path, resolving under the data directory."""
+def resolve_ledger_path(path: Path | None = None) -> Path:
+    """Resolve the effective ledger path, resolving under the data directory: under the review
+    data root when relative, for a review and `devops pr` alike (`resolve_review_data_path`, #972).
+    """
     if path is not None:
         return path
     if DEFAULT_MITIGATIONS_LEDGER_PATH != _CANONICAL_LEDGER_PATH:
@@ -40,7 +42,7 @@ def resolve_ledger_path(path: Path | None = None, start_path: Path | str | None 
         data_dir = load_settings().data.dir
     except Exception:
         data_dir = Path(".data")
-    return resolve_data_path(data_dir / DEFAULT_MITIGATIONS_LEDGER_PATH, start_path)
+    return resolve_review_data_path(data_dir / DEFAULT_MITIGATIONS_LEDGER_PATH)
 
 
 class MitigatedFindingEntry(BaseModel):

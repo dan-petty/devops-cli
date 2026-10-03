@@ -124,8 +124,8 @@ devops review verify 20260910-143644 --candidate 7 --status VERIFIED --reason "T
 # An AI agent records its own verdict as an agent's, never a person's
 devops review verify 20260910-143644 --index 3 --status INVALIDATED --reason "..." --adjudicator agent
 
-# Export review report to markdown
-devops review branch --export-md .data/reviews/review-report.md
+# Read a session's report, written beside its findings
+cat .data/reviews/20260910-143644/review.md
 
 # Append every verdict to the feedback dataset (.data/feedback_dataset.jsonl) for fine-tuning and live memory
 devops review export-feedback --status ALL

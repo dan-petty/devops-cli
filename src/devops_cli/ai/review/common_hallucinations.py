@@ -164,12 +164,14 @@ def get_common_hallucinations_file_path() -> Path:
     """Resolve the persistent storage file path for common hallucinations catalog.
 
     Respects DEVOPS_CLI_DATA_DIR environment override; a relative location resolves under the
-    main worktree, so every worktree learns into one catalog.
+    review data root, so every worktree and command learns into and reads one catalog, and a
+    review started in another repository never reads one that repository commits
+    (`resolve_review_data_path`, #972).
     """
-    from devops_cli.core.repo import resolve_data_path
+    from devops_cli.core.repo import resolve_review_data_path
 
     env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
-    target = resolve_data_path(
+    target = resolve_review_data_path(
         Path(env_dir) / CONST_HALLUCINATIONS_FILE_NAME
         if env_dir
         else DEFAULT_HALLUCINATIONS_FILE_PATH

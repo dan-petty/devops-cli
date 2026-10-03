@@ -61,7 +61,7 @@ from devops_cli.ai.review.classification import (
 )
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.profile import active_profiler
-from devops_cli.ai.review.review_environment import _get_reviews_base_dir
+from devops_cli.ai.review.review_environment import _get_reviews_base_dir, reviewed_tree
 from devops_cli.ai.review.sanitization import (
     _sanitize_filename,
     balance_markdown_fences,
@@ -542,13 +542,17 @@ def _scan_kubernetes_manifests(
     yaml_paths: list[Path],
     outcomes: dict[str, Any] | None = None,
 ) -> list[SavedFinding]:
-    """Scan Kubernetes YAML manifests with Kube-linter and Pluto."""
+    """Scan Kubernetes YAML manifests with Kube-linter and Pluto.
+
+    Like every scanner a review runs, each runs isolated: from a temporary directory, with
+    devops-cli's own config and ignore files, never the reviewed tree's (#972).
+    """
     from devops_cli.security.kubelinter import run_kubelinter_scan
     from devops_cli.security.pluto import run_pluto_scan
 
     findings: list[SavedFinding] = []
     for yp in yaml_paths:
-        kl = run_kubelinter_scan(yp)
+        kl = run_kubelinter_scan(yp, isolated=True)
         if outcomes is not None and (
             "Kube-linter" not in outcomes or getattr(kl, "status", None) == "failed"
         ):
@@ -556,7 +560,7 @@ def _scan_kubernetes_manifests(
         if kl:
             findings.extend(_wrap_static_findings(kl))
 
-        pl = run_pluto_scan(yp)
+        pl = run_pluto_scan(yp, isolated=True)
         if outcomes is not None and (
             "Pluto" not in outcomes or getattr(pl, "status", None) == "failed"
         ):
@@ -576,7 +580,7 @@ def _scan_container_and_lockfiles(
     findings: list[SavedFinding] = []
     for dp in docker_lock_paths:
         scan_t = "config" if "docker" in dp.name.lower() else "fs"
-        t_findings = run_trivy_scan(dp, scan_type=scan_t)
+        t_findings = run_trivy_scan(dp, scan_type=scan_t, isolated=True)
         if outcomes is not None and (
             "Trivy" not in outcomes or getattr(t_findings, "status", None) == "failed"
         ):
@@ -1207,7 +1211,7 @@ def _scan_secrets(
         return []
     from devops_cli.security.gitleaks import run_gitleaks_scan
 
-    gl = run_gitleaks_scan(paths, ignore_tests=True)
+    gl = run_gitleaks_scan(paths, ignore_tests=True, isolated=True)
     if outcomes is not None:
         outcomes["Gitleaks"] = gl
     return _wrap_static_findings(gl)
@@ -1222,7 +1226,7 @@ def _scan_semgrep(
         return []
     from devops_cli.security.semgrep import run_semgrep_scan
 
-    sg = run_semgrep_scan(paths)
+    sg = run_semgrep_scan(paths, isolated=True)
     if outcomes is not None:
         outcomes["Semgrep"] = sg
     return _wrap_static_findings(sg)
@@ -1464,8 +1468,12 @@ def _resolve_rag_and_contract_context(
     content_or_diff: str,
     payload: FileReviewPayload,
     ground_contracts: bool,
+    target_dir: Path | None = None,
 ) -> tuple[str, str]:
-    """Retrieve RAG context and grounded code contracts for prompt interpolation."""
+    """Retrieve RAG context and grounded code contracts for prompt interpolation.
+
+    Contracts inside the tree a review of `target_dir` reads are refused (#972).
+    """
     rag_context_str = ""
     try:
         from devops_cli.ai.rag.investigator import (
@@ -1489,7 +1497,9 @@ def _resolve_rag_and_contract_context(
             )
 
             file_imports = _page_imports(content_or_diff)
-            grounded = resolve_grounded_contracts(file_imports)
+            grounded = resolve_grounded_contracts(
+                file_imports, reviewed_tree=reviewed_tree(target_dir) if target_dir else None
+            )
             contract_context_str = format_contract_grounding_for_prompt(grounded)
             if grounded:
                 payload.ai_scratchpad["grounded_contracts"] = [
@@ -2018,7 +2028,7 @@ class ReviewPipelineOrchestrator:
                 # 1. Batch Bandit scan for Python files
                 py_paths = [p for p in all_resolved if p.suffix == ".py"]
                 if py_paths:
-                    bandit_res = run_bandit_scan(py_paths)
+                    bandit_res = run_bandit_scan(py_paths, isolated=True)
                     observed_outcomes["Bandit"] = bandit_res
                     all_static_findings.extend(_wrap_static_findings(bandit_res))
 
@@ -2679,7 +2689,13 @@ class ReviewPipelineOrchestrator:
 
             symbols = ", ".join(payload.metadata.key_symbols if payload.metadata else [])
             rag_context_str, contract_context_str = _resolve_rag_and_contract_context(
-                fpath, ext, symbols, content_or_diff, payload, self.ground_contracts
+                fpath,
+                ext,
+                symbols,
+                content_or_diff,
+                payload,
+                self.ground_contracts,
+                target_dir=self.target_dir,
             )
 
             t_start = time.monotonic()

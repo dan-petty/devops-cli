@@ -202,7 +202,9 @@ def secret_scan(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[list[Path]]]:
 
     monkeypatch.setattr("devops_cli.security.gitleaks.run_gitleaks_scan", gitleaks)
     monkeypatch.setattr("devops_cli.security.semgrep.run_semgrep_scan", semgrep)
-    monkeypatch.setattr("devops_cli.security.bandit.run_bandit_scan", lambda _: ScanOutcome("ran"))
+    monkeypatch.setattr(
+        "devops_cli.security.bandit.run_bandit_scan", lambda *_, **__: ScanOutcome("ran")
+    )
     return seen
 
 

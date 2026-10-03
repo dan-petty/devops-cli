@@ -55,7 +55,7 @@ class ReviewMessages:
     github_token_not_configured: str = (
         "GitHub token not configured. Run: devops config set github.token <token>"
     )
-    no_review_sessions_found: str = "No review sessions found in .data/reviews/"
+    no_review_sessions_found: str = "No review sessions found in {reviews_dir}"
     no_findings_to_update: str = "Session has no findings to update."
     specify_one_finding: str = "Name one finding: --index <N>, --title <pattern> or --candidate <N>"
     title_matches_none: str = "No finding title contains '{pattern}'."

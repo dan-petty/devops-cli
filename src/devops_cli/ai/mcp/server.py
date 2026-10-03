@@ -7,7 +7,6 @@ import json
 import logging
 import re
 import subprocess
-from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastmcp import Context, FastMCP
@@ -2529,7 +2528,7 @@ def ai_ingest_library(
     package: str,
     max_depth: int = 1,
 ) -> str:
-    """Introspect an installed Python package and extract its public API contract into .data/libraries/."""
+    """Introspect an installed Python package and extract its public API contract into the data directory's libraries/."""
     _validate_mcp_arg("package", package)
     cmd = [
         "uv",
@@ -2746,9 +2745,10 @@ def get_ai_spend_resource() -> str:
 @mcp.resource("resource://libraries/indexed")
 def get_indexed_libraries_resource() -> str:
     """Return JSON metadata of all indexed library contracts, module counts, and symbol counts."""
+    from devops_cli.ai.rag.library_store import library_contracts_dir
     from devops_cli.commands.ai_ingest import _load_local_contracts
 
-    contracts = _load_local_contracts(Path(".data/libraries"))
+    contracts = _load_local_contracts(library_contracts_dir())
     payload = [
         {
             "package_name": c.package_name,

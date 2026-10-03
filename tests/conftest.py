@@ -281,6 +281,27 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterato
 
 
 @pytest.fixture(autouse=True)
+def isolate_user_data_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Keep the user-level data root, where a review's relative data paths resolve (#972), in
+    the test's temporary directory rather than the developer's home."""
+    user_data_root = (tmp_path / "user-data").resolve()
+    monkeypatch.setattr("devops_cli.core.repo.CONST_USER_DATA_ROOT", user_data_root)
+    return user_data_root
+
+
+@pytest.fixture(autouse=True)
+def isolate_own_source_repository(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run every test as a devops-cli installed in site-packages runs, trusting no repository as
+    its own (#972). The suite imports devops-cli from the checkout it runs in, which would make
+    that checkout trusted: a review started there would read its `config.yaml` and `.data`. A test
+    of the trusted repository points `_own_source_dir` at a repository of its own."""
+    import sysconfig
+
+    installed = Path(sysconfig.get_paths()["purelib"]).resolve() / "devops_cli"
+    monkeypatch.setattr("devops_cli.core.repo._own_source_dir", lambda: installed)
+
+
+@pytest.fixture(autouse=True)
 def isolate_session_bus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Keep tests off the devcontainer's session bus, where gnome-keyring holds real secrets."""
     monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)

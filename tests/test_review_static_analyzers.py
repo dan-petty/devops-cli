@@ -90,7 +90,7 @@ def test_a_review_with_only_bandit_is_not_reported_as_a_clean_scan(
     """Verify the reported case end to end: console, orchestrator state and review profile."""
     for name in ("app.py", "deploy.yaml", "Dockerfile"):
         (tmp_path / name).write_text("x = 1\n", encoding="utf-8")
-    monkeypatch.setattr("devops_cli.security.bandit.run_bandit_scan", lambda paths: [])
+    monkeypatch.setattr("devops_cli.security.bandit.run_bandit_scan", lambda paths, **_: [])
     for scan in ("_scan_kubernetes_manifests", "_scan_container_and_lockfiles"):
         monkeypatch.setattr(pipeline, scan, lambda paths: [])
     for scan in ("_scan_secrets", "_scan_semgrep"):

@@ -182,9 +182,9 @@ def _resolve_output_path(output_file: Path | None, reviews_dir: Path | None) -> 
     """The dataset to append to: the configured one, or a given path the allowed roots hold."""
     if output_file is None:
         from devops_cli.config.settings import load_settings
-        from devops_cli.core.repo import resolve_data_path
+        from devops_cli.core.repo import resolve_review_data_path
 
-        return resolve_data_path(load_settings().data.feedback_dataset_path)
+        return resolve_review_data_path(load_settings().data.feedback_dataset_path)
     import tempfile
 
     resolved_out = output_file.resolve()

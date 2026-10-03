@@ -706,9 +706,27 @@ class DocGenerator:
             "DevOps CLI supports hierarchical configuration resolution through:",
             "1. **CLI Flags & Arguments** (highest precedence)",
             "2. **Environment Variables** (`DEVOPS_CLI_*`)",
-            "3. **Local Project Configuration** (`.devops-cli.yaml`)",
+            "3. **Local Project Configuration** (the file `DEVOPS_CLI_CONFIG` names, else the "
+            "nearest `config.yaml`, `.devops/config.yaml` or `.devops.yaml` from the working "
+            "directory up to its repository root)",
             "4. **Global User Configuration** (`~/.config/devops-cli/config.yaml`)",
             "5. **System Defaults**",
+            "",
+            "A `devops review` command reads a tree it does not own. Started in a repository "
+            "other than devops-cli's own, it looks for no project configuration, reading only the "
+            "file `DEVOPS_CLI_CONFIG` names, and it resolves a relative data path under "
+            "`~/.local/share/devops-cli` rather than under that repository, so its default data "
+            "directory is `~/.local/share/devops-cli/.data`. What a review keeps -- its sessions, "
+            "the hallucination catalog, the mitigations ledger, the feedback dataset, runs, "
+            "samples, library contracts and AI spend -- every other command started outside "
+            "devops-cli's own repository reads and writes there too. devops-cli's own repository "
+            "is the one whose checkout holds the source of the devops-cli that runs, as an "
+            "editable install's does; its code already runs, so a review started there, or in "
+            "any worktree of it, reads its project configuration and keeps all data under its "
+            "main worktree's `.data`, as every other command does. A clone nested in that "
+            "checkout is another repository, and an installed devops-cli trusts no repository "
+            "this way. An absolute `DEVOPS_CLI_DATA_DIR` or `data.dir` names the data directory "
+            "every command uses.",
             "",
             "---",
             "",

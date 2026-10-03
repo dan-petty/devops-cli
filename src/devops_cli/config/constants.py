@@ -14,6 +14,11 @@ CONST_APP_NAME = "devops-cli"
 CONST_HELP_OPTION_NAMES = ("-h", "--help")
 CONST_CONFIG_DIR = Path.home() / ".config" / CONST_APP_NAME
 CONST_CONFIG_PATH = CONST_CONFIG_DIR / "config.yaml"
+# Where a relative data path resolves while a command reads a tree it does not own, such as a
+# review, in place of the main worktree of the repository it starts in, unless that is
+# devops-cli's own repository (#972); and where review data resolves for every command started
+# outside that repository. The default data directory is then `~/.local/share/devops-cli/.data`.
+CONST_USER_DATA_ROOT = Path.home() / ".local" / "share" / CONST_APP_NAME
 CONST_KEYRING_SERVICE = CONST_APP_NAME
 CONST_PROJECT_CONFIG_FILENAME = "config.yaml"
 CONST_PROJECT_CONFIG_ENV = "DEVOPS_CLI_CONFIG"  # absolute path overrides CWD lookup
@@ -181,6 +186,12 @@ CONST_REDACTED_LOG_VALUE: Final[str] = "<redacted>"
 # Root commands whose module app takes the command's own name as its first argument:
 # `devops lint` runs the `lint` subcommand of `devops_cli.commands.ci`.
 CONST_CLI_ROOT_LEVEL_COMMANDS: Final[frozenset[str]] = frozenset({"format", "lint"})
+# The command words that run a `devops review` command, which reads a tree devops-cli does not
+# own: the root command enters that rule before it opens the command's span and so builds the
+# process's tracer, whose endpoint a project config could otherwise name (#972).
+CONST_REVIEW_COMMAND_WORDS: Final[frozenset[tuple[str, ...]]] = frozenset(
+    {("review",), ("ai", "review")}
+)
 # The word a devops-cli command line starts with, and the module behind it: the `devops`
 # script calls `devops_cli.entry:main`. `telemetry profile` runs only a command line starting
 # with that word, as `python -P -m` that module under the running interpreter; `-P` keeps the
@@ -210,6 +221,33 @@ CONST_TYPECHECK_PROBE_CACHE_DIR_NAME = "typecheck-probe"
 # The probe's mypy config: devops-cli's own, never the reviewed tree's (#946). It loads only the
 # plugin devops-cli's `[tool.mypy]` loads, without which its pydantic models fail `--strict`.
 CONST_TYPECHECK_PROBE_MYPY_CONFIG = "[mypy]\nplugins = pydantic.mypy\n"
+# Appended to a copy of a module the probe passed, so mypy names each line of it holding an
+# expression of type Any: a claim about such an expression is not one a strict pass settles
+# (#972). An inline config comment keeps the option to that module and its lines where they are.
+CONST_TYPECHECK_PROBE_ANY_EXPR_COMMENT = "# mypy: disallow-any-expr"
+# What has mypy skip a module's errors; the probe makes no claim on a module holding either (#972).
+# A wider match than mypy's only withholds a claim. `type: ignore`, with any spacing and error
+# codes, is read from the module's comments, as mypy reads it, and matched anywhere in one.
+CONST_TYPE_IGNORE_COMMENT: Final[re.Pattern[str]] = re.compile(r"type:\s*ignore")
+# An inline `# mypy:` configuration line. mypy reads one from every line of the module's text that
+# starts `# mypy: `, a line inside a string too, so it is matched on the raw lines, at any indent.
+CONST_MYPY_CONFIG_LINE: Final[re.Pattern[str]] = re.compile(r"^[ \t]*#[ \t]*mypy:", re.MULTILINE)
+# A PEP 263 coding declaration, looked for anywhere in a module's first two lines, wider than
+# Python or mypy look. mypy decodes the module by it before reading either suppression, and a
+# module declaring UTF-7 can spell `# mypy:` as `+ACM- mypy:`, which a UTF-8 read does not see.
+CONST_SOURCE_CODING_DECLARATION: Final[re.Pattern[bytes]] = re.compile(
+    rb"coding[:=][ \t]*([-\w.]+)"
+)
+# Library contracts, under the data directory: the only place they are written and read (#972).
+CONST_LIBRARIES_DIR_NAME = "libraries"
+# The config and ignore files a review's static scanners are handed in place of any in their
+# working directory or the scanned tree (#972). Each keeps the scanner's defaults: kube-linter's
+# default checks, Trivy's defaults, Gitleaks' default rules, and Bandit's defaults with no
+# `[bandit]` option. The ignore files they are handed are empty.
+CONST_REVIEW_SCAN_KUBELINTER_CONFIG = "checks: {}\n"
+CONST_REVIEW_SCAN_TRIVY_CONFIG = "{}\n"
+CONST_REVIEW_SCAN_GITLEAKS_CONFIG = "[extend]\nuseDefault = true\n"
+CONST_REVIEW_SCAN_BANDIT_INI = "[bandit]\n"
 # Click context meta key the `devops ci` group sets when a subcommand only prints its help,
 # so the gate does not announce the root it would check.
 CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_shows_help"
