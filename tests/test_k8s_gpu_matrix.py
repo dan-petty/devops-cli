@@ -143,7 +143,7 @@ def test_gateway_routing_entries_generation() -> None:
         all(".llm.svc.cluster.local" in base for base in api_bases),
         entries == cm_model_list,
     ) == (
-        25,
+        26,
         [
             "devops-chat",
             "devops-coder",
@@ -173,9 +173,25 @@ def test_k8s_manifests_service_aliases_consistency() -> None:
     assert (
         len(services),
         "ollama-16gib" in names,
+        "ollama-fast" in names,
+        "ollama-standard" in names,
+        "ollama-slow" in names,
+        "ollama-16gib-fast" in names,
+        "ollama-24gib-slow" in names,
+        "ollama-48gib-fast" in names,
+        "ollama-48gib-slow" in names,
+        "ollama-64gib-standard" in names,
         ollama_16["spec"]["selector"],
     ) == (
-        8,
+        16,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
         True,
         {"llm.devops.io/provider": "ollama", "llm.devops.io/vram-gib": "16gib"},
     )
@@ -190,7 +206,7 @@ def test_k8s_manifests_profiles_files_exist() -> None:
     kust = yaml.safe_load(kust_path.read_text(encoding="utf-8"))
 
     assert (
-        len(ollama_docs) == 8,
+        len(ollama_docs) == 9,
         "services.yaml" in kust.get("resources", []),
     ) == (
         True,

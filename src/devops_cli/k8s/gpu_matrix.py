@@ -190,6 +190,72 @@ PROVIDER_SERVICE_ALIASES: Final[dict[str, dict[str, Any]]] = {
 
 MODEL_SERVICE_ALIASES: Final[dict[str, dict[str, Any]]] = PROVIDER_SERVICE_ALIASES
 
+# ── Speed Tier Service Aliases ────────────────────────────────────────────────
+# Kubernetes Service DNS names representing semantic speed tiers (fast, standard, slow).
+SPEED_TIER_SERVICE_ALIASES: Final[dict[str, dict[str, Any]]] = {
+    "ollama-fast": {
+        "service_name": "ollama-fast",
+        "provider": "ollama",
+        "speed_tier": "fast",
+        "ports": {"ollama": 11434},
+        "description": "Ollama fast tier service (Ampere / Blackwell architectures)",
+    },
+    "ollama-standard": {
+        "service_name": "ollama-standard",
+        "provider": "ollama",
+        "speed_tier": "standard",
+        "ports": {"ollama": 11434},
+        "description": "Ollama standard tier service (Volta architecture)",
+    },
+    "ollama-slow": {
+        "service_name": "ollama-slow",
+        "provider": "ollama",
+        "speed_tier": "slow",
+        "ports": {"ollama": 11434},
+        "description": "Ollama slow tier service (Pascal architecture)",
+    },
+    "ollama-16gib-fast": {
+        "service_name": "ollama-16gib-fast",
+        "provider": "ollama",
+        "vram_gib": 16,
+        "speed_tier": "fast",
+        "ports": {"ollama": 11434},
+        "description": "Ollama 16GiB fast tier service (Blackwell architecture)",
+    },
+    "ollama-24gib-slow": {
+        "service_name": "ollama-24gib-slow",
+        "provider": "ollama",
+        "vram_gib": 24,
+        "speed_tier": "slow",
+        "ports": {"ollama": 11434},
+        "description": "Ollama 24GiB slow tier service (Pascal architecture)",
+    },
+    "ollama-48gib-fast": {
+        "service_name": "ollama-48gib-fast",
+        "provider": "ollama",
+        "vram_gib": 48,
+        "speed_tier": "fast",
+        "ports": {"ollama": 11434},
+        "description": "Ollama 48GiB fast tier service (Ampere architecture)",
+    },
+    "ollama-48gib-slow": {
+        "service_name": "ollama-48gib-slow",
+        "provider": "ollama",
+        "vram_gib": 48,
+        "speed_tier": "slow",
+        "ports": {"ollama": 11434},
+        "description": "Ollama 48GiB slow tier service (Pascal architecture)",
+    },
+    "ollama-64gib-standard": {
+        "service_name": "ollama-64gib-standard",
+        "provider": "ollama",
+        "vram_gib": 64,
+        "speed_tier": "standard",
+        "ports": {"ollama": 11434},
+        "description": "Ollama 64GiB standard tier service (Volta architecture)",
+    },
+}
+
 # ── 24 Hardware Configurations Matrix ─────────────────────────────────────────
 # Structured mapping table covering counts [1,2,3,4] x VRAM [16,24,32] x backends [ollama, vllm].
 _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
@@ -587,6 +653,11 @@ def get_service_aliases() -> dict[str, dict[str, Any]]:
     return dict(PROVIDER_SERVICE_ALIASES)
 
 
+def get_speed_tier_service_aliases() -> dict[str, dict[str, Any]]:
+    """Return all standardized Kubernetes speed tier service aliases (<llm_provider>-<vram_gib>-<speed_tier>)."""
+    return dict(SPEED_TIER_SERVICE_ALIASES)
+
+
 def get_gateway_routing_entries() -> list[dict[str, Any]]:
     """Generate LiteLLM gateway routing model_list entries targeting service aliases."""
     return [
@@ -594,7 +665,7 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             "model_name": "devops-chat",
             "litellm_params": {
                 "model": "ollama_chat/hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S",
-                "api_base": "http://ollama-16gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-16gib-fast.llm.svc.cluster.local:11434",
                 "model_info": {
                     "max_input_tokens": 96000,
                 },
@@ -604,8 +675,8 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
         {
             "model_name": "devops-chat",
             "litellm_params": {
-                "model": "ollama_chat/hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S",
-                "api_base": "http://ollama-24gib.llm.svc.cluster.local:11434",
+                "model": "ollama_chat/qwen3.8:27b",
+                "api_base": "http://ollama-48gib-slow.llm.svc.cluster.local:11434",
                 "model_info": {
                     "max_input_tokens": 128000,
                 },
@@ -616,7 +687,7 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             "model_name": "devops-chat",
             "litellm_params": {
                 "model": "ollama_chat/qwen3.8:27b",
-                "api_base": "http://ollama-48gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
                 "model_info": {
                     "max_input_tokens": 128000,
                 },
@@ -627,7 +698,7 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             "model_name": "devops-chat",
             "litellm_params": {
                 "model": "ollama_chat/qwen3.8:27b",
-                "api_base": "http://ollama-64gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
                 "model_info": {
                     "max_input_tokens": 128000,
                 },
@@ -638,22 +709,22 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             "model_name": "devops-coder",
             "litellm_params": {
                 "model": "ollama_chat/qwen3-coder:30b",
-                "api_base": "http://ollama-48gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
             },
         },
         {
             "model_name": "devops-reasoning",
             "litellm_params": {
                 "model": "ollama_chat/qwen3-coder:30b",
-                "api_base": "http://ollama-48gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
             },
         },
         {
             "model_name": "bge-m3:latest",
             "litellm_params": {
                 "model": "ollama/bge-m3:latest",
-                "api_base": "http://ollama-16gib.llm.svc.cluster.local:11434",
-                "weight": 2,
+                "api_base": "http://ollama-16gib-fast.llm.svc.cluster.local:11434",
+                "weight": 1,
             },
             "model_info": {
                 "mode": "embedding",
@@ -663,7 +734,18 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             "model_name": "bge-m3:latest",
             "litellm_params": {
                 "model": "ollama/bge-m3:latest",
-                "api_base": "http://ollama-24gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-48gib-slow.llm.svc.cluster.local:11434",
+                "weight": 3,
+            },
+            "model_info": {
+                "mode": "embedding",
+            },
+        },
+        {
+            "model_name": "embeddinggemma:300m",
+            "litellm_params": {
+                "model": "ollama/embeddinggemma:300m",
+                "api_base": "http://ollama-16gib-fast.llm.svc.cluster.local:11434",
                 "weight": 1,
             },
             "model_info": {
@@ -674,19 +756,8 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             "model_name": "embeddinggemma:300m",
             "litellm_params": {
                 "model": "ollama/embeddinggemma:300m",
-                "api_base": "http://ollama-16gib.llm.svc.cluster.local:11434",
-                "weight": 2,
-            },
-            "model_info": {
-                "mode": "embedding",
-            },
-        },
-        {
-            "model_name": "embeddinggemma:300m",
-            "litellm_params": {
-                "model": "ollama/embeddinggemma:300m",
-                "api_base": "http://ollama-24gib.llm.svc.cluster.local:11434",
-                "weight": 1,
+                "api_base": "http://ollama-48gib-slow.llm.svc.cluster.local:11434",
+                "weight": 3,
             },
             "model_info": {
                 "mode": "embedding",
@@ -696,7 +767,7 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             "model_name": "devops-review",
             "litellm_params": {
                 "model": "ollama_chat/qwen3-coder:30b",
-                "api_base": "http://ollama-48gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
                 "weight": 9,
             },
         },
@@ -704,31 +775,31 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             "model_name": "devops-review",
             "litellm_params": {
                 "model": "ollama_chat/qwen3-coder:30b",
-                "api_base": "http://ollama-64gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
                 "weight": 6,
             },
         },
         {
             "model_name": "devops-review",
             "litellm_params": {
-                "model": "ollama_chat/gpt-oss:20b",
-                "api_base": "http://ollama-16gib.llm.svc.cluster.local:11434",
-                "weight": 8,
+                "model": "ollama_chat/qwen3-coder:30b",
+                "api_base": "http://ollama-48gib-slow.llm.svc.cluster.local:11434",
+                "weight": 1,
             },
         },
         {
             "model_name": "devops-review",
             "litellm_params": {
                 "model": "ollama_chat/gpt-oss:20b",
-                "api_base": "http://ollama-24gib.llm.svc.cluster.local:11434",
-                "weight": 1,
+                "api_base": "http://ollama-16gib-fast.llm.svc.cluster.local:11434",
+                "weight": 7,
             },
         },
         {
             "model_name": "qwen3-coder:30b",
             "litellm_params": {
                 "model": "ollama_chat/qwen3-coder:30b",
-                "api_base": "http://ollama-48gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
                 "weight": 9,
             },
         },
@@ -736,31 +807,42 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             "model_name": "qwen3-coder:30b",
             "litellm_params": {
                 "model": "ollama_chat/qwen3-coder:30b",
-                "api_base": "http://ollama-64gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
                 "weight": 6,
             },
         },
         {
-            "model_name": "gpt-oss:20b",
+            "model_name": "qwen3-coder:30b",
             "litellm_params": {
-                "model": "ollama_chat/gpt-oss:20b",
-                "api_base": "http://ollama-16gib.llm.svc.cluster.local:11434",
-                "weight": 8,
+                "model": "ollama_chat/qwen3-coder:30b",
+                "api_base": "http://ollama-48gib-slow.llm.svc.cluster.local:11434",
+                "weight": 1,
             },
         },
         {
             "model_name": "gpt-oss:20b",
             "litellm_params": {
                 "model": "ollama_chat/gpt-oss:20b",
-                "api_base": "http://ollama-24gib.llm.svc.cluster.local:11434",
-                "weight": 1,
+                "api_base": "http://ollama-16gib-fast.llm.svc.cluster.local:11434",
+                "weight": 7,
             },
         },
         {
             "model_name": "gemma4:31b",
             "litellm_params": {
                 "model": "ollama_chat/gemma4:31b",
-                "api_base": "http://ollama-48gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
+                "model_info": {
+                    "max_input_tokens": 128000,
+                },
+                "weight": 5,
+            },
+        },
+        {
+            "model_name": "gemma4:31b",
+            "litellm_params": {
+                "model": "ollama_chat/gemma4:31b",
+                "api_base": "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
                 "model_info": {
                     "max_input_tokens": 128000,
                 },
@@ -771,7 +853,7 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             "model_name": "gemma4:31b",
             "litellm_params": {
                 "model": "ollama_chat/gemma4:31b",
-                "api_base": "http://ollama-64gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-48gib-slow.llm.svc.cluster.local:11434",
                 "model_info": {
                     "max_input_tokens": 128000,
                 },
@@ -782,7 +864,7 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             "model_name": "qwen3.8:27b",
             "litellm_params": {
                 "model": "ollama_chat/hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S",
-                "api_base": "http://ollama-16gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-16gib-fast.llm.svc.cluster.local:11434",
                 "model_info": {
                     "max_input_tokens": 96000,
                 },
@@ -792,8 +874,8 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
         {
             "model_name": "qwen3.8:27b",
             "litellm_params": {
-                "model": "ollama_chat/hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S",
-                "api_base": "http://ollama-24gib.llm.svc.cluster.local:11434",
+                "model": "ollama_chat/qwen3.8:27b",
+                "api_base": "http://ollama-48gib-slow.llm.svc.cluster.local:11434",
                 "model_info": {
                     "max_input_tokens": 128000,
                 },
@@ -804,7 +886,7 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             "model_name": "qwen3.8:27b",
             "litellm_params": {
                 "model": "ollama_chat/qwen3.8:27b",
-                "api_base": "http://ollama-48gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
                 "model_info": {
                     "max_input_tokens": 128000,
                 },
@@ -815,18 +897,18 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             "model_name": "qwen3.8:27b",
             "litellm_params": {
                 "model": "ollama_chat/qwen3.8:27b",
-                "api_base": "http://ollama-64gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
                 "model_info": {
                     "max_input_tokens": 128000,
                 },
-                "weight": 1,
+                "weight": 3,
             },
         },
         {
             "model_name": "deepseek-r1:70b",
             "litellm_params": {
                 "model": "ollama_chat/deepseek-r1:70b",
-                "api_base": "http://ollama-64gib.llm.svc.cluster.local:11434",
+                "api_base": "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
                 "model_info": {
                     "max_input_tokens": 128000,
                 },

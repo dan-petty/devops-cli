@@ -10,33 +10,33 @@ metadata:
     app.kubernetes.io/part-of: devops-cli-stack
 data:
   config.yaml: |
-    # Gateway routes target standardized <llm_provider>-<vram_gib> services.
+    # Gateway routes target standardized <llm_provider>-<vram_gib>-[slow,standard,fast] services.
     model_list:
       - model_name: devops-chat
         litellm_params:
           model: ollama_chat/hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S
-          api_base: http://ollama-16gib.llm.svc.cluster.local:11434
+          api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
           model_info:
             max_input_tokens: 96000
           weight: 10
       - model_name: devops-chat
         litellm_params:
-          model: ollama_chat/hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S
-          api_base: http://ollama-24gib.llm.svc.cluster.local:11434
+          model: ollama_chat/qwen3.8:27b
+          api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
           model_info:
             max_input_tokens: 128000
           weight: 1
       - model_name: devops-chat
         litellm_params:
           model: ollama_chat/qwen3.8:27b
-          api_base: http://ollama-48gib.llm.svc.cluster.local:11434
+          api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
           model_info:
             max_input_tokens: 128000
           weight: 5
       - model_name: devops-chat
         litellm_params:
           model: ollama_chat/qwen3.8:27b
-          api_base: http://ollama-64gib.llm.svc.cluster.local:11434
+          api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
           model_info:
             max_input_tokens: 128000
           weight: 3
@@ -44,41 +44,41 @@ data:
       - model_name: devops-coder
         litellm_params:
           model: ollama_chat/qwen3-coder:30b
-          api_base: http://ollama-48gib.llm.svc.cluster.local:11434
+          api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
 
       - model_name: devops-reasoning
         litellm_params:
           model: ollama_chat/qwen3-coder:30b
-          api_base: http://ollama-48gib.llm.svc.cluster.local:11434
+          api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
 
       # mode: embedding makes health checks embed rather than generate, which bge-m3 rejects.
       - model_name: bge-m3:latest
         litellm_params:
           model: ollama/bge-m3:latest
-          api_base: http://ollama-16gib.llm.svc.cluster.local:11434
-          weight: 2
+          api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
+          weight: 1
         model_info:
           mode: embedding
       - model_name: bge-m3:latest
         litellm_params:
           model: ollama/bge-m3:latest
-          api_base: http://ollama-24gib.llm.svc.cluster.local:11434
-          weight: 1
+          api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
+          weight: 3
         model_info:
           mode: embedding
 
       - model_name: embeddinggemma:300m
         litellm_params:
           model: ollama/embeddinggemma:300m
-          api_base: http://ollama-16gib.llm.svc.cluster.local:11434
-          weight: 2
+          api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
+          weight: 1
         model_info:
           mode: embedding
       - model_name: embeddinggemma:300m
         litellm_params:
           model: ollama/embeddinggemma:300m
-          api_base: http://ollama-24gib.llm.svc.cluster.local:11434
-          weight: 1
+          api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
+          weight: 3
         model_info:
           mode: embedding
 
@@ -89,23 +89,23 @@ data:
       - model_name: devops-review
         litellm_params:
           model: ollama_chat/qwen3-coder:30b
-          api_base: http://ollama-48gib.llm.svc.cluster.local:11434
+          api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
           weight: 9
       - model_name: devops-review
         litellm_params:
           model: ollama_chat/qwen3-coder:30b
-          api_base: http://ollama-64gib.llm.svc.cluster.local:11434
+          api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
           weight: 6
       - model_name: devops-review
         litellm_params:
-          model: ollama_chat/gpt-oss:20b
-          api_base: http://ollama-16gib.llm.svc.cluster.local:11434
-          weight: 8
+          model: ollama_chat/qwen3-coder:30b
+          api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
+          weight: 1
       - model_name: devops-review
         litellm_params:
           model: ollama_chat/gpt-oss:20b
-          api_base: http://ollama-24gib.llm.svc.cluster.local:11434
-          weight: 1
+          api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
+          weight: 7
 
       # One group per devops-review model, copying its deployments and weights exactly, so a
       # review can be pinned to one model and routed as the pool routes it. No max_input_tokens
@@ -113,36 +113,43 @@ data:
       - model_name: qwen3-coder:30b
         litellm_params:
           model: ollama_chat/qwen3-coder:30b
-          api_base: http://ollama-48gib.llm.svc.cluster.local:11434
+          api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
           weight: 9
       - model_name: qwen3-coder:30b
         litellm_params:
           model: ollama_chat/qwen3-coder:30b
-          api_base: http://ollama-64gib.llm.svc.cluster.local:11434
+          api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
           weight: 6
+      - model_name: qwen3-coder:30b
+        litellm_params:
+          model: ollama_chat/qwen3-coder:30b
+          api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
+          weight: 1
 
       - model_name: gpt-oss:20b
         litellm_params:
           model: ollama_chat/gpt-oss:20b
-          api_base: http://ollama-16gib.llm.svc.cluster.local:11434
-          weight: 8
-      - model_name: gpt-oss:20b
-        litellm_params:
-          model: ollama_chat/gpt-oss:20b
-          api_base: http://ollama-24gib.llm.svc.cluster.local:11434
-          weight: 1
+          api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
+          weight: 7
 
       - model_name: gemma4:31b
         litellm_params:
           model: ollama_chat/gemma4:31b
-          api_base: http://ollama-48gib.llm.svc.cluster.local:11434
+          api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
+          model_info:
+            max_input_tokens: 128000
+          weight: 5
+      - model_name: gemma4:31b
+        litellm_params:
+          model: ollama_chat/gemma4:31b
+          api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
           model_info:
             max_input_tokens: 128000
           weight: 3
       - model_name: gemma4:31b
         litellm_params:
           model: ollama_chat/gemma4:31b
-          api_base: http://ollama-64gib.llm.svc.cluster.local:11434
+          api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
           model_info:
             max_input_tokens: 128000
           weight: 1
@@ -150,36 +157,36 @@ data:
       - model_name: qwen3.8:27b
         litellm_params:
           model: ollama_chat/hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S
-          api_base: http://ollama-16gib.llm.svc.cluster.local:11434
+          api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
           model_info:
             max_input_tokens: 96000
           weight: 5
       - model_name: qwen3.8:27b
         litellm_params:
-          model: ollama_chat/hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S
-          api_base: http://ollama-24gib.llm.svc.cluster.local:11434
+          model: ollama_chat/qwen3.8:27b
+          api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
           model_info:
             max_input_tokens: 128000
           weight: 1
       - model_name: qwen3.8:27b
         litellm_params:
           model: ollama_chat/qwen3.8:27b
-          api_base: http://ollama-48gib.llm.svc.cluster.local:11434
+          api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
           model_info:
             max_input_tokens: 128000
           weight: 5
       - model_name: qwen3.8:27b
         litellm_params:
           model: ollama_chat/qwen3.8:27b
-          api_base: http://ollama-64gib.llm.svc.cluster.local:11434
+          api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
           model_info:
             max_input_tokens: 128000
-          weight: 1
+          weight: 3
 
       - model_name: deepseek-r1:70b
         litellm_params:
           model: ollama_chat/deepseek-r1:70b
-          api_base: http://ollama-64gib.llm.svc.cluster.local:11434
+          api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
           model_info:
             max_input_tokens: 128000
 

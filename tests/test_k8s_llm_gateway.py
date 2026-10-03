@@ -146,9 +146,9 @@ class TestK8sLLMGatewayManifests:
             params["devops-coder"]["api_base"],
         ) == (
             "ollama_chat/qwen3-coder:30b",
-            "http://ollama-48gib.llm.svc.cluster.local:11434",
+            "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
             "ollama_chat/qwen3-coder:30b",
-            "http://ollama-48gib.llm.svc.cluster.local:11434",
+            "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
         )
 
     def test_gateway_escalates_to_larger_models(self) -> None:
@@ -177,10 +177,10 @@ class TestK8sLLMGatewayManifests:
             m["litellm_params"]["api_base"]: m["litellm_params"].get("weight") for m in deployments
         }
         assert weights == {
-            "http://ollama-48gib.llm.svc.cluster.local:11434": 9,
-            "http://ollama-64gib.llm.svc.cluster.local:11434": 6,
-            "http://ollama-16gib.llm.svc.cluster.local:11434": 8,
-            "http://ollama-24gib.llm.svc.cluster.local:11434": 1,
+            "http://ollama-48gib-fast.llm.svc.cluster.local:11434": 9,
+            "http://ollama-64gib-standard.llm.svc.cluster.local:11434": 6,
+            "http://ollama-16gib-fast.llm.svc.cluster.local:11434": 7,
+            "http://ollama-48gib-slow.llm.svc.cluster.local:11434": 1,
         }
 
     @pytest.mark.parametrize("group", ["qwen3-coder:30b", "gpt-oss:20b"])
@@ -228,18 +228,18 @@ class TestK8sLLMGatewayManifests:
             all(m.get("model_info", {}).get("mode") == "embedding" for m in gemma_deployments),
         ) == (
             [
-                "http://ollama-16gib.llm.svc.cluster.local:11434",
-                "http://ollama-24gib.llm.svc.cluster.local:11434",
-                "http://ollama-48gib.llm.svc.cluster.local:11434",
-                "http://ollama-64gib.llm.svc.cluster.local:11434",
+                "http://ollama-16gib-fast.llm.svc.cluster.local:11434",
+                "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
+                "http://ollama-48gib-slow.llm.svc.cluster.local:11434",
+                "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
             ],
             [
-                "http://ollama-16gib.llm.svc.cluster.local:11434",
-                "http://ollama-24gib.llm.svc.cluster.local:11434",
+                "http://ollama-16gib-fast.llm.svc.cluster.local:11434",
+                "http://ollama-48gib-slow.llm.svc.cluster.local:11434",
             ],
             [
-                "http://ollama-16gib.llm.svc.cluster.local:11434",
-                "http://ollama-24gib.llm.svc.cluster.local:11434",
+                "http://ollama-16gib-fast.llm.svc.cluster.local:11434",
+                "http://ollama-48gib-slow.llm.svc.cluster.local:11434",
             ],
             True,
             True,
@@ -337,6 +337,7 @@ class TestK8sLLMGatewayManifests:
             "ollama-24gib",
             "ollama-32gib",
             "ollama-48gib",
+            "ollama-48gib-slow",
             "ollama-64gib",
             "ollama-72gib",
             "ollama-96gib",
