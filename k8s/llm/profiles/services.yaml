@@ -32,6 +32,7 @@ metadata:
     app.kubernetes.io/part-of: devops-cli-stack
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: "24gib"
+    llm.devops.io/speed-tier: "slow"
 spec:
   type: ClusterIP
   ports:
@@ -42,6 +43,7 @@ spec:
   selector:
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: "24gib"
+    llm.devops.io/speed-tier: "slow"
 ---
 apiVersion: v1
 kind: Service
@@ -74,6 +76,7 @@ metadata:
     app.kubernetes.io/part-of: devops-cli-stack
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: "48gib"
+    llm.devops.io/speed-tier: "fast"
 spec:
   type: ClusterIP
   ports:
@@ -84,6 +87,7 @@ spec:
   selector:
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: "48gib"
+    llm.devops.io/speed-tier: "fast"
 ---
 apiVersion: v1
 kind: Service
@@ -168,3 +172,183 @@ spec:
   selector:
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: "128gib"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-fast
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-fast
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: ollama
+    llm.devops.io/speed-tier: fast
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "48gib"
+    llm.devops.io/speed-tier: fast
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-standard
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-standard
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: ollama
+    llm.devops.io/speed-tier: standard
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "64gib"
+    llm.devops.io/speed-tier: standard
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-slow
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-slow
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: ollama
+    llm.devops.io/speed-tier: slow
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/speed-tier: slow
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-48gib-fast
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-48gib-fast
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "48gib"
+    llm.devops.io/speed-tier: fast
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "48gib"
+    llm.devops.io/speed-tier: fast
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-48gib-slow
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-48gib-slow
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "48gib"
+    llm.devops.io/speed-tier: slow
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "48gib"
+    llm.devops.io/speed-tier: slow
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-64gib-standard
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-64gib-standard
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "64gib"
+    llm.devops.io/speed-tier: standard
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "64gib"
+    llm.devops.io/speed-tier: standard
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-16gib-fast
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-16gib-fast
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "16gib"
+    llm.devops.io/speed-tier: fast
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "16gib"
+    llm.devops.io/speed-tier: fast
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-24gib-slow
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-24gib-slow
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "24gib"
+    llm.devops.io/speed-tier: slow
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "24gib"
+    llm.devops.io/speed-tier: slow
