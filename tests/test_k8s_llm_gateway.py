@@ -179,7 +179,7 @@ class TestK8sLLMGatewayManifests:
         assert weights == {
             "http://ollama-48gib-fast.llm.svc.cluster.local:11434": 9,
             "http://ollama-64gib-standard.llm.svc.cluster.local:11434": 6,
-            "http://ollama-16gib-fast.llm.svc.cluster.local:11434": 7,
+            "http://ollama-16gib-fast.llm.svc.cluster.local:11434": 6,
             "http://ollama-48gib-slow.llm.svc.cluster.local:11434": 1,
         }
 

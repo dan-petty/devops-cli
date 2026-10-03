@@ -792,7 +792,7 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             "litellm_params": {
                 "model": "ollama_chat/gpt-oss:20b",
                 "api_base": "http://ollama-16gib-fast.llm.svc.cluster.local:11434",
-                "weight": 7,
+                "weight": 6,
             },
         },
         {
@@ -824,7 +824,7 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
             "litellm_params": {
                 "model": "ollama_chat/gpt-oss:20b",
                 "api_base": "http://ollama-16gib-fast.llm.svc.cluster.local:11434",
-                "weight": 7,
+                "weight": 6,
             },
         },
         {
