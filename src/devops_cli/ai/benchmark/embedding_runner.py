@@ -18,12 +18,13 @@ from devops_cli.ai.benchmark.document_chunker import (
 from devops_cli.ai.benchmark.embedding_tasks import (
     EmbeddingEvalPair,
 )
-from devops_cli.ai.benchmark.runner import _get_benchmarks_base_dir
+from devops_cli.ai.benchmark.runner import _get_benchmarks_base_dir, _key_for_endpoint
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.config.constants import (
     CONST_EMBEDDING_REPORT_FILENAME,
     CONST_FP32_BYTES_PER_ELEMENT,
     CONST_KILOBYTE_BYTES,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
 )
 from devops_cli.config.defaults import (
     DEFAULT_DRY_RUN_EMBEDDING_CATEGORIES,
@@ -42,13 +43,15 @@ from devops_cli.config.defaults import (
     DEFAULT_EMBEDDING_BENCHMARK_MODELS,
     DEFAULT_EMBEDDING_BENCHMARK_SAMPLE_COUNT,
 )
-from devops_cli.config.settings import AIConfig, Settings, get_ai_api_key, load_settings
+from devops_cli.config.settings import AIConfig, Settings, load_settings
+from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.models.benchmark import (
     EmbeddingBenchmarkReport,
     EmbeddingBenchmarkResult,
     EmbeddingServerSummary,
 )
 from devops_cli.output import (
+    escape_text,
     print_info,
     print_markdown,
     print_panel,
@@ -81,6 +84,125 @@ def compute_ndcg_at_k(ranked_indices: list[int], target_idx: int, k: int = 5) ->
     return 0.0
 
 
+_RANK_MEDALS: dict[int, str] = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+
+def _rank_badge(rank: int, res: EmbeddingBenchmarkResult) -> str:
+    """A leaderboard rank: a medal for the top three, ✗ for a failed run."""
+    return "✗" if res.failed else _RANK_MEDALS.get(rank, f"#{rank}")
+
+
+def _format_latency(latency_ms: float | None, unit: str = "ms") -> str:
+    """A latency for a report, or '-' where no request succeeded to measure one."""
+    return "-" if latency_ms is None else f"{latency_ms:.1f}{unit}"
+
+
+def _latency_percentiles(latencies_ms: list[float]) -> tuple[float | None, float | None]:
+    """The p50 and p95 of the latencies measured, or None for each when there are none."""
+    if not latencies_ms:
+        return None, None
+    ordered = sorted(latencies_ms)
+    return ordered[len(ordered) // 2], ordered[int(len(ordered) * 0.95)]
+
+
+def _failure_reason(exc: Exception) -> str:
+    """Why a run failed, as its error says it, cut to CONST_MAX_ERROR_DETAIL_LENGTH characters."""
+    reason = str(exc) if isinstance(exc, DevOpsCLIError) else f"{type(exc).__name__}: {exc}"
+    return reason[:CONST_MAX_ERROR_DETAIL_LENGTH]
+
+
+def _server_summary(server: str, results: list[EmbeddingBenchmarkResult]) -> EmbeddingServerSummary:
+    """One server's averages and leaders over the runs it completed."""
+    timed = [r for r in results if r.latency_ms_p50 is not None]
+    latencies = [r.latency_ms_p50 for r in results if r.latency_ms_p50 is not None]
+    return EmbeddingServerSummary(
+        server=server,
+        avg_latency_p50_ms=round(sum(latencies) / len(latencies), 2) if latencies else None,
+        avg_throughput_items_per_sec=round(
+            sum(r.throughput_items_per_sec for r in results) / len(results), 2
+        ),
+        models_evaluated_count=len(results),
+        fastest_model=min(timed, key=lambda r: r.latency_ms_p50 or 0.0).model if timed else "",
+        top_score_model=max(results, key=lambda r: r.overall_score).model,
+    )
+
+
+def _server_summaries(scored: list[EmbeddingBenchmarkResult]) -> list[EmbeddingServerSummary]:
+    """Each server's summary over its completed runs; a failed run counts for none."""
+    by_server: dict[str, list[EmbeddingBenchmarkResult]] = {}
+    for res in scored:
+        by_server.setdefault(res.server, []).append(res)
+    return [_server_summary(server, results) for server, results in by_server.items()]
+
+
+def _recommendations(scored: list[EmbeddingBenchmarkResult]) -> list[str]:
+    """Placement advice drawn from the completed runs, best first; a failed run is never named."""
+    if not scored:
+        return []
+    best_overall = scored[0]
+    recommendations = [
+        f"Top Overall Model: '{best_overall.model}' "
+        f"({best_overall.overall_score:.1f}% overall, "
+        f"Recall@1={best_overall.recall_at_1:.0f}%, "
+        f"MRR={best_overall.mrr:.2f}) on {best_overall.server}."
+    ]
+    timed = [r for r in scored if r.latency_ms_p50 is not None]
+    if timed:
+        fastest_model = min(timed, key=lambda r: r.latency_ms_p50 or 0.0)
+        recommendations.append(
+            f"Lowest Latency: '{fastest_model.model}' with "
+            f"{_format_latency(fastest_model.latency_ms_p50)} p50 latency on "
+            f"{fastest_model.server} (ideal for per-turn conversational retrieval)."
+        )
+
+    highest_tp = max(scored, key=lambda r: r.throughput_items_per_sec)
+    recommendations.append(
+        f"Highest Indexing Throughput: '{highest_tp.model}' with "
+        f"{highest_tp.throughput_items_per_sec:.1f} items/sec on {highest_tp.server} "
+        "(recommended for large multi-repo indexing)."
+    )
+
+    compact_model = min(scored, key=lambda r: r.dimension)
+    mem_kb = compact_model.memory_kb_per_vector
+    recommendations.append(
+        f"Memory Efficiency: '{compact_model.model}' "
+        f"({compact_model.dimension} dim / {mem_kb:.1f} KB/vec, "
+        f"~{mem_kb:.1f} GB per 1M vectors in Qdrant)."
+    )
+    return recommendations
+
+
+def _leaderboard_metric_cells(res: EmbeddingBenchmarkResult) -> list[str]:
+    """A leaderboard row's cells from Dim to Score; a failed run has no metrics to show."""
+    if res.failed:
+        return ["-"] * 8 + ["failed"]
+    return [
+        str(res.dimension),
+        f"{res.recall_at_1:.1f}%",
+        f"{res.recall_at_3:.1f}%",
+        f"{res.mrr:.3f}",
+        f"{res.ndcg_at_5:.3f}",
+        f"{res.mean_cosine_margin:+.3f}",
+        _format_latency(res.latency_ms_p50, unit=""),
+        f"{res.throughput_items_per_sec:.1f}",
+        f"{res.overall_score:.1f}%",
+    ]
+
+
+def _markdown_leaderboard_row(rank: int, res: EmbeddingBenchmarkResult) -> str:
+    """One Markdown leaderboard row; a failed run shows no metrics and no medal."""
+    badge = _rank_badge(rank, res)
+    if res.failed:
+        return f"| {badge} | `{res.model}` | `{res.server}` | " + "- | " * 8 + "**failed** |"
+    return (
+        f"| {badge} | `{res.model}` | `{res.server}` | {res.dimension} | "
+        f"{res.recall_at_1:.1f}% | {res.recall_at_3:.1f}% | {res.mrr:.3f} | "
+        f"{res.ndcg_at_5:.3f} | {res.mean_cosine_margin:+.3f} | "
+        f"{_format_latency(res.latency_ms_p50)} | {res.throughput_items_per_sec:.1f}/s | "
+        f"**{res.overall_score:.1f}%** |"
+    )
+
+
 def _format_category_accuracy_row(res: Any, cats: dict[str, float]) -> list[str]:
     """Format category domain accuracy row."""
     return [
@@ -99,7 +221,7 @@ def _format_server_perf_row(srv: Any) -> list[str]:
     return [
         srv.server,
         str(srv.models_evaluated_count),
-        f"{srv.avg_latency_p50_ms:.1f}ms",
+        _format_latency(srv.avg_latency_p50_ms),
         f"{srv.avg_throughput_items_per_sec:.1f} items/s",
         srv.fastest_model,
         srv.top_score_model,
@@ -170,8 +292,7 @@ class EmbeddingBenchmarkRunner:
             ai_kwargs["api_base_url"] = clean_endpoint
 
         cfg = AIConfig(**ai_kwargs)
-        api_key = get_ai_api_key(self.settings)
-        return EmbeddingsEngine(cfg, api_key=api_key)
+        return EmbeddingsEngine(cfg, api_key=_key_for_endpoint(self.settings, cfg))
 
     def evaluate_model(
         self,
@@ -235,53 +356,38 @@ class EmbeddingBenchmarkRunner:
                 ),
             )
 
-        engine = self._engine_for_model(clean_model, server_url)
-
-        # 1. Measure single-query latencies (p50, p95)
+        # Any failed request fails the run: no later request is sent, and only the latencies
+        # measured before it are kept.
         query_latencies: list[float] = []
-        for pair in pairs[:5]:
-            start_time = time.perf_counter()
-            try:
-                engine.embed_texts([pair.query], is_query=True)
-                dur_ms = (time.perf_counter() - start_time) * 1000.0
-                query_latencies.append(dur_ms)
-            except Exception as exc:
-                logger.warning(
-                    "Query embedding failed for %s on %s: %s", clean_model, server_url, exc
-                )
-
-        query_latencies.sort()
-        p50_lat = query_latencies[len(query_latencies) // 2] if query_latencies else 0.0
-        p95_lat = query_latencies[int(len(query_latencies) * 0.95)] if query_latencies else 0.0
-
-        # 2. Measure batch throughput across complete corpus
-        total_chars = sum(len(doc) for doc in corpus)
-        t_batch_start = time.perf_counter()
         try:
+            engine = self._engine_for_model(clean_model, server_url)
+
+            # 1. Measure single-query latencies (p50, p95)
+            for pair in pairs[:5]:
+                start_time = time.perf_counter()
+                engine.embed_texts([pair.query], is_query=True)
+                query_latencies.append((time.perf_counter() - start_time) * 1000.0)
+
+            # 2. Measure batch throughput across complete corpus
+            t_batch_start = time.perf_counter()
             corpus_vectors = engine.embed_texts(corpus, is_query=False)
             batch_dur = max(time.perf_counter() - t_batch_start, 0.001)
-            items_per_sec = len(corpus) / batch_dur
-            chars_per_sec = total_chars / batch_dur
-        except Exception as exc:
-            logger.error("Corpus embedding failed for %s on %s: %s", clean_model, server_url, exc)
-            corpus_vectors = []
-            items_per_sec = 0.0
-            chars_per_sec = 0.0
 
-        # 3. Vector health and dimension checks
+            # 3. Embed queries for retrieval evaluation
+            query_vectors = engine.embed_texts([p.query for p in pairs], is_query=True)
+        except DevOpsCLIError as exc:
+            return self._failed_result(clean_model, server_url, query_latencies, exc)
+
+        p50_lat, p95_lat = _latency_percentiles(query_latencies)
+        items_per_sec = len(corpus) / batch_dur
+        chars_per_sec = sum(len(doc) for doc in corpus) / batch_dur
+
+        # 4. Vector health and dimension checks
         dimension = len(corpus_vectors[0]) if corpus_vectors and corpus_vectors[0] else 0
         is_normalized = True
         if corpus_vectors and corpus_vectors[0]:
             norm = math.sqrt(sum(x * x for x in corpus_vectors[0]))
             is_normalized = abs(norm - 1.0) < 0.05 or abs(norm - 0.0) < 0.01
-
-        # 4. Embed queries for retrieval evaluation
-        query_texts = [p.query for p in pairs]
-        try:
-            query_vectors = engine.embed_texts(query_texts, is_query=True)
-        except Exception as exc:
-            logger.error("Query embeddings failed for %s on %s: %s", clean_model, server_url, exc)
-            query_vectors = []
 
         # 5. Compute semantic retrieval metrics (Recall@1, Recall@3, Recall@5, MRR, NDCG@5, Margin)
         top1_hits = 0
@@ -368,7 +474,8 @@ class EmbeddingBenchmarkRunner:
             + (mrr * 100.0 * 0.15)
             + (max(0.0, mean_margin * 100.0) * 0.15)
         )
-        perf_score = min(100.0, (items_per_sec / 50.0) * 50.0 + max(0.0, (100.0 - p50_lat / 10.0)))
+        latency_points = max(0.0, 100.0 - p50_lat / 10.0) if p50_lat is not None else 0.0
+        perf_score = min(100.0, (items_per_sec / 50.0) * 50.0 + latency_points)
         health_score = 100.0 if (dimension > 0 and is_normalized) else 50.0
         overall = (quality_score * 0.6) + (perf_score * 0.3) + (health_score * 0.1)
 
@@ -378,7 +485,8 @@ class EmbeddingBenchmarkRunner:
             print_info(
                 f"  [bold green]✓[/bold green] {clean_model} on {server_url} | "
                 f"dim={dimension} | R@1={recall_1:.0f}% | MRR={mrr:.2f} | "
-                f"p50={p50_lat:.1f}ms | {items_per_sec:.1f} items/s → [bold]{overall:.1f}%[/bold]",
+                f"p50={_format_latency(p50_lat)} | {items_per_sec:.1f} items/s → "
+                f"[bold]{overall:.1f}%[/bold]",
                 prefix=False,
             )
 
@@ -393,14 +501,36 @@ class EmbeddingBenchmarkRunner:
             ndcg_at_5=round(ndcg_5, 3),
             mean_cosine_margin=round(mean_margin, 3),
             separation_score=round(separation, 3),
-            latency_ms_p50=round(p50_lat, 2),
-            latency_ms_p95=round(p95_lat, 2),
+            latency_ms_p50=round(p50_lat, 2) if p50_lat is not None else None,
+            latency_ms_p95=round(p95_lat, 2) if p95_lat is not None else None,
             throughput_items_per_sec=round(items_per_sec, 2),
             throughput_chars_per_sec=round(chars_per_sec, 2),
             overall_score=round(overall, 2),
             is_normalized=is_normalized,
             category_accuracies=cat_accs,
             memory_kb_per_vector=mem_kb,
+        )
+
+    def _failed_result(
+        self, model: str, server_url: str, query_latencies: list[float], exc: Exception
+    ) -> EmbeddingBenchmarkResult:
+        """A run whose embeddings failed: the reason, the latencies measured before it, no scores."""
+        reason = _failure_reason(exc)
+        logger.warning("Embedding benchmark of %s on %s failed: %s", model, server_url, reason)
+        with self._print_lock:
+            print_info(
+                f"  [bold red]✗[/bold red] {model} on {server_url} | {escape_text(reason)}",
+                prefix=False,
+            )
+        p50_lat, p95_lat = _latency_percentiles(query_latencies)
+        return EmbeddingBenchmarkResult(
+            model=model,
+            server=server_url,
+            failed=True,
+            error=reason,
+            latency_ms_p50=round(p50_lat, 2) if p50_lat is not None else None,
+            latency_ms_p95=round(p95_lat, 2) if p95_lat is not None else None,
+            is_normalized=False,
         )
 
     def run(self) -> EmbeddingBenchmarkReport:
@@ -448,66 +578,15 @@ class EmbeddingBenchmarkRunner:
                 m_name, srv_name = future_to_run[future]
                 try:
                     res = future.result()
-                    results.append(res)
                 except Exception as exc:
-                    logger.error("Evaluation failed for model %s on %s: %s", m_name, srv_name, exc)
+                    res = self._failed_result(m_name, srv_name, [], exc)
+                results.append(res)
 
-        results.sort(key=lambda r: r.overall_score, reverse=True)
-
-        # Compute Server Performance Summaries
-        server_summaries: list[EmbeddingServerSummary] = []
-        server_map: dict[str, list[EmbeddingBenchmarkResult]] = {}
-        for r in results:
-            server_map.setdefault(r.server, []).append(r)
-
-        for srv, srv_results in server_map.items():
-            avg_lat = sum(r.latency_ms_p50 for r in srv_results) / len(srv_results)
-            avg_tp = sum(r.throughput_items_per_sec for r in srv_results) / len(srv_results)
-            fastest = min(srv_results, key=lambda r: r.latency_ms_p50).model if srv_results else ""
-            top_model = max(srv_results, key=lambda r: r.overall_score).model if srv_results else ""
-            server_summaries.append(
-                EmbeddingServerSummary(
-                    server=srv,
-                    avg_latency_p50_ms=round(avg_lat, 2),
-                    avg_throughput_items_per_sec=round(avg_tp, 2),
-                    models_evaluated_count=len(srv_results),
-                    fastest_model=fastest,
-                    top_score_model=top_model,
-                )
-            )
-
-        # Synthesize actionable architectural recommendations
-        recommendations: list[str] = []
-        if results:
-            best_overall = results[0]
-            recommendations.append(
-                f"Top Overall Model: '{best_overall.model}' "
-                f"({best_overall.overall_score:.1f}% overall, "
-                f"Recall@1={best_overall.recall_at_1:.0f}%, "
-                f"MRR={best_overall.mrr:.2f}) on {best_overall.server}."
-            )
-
-            fastest_model = min(results, key=lambda r: r.latency_ms_p50)
-            recommendations.append(
-                f"Lowest Latency: '{fastest_model.model}' with "
-                f"{fastest_model.latency_ms_p50:.1f}ms p50 latency on {fastest_model.server} "
-                "(ideal for per-turn conversational retrieval)."
-            )
-
-            highest_tp = max(results, key=lambda r: r.throughput_items_per_sec)
-            recommendations.append(
-                f"Highest Indexing Throughput: '{highest_tp.model}' with "
-                f"{highest_tp.throughput_items_per_sec:.1f} items/sec on {highest_tp.server} "
-                "(recommended for large multi-repo indexing)."
-            )
-
-            compact_model = min(results, key=lambda r: r.dimension)
-            mem_kb = compact_model.memory_kb_per_vector
-            recommendations.append(
-                f"Memory Efficiency: '{compact_model.model}' "
-                f"({compact_model.dimension} dim / {mem_kb:.1f} KB/vec, "
-                f"~{mem_kb:.1f} GB per 1M vectors in Qdrant)."
-            )
+        # A failed run ranks after every scored one and counts in no summary or recommendation.
+        results.sort(key=lambda r: (r.failed, -r.overall_score))
+        scored = [r for r in results if not r.failed]
+        server_summaries = _server_summaries(scored)
+        recommendations = _recommendations(scored)
 
         report = EmbeddingBenchmarkReport(
             session_id=self.session_id,
@@ -555,33 +634,10 @@ class EmbeddingBenchmarkRunner:
             ("Items/s", "yellow"),
             ("Score", "bold magenta"),
         ]
-        rows: list[list[str]] = []
-        for rank, res in enumerate(report.models, 1):
-            if rank == 1:
-                badge = "🥇"
-            elif rank == 2:
-                badge = "🥈"
-            elif rank == 3:
-                badge = "🥉"
-            else:
-                badge = f"#{rank}"
-
-            rows.append(
-                [
-                    badge,
-                    res.model,
-                    res.server,
-                    str(res.dimension),
-                    f"{res.recall_at_1:.1f}%",
-                    f"{res.recall_at_3:.1f}%",
-                    f"{res.mrr:.3f}",
-                    f"{res.ndcg_at_5:.3f}",
-                    f"{res.mean_cosine_margin:+.3f}",
-                    f"{res.latency_ms_p50:.1f}",
-                    f"{res.throughput_items_per_sec:.1f}",
-                    f"{res.overall_score:.1f}%",
-                ]
-            )
+        rows: list[list[str]] = [
+            [_rank_badge(rank, res), res.model, res.server, *_leaderboard_metric_cells(res)]
+            for rank, res in enumerate(report.models, 1)
+        ]
 
         print_table(
             title=f"⚡ Embedding Model Benchmark Leaderboard — {report.session_id}",
@@ -601,7 +657,9 @@ class EmbeddingBenchmarkRunner:
                 "Infrastructure",
             ]
             cat_rows: list[list[str]] = [
-                _format_category_accuracy_row(res, res.category_accuracies) for res in report.models
+                _format_category_accuracy_row(res, res.category_accuracies)
+                for res in report.models
+                if not res.failed
             ]
             write_stdout("\n")
             print_table(
@@ -658,22 +716,13 @@ class EmbeddingBenchmarkRunner:
                 ":--- | :--- | :--- | :--- | :--- | :--- |"
             ),
         ]
-        for rank, res in enumerate(report.models, 1):
-            if rank == 1:
-                badge = "🥇"
-            elif rank == 2:
-                badge = "🥈"
-            elif rank == 3:
-                badge = "🥉"
-            else:
-                badge = f"#{rank}"
-            lines.append(
-                f"| {badge} | `{res.model}` | `{res.server}` | {res.dimension} | "
-                f"{res.recall_at_1:.1f}% | {res.recall_at_3:.1f}% | {res.mrr:.3f} | "
-                f"{res.ndcg_at_5:.3f} | {res.mean_cosine_margin:+.3f} | "
-                f"{res.latency_ms_p50:.1f}ms | {res.throughput_items_per_sec:.1f}/s | "
-                f"**{res.overall_score:.1f}%** |"
-            )
+        lines.extend(
+            _markdown_leaderboard_row(rank, res) for rank, res in enumerate(report.models, 1)
+        )
+        failed = [res for res in report.models if res.failed]
+        if failed:
+            lines.extend(["", "## ✗ Failed Runs", ""])
+            lines.extend(f"- `{res.model}` on `{res.server}`: {res.error}" for res in failed)
 
         if len(report.server_benchmarks) > 1:
             lines.extend(
@@ -689,7 +738,7 @@ class EmbeddingBenchmarkRunner:
             for srv in report.server_benchmarks:
                 lines.append(
                     f"| `{srv.server}` | {srv.models_evaluated_count} | "
-                    f"{srv.avg_latency_p50_ms:.1f}ms | "
+                    f"{_format_latency(srv.avg_latency_p50_ms)} | "
                     f"{srv.avg_throughput_items_per_sec:.1f}/s | "
                     f"`{srv.fastest_model}` | `{srv.top_score_model}` |"
                 )

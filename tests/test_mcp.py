@@ -479,6 +479,29 @@ def test_k8s_pods_lists_the_pods_of_the_namespace_it_names() -> None:
     assert argv == [["k8s", "pods", "-n", "llm"], ["k8s", "pods", "-A"]]
 
 
+@pytest.mark.parametrize(
+    ("provider", "model", "field"),
+    [
+        ("openai", "x@https://example.com", "model"),
+        ("openai", "bge-m3,x@https://example.com", "model"),
+        ("ollama", "https://example.com/bge-m3", "model"),
+        ("example", "bge-m3", "provider"),
+    ],
+)
+def test_benchmark_tools_reject_endpoint_override(provider: str, model: str, field: str) -> None:
+    """Verify an MCP client can neither name the server the benchmark sends its requests and the
+    AI key to, nor pick a provider outside the known ids, and that nothing is dispatched (#954)."""
+    from devops_cli.ai.mcp.server import benchmark_embeddings
+
+    with (
+        patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="output") as dispatcher,
+        pytest.raises(ValidationError) as refused,
+    ):
+        benchmark_embeddings(provider=provider, model=model)
+
+    assert (refused.value.details["field"], dispatcher.called) == (field, False)
+
+
 def test_ai_architecture_tool_is_removed() -> None:
     """Verify the tool that ran the never-existing `devops analyze architecture` is gone,
     with no shim left behind."""

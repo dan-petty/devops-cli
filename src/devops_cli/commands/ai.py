@@ -32,6 +32,7 @@ from devops_cli.commands.rag import app as rag_app
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
+    CONST_AI_PROVIDER_IDS,
     CONST_DEVCONTAINER_JSON_PATH,
     CONST_GIT_DIR_NAME,
 )
@@ -165,7 +166,6 @@ def ai_main(
 # Constants & File Targets
 # =============================================================================
 
-_PROVIDERS = ("ollama", "claude", "copilot", "openai", "gateway")
 # The tasks a provider and model can be set for on their own (`ai.tasks.<task>`).
 _AI_TASKS = ("chat", "metadata", "analysis", "verification", "compose", "embedding")
 
@@ -370,7 +370,7 @@ def _print_task_override(task: str, override: Any) -> None:
 def config(
     provider: Annotated[
         str | None,
-        typer.Option("--provider", "-p", help=f"Provider: {', '.join(_PROVIDERS)}"),
+        typer.Option("--provider", "-p", help=f"Provider: {', '.join(CONST_AI_PROVIDER_IDS)}"),
     ] = None,
     model: Annotated[
         str | None,
@@ -452,8 +452,11 @@ def config(
         )
         return
 
-    if provider and provider not in _PROVIDERS:
-        print_error(f"Unknown provider {provider!r}. Choose: {', '.join(_PROVIDERS)}", prefix=False)
+    if provider and provider not in CONST_AI_PROVIDER_IDS:
+        print_error(
+            f"Unknown provider {provider!r}. Choose: {', '.join(CONST_AI_PROVIDER_IDS)}",
+            prefix=False,
+        )
         raise typer.Exit(1)
     target = getattr(settings.ai.tasks, task) if task else settings.ai
     _apply_ai_settings(

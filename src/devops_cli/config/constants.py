@@ -263,6 +263,10 @@ CONST_BENCHMARKS_DIR_NAME = "benchmarks"
 # The kinds of run `devops ai benchmark --type` takes: `auto` picks embedding when a model's name
 # says it embeds and chat otherwise. Any other value is refused rather than run as chat (#950).
 CONST_BENCHMARK_TYPES: Final[tuple[str, ...]] = ("auto", "chat", "embedding")
+# What makes a `--models` entry name the server it runs on: `model@endpoint`, or a URL. Only a
+# person at the command line names one; an MCP client is refused, so a model never takes the AI
+# key to a host the client chose (#954).
+CONST_MODEL_ENDPOINT_MARKERS: Final[tuple[str, ...]] = ("@", "://")
 CONST_AUDIT_LOG_NAME = "audit.jsonl"
 CONST_FEEDBACK_DATASET_NAME = "feedback_dataset.jsonl"
 CONST_EMBEDDING_REPORT_FILENAME = "embedding_report.json"
@@ -521,6 +525,12 @@ CONST_URL_OLLAMA_LOCALHOST = "http://localhost:11434"
 CONST_URL_ANTHROPIC_API_BASE = "https://api.anthropic.com"
 CONST_URL_GITHUB_COPILOT_API_BASE = "https://api.githubcopilot.com"
 CONST_URL_OPENAI_API_BASE = "https://api.openai.com"
+# The API a hosted provider's requests, and the AI key, go to when no api_base_url is set.
+CONST_AI_PROVIDER_API_BASES: Final[dict[str, str]] = {
+    "claude": CONST_URL_ANTHROPIC_API_BASE,
+    "copilot": CONST_URL_GITHUB_COPILOT_API_BASE,
+    "openai": CONST_URL_OPENAI_API_BASE,
+}
 # What `backend_host` reports for a provider with no configured or default endpoint. It names
 # no server, so LLM spans write no `server.address` for it.
 CONST_AI_BACKEND_HOST_UNKNOWN = "unknown"
@@ -2200,6 +2210,14 @@ CONST_REASONING_MODEL_EXACT: Final[frozenset[str]] = frozenset(
     {"gpt-5", "o1", "o3", "deepseek-r1", "deepseek-reasoner", "devops-reasoning"}
 )
 CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
+# The providers `ai.provider` takes.
+CONST_AI_PROVIDER_IDS: Final[tuple[str, ...]] = (
+    "ollama",
+    "claude",
+    "copilot",
+    "openai",
+    CONST_AI_GATEWAY_PROVIDER,
+)
 # Response header in which the LiteLLM gateway names the backend (api_base) that served a call.
 CONST_AI_GATEWAY_SERVED_BY_HEADER: Final[str] = "x-litellm-model-api-base"
 # Why a provider says a reply ended, as pydantic-ai's FinishReason. The OpenAI-compatible and

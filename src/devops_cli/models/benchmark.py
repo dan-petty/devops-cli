@@ -134,10 +134,16 @@ class BenchmarkReport(BaseModel):
 
 
 class EmbeddingBenchmarkResult(BaseModel):
-    """Evaluation metrics and benchmark performance for an embedding model."""
+    """Evaluation metrics and benchmark performance for an embedding model.
+
+    A failed run is one where any embedding request failed: it carries the reason in `error`,
+    the latencies of the requests that succeeded before it, or None, and no scores (#954).
+    """
 
     model: str
     server: str = ""
+    failed: bool = False
+    error: str | None = None
     dimension: int = Field(default=0, ge=0)
     recall_at_1: float = Field(default=0.0, ge=0.0, le=100.0)
     recall_at_3: float = Field(default=0.0, ge=0.0, le=100.0)
@@ -146,8 +152,8 @@ class EmbeddingBenchmarkResult(BaseModel):
     ndcg_at_5: float = Field(default=0.0, ge=0.0, le=1.0)
     mean_cosine_margin: float = Field(default=0.0)
     separation_score: float = Field(default=0.0)
-    latency_ms_p50: float = Field(default=0.0, ge=0.0)
-    latency_ms_p95: float = Field(default=0.0, ge=0.0)
+    latency_ms_p50: float | None = Field(default=None, ge=0.0)
+    latency_ms_p95: float | None = Field(default=None, ge=0.0)
     throughput_items_per_sec: float = Field(default=0.0, ge=0.0)
     throughput_chars_per_sec: float = Field(default=0.0, ge=0.0)
     overall_score: float = Field(default=0.0, ge=0.0, le=100.0)
@@ -160,7 +166,7 @@ class EmbeddingServerSummary(BaseModel):
     """Aggregated performance metrics for an embedding model backend server."""
 
     server: str
-    avg_latency_p50_ms: float = Field(default=0.0, ge=0.0)
+    avg_latency_p50_ms: float | None = Field(default=None, ge=0.0)
     avg_throughput_items_per_sec: float = Field(default=0.0, ge=0.0)
     models_evaluated_count: int = Field(default=0, ge=0)
     fastest_model: str = ""

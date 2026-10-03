@@ -11,11 +11,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
+from devops_cli.config.constants import CONST_AI_GATEWAY_PROVIDER, CONST_AI_PROVIDER_API_BASES
+from devops_cli.config.settings import AIConfig, Settings, get_ai_api_key, load_settings
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.models.benchmark import (
     BenchmarkReport,
@@ -49,6 +51,46 @@ def _get_benchmarks_base_dir() -> Path:
     d = resolve_data_path(load_settings().data.benchmarks_dir)
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def _url_origin(url: str) -> tuple[str, str, int] | None:
+    """The scheme, host and port a URL reaches, or None for one that names no host."""
+    parts = urlsplit(url.strip())
+    try:
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+    except ValueError:
+        return None
+    return (parts.scheme, parts.hostname, port) if parts.hostname is not None else None
+
+
+def _key_for_endpoint(settings: Settings, client_config: AIConfig) -> str:
+    """The configured AI key when `client_config` sends it to an endpoint the configuration names.
+
+    A `model@endpoint` entry or a benchmark server can point a client anywhere, so the key goes
+    only to the configured `api_base_url`, `gateway_url` or the configured provider's own API,
+    compared by scheme, host and port. A gateway client sends to its `gateway_url` whatever the
+    model names. Anywhere else gets '', which neither LLMClient nor EmbeddingsEngine replaces with
+    another key (#954).
+    """
+    configured = settings.ai
+    trusted = {
+        origin
+        for url in (
+            configured.api_base_url,
+            configured.gateway_url,
+            CONST_AI_PROVIDER_API_BASES.get(configured.provider.lower()),
+        )
+        if url and (origin := _url_origin(url))
+    }
+    provider = client_config.provider.lower()
+    endpoint = (
+        client_config.gateway_url
+        if provider == CONST_AI_GATEWAY_PROVIDER
+        else client_config.api_base_url or CONST_AI_PROVIDER_API_BASES.get(provider)
+    )
+    if endpoint and _url_origin(endpoint) in trusted:
+        return get_ai_api_key(settings) or ""
+    return ""
 
 
 def _format_model_peer_feedback(m: Any, peer_grades: list[Any]) -> list[str]:
@@ -191,8 +233,7 @@ class BenchmarkRunner:
             updates["api_base_url"] = clean_endpoint
 
         cfg = self.settings.ai.model_copy(update=updates)
-        api_key = get_ai_api_key(self.settings)
-        return LLMClient(cfg, api_key=api_key)
+        return LLMClient(cfg, api_key=_key_for_endpoint(self.settings, cfg))
 
     def _simulate_response(
         self,
