@@ -1147,7 +1147,7 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         reportable = False
         verified_by = base.verified_by or other.verified_by
     elif best_status == "MITIGATED":
-        verified = base.verified or other.verified
+        verified = False
         mitigated = True
         reportable = True
         verified_by = base.verified_by or other.verified_by

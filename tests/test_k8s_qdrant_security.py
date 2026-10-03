@@ -66,13 +66,34 @@ def test_qdrant_helm_values_security() -> None:
     assert secret_ref.get("name") == "qdrant-api-key", "Expected secretKeyRef.name 'qdrant-api-key'"
     assert secret_ref.get("key") == "api-key", "Expected secretKeyRef.key 'api-key'"
 
-    # 4. Pod and container security contexts
-    sec_ctx = data.get("securityContext", {})
-    assert sec_ctx.get("allowPrivilegeEscalation") is False
-    assert sec_ctx.get("capabilities", {}).get("drop") == ["ALL"]
-
-    pod_sec_ctx = data.get("podSecurityContext", {})
-    assert pod_sec_ctx.get("runAsNonRoot") is True
+    # 4. Pod and container security contexts. The qdrant chart renders the container's from
+    # `containerSecurityContext` and never reads `securityContext`, so a hardening block there
+    # never reached the pod (#953).
+    container_sec_ctx = data["containerSecurityContext"]
+    pod_sec_ctx = data["podSecurityContext"]
+    assert (
+        "securityContext" in data,
+        container_sec_ctx.get("runAsNonRoot"),
+        container_sec_ctx.get("runAsUser"),
+        container_sec_ctx.get("privileged"),
+        container_sec_ctx.get("readOnlyRootFilesystem"),
+        container_sec_ctx.get("allowPrivilegeEscalation"),
+        container_sec_ctx.get("capabilities", {}).get("drop"),
+        container_sec_ctx.get("seccompProfile", {}).get("type"),
+        container_sec_ctx.get("runAsGroup"),
+        pod_sec_ctx.get("runAsNonRoot"),
+    ) == (
+        False,
+        True,
+        pod_sec_ctx["runAsUser"],
+        False,
+        True,
+        False,
+        ["ALL"],
+        "RuntimeDefault",
+        pod_sec_ctx["runAsGroup"],
+        True,
+    )
 
 
 def test_qdrant_config_options_and_secret_registry() -> None:

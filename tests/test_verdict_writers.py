@@ -22,6 +22,7 @@ from devops_cli.ai.review.verification import (
     _validate_segment_findings,
 )
 from devops_cli.ai.review_schema import (
+    CriterionExecutionResult,
     FileReviewPayload,
     Finding,
     ReviewResult,
@@ -309,34 +310,35 @@ def test_citation_line_validation_downgrade(tmp_path: Path) -> None:
     ) == ("INVALIDATED", False, False, "llm", 3)
 
 
-def test_mitigating_mechanism_annotation() -> None:
+def test_mitigating_mechanism_annotation(tmp_path: Path) -> None:
     """Mitigated verdicts without mechanism degrade to UNVERIFIED with notes."""
+    (tmp_path / "q.py").write_text("LIMIT = BoundedSemaphore(10)\n", encoding="utf-8")
     f = Finding(title="Unbounded queue", location="q.py:10", severity="MEDIUM")
 
     item_no_mech = {"status": "MITIGATED", "reason": "Bounded elsewhere"}
-    res_no_mech = _apply_single_finding_verification(f, item_no_mech, "now")
+    res_no_mech = _apply_single_finding_verification(f, item_no_mech, "now", repo_root=tmp_path)
     assert (
         res_no_mech.status,
         res_no_mech.reportable,
         res_no_mech.mitigated,
-        "without specified mitigating mechanism" in (res_no_mech.verification_note or ""),
-    ) == ("UNVERIFIED", True, False, True)
+        res_no_mech.verification_note,
+    ) == ("UNVERIFIED", True, False, "mitigation-unproven: no mitigating mechanism named")
 
     item_with_mech = {
         "status": "MITIGATED",
-        "mitigating_mechanism": "BoundedSemaphore(10)",
+        "mitigating_mechanism": "`BoundedSemaphore(10)`",
         "perimeter_files": ["q.py"],
         "citation_line": 15,
         "reason": "Bounded by semaphore",
     }
-    res_with_mech = _apply_single_finding_verification(f, item_with_mech, "now")
+    res_with_mech = _apply_single_finding_verification(f, item_with_mech, "now", repo_root=tmp_path)
     assert (
         res_with_mech.status,
         res_with_mech.reportable,
         res_with_mech.mitigated,
         res_with_mech.mitigating_mechanism,
         res_with_mech.citation_line,
-    ) == ("MITIGATED", True, True, "BoundedSemaphore(10)", 15)
+    ) == ("MITIGATED", True, True, "`BoundedSemaphore(10)`", 15)
 
 
 def test_compute_verdict_distributions_citation_rates() -> None:
@@ -458,7 +460,7 @@ def test_review_verify_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert (f_mit.status, f_mit.reportable, f_mit.verified, f_mit.mitigated, f_mit.verified_by) == (
         "MITIGATED",
         True,
-        True,
+        False,
         True,
         "human",
     )
@@ -691,3 +693,552 @@ def test_a_file_whose_verification_raised_says_why_its_findings_have_no_verdict(
         6,
         {"verification-unavailable": 2, "verifier-no-verdict": 2},
     )
+
+
+# ── Verdicts point at evidence the reviewed tree holds (#845) ────────────────────────────────
+
+# The probe of #845: a four-line file whose command injection a verifier called mitigated by a
+# wrapper in a file that does not exist, citing line 999.
+_SHELL_SOURCE = "import os\n\ndef run(cmd):\n    os.system(cmd)\n"
+_SAFE_EXEC_SOURCE = (
+    "import shlex\n\n\ndef safe_exec(argv):\n    return ' '.join(shlex.quote(a) for a in argv)\n"
+)
+
+
+@pytest.fixture
+def reviewed_tree(tmp_path: Path) -> Path:
+    """A reviewed tree: the finding's file, a real wrapper, a conventions file and a workflow,
+    with a file beside the tree that a `../` path reaches."""
+    root = tmp_path / "project"
+    for rel, source in {
+        "app/shell.py": _SHELL_SOURCE,
+        "app/safe.py": _SAFE_EXEC_SOURCE,
+        ".devops/review.md": "Commands go through `safe_exec`.\n",
+        ".github/workflows/ci.yml": "permissions:\n  contents: read\n",
+    }.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(source, encoding="utf-8")
+    (tmp_path / "outside.py").write_text(_SAFE_EXEC_SOURCE, encoding="utf-8")
+    return root
+
+
+def _injection() -> Finding:
+    return Finding(
+        title="Command injection via os.system",
+        description="`run` passes `cmd` to `os.system` unquoted.",
+        location="app/shell.py:4",
+        severity="HIGH",
+    )
+
+
+def _mitigation(mechanism: str, *perimeter: str) -> dict[str, object]:
+    return {
+        "status": "MITIGATED",
+        "mitigated": True,
+        "reason": "Every command goes through a quoting wrapper.",
+        "mitigating_mechanism": mechanism,
+        "perimeter_files": list(perimeter),
+        "citation_line": 4,
+    }
+
+
+# A model's confirmation of `_injection`, citing the line that holds the defect.
+_CONFIRMATION: dict[str, object] = {
+    "status": "VERIFIED",
+    "verified": True,
+    "reason": "Line 4 passes the unquoted `cmd` argument to os.system.",
+    "citation_line": 4,
+}
+
+
+def _judged(
+    verdict: dict[str, object], root: Path | None, finding: Finding | None = None
+) -> Finding:
+    judged = _apply_single_finding_verification(
+        finding or _injection(), verdict, "2026-10-03T00:00:00", repo_root=root
+    )
+    assert_verdict_invariants([judged])
+    return judged
+
+
+def _note_kind(f: Finding) -> str:
+    return (f.verification_note or "").split(":", 1)[0]
+
+
+def test_the_probe_fabricated_mitigation_stays_in_the_report(reviewed_tree: Path) -> None:
+    """The #845 probe gave MITIGATED, verified_by=llm, no note and APPROVE."""
+    from devops_cli.ai.review_schema import derive_recommendation
+
+    verdict = _mitigation("shlex.quote wrapper in safe_exec", "src/does/not/exist.py")
+    judged = _judged({**verdict, "citation_line": 999}, reviewed_tree)
+
+    assert (
+        judged.status,
+        judged.reportable,
+        judged.verified_by,
+        judged.mitigated,
+        judged.citation_line,
+        _note_kind(judged),
+        "src/does/not/exist.py" in (judged.verification_note or ""),
+        derive_recommendation([judged]),
+    ) == ("UNVERIFIED", True, None, False, None, "mitigation-unproven", True, "REQUEST CHANGES")
+
+
+@pytest.mark.parametrize(
+    ("mechanism", "perimeter"),
+    [
+        ("shlex.quote wrapper in safe_exec", "app/safe.py"),
+        # The identifier may sit in the finding's own file rather than the perimeter.
+        ("`cmd` comes from a fixed allowlist", "app/safe.py"),
+        # A `.github/...` perimeter keeps its leading dot and resolves to itself.
+        ("The workflow sets `contents: read`", ".github/workflows/ci.yml"),
+    ],
+    ids=["in-perimeter", "in-finding-file", "dot-github"],
+)
+def test_a_mitigation_whose_perimeter_exists_and_holds_the_mechanism_stays_mitigated(
+    mechanism: str, perimeter: str, reviewed_tree: Path
+) -> None:
+    """A mitigation that points at code the tree holds is MITIGATED, reported and not verified."""
+    judged = _judged(_mitigation(mechanism, perimeter), reviewed_tree)
+
+    assert (
+        judged.status,
+        judged.reportable,
+        judged.mitigated,
+        judged.verified,
+        judged.verified_by,
+        judged.perimeter_files,
+        judged.verification_note,
+    ) == ("MITIGATED", True, True, False, "llm", [perimeter], None)
+
+
+@pytest.mark.parametrize(
+    "perimeter",
+    ["absolute", "../outside.py", "/etc/hostname", "app/missing.py", "app"],
+    ids=["absolute-inside-tree", "dot-dot-escape", "absolute-outside", "missing", "directory"],
+)
+def test_a_perimeter_that_does_not_resolve_inside_the_reviewed_tree_is_unresolved(
+    perimeter: str, reviewed_tree: Path
+) -> None:
+    """An absolute path, even to a file in the tree, or a `../` escape names no perimeter."""
+    named = str(reviewed_tree / "app/safe.py") if perimeter == "absolute" else perimeter
+    judged = _judged(_mitigation("shlex.quote wrapper in safe_exec", named), reviewed_tree)
+
+    assert (
+        judged.status,
+        judged.reportable,
+        _note_kind(judged),
+        f"`{named}` does not resolve inside the reviewed tree" in (judged.verification_note or ""),
+    ) == ("UNVERIFIED", True, "mitigation-unproven", True)
+
+
+# Five mechanisms of session 20261001-224227 that describe the defect rather than a mitigation.
+# The perimeter holds each one's identifiers, so only the self-negation can fail.
+_SELF_NEGATING_MECHANISMS = (
+    "The error is caught but not logged or re-raised",
+    "Rich library's escape_text function is used for title and location but not for severity label",
+    "The function already attempts to balance brackets but does not fully sanitize nested or "
+    "malformed bracket sequences.",
+    "_check_path_traversal function is expected to handle path traversal checks",
+    "The test is intended to verify that private IP resolution raises an error, but the mock "
+    "implementation is too permissive",
+)
+
+
+@pytest.mark.parametrize("mechanism", _SELF_NEGATING_MECHANISMS)
+def test_a_mechanism_that_describes_the_defect_is_no_mitigation(
+    mechanism: str, reviewed_tree: Path
+) -> None:
+    """Five of session 20261001-224227's 28 mitigations described the defect itself."""
+    (reviewed_tree / "app/guard.py").write_text(
+        "def escape_text(s): ...\ndef _check_path_traversal(p): ...\n", encoding="utf-8"
+    )
+    judged = _judged(_mitigation(mechanism, "app/guard.py"), reviewed_tree)
+
+    assert (
+        judged.status,
+        judged.reportable,
+        _note_kind(judged),
+        "describes the defect" in (judged.verification_note or ""),
+    ) == ("UNVERIFIED", True, "mitigation-unproven", True)
+
+
+@pytest.mark.parametrize(
+    ("mechanism", "perimeter", "check"),
+    [
+        # 18 of the session's 28 mechanisms named no code identifier.
+        ("Input validation and sanitization", "app/safe.py", "names no code identifier"),
+        # 2 of its perimeters were the conventions file; it holds `safe_exec` here.
+        ("shlex.quote wrapper in safe_exec", ".devops/review.md", "is documentation"),
+        ("`quote_all` wrapper", "app/safe.py", "none of its identifiers"),
+    ],
+    ids=["no-identifier", "conventions-file", "identifier-absent"],
+)
+def test_a_mitigation_pointing_at_no_code_that_enforces_it_is_unproven(
+    mechanism: str, perimeter: str, check: str, reviewed_tree: Path
+) -> None:
+    """The note names the check that failed."""
+    judged = _judged(_mitigation(mechanism, perimeter), reviewed_tree)
+
+    assert (
+        judged.status,
+        judged.reportable,
+        _note_kind(judged),
+        check in (judged.verification_note or ""),
+    ) == ("UNVERIFIED", True, "mitigation-unproven", True)
+
+
+@pytest.mark.parametrize(
+    ("citation", "expected"),
+    [
+        (999, ("UNVERIFIED", None, "citation-out-of-range", True)),
+        (0, ("UNVERIFIED", None, "citation-out-of-range", True)),
+        (4, ("VERIFIED", "llm", "", True)),
+        (None, ("VERIFIED", "llm", "", True)),
+    ],
+    ids=["past-the-end", "line-zero", "in-range", "no-citation"],
+)
+def test_a_confirmation_citing_a_line_outside_the_file_is_unverified(
+    citation: int | None, expected: tuple[str, str | None, str, bool], reviewed_tree: Path
+) -> None:
+    """A model VERIFIED verdict citing line 999 of a four-line file passed unchecked."""
+    verdict = {"status": "VERIFIED", "verified": True, "reason": "os.system(cmd) on line 4."}
+    judged = _judged({**verdict, "citation_line": citation}, reviewed_tree)
+
+    assert (
+        judged.status,
+        judged.verified_by,
+        _note_kind(judged),
+        judged.reportable,
+    ) == expected
+
+
+@pytest.mark.parametrize(
+    ("located", "verdict", "expected"),
+    [
+        (
+            "in-tree",
+            {**_CONFIRMATION, "citation_line": 999},
+            ("UNVERIFIED", None, "citation-out-of-range: line 999 of `{path}` (4 lines)"),
+        ),
+        (
+            "in-tree",
+            _mitigation("`cmd` comes from a fixed allowlist", "app/safe.py"),
+            ("MITIGATED", 4, None),
+        ),
+        # A file outside the reviewed tree is not read: the confirmation is left as it was.
+        ("outside", {**_CONFIRMATION, "citation_line": 999}, ("VERIFIED", 999, None)),
+    ],
+    ids=["past-the-end", "identifier-in-finding-file", "outside-the-tree"],
+)
+def test_a_finding_located_by_an_absolute_path_is_read_from_the_reviewed_tree(
+    located: str,
+    verdict: dict[str, object],
+    expected: tuple[str, int | None, str | None],
+    reviewed_tree: Path,
+) -> None:
+    """A scanner writes its finding's location absolute; the checks read that file as they read a
+    relative one, and refuse only a file outside the tree."""
+    path = (
+        reviewed_tree / "app/shell.py"
+        if located == "in-tree"
+        else reviewed_tree.parent / "outside.py"
+    ).resolve()
+    finding = _injection().model_copy(update={"location": f"{path}:4"})
+
+    judged = _judged(verdict, reviewed_tree, finding)
+
+    status, citation, note = expected
+    assert (judged.status, judged.citation_line, judged.verification_note) == (
+        status,
+        citation,
+        note.format(path=path) if note else None,
+    )
+
+
+# Reasons that deny the claim they confirm or mitigate: the session 20261003-012555 confirmation
+# of a Semgrep finding (cache llm_6818ef36), and the same denial of `_injection`'s claim.
+_IMPORT_CLAIM = Finding(
+    title="[python.lang.security.audit.non-literal-import.non-literal-import] Untrusted user "
+    "input in `importlib.import_module()` function allows an attacker",
+    location="app/shell.py:4",
+    severity="MEDIUM",
+)
+
+
+@pytest.mark.parametrize(
+    ("finding", "verdict", "denial"),
+    [
+        (
+            _IMPORT_CLAIM,
+            {
+                **_CONFIRMATION,
+                "reason": "The mapping is hardcoded. No user input reaches this point.",
+            },
+            "no user input",
+        ),
+        (
+            _IMPORT_CLAIM,
+            {**_CONFIRMATION, "reason": "These are not derived from untrusted user input."},
+            "not derived from untrusted user input",
+        ),
+        # A mitigation whose perimeter holds its mechanism, but whose reason argues the defect
+        # away.
+        (
+            None,
+            {
+                **_mitigation("shlex.quote wrapper in safe_exec", "app/safe.py"),
+                "reason": "No command injection is possible: every command goes through safe_exec.",
+            },
+            "no command injection",
+        ),
+    ],
+    ids=["verified-no-user-input", "verified-not-derived-from", "mitigated-provable"],
+)
+def test_a_verdict_whose_reason_denies_the_claim_is_not_applied(
+    finding: Finding | None, verdict: dict[str, object], denial: str, reviewed_tree: Path
+) -> None:
+    """The mirror of a self-refutation: a confirmation or mitigation whose own reason denies the
+    claim leaves the finding unverified and reported, with the denial in its note."""
+    judged = _judged(verdict, reviewed_tree, finding)
+
+    assert (
+        judged.status,
+        judged.reportable,
+        judged.verified_by,
+        judged.citation_line,
+        judged.mitigated,
+        _note_kind(judged),
+        f"denies the claim ('{denial}')" in (judged.verification_note or ""),
+    ) == ("UNVERIFIED", True, None, None, False, "verifier-contradiction", True)
+
+
+def _criterion_run(passed: bool) -> CriterionExecutionResult:
+    return CriterionExecutionResult(
+        command="python -c 'import app.shell'",
+        executable=True,
+        exit_code=0 if passed else 1,
+        passed=passed,
+    )
+
+
+@pytest.mark.parametrize(
+    ("runs", "expected"),
+    [
+        ([False], ("UNVERIFIED", None, "verifier-contradiction")),
+        # A criterion that passed, or none run, leaves the reason's claim standing.
+        ([True], ("VERIFIED", "llm", "")),
+        ([False, True], ("VERIFIED", "llm", "")),
+        ([], ("VERIFIED", "llm", "")),
+    ],
+    ids=["failed", "passed", "one-passed", "none-run"],
+)
+def test_a_confirmation_saying_a_failed_criterion_passed_is_not_applied(
+    runs: list[bool], expected: tuple[str, str | None, str], reviewed_tree: Path
+) -> None:
+    """Session 20261003-005122 confirmed a finding "by the test execution which passes" when that
+    criterion had failed with `No module named 'pytest'` (cache llm_4617de34)."""
+    finding = _injection().model_copy(
+        update={"criteria_execution_results": [_criterion_run(passed) for passed in runs]}
+    )
+    reason = "Line 4 calls os.system, verified by the test execution which passes, confirming it."
+
+    judged = _judged({**_CONFIRMATION, "reason": reason}, reviewed_tree, finding)
+
+    assert (judged.status, judged.verified_by, _note_kind(judged)) == expected
+
+
+@pytest.mark.parametrize(
+    ("title", "reason"),
+    [
+        (
+            "Command injection via os.system",
+            "Line 4 passes the unquoted `cmd` argument to os.system; no shlex.quote or allowlist "
+            "guards it.",
+        ),
+        # A negated verb: the plain mirror of the self-refutation guard (claim overlap of 0.6 and
+        # any negation) set aside 318 of 778 cached confirmations and mitigations, this one too
+        # (cache llm_7b99d901).
+        (
+            "Path Traversal Vulnerability in Custom Persona Loading",
+            "`Path(persona_name).name` extracts a filename, but this does not prevent path "
+            "traversal attempts like '../evil.md'.",
+        ),
+        # The claim negates the words the reason negates.
+        (
+            "Missing input validation in run",
+            "run passes cmd to os.system with no input validation.",
+        ),
+        (
+            "TLS verification disabled in the HTTP client",
+            "Line 4 sets verify=False, so there is no TLS verification.",
+        ),
+        (
+            "Command injection via os.system",
+            "os.system(cmd) runs it without any quoting, and the verification command passes the "
+            "shell metacharacters through.",
+        ),
+    ],
+    ids=[
+        "no-negation",
+        "negated-verb",
+        "claim-says-missing",
+        "claim-says-disabled",
+        "passes-as-a-verb",
+    ],
+)
+def test_a_confirmation_whose_reason_supports_the_claim_is_still_applied(
+    title: str, reason: str, reviewed_tree: Path
+) -> None:
+    """A supporting confirmation stays VERIFIED, even when its reason negates a guard; a
+    criterion that failed does not make "passes the ... through" a claim that it passed."""
+    finding = _injection().model_copy(
+        update={"title": title, "criteria_execution_results": [_criterion_run(False)]}
+    )
+
+    judged = _judged({**_CONFIRMATION, "reason": reason}, reviewed_tree, finding)
+
+    assert (judged.status, judged.verified_by, judged.citation_line, judged.verification_note) == (
+        "VERIFIED",
+        "llm",
+        4,
+        None,
+    )
+
+
+def test_one_fabricated_verdict_leaves_the_rest_of_the_reply_as_it_was(
+    reviewed_tree: Path,
+) -> None:
+    """Checks are per verdict: the reply is read once and its valid verdicts stand."""
+    findings = [
+        _injection(),
+        _injection().model_copy(update={"title": "Unquoted shell argument in run"}),
+        _injection().model_copy(update={"title": "os.system used instead of subprocess"}),
+    ]
+    client = MagicMock()
+    client.chat.return_value = json.dumps(
+        [
+            {"finding_id": 1, **_mitigation("safe_exec", "src/does/not/exist.py")},
+            {"finding_id": 2, **_mitigation("shlex.quote wrapper in safe_exec", "app/safe.py")},
+            {"finding_id": 3, "status": "VERIFIED", "verified": True, "citation_line": 4},
+        ]
+    )
+
+    result, _, _ = _validate_segment_findings(
+        ReviewResult(findings=findings), [_SHELL_SOURCE], client, repo_root=reviewed_tree
+    )
+    assert_verdict_invariants(result.findings)
+
+    assert (
+        [(f.status, f.reportable, _note_kind(f)) for f in result.findings],
+        client.chat.call_count,
+    ) == (
+        [
+            ("UNVERIFIED", True, "mitigation-unproven"),
+            ("MITIGATED", True, ""),
+            ("VERIFIED", True, ""),
+        ],
+        1,
+    )
+
+
+def test_the_verdict_distributions_count_degraded_mitigations(reviewed_tree: Path) -> None:
+    """profile.json counts mitigations that pointed at no evidence, those naming none, and
+    verdicts whose reason contradicts them."""
+    judged = [
+        _judged(_mitigation("safe_exec", "src/does/not/exist.py"), reviewed_tree),
+        _judged(_mitigation("Input validation and sanitization", "app/safe.py"), reviewed_tree),
+        _judged({"status": "MITIGATED", "reason": "Bounded elsewhere"}, reviewed_tree),
+        _judged(_mitigation("safe_exec", "app/safe.py"), reviewed_tree),
+        _judged({**_CONFIRMATION, "reason": "No command injection reaches os.system."}, None),
+    ]
+
+    distributions = compute_verdict_distributions(judged)
+
+    assert (distributions["verification_note"], distributions["status"]) == (
+        {"mitigation-unproven": 3, "verifier-contradiction": 1},
+        {"UNVERIFIED": 4, "MITIGATED": 1},
+    )
+
+
+@pytest.mark.parametrize("by", ["llm", "human", "agent"])
+def test_a_mitigated_finding_is_not_a_verified_one(by: str) -> None:
+    """Eleven of session 20261001-224227's mitigations carried verified=True."""
+    judged = apply_verdict(
+        Finding(title="t", location="a.py:1"),
+        "MITIGATED",
+        by=by,
+        reason="r",
+        mitigating_mechanism="m",
+        perimeter_files=["a.py"],
+    )
+
+    assert (judged.status, judged.verified, judged.mitigated, judged.reportable) == (
+        "MITIGATED",
+        False,
+        True,
+        True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("perimeter", "changed", "matched"),
+    [
+        (".github/workflows/ci.yml", ".github/workflows/ci.yml", True),
+        ("./.github/workflows/ci.yml", ".github/workflows/ci.yml", True),
+        ("./src/app.py", "src/app.py", True),
+        ("/etc/hostname", "/etc/hostname", True),
+        # A scanner's absolute path inside the repository is its repository-relative file.
+        ("{repo}/src/app.py", "src/app.py", True),
+        ("{repo}/.github/workflows/ci.yml", ".github/workflows/ci.yml", True),
+        (".github/workflows/ci.yml", "github/workflows/ci.yml", False),
+        (".devops/review.md", "devops/review.md", False),
+        # An absolute path outside the repository matches only itself.
+        ("/etc/hostname", "etc/hostname", False),
+        ("{elsewhere}/src/app.py", "src/app.py", False),
+        ("etc/hostname", "/etc/hostname", False),
+    ],
+)
+def test_a_perimeter_path_matches_itself_and_no_other_file(
+    perimeter: str, changed: str, matched: bool, tmp_path: Path
+) -> None:
+    """`.lstrip("./")` cut the dot off `.github/...` and the root off an absolute path."""
+    from devops_cli.ai.review.mitigations import (
+        MitigatedFindingEntry,
+        find_perimeter_changes,
+        save_mitigated_findings,
+    )
+
+    repo = tmp_path / "repo"
+    named = perimeter.format(repo=repo.resolve(), elsewhere=(tmp_path / "elsewhere").resolve())
+    ledger = tmp_path / "mitigated_findings.json"
+    save_mitigated_findings([MitigatedFindingEntry(title="t", perimeter_files=[named])], ledger)
+
+    assert bool(find_perimeter_changes([changed], ledger, repo_root=repo)) is matched
+
+
+def test_a_person_mitigating_a_scanner_finding_is_warned_when_its_file_changes(
+    tmp_path: Path,
+) -> None:
+    """A person's MITIGATED verdict on a scanner finding records its absolute location as the
+    perimeter, which a repository-relative changed file must still reach."""
+    from devops_cli.ai.review.mitigations import find_perimeter_changes, record_mitigated_finding
+
+    repo = (tmp_path / "repo").resolve()
+    ledger = tmp_path / "mitigated_findings.json"
+    scanner_finding = Finding(
+        title="Untrusted user input in `importlib.import_module()`",
+        location=f"{repo}/src/devops_cli/commands/workspace.py:43",
+    )
+    entry = record_mitigated_finding(scanner_finding, reason="fixed mapping", ledger_path=ledger)
+
+    assert (
+        entry.perimeter_files,
+        [
+            e.id
+            for e, _ in find_perimeter_changes(
+                ["src/devops_cli/commands/workspace.py"], ledger, repo_root=repo
+            )
+        ],
+        find_perimeter_changes(["src/devops_cli/commands/other.py"], ledger, repo_root=repo),
+    ) == ([f"{repo}/src/devops_cli/commands/workspace.py"], [entry.id], [])

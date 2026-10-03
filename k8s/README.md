@@ -52,8 +52,8 @@ kubectl -n monitoring port-forward svc/pyroscope 4040:4040
 
 ### LLM Stack (`llm`)
 ```bash
-# Ollama REST API
-minikube service ollama -n llm --url
+# Ollama REST API of the default tier, behind the cluster-internal ollama-16gib Service
+kubectl -n llm port-forward svc/ollama-16gib 11434:11434
 
 # Open-WebUI Web Interface
 minikube service open-webui -n llm --url
@@ -143,6 +143,12 @@ devops k8s port-forward --stack all
 devops k8s configure-urls --stack infra
 devops k8s configure-urls --stack llm
 ```
+
+The `monitoring` perimeter (`monitoring/networkpolicy.yaml`) admits Grafana, Prometheus, Alloy and Pyroscope traffic from three places: the namespace's own pods, the `otel` namespace, and Traefik in `kube-system`. External clients come in through the Cloudflare tunnel, and `cloudflared` forwards only to Traefik. The perimeter names no address range. The cluster's policy engine, kube-router, matches an ingress `ipBlock` against pod addresses, so `0.0.0.0/0` or a private range would admit every pod in the cluster. How each way of reaching the stack gets through:
+
+- `devops k8s port-forward` works wherever the pods run: `kubectl port-forward` enters the pod's own network namespace, and no policy applies.
+- `--addressing fqdn` goes through Traefik.
+- `--addressing proxy` writes `k8s://` addresses that the API server proxies from the control-plane node's host network. kube-router admits host-network traffic only to pods on the same node, so Grafana, Prometheus and Pyroscope answer this way only while they run on the control-plane node. Elsewhere, use port-forward or `fqdn`. The same holds for any namespace behind a perimeter, `llm` included.
 
 ## Grafana Dashboards
 
@@ -313,7 +319,6 @@ k8s/
 │   ├── namespace.yaml        # llm namespace
 │   ├── valkey.yaml           # Valkey Deployment + Service manifest
 │   ├── valkey-runs.yaml      # Run index Valkey: PVC, Deployment, NodePort Service, NetworkPolicy
-│   ├── values-ollama.yaml    # Helm values for ollama/ollama
 │   ├── values-open-webui.yaml# Helm values for open-webui/open-webui
 │   ├── values-qdrant.yaml    # Helm values for qdrant/qdrant
 │   └── gateway/              # LiteLLM gateway: Deployment, routing ConfigMap, NodePort Service, NetworkPolicy

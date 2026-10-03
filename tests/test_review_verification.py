@@ -375,7 +375,7 @@ def test_format_related_file_block(tmp_path: Path) -> None:
                 "mitigated": True,
                 "verified": False,
                 "reason": "Input is bounded at line 12.",
-                "mitigating_mechanism": "BoundedInputValidator",
+                "mitigating_mechanism": "`BoundedInputValidator`",
                 "perimeter_files": ["src/validator.py"],
             },
             "MITIGATED",
@@ -418,8 +418,13 @@ def test_apply_single_finding_verification(
     expected_reportable: bool,
     expected_verified: bool,
     expected_conf: float | None,
+    tmp_path: Path,
 ) -> None:
     from devops_cli.ai.review.verification import _apply_single_finding_verification
+
+    # The perimeter a mitigation names must hold its mechanism in the reviewed tree (#845).
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/validator.py").write_text("class BoundedInputValidator: ...\n", "utf-8")
 
     f = Finding(
         title="Test Finding",
@@ -431,7 +436,7 @@ def test_apply_single_finding_verification(
     )
     now_iso = "2026-08-26T00:00:00"
 
-    res = _apply_single_finding_verification(f, item, now_iso)
+    res = _apply_single_finding_verification(f, item, now_iso, repo_root=tmp_path)
     actual_verified = res.verified if item is not None else expected_verified
     actual_conf = res.confidence_score if expected_conf is not None else None
     assert (res.status, res.reportable, actual_verified, actual_conf) == (
@@ -1423,7 +1428,7 @@ def test_an_unadjudicated_finding_is_not_exported_as_human_reviewed() -> None:
             {
                 "status": "MITIGATED",
                 "reason": "Quota checked at line 40.",
-                "mitigating_mechanism": "QuotaChecker",
+                "mitigating_mechanism": "`QuotaChecker`",
                 "perimeter_files": ["src/quota.py"],
             },
             ("MITIGATED", True),
@@ -1431,13 +1436,17 @@ def test_an_unadjudicated_finding_is_not_exported_as_human_reviewed() -> None:
     ],
 )
 def test_verdicts_are_read_as_the_model_meant_them(
-    item: dict[str, Any], expected: tuple[str, bool]
+    item: dict[str, Any], expected: tuple[str, bool], tmp_path: Path
 ) -> None:
     """Verify string flags, "none" criteria and contradictions never discard a finding by accident."""
     from devops_cli.ai.review.verification import _apply_single_finding_verification
 
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/quota.py").write_text("class QuotaChecker: ...\n", encoding="utf-8")
     finding = Finding(title="SQL injection in search", location="app.py:10", severity="HIGH")
-    result = _apply_single_finding_verification(finding, item, "2026-09-24T00:00:00")
+    result = _apply_single_finding_verification(
+        finding, item, "2026-09-24T00:00:00", repo_root=tmp_path
+    )
 
     assert (result.status, result.reportable) == expected
 

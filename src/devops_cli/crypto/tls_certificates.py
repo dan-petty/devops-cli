@@ -336,7 +336,6 @@ def generate_homelab_tls_bundle(
             "argocd-server.argocd.svc.cluster.local",
             "grafana.monitoring.svc.cluster.local",
             "prometheus.monitoring.svc.cluster.local",
-            "ollama.llm.svc.cluster.local",
             "open-webui.llm.svc.cluster.local",
             "qdrant.llm.svc.cluster.local",
         ]
