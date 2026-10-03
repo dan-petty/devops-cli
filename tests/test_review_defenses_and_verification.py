@@ -228,10 +228,8 @@ def test_tautological_verification_command_detection() -> None:
         "python -c 'from app import run; print(run); raise SystemExit(0)'",
         "python -c 'import app; assert 1 == 1'",
         "python -c \"from pathlib import Path; assert 'os.system' in Path('app.py').read_text()\"",
-        "pytest --collect-only tests/test_security_gitleaks.py",
     )
     non_tautological_cmds = (
-        "pytest tests/test_security_gitleaks.py -k test_gitleaks",
         "python -c \"from devops_cli.security.gitleaks import scan; assert scan('bad') == []\"",
         'python -c "import sys; from app import ok; sys.exit(not ok())"',
         "python -c \"from app import content_type; assert content_type('a.json') == 'json'\"",

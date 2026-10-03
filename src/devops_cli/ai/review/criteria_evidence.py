@@ -18,9 +18,6 @@ outcome (#846):
   only through its import. Testing that something exists (`assert f`, `f is not None`,
   `Path(...).exists()`) or reflecting on it (`hasattr`, `co_varnames`) shows only that the code
   is there.
-- `pytest` or `python -m pytest`: a test file it names imports the cited module, and no option
-  (`--collect-only`, `--version`, `--help`, `--fixtures`, `--setup-plan`) ends it before the
-  tests run.
 - Anything else (`grep`, `git grep`, `git log`, `wc`, `cat`, `head`, `tail`, `find`) finds,
   counts or prints code, and never counts.
 """
@@ -28,7 +25,6 @@ outcome (#846):
 from __future__ import annotations
 
 import ast
-import itertools
 import posixpath
 import shlex
 import sys
@@ -40,8 +36,6 @@ from devops_cli.config.constants import (
     CONST_EXISTENCE_CRITERIA_CALLS,
     CONST_EXIT_CRITERIA_CALLS,
     CONST_PARSING_CRITERIA_CALLS,
-    CONST_PYTEST_NON_RUNNING_OPTIONS,
-    CONST_PYTEST_SHORT_OPTIONS_WITH_VALUE,
     CONST_PYTHON_CRITERIA_BINARIES,
     CONST_READING_CRITERIA_CALLS,
     CONST_REFLECTION_CRITERIA_ATTRIBUTES,
@@ -56,37 +50,28 @@ _NOTHING, _TEXT, _CODE = 0, 1, 2
 _Cites = Callable[[str], bool]
 
 
-def _python_script(args: list[str]) -> str | None:
-    """The script of a `python -c` command; None for any other command."""
-    if Path(args[0]).name not in CONST_PYTHON_CRITERIA_BINARIES or "-c" not in args[:-1]:
+def python_invocation(args: Sequence[str]) -> tuple[str, str] | None:
+    """What a `python -c <script>` or `python -m <module>` command runs: the option, and the
+    script or module; None for any other command.
+
+    Python reads its own options up to the first `-c` or `-m`, inside a cluster too, and passes
+    the rest to the script or module: `python -Bc pass -c <script>` and `python -m X -c <script>`
+    never run `<script>`. Only `-c` or `-m` as the first argument is read, so the criteria
+    validator and the evidence rule both check what Python runs.
+    """
+    if (
+        len(args) < 3
+        or Path(args[0]).name not in CONST_PYTHON_CRITERIA_BINARIES
+        or args[1] not in {"-c", "-m"}
+    ):
         return None
-    return args[args.index("-c") + 1]
+    return args[1], args[2]
 
 
-def _pytest_arguments(args: list[str]) -> list[str] | None:
-    """The arguments of a `pytest` or `python -m pytest` command; None for any other command."""
-    if Path(args[0]).name == "pytest":
-        return args[1:]
-    if Path(args[0]).name in CONST_PYTHON_CRITERIA_BINARIES and "-m" in args[:-1]:
-        at = args.index("-m")
-        if args[at + 1] == "pytest":
-            return args[at + 2 :]
-    return None
-
-
-def _runs_tests(arguments: list[str]) -> bool:
-    """Whether pytest runs the tests, rather than listing, describing or planning them."""
-    for argument in arguments:
-        if argument.partition("=")[0] in CONST_PYTEST_NON_RUNNING_OPTIONS:
-            return False
-        if argument[:1] == "-" and argument[1:2] != "-":
-            # A cluster of short flags: `-qh` is `-q -h`, while in `-kshell` the letters are -k's.
-            flags = itertools.takewhile(
-                lambda c: c not in CONST_PYTEST_SHORT_OPTIONS_WITH_VALUE, argument[1:]
-            )
-            if "h" in flags:
-                return False
-    return True
+def _python_script(args: list[str]) -> str | None:
+    """The script a `python -c` command runs; None for any other command."""
+    invocation = python_invocation(args)
+    return invocation[1] if invocation is not None and invocation[0] == "-c" else None
 
 
 def _parse(source: str) -> ast.Module | None:
@@ -345,14 +330,12 @@ def is_tautological_criterion(command: str) -> bool:
     """Whether a command proves nothing about any finding, whatever its exit status.
 
     Only a `python -c` script that checks what a module it imports does, or a file it reads and
-    parses, or a pytest run of tests, can count; which finding it counts for is
-    `counts_as_evidence`'s question. A finding cites reviewed code, never the standard library.
+    parses, can count; which finding it counts for is `counts_as_evidence`'s question. A finding
+    cites reviewed code, never the standard library.
     """
     args = _split(command)
     if not args:
         return True
-    if (pytest_arguments := _pytest_arguments(args)) is not None:
-        return not _runs_tests(pytest_arguments)
     return not _script_checks(args, _outside_the_standard_library, lambda _file: True)
 
 
@@ -391,34 +374,6 @@ def _module_names(paths: list[PurePosixPath]) -> set[str]:
     return names
 
 
-def _imports_any(tree: ast.Module, modules: set[str]) -> bool:
-    """Whether the code imports one of `modules`, or a submodule of one."""
-    imported: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imported.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
-            imported.add(node.module)
-            imported.update(f"{node.module}.{alias.name}" for alias in node.names)
-    return any(name == m or name.startswith(f"{m}.") for name in imported for m in modules)
-
-
-def _test_imports_any(argument: str, modules: set[str], repo_root: Path) -> bool:
-    """Whether the test file a pytest argument names, inside the repository, imports a module."""
-    path_part = argument.split("::", 1)[0]
-    if not path_part.endswith(".py"):
-        return False
-    root = repo_root.resolve()
-    test_file = (root / path_part).resolve()
-    if not test_file.is_relative_to(root) or not test_file.is_file():
-        return False
-    try:
-        tree = _parse(test_file.read_text(encoding="utf-8"))
-    except OSError, UnicodeDecodeError:
-        return False
-    return tree is not None and _imports_any(tree, modules)
-
-
 def counts_as_evidence(command: str, location: str, repo_root: Path) -> bool:
     """Whether a passing command shows anything about the code a finding at `location` cites."""
     args = _split(command)
@@ -426,10 +381,6 @@ def counts_as_evidence(command: str, location: str, repo_root: Path) -> bool:
         return False
     paths = _cited_paths(location, repo_root)
     modules = _module_names(paths)
-    if (pytest_arguments := _pytest_arguments(args)) is not None:
-        return _runs_tests(pytest_arguments) and any(
-            _test_imports_any(argument, modules, repo_root) for argument in pytest_arguments
-        )
     root = repo_root.resolve()
     # A cited Python file counts only through its import: reading its source is a grep.
     files = {str(base / path) for path in paths if path.suffix != ".py" for base in (Path(), root)}

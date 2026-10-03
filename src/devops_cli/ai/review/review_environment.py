@@ -11,7 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from devops_cli.ai.review.criteria_evidence import counts_as_evidence
+from devops_cli.ai.review.criteria_evidence import counts_as_evidence, python_invocation
 from devops_cli.ai.review.verdicts import apply_verdict
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
@@ -19,12 +19,18 @@ from devops_cli.config.constants import (
     CONST_ALLOWED_GIT_SUBCOMMANDS,
     CONST_CRITERIA_NON_DISCRIMINATING,
     CONST_DISALLOWED_SHELL_TOKENS,
+    CONST_FORBIDDEN_FIND_ACTIONS,
     CONST_FORBIDDEN_PYTHON_CRITERIA_MODULES,
+    CONST_IMPORT_BY_NAME_CALLS,
+    CONST_PYTEST_MODULES,
+    CONST_PYTEST_RUNNER_FUNCTIONS,
+    CONST_PYTHON_CRITERIA_BINARIES,
     CONST_REVIEW_CONVENTIONS_FILE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS,
     DEFAULT_CRITERIA_MAX_OUTPUT_BYTES,
+    DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS,
 )
 
 _TARGET_CONVENTIONS_CANDIDATES: tuple[str, ...] = (
@@ -178,7 +184,7 @@ def _get_reviews_base_dir() -> Path:
 
 
 def _check_shell_tokens(args: list[str]) -> str | None:
-    is_py = bool(args and args[0] in {"python", "python3"})
+    is_py = bool(args and args[0] in CONST_PYTHON_CRITERIA_BINARIES)
     for arg in args:
         if arg in CONST_DISALLOWED_SHELL_TOKENS:
             return f"Command contains forbidden shell operator: {arg!r}"
@@ -227,6 +233,77 @@ def _is_safe_ast_node(node: ast.AST) -> bool:
     return True
 
 
+def _is_pytest_module(name: str) -> bool:
+    """Whether a module is pytest, its implementation package `_pytest`, or one of theirs."""
+    return name.partition(".")[0] in CONST_PYTEST_MODULES
+
+
+def _imports_pytest_by_name(node: ast.AST) -> bool:
+    """Whether a call imports a pytest module by its name as a string, as in
+    `__import__('pytest')` or `importlib.import_module('_pytest.config')`."""
+    if not isinstance(node, ast.Call) or not node.args:
+        return False
+    func, name = node.func, node.args[0]
+    called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+    return (
+        called in CONST_IMPORT_BY_NAME_CALLS
+        and isinstance(name, ast.Constant)
+        and isinstance(name.value, str)
+        and _is_pytest_module(name.value)
+    )
+
+
+def _reaches_pytest(node: ast.expr, pytest_names: set[str]) -> bool:
+    """Whether an attribute chain starts at a pytest module: a name the script binds to one, or
+    a call that imports one by its name."""
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    return (isinstance(node, ast.Name) and node.id in pytest_names) or _imports_pytest_by_name(node)
+
+
+def _names_pytest_runner(node: ast.AST, pytest_names: set[str]) -> bool:
+    """Whether a node imports pytest's test runner, or refers to it through a pytest module."""
+    if isinstance(node, ast.ImportFrom):
+        return (
+            node.module is not None
+            and _is_pytest_module(node.module)
+            and any(alias.name in CONST_PYTEST_RUNNER_FUNCTIONS | {"*"} for alias in node.names)
+        )
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr in CONST_PYTEST_RUNNER_FUNCTIONS
+        and _reaches_pytest(node.value, pytest_names)
+    )
+
+
+def _pytest_names(nodes: list[ast.AST]) -> set[str]:
+    """The names a script binds to pytest modules: `pytest` and `_pytest` themselves, and what it
+    imports them or their submodules as (`import pytest as p`, `from _pytest import config`)."""
+    names = set(CONST_PYTEST_MODULES)
+    for node in nodes:
+        if isinstance(node, ast.Import):
+            names.update(
+                alias.asname
+                for alias in node.names
+                if alias.asname and _is_pytest_module(alias.name)
+            )
+        elif isinstance(node, ast.ImportFrom) and node.module and _is_pytest_module(node.module):
+            names.update(alias.asname or alias.name for alias in node.names)
+    return names
+
+
+def _starts_pytest(tree: ast.AST) -> bool:
+    """Whether a script reaches pytest's test runner (`pytest.main`, `from pytest import main`,
+    `from _pytest.config import main`, `__import__('pytest').main`), under any name it imports a
+    pytest module as. Importing pytest for `pytest.raises` is fine.
+
+    Only names the script spells out are read: one it builds at run time
+    (`getattr(pytest, 'ma' + 'in')`) or a module run by name (`runpy`) is not seen."""
+    nodes = list(ast.walk(tree))
+    pytest_names = _pytest_names(nodes)
+    return any(_names_pytest_runner(node, pytest_names) for node in nodes)
+
+
 def _check_python_script(script: str) -> str | None:
     try:
         with warnings.catch_warnings():
@@ -237,23 +314,43 @@ def _check_python_script(script: str) -> str | None:
     for node in ast.walk(tree):
         if not _is_safe_ast_node(node):
             return "Python script contains forbidden module or mutating call"
+    if _starts_pytest(tree):
+        return "Python script runs pytest; a criterion asserts on the cited code itself"
     return None
 
 
 def _check_python_command(args: list[str]) -> str | None:
-    if len(args) < 2:
-        return "Python invocation requires arguments (e.g. -c <script>)"
-    if "-c" in args:
-        idx = args.index("-c")
-        if idx + 1 >= len(args):
-            return "Missing script argument after -c"
-        return _check_python_script(args[idx + 1])
-    if "-m" in args:
-        idx = args.index("-m")
-        if idx + 1 >= len(args) or args[idx + 1] in CONST_FORBIDDEN_PYTHON_CRITERIA_MODULES:
-            return "Forbidden or missing module argument after -m"
+    # Read as the evidence rule reads it: a `-c` or `-m` later in the command, or inside an
+    # option cluster such as `-Bc`, would leave unchecked what Python runs.
+    invocation = python_invocation(args)
+    if invocation is None:
+        return (
+            "A python criterion is `python -c <script>` or `python -m <module>`, "
+            "with -c or -m as its first argument"
+        )
+    option, argument = invocation
+    if option == "-c":
+        return _check_python_script(argument)
+    if argument.partition(".")[0] in CONST_FORBIDDEN_PYTHON_CRITERIA_MODULES:
+        return "Forbidden module after -m"
+    if _is_pytest_module(argument):
+        return "Python module pytest runs tests; a criterion asserts on the cited code itself"
+    return None
+
+
+def _check_find_actions(args: list[str]) -> str | None:
+    action = next((arg for arg in args[1:] if arg in CONST_FORBIDDEN_FIND_ACTIONS), None)
+    if action is None:
         return None
-    return "Python invocation must specify -c or -m"
+    return f"find action {action!r} runs a command or writes a file; a criterion only searches"
+
+
+# The checks an allowlisted binary's arguments must pass, by the binary's name.
+_ARGUMENT_CHECKS: dict[str, Callable[[list[str]], str | None]] = {
+    "find": _check_find_actions,
+    "git": _check_git_subcommand,
+    **dict.fromkeys(CONST_PYTHON_CRITERIA_BINARIES, _check_python_command),
+}
 
 
 def validate_criteria_command(command: str) -> tuple[bool, str | None, list[str] | None]:
@@ -277,11 +374,8 @@ def validate_criteria_command(command: str) -> tuple[bool, str | None, list[str]
     if binary not in CONST_ALLOWED_CRITERIA_BINARIES:
         return False, f"Binary {binary!r} is not in allowed criteria binaries", None
 
-    if binary == "git" and (git_err := _check_git_subcommand(args)):
-        return False, git_err, None
-
-    if binary in {"python", "python3"} and (py_err := _check_python_command(args)):
-        return False, py_err, None
+    if (check := _ARGUMENT_CHECKS.get(binary)) and (argument_err := check(args)):
+        return False, argument_err, None
 
     return True, None, args
 
@@ -294,14 +388,31 @@ def _terminate_process_group(pid: int) -> None:
         pass
 
 
+def _criterion_argv(args: list[str]) -> tuple[list[str], float]:
+    """The argv a validated criterion runs as in the sandbox, and its default time limit.
+
+    A python or python3 criterion runs with SyntaxWarning ignored and under the Python criteria
+    limit, since it imports the reviewed code; any other command gets the general one. A
+    validated python criterion has no options of its own before its `-c` or `-m`.
+    """
+    exec_args = list(args)
+    if Path(exec_args[0]).name not in CONST_PYTHON_CRITERIA_BINARIES:
+        return exec_args, DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS
+    exec_args[1:1] = ["-W", "ignore::SyntaxWarning"]
+    return exec_args, DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS
+
+
 def execute_criterion_command(
     command: str,
     cwd: Path,
-    timeout: float = DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS,
+    timeout: float | None = None,
     max_output_bytes: int = DEFAULT_CRITERIA_MAX_OUTPUT_BYTES,
     sandbox: Any = None,
 ) -> Any:
-    """Execute an allowlisted criterion in the bubblewrap host sandbox."""
+    """Execute an allowlisted criterion in the bubblewrap host sandbox.
+
+    Without a `timeout`, the criterion gets its binary's default limit (see `_criterion_argv`).
+    """
     from devops_cli.ai.review_schema import CriterionExecutionResult
     from devops_cli.sandbox.host import HostSandbox
 
@@ -327,16 +438,14 @@ def execute_criterion_command(
             error=f"bubblewrap binary {sb.bwrap_binary} is not available on host system",
         )
 
-    exec_args = list(args)
-    if exec_args[0] in {"python", "python3"} and "-W" not in exec_args:
-        exec_args[1:1] = ["-W", "ignore::SyntaxWarning"]
+    exec_args, default_timeout = _criterion_argv(args)
 
     src_dir = cwd / "src"
     py_path = f"{src_dir}:{cwd}" if src_dir.is_dir() else str(cwd)
     res = sb.execute(
         args=exec_args,
         cwd=cwd,
-        timeout=timeout,
+        timeout=default_timeout if timeout is None else timeout,
         max_output_bytes=max_output_bytes,
         env={"PYTHONPATH": py_path},
     )
@@ -350,6 +459,7 @@ def execute_criterion_command(
         duration_seconds=res.duration_seconds,
         passed=res.passed,
         error=res.error,
+        timed_out=res.timed_out,
     )
 
 

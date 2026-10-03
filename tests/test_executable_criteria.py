@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
+from devops_cli.ai.review.criteria_evidence import counts_as_evidence
 from devops_cli.ai.review.review_environment import (
     execute_criterion_command,
     execute_finding_criteria,
@@ -18,6 +21,18 @@ from devops_cli.ai.review_schema import (
     Finding,
     VerificationCriterion,
 )
+from devops_cli.config.defaults import DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS
+from devops_cli.sandbox.host import HostSandboxResult
+
+
+def _recording_sandbox() -> MagicMock:
+    """A sandbox stand-in that records each execution and reports it passed."""
+    sandbox = MagicMock()
+    sandbox.is_available.return_value = True
+    sandbox.execute.return_value = HostSandboxResult(
+        exit_code=0, stdout="", stderr="", duration_seconds=0.01, passed=True
+    )
+    return sandbox
 
 
 def test_command_allowlist_permits_read_only_binaries() -> None:
@@ -36,6 +51,7 @@ def test_command_allowlist_permits_read_only_binaries() -> None:
         "jq '.key' config.json",
         "cat src/file.py",
         "test -f src/file.py",
+        "find src -name '*.py' -type f -newer src/file.py",
     )
     for cmd in valid_commands:
         is_valid, reason, args = validate_criteria_command(cmd)
@@ -185,12 +201,13 @@ def test_sandbox_executes_successful_criterion(tmp_path: Path) -> None:
 def test_sandbox_executes_failing_criterion(tmp_path: Path) -> None:
     """Verify that a failing command produces non-zero exit_code and passed=False."""
     result = execute_criterion_command("python -c 'import sys; sys.exit(42)'", cwd=tmp_path)
-    assert (result.executable, result.exit_code, result.passed, result.error) == (
-        True,
-        42,
-        False,
-        None,
-    )
+    assert (
+        result.executable,
+        result.exit_code,
+        result.passed,
+        result.error,
+        result.timed_out,
+    ) == (True, 42, False, None, False)
 
 
 def test_sandbox_bounds_timeout_and_terminates_process_group(tmp_path: Path) -> None:
@@ -200,13 +217,13 @@ def test_sandbox_bounds_timeout_and_terminates_process_group(tmp_path: Path) -> 
         cwd=tmp_path,
         timeout=0.2,
     )
-    assert (result.executable, result.exit_code, result.passed, bool(result.error)) == (
-        True,
-        -1,
-        False,
-        True,
-    )
-    assert "timed out" in str(result.error)
+    assert (
+        result.executable,
+        result.exit_code,
+        result.passed,
+        "timed out" in str(result.error),
+        result.timed_out,
+    ) == (True, -1, False, True, True)
 
 
 def test_sandbox_bounds_output_bytes(tmp_path: Path) -> None:
@@ -220,7 +237,8 @@ def test_sandbox_bounds_output_bytes(tmp_path: Path) -> None:
         result.passed,
         len(result.stdout) <= 256,
         "Output exceeded maximum limit" in str(result.error),
-    ) == (False, True, True)
+        result.timed_out,
+    ) == (False, True, True, False)
 
 
 def _app(tmp_path: Path) -> Path:
@@ -449,40 +467,192 @@ def test_a_command_that_runs_the_cited_code_and_asserts_counts(
     assert _verdict(updated) == ("VERIFIED", True, True, "criteria", 1.0)
 
 
-def test_pytest_counts_only_on_a_test_that_imports_the_cited_code(tmp_path: Path) -> None:
-    """A passing test is evidence only when it imports the module the finding cites."""
-    from devops_cli.ai.review.criteria_evidence import counts_as_evidence
+_ASSERTS_F = "python -c 'from app import f; assert f(1) == 2'"
+_PRINTS_F = "python -c 'from app import f; print(f(1))'"
 
+
+@pytest.mark.parametrize("side", ["verification_criteria", "invalidation_criteria"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pytest tests/test_app.py::test_f -q",
+        "python -m pytest tests/test_app.py",
+        "python -c \"import pytest; pytest.main(['tests/test_app.py'])\"",
+    ],
+)
+def test_a_pytest_criterion_over_a_test_of_the_cited_code_never_runs(
+    command: str, side: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pytest run of a test that imports the cited module is refused before it runs, so it
+    settles nothing, and the evidence rule has no case for it (#847)."""
+    sandbox = _recording_sandbox()
+    monkeypatch.setattr("devops_cli.sandbox.host.HostSandbox", lambda: sandbox)
     tests = _app(tmp_path) / "tests"
     tests.mkdir()
     (tests / "test_app.py").write_text(
         "from app import f\n\n\ndef test_f():\n    assert f(1) == 2\n", encoding="utf-8"
     )
-    (tests / "test_other.py").write_text("def test_nothing():\n    assert True\n", encoding="utf-8")
-    commands = (
-        "pytest tests/test_app.py::test_f -q",
-        "python -m pytest tests/test_app.py",
-        "pytest tests/test_other.py",
-        "pytest tests",
-        "pytest ../outside/test_app.py",
-        # Each exits 0 without running a test (#846).
-        "pytest --collect-only tests/test_app.py",
-        "python -m pytest --co -q tests/test_app.py",
-        "python -m pytest --version tests/test_app.py",
-        "pytest -qh tests/test_app.py",
-        "pytest --setup-plan tests/test_app.py",
-        "pytest --fixtures tests/test_app.py",
-        "pytest --cache-show=* tests/test_app.py",
+    finding = Finding(title="f adds one", location="app.py:2", severity="HIGH", **{side: [command]})
+
+    updated = execute_finding_criteria(finding, repo_root=tmp_path)
+
+    assert (
+        [c.executable for c in getattr(updated, side)],
+        updated.criteria_execution_results,
+        sandbox.execute.called,
+        _verdict(updated),
+    ) == ([False], [], False, ("UNVERIFIED", False, True, None, None))
+
+
+# How long the print criterion replayed for #847's merge-order note ran (6.8 s): it timed out at
+# the general 5 s limit and passes within the python one.
+_SLOW_IMPORT_SECONDS = 6.8
+
+
+def _sandbox_for_a_run_of(seconds: float) -> MagicMock:
+    """A sandbox stand-in for a command that exits 0 after `seconds`: it passes within a time
+    limit at least that long and times out at a shorter one."""
+    sandbox = MagicMock()
+    sandbox.is_available.return_value = True
+
+    def execute(*, timeout: float, **_: object) -> HostSandboxResult:
+        if timeout < seconds:
+            return HostSandboxResult(
+                exit_code=-1,
+                stdout="",
+                stderr="",
+                duration_seconds=timeout,
+                passed=False,
+                error=f"Execution timed out after {timeout}s",
+                timed_out=True,
+            )
+        return HostSandboxResult(
+            exit_code=0, stdout="2\n", stderr="", duration_seconds=seconds, passed=True
+        )
+
+    sandbox.execute.side_effect = execute
+    return sandbox
+
+
+_NO_VERDICT = ("UNVERIFIED", False, True, None, None)
+
+
+@pytest.mark.parametrize(
+    ("side", "command", "verdict"),
+    [
+        ("verification_criteria", _PRINTS_F, _NO_VERDICT),
+        ("invalidation_criteria", _PRINTS_F, _NO_VERDICT),
+        ("verification_criteria", _ASSERTS_F, ("VERIFIED", True, True, "criteria", 1.0)),
+        ("invalidation_criteria", _ASSERTS_F, ("INVALIDATED", False, False, "criteria", 0.0)),
+    ],
+    ids=["verify-print", "invalidate-print", "verify-assert", "invalidate-assert"],
+)
+def test_a_criterion_the_python_limit_lets_finish_settles_a_verdict_only_if_it_asserts(
+    side: str,
+    command: str,
+    verdict: tuple[str, bool, bool, str | None, float | None],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A python criterion that timed out at 5 s finishes and passes within the python limit,
+    and the evidence rule still decides what it settles: printing what the cited code returns
+    settles nothing, asserting over it settles the verdict (#846, #847).
+
+    The print case stands for the merge-order replay, which on #847 without #846 ended VERIFIED."""
+    from devops_cli.config.defaults import DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS
+
+    sandbox = _sandbox_for_a_run_of(_SLOW_IMPORT_SECONDS)
+    monkeypatch.setattr("devops_cli.sandbox.host.HostSandbox", lambda: sandbox)
+    finding = Finding(title="f adds one", location="app.py:2", severity="HIGH", **{side: [command]})
+
+    updated = execute_finding_criteria(finding, repo_root=_app(tmp_path))
+
+    assert (
+        DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS
+        < _SLOW_IMPORT_SECONDS
+        <= DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS,
+        [call.kwargs["timeout"] for call in sandbox.execute.call_args_list],
+        [(r.passed, r.timed_out) for r in updated.criteria_execution_results],
+        _verdict(updated),
+    ) == (True, [DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS], [(True, False)], verdict)
+
+
+def _app_with_its_own_environment(tmp_path: Path) -> Path:
+    """`_app`, whose `f` adds `ONE` from `reviewed_dependency`, a module only the project's own
+    `.venv` holds, as `uv sync` installs a reviewed project's dependencies there."""
+    interpreter = Path(sys.executable).resolve()
+    venv = tmp_path / ".venv"
+    site_packages = (
+        venv / "lib" / f"python{sys.version_info[0]}.{sys.version_info[1]}" / "site-packages"
+    )
+    site_packages.mkdir(parents=True)
+    (site_packages / "reviewed_dependency.py").write_text("ONE = 1\n", encoding="utf-8")
+    (venv / "bin").mkdir()
+    (venv / "bin" / "python").symlink_to(interpreter)
+    (venv / "pyvenv.cfg").write_text(f"home = {interpreter.parent}\n", encoding="utf-8")
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "app.py").write_text(
+        "from reviewed_dependency import ONE\ndef f(x):\n    return x + ONE\n", encoding="utf-8"
+    )
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    ("command", "verdict"),
+    [
+        (_PRINTS_F, _NO_VERDICT),
+        (_ASSERTS_F, ("VERIFIED", True, True, "criteria", 1.0)),
+    ],
+    ids=["print", "assert"],
+)
+def test_under_the_project_interpreter_only_an_assertion_settles_a_verdict(
+    command: str, verdict: tuple[str, bool, bool, str | None, float | None], tmp_path: Path
+) -> None:
+    """Live test: run by the reviewed project's own interpreter, a criterion importing code that
+    needs the project's dependencies passes, and only one that asserts over it settles a verdict
+    (#846, #847). Under the system Python both failed on the import and settled nothing."""
+    finding = Finding(
+        title="f adds one", location="app.py:2", severity="HIGH", verification_criteria=[command]
     )
 
-    assert tuple(counts_as_evidence(c, "app.py:2", tmp_path) for c in commands) == (
-        True,
-        True,
-        *(False,) * (len(commands) - 2),
+    updated = execute_finding_criteria(finding, repo_root=_app_with_its_own_environment(tmp_path))
+
+    assert (
+        [(r.passed, r.stderr) for r in updated.criteria_execution_results],
+        _verdict(updated),
+    ) == ([(True, "")], verdict)
+
+
+# An assertion over the cited code that fails: `f(1)` is 2.
+_FALSE_ASSERT_F = "from app import f; assert f(1) == 3"
+
+
+@pytest.mark.parametrize("side", ["verification_criteria", "invalidation_criteria"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"python -m this -c '{_FALSE_ASSERT_F}'",
+        f"python -m app -c '{_FALSE_ASSERT_F}'",
+        f"python -Bc pass -c '{_FALSE_ASSERT_F}'",
+    ],
+    ids=["module-first", "cited-module-first", "cluster-first"],
+)
+def test_an_assertion_python_never_runs_settles_no_verdict(
+    command: str, side: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Python runs the first `-c` or `-m` it reads, inside a cluster such as `-Bc` too, and passes
+    what follows to that script or module. A later `-c` assertion never runs, so the command's
+    exit 0, as the stand-in reports it, settles no verdict (#847)."""
+    sandbox = _recording_sandbox()
+    monkeypatch.setattr("devops_cli.sandbox.host.HostSandbox", lambda: sandbox)
+    finding = Finding(title="f adds two", location="app.py:2", severity="HIGH", **{side: [command]})
+
+    updated = execute_finding_criteria(finding, repo_root=_app(tmp_path))
+
+    assert (counts_as_evidence(command, "app.py:2", tmp_path), _verdict(updated)) == (
+        False,
+        _NO_VERDICT,
     )
-
-
-_ASSERTS_F = "python -c 'from app import f; assert f(1) == 2'"
 
 
 @pytest.mark.parametrize(
@@ -618,3 +788,177 @@ def test_finding_merge_consolidates_criteria_execution_results() -> None:
 
     merged = _merge_two_findings(f1, f2)
     assert (len(merged.criteria_execution_results), merged.severity) == (2, "HIGH")
+
+
+_NOT_ALLOWLISTED = "is not in allowed criteria binaries"
+_PYTEST_MODULE_REFUSED = "Python module pytest runs tests"
+_PYTEST_CALL_REFUSED = "Python script runs pytest"
+_PYTHON_SHAPE_REFUSED = (
+    "A python criterion is `python -c <script>` or `python -m <module>`, "
+    "with -c or -m as its first argument"
+)
+_FIND_ACTION_REFUSED = "runs a command or writes a file"
+
+
+@pytest.mark.parametrize(
+    ("command", "reason"),
+    [
+        ("pytest tests/test_app.py -k test_page", _NOT_ALLOWLISTED),
+        ("rg -n page src", _NOT_ALLOWLISTED),
+        ("file src/app.py", _NOT_ALLOWLISTED),
+        ("python -m pytest tests/test_app.py -v", _PYTEST_MODULE_REFUSED),
+        ("python3 -m pytest.__main__ tests/test_app.py", _PYTEST_MODULE_REFUSED),
+        ("python -m pytest -c x tests/test_app.py", _PYTEST_MODULE_REFUSED),
+        ("python -m _pytest.config tests/test_app.py", _PYTEST_MODULE_REFUSED),
+        ("python -Bm pytest -c pyproject.toml tests/test_app.py", _PYTHON_SHAPE_REFUSED),
+        ("python -Im pytest -c x tests/test_app.py", _PYTHON_SHAPE_REFUSED),
+        ("python -c \"import pytest; pytest.main(['tests/test_app.py'])\"", _PYTEST_CALL_REFUSED),
+        ("python -c 'import pytest as p; p.console_main()'", _PYTEST_CALL_REFUSED),
+        ("python -c 'from pytest import main; main([])'", _PYTEST_CALL_REFUSED),
+        (
+            "python -c \"from _pytest.config import main; raise SystemExit(main(['tests']))\"",
+            _PYTEST_CALL_REFUSED,
+        ),
+        ("python -c 'import _pytest.config; _pytest.config.main([])'", _PYTEST_CALL_REFUSED),
+        ("python -c \"__import__('pytest').main(['tests/test_app.py'])\"", _PYTEST_CALL_REFUSED),
+        (
+            "python -c \"import importlib; importlib.import_module('_pytest.config').main([])\"",
+            _PYTEST_CALL_REFUSED,
+        ),
+        ("find tests -name test_app.py -exec pytest -q {} +", _FIND_ACTION_REFUSED),
+    ],
+)
+def test_pytest_rg_and_file_criteria_are_rejected_without_running(
+    tmp_path: Path, command: str, reason: str
+) -> None:
+    """pytest in the forms the validator reads, rg and file are refused before the sandbox runs
+    anything (#847).
+
+    `python -m pytest` and `pytest.main` run the project's real tests under the 30 s python limit,
+    and a `pytest.main` whose status is discarded passes whatever the tests do. `_pytest` is
+    pytest's own package, and `find -exec` runs pytest from the repository's `.venv/bin`.
+    """
+    sandbox = _recording_sandbox()
+    result = execute_criterion_command(command, cwd=tmp_path, sandbox=sandbox)
+    criterion = VerificationCriterion.model_validate(command)
+    assert (
+        result.executable,
+        result.exit_code,
+        result.passed,
+        reason in str(result.error),
+        sandbox.execute.called,
+        criterion.executable,
+    ) == (False, None, False, True, False, False)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python -c 'import pytest; from app import f; pytest.raises(ValueError, f, -1)'",
+        "python -c 'from tests.test_app import test_page; test_page()'",
+        "python -c 'import pytest, app; app.main()'",
+        "python -c 'import pytest; from app import main; main()'",
+        "python -c \"import pytest; __import__('app').main()\"",
+    ],
+)
+def test_python_criterion_may_import_pytest_without_running_it(command: str) -> None:
+    """Importing pytest, or a test module that does, stays a valid criterion (#847)."""
+    assert validate_criteria_command(command)[:2] == (True, None)
+
+
+_FORBIDDEN_MODULE = "Forbidden module after -m"
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("python -m socket -c pass", (False, _FORBIDDEN_MODULE, False)),
+        ("python -m http.server 8000", (False, _FORBIDDEN_MODULE, False)),
+        (
+            "python -Bc \"import subprocess; subprocess.run(['id', '-u'])\" -c pass",
+            (False, _PYTHON_SHAPE_REFUSED, False),
+        ),
+        (
+            "python -B -c 'from app import f; assert f(1) == 2'",
+            (False, _PYTHON_SHAPE_REFUSED, False),
+        ),
+        ("python -cpass", (False, _PYTHON_SHAPE_REFUSED, False)),
+        ("python -c", (False, _PYTHON_SHAPE_REFUSED, False)),
+        ("python -c 'import sys' -m socket", (True, None, True)),
+    ],
+)
+def test_python_criterion_runs_only_the_c_or_m_its_first_argument_names(
+    tmp_path: Path, command: str, expected: tuple[bool, str | None, bool]
+) -> None:
+    """Python reads its own options up to the first `-c` or `-m`, inside a cluster such as `-Bc`
+    too, and passes the rest to the script or module. A python criterion is accepted only with
+    `-c` or `-m` as its first argument, so the script or module checked is the one that runs:
+    `-Bc <script> -c pass` ran the first script unchecked, and a `-c` after `-m` does not hide the
+    module (#847)."""
+    sandbox = _recording_sandbox()
+    result = execute_criterion_command(command, cwd=tmp_path, sandbox=sandbox)
+    assert (result.executable, result.error, sandbox.execute.called) == expected
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "find . -name app.py -exec cat {} +",
+        "find . -name app.py -execdir cat {} +",
+        "find . -name app.py -ok cat {} +",
+        "find . -name app.py -okdir cat {} +",
+        "find . -name app.py -delete",
+        "find . -name app.py -fprint found.txt",
+        "find . -name app.py -fprint0 found.txt",
+        "find . -name app.py -fprintf found.txt %p",
+        "find . -name app.py -fls found.txt",
+    ],
+)
+def test_a_find_criterion_that_runs_or_writes_is_rejected_without_running(
+    tmp_path: Path, command: str
+) -> None:
+    """`find` may search, but not run a command (`-exec`, which reaches any binary, not only the
+    allowlisted ones) or write and delete files (#847)."""
+    sandbox = _recording_sandbox()
+    result = execute_criterion_command(command, cwd=tmp_path, sandbox=sandbox)
+    assert (
+        result.executable,
+        _FIND_ACTION_REFUSED in str(result.error),
+        sandbox.execute.called,
+    ) == (False, True, False)
+
+
+def test_python_criteria_get_the_measured_timeout_and_other_commands_keep_five_seconds(
+    tmp_path: Path,
+) -> None:
+    """python and python3 criteria run under their measured limit; grep and git keep 5 s (#847)."""
+    from devops_cli.config.defaults import DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS
+
+    sandbox = _recording_sandbox()
+    commands = ("python -c pass", "python3 -c pass", "git status", "grep -n page app.py")
+    for command in commands:
+        execute_criterion_command(command, cwd=tmp_path, sandbox=sandbox)
+    execute_criterion_command("python -c pass", cwd=tmp_path, sandbox=sandbox, timeout=0.5)
+    timeouts = [call.kwargs["timeout"] for call in sandbox.execute.call_args_list]
+    assert (timeouts, DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS) == (
+        [
+            DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS,
+            DEFAULT_CRITERIA_PYTHON_TIMEOUT_SECONDS,
+            5.0,
+            5.0,
+            0.5,
+        ],
+        5.0,
+    )
+
+
+@pytest.mark.parametrize("prompt", ["review.md", "review_output_instruction.md"])
+def test_criteria_rule_in_the_prompts_offers_no_pytest_command(prompt: str) -> None:
+    """The reviewer is not invited to write a pytest criterion the executor refuses (#847)."""
+    tasks = Path(__file__).resolve().parents[1] / "src" / "devops_cli" / "ai" / "tasks"
+    rule = next(
+        line
+        for line in (tasks / prompt).read_text(encoding="utf-8").splitlines()
+        if "imports the cited code" in line
+    )
+    assert ("`python -c`" in rule, "pytest" in rule) == (True, False)
