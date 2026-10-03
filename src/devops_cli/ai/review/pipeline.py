@@ -72,7 +72,7 @@ from devops_cli.ai.review.verdicts import (
     apply_verdict,
     assert_verdict_invariants,
 )
-from devops_cli.ai.review.verification import _validate_segment_findings
+from devops_cli.ai.review.verification import _validate_segment_findings, record_cited_code
 from devops_cli.ai.review_schema import (
     FileReviewPayload,
     Finding,
@@ -2582,7 +2582,7 @@ class ReviewPipelineOrchestrator:
             p_def = PERSONAS.get(persona_enum, PERSONAS[Persona.DEVSECOPS])
             persona_lookup[p_def.title] = (p_val, p_def.title)
             persona_lookup[p_val] = (p_val, p_def.title)
-            sys_prompt = _persona_system_prompt(p_def, target_conventions)
+            sys_prompt = _persona_system_prompt(p_def, target_conventions, self.target_dir)
             agent = PydanticAgent[ReviewResult](
                 client=self.llm_client,
                 name=p_def.title,
@@ -2599,7 +2599,7 @@ class ReviewPipelineOrchestrator:
             agent = PydanticAgent[ReviewResult](
                 client=self.llm_client,
                 name=p_def.title,
-                system_prompt=_persona_system_prompt(p_def, target_conventions),
+                system_prompt=_persona_system_prompt(p_def, target_conventions, self.target_dir),
                 output_type=ReviewResult,
                 retries=DEFAULT_REVIEW_RETRY_ATTEMPTS,
             )
@@ -4075,6 +4075,8 @@ class ReviewPipelineOrchestrator:
         )
         symbol_delta = self._compute_symbol_delta_summary(file_payloads)
 
+        candidate_findings = [f for payload in file_payloads for f in payload.findings]
+        record_cited_code([*all_findings, *candidate_findings], self.target_dir)
         payload_out = ReviewSessionPayload(
             generated_at=datetime.now(UTC).isoformat(),
             subject=self.subject,
@@ -4094,7 +4096,7 @@ class ReviewPipelineOrchestrator:
             generated_at=payload_out.generated_at,
             subject=self.subject,
             personas=resolved_personas,
-            findings=[f for payload in file_payloads for f in payload.findings],
+            findings=candidate_findings,
         )
         (self.session_dir / CONST_REVIEW_CANDIDATES_FILENAME).write_text(
             candidates.model_dump_json(indent=2), encoding="utf-8"

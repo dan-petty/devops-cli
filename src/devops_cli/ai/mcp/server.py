@@ -835,7 +835,7 @@ def scan_uv_audit(directory: str = ".", requirements_file: str = "") -> str:
 
 @mcp.tool()
 def review_export_feedback(status: str = "ALL", output_path: str = "") -> str:
-    """Export review findings into JSONL feedback dataset for LLM alignment."""
+    """Append review verdicts the feedback dataset does not hold yet to the JSONL dataset."""
     cmd = ["uv", "run", "devops", "review", "export-feedback", "--status", status]
     if output_path:
         _validate_mcp_arg("output_path", output_path)
@@ -2058,36 +2058,6 @@ def benchmark_embeddings(
         ],
         timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     )
-
-
-@mcp.tool()
-def benchmark_suite(
-    models: str = "qwen2.5-coder:7b",
-    dataset: str = "",
-    provider: str = "ollama",
-    dry_run: bool = True,
-) -> str:
-    """Benchmark candidate models against feedback dataset for precision, recall, and hallucination scoring."""
-    _validate_mcp_arg("models", models)
-    _validate_mcp_arg("provider", provider)
-    cmd = [
-        "uv",
-        "run",
-        "devops",
-        "ai",
-        "benchmark",
-        "--suite",
-        "--models",
-        models,
-        "--provider",
-        provider,
-    ]
-    if dataset:
-        _validate_mcp_arg("dataset", dataset)
-        cmd.extend(["--dataset", dataset])
-    if dry_run:
-        cmd.append("--dry-run")
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
 @mcp.tool()

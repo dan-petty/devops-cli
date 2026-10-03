@@ -222,6 +222,9 @@ CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
 CONST_SLOW_WORKSPACE_FSTYPES: Final[frozenset[str]] = frozenset({"9p", "drvfs"})
 CONST_LLM_CACHE_DIR_NAME = "llm"
 CONST_BENCHMARKS_DIR_NAME = "benchmarks"
+# The kinds of run `devops ai benchmark --type` takes: `auto` picks embedding when a model's name
+# says it embeds and chat otherwise. Any other value is refused rather than run as chat (#950).
+CONST_BENCHMARK_TYPES: Final[tuple[str, ...]] = ("auto", "chat", "embedding")
 CONST_AUDIT_LOG_NAME = "audit.jsonl"
 CONST_FEEDBACK_DATASET_NAME = "feedback_dataset.jsonl"
 CONST_EMBEDDING_REPORT_FILENAME = "embedding_report.json"
@@ -231,6 +234,120 @@ CONST_SAMPLES_DIR_NAME = "samples"
 CONST_RUNS_DIR_NAME = "runs"
 CONST_INDEX_CACHE_FILENAME = "index_cache.json"
 CONST_HALLUCINATIONS_FILE_NAME = "common_hallucinations.json"
+# Appended to the learned catalog's file name for the lock its writers take turns on (#950).
+CONST_HALLUCINATIONS_LOCK_SUFFIX = ".lock"
+# The source and id prefix of a learned-catalog entry: a claim a person's INVALIDATED verdict
+# judged, which a later review suppresses exactly (#950).
+CONST_JUDGED_CLAIM_SOURCE = "person"
+CONST_JUDGED_CLAIM_ID_PREFIX = "JUDGED-"
+# The words a judged claim is never keyed on besides Python's keywords (#950): common English
+# words, and the keywords of the other languages a review reads that are words too. A title and the
+# line it cites that share only such words make no claim about that line's code.
+CONST_JUDGED_CLAIM_STOP_WORDS: Final[frozenset[str]] = frozenset(
+    {
+        "a",
+        "about",
+        "after",
+        "all",
+        "also",
+        "an",
+        "any",
+        "are",
+        "at",
+        "be",
+        "been",
+        "before",
+        "but",
+        "by",
+        "can",
+        "case",
+        "const",
+        "could",
+        "default",
+        "do",
+        "does",
+        "done",
+        "each",
+        "end",
+        "esac",
+        "every",
+        "fi",
+        "fn",
+        "func",
+        "function",
+        "has",
+        "have",
+        "here",
+        "how",
+        "into",
+        "it",
+        "its",
+        "let",
+        "may",
+        "might",
+        "more",
+        "most",
+        "must",
+        "mut",
+        "new",
+        "no",
+        "of",
+        "on",
+        "only",
+        "onto",
+        "other",
+        "out",
+        "over",
+        "package",
+        "per",
+        "private",
+        "protected",
+        "public",
+        "same",
+        "see",
+        "should",
+        "so",
+        "some",
+        "static",
+        "such",
+        "than",
+        "that",
+        "the",
+        "their",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "those",
+        "to",
+        "too",
+        "under",
+        "up",
+        "upon",
+        "use",
+        "used",
+        "uses",
+        "using",
+        "var",
+        "very",
+        "via",
+        "void",
+        "was",
+        "we",
+        "were",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+        "will",
+        "would",
+        "you",
+        "your",
+    }
+)
 # Test-only paths and environment variables that must be strictly isolated outside the project root
 CONST_FORBIDDEN_PROJECT_TEST_PATHS: Final[tuple[str, ...]] = (
     "test_config.yaml",
@@ -2773,6 +2890,9 @@ CONST_VERIFIED_BY_HUMAN: Final[str] = "human"
 # A verdict an agent gave through `devops review verify --adjudicator agent` or the MCP
 # `verify_finding` tool. MCP clients are untrusted, so it never counts as a person's.
 CONST_VERIFIED_BY_AGENT: Final[str] = "agent"
+# The prefix of a verdict a deterministic check gave (`deterministic:syntax_error`, ...). Such a
+# label is the deterministic layer's own decision, so `ai prompt-eval` leaves it out (#950).
+CONST_VERIFIED_BY_DETERMINISTIC_PREFIX: Final[str] = "deterministic:"
 # Marks a finding the verifier never adjudicated because verification itself failed, as
 # opposed to one it considered and declined to confirm.
 CONST_VERIFICATION_UNAVAILABLE: Final[str] = "verification-unavailable"

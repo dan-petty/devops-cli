@@ -30,7 +30,7 @@ graph TD
   - **Verification & Invalidation Criteria**: Every finding is tested against explicit observable criteria in the AST, manifest configurations, build systems, path boundaries, and lockfiles (`uv.lock`, `poetry.lock`, `Cargo.lock`), eliminating theoretical, ungrounded, or phantom alerts.
   - **Confidence Calibration & Multi-Agent Debate**: Multi-persona agreement, adversarial debate (`challenger`), and deterministic AST/lockfile checks calibrate finding confidence scores before reporting.
   - **Autonomous Hallucination Protection**: Cross-checks findings against a centralized common hallucinations catalog (`common_hallucinations.json`) to prevent known false alarms (Python 3.14 PEP 758 unparenthesized excepts, prompt redaction markers `<masked-*>`, synthetic test fixtures, and verified modern libraries like `httpx2`).
-  - **Structured Feedback Dataset Calibration**: Verified and invalidated verdicts are continuously exported to structured JSONL feedback datasets (`devops review export-feedback --status ALL --output .data/reviews/feedback_dataset.jsonl`), creating a fine-tuning dataset and living memory for multi-model benchmark evaluation (`devops benchmark suite`).
+  - **Structured Feedback Dataset Calibration**: Verified and invalidated verdicts are appended to one JSONL feedback dataset, `.data/feedback_dataset.jsonl` (`devops review export-feedback --status ALL`), a fine-tuning dataset that `devops ai prompt-eval` measures the deterministic layer against, per labeller.
   - **Lockfile-Aware Dependency Resolution**: Evaluates dependency vulnerability alerts against exact cryptographic package releases resolved from authoritative lockfiles (`uv.lock`, `poetry.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`) to prevent false alarms on loose manifest ranges (`>=`, `~=`).
   - **Network Reference & Code Identifier Disambiguation**: Applies RFC 1123/2606 rules, Public Suffix List (`tldextract`) validation, and AST introspection to distinguish legitimate network domains from source file names (`*.py`, `*.md`, `*.sh`, `*.tf`, `*.rs`, `*.pid`) and telemetry/code property paths (`service.name`, `ci.step.*`, `host.name`, `process.pid`).
   - **Self-Healing Remediations**: AI generates verifiable, syntax-valid, drop-in patches ready for immediate CI test execution.
@@ -71,8 +71,8 @@ devops ai review branch --persona devsecops
 # Review an entire target project path
 devops ai review path repos/my-org/my-project
 
-# Export review feedback dataset for continuous alignment and prompt tuning
-devops ai review export-feedback --status ALL --output .data/reviews/feedback_dataset.jsonl
+# Append the review verdicts to the feedback dataset (.data/feedback_dataset.jsonl)
+devops ai review export-feedback --status ALL
 
 # Check LLM response cache performance and hit rates
 devops ai cache status

@@ -172,3 +172,90 @@ def test_a_dataset_outside_the_repository_is_refused() -> None:
     """The path is attacker-influenceable through a flag; traversal must not resolve."""
     with pytest.raises(SecurityError):
         evaluate_persona_prompts("devsecops", dataset_path=Path("/etc/passwd"))
+
+
+# =============================================================================
+# Counting only labels a deterministic check did not write (#950)
+# =============================================================================
+
+
+def _labelled(title: str, status: str, verified_by: str) -> dict[str, Any]:
+    return {**_record(title, status), "verified_by": verified_by}
+
+
+def test_a_deterministic_label_is_counted_as_excluded(tmp_path: Path) -> None:
+    """Scoring the deterministic layer against labels it wrote is circular: 28 of the 51 labels
+    in this repository's dataset were `deterministic:*`, and none was a person's."""
+    dataset = _dataset(
+        tmp_path,
+        [_labelled("Path.resolve() raises FileNotFoundError", "INVALIDATED", "deterministic:x")],
+    )
+
+    result = evaluate_persona_prompts("devsecops", dataset_path=dataset).to_dict()
+
+    assert (result["total_cases"], result["excluded_labels"], result["labelled_invalidated"]) == (
+        0,
+        {"deterministic:x": 1},
+        0,
+    )
+
+
+def test_the_measurement_is_reported_per_labeller(tmp_path: Path) -> None:
+    """A person's labels, an agent's and a model's are not interchangeable ground truth."""
+    dataset = _dataset(
+        tmp_path,
+        [
+            _labelled("Path.resolve() raises FileNotFoundError", "INVALIDATED", "human"),
+            _labelled("Path.resolve() raises FileNotFoundError", "VERIFIED", "llm"),
+            _labelled("A defect no mechanical check decides", "INVALIDATED", "llm"),
+            {**_record("A defect no mechanical check decides", "INVALIDATED")},
+        ],
+    )
+
+    result = evaluate_persona_prompts("devsecops", dataset_path=dataset).to_dict()
+
+    assert result["by_labeller"] == {
+        "human": {"invalidated": 1, "caught": 1, "verified": 0, "contested": 0},
+        "llm": {"invalidated": 1, "caught": 0, "verified": 1, "contested": 1},
+        "unknown": {"invalidated": 1, "caught": 0, "verified": 0, "contested": 0},
+    }
+
+
+def test_deterministic_labels_are_counted_when_asked_for(tmp_path: Path) -> None:
+    """Including them is a choice the reader makes, not the default."""
+    dataset = _dataset(
+        tmp_path,
+        [_labelled("Path.resolve() raises FileNotFoundError", "INVALIDATED", "deterministic:x")],
+    )
+
+    result = runner.invoke(
+        ai_app, ["prompt-eval", "--json", "--include-deterministic", "--dataset", str(dataset)]
+    )
+    payload = json.loads(result.stdout)
+
+    assert (result.exit_code, payload["total_cases"], payload["excluded_labels"]) == (0, 1, {})
+
+
+def test_a_claim_a_person_judged_is_not_counted_as_caught(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Replaying a finding through the layer must not count the suppression of the claim a person
+    judged as the layer catching it: that only repeats the person's own label."""
+    from devops_cli.ai.review.common_hallucinations import record_judged_claim
+    from devops_cli.ai.review.verification import record_cited_code
+    from devops_cli.ai.review_schema import SavedFinding
+
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "pyproject.toml").write_text("[project]\nname = 'target'\n", encoding="utf-8")
+    (checkout / "runner.py").write_text("def run(code):\n    exec(code, {})\n", encoding="utf-8")
+    monkeypatch.chdir(checkout)
+    judged = _labelled("`exec` runs a compiled snippet", "INVALIDATED", "human")
+    judged["location"] = "runner.py:2"
+    finding = SavedFinding(**judged)
+    record_cited_code([finding], checkout)
+    record_judged_claim(finding, "The test runs a snippet it wrote itself")
+
+    result = evaluate_persona_prompts("devsecops", dataset_path=_dataset(tmp_path, [judged]))
+
+    assert (result.labelled_invalidated, result.caught_invalidations) == (1, 0)

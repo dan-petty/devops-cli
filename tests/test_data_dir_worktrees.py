@@ -13,7 +13,6 @@ import json
 import os
 import shutil
 import subprocess
-import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -27,7 +26,6 @@ from devops_cli.ai.analyze.cache import (
     load_cached_analysis,
     save_analysis_metadata,
 )
-from devops_cli.ai.benchmark.suite import load_feedback_benchmark_dataset
 from devops_cli.ai.model_bundler import bundle_ollama_models
 from devops_cli.ai.prompt_eval import evaluate_persona_prompts
 from devops_cli.ai.review.common_hallucinations import get_common_hallucinations_file_path
@@ -623,53 +621,6 @@ def test_a_relative_data_dir_override_keeps_one_hallucination_catalog(
     assert catalogs == [(main / "shared-data" / CONST_HALLUCINATIONS_FILE_NAME).resolve()] * 2
 
 
-@pytest.mark.parametrize("start", ["main", "linked"])
-def test_the_benchmark_suite_reads_the_shared_feedback_dataset(
-    repo_with_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, start: str
-) -> None:
-    """Verify the suite loads the main worktree's dataset from either worktree, both by default
-    and by a relative `--dataset`, instead of silently falling back to the baseline cases."""
-    main, linked = repo_with_worktree
-    _write_dataset(
-        main / ".data" / "feedback_dataset.jsonl",
-        [{"title": "Recorded finding", "status": "VERIFIED", "persona": "devsecops"}],
-    )
-    monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
-    monkeypatch.chdir(main if start == "main" else linked)
-
-    titles = (
-        [case.title for case in load_feedback_benchmark_dataset()],
-        [
-            case.title
-            for case in load_feedback_benchmark_dataset(Path(".data/feedback_dataset.jsonl"))
-        ],
-    )
-
-    assert titles == (["Recorded finding"], ["Recorded finding"])
-
-
-def test_the_benchmark_suite_accepts_a_dataset_in_the_worktree_it_runs_in(
-    repo_with_worktree: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Verify an absolute `--dataset` inside the outside worktree is accepted from a subdirectory
-    of it, where it is neither under the main worktree nor under the working directory.
-
-    The temporary directory is an allowed root too, and `tmp_path` lies in it, so it is moved
-    elsewhere for the worktree to be the only root that admits the dataset.
-    """
-    _, linked = repo_with_worktree
-    dataset = linked / "worktree-dataset.jsonl"
-    _write_dataset(dataset, [{"title": "Worktree finding", "status": "VERIFIED"}])
-    (linked / "src").mkdir()
-    (tmp_path / "elsewhere-tmp").mkdir()
-    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "elsewhere-tmp"))
-    monkeypatch.chdir(linked / "src")
-
-    titles = [case.title for case in load_feedback_benchmark_dataset(dataset)]
-
-    assert titles == ["Worktree finding"]
-
-
 @pytest.mark.parametrize("layout", ["repo_with_worktree", "nested_worktree"])
 @pytest.mark.parametrize(
     ("start", "caught"), [("worktree", 1), ("worktree package", 1), ("main", 0)]
@@ -1021,17 +972,15 @@ def test_the_library_drift_report_is_saved_in_the_shared_analysis_directory(
     assert saved == [(main / ".data" / "analysis").resolve() / "api_drift_report.json"]
 
 
-@pytest.mark.parametrize(
-    "command", [["prompt-eval", "--help"], ["benchmark", "--help"]], ids=["ai", "benchmark"]
-)
-def test_dataset_help_says_a_relative_dataset_is_under_the_main_worktree(
-    command: list[str],
-) -> None:
-    """Verify the `--dataset` help of `devops ai prompt-eval` and the benchmark suite tells the
-    user a relative path is a data path under the main worktree."""
-    result = CliRunner().invoke(ai_app, command, terminal_width=200)
+def test_dataset_help_says_a_relative_dataset_is_under_the_main_worktree() -> None:
+    """Verify the `--dataset` help of `devops ai prompt-eval` tells the user a relative path is a
+    data path under the main worktree."""
+    result = CliRunner().invoke(ai_app, ["prompt-eval", "--help"], terminal_width=200)
+    # Under GitHub Actions Typer forces a terminal, and with TERM=dumb Rich renders 80 columns
+    # whatever COLUMNS says, so the help wraps and a table border can split the phrase.
+    text = " ".join(result.output.replace("│", " ").split())
 
-    assert (result.exit_code, "under the main worktree" in " ".join(result.output.split())) == (
+    assert (result.exit_code, "under the main worktree" in text) == (
         0,
         True,
     )

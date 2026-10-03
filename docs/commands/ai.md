@@ -342,6 +342,11 @@ devops ai diagram [OPTIONS] <diagram_type>
 
 **Measure the deterministic suppression layer against recorded review verdicts.**
 
+Measure the deterministic suppression layer against recorded review verdicts.
+
+The counts are reported for each labeller, and a label a deterministic check wrote is left
+out unless --include-deterministic: scoring the layer against its own labels is circular.
+
 ```bash
 devops ai prompt-eval [OPTIONS]
 ```
@@ -352,6 +357,7 @@ devops ai prompt-eval [OPTIONS]
 |---|---|---|---|
 | `--persona`, `-p` | `string` | `devsecops` | Persona whose recorded findings to measure the layer against. |
 | `--dataset`, `-d` | `path` | - | Feedback dataset JSONL; a relative path is a data path under the main worktree, like data.feedback_dataset_path (default: the configured feedback dataset). |
+| `--include-deterministic` | `boolean` | - | Also count records a deterministic check labelled; scoring the layer against its own labels is circular, so they are excluded by default. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -681,9 +687,11 @@ verdict to the copy with `--index`. Verdicts given on one session at once take t
 `--adjudicator` records who gave the verdict: `human`, the default, or `agent`, which an AI
 agent passes and the MCP `verify_finding` tool always sends. An agent cannot change a
 person's verdict. Only a person's verdict ranks review history, teaches the learned catalog
-(INVALIDATED) or records a mitigation in the ledger (MITIGATED). A reset to UNVERIFIED
-withdraws what the finding's verdicts recorded there: an entry another verdict also
-recorded stays, and one nothing else recorded is removed.
+(INVALIDATED) or records a mitigation in the ledger (MITIGATED). A later verdict withdraws
+what the finding's earlier verdicts recorded there that it no longer stands behind: the
+catalog entry once the finding is not INVALIDATED, so later reviews stop suppressing its
+claim, and the ledger entry once it is not MITIGATED. An entry another verdict also recorded
+stays, and one nothing else recorded is removed.
 
 ```bash
 devops ai review verify [OPTIONS] <session>
@@ -703,7 +711,7 @@ devops ai review verify [OPTIONS] <session>
 | `--index`, `-i` | `integer` | - | Number `review findings` shows for the finding: its place in findings.json, whatever filter the list applied. |
 | `--title`, `-t` | `string` | - | Substring of exactly one finding title in findings.json. |
 | `--candidate` | `integer` | - | Number `review findings --candidates` shows; a VERIFIED or MITIGATED verdict moves the candidate into findings.json. |
-| `--status` | `string` | - | Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. UNVERIFIED also withdraws what a person's verdicts recorded in the catalog and ledger. |
+| `--status` | `string` | - | Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. It withdraws what a person's earlier verdicts recorded that it no longer stands behind: the catalog entry of an INVALIDATED one, the ledger entry of a MITIGATED one. |
 | `--adjudicator` | `choice (human|agent)` | `human` | Who gives the verdict: human, or agent for an AI agent, which cannot change a person's verdict. Only a person's verdict ranks review history and teaches the learned catalog and mitigations ledger. |
 | `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
 | `--perimeter`, `-p` | `string` | - | Perimeter file path(s) protecting against finding recurrence (repeatable). |
@@ -751,7 +759,13 @@ devops ai review benchmark [OPTIONS] <targets>
 
 ### `devops ai review export-feedback`
 
-**Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning.**
+**Append review verdicts to the JSONL feedback dataset for prompt tuning and fine-tuning.**
+
+Append review verdicts to the JSONL feedback dataset for prompt tuning and fine-tuning.
+
+Each session's findings.json and candidates.json are read, and only the findings whose
+verdict the dataset does not hold yet are appended. An export that finds none leaves the
+dataset as it was.
 
 ```bash
 devops ai review export-feedback [OPTIONS]
@@ -761,7 +775,7 @@ devops ai review export-feedback [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | Output JSONL path for benchmark feedback dataset. |
+| `--output`, `-o` | `path` | - | JSONL dataset to append to (default: the configured data.feedback_dataset_path). |
 | `--reviews-dir` | `path` | - | Directory containing review sessions. |
 | `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 
@@ -1233,9 +1247,7 @@ devops ai benchmark [OPTIONS]
 | `--models`, `-m` | `string` | - | Comma-separated candidate models (e.g. 'qwen2.5:0.5b,llama3.1:8b@http://gpu2:11434'). |
 | `--servers`, `--ollama-urls` | `string` | - | Comma-separated Ollama server URLs for concurrent execution (e.g. 'http://node1:11434,http://node2:11434'). |
 | `--provider`, `-p` | `string` | - | AI or cloud provider. |
-| `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding', 'suite'. |
-| `--suite` | `boolean` | - | Run multi-model evaluation suite grounded in feedback datasets. |
-| `--dataset` | `path` | - | Feedback dataset JSONL for --suite; a relative path is a data path under the main worktree, like data.feedback_dataset_path (default: the configured feedback dataset). |
+| `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding'. |
 | `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes'). |
 | `--concurrency`, `-c` | `integer` | `4` | Number of concurrent model server workers (default: automatic per model count). |
 | `--output`, `-o` | `path` | - | Destination path for output report or artifacts. |

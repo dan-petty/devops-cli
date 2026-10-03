@@ -86,6 +86,11 @@ class ReviewMessages:
         "A person gave this finding its verdict, and an agent cannot change it; "
         "only --adjudicator human can."
     )
+    verdict_teaches_nothing: str = (
+        "The verdict is recorded, but later reviews will not suppress this finding: its review "
+        "recorded no code at its location, as sessions saved by earlier versions do not, or its "
+        "title and description name no identifier of that code."
+    )
     sessions_counted: str = (
         "[bold]Sessions:[/bold] {total} (counted {counted}: {repeats} repeat sessions collapsed, "
         "{target_only} target-only, {unkeyed} unkeyed)"
@@ -94,8 +99,10 @@ class ReviewMessages:
     review_posted_pr: str = "Review posted as comment on PR #{number}"
     no_findings_session: str = "No findings.json in session {name}"
     session_not_found: str = "Session not found matching: {session}"
-    no_findings_to_export: str = "No {status} findings found to export under {target}."
-    exported_findings: str = "Exported {count} {status} finding(s) → [bold]{path}[/bold]"
+    no_findings_to_export: str = (
+        "No {status} findings under {target} that {path} does not already hold; it is unchanged."
+    )
+    exported_findings: str = "Appended {count} {status} finding(s) → [bold]{path}[/bold]"
     index_out_of_bounds: str = "Index out of bounds (1-{max_index})"
     table_title_findings: str = "Code Review Findings"
     table_title_dependencies: str = "[bold yellow]External Dependencies Audit[/bold yellow]"
@@ -149,9 +156,6 @@ class BenchmarkMessages:
     table_title_category_breakdown: str = "Domain Category Breakdown (Session {session_id})"
     table_title_server_hardware: str = (
         "Ollama Server Hardware & Node Performance (Session {session_id})"
-    )
-    table_title_suite_leaderboard: str = (
-        "AI Benchmark Evaluation Suite Leaderboard (Session {session_id})"
     )
 
 

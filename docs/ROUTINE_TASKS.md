@@ -323,12 +323,12 @@ Executed weekly, prior to major releases, or when dependencies are updated.
      ```bash
      devops ai review verify <session-id> --index 1 --status INVALIDATED --reason "False positive on valid exception tuple"
      ```
-  3. Export benchmark feedback datasets for prompt tuning, DPO alignment, and model calibration:
+  3. Append the verdicts to the feedback dataset for prompt tuning, DPO alignment, and model calibration:
      ```bash
-     devops ai review export-feedback --status ALL --output .data/feedback.jsonl
+     devops ai review export-feedback --status ALL
      ```
   4. Continuous Self-Improvement Loop:
-     - Regularly analyze exported feedback in `.data/feedback.jsonl` to identify recurring false positives and refine persona domain prompts (`devsecops`, `architect`, `auditor`, `pm`, `qa`) and verification directives (`verify_finding.md`).
+     - Regularly analyze the feedback dataset, `.data/feedback_dataset.jsonl` (`data.feedback_dataset_path`), to identify recurring false positives and refine persona domain prompts (`devsecops`, `architect`, `auditor`, `pm`, `qa`) and verification directives (`verify_finding.md`).
 
 ---
 

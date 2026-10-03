@@ -175,7 +175,10 @@ def test_build_context_review_prompt_code() -> None:
 def test_build_multi_persona_pipeline_agents_carry_guardrails_and_exemplars(
     tmp_path: Path,
 ) -> None:
-    """Verify every orchestrator agent carries guardrails, negative exemplars, and wrapped conventions."""
+    """Verify every orchestrator agent carries guardrails, negative exemplars, and wrapped conventions.
+
+    A target nobody has judged a claim in is shown the shipped false positives (#950).
+    """
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 
     orchestrator = ReviewPipelineOrchestrator(
@@ -190,7 +193,7 @@ def test_build_multi_persona_pipeline_agents_carry_guardrails_and_exemplars(
     all_carry_guardrails = all(
         "## Security & Prompt Isolation Guardrails" in p for p in agent_prompts
     )
-    all_carry_exemplars = all("## Previously Recorded False Positives" in p for p in agent_prompts)
+    all_carry_exemplars = all("## Common False Positives" in p for p in agent_prompts)
     all_carry_conventions = all(
         "<project_conventions_context>\nStrict project guidelines.\n</project_conventions_context>"
         in p
@@ -200,7 +203,7 @@ def test_build_multi_persona_pipeline_agents_carry_guardrails_and_exemplars(
     empty_pipe, _ = orchestrator._build_multi_persona_pipeline(["qa"], "")
     qa_prompt = empty_pipe.agents[0].system_prompt
     qa_has_guardrails = "## Security & Prompt Isolation Guardrails" in qa_prompt
-    qa_has_exemplars = "## Previously Recorded False Positives" in qa_prompt
+    qa_has_exemplars = "## Common False Positives" in qa_prompt
     qa_has_conventions_tag = "<project_conventions_context>" in qa_prompt
 
     assert (

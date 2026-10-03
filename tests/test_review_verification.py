@@ -1394,7 +1394,7 @@ def test_an_unadjudicated_finding_is_not_exported_as_human_reviewed() -> None:
     from devops_cli.ai.review.exporter import _build_feedback_record
 
     record = _build_feedback_record(
-        {"title": "A defect", "location": "a.py:1"}, "sess", "UNVERIFIED"
+        {"title": "A defect", "location": "a.py:1"}, "sess", {}, "UNVERIFIED"
     )
     assert record.verified_by == "unknown"
 

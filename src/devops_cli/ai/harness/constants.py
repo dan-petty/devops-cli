@@ -13,14 +13,8 @@ DEFAULT_SUMMARIZING_INSTRUCTIONS: str = load_task_prompt("summarizing_compaction
 DEFAULT_CODER_INSTRUCTIONS: str = load_task_prompt("coder_agent.md").strip()
 DEFAULT_RESEARCHER_INSTRUCTIONS: str = load_task_prompt("researcher_agent.md").strip()
 DEFAULT_MACROSCOPE_GUIDANCE: str = load_task_prompt("macroscope_guidance.md").strip()
-DEFAULT_PLANNING_GUIDANCE: str = (
-    load_task_prompt("planning_guidance.md").strip()
-    or "Use the planning tools (write_plan, read_plan, update_task_status) to track progress across multi-step tasks."
-)
-DEFAULT_PLAYWRIGHT_GUIDANCE: str = (
-    load_task_prompt("playwright_guidance.md").strip()
-    or "Use browser automation tools (navigate, snapshot, click, type_text) to interact with web applications."
-)
+DEFAULT_PLANNING_GUIDANCE: str = load_task_prompt("planning_guidance.md")
+DEFAULT_PLAYWRIGHT_GUIDANCE: str = load_task_prompt("playwright_guidance.md")
 
 LLM_API_KEY_ENV_PATTERNS: list[str] = [
     "*API_KEY*",

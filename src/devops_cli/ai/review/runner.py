@@ -45,6 +45,7 @@ from devops_cli.ai.review.verification import (
     _merge_segment_results,
     _reconcile_verified,
     _validate_segment_findings,
+    record_cited_code,
 )
 from devops_cli.ai.review_schema import (
     Finding,
@@ -456,6 +457,7 @@ def _save_findings_json(
             )
     findings = consolidate_duplicate_findings(calibrate_findings(findings))
     assert_verdict_invariants(findings)
+    record_cited_code(findings, None)
     removed_count = sum(1 for f in findings if f.verification_note == "cites removed symbol")
     delta_summary = _compute_delta_summary(analysis_metas)
     payload = ReviewSessionPayload(

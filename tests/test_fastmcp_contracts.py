@@ -78,7 +78,6 @@ def test_fastmcp_tools_registration() -> None:
         "rag_index",
         "rag_drift",
         "benchmark_embeddings",
-        "benchmark_suite",
         # Security Intel & Scanners
         "security_intel_package",
         "security_intel_network",

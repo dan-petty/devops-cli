@@ -28,19 +28,20 @@ from devops_cli.ai.mcp.server import verify_finding
 from devops_cli.ai.review.common_hallucinations import (
     CommonHallucinationEntry,
     HallucinationCategory,
-    auto_record_invalidated_finding,
     load_common_hallucinations,
+    record_judged_claim,
     register_common_hallucination,
 )
 from devops_cli.ai.review.exporter import FeedbackRecord, export_invalidated_feedback
 from devops_cli.ai.review.history import load_review_history, review_subject
+from devops_cli.ai.review.judged_claims import JudgedClaim
 from devops_cli.ai.review.mitigations import (
     MitigatedFindingEntry,
     load_mitigated_findings,
     record_mitigated_finding,
     save_mitigated_findings,
 )
-from devops_cli.ai.review_schema import ReviewSessionPayload, SavedFinding
+from devops_cli.ai.review_schema import CitedCode, ReviewSessionPayload, SavedFinding
 from devops_cli.commands import review as review_cli
 from devops_cli.commands.review import app
 from devops_cli.exceptions.validation import ValidationError
@@ -69,13 +70,20 @@ def _finding(title: str, line: int, status: str = "UNVERIFIED") -> SavedFinding:
     )
 
 
-def _template_finding() -> SavedFinding:
-    """A finding a person's INVALIDATED verdict teaches the learned catalog."""
+def _template_finding(view: str = "view") -> SavedFinding:
+    """A finding a person's INVALIDATED verdict teaches the learned catalog: its review recorded
+    the code it cites, which the claim is keyed on (#950)."""
     return SavedFinding(
         title="Quirky Framework Obsolete Artifact Warning",
         description="Flagged obsolete widget architecture in template engine.",
-        location="templates/view.html:4",
+        location=f"templates/{view}.html:4",
         persona="qa",
+        cited_code=CitedCode(
+            project="site",
+            file=f"templates/{view}.html",
+            line=4,
+            excerpt="  {{ widget.render(artifact) }}",
+        ),
     )
 
 
@@ -361,13 +369,15 @@ def test_a_reset_removes_the_catalog_and_ledger_entries_its_verdict_created(
     entries its verdict created and leaves every other entry alone."""
     register_common_hallucination(
         CommonHallucinationEntry(
-            id="HALLUCINATION-AUTO-00000001",
+            id="JUDGED-EARLIER",
             name="Earlier learned entry",
             category=HallucinationCategory.GENERAL,
             description="Kept",
-            pattern_keywords=["earlier", "entry"],
             resolution="Kept",
-            source="auto_learned",
+            source="person",
+            judged=JudgedClaim(
+                project="site", file="other.py", line=1, code_sha256="0" * 64, claim=("earlier",)
+            ),
         )
     )
     save_mitigated_findings(
@@ -409,7 +419,7 @@ def test_a_reset_removes_the_catalog_and_ledger_entries_its_verdict_created(
         2,
         ["Earlier mitigation", "Unbounded upload buffer"],
         [0, 0],
-        ["HALLUCINATION-AUTO-00000001"],
+        ["JUDGED-EARLIER"],
         ["Earlier mitigation"],
         [("UNVERIFIED", [], []), ("UNVERIFIED", [], [])],
     )
@@ -782,11 +792,8 @@ def test_a_reset_keeps_a_learned_entry_another_sessions_verdict_still_teaches(
 
 def _teaching_finding(n: int) -> SavedFinding:
     """A reported finding whose INVALIDATED verdict by a person teaches the learned catalog."""
-    return _template_finding().model_copy(
-        update={
-            "title": f"Quirky Framework Obsolete Artifact Warning in view{n}",
-            "location": f"templates/view{n}.html:4",
-        }
+    return _template_finding(f"view{n}").model_copy(
+        update={"title": f"Quirky Framework Obsolete Artifact Warning in view{n}"}
     )
 
 
@@ -939,7 +946,7 @@ def test_a_failed_session_write_leaves_entries_a_verdict_updated_as_they_were(
     on disk, and whose findings.json cannot be written, leave every field of both entries as it
     was: the resolution, keywords and last-seen time of the one, and the mechanism, perimeter,
     reason, regression test and time of the other, as well as their counts."""
-    auto_record_invalidated_finding(_template_finding(), reason="Original resolution")
+    record_judged_claim(_template_finding(), "Original resolution")
     record_mitigated_finding(
         _finding("Unbounded upload buffer", 12),
         reason="Gateway caps bodies at 1 MiB",

@@ -32,6 +32,7 @@ VerifiedBy = Literal[
     "deterministic:masked_placeholder_syntax_error",
     "deterministic:none_dereference",
     "deterministic:catalog_hallucination",
+    "deterministic:person_verdict",
     "deterministic:verdict_polarity",
     "deterministic:construct_location",
     "deterministic:line_boundaries",

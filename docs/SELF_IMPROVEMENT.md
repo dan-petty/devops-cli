@@ -41,8 +41,8 @@ flowchart TD
    - **Test-First Remediation**: Verified findings are immediately converted into failing regression tests before implementation code is updated.
 
 2. **Deep Self-Improvement Loop (Asynchronous & Cross-Release)**:
-   - **Feedback Export**: `devops review export-feedback` extracts verified findings, false positives, developer overrides, and remediation diffs into structured datasets (`.data/agent/feedback_dataset.jsonl`).
-   - **Hallucination Calibration**: Patterns consistently proven false or invalid are incorporated into `common_hallucinations.json`, teaching review models to disarm recurrent false alerts.
+   - **Feedback Export**: `devops review export-feedback` appends each verdict it has not exported yet, from findings.json and candidates.json, to the feedback dataset (`.data/feedback_dataset.jsonl`, `data.feedback_dataset_path`).
+   - **Hallucination Calibration**: Curated false-positive patterns ship in the builtin `common_hallucinations.json`. A person's INVALIDATED verdict records the one claim it disproved in the learned catalog, which later reviews suppress and show to the personas (section 5.7).
    - **Prompt Evolution**: Persona prompts, review instructions (`src/devops_cli/ai/tasks/review.md`), and system guidelines (`AGENTS.md`) are refined to eliminate blind spots and reinforce verified heuristics.
    - **Continuous Regression Guarding**: Remediated defects are converted into enduring invariant checks (`tests/test_architectural_invariants.py`) and domain test suites.
 
@@ -260,7 +260,7 @@ Systemic hardening updates resulting from this session:
 4. **General Category Ground-Truth Dispatch**: Closed verification gap in `common_hallucinations.py` by implementing `_verify_general_ground_truth` and registering `HallucinationCategory.GENERAL` in `_GROUND_TRUTH_VERIFIERS`.
 5. **Prompt Protocol Hardening**: Deduplicated and strengthened tautological criteria instructions in `verify_finding_system.md` to disallow auto-verification from import checks (`python -c "import ...; print('ok')"`) or source-printing reflection. Added explicit grounding rules in `review.md` and `verify_finding_system.md` for retry transports, async pools, hardware daemonsets, kube-router network policies, and telemetry error metrics.
 6. **Task Document Hygiene & Leakage Sanitization**: Sanitized ephemeral scratchpad paths and eliminated duplicated text across task tracking documents.
-7. **Feedback Dataset Export**: Exported 1744 findings to `.data/reviews/feedback_dataset.jsonl` with 100% categorized statuses.
+7. **Feedback Dataset Export**: Exported 1744 findings to the feedback dataset with 100% categorized statuses.
 
 #### Calibration Record: Session `20260930-133320`
 
@@ -361,7 +361,7 @@ Before altering implementation code in `src/`:
 
 ### Step 6: Export Feedback & Update Knowledge Memory
 - Run `devops review export-feedback` to append the session's findings, verifications, and resolutions to `feedback_dataset.jsonl`.
-- If any finding was identified as a false positive, register or update catalog entries in `src/devops_cli/ai/review/common_hallucinations.json` (e.g. Keyring secret stores, prompt sanitization boundaries, local cache service bindings).
+- A person's INVALIDATED verdict (`devops review verify ... --status INVALIDATED`) records that one claim for later reviews to suppress (section 5.7). A false-positive pattern that recurs across files and projects belongs in the curated builtin catalog, `src/devops_cli/ai/review/common_hallucinations.json` (e.g. Keyring secret stores, prompt sanitization boundaries, local cache service bindings).
 - Commit changes atomically: `fix(review): remediate findings and update self-improvement memory (#<issue>)`.
 
 ---
@@ -532,9 +532,10 @@ significance test is run. `devops ai runs check` still compares the means.
 Both arms must read one configuration file. `config.yaml` is git-ignored and the config lookup
 stops at a worktree's `.git`, so point both checkouts at a shared copy with `DEVOPS_CLI_CONFIG`,
 and pin the analysis and verification models there. Run the base arm twice first: the A/A ranges
-are the noise floor a prompt change is read against. Verification learns false-positive catalog
-entries from deterministic invalidations, so an earlier run can change a later run's verdicts; an
-A/A pair whose ranges read `apart` shows that effect.
+are the noise floor a prompt change is read against. A review learns nothing from its own
+verdicts: only a person's INVALIDATED verdict teaches the catalog (section 5.7). Give no verdicts
+between the runs of a comparison, or the claims judged after an earlier run are suppressed in, and
+shown to the personas of, the runs after it.
 
 To compare models rather than prompts, run every arm from one checkout and pin each arm's model
 from the shell. Each model `devops-review` serves has a gateway group of its own
@@ -567,8 +568,8 @@ models; the gate never runs it.
    result is read against. Every review in this protocol runs the default DevSecOps persona, not
    `--all`: the baseline session ran only that persona, and this change left the other four
    personas' own prompts as they were, so their findings would blur the counts in step 8.
-4. **Interleave.** Run three reviews per arm, alternating A and B, so the verifier's catalog
-   learning between runs does not favour one arm. Before each review, copy that arm's
+4. **Interleave.** Run three reviews per arm, alternating A and B, so whatever changes between
+   runs, such as the response cache warming, does not favour one arm. Before each review, copy that arm's
    `.devops/review.md` over `<corpus>/.devops/review.md`, so each arm runs as it ships; each
    session's `profile.json` then records its arm's `conventions_digest` (#946) beside its
    `prompt_digest`. Score each arm with explicit sessions:
@@ -745,17 +746,21 @@ security finding. The module's documented safety invariant ("no common English w
 flag findings as hallucinations") was enforced for `pattern_keywords` but not for
 `signature_patterns`, so learning routed straight around it.
 
-**Guardrails**:
-- Auto-learning now synthesizes a **co-occurrence** signature requiring two distinctive
-  keywords, or emits no signature at all and relies on the already-guarded compound keyword
-  match.
-- Bare single-word signatures are rejected **at match time**, which neutralizes catalogs
-  already written to disk without requiring a data migration.
-- An invalid signature regex is skipped rather than degraded into a broad substring match.
+A two-keyword co-occurrence signature did not fix it. In session `20261001-224227` the learned
+catalog held 35 entries, all `general` and all taught by the review's own deterministic checks,
+pairing common words such as `exception` and `handling` or `insecure` and `configuration`. Their
+`general` ground truth dispatched on id substrings, so none could pass; had it passed, they would
+have invalidated 240 of that session's 903 candidates, 19 VERIFIED HIGH findings among them.
 
-**Auditing the catalog**: a growing suppression catalog deserves periodic scrutiny, not
-trust. Entries with short, generic signatures should be treated as suspect until re-derived
-from a confirmed false positive.
+**Guardrails**:
+- The review teaches the catalog nothing. Only a person's INVALIDATED verdict records an entry,
+  and it suppresses one claim exactly (section 5.7) rather than matching a signature.
+- The entries the deterministic checks taught are purged from the ledger on its first load,
+  which logs one notice saying how many it removed.
+- Bare single-word signatures in the builtin catalog are rejected at match time, and an invalid
+  signature regex is skipped rather than degraded into a broad substring match.
+- The ledger's writers take turns on a lock beside it (`common_hallucinations.json.lock`), so
+  verdicts given at once all land, and a ledger that cannot be read warns.
 
 ### 5.4 Silent Baseline Loss (Fail-Open Calibration)
 
@@ -788,8 +793,60 @@ actually improving:
 | False positives per CRITICAL/HIGH finding | Precision where it matters most; the costliest errors to ship. |
 | Findings per distinct root cause | Symptom fan-out; approaching 1.0 means the loop reports defects, not symptoms. |
 | Share of findings with a non-empty `fix` | Actionability of the output. |
-| Suppression entries with generic signatures | Catalog poisoning risk; should trend to zero. |
+| Judged claims suppressed per review | What a person's triage saves the next review; each is one claim about one piece of code. |
 | Builtin catalog entries successfully loaded | Calibration integrity; any shortfall is a silent regression. |
+
+### 5.7 Re-Reviews Repeat What a Person Already Disproved
+
+Review session `20261002-214641` reported 24 findings, and 21 of them repeated session
+`20261002-205520`'s, word for word, because their replies were replayed from the cache; a person
+had judged nearly all of them false. A cold run rewords every one, and a scanner may report the
+same line under another rule: S6 reported Semgrep's `exec` finding at a test's line 439 under
+Bandit's B102 title.
+
+**Guardrail**: a person's INVALIDATED verdict (`devops review verify --status INVALIDATED`)
+records the claim it disproved, and a later review invalidates the same claim with
+`deterministic:person_verdict` before any model is asked about it. The review records on each
+finding the code its location cites as the review read it (`cited_code`), and the verdict keys
+the claim on that record, never on the file as it reads when the verdict is given, which may
+hold code the person never saw. A verdict on a session saved before this records nothing. The
+claim is matched on:
+
+- the project the code belongs to, the name of its main checkout, so a verdict in one
+  repository never suppresses another's identical code, though both share a data directory. A
+  pull request's head, which `devops review pr` writes to a temporary directory, is named after
+  the checkout the review runs in, and belongs to that project;
+- the file, relative to its checkout, so a scanner's absolute path and a persona's relative one
+  agree;
+- the first line the location cites and a hash of the lines it cites, each stripped of
+  surrounding whitespace. The line keeps a verdict on one `except Exception as err:` handler
+  from reaching the same line in another function, which nobody judged. A change to those lines,
+  or an edit above them that moves them, raises the claim again for a person to judge;
+- the code names of those lines that the title names, or the description when the title names
+  none, ignoring case. Language keywords such as `in`, `for` and `with` and common English words
+  are not code names, and in a prose or configuration file, such as Markdown, YAML or JSON, only
+  a name shaped like an identifier is: one with an underscore or a camelCase hump. A finding that
+  names no code name of its lines records nothing, and the verdict says so, because a claim
+  stated only in prose cannot be told from another claim about the same line.
+
+The tool, persona and wording are not part of the match. Findings whose location names no line,
+such as kube-linter's `Kind/name` objects, are not suppressed. Any later verdict on the finding
+but INVALIDATED withdraws the entry, whether VERIFIED, MITIGATED or a reset to UNVERIFIED, so a
+claim a person changes their mind about is raised again.
+
+The personas are shown the claims people disproved in reviews of the target, the most often
+judged first, under "reported against this codebase". A repository with none is shown the
+curated builtin entries under a heading that does not claim that, and another repository's judged
+claims are never shown.
+
+The feedback dataset is read honestly too. `devops review export-feedback` appends to the one
+configured dataset, `.data/feedback_dataset.jsonl`, skipping each verdict it already holds, reads
+findings.json and candidates.json, and leaves the file as it was when it finds nothing new. Each
+record carries its session's subject, the finding's category and references, and the excerpt
+of its cited code. `devops ai prompt-eval` reports its counts per labeller and leaves out the labels a
+deterministic check wrote, which the layer it measures would only agree with
+(`--include-deterministic` counts them). `devops ai benchmark --suite` is gone: it sent empty
+prompts from two task files that never existed and scored the fix as the code under test.
 
 ---
 
