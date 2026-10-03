@@ -79,6 +79,8 @@ RUNS_INDEX_URL = "runs.index_url"
 RUNS_INDEX_PASSWORD = "runs.index_password"
 
 # Telemetry & Structured Observability
+TELEMETRY_ENABLED = "telemetry.enabled"
+TELEMETRY_ENDPOINT = "telemetry.endpoint"
 TELEMETRY_LOGFIRE = "telemetry.logfire"
 TELEMETRY_LOGFIRE_TOKEN = "telemetry.logfire_token"
 
@@ -201,6 +203,8 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     DATA_TLS_DIR,
     DATA_AUDIT_LOG_PATH,
     DATA_FEEDBACK_DATASET_PATH,
+    TELEMETRY_ENABLED,
+    TELEMETRY_ENDPOINT,
     TELEMETRY_LOGFIRE,
     TELEMETRY_LOGFIRE_TOKEN,
     SANDBOX_EXCLUDE_HOME_DIR,

@@ -31,7 +31,7 @@ devops ci test [OPTIONS] <paths>
 | `-k` | `string` | - | Filter tests by keyword expression. |
 | `-x` | `boolean` | - | Stop after first failure. |
 | `-n`, `--numprocesses` | `string` | `auto` | Number of parallel worker processes. |
-| `--fallback`, `--no-fallback` | `boolean` | `True` | Run the full suite when a changed source has no covering tests, rather than reporting success without verifying it. |
+| `--fallback` / `--no-fallback` | `boolean` | `True` | Run the full suite when a changed source has no covering tests, rather than reporting success without verifying it. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -67,7 +67,7 @@ devops ci lint [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
+| `--fix` / `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
 | `--check` | `boolean` | - | Check linting without applying automated fixes. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -86,7 +86,7 @@ devops ci format [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--check` | `boolean` | - | Check formatting without writing changes to files. |
-| `--fix`, `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
+| `--fix` / `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -250,7 +250,7 @@ devops ci run [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status. |
+| `--fix` / `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

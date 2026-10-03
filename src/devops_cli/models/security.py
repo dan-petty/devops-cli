@@ -66,7 +66,7 @@ class PackageIntelResult(BaseModel):
     is_vulnerable: bool = Field(default=False, description="Whether known CVEs or advisories exist")
     vulnerabilities_count: int = Field(default=0, description="Total count of matching advisories")
     advisories: list[dict[str, Any]] = Field(
-        default_factory=list, description="Detailed advisory records from OSV/NVD"
+        default_factory=list, description="Detailed advisory records from OSV"
     )
     security_status: str = Field(default="Clean", description="High-level security evaluation")
 

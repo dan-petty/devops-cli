@@ -468,6 +468,17 @@ def test_repointed_mcp_entry_points_pass_real_command_lines() -> None:
     }
 
 
+def test_k8s_pods_lists_the_pods_of_the_namespace_it_names() -> None:
+    """`k8s_pods` validated its namespace and then ran `devops k8s status`, which ignores it. It
+    lists that namespace's pods, and every namespace's when it names none (#956)."""
+    from devops_cli.ai.mcp.server import k8s_pods
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="pods") as runner:
+        argv = [(k8s_pods(namespace), runner.call_args.args[0][3:])[1] for namespace in ("llm", "")]
+
+    assert argv == [["k8s", "pods", "-n", "llm"], ["k8s", "pods", "-A"]]
+
+
 def test_ai_architecture_tool_is_removed() -> None:
     """Verify the tool that ran the never-existing `devops analyze architecture` is gone,
     with no shim left behind."""

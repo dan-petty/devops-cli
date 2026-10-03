@@ -52,7 +52,6 @@ In `devops-cli`:
 ### Instantiating a Multi-Tool Review Agent
 ```python
 from devops_cli.ai.agents import PydanticAgent, AgentTool, FunctionToolset
-from devops_cli.models.review import Finding
 
 
 async def analyze_dependencies(ctx, package_name: str) -> str:

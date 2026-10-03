@@ -276,11 +276,15 @@ def ssh_audit() -> str:
 
 @mcp.tool()
 def k8s_pods(namespace: str = "default") -> str:
-    """List Kubernetes pod status for the specified namespace."""
-    if namespace:
-        _validate_mcp_arg("namespace", namespace)
+    """List the pods of a Kubernetes namespace, or of every namespace when it is empty."""
+    if not namespace:
+        return _run_mcp_cmd(
+            ["uv", "run", "devops", "k8s", "pods", "-A"],
+            timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+        )
+    _validate_mcp_arg("namespace", namespace)
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "k8s", "status"],
+        ["uv", "run", "devops", "k8s", "pods", "-n", namespace],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 
@@ -801,7 +805,7 @@ def k8s_jaeger_info() -> str:
 
 @mcp.tool()
 def security_intel_package(package_name: str, version: str = "", ecosystem: str = "PyPI") -> str:
-    """Query OSV.dev and NVD vulnerability databases for package CVE intelligence."""
+    """Query the OSV.dev vulnerability database for package CVE intelligence."""
     _validate_mcp_arg("package_name", package_name)
     if version:
         _validate_mcp_arg("version", version)

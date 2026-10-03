@@ -1270,17 +1270,18 @@ _GLOBAL_TRACER_LOCK = threading.Lock()
 
 
 def _resolve_telemetry_settings() -> tuple[str | None, bool]:
-    """Inspect application settings for OTel endpoint and enabled status."""
-    try:
-        from devops_cli.config.settings import load_settings
+    """The configured collector and export switch, `DEVOPS_CLI_TELEMETRY_*` already applied.
 
-        settings = load_settings()
-        telemetry_cfg = getattr(settings, "telemetry", None) or getattr(settings, "otel", None)
-        endpoint = getattr(telemetry_cfg, "endpoint", None) if telemetry_cfg else None
-        enabled = bool(getattr(telemetry_cfg, "enabled", True)) if telemetry_cfg else True
-        return endpoint, enabled
+    Settings that cannot load do not fail the command: the registered variables alone then
+    decide, and export stays off unless one turns it on (`telemetry_from_environment`, #956).
+    """
+    from devops_cli.config.settings import load_settings, telemetry_from_environment
+
+    try:
+        telemetry = load_settings().telemetry
     except Exception:
-        return None, True
+        telemetry = telemetry_from_environment()
+    return telemetry.endpoint, telemetry.enabled
 
 
 def get_tracer() -> OTelTelemetryClient:
@@ -1291,33 +1292,18 @@ def get_tracer() -> OTelTelemetryClient:
 
     with _GLOBAL_TRACER_LOCK:
         if _GLOBAL_TRACER is None:
-            endpoint = (
-                os.getenv("DEVOPS_OTEL_ENDPOINT")
-                or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-                or os.getenv("DEVOPS_CLI_OTEL_ENDPOINT")
-            )
-            env_enabled = os.getenv("DEVOPS_TELEMETRY_ENABLED")
+            from devops_cli.config.env import ENV_OTEL_EXPORTER_OTLP_ENDPOINT
 
-            if endpoint is None or env_enabled is None:
-                cfg_endpoint, cfg_enabled = _resolve_telemetry_settings()
-                if endpoint is None:
-                    endpoint = cfg_endpoint
-            else:
-                cfg_enabled = True
-
-            final_endpoint = endpoint or DEFAULT_OTEL_ENDPOINT
-            if env_enabled is not None:
-                is_enabled = env_enabled.lower() in ("true", "1")
-            else:
-                is_enabled = bool(cfg_enabled)
-
+            endpoint, enabled = _resolve_telemetry_settings()
             service_name = os.getenv("OTEL_SERVICE_NAME", CONST_OTEL_SERVICE_NAME)
             protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
             _GLOBAL_TRACER = OTelTelemetryClient(
-                endpoint=final_endpoint,
+                endpoint=endpoint
+                or os.getenv(ENV_OTEL_EXPORTER_OTLP_ENDPOINT)
+                or DEFAULT_OTEL_ENDPOINT,
                 service_name=service_name,
                 protocol=protocol,
-                enabled=is_enabled,
+                enabled=enabled,
             )
         return _GLOBAL_TRACER
 

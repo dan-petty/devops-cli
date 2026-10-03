@@ -23,8 +23,8 @@ devops repos clone-org [OPTIONS] <org>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
-| `--private`, `--no-private` | `boolean` | `True` | - |
-| `--forks`, `--no-forks` | `boolean` | - | - |
+| `--private` / `--no-private` | `boolean` | `True` | - |
+| `--forks` / `--no-forks` | `boolean` | - | - |
 
 ---
 
@@ -79,7 +79,7 @@ devops repos update [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
-| `--pull`, `--no-pull` | `boolean` | `True` | - |
+| `--pull` / `--no-pull` | `boolean` | `True` | - |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -97,7 +97,7 @@ devops repos sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
-| `--pull`, `--no-pull` | `boolean` | `True` | - |
+| `--pull` / `--no-pull` | `boolean` | `True` | - |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

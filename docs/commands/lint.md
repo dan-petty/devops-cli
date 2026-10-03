@@ -16,7 +16,7 @@ devops lint [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
+| `--fix` / `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
 | `--check` | `boolean` | - | Check linting without applying automated fixes. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

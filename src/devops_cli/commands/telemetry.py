@@ -19,6 +19,7 @@ from devops_cli.config.defaults import (
     DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS,
     DEFAULT_TELEMETRY_TEST_NAME,
 )
+from devops_cli.config.env import ENV_TELEMETRY_ENABLED
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
@@ -414,7 +415,8 @@ def telemetry_profile_cmd(
         if not tracer.enabled:
             print_error(
                 "Telemetry export is off, so the command's spans would never reach a collector. "
-                "Enable it (DEVOPS_TELEMETRY_ENABLED=true) and run the collector."
+                f"Enable it (telemetry.enabled, or {ENV_TELEMETRY_ENABLED}=true) and run the "
+                "collector."
             )
             raise typer.Exit(1)
         trace_id = _run_profiled_command(command, argv, tracer)

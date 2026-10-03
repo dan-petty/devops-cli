@@ -509,16 +509,17 @@ def test_telemetry_payload_and_shutdown_error_branches(monkeypatch: pytest.Monke
 
 
 def test_resolve_telemetry_settings_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Cover _resolve_telemetry_settings exception fallback."""
+    """Settings that cannot load leave export off when no registered variable turns it on, since
+    the unreadable configuration may be what turns it off (#956)."""
     from devops_cli.telemetry.tracer import _resolve_telemetry_settings
 
     monkeypatch.setattr(
         "devops_cli.config.settings.load_settings",
         MagicMock(side_effect=RuntimeError("settings corrupted")),
     )
-    endpoint, enabled = _resolve_telemetry_settings()
-    assert endpoint is None
-    assert enabled is True
+    monkeypatch.delenv("DEVOPS_CLI_TELEMETRY_ENABLED", raising=False)
+    monkeypatch.delenv("DEVOPS_CLI_TELEMETRY_ENDPOINT", raising=False)
+    assert _resolve_telemetry_settings() == (None, False)
 
 
 def test_span_caller_location_and_runtime_attributes() -> None:

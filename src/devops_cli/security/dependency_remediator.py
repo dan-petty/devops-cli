@@ -6,13 +6,16 @@ import logging
 from collections.abc import Sequence
 from pathlib import Path
 
+from devops_cli.config.constants import CONST_MAX_ERROR_DETAIL_LENGTH
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_DEPENDENCY_MIN_SEVERITY,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess
+from devops_cli.exceptions import SecurityError
 from devops_cli.models.vulnerability import (
+    PackageLookupResult,
     VulnerabilityFixAction,
     VulnerabilityRecord,
     VulnerabilityRemediationResult,
@@ -77,6 +80,17 @@ def create_remediation_branch(target_dir: Path, package: str, cve_id: str | None
     if res.returncode == 0:
         return branch_name
     return None
+
+
+def _found_vulnerabilities(package: str, lookup: PackageLookupResult) -> list[VulnerabilityRecord]:
+    """The advisories OSV reported for a package. A failed lookup is not a package with nothing
+    to fix, so it raises with the reason."""
+    if lookup.status != "ok":
+        raise SecurityError(
+            f"OSV lookup failed for {package}: {lookup.reason}",
+            details={"package": package[:CONST_MAX_ERROR_DETAIL_LENGTH], "reason": lookup.reason},
+        )
+    return lookup.vulnerabilities
 
 
 class DependencyRemediator:
@@ -200,7 +214,9 @@ class DependencyRemediator:
         client = OSVClient()
         vulnerabilities: list[VulnerabilityRecord] = []
         if package_filter:
-            vulnerabilities = client.query_package(package_filter, ecosystem=self.ecosystem)
+            vulnerabilities = _found_vulnerabilities(
+                package_filter, client.query_package(package_filter, ecosystem=self.ecosystem)
+            )
         else:
             from devops_cli.security.trivy import run_trivy_scan
 

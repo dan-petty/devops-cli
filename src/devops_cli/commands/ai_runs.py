@@ -142,8 +142,9 @@ def connect_cmd(
     service: Annotated[
         str, typer.Option("--service", help="Service of the run index's Valkey.")
     ] = CONST_RUNS_INDEX_SERVICE,
-    secret: Annotated[
-        str, typer.Option("--secret", help="Secret holding the Valkey password.")
+    secret_name: Annotated[
+        str,
+        typer.Option("--secret-name", help="Name of the Secret holding the Valkey password."),
     ] = CONST_RUNS_INDEX_SECRET,
 ) -> None:
     """Find the cluster's run index, check it answers, share runs through it, and index them."""
@@ -151,7 +152,7 @@ def connect_cmd(
 
     try:
         host, port = node_port_address(context, namespace, service, RUNS_INDEX)
-        password = secret_value(context, namespace, secret, "password")
+        password = secret_value(context, namespace, secret_name, "password")
     except ServiceNotReachableError as exc:
         print_error(f"Cannot find the run index: {exc.message}", prefix=False)
         raise typer.Exit(code=1) from exc

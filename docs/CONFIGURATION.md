@@ -45,8 +45,8 @@ OpenTelemetry distributed tracing and Prometheus metric export settings.
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
-| `enabled` | `bool` | `True` | - | - |
-| `endpoint` | `str` | `http://localhost:4318` | - | - |
+| `enabled` | `bool` | `True` | `DEVOPS_CLI_TELEMETRY_ENABLED` | Export OpenTelemetry traces and metrics |
+| `endpoint` | `Union` | - | `DEVOPS_CLI_TELEMETRY_ENDPOINT` | OpenTelemetry collector that traces and metrics go to; unset, `OTEL_EXPORTER_OTLP_ENDPOINT` names it, else `http://localhost:4318` |
 | `logfire` | `bool` | `False` | - | - |
 | `logfire_token` | `Union` | - | - | - |
 | `logfire_send_to_logfire` | `Union` | `if-token-present` | - | - |
