@@ -204,10 +204,10 @@ def _build_verdict_updates(
             "citation_line": citation_line,
             "verification_note": verification_note,
         }
-    # MITIGATED
+    # MITIGATED: reported beside the defect it limits, which is not a verified one (#845).
     return {
         "status": "MITIGATED",
-        "verified": True,
+        "verified": False,
         "reportable": True,
         "mitigated": True,
         "verified_by": by,

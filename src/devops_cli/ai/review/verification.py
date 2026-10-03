@@ -19,6 +19,7 @@ from typing import Any
 
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.review.chunker import page_line_number
+from devops_cli.ai.review.classification import FileContextType, classify_file_context
 from devops_cli.ai.review.construct_validator import validate_construct_location
 from devops_cli.ai.review.judged_claims import cited_code
 from devops_cli.ai.review.verdicts import apply_verdict
@@ -26,6 +27,7 @@ from devops_cli.ai.review_schema import (
     Finding,
     ReviewResult,
     SavedFinding,
+    _extract_code_symbols,
     extract_json_block,
     less_severe,
 )
@@ -35,18 +37,23 @@ from devops_cli.config.constants import (
     CONST_AUTH_HEADER_CLAIM_KEYWORDS,
     CONST_AUTH_HEADER_CODE_PATTERNS,
     CONST_CACHE_DIR_NAME,
+    CONST_CITATION_OUT_OF_RANGE,
     CONST_COMPLIMENT_NEGATIONS,
     CONST_COMPLIMENT_PHRASES,
     CONST_CRITERIA_NON_DISCRIMINATING,
+    CONST_CRITERION_PASSED_CLAIM_PATTERN,
     CONST_FINISH_REASON_LENGTH,
     CONST_FIXTURE_CREDENTIAL_KEYWORDS,
     CONST_MASKED_SYNTAX_ERROR_PHRASES,
+    CONST_MITIGATION_UNPROVEN,
     CONST_MONOLOGUE_PREFIXES,
     CONST_PLACEHOLDER_VALUES,
+    CONST_SELF_NEGATING_MECHANISM_PATTERN,
     CONST_TYPECHECK_PROBE_CACHE_DIR_NAME,
     CONST_TYPECHECK_PROBE_MYPY_CONFIG,
     CONST_UNINITIALIZED_CLAIM_KEYWORDS,
     CONST_VERIFICATION_UNAVAILABLE,
+    CONST_VERIFIER_CONTRADICTION,
     CONST_VERIFIER_FINDING_FIELDS,
     CONST_VERIFIER_INCONCLUSIVE,
     CONST_VERIFIER_NO_VERDICT,
@@ -56,6 +63,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_DIFF_CONTEXT_LINES,
+    DEFAULT_MAX_AST_FILE_SIZE_BYTES,
     DEFAULT_MAX_RELATED_FILES,
     DEFAULT_RELATED_FILE_MAX_CHARS,
     DEFAULT_REVIEW_VERIFICATION_REPLY_BASE_TOKENS,
@@ -63,6 +71,8 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_VERIFICATION_REPLY_TOKENS_PER_FINDING,
     DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS,
 )
+from devops_cli.core.paths import safe_resolve_subpath
+from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.security.sanitizer import (
     mask_secrets,
     sanitize_prompt_boundary_tags,
@@ -209,8 +219,6 @@ def _read_and_mask_related_file(
     if _is_secret_path(rel_path):
         return None
     try:
-        from devops_cli.core.paths import safe_resolve_subpath
-
         resolved = safe_resolve_subpath(repo_root, rel_path, must_exist=True)
         if not resolved.is_file():
             return None
@@ -1694,6 +1702,119 @@ def _without_self_refutation(
     return withdrawn, [], True
 
 
+# A reason's words, an identifier (`validate_no_path_traversal`) kept whole.
+_REASON_WORD = re.compile(r"[a-z0-9_]+(?:'[a-z]+)?")
+# What a reason may put between a negation and the claim it denies: "no actual secret", "not
+# derived from untrusted user input".
+_DENIAL_FILLERS = frozenset(
+    {"a", "an", "the", "any", "actual", "such", "is", "are", "be", "being", "been", "was", "were"}
+)
+_DENIAL_BRIDGES = frozenset(
+    {("derived", "from"), ("coming", "from"), ("sourced", "from")}
+    | {("controlled", "by"), ("supplied", "by"), ("provided", "by")}
+)
+# "without" names a missing guard, as a confirmation does ("without a timeout"), and "already" a
+# check a mitigation points at; neither denies the claim.
+_NOT_A_DENIAL = frozenset({"without", "already"})
+# Words by which a claim negates what follows ("Missing timeout") or what precedes them ("TLS
+# verification disabled"): a reason that negates the same words agrees with it.
+_CLAIM_ABSENCE_BEFORE = frozenset(
+    {"no", "not", "never", "none", "without", "missing", "lack", "lacks", "lacking", "absent"}
+)
+_CLAIM_ABSENCE_AFTER = frozenset({"missing", "absent", "disabled"})
+# A denial names at least this many consecutive words of the claim: "no user input". One word
+# ("not the actual secret") is as often a confirmation's aside.
+_DENIAL_MIN_CLAIM_WORDS = 2
+_CLAIMS_A_CRITERION_PASSED = re.compile(CONST_CRITERION_PASSED_CLAIM_PATTERN, re.IGNORECASE)
+
+
+def _reason_words(text: str) -> list[str]:
+    return _REASON_WORD.findall(text.lower().replace("’", "'"))
+
+
+def _is_negation(word: str) -> bool:
+    return bool(_NEGATION.fullmatch(word)) or word.endswith("n't")
+
+
+def _negated_in_claim(claims: Sequence[str]) -> set[str]:
+    """The words a claim itself negates: up to five after "no", "not" or "missing", and up to
+    three before "missing" or "disabled"."""
+    negated: set[str] = set()
+    for claim in claims:
+        words = _reason_words(claim)
+        for i, word in enumerate(words):
+            if word in _CLAIM_ABSENCE_BEFORE or _is_negation(word):
+                negated.update(words[i + 1 : i + 6])
+            if word in _CLAIM_ABSENCE_AFTER:
+                negated.update(words[max(0, i - 3) : i])
+    return negated
+
+
+def _after_fillers(words: Sequence[str], start: int) -> int:
+    """The index of the first word from `start` that is neither a filler nor a bridge."""
+    i = start
+    while i < len(words):
+        if words[i] in _DENIAL_FILLERS:
+            i += 1
+        elif tuple(words[i : i + 2]) in _DENIAL_BRIDGES:
+            i += 2
+        else:
+            break
+    return i
+
+
+def _denial_of_the_claim(reason: str, f: Finding) -> str | None:
+    """The words in which a verdict's reason denies the finding's claim; None when it does not.
+
+    The mirror of `_reason_confirms`, on the same claim words and negations: a negation followed,
+    past fillers such as "the" or "derived from", by at least two consecutive words of the
+    claim that the claim does not negate itself. "No user input reaches this point" denies
+    "Untrusted user input in `importlib.import_module()`". A negated verb ("does not quote user
+    input"), a missing guard ("without a timeout") or one the claim says is missing ("no
+    timeout" against "Missing timeout") confirms the claim.
+    """
+    claims = [*(str(c) for c in f.verification_criteria), f.title]
+    claim_words = set().union(*(_claim_words(c) for c in claims)) - _negated_in_claim(claims)
+    words = _reason_words(reason)
+    for i, word in enumerate(words):
+        if not _is_negation(word) or word in _NOT_A_DENIAL:
+            continue
+        start = end = _after_fillers(words, i + 1)
+        while end < len(words) and words[end] in claim_words:
+            end += 1
+        if len(set(words[start:end])) >= _DENIAL_MIN_CLAIM_WORDS:
+            return " ".join(words[i:end])
+    return None
+
+
+def _claims_a_failed_criterion_passed(reason: str, f: Finding) -> str | None:
+    """The words in which a reason says a criterion passed, when no recorded run of one did."""
+    ran = [r for r in f.criteria_execution_results if r.executable]
+    if not ran or any(r.passed for r in ran):
+        return None
+    claim = _CLAIMS_A_CRITERION_PASSED.search(reason)
+    return " ".join(_reason_words(claim.group(0))) if claim else None
+
+
+def _contradiction_note(f: Finding, status: str, reason: str) -> str | None:
+    """Why a confirmation or mitigation is not applied when its own reason contradicts it.
+
+    A reason that denies the claim argues the finding away, and one that says a criterion
+    passed when its recorded run failed points at evidence that does not exist (#845).
+    """
+    if denial := _denial_of_the_claim(reason, f):
+        return (
+            f"{CONST_VERIFIER_CONTRADICTION}: the {status} verdict's reason denies the claim "
+            f"('{denial}')"
+        )
+    if passed := _claims_a_failed_criterion_passed(reason, f):
+        return (
+            f"{CONST_VERIFIER_CONTRADICTION}: the {status} verdict's reason says a criterion "
+            f"passed ('{passed}'), but its recorded run failed"
+        )
+    return None
+
+
 def _extract_citation_line(item: dict[str, Any]) -> int | None:
     """The line a verdict cites under an explicit citation key.
 
@@ -1762,7 +1883,6 @@ def _validate_citation_line(
             )
 
         from devops_cli.ai.review.construct_validator import extract_finding_construct_candidates
-        from devops_cli.ai.review_schema import _extract_code_symbols
 
         candidates = extract_finding_construct_candidates(f)
         if not candidates:
@@ -1808,17 +1928,166 @@ def _extract_finding_confidence(conf_val: Any, default: float | None) -> float |
         return default
 
 
-def _determine_mitigated_degradation_note(
-    reason: str, mech: str | None, perimeter: list[str]
-) -> str:
-    """Return specific reason why a claimed mitigation was degraded to UNVERIFIED."""
+def _mitigation_presence_gap(reason: str, mech: str | None, perimeter: list[str]) -> str | None:
+    """Which part of a mitigation the verdict leaves out; None when it names them all."""
     if not reason:
-        return "Mitigated verdict without explanation; degraded to UNVERIFIED"
+        return "no reason given"
     if not mech or _is_placeholder(mech):
-        return "Mitigated verdict without specified mitigating mechanism; degraded to UNVERIFIED"
+        return "no mitigating mechanism named"
     if not perimeter or _is_placeholder(perimeter):
-        return "Mitigated verdict without specified perimeter files; degraded to UNVERIFIED"
-    return ""
+        return "no perimeter files named"
+    return None
+
+
+_SELF_NEGATING_MECHANISM = re.compile(CONST_SELF_NEGATING_MECHANISM_PATTERN, re.IGNORECASE)
+
+
+def _reviewed_tree_roots(repo_root: Path | None) -> tuple[Path, ...]:
+    """The directories a verdict's files must lie in: the review's target and its repository.
+
+    A pull request's head is written outside any repository, so there only the pull request's
+    own files can be pointed at.
+    """
+    if repo_root is None:
+        return ()
+    from devops_cli.core.repo import find_repo_root
+
+    return tuple(dict.fromkeys((repo_root.resolve(), find_repo_root(repo_root))))
+
+
+def _file_in_reviewed_tree(path: str, roots: Sequence[Path]) -> Path | None:
+    """The file `path` names inside the reviewed tree, through `safe_resolve_subpath`.
+
+    None for a path that escapes the tree, absolute, through `..` or a symlink, and anything
+    but an existing file. A `:line` suffix is read as a location's. A finding's own location is
+    read with it: the pipeline writes that, and a scanner writes it absolute (#788).
+    """
+    file_part = _parse_location(path)[0]
+    if not file_part:
+        return None
+    for root in roots:
+        try:
+            resolved = safe_resolve_subpath(root, file_part, must_exist=True)
+        except DevOpsCLIError, OSError:
+            continue
+        if resolved.is_file():
+            return resolved
+    return None
+
+
+def _perimeter_file(path: str, roots: Sequence[Path]) -> Path | None:
+    """The file a verdict's perimeter path names in the reviewed tree; None for any absolute path.
+
+    The verifier is asked for repository-relative paths, so an absolute one, even to a file in
+    the tree, is refused before containment is checked.
+    """
+    if Path(_parse_location(path)[0]).is_absolute():
+        return None
+    return _file_in_reviewed_tree(path, roots)
+
+
+def _reviewed_text(path: Path) -> str | None:
+    """A reviewed file's text; None when it is too large or cannot be read."""
+    try:
+        if path.stat().st_size > DEFAULT_MAX_AST_FILE_SIZE_BYTES:
+            return None
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def _holds_any(path: Path, identifiers: Iterable[str]) -> bool:
+    """Whether the file names one of `identifiers` as a whole word, in any case."""
+    text = _reviewed_text(path) or ""
+    return any(re.search(rf"\b{re.escape(name)}\b", text, re.IGNORECASE) for name in identifiers)
+
+
+def _perimeter_gap(
+    perimeter: Sequence[str], roots: Sequence[Path]
+) -> tuple[list[Path], str | None]:
+    """The perimeter's files, or why one of them is not code in the reviewed tree."""
+    files: list[Path] = []
+    for path in perimeter:
+        resolved = _perimeter_file(path, roots)
+        if resolved is None:
+            return files, f"perimeter file `{path}` does not resolve inside the reviewed tree"
+        if classify_file_context(resolved) is FileContextType.DOCUMENTATION:
+            return files, f"perimeter file `{path}` is documentation, not code that enforces it"
+        files.append(resolved)
+    return files, None
+
+
+def _mitigation_evidence_gap(
+    f: Finding, mechanism: str, perimeter: Sequence[str], repo_root: Path | None
+) -> str | None:
+    """Why a mitigation points at no code in the reviewed tree that enforces it; None when it does.
+
+    Every perimeter file resolves inside the tree and is not documentation, such as a
+    conventions file, and the mechanism names an identifier (`_extract_code_symbols`) that a
+    perimeter file or the finding's own file holds. A mechanism that negates itself ("caught but
+    not logged") describes the defect.
+    """
+    if negation := _SELF_NEGATING_MECHANISM.search(mechanism):
+        return f"the mechanism describes the defect ('{negation.group(0)}'), not what limits it"
+    roots = _reviewed_tree_roots(repo_root)
+    files, gap = _perimeter_gap(perimeter, roots)
+    if gap:
+        return gap
+    identifiers = _extract_code_symbols(mechanism)
+    if not identifiers:
+        return "the mechanism names no code identifier"
+    finding_file = _file_in_reviewed_tree(f.location, roots)
+    if any(_holds_any(p, identifiers) for p in [*files, *filter(None, [finding_file])]):
+        return None
+    names = ", ".join(f"`{name}`" for name in sorted(identifiers)[:5])
+    return f"none of its identifiers ({names}) appears in a perimeter file or the finding's file"
+
+
+def _citation_outside_file(
+    f: Finding, citation_line: int | None, repo_root: Path | None
+) -> str | None:
+    """Why a confirmation's cited line is no line of the finding's file; None when it is one,
+    or when there is no citation, or no file in the reviewed tree to count lines in."""
+    if citation_line is None:
+        return None
+    file_part = _parse_location(f.location)[0]
+    if citation_line < 1:
+        return f"{CONST_CITATION_OUT_OF_RANGE}: line {citation_line} of `{file_part}`"
+    path = _file_in_reviewed_tree(file_part, _reviewed_tree_roots(repo_root))
+    text = _reviewed_text(path) if path else None
+    if text is None or citation_line <= len(lines := text.splitlines()):
+        return None
+    return (
+        f"{CONST_CITATION_OUT_OF_RANGE}: line {citation_line} of `{file_part}` ({len(lines)} lines)"
+    )
+
+
+def _unproven_mitigation_note(
+    f: Finding, reason: str, mechanism: str | None, perimeter: list[str], repo_root: Path | None
+) -> str | None:
+    """Why a MITIGATED verdict proves no mitigation; None when it points at one."""
+    gap = _mitigation_presence_gap(reason, mechanism, perimeter) or _mitigation_evidence_gap(
+        f, mechanism or "", perimeter, repo_root
+    )
+    return f"{CONST_MITIGATION_UNPROVEN}: {gap}" if gap else None
+
+
+def _claims_mitigation(item: dict[str, Any]) -> bool:
+    """Whether a verdict calls its finding mitigated, by flag or by status."""
+    status = str(item.get("status") or "").strip().upper()
+    return bool(_verdict_bool(item.get("mitigated"))) or status == "MITIGATED"
+
+
+def _resolve_refutation(
+    f: Finding, reason: str, citation_line: int | None, repo_root: Path | None
+) -> tuple[str, str, int | None, str | None, bool]:
+    """An INVALIDATED verdict, or UNVERIFIED with a note when its citation does not hold."""
+    if citation_line is None and _REFUTES_THE_CRITERIA.search(reason):
+        return "UNVERIFIED", "", None, _CRITERIA_REFUTATION_NOTE, True
+    is_valid, cit_line, note = _validate_citation_line(f, citation_line, repo_root)
+    if not is_valid:
+        return "UNVERIFIED", "", None, note, True
+    return "INVALIDATED", reason, cit_line, None, False
 
 
 def _resolve_status_and_verification_note(
@@ -1832,30 +2101,29 @@ def _resolve_status_and_verification_note(
     repo_root: Path | None,
     is_rep: bool,
 ) -> tuple[str, str, int | None, str | None, bool]:
-    """Resolve validated status, reason, citation line, verification note, and reportability."""
+    """Resolve validated status, reason, citation line, verification note, and reportability.
+
+    Each verdict is checked on its own (#845): a confirmation or mitigation whose reason
+    contradicts it is not applied, a mitigation stands only on code the reviewed tree holds,
+    and a confirmation only on a line its file has. One that fails is UNVERIFIED, reported,
+    with a note naming the check and no citation.
+    """
     if status_val == "INVALIDATED":
-        if citation_line is None and _REFUTES_THE_CRITERIA.search(reason):
-            return "UNVERIFIED", "", None, _CRITERIA_REFUTATION_NOTE, True
-        is_valid, cit_line, note = _validate_citation_line(f, citation_line, repo_root)
-        if not is_valid:
-            return "UNVERIFIED", "", None, note, True
-        return "INVALIDATED", reason, cit_line, None, False
-
-    if status_val == "MITIGATED":
-        note = (
-            "Mitigated verdict without specified mitigating mechanism"
-            if not mitigating_mechanism or _is_placeholder(mitigating_mechanism)
-            else None
-        )
-        return "MITIGATED", reason, citation_line, note, True
-
-    is_mitigated = (
-        _verdict_bool(item.get("mitigated")) or str(item.get("status", "")).upper() == "MITIGATED"
-    )
-    if is_mitigated and status_val == "UNVERIFIED":
-        note = _determine_mitigated_degradation_note(reason, mitigating_mechanism, perimeter_files)
-        return "UNVERIFIED", reason, citation_line, note or None, True
-
+        return _resolve_refutation(f, reason, citation_line, repo_root)
+    if status_val == "MITIGATED" and (
+        note := _contradiction_note(f, status_val, reason)
+        or _unproven_mitigation_note(f, reason, mitigating_mechanism, perimeter_files, repo_root)
+    ):
+        return "UNVERIFIED", "", None, note, True
+    if status_val == "VERIFIED" and (
+        note := _contradiction_note(f, status_val, reason)
+        or _citation_outside_file(f, citation_line, repo_root)
+    ):
+        return "UNVERIFIED", "", None, note, True
+    # A mitigation the verdict left unverified for want of a part it never named says which.
+    gap = _mitigation_presence_gap(reason, mitigating_mechanism, perimeter_files)
+    if gap and _claims_mitigation(item):
+        return status_val, reason, None, f"{CONST_MITIGATION_UNPROVEN}: {gap}", is_rep
     return status_val, reason, citation_line, None, is_rep
 
 
@@ -1896,20 +2164,6 @@ def _resolve_finding_attributes(
     return sev, loc, final_obs, final_exp
 
 
-def _build_finding_verdict_kwargs(
-    status_val: str,
-    item: dict[str, Any],
-    final_reportable: bool,
-) -> dict[str, Any]:
-    """Build extra keyword arguments for apply_verdict."""
-    extra_kw: dict[str, Any] = {}
-    if status_val == "MITIGATED" and _verdict_bool(item.get("verified")) is False:
-        extra_kw["verified"] = False
-    if final_reportable is False:
-        extra_kw["reportable"] = False
-    return extra_kw
-
-
 def _no_verdict_note(f: Finding, withdrawn: bool) -> str:
     """Why a finding the verifier judged has no verdict, when no check of the verdict said.
 
@@ -1923,6 +2177,19 @@ def _no_verdict_note(f: Finding, withdrawn: bool) -> str:
     if f.verification_note == CONST_CRITERIA_NON_DISCRIMINATING:
         return CONST_CRITERIA_NON_DISCRIMINATING
     return CONST_VERIFIER_INCONCLUSIVE
+
+
+def _mitigation_fields(
+    status_val: str, item: dict[str, Any], mechanism: str | None, perimeter: list[str]
+) -> dict[str, Any]:
+    """The mitigation a MITIGATED verdict records; none for any other verdict."""
+    if status_val != "MITIGATED":
+        return {}
+    return {
+        "mitigating_mechanism": mechanism,
+        "perimeter_files": perimeter,
+        "regression_test": _extract_regression_test(item),
+    }
 
 
 def _apply_single_finding_verification(
@@ -1947,7 +2214,6 @@ def _apply_single_finding_verification(
     raw_citation = _extract_citation_line(item)
     mitigating_mechanism = _extract_mitigating_mechanism(item, raw_reason)
     perimeter_files = _extract_perimeter_files(item, raw_reason)
-    regression_test = _extract_regression_test(item)
 
     status_val, reason, citation_line, verification_note, final_rep = (
         _resolve_status_and_verification_note(
@@ -1965,7 +2231,6 @@ def _apply_single_finding_verification(
 
     sev, loc, final_obs, final_exp = _resolve_finding_attributes(f, item)
     status_val, by, reason = _check_finding_polarity(final_obs, final_exp, status_val, reason)
-    extra_kw = _build_finding_verdict_kwargs(status_val, item, final_rep)
     if status_val == "UNVERIFIED" and verification_note is None:
         verification_note = _no_verdict_note(f, withdrawn)
 
@@ -1975,9 +2240,6 @@ def _apply_single_finding_verification(
         by=by,
         reason=reason if status_val in {"INVALIDATED", "MITIGATED"} else None,
         citation_line=citation_line,
-        mitigating_mechanism=mitigating_mechanism if status_val == "MITIGATED" else None,
-        perimeter_files=perimeter_files if status_val == "MITIGATED" else None,
-        regression_test=regression_test if status_val == "MITIGATED" else None,
         verification_note=verification_note,
         confidence_score=conf,
         verified_at=now_iso if status_val != "UNVERIFIED" else None,
@@ -1989,7 +2251,8 @@ def _apply_single_finding_verification(
         verified_criteria_matched=merged_ver_matched,
         invalidated_criteria_matched=merged_inv_matched,
         criteria_execution_results=f.criteria_execution_results,
-        **extra_kw,
+        reportable=None if final_rep else False,
+        **_mitigation_fields(status_val, item, mitigating_mechanism, perimeter_files),
     )
 
 
