@@ -290,7 +290,7 @@ from devops_cli.ai.agents.spend import (
 )
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> Any:  # noqa: C901
     if name in {
         "BaseDurabilityCapability",
         "LocalDurabilityCapability",

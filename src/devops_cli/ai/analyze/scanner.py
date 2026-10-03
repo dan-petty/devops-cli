@@ -303,7 +303,7 @@ def _extract_file_dependencies(content: str, lang: str) -> list[str]:
     return deps[:12]
 
 
-def _extract_file_purpose(rel_path: str, content: str, lang: str, symbols: list[str]) -> str:
+def _extract_file_purpose(rel_path: str, content: str, lang: str, symbols: list[str]) -> str:  # noqa: C901
     """Infer an accurate, human-meaningful primary purpose description for a file."""
     filename = Path(rel_path).name.lower()
     stem = Path(rel_path).stem

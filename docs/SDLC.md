@@ -126,7 +126,7 @@ graph TD
 1. **Cyclomatic Complexity $\le 10$ & Nesting Depth $\le 5$**:
    - Every function, method, and code block must maintain cyclomatic complexity $\le 10$ and nesting depth $\le 5$ (< 6 indentation levels).
    - Decompose multi-step branching into pure predicate helpers, table-driven dispatch dictionaries, or functional pipelines (`functools`, `itertools`, `pathlib`).
-   - Validated continuously by `devops scan complexity` and `tests/test_architectural_invariants.py`.
+   - Complexity is Ruff `C901` (standard McCabe), run by `uv run devops ci` and the pre-commit `ruff-check` hook; functions over the cap when it was turned on carry `# noqa: C901`, and `tests/test_architectural_invariants.py` keeps their count from growing. Nesting is enforced by the `structural-invariants` pre-commit hook and `test_no_excessive_nesting_in_src`. `devops scan complexity` reports a different, in-house count and does not gate.
 2. **Standardized Domain Exception Taxonomy**:
    - Raising bare Python built-ins (`ValueError`, `RuntimeError`, `TypeError`, `Exception`) in domain logic is strictly prohibited.
    - All domain errors must inherit from `DevOpsCLIError` under `src/devops_cli/exceptions/`, supplying an exit code, machine-readable code (`CONST_ERROR_CODE_*`), and contextual details.

@@ -105,7 +105,7 @@ class PydanticAIDocs(BaseCapability):
             logger.debug("Error reading local doc %s: %s", local_file, e)
             return None
 
-    def read_doc(self, topic: str) -> str:
+    def read_doc(self, topic: str) -> str:  # noqa: C901
         """Resolve and read a Pydantic AI documentation topic (local checkout first, then remote)."""
         import re
 

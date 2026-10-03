@@ -251,7 +251,7 @@ def analyze_main(
 
 
 @app.command(name="path")
-def analyze_path(
+def analyze_path(  # noqa: C901
     target: Annotated[Path, typer.Argument(help=HELP.analyze.target)] = DEFAULT_CURRENT_PATH,
     pattern: Annotated[
         str,
@@ -446,7 +446,7 @@ def analyze_branch(
 
 
 @app.command(name="pr")
-def analyze_pr(
+def analyze_pr(  # noqa: C901
     pr_number: Annotated[int, typer.Argument(help=HELP.analyze.pr_number)],
     enhanced: Annotated[
         bool,

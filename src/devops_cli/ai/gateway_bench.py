@@ -66,7 +66,7 @@ def _validate_http_url(url: str) -> None:
 def _get_text(url: str, timeout: float) -> tuple[int, str]:
     try:
         _validate_http_url(url)
-        with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310  # nosec B310
+        with urllib.request.urlopen(url, timeout=timeout) as response:  # nosec B310
             return response.status, response.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
         return exc.code, ""
@@ -94,10 +94,10 @@ def engine_info(api_base: str, get: Get = _get_text, timeout: float = 10.0) -> d
 def _post_json(url: str, body: dict[str, Any], timeout: float) -> dict[str, Any]:
     # The URL is a backend api_base from the gateway's own configuration, always http(s).
     _validate_http_url(url)
-    request = urllib.request.Request(  # noqa: S310
+    request = urllib.request.Request(
         url, json.dumps(body).encode(), {"Content-Type": "application/json"}
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310  # nosec B310
+    with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
         result: dict[str, Any] = json.load(response)
         return result
 

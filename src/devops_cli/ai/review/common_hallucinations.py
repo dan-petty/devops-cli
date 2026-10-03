@@ -761,7 +761,7 @@ def verify_ground_truth_hallucination(
     return verifier(finding, entry, file_path) if verifier else False
 
 
-def calculate_hallucination_similarity(
+def calculate_hallucination_similarity(  # noqa: C901
     finding: Finding, entry: CommonHallucinationEntry, file_path: Path | None = None
 ) -> HallucinationMatch:
     """Calculate similarity between a finding and a known common hallucination.

@@ -962,7 +962,7 @@ def _stream_interactive_chat_turn(
 
 
 @app.command()
-def chat(
+def chat(  # noqa: C901
     persona: Annotated[
         str,
         typer.Option(

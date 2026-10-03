@@ -197,7 +197,7 @@ def _is_unspecified_ip_host(target: str) -> bool:
 
 
 @functools.lru_cache(maxsize=4096)
-def is_example_or_invalid_network_target(target: str) -> bool:
+def is_example_or_invalid_network_target(target: str) -> bool:  # noqa: C901
     """Check if any network target (URL, IP, domain, phone) is a documented example or invalid reference."""
     clean = target.strip().rstrip(".,;)>]\"'")
     if not clean:
@@ -281,7 +281,7 @@ def is_local_or_reserved_domain(target: str) -> bool:
 
 
 @functools.lru_cache(maxsize=16)
-def _get_workspace_filenames(root_dir_str: str = "") -> tuple[set[str], tuple[str, ...]]:
+def _get_workspace_filenames(root_dir_str: str = "") -> tuple[set[str], tuple[str, ...]]:  # noqa: C901
     """Recursively discover all file names and relative paths across the workspace respecting .gitignore."""
     root = Path(root_dir_str) if root_dir_str else Path.cwd()
     if not root.exists() or not root.is_dir():
@@ -528,7 +528,7 @@ def _is_known_python_module(name: str) -> bool:
 
 
 @functools.lru_cache(maxsize=4096)
-def is_file_reference(target: str, source_file: str = "") -> bool:
+def is_file_reference(target: str, source_file: str = "") -> bool:  # noqa: C901
     """Check if target string represents an existing file on disk, known extension,
     or search match.
     """
@@ -593,7 +593,7 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
 
 
 @functools.lru_cache(maxsize=4096)
-def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
+def is_code_or_config_reference(target: str, source_file: str = "") -> bool:  # noqa: C901
     """Differentiate code identifiers, method chains, and config keys from network hosts."""
     clean = target.strip().rstrip(".,;)>]\"'")
 
@@ -692,7 +692,7 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
 
 
 @functools.lru_cache(maxsize=4096)
-def is_network_domain(target: str, source_file: str = "") -> bool:
+def is_network_domain(target: str, source_file: str = "") -> bool:  # noqa: C901
     """Validate whether target string is a legitimate public network domain using standard library
     parsers and the Public Suffix List (PSL).
     """
@@ -775,7 +775,7 @@ def _parse_python_token_string(tok_string: str) -> str | None:
     return clean_str if clean_str else None
 
 
-def _extract_python_literals_and_comments(source: str) -> list[tuple[str, int]]:
+def _extract_python_literals_and_comments(source: str) -> list[tuple[str, int]]:  # noqa: C901
     """Extract string constants and comments from Python source code with line numbers."""
     literals: list[tuple[str, int]] = []
     source = textwrap.dedent(source)
@@ -1010,7 +1010,7 @@ def is_package_repository_asset(url: str, host: str = "") -> bool:
     return False
 
 
-def _extract_url_reference(
+def _extract_url_reference(  # noqa: C901
     clean_token: str,
     source_file: str,
     line_idx: int,
@@ -1112,7 +1112,7 @@ def _extract_ip_reference(
     return None
 
 
-def _extract_domain_reference(
+def _extract_domain_reference(  # noqa: C901
     clean_token: str,
     text_segment: str,
     source_file: str,
@@ -1297,7 +1297,7 @@ def deduplicate_network_references(refs: list[NetworkReference]) -> list[Network
     return sort_network_references(deduped)
 
 
-def extract_network_references(
+def extract_network_references(  # noqa: C901
     content: str,
     source_file: str = "",
     include_local: bool = True,
@@ -1404,7 +1404,7 @@ def _extract_pip_dependencies(content_lines: list[str], file_name: str) -> list[
     return deps
 
 
-def _extract_pyproject_dependencies(
+def _extract_pyproject_dependencies(  # noqa: C901
     content: str, content_lines: list[str], file_name: str
 ) -> list[DependencySpec]:
     """Parse dependencies from pyproject.toml format."""

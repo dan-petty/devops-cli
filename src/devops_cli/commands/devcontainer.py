@@ -217,7 +217,7 @@ def update(
 # =============================================================================
 
 
-def _validate_manifest_content(data: object, base_dir: Path) -> list[str]:
+def _validate_manifest_content(data: object, base_dir: Path) -> list[str]:  # noqa: C901
     """Validate parsed DevContainer manifest dictionary structure and referenced paths."""
     errors: list[str] = []
     if not isinstance(data, dict):
@@ -787,7 +787,7 @@ def _install_keyring_packages(*, dry_run: bool = False) -> list[str]:
     return [f"Installed {', '.join(CONST_KEYRING_PACKAGES)} for the container's keyring"]
 
 
-def _run_post_create_lifecycle(
+def _run_post_create_lifecycle(  # noqa: C901
     workspace_dir: Path,
     *,
     dry_run: bool = False,
@@ -1046,7 +1046,7 @@ def _spawn_background_k8s_bootstrap(
         return f"Warning: Failed to spawn background Minikube bootstrap: {exc}"
 
 
-def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
+def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:  # noqa: C901
     """Execute DevContainer post-start lifecycle tasks in pure Python."""
     actions: list[str] = []
 

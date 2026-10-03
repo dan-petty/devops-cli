@@ -1107,7 +1107,7 @@ def _first_set(base: Finding, other: Finding, names: Sequence[str]) -> dict[str,
     return {name: getattr(base, name) or getattr(other, name) for name in names}
 
 
-def _merge_two_findings[F: Finding](base: F, other: F) -> F:
+def _merge_two_findings[F: Finding](base: F, other: F) -> F:  # noqa: C901
     """Merge duplicate finding `other` into `base`, taking highest severity and confidence."""
     base_sev = base.severity.upper().strip()
     other_sev = other.severity.upper().strip()

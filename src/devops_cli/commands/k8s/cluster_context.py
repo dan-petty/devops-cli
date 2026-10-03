@@ -286,7 +286,7 @@ def _render_logql_results(result: Any, output_format: str) -> None:
         print(f"{ns_pod}{escaped_line}{trace_badge}")
 
 
-def _execute_legacy_kubectl_logs(
+def _execute_legacy_kubectl_logs(  # noqa: C901
     pod: str,
     container: str | None,
     namespace: str | None,

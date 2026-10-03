@@ -228,7 +228,7 @@ def test_parse_prometheus_exposition() -> None:
 
 
 class _MockPrometheusHandler(BaseHTTPRequestHandler):
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         if self.path == "/metrics":
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")

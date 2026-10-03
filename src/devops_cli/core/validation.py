@@ -353,7 +353,7 @@ def validate_configured_service_url(
     validate_url(url, purpose=purpose, allow_private=allow_private or _is_loopback_host(host))
 
 
-def validate_path(
+def validate_path(  # noqa: C901
     path: Path | str,
     *,
     must_exist: bool = True,

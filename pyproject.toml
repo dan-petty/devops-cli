@@ -90,8 +90,19 @@ exclude = ["repos"]
 # lazily re-exporting packages all define — suppresses it for the entire module.
 # Selected individually rather than as the whole RUF family, which is a separate
 # roadmap item with its own triage.
-select = ["E", "F", "I", "N", "W", "UP", "B017", "RUF022", "RUF043", "RUF068"]
+# C901 is the complexity cap of 10 (standard McCabe, #586). The functions over it when it was
+# turned on carry a C901 noqa marker; RUF100 reports a marker once its function is back under
+# the cap, PGH004 bans the blanket noqa that would hide C901, and
+# `test_c901_suppressions_stay_under_the_ceiling` keeps the markers from growing in number.
+# `test_the_complexity_cap_has_no_escape` bans every other way past the cap, and counts the
+# three as enforced only when named by their own codes here: Ruff reads `C9` as `C90`.
+select = [
+    "E", "F", "I", "N", "W", "UP", "B017", "C901", "PGH004", "RUF022", "RUF043", "RUF068", "RUF100",
+]
 ignore = ["E501", "N818"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
 
 [tool.mypy]
 python_version = "3.14"

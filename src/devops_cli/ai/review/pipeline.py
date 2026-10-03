@@ -2829,7 +2829,7 @@ class ReviewPipelineOrchestrator:
                 prefix=False,
             )
 
-    def execute_multi_persona_review(
+    def execute_multi_persona_review(  # noqa: C901
         self,
         file_payloads: list[FileReviewPayload],
         diff_text_by_file: dict[str, str],

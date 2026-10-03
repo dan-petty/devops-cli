@@ -209,7 +209,7 @@ def set_value(
 
 
 @app.command()
-def init() -> None:
+def init() -> None:  # noqa: C901
     """Interactive first-time setup wizard."""
     settings = load_settings()
     print_info("[bold]devops-cli setup wizard[/bold]\n", prefix=False)
@@ -359,7 +359,7 @@ def _resolve_env_spec_value(spec: EnvVarSpec, settings: Settings) -> tuple[objec
 @app.command("output")
 @app.command("env")
 @app.command("env-vars")
-def output_env_vars(
+def output_env_vars(  # noqa: C901
     export: Annotated[
         bool,
         typer.Option(

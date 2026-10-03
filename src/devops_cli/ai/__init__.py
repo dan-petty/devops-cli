@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> Any:  # noqa: C901
     try:
         import importlib
 

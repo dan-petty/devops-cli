@@ -542,7 +542,7 @@ def _check_candidate_paths(base_dir: Path, rel_path: Path) -> Path | None:
     return None
 
 
-def _resolve_target_file(loc_file: str, repo_root: Path | None) -> Path | None:
+def _resolve_target_file(loc_file: str, repo_root: Path | None) -> Path | None:  # noqa: C901
     """Resolve finding location file path against repo_root or current working directory."""
     if not loc_file:
         return None

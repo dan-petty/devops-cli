@@ -80,7 +80,7 @@ def _load_gitignore_spec(root: Path) -> Any:
         return None
 
 
-def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bool:
+def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bool:  # noqa: C901
     """Determine if a path is an indexable code/doc file under root."""
     if not p.is_file() or p.is_symlink():
         return False

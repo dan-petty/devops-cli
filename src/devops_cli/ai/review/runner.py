@@ -1275,7 +1275,7 @@ def _calculate_parallel_review_workers(
     return min(num_tasks, capacity, DEFAULT_REVIEW_MAX_CONCURRENCY)
 
 
-def _run_persona_loop(
+def _run_persona_loop(  # noqa: C901
     pages: list[str],
     title: str,
     build_prompt: Callable[[str, str], str],

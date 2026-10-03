@@ -434,7 +434,7 @@ def _collect_chunks_from_path(
     return chunks
 
 
-def load_test_document_corpus(
+def load_test_document_corpus(  # noqa: C901
     document_path: Path | None = None,
     repo_root: Path | None = None,
     chunk_size_words: int = 100,

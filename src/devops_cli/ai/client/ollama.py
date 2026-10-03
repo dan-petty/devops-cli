@@ -269,7 +269,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
 
         raise self._connection_error(last_exc or RuntimeError("All Ollama servers unreachable"))
 
-    def _ollama_request(
+    def _ollama_request(  # noqa: C901
         self, base: str, system: str, messages: list[ChatMessage], think: bool
     ) -> LLMResponse:
         start_time = time.monotonic()

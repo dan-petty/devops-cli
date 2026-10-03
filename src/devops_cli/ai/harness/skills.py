@@ -119,7 +119,7 @@ class Skills(BaseCapability):
     skills: dict[str, ParsedSkill] = Field(default_factory=dict)
     loaded_skills: set[str] = Field(default_factory=set)
 
-    def __init__(
+    def __init__(  # noqa: C901
         self,
         directories: str | Path | Sequence[str | Path],
         *,

@@ -10,7 +10,7 @@ DevOps CLI follows an uncompromising quality-first, test-driven engineering cult
 
 - **Test-First Implementation (TDD)**: All features, fixes, and refactorings **must** have tests written first. Tests serve as the executable documentation of public interfaces, edge cases, and architectural boundaries.
 - **Strict Complexity & Nesting Caps**:
-  - Cyclomatic complexity $\le 10$ across all functions and closures (`tests/test_architectural_invariants.py`).
+  - Cyclomatic complexity $\le 10$ is Ruff `C901` (standard McCabe), run by `uv run devops ci` and the pre-commit `ruff-check` hook. Functions over the cap when it was turned on carry `# noqa: C901`, and `tests/test_architectural_invariants.py` keeps their count from growing; `devops scan complexity` reports a different, in-house count and does not gate.
   - Maximum nesting depth $\le 5$ (< 6 indentation levels) project-wide.
   - Decompose multi-step procedures into dedicated single-responsibility helpers and pure predicates.
 - **Strongly Typed Domain Exceptions**:
