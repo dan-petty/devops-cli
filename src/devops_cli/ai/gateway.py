@@ -192,7 +192,7 @@ def _resolve_fallback_physical_route(
     target_r = next((r for r in active_routes if r.virtual_model == fallback_target), None)
     if target_r is not None:
         return target_r.target_model, target_r.backend_type, target_r.backend_url
-    return "qwen2.5-coder:7b", "ollama", "http://ollama.llm.svc.cluster.local:11434"
+    return "qwen2.5-coder:7b", "ollama", DEFAULT_OLLAMA_CLUSTER_URL
 
 
 def _wildcard_pattern(items: list[dict[str, Any]]) -> str:

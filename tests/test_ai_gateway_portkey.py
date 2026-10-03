@@ -239,9 +239,10 @@ class TestK8sPortkeyManifests:
         egress = netpol["spec"]["egress"]
 
         egress_backends = [
-            rule["to"][0]["podSelector"]["matchLabels"]["app.kubernetes.io/name"]
+            label
             for rule in egress
             if "to" in rule and "podSelector" in rule["to"][0]
+            for label in rule["to"][0]["podSelector"]["matchLabels"].items()
         ]
 
         assert (
@@ -249,8 +250,46 @@ class TestK8sPortkeyManifests:
             sorted(egress_backends),
         ) == (
             "portkey-perimeter",
-            ["ollama", "valkey", "vllm"],
+            [
+                ("app.kubernetes.io/name", "valkey"),
+                ("app.kubernetes.io/name", "vllm"),
+                ("llm.devops.io/provider", "ollama"),
+            ],
         )
+
+    def test_portkey_ollama_egress_selects_every_ollama_tier(self) -> None:
+        """Verify Portkey's Ollama egress rule selects the pods of every Ollama tier (#953).
+
+        It selected `app.kubernetes.io/name: ollama`, the label of the single `ollama` workload
+        the tiers in `k8s/llm/profiles/ollama-profiles.yaml` replaced, so it admitted no pod
+        deploy-stack creates.
+        """
+        netpol = next(
+            d
+            for d in yaml.safe_load_all(
+                (PORTKEY_DIR / "networkpolicy.yaml").read_text(encoding="utf-8")
+            )
+            if d and d.get("kind") == "NetworkPolicy"
+        )
+        selectors = [
+            peer["podSelector"]["matchLabels"]
+            for rule in netpol["spec"]["egress"]
+            if {"protocol": "TCP", "port": 11434} in rule.get("ports", [])
+            for peer in rule.get("to", [])
+        ]
+        tiers = [
+            d["spec"]["template"]["metadata"]["labels"]
+            for d in yaml.safe_load_all(
+                Path("k8s/llm/profiles/ollama-profiles.yaml").read_text(encoding="utf-8")
+            )
+            if d and d.get("kind") == "DaemonSet"
+        ]
+
+        assert (
+            len(selectors),
+            bool(tiers),
+            [all(selector.items() <= labels.items() for selector in selectors) for labels in tiers],
+        ) == (1, True, [True] * len(tiers))
 
     def test_zero_homelab_ip_or_hostname_leakage_in_portkey_manifests(self) -> None:
         """Verify zero RFC 1918 IPs or *.lan hostnames exist in Portkey manifests."""

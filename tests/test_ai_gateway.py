@@ -6,9 +6,11 @@ import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlsplit
 
 import httpx2
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from devops_cli.ai.client import AICredentialsError
@@ -20,6 +22,7 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_OLLAMA_CLUSTER_URL,
     DEFAULT_VLLM_CLUSTER_URL,
     DEFAULT_VLLM_MODEL,
     DEFAULT_VLLM_SERVED_MODEL_NAME,
@@ -133,6 +136,32 @@ class TestGatewayRouter:
             "devops-chat",
             "qwen2.5-coder:7b",
             False,
+        )
+
+    def test_direct_ollama_failover_targets_the_default_ollama_tier(self, tmp_path: Path) -> None:
+        """Verify devops-chat fails over to the Service of the default Ollama tier (#953).
+
+        The direct-Ollama fallback sent requests to `ollama.llm.svc.cluster.local`, a Service
+        nothing deploys since the Ollama tiers replaced the single `ollama` workload.
+        """
+        router = GatewayRouter(state_file=tmp_path / "gateway_state.json")
+        router.trigger_failover("devops-chat", simulate=False)
+        chat = next(r for r in router.list_routes() if r.virtual_model == "devops-chat")
+        tier_services = {
+            doc["metadata"]["name"]
+            for doc in yaml.safe_load_all(
+                Path("k8s/llm/profiles/services.yaml").read_text(encoding="utf-8")
+            )
+            if doc and doc.get("kind") == "Service"
+        }
+
+        service, namespace = str(urlsplit(chat.backend_url).hostname).split(".")[:2]
+
+        assert (chat.backend_type, chat.backend_url, namespace, service in tier_services) == (
+            "failover:ollama",
+            DEFAULT_OLLAMA_CLUSTER_URL,
+            "llm",
+            True,
         )
 
     def test_trigger_failover_capability_gating(self, tmp_path: Path) -> None:

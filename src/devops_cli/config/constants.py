@@ -2914,6 +2914,17 @@ CONST_VERIFIER_INCONCLUSIVE: Final[str] = "verifier-inconclusive"
 # Marks a finding whose verification and invalidation criteria both passed as evidence: the
 # pair cannot tell the defect from its absence, so the finding goes to the verifier.
 CONST_CRITERIA_NON_DISCRIMINATING: Final[str] = "criteria-non-discriminating"
+# Marks a finding the verifier called mitigated without pointing at code that enforces the
+# mitigation (#845): no mechanism, reason or perimeter named, a perimeter file that does not
+# resolve inside the reviewed tree or is documentation, a mechanism that describes the defect,
+# or one naming no identifier a perimeter file or the finding's file holds.
+CONST_MITIGATION_UNPROVEN: Final[str] = "mitigation-unproven"
+# Marks a finding the verifier confirmed by citing a line its file does not have (#845).
+CONST_CITATION_OUT_OF_RANGE: Final[str] = "citation-out-of-range"
+# Marks a finding whose confirmation or mitigation the verifier's own reason contradicts
+# (#845): the reason denies the claim ("No user input reaches this point"), or says a criterion
+# passed whose recorded run failed. The mirror of a self-refutation.
+CONST_VERIFIER_CONTRADICTION: Final[str] = "verifier-contradiction"
 # The notes that say why a finding has no verdict, each counted in a review's profile.json. A
 # note names its kind before any `: ` detail.
 CONST_VERIFICATION_NOTE_KINDS: Final[tuple[str, ...]] = (
@@ -2924,6 +2935,25 @@ CONST_VERIFICATION_NOTE_KINDS: Final[tuple[str, ...]] = (
     CONST_VERIFIER_SELF_REFUTATION,
     CONST_VERIFIER_INCONCLUSIVE,
     CONST_CRITERIA_NON_DISCRIMINATING,
+    CONST_MITIGATION_UNPROVEN,
+    CONST_CITATION_OUT_OF_RANGE,
+    CONST_VERIFIER_CONTRADICTION,
+)
+# A mitigating mechanism that negates itself describes the defect, not what limits it: "caught
+# but not logged", "is expected to handle", "the mock is too permissive" (session
+# 20261001-224227, #845).
+CONST_SELF_NEGATING_MECHANISM_PATTERN: Final[str] = (
+    r"\bbut (?:does )?not\b|\bis expected to\b|\bintended to\b|\btoo permissive\b"
+)
+# A verdict's reason saying a criterion passed: a test, command, criterion or check that passes
+# or succeeds with nothing after it ("the test execution which passes, confirming"; not "passes
+# the flag"), or an exit status of 0 (session 20261003-005122, #845).
+CONST_CRITERION_PASSED_CLAIM_PATTERN: Final[str] = (
+    r"\b(?:tests?|commands?|criteri(?:on|a)|checks?|executions?|assertions?)\b"
+    r"(?:\W+\w+){0,3}?\W+(?:pass(?:es|ed)?|succeed(?:s|ed)?)"
+    r"(?=\s*(?:[.,;:()]|$)|\s+(?:successfully|correctly|cleanly|and|but|so|which|while"
+    r"|confirming|showing|indicating|as)\b)"
+    r"|\bexit(?:s|ed)?(?:\s+with)?(?:\s+(?:code|status))?\s+0\b"
 )
 # The fields of a finding the verifier is shown: its number in the call and the claim as the
 # reviewer wrote it, criteria included. Nothing the pipeline writes (status, confidence,

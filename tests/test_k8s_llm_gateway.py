@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 import yaml
 
+from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK, _MANIFESTS_BY_STACK
 from devops_cli.config.defaults import DEFAULT_AI_GATEWAY_CLUSTER_URL
 
 GATEWAY_DIR = Path("k8s/llm/gateway")
@@ -69,6 +70,15 @@ def _routes(deployments: list[dict[str, Any]]) -> list[tuple[str, str, int | Non
         )
         for m in deployments
     ]
+
+
+def _kustomized_files(directory: Path) -> set[Path]:
+    """Return the files `kubectl apply -k` applies from a kustomization, following directories."""
+    kustomization = yaml.safe_load((directory / "kustomization.yaml").read_text(encoding="utf-8"))
+    entries = [directory / entry for entry in kustomization.get("resources", [])]
+    return {entry for entry in entries if not entry.is_dir()} | {
+        path for entry in entries if entry.is_dir() for path in _kustomized_files(entry)
+    }
 
 
 class TestK8sLLMGatewayManifests:
@@ -435,12 +445,31 @@ class TestK8sLLMGatewayManifests:
             ["llm-gateway", "portkey", "valkey-runs", "vllm", "vllm-single"],
         )
 
+    def test_llm_manifests_have_a_deploy_path(self) -> None:
+        """Verify every manifest under k8s/llm is applied by something (#953).
+
+        A file counts when a k8s/llm kustomization lists it (a listed directory lists its
+        files), when deploy-stack applies it (`_MANIFESTS_BY_STACK["llm"]`), or when it is the
+        values file of an `llm` Helm release. `ollama-host-service.yaml` and `values-ollama.yaml`
+        had none: nothing applied them once the Ollama tiers replaced the single `ollama` workload.
+        """
+        llm_dir = Path("k8s/llm")
+        manifests = {path for path in llm_dir.rglob("*.yaml") if path.name != "kustomization.yaml"}
+        applied = (
+            {
+                path
+                for kustomization in llm_dir.rglob("kustomization.yaml")
+                for path in _kustomized_files(kustomization.parent)
+            }
+            | set(_MANIFESTS_BY_STACK["llm"])
+            | {Path(release["values"]) for release in _HELM_RELEASES_BY_STACK["llm"]}
+        )
+
+        assert sorted(manifests - applied) == []
+
     def test_zero_homelab_ip_or_hostname_leakage(self) -> None:
-        """Verify no private RFC 1918 IPs or *.lan hostnames exist in Gateway/profiles manifests."""
-        all_yaml_files = [
-            *GATEWAY_DIR.glob("*.yaml"),
-            *PROFILES_DIR.glob("*.yaml"),
-        ]
+        """Verify no private RFC 1918 IPs or *.lan hostnames exist in any k8s/llm manifest."""
+        all_yaml_files = sorted(Path("k8s/llm").rglob("*.yaml"))
         private_ip_pattern = re.compile(
             r"\b(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b(?!/)"
         )
