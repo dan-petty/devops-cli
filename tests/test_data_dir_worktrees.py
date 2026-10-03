@@ -975,7 +975,11 @@ def test_the_library_drift_report_is_saved_in_the_shared_analysis_directory(
 def test_dataset_help_says_a_relative_dataset_is_under_the_main_worktree() -> None:
     """Verify the `--dataset` help of `devops ai prompt-eval` tells the user a relative path is a
     data path under the main worktree."""
-    result = CliRunner().invoke(ai_app, ["prompt-eval", "--help"], terminal_width=200)
+    # Rich reads COLUMNS, not the runner's terminal width; without it the help wraps at 80 columns
+    # and a table border splits the phrase.
+    result = CliRunner().invoke(
+        ai_app, ["prompt-eval", "--help"], terminal_width=200, env={"COLUMNS": "200"}
+    )
 
     assert (result.exit_code, "under the main worktree" in " ".join(result.output.split())) == (
         0,
