@@ -41,12 +41,22 @@ resources:
     cpu: 250m
     memory: 512Mi
 
-securityContext:
+# The chart renders the container's securityContext from containerSecurityContext; it never reads
+# a top-level securityContext. Helm merges this over the chart's defaults. The root filesystem stays
+# read-only because the chart mounts writable volumes at /qdrant/storage, /qdrant/snapshots and
+# /qdrant/init. runAsGroup matches podSecurityContext, whose fsGroup owns the volumes.
+containerSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
   allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: false
+  privileged: false
+  readOnlyRootFilesystem: true
   capabilities:
     drop:
       - ALL
+  seccompProfile:
+    type: RuntimeDefault
 
 podSecurityContext:
   runAsNonRoot: true

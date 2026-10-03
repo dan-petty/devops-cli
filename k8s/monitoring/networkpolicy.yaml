@@ -14,10 +14,15 @@ spec:
     # 1. Allow intra-namespace pod communications (Prometheus, Grafana, node-exporter, kube-state-metrics)
     - from:
         - podSelector: {}
-    # 2. Allow external and Traefik ingress to monitoring services (0.0.0.0/0 and kube-system/traefik)
+    # 2. Allow Traefik ingress to monitoring UIs and APIs. Traefik is the only way in from outside
+    #    the cluster: cloudflared forwards the Access-gated tunnel to Traefik alone, and Traefik
+    #    routes k8s/ingress/ingress-routes.yaml's monitoring hosts to these ports. No ipBlock:
+    #    kube-router matches ingress CIDRs against pod addresses, so 0.0.0.0/0 or any private range
+    #    here would admit every pod in the cluster. `kubectl port-forward` enters the pod's own
+    #    network namespace and needs no rule. `configure-urls --addressing proxy` connects from the
+    #    control-plane node's host network, which kube-router admits only to pods on that node
+    #    (k8s/README.md, Port Forwarding & Automated Configuration).
     - from:
-        - ipBlock:
-            cidr: 0.0.0.0/0
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system

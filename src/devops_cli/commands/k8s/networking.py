@@ -29,6 +29,7 @@ from devops_cli.config.defaults import (
     DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS,
     DEFAULT_JAEGER_PORT,
     DEFAULT_K8S_STACK,
+    DEFAULT_OLLAMA_CLUSTER_SERVICE,
     DEFAULT_OLLAMA_PORT,
     DEFAULT_OPEN_WEBUI_PORT,
     DEFAULT_OTEL_PORT,
@@ -454,7 +455,9 @@ def _configure_llm_stack_urls(
     from devops_cli.config.defaults import DEFAULT_QDRANT_URL
     from devops_cli.config.settings import dotted_set
 
-    raw_ollama = _detect_service_url("ollama", "llm", context=effective_context)
+    raw_ollama = _detect_service_url(
+        DEFAULT_OLLAMA_CLUSTER_SERVICE, "llm", context=effective_context
+    )
     raw_webui = _detect_service_url("open-webui", "llm", context=effective_context)
     raw_qdrant = _detect_service_url("qdrant", "llm", context=effective_context)
     raw_valkey = _detect_service_url("valkey", "llm", context=effective_context)
@@ -961,7 +964,7 @@ def _collect_port_forward_services(
     if "llm" in selected_stacks:
         services.extend(
             [
-                ("llm", "svc/ollama", ports["ollama"], 11434),
+                ("llm", f"svc/{DEFAULT_OLLAMA_CLUSTER_SERVICE}", ports["ollama"], 11434),
                 ("llm", "svc/open-webui", ports["open_webui"], 8080),
                 ("llm", "svc/qdrant", ports["qdrant"], 6333),
                 ("llm", "svc/valkey", ports["valkey"], 6379),
