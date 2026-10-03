@@ -118,3 +118,160 @@ def test_export_feedback_by_status_and_all(tmp_path: Path) -> None:
         reviews_dir=reviews_dir, output_file=out_all_str, status_filter="ALL"
     )
     assert count_all_str == 2
+
+
+# =============================================================================
+# The export appends, keeps every verdict, and documents one path (#950)
+# =============================================================================
+
+_SUBJECT = {"type": "branch", "ref": "release/v0.2.25", "input": "181bdf9d63c60ce5"}
+
+
+def _session(
+    reviews_dir: Path,
+    name: str,
+    findings: list[dict[str, Any]],
+    candidates: list[dict[str, Any]] | None = None,
+) -> Path:
+    """A review session as the pipeline writes it: findings.json, and candidates.json."""
+    session_dir = reviews_dir / name
+    session_dir.mkdir(parents=True)
+    for file_name, listed in (("findings.json", findings), ("candidates.json", candidates)):
+        if listed is not None:
+            payload = {"generated_at": "2026-10-02T22:01:34+00:00", "subject": _SUBJECT}
+            (session_dir / file_name).write_text(
+                json.dumps({**payload, "findings": listed}), encoding="utf-8"
+            )
+    return session_dir
+
+
+def _judged(title: str, status: str = "INVALIDATED", **extra: Any) -> dict[str, Any]:
+    return {
+        "title": title,
+        "status": status,
+        "persona": "devsecops",
+        "severity": "MEDIUM",
+        "location": "tests/test_review_prompt_consistency.py:439",
+        "description": "exec runs a snippet.",
+        "verified_by": "human",
+        **extra,
+    }
+
+
+def _lines(path: Path) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_an_export_appends_and_skips_records_the_dataset_already_holds(tmp_path: Path) -> None:
+    """Verify an export keeps the records already in the dataset and appends only new ones: a
+    second export of the same sessions adds nothing."""
+    reviews_dir = tmp_path / "reviews"
+    _session(reviews_dir, "20261002-214641", [_judged("[B102] Use of exec detected.")])
+    output_file = tmp_path / "dataset.jsonl"
+    earlier = {"session_id": "20261001-224227", "title": "Earlier record", "status": "VERIFIED"}
+    output_file.write_text(json.dumps(earlier) + "\n", encoding="utf-8")
+
+    first, _ = export_invalidated_feedback(reviews_dir=reviews_dir, output_file=output_file)
+    second, _ = export_invalidated_feedback(reviews_dir=reviews_dir, output_file=output_file)
+
+    assert (first, second, [r["title"] for r in _lines(output_file)]) == (
+        1,
+        0,
+        ["Earlier record", "[B102] Use of exec detected."],
+    )
+
+
+def test_an_export_reads_the_verdicts_in_candidates_json(tmp_path: Path) -> None:
+    """Verify a candidate the review invalidated, which only candidates.json holds, is exported,
+    and a reported finding's candidate is not exported twice."""
+    reviews_dir = tmp_path / "reviews"
+    reported = _judged("[B102] Use of exec detected.")
+    dropped = _judged(
+        "Hardcoded temp directory", location="tests/test_security_bandit.py:107", verified_by="llm"
+    )
+    _session(reviews_dir, "20261002-214641", [reported], candidates=[reported, dropped])
+    output_file = tmp_path / "dataset.jsonl"
+
+    count, _ = export_invalidated_feedback(reviews_dir=reviews_dir, output_file=output_file)
+
+    assert (count, sorted(r["title"] for r in _lines(output_file))) == (
+        2,
+        ["Hardcoded temp directory", "[B102] Use of exec detected."],
+    )
+
+
+def test_each_record_carries_its_subject_category_references_and_cited_excerpt(
+    tmp_path: Path,
+) -> None:
+    """Verify a record says what the session reviewed and what the finding cited."""
+    reviews_dir = tmp_path / "reviews"
+    _session(
+        reviews_dir,
+        "20261002-214641",
+        [
+            _judged(
+                "[B102] Use of exec detected.",
+                category="security",
+                references=["CWE-95"],
+                cited_code={
+                    "project": "devops-cli",
+                    "file": "tests/test_review_prompt_consistency.py",
+                    "line": 439,
+                    "excerpt": '        exec(code, {"__name__": "count"})',
+                },
+            )
+        ],
+    )
+    output_file = tmp_path / "dataset.jsonl"
+
+    export_invalidated_feedback(reviews_dir=reviews_dir, output_file=output_file)
+    record = _lines(output_file)[0]
+
+    assert (
+        record["subject"],
+        record["category"],
+        record["references"],
+        record["cited_excerpt"],
+    ) == (_SUBJECT, "security", ["CWE-95"], '        exec(code, {"__name__": "count"})')
+
+
+def test_an_export_with_no_records_leaves_the_dataset_as_it_was(tmp_path: Path) -> None:
+    """Verify an export that finds nothing never replaces the dataset with an empty file."""
+    reviews_dir = tmp_path / "reviews"
+    _session(reviews_dir, "20261002-214641", [_judged("Reported", status="VERIFIED")])
+    output_file = tmp_path / "dataset.jsonl"
+    output_file.write_text(json.dumps({"title": "Kept"}) + "\n", encoding="utf-8")
+
+    count, _ = export_invalidated_feedback(reviews_dir=reviews_dir, output_file=output_file)
+
+    assert (count, [r["title"] for r in _lines(output_file)]) == (0, ["Kept"])
+
+
+def test_the_documentation_names_one_dataset_path() -> None:
+    """Verify every document that names a path to the feedback dataset names the configured one.
+
+    The docs named three, so an export to one fed none of the readers of another."""
+    import re
+
+    from devops_cli.config.defaults import DEFAULT_FEEDBACK_DATASET_PATH
+
+    root = Path(__file__).resolve().parent.parent
+    # Task files and the archive record what was, not what is.
+    records = (root / "docs" / "agent" / "tasks", root / "docs" / "agent" / "archive")
+    documents = [
+        root / "AGENTS.md",
+        root / "README.md",
+        *(
+            d
+            for d in (root / "docs").rglob("*.md")
+            if not any(d.is_relative_to(r) for r in records)
+        ),
+        *(root / "src/devops_cli/ai/knowledge_base").rglob("*.md"),
+    ]
+    named = {
+        match
+        for document in documents
+        for match in re.findall(r"[\w.-]+/[\w./-]*feedback\w*\.jsonl", document.read_text("utf-8"))
+    }
+
+    assert named == {DEFAULT_FEEDBACK_DATASET_PATH.as_posix()}

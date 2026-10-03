@@ -35,7 +35,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`argo_rollout_analyze`](#argo-rollout-analyze) | Analyze progressive rollout metric gates and trigger automated rollback on threshold violation. |
 | [`argo_status`](#argo-status) | Check ArgoCD application health and sync status. |
 | [`benchmark_embeddings`](#benchmark-embeddings) | Benchmark embedding model inference latency, dimensions, and retrieval accuracy. |
-| [`benchmark_suite`](#benchmark-suite) | Benchmark candidate models against feedback dataset for precision, recall, and hallucination scoring. |
 | [`branches_list`](#branches-list) | List git branches across repositories with tracking status and stale detection. |
 | [`ci_run`](#ci-run) | Run devops-cli complete quality gate (pytest, ruff check, ruff format, mypy). |
 | [`config_audit_keys`](#config-audit-keys) | Audit OS Keyring health, token state, and zero-plaintext secret compliance. |
@@ -115,7 +114,7 @@ Pass the domain name alone, for example `k8s`. |
 | [`repos_status`](#repos-status) | Display uncommitted changes and branch drift across workspace repositories. |
 | [`repos_sync`](#repos-sync) | Fetch and pull tracking branches across workspace repositories. |
 | [`review_branch`](#review-branch) | Run an AI code review on git branch diff against base branch. |
-| [`review_export_feedback`](#review-export-feedback) | Export review findings into JSONL feedback dataset for LLM alignment. |
+| [`review_export_feedback`](#review-export-feedback) | Append review verdicts the feedback dataset does not hold yet to the JSONL dataset. |
 | [`review_findings`](#review-findings) | List a session's findings, filtered by status; each keeps the number verify_finding takes. |
 | [`review_path`](#review-path) | Run an AI code review on local files matching pattern using specified persona. |
 | [`review_pr`](#review-pr) | Fetch GitHub PR diff and review using specified persona; optionally post comment. |
@@ -490,19 +489,6 @@ Benchmark embedding model inference latency, dimensions, and retrieval accuracy.
 | `provider` | `string` | No | `ollama` | - |
 | `model` | `string` | No | `bge-m3` | - |
 | `samples` | `integer` | No | `10` | - |
-
-### `benchmark_suite`
-
-Benchmark candidate models against feedback dataset for precision, recall, and hallucination scoring.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `models` | `string` | No | `qwen2.5-coder:7b` | - |
-| `dataset` | `string` | No | `` | - |
-| `provider` | `string` | No | `ollama` | - |
-| `dry_run` | `boolean` | No | `True` | - |
 
 ### `branches_list`
 
@@ -1297,7 +1283,7 @@ Run an AI code review on git branch diff against base branch.
 
 ### `review_export_feedback`
 
-Export review findings into JSONL feedback dataset for LLM alignment.
+Append review verdicts the feedback dataset does not hold yet to the JSONL dataset.
 
 **Parameters:**
 

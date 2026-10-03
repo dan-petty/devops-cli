@@ -203,9 +203,11 @@ verdict to the copy with `--index`. Verdicts given on one session at once take t
 `--adjudicator` records who gave the verdict: `human`, the default, or `agent`, which an AI
 agent passes and the MCP `verify_finding` tool always sends. An agent cannot change a
 person's verdict. Only a person's verdict ranks review history, teaches the learned catalog
-(INVALIDATED) or records a mitigation in the ledger (MITIGATED). A reset to UNVERIFIED
-withdraws what the finding's verdicts recorded there: an entry another verdict also
-recorded stays, and one nothing else recorded is removed.
+(INVALIDATED) or records a mitigation in the ledger (MITIGATED). A later verdict withdraws
+what the finding's earlier verdicts recorded there that it no longer stands behind: the
+catalog entry once the finding is not INVALIDATED, so later reviews stop suppressing its
+claim, and the ledger entry once it is not MITIGATED. An entry another verdict also recorded
+stays, and one nothing else recorded is removed.
 
 ```bash
 devops review verify [OPTIONS] <session>
@@ -225,7 +227,7 @@ devops review verify [OPTIONS] <session>
 | `--index`, `-i` | `integer` | - | Number `review findings` shows for the finding: its place in findings.json, whatever filter the list applied. |
 | `--title`, `-t` | `string` | - | Substring of exactly one finding title in findings.json. |
 | `--candidate` | `integer` | - | Number `review findings --candidates` shows; a VERIFIED or MITIGATED verdict moves the candidate into findings.json. |
-| `--status` | `string` | - | Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. UNVERIFIED also withdraws what a person's verdicts recorded in the catalog and ledger. |
+| `--status` | `string` | - | Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. It withdraws what a person's earlier verdicts recorded that it no longer stands behind: the catalog entry of an INVALIDATED one, the ledger entry of a MITIGATED one. |
 | `--adjudicator` | `choice (human|agent)` | `human` | Who gives the verdict: human, or agent for an AI agent, which cannot change a person's verdict. Only a person's verdict ranks review history and teaches the learned catalog and mitigations ledger. |
 | `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
 | `--perimeter`, `-p` | `string` | - | Perimeter file path(s) protecting against finding recurrence (repeatable). |
@@ -279,7 +281,13 @@ devops review benchmark [OPTIONS] <targets>
 
 ## `devops review export-feedback`
 
-**Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning.**
+**Append review verdicts to the JSONL feedback dataset for prompt tuning and fine-tuning.**
+
+Append review verdicts to the JSONL feedback dataset for prompt tuning and fine-tuning.
+
+Each session's findings.json and candidates.json are read, and only the findings whose
+verdict the dataset does not hold yet are appended. An export that finds none leaves the
+dataset as it was.
 
 ```bash
 devops review export-feedback [OPTIONS]
@@ -289,7 +297,7 @@ devops review export-feedback [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | Output JSONL path for benchmark feedback dataset. |
+| `--output`, `-o` | `path` | - | JSONL dataset to append to (default: the configured data.feedback_dataset_path). |
 | `--reviews-dir` | `path` | - | Directory containing review sessions. |
 | `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 

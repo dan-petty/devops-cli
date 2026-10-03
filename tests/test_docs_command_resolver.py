@@ -56,11 +56,11 @@ NUMBER = ArgvPlaceholder(expression="str(max_complexity)")
             _finding(CommandReferenceDefect.UNEXPECTED_ARGUMENT, "devops k8s audit", "stray"),
         ),
         (
-            ["benchmark", "--suite"],
+            ["benchmark", "--dry-run"],
             _finding(CommandReferenceDefect.UNKNOWN_COMMAND, "devops", "benchmark"),
         ),
         (
-            ["ai", "benchmark", "--suite", "--experiment", "x"],
+            ["ai", "benchmark", "--dry-run", "--experiment", "x"],
             _finding(CommandReferenceDefect.UNKNOWN_OPTION, "devops ai benchmark", "--experiment"),
         ),
         (
@@ -93,7 +93,7 @@ def test_a_defective_command_line_is_named_where_it_breaks(
     [
         ["argo", "cd", "apps", "list"],
         ["scan", "complexity", TARGET, "--max-complexity", NUMBER, "--max-indent", NUMBER],
-        ["ai", "benchmark", "--suite", "--models", TARGET, "--dry-run"],
+        ["ai", "benchmark", "--models", TARGET, "--dry-run"],
         ["ai", "benchmark", "--type", "embedding", "--samples", NUMBER],
         ["repos", "sync"],
         ["ci"],

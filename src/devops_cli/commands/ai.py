@@ -1828,6 +1828,10 @@ def prompt_eval_cmd(
         Path | None,
         typer.Option("--dataset", "-d", help=HELP.ai.dataset_path),
     ] = None,
+    include_deterministic: Annotated[
+        bool,
+        typer.Option("--include-deterministic", help=HELP.ai.include_deterministic),
+    ] = False,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -1837,7 +1841,11 @@ def prompt_eval_cmd(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Measure the deterministic suppression layer against recorded review verdicts."""
+    """Measure the deterministic suppression layer against recorded review verdicts.
+
+    The counts are reported for each labeller, and a label a deterministic check wrote is left
+    out unless --include-deterministic: scoring the layer against its own labels is circular.
+    """
     import json
 
     from devops_cli.ai.prompt_eval import evaluate_persona_prompts
@@ -1851,10 +1859,12 @@ def prompt_eval_cmd(
         )
         return
 
-    res = evaluate_persona_prompts(persona=persona, dataset_path=dataset)
+    res = evaluate_persona_prompts(
+        persona=persona, dataset_path=dataset, include_deterministic=include_deterministic
+    )
     saved = record_run(
         Mechanism.PROMPT_EVAL,
-        setup={"persona": res.persona},
+        setup={"persona": res.persona, "include_deterministic": include_deterministic},
         subject={"dataset_digest": res.dataset_digest, "records": res.total_cases},
         results=res.to_dict(),
     )
@@ -1877,6 +1887,19 @@ def prompt_eval_cmd(
             ["Recorded verifications", str(res.labelled_verified)],
             ["  contested by the layer", f"[yellow]{res.contested_verifications}[/yellow]"],
             ["  contested rate", f"{res.contested_rate:.1%}"],
+            *(
+                [f"Excluded: labelled by {labeller}", str(count)]
+                for labeller, count in res.excluded_labels.items()
+            ),
+        ],
+        border_style="cyan",
+    )
+    print_table(
+        title="By labeller",
+        columns=["Labeller", "Invalidated", "Caught", "Verified", "Contested"],
+        rows=[
+            [labeller, *(str(counts[field]) for field in counts)]
+            for labeller, counts in res.by_labeller.items()
         ],
         border_style="cyan",
     )

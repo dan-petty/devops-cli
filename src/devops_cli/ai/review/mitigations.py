@@ -57,8 +57,8 @@ class MitigatedFindingEntry(BaseModel):
     reason: str = ""
     recorded_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     recorded_by: str = "human"
-    # The person's verdicts that recorded or updated this mitigation. Resetting one of them to
-    # UNVERIFIED withdraws it, and the entry goes with the last (#949).
+    # The person's verdicts that recorded or updated this mitigation. Changing one of them to
+    # anything but MITIGATED withdraws it, and the entry goes with the last (#949, #950).
     verdict_count: int = 1
 
 

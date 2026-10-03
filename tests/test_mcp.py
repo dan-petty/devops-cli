@@ -407,7 +407,6 @@ def test_repointed_mcp_entry_points_pass_real_command_lines() -> None:
     argv of the real command, with only options it declares."""
     from devops_cli.ai.mcp.server import (
         benchmark_embeddings,
-        benchmark_suite,
         get_argo_fleet_status_resource,
         get_workspace_resource,
         k8s_audit,
@@ -429,7 +428,6 @@ def test_repointed_mcp_entry_points_pass_real_command_lines() -> None:
         "k8s_chaos_live": lambda: k8s_chaos("pod-kill", "llm", dry_run=False),
         "k8s_audit": k8s_audit,
         "benchmark_embeddings": lambda: benchmark_embeddings(provider="ollama", model="bge-m3"),
-        "benchmark_suite": lambda: benchmark_suite(models="m1,m2", dataset="feedback.jsonl"),
         "resource://workspace/status": get_workspace_resource,
         "resource://argo/fleet/status": get_argo_fleet_status_resource,
     }
@@ -464,18 +462,6 @@ def test_repointed_mcp_entry_points_pass_real_command_lines() -> None:
             "bge-m3",
             "--samples",
             "10",
-        ],
-        "benchmark_suite": [
-            "ai",
-            "benchmark",
-            "--suite",
-            "--models",
-            "m1,m2",
-            "--provider",
-            "ollama",
-            "--dataset",
-            "feedback.jsonl",
-            "--dry-run",
         ],
         "resource://workspace/status": ["repos", "list"],
         "resource://argo/fleet/status": ["argo", "cd", "apps", "list"],

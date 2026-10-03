@@ -160,6 +160,10 @@ class AICommandHelp:
     diagram: str = "Generate Mermaid architecture topology or STRIDE threat model diagram."
     diagram_type: str = "Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model."
     eval_review: str = "Persona whose recorded findings to measure the layer against."
+    include_deterministic: str = (
+        "Also count records a deterministic check labelled; scoring the layer against its own "
+        "labels is circular, so they are excluded by default."
+    )
     dataset_path: str = (
         "Feedback dataset JSONL; a relative path is a data path under the main worktree, like "
         "data.feedback_dataset_path (default: the configured feedback dataset)."
@@ -967,8 +971,9 @@ class ReviewCommandHelp:
         "candidate into findings.json."
     )
     status_target: str = (
-        "Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. "
-        "UNVERIFIED also withdraws what a person's verdicts recorded in the catalog and ledger."
+        "Verdict to record (required): VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. It "
+        "withdraws what a person's earlier verdicts recorded that it no longer stands behind: "
+        "the catalog entry of an INVALIDATED one, the ledger entry of a MITIGATED one."
     )
     adjudicator: str = (
         "Who gives the verdict: human, or agent for an AI agent, which cannot change a person's "
@@ -979,7 +984,9 @@ class ReviewCommandHelp:
     perimeter: str = "Perimeter file path(s) protecting against finding recurrence (repeatable)."
     regression_test: str = "Path to regression test guarding against finding recurrence."
     reviews_dir: str = "Directory containing review sessions."
-    output_feedback: str = "Output JSONL path for benchmark feedback dataset."
+    output_feedback: str = (
+        "JSONL dataset to append to (default: the configured data.feedback_dataset_path)."
+    )
     status_export: str = "Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL."
     explain_review: str = "Explain code review personas, severity levels, and terminology."
     no_pre_analysis: str = "Disable pre-analysis and metadata refresh."
@@ -1163,13 +1170,8 @@ class BenchmarkCommandHelp:
     workers: str = "Number of concurrent model server workers (default: automatic per model count)."
     test_doc: str = "Path to large test document for in-memory tokenization and section retrieval."
     samples: str = "Number of random sections to sample for retrieval evaluation."
-    mode: str = "Benchmark mode: 'auto', 'chat', 'embedding', 'suite'."
+    mode: str = "Benchmark mode: 'auto', 'chat', 'embedding'."
     explain: str = "Explain benchmark metrics, terminology, and mathematical formulas."
-    suite: str = "Run multi-model evaluation suite grounded in feedback datasets."
-    dataset: str = (
-        "Feedback dataset JSONL for --suite; a relative path is a data path under the main "
-        "worktree, like data.feedback_dataset_path (default: the configured feedback dataset)."
-    )
 
 
 @dataclass(frozen=True)

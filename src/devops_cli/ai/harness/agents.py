@@ -24,6 +24,7 @@ from devops_cli.ai.common_tools import duckduckgo_search_tool, web_fetch_tool
 from devops_cli.ai.harness.constants import (
     DEFAULT_CODER_INSTRUCTIONS,
     DEFAULT_MACROSCOPE_GUIDANCE,
+    DEFAULT_PLAYWRIGHT_GUIDANCE,
     DEFAULT_RESEARCHER_INSTRUCTIONS,
 )
 from devops_cli.ai.harness.filesystem import FileSystem
@@ -323,10 +324,6 @@ class Macroscope(BaseCapability):
         if self.guidance:
             additions.append(self.guidance)
         return additions
-
-
-DEFAULT_PLAYWRIGHT_GUIDANCE: str = """Use Playwright browser tools to navigate web pages, inspect accessibility snapshots, click elements, fill forms, and take screenshots.
-Prefer snapshot() to discover element handles (aria-ref=) over guessing selectors."""
 
 
 class PlaywrightBrowser(BaseCapability):

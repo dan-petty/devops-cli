@@ -11,15 +11,17 @@ consolidation merged it or kept another persona's report of it, is judged throug
 instead.
 
 Every verdict records its adjudicator, and only a person's verdict is ground truth: an agent's
-verdict never replaces one. Only a person's INVALIDATED verdict teaches the learned catalog, and
-only a person's MITIGATED verdict records the mitigation in the ledger. The finding keeps one id
-for each catalog or ledger entry its verdicts created or added to, and a reset to UNVERIFIED
-withdraws each: an entry other verdicts also recorded loses one count, and one nothing else
-recorded is removed.
+verdict never replaces one. Only a person's INVALIDATED verdict teaches the learned catalog, which
+then suppresses that claim about that code in later reviews (#950), and only a person's MITIGATED
+verdict records the mitigation in the ledger. The finding keeps one id for each catalog or ledger
+entry its verdicts created or added to. A later verdict withdraws each entry it no longer stands
+behind: a catalog entry once the finding is anything but INVALIDATED, a ledger entry once it is
+anything but MITIGATED, and both on a reset to UNVERIFIED. An entry other verdicts also recorded
+loses one count, and one nothing else recorded is removed.
 
 A verdict holds the session's lock from reading its files to writing them. When the files cannot
 be written, each entry a person's verdict updated is put back as it was and each it created is
-removed, and a reset withdraws the entries it released only once the files are written, so the
+removed, and a verdict withdraws the entries it released only once the files are written, so the
 session, the catalog and the ledger agree.
 """
 
@@ -36,9 +38,9 @@ from typing import Protocol
 
 from devops_cli.ai.review.common_hallucinations import (
     CommonHallucinationEntry,
-    auto_record_invalidated_finding,
     load_common_hallucinations,
-    save_common_hallucinations,
+    record_judged_claim,
+    update_learned,
 )
 from devops_cli.ai.review.mitigations import (
     MitigatedFindingEntry,
@@ -106,12 +108,18 @@ class EntryIds:
     learned: list[str] = field(default_factory=list)
     ledger: list[str] = field(default_factory=list)
 
-    def take(self, finding: SavedFinding) -> None:
-        """Take over the ids `finding` holds."""
-        self.learned += finding.learned_catalog_ids
-        self.ledger += finding.mitigation_ledger_ids
-        finding.learned_catalog_ids = []
-        finding.mitigation_ledger_ids = []
+    def take(self, finding: SavedFinding, status: str) -> None:
+        """Take over the ids `finding` holds that a verdict of `status` no longer stands behind.
+
+        A catalog entry records an INVALIDATED verdict and a ledger entry a MITIGATED one, so a
+        finding that is no longer INVALIDATED stops suppressing its claim in later reviews.
+        """
+        if status != CONST_STATUS_INVALIDATED:
+            self.learned += finding.learned_catalog_ids
+            finding.learned_catalog_ids = []
+        if status != CONST_STATUS_MITIGATED:
+            self.ledger += finding.mitigation_ledger_ids
+            finding.mitigation_ledger_ids = []
 
     def withdraw(self) -> None:
         """Withdraw one count of each entry; an entry at its last count is removed."""
@@ -141,8 +149,8 @@ class RecordedEntries:
     def restore(self) -> None:
         """Put back each entry the verdict updated as it was, and remove each it created."""
         if self.learned:
-            learned = load_common_hallucinations(include_builtin=False)
-            save_common_hallucinations(_restored(learned, self.learned))
+            before = self.learned
+            update_learned(lambda learned: _restored(learned, before))
         if self.ledger:
             save_mitigated_findings(_restored(load_mitigated_findings(), self.ledger))
 
@@ -153,8 +161,8 @@ class EntryChanges:
 
     A person's verdict records its entries before the session files are written, so the files
     hold their ids, and `undo` puts each back as it was when the files cannot be written. A
-    reset releases the ids its findings held, and `settle` withdraws them once the files no
-    longer hold them.
+    verdict releases the ids its findings held that it no longer stands behind, and `settle`
+    withdraws them once the files no longer hold them.
     """
 
     recorded: RecordedEntries = field(default_factory=RecordedEntries)
@@ -303,14 +311,14 @@ def judge_candidate(
 def _record_verdict(finding: SavedFinding, verdict: Verdict, changes: EntryChanges) -> None:
     """Apply `verdict` to `finding`, with what it writes outside the session.
 
-    An agent's verdict on a finding a person judged is refused. A reset to UNVERIFIED releases
-    what the finding's earlier verdicts recorded in the catalog and ledger, for `changes` to
-    withdraw once the session is written. Any other verdict keeps those records, so a later
-    reset still withdraws them.
+    An agent's verdict on a finding a person judged is refused. The verdict releases what the
+    finding's earlier verdicts recorded in the catalog and ledger that it no longer stands
+    behind, for `changes` to withdraw once the session is written: a person who judges an
+    INVALIDATED finding real withdraws the claim it taught, which later reviews would otherwise
+    keep suppressing. The records it still stands behind stay, so a later reset withdraws them.
     """
     _refuse_agent_over_person(finding, verdict)
-    if verdict.status == CONST_STATUS_UNVERIFIED:
-        changes.released.take(finding)
+    changes.released.take(finding, verdict.status)
     mitigated = verdict.status == CONST_STATUS_MITIGATED
     perimeter = _mitigated_perimeter(finding, verdict.perimeter) if mitigated else []
     reason = _verdict_reason(finding, verdict.status, verdict.reason)
@@ -414,12 +422,11 @@ class _CandidateIndex:
 def _mirrored(target: SavedFinding, judged: SavedFinding, changes: EntryChanges) -> SavedFinding:
     """`target`, a finding's copy in the other session file, with the verdict `judged` was given.
 
-    A reset releases the records `target` held as well; any other verdict leaves them for the
-    caller to move to the finding that holds both findings' records.
+    The verdict releases the records `target` held that it no longer stands behind as well, and
+    leaves the others for the caller to move to the finding that holds both findings' records.
     """
     mirrored = target.model_copy(update=judged.model_dump(include=set(_VERDICT_FIELDS)))
-    if judged.status == CONST_STATUS_UNVERIFIED:
-        changes.released.take(mirrored)
+    changes.released.take(mirrored, judged.status)
     return mirrored
 
 
@@ -468,9 +475,10 @@ def _record_entries(
     try:
         if status == CONST_STATUS_INVALIDATED:
             learned = {e.id: e for e in load_common_hallucinations(include_builtin=False)}
-            entry = auto_record_invalidated_finding(finding, reason=reason)
-            # A builtin entry that already covers the finding is left as it is.
-            if entry is not None and entry.source != "builtin":
+            entry = record_judged_claim(finding, reason)
+            if entry is None:
+                logger.warning(MESSAGES.review.verdict_teaches_nothing)
+            else:
                 finding.learned_catalog_ids = [*finding.learned_catalog_ids, entry.id]
                 recorded.learned.setdefault(entry.id, learned.get(entry.id))
         elif status == CONST_STATUS_MITIGATED:
@@ -508,11 +516,8 @@ def _withdraw_learned(withdrawn: Counter[str]) -> None:
 
     A re-review's verdict adds to the learned entry the first review's verdict created.
     """
-    learned = load_common_hallucinations(include_builtin=False)
-    if not any(e.id in withdrawn for e in learned):
-        return
-    save_common_hallucinations(
-        [
+    update_learned(
+        lambda learned: [
             e.model_copy(update={"occurrence_count": e.occurrence_count - withdrawn[e.id]})
             for e in learned
             if e.occurrence_count > withdrawn[e.id]

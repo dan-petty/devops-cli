@@ -13,6 +13,7 @@ class AIErrorMessages:
     empty_prompt: str = "Error: Prompt cannot be empty."
     provider_connection_error: str = "Could not connect to AI provider at {url}: {exc}"
     unsupported_provider: str = "Unsupported AI provider '{provider}'."
+    unknown_benchmark_type: str = "Unknown benchmark type '{value}': use one of {choices}."
 
 
 @dataclass(frozen=True)

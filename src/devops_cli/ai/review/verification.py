@@ -12,7 +12,7 @@ import sys
 import tempfile
 import threading
 import warnings
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -20,8 +20,15 @@ from typing import Any
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.review.chunker import page_line_number
 from devops_cli.ai.review.construct_validator import validate_construct_location
+from devops_cli.ai.review.judged_claims import cited_code
 from devops_cli.ai.review.verdicts import apply_verdict
-from devops_cli.ai.review_schema import Finding, ReviewResult, extract_json_block, less_severe
+from devops_cli.ai.review_schema import (
+    Finding,
+    ReviewResult,
+    SavedFinding,
+    extract_json_block,
+    less_severe,
+)
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_AUTH_DISPATCH_PATTERNS,
@@ -408,22 +415,12 @@ def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Find
         else:
             return None
 
-        res = apply_verdict(
+        return apply_verdict(
             finding,
             "INVALIDATED",
             by="deterministic:syntax_error",
             reason="Syntax validation passed cleanly via language parser (valid Python 3.14+ syntax)",
         )
-
-        try:
-            from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
-
-            auto_record_invalidated_finding(
-                res, file_path=file_path, reason=res.invalidation_reason
-            )
-        except Exception:
-            pass
-        return res
     except Exception as exc:
         logger.debug("Failed syntax error hallucination check for %s: %s", file_path, exc)
         return None
@@ -465,24 +462,15 @@ def _check_missing_symbol_hallucination(finding: Finding, file_path: Path) -> Fi
             tree = ast.parse(content)
         from devops_cli.ai.review.common_hallucinations import (
             _verify_symbol_defined_in_ast_or_module,
-            auto_record_invalidated_finding,
         )
 
         if _verify_symbol_defined_in_ast_or_module(finding, tree, file_path):
-            res = apply_verdict(
+            return apply_verdict(
                 finding,
                 "INVALIDATED",
                 by="deterministic:missing_symbol",
                 reason="Ground-truth AST and cross-module inspection confirmed symbol is defined in module or exports",
             )
-
-            try:
-                auto_record_invalidated_finding(
-                    res, file_path=file_path, reason=res.invalidation_reason
-                )
-            except Exception:
-                pass
-            return res
     except Exception:
         pass
     return None
@@ -502,22 +490,14 @@ def _content_has_auth_and_dispatch(content: str) -> bool:
     return has_auth and has_dispatch
 
 
-def _build_invalidated_auth_header_finding(finding: Finding, file_path: Path) -> Finding:
+def _build_invalidated_auth_header_finding(finding: Finding) -> Finding:
     """Construct invalidated finding for verified authorization header presence."""
-    from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
-
-    res = apply_verdict(
+    return apply_verdict(
         finding,
         "INVALIDATED",
         by="deterministic:missing_header",
         reason="Source code inspection confirmed Authorization header is dynamically configured before request dispatch",
     )
-
-    try:
-        auto_record_invalidated_finding(res, file_path=file_path, reason=res.invalidation_reason)
-    except Exception:
-        pass
-    return res
 
 
 def _check_missing_header_hallucination(finding: Finding, file_path: Path) -> Finding | None:
@@ -530,7 +510,7 @@ def _check_missing_header_hallucination(finding: Finding, file_path: Path) -> Fi
     try:
         content = _cited_window(finding, file_path, _HEADER_WINDOW_LINES)
         if content and _content_has_auth_and_dispatch(content):
-            return _build_invalidated_auth_header_finding(finding, file_path)
+            return _build_invalidated_auth_header_finding(finding)
     except Exception:
         pass
     return None
@@ -1295,7 +1275,7 @@ def _check_none_dereference_hallucination(finding: Finding, file_path: Path) -> 
     if not _module_typechecks_clean(str(file_path), mtime):
         return None
 
-    res = apply_verdict(
+    return apply_verdict(
         finding,
         "INVALIDATED",
         by="deterministic:none_dereference",
@@ -1304,13 +1284,6 @@ def _check_none_dereference_hallucination(finding: Finding, file_path: Path) -> 
             "described None dereference is not reachable"
         ),
     )
-    try:
-        from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
-
-        auto_record_invalidated_finding(res, file_path=file_path, reason=res.invalidation_reason)
-    except Exception:
-        pass
-    return res
 
 
 def _check_code_file_hallucinations(finding: Finding, file_path: Path) -> Finding | None:
@@ -1332,10 +1305,9 @@ def _check_code_file_hallucinations(finding: Finding, file_path: Path) -> Findin
 
 
 def _check_catalog_hallucination(finding: Finding, file_path: Path) -> Finding:
-    """Check finding against dynamic common hallucinations catalog."""
+    """Check finding against the builtin common hallucinations catalog."""
     try:
         from devops_cli.ai.review.common_hallucinations import (
-            auto_record_invalidated_finding,
             is_common_hallucination,
             verify_ground_truth_hallucination,
         )
@@ -1343,7 +1315,6 @@ def _check_catalog_hallucination(finding: Finding, file_path: Path) -> Finding:
         match = is_common_hallucination(finding, threshold=0.7, file_path=file_path)
         if match and verify_ground_truth_hallucination(finding, match.hallucination, file_path):
             entry = match.hallucination
-            auto_record_invalidated_finding(finding, file_path=file_path, reason=entry.resolution)
             return apply_verdict(
                 finding,
                 "INVALIDATED",
@@ -1395,22 +1366,76 @@ def _check_early_hallucinations(
     return None
 
 
+def record_cited_code(findings: Iterable[SavedFinding], root: Path | None) -> None:
+    """Record on each finding the code its location cites, as this review read it (#950).
+
+    The code is read only from a file that is not a secret file, inside the checkout `root`
+    belongs to (the working directory's without one). A verdict given later keys its claim on
+    it rather than on the file as it reads then, and the exported dataset carries it.
+    """
+    from devops_cli.core.repo import find_worktree_root
+
+    checkout = find_worktree_root(root or Path.cwd())
+    for finding in findings:
+        file_part = _parse_location(finding.location)[0]
+        file_path = (
+            _resolve_target_file(file_part, root)
+            if file_part and not _is_secret_path(file_part)
+            else None
+        )
+        finding.cited_code = (
+            cited_code(finding.location, file_path, checkout) if file_path else None
+        )
+
+
+def _check_judged_claim(
+    finding: Finding, file_path: Path, root: Path | None, consult: bool
+) -> Finding | None:
+    """Invalidate a finding whose claim a person already judged INVALIDATED (#950).
+
+    The match ignores the tool, persona and wording that raised the finding; it holds while the
+    line the location cites reads as it did when the person judged it, in the same project.
+    Nothing is consulted without `consult`.
+    """
+    from devops_cli.ai.review.common_hallucinations import find_judged_entry
+
+    entry = find_judged_entry(finding, file_path, root) if consult else None
+    if entry is None:
+        return None
+    return apply_verdict(
+        finding,
+        "INVALIDATED",
+        by="deterministic:person_verdict",
+        reason=f"A person judged this claim INVALIDATED [{entry.id}]: {entry.resolution}",
+    )
+
+
 def _run_file_level_deterministic_checks(
     finding: Finding,
     file_path: Path,
     effective_root: Path | None,
     removed_symbols: set[str] | None,
     diff_hunks: list[tuple[int, int]] | None,
+    consult_judged: bool = True,
 ) -> Finding:
     finding = _drop_out_of_range_lines(finding, file_path)
+    if judged := _check_judged_claim(finding, file_path, effective_root, consult_judged):
+        return judged
     if code_res := _check_code_file_hallucinations(finding, file_path):
         return code_res
 
+    raised_at = finding.location
     finding = validate_construct_location(
         finding, file_path, removed_symbols=removed_symbols, diff_hunks=diff_hunks
     )
     if finding.status in {"INVALIDATED", "MITIGATED"}:
         return finding
+    # A person may have judged the line the finding was moved to, where the session saved it.
+    moved = finding.location != raised_at
+    if moved and (
+        judged := _check_judged_claim(finding, file_path, effective_root, consult_judged)
+    ):
+        return judged
 
     finding = _check_catalog_hallucination(finding, file_path)
     if finding.status in {"INVALIDATED", "MITIGATED"}:
@@ -1431,9 +1456,14 @@ def _deterministic_pre_verification(
     dependencies: Sequence[Any] | None = None,
     removed_symbols: set[str] | None = None,
     diff_hunks: list[tuple[int, int]] | None = None,
+    consult_judged: bool = True,
     **kwargs: Any,
 ) -> Finding:
-    """Run local deterministic parser, line boundary, and hallucination checks to invalidate obvious false positives."""
+    """Run local deterministic parser, line boundary, and hallucination checks to invalidate obvious false positives.
+
+    `consult_judged=False` leaves out the claims people judged, for a replay of findings whose
+    recorded verdicts may be those people's own.
+    """
     early_res = _check_early_hallucinations(finding, dependencies)
     if early_res:
         return early_res
@@ -1452,7 +1482,7 @@ def _deterministic_pre_verification(
         return finding
 
     return _run_file_level_deterministic_checks(
-        finding, file_path, effective_root, removed_symbols, diff_hunks
+        finding, file_path, effective_root, removed_symbols, diff_hunks, consult_judged
     )
 
 

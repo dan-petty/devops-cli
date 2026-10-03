@@ -864,6 +864,10 @@ DEFAULT_HTTP_KEEPALIVE_EXPIRY_SECONDS: float = 30.0
 # every segment and prevents almost nothing.
 DEFAULT_HALLUCINATION_EXEMPLAR_COUNT: Final[int] = 8
 DEFAULT_HALLUCINATION_EXEMPLAR_CHARS: Final[int] = 160
+# The most lines of a finding's location a session records as its cited excerpt, and a person's
+# verdict hashes into the claim it suppresses (#950). A finding's range is a few lines; a model
+# that cites a whole file should not copy it into every session file and dataset record.
+DEFAULT_CITED_EXCERPT_MAX_LINES: Final[int] = 40
 
 # How long a finished background command waits for its reader threads to bank the rest of
 # the pipe before its output is reported. `poll()` returns an exit status before the

@@ -1266,19 +1266,42 @@ def sort_findings[F: Finding](findings: list[F]) -> list[F]:
     )
 
 
+class CitedCode(BaseModel):
+    """The code a finding's location cites, as the review read it when it saved the session (#950).
+
+    A person's verdict keys the claim it suppresses on it, so the claim is about the code that
+    person was shown, whichever checkout the verdict is given in and however the file reads by
+    then.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    # The repository the code belongs to, and the file relative to the checkout holding it.
+    project: str
+    file: str
+    # The first line the location cites, and the lines it cites, with secrets masked.
+    line: int
+    excerpt: str
+
+
 class SavedFinding(Finding):
     persona: str = ""
     persona_title: str = ""
     recommendation: str = "REQUEST CHANGES"
     # One id for each learned-catalog or mitigations-ledger entry a person's verdict on this
-    # finding created or added to, which a reset to UNVERIFIED withdraws (#949). Only
-    # `devops review verify` sets them; `Finding`, the shape a model's reply is parsed into,
-    # has no such fields.
+    # finding created or added to, which a later verdict that no longer stands behind it
+    # withdraws (#949, #950): any but INVALIDATED for a catalog entry, any but MITIGATED for a
+    # ledger entry. Only `devops review verify` sets them; `Finding`, the shape a model's reply
+    # is parsed into, has no such fields.
     learned_catalog_ids: list[str] = Field(default_factory=list)
     mitigation_ledger_ids: list[str] = Field(default_factory=list)
     # On a finding a VERIFIED or MITIGATED verdict moved into findings.json, the number of the
     # candidate in candidates.json it was moved from, which later verdicts on either keep in step.
     moved_from_candidate: int | None = None
+    # The code the location cites, as the review read it when it saved the session (#950). A
+    # person's verdict keys the claim it suppresses on it, and the feedback export carries its
+    # excerpt; None when the location cites no line of a file inside the reviewed checkout.
+    cited_code: CitedCode | None = None
 
 
 class FileReviewPayload(BaseModel):
