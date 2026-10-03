@@ -84,11 +84,19 @@ The Service is a NodePort that Kubernetes assigns; find it with `kubectl -n llm 
 KEY=$(kubectl -n llm get secret llm-gateway-secrets -o jsonpath='{.data.master-key}' | base64 -d)
 curl -H "Authorization: Bearer $KEY" http://<node>:<node-port>/v1/models
 ```
-Two more routes make the gateway the single router for both engines:
+These groups route reviews, embeddings and background work:
 
-- `devops-review` spreads one model name over every inference server: vLLM and the Ollama node (`qwen3-coder:30b`). Each deployment takes a share of requests weighted by its throughput (dual-GPU vLLM 5, Ollama node 1), and pre-call checks keep a prompt off any deployment whose window it exceeds. No deployment is capped with `max_parallel_requests`: LiteLLM waits on the cap only after routing, so queued requests pile up behind it while larger servers idle, and the backends queue excess requests themselves.
-- `ollama/<model>` reaches any model on the Ollama nodes by name, for chat and embeddings, through Ollama's OpenAI-compatible API (e.g. `ollama/gpt-oss:20b`, `ollama/embeddinggemma:300m`).
+- `devops-review` spreads one model name over the interactive Ollama tiers: `qwen3-coder:30b` on `ollama-48gib-fast` and `ollama-64gib-standard`, and `gpt-oss:20b` on `ollama-16gib-fast`. Each deployment takes a share of requests weighted by its throughput, and pre-call checks keep a prompt off any deployment whose window it exceeds. No deployment is capped with `max_parallel_requests`: LiteLLM waits on the cap only after routing, so queued requests pile up behind it while larger servers idle, and the backends queue excess requests themselves.
+- `bge-m3:latest` is the embedding group. Its one deployment is on the background tier, `ollama-48gib-slow`, with `model_info.mode: embedding` so health checks embed rather than generate.
 - `qwen3-coder:30b` and `gpt-oss:20b` each pin one of `devops-review`'s models: the group copies that model's `devops-review` deployments and weights, with no `max_input_tokens` and no fallback, so a review measured on one model is routed as the pool routes it.
+- `devops-background` is the background tier's one generation model: `qwen3-coder:30b` on `ollama-48gib-slow`. That tier serves one request at a time, so it is in no interactive or review pool, where background work would queue in front of review calls. It keeps its embedding model and `qwen3-coder:30b` loaded together and is sent no other model. `devops-review` falls back to it once its own retries fail, timeouts included; the pinned groups have no fallback. The gateway's 1,500 s timeout outlasts the review client's 1,200 s, so a `devops-review` call that timed out at the gateway was already given up, and the fallback spends the tier's slot on a reply nobody reads. Use it for `devops review path --watch`, `devops ai pipeline`, `devops ai agents` and `devops ai analyze` through environment overrides, never in `config.yaml`, so no interactive run lands on it. Set `DEVOPS_CLI_AI_MAX_RETRIES=1`. The gateway abandons a call after 1,100 s and never retries it, but the client retries a failed or timed-out call in its HTTP transport and again in its dispatch loop, `ai.max_retries` times each, and every retry waits for the same single slot. With `1` a call is sent at most four times; `0` does not stop retries, because the transport then makes five attempts:
+  ```bash
+  DEVOPS_CLI_AI_MAX_RETRIES=1 DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL=devops-background \
+    DEVOPS_CLI_AI_TASK_VERIFICATION_MODEL=devops-background \
+    DEVOPS_CLI_AI_TASK_COMPOSE_MODEL=devops-background devops review path src --watch --concurrency 1
+  DEVOPS_CLI_AI_MAX_RETRIES=1 DEVOPS_CLI_AI_TASK_CHAT_MODEL=devops-background devops ai pipeline "<goal>"
+  DEVOPS_CLI_AI_MAX_RETRIES=1 DEVOPS_CLI_AI_MODEL=devops-background devops ai agents   # likewise devops ai analyze
+  ```
 
 Recheck the `devops-review` weights whenever a backend, model or node changes. `devops ai gateway tune` measures each deployment on its own, from an ephemeral Python container attached to the gateway pod (`kubectl debug`), since the backends admit only the gateway. It recommends each weight as capacity (fixed-length tokens per second) divided by cost (the tokens the model writes per request), and lists each backend's GPUs and engine. It changes nothing; copy the recommended weights into `litellm_params.weight`:
 ```bash
@@ -112,7 +120,7 @@ ai:
       model: devops-coder
     embedding:
       provider: gateway
-      model: ollama/embeddinggemma:300m
+      model: bge-m3:latest
 ```
 Provider `gateway` always sends to `ai.gateway_url`, even when `ai.api_base_url` is set for another provider. To send one task to a different gateway, set `api_base_url` on that task.
 
