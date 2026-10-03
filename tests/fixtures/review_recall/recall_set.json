@@ -1,0 +1,52 @@
+{
+  "findings": [
+    {
+      "path": "k8s/monitoring/networkpolicy.yaml",
+      "revision": "38517a89ebd1439e245c08ce0d9ad9cd17932b74",
+      "lines": [18, 47],
+      "class": "Network Exposure",
+      "issue": 953,
+      "evidence": "cidr: 0.0.0.0/0"
+    },
+    {
+      "path": "k8s/otel/networkpolicy.yaml",
+      "revision": "38517a89ebd1439e245c08ce0d9ad9cd17932b74",
+      "lines": [18, 35],
+      "class": "Network Exposure",
+      "issue": 913,
+      "evidence": "cidr: 0.0.0.0/0"
+    },
+    {
+      "path": "src/devops_cli/ai/rag/investigator.py",
+      "revision": "38517a89ebd1439e245c08ce0d9ad9cd17932b74",
+      "lines": [280, 295],
+      "class": "Error Handling",
+      "issue": 423,
+      "evidence": "except Exception as exc:"
+    },
+    {
+      "path": "docs/VISION.md",
+      "revision": "38517a89ebd1439e245c08ce0d9ad9cd17932b74",
+      "lines": [12, 12],
+      "class": "Security Claims",
+      "issue": 921,
+      "evidence": "gating `trust_remote_code=True` via static AST/Semgrep inspection"
+    },
+    {
+      "path": "src/devops_cli/ai/spend/pricing.py",
+      "revision": "38517a89ebd1439e245c08ce0d9ad9cd17932b74",
+      "lines": [53, 56],
+      "class": "Error Handling",
+      "issue": 423,
+      "evidence": "except Exception:"
+    },
+    {
+      "path": "src/devops_cli/ai/spend/pricing.py",
+      "revision": "38517a89ebd1439e245c08ce0d9ad9cd17932b74",
+      "lines": [65, 68],
+      "class": "Error Handling",
+      "issue": 423,
+      "evidence": "except Exception:"
+    }
+  ]
+}
