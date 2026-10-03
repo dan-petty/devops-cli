@@ -9,17 +9,18 @@ import signal
 import warnings
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
+from devops_cli.ai.review.criteria_evidence import counts_as_evidence
 from devops_cli.ai.review.verdicts import apply_verdict
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
     CONST_ALLOWED_CRITERIA_BINARIES,
     CONST_ALLOWED_GIT_SUBCOMMANDS,
+    CONST_CRITERIA_NON_DISCRIMINATING,
     CONST_DISALLOWED_SHELL_TOKENS,
     CONST_FORBIDDEN_PYTHON_CRITERIA_MODULES,
     CONST_REVIEW_CONVENTIONS_FILE,
-    CONST_TAUTOLOGICAL_CRITERIA_SUBSTRINGS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS,
@@ -352,57 +353,51 @@ def execute_criterion_command(
     )
 
 
-def _is_tautological_verification_command(command: str) -> bool:
-    """Return True if command merely checks file text or symbol existence without demonstrating a defect."""
-    clean = command.strip().lower()
-    if clean.startswith(("git grep", "grep")) or "grep " in clean:
-        return True
-    return any(kw in clean for kw in CONST_TAUTOLOGICAL_CRITERIA_SUBSTRINGS)
+class _CriteriaVerdict(NamedTuple):
+    """A verdict the criteria settle, and what `apply_verdict` records with it."""
+
+    status: str
+    by: str | None = None
+    confidence: float | None = None
+    reason: str | None = None
+    note: str | None = None
 
 
 def _evaluate_criteria_verdict(
+    matched_ver: list[str],
     matched_inv: list[str],
-    executable_ver: list[Any],
+    proving: list[str],
+    refuting: list[str],
+    verification_commands: set[str],
     exec_results: list[Any],
-) -> tuple[str, str | None, float, str | None]:
-    """Returns (verdict, by, confidence_score, reason)."""
-    if not executable_ver:
-        if matched_inv:
-            return (
-                "INVALIDATED",
-                "criteria",
-                0.0,
-                f"Invalidation criterion verified: {matched_inv[0]}",
-            )
-        return "NOOP", None, 0.0, None
+) -> _CriteriaVerdict | None:
+    """The verdict the criteria settle, or None when they leave the finding for the model.
 
-    cmd_set = {c.command for c in executable_ver}
-    all_ran = len(
-        {r.command for r in exec_results if r.command in cmd_set and r.exit_code != -1}
-    ) == len(cmd_set)
-    ver_passed = sum(1 for r in exec_results if r.command in cmd_set and r.passed)
-    score = round(ver_passed / len(executable_ver), 2)
-
-    if matched_inv and ver_passed > 0:
-        return "UNVERIFIED", None, score, None
-    if matched_inv:
-        return (
-            "INVALIDATED",
-            "criteria",
-            0.0,
-            f"Invalidation criterion verified: {matched_inv[0]}",
+    `matched_ver` and `matched_inv` hold every passing verification and invalidation command,
+    and `proving` and `refuting` those of them that count as evidence
+    (`criteria_evidence.counts_as_evidence`). Criteria that pass on both sides, counting or
+    not, cannot tell the defect from its absence; otherwise a passing command that does not
+    count settles nothing. A finding is VERIFIED only once every verification command has run.
+    """
+    if matched_ver and matched_inv:
+        return _CriteriaVerdict("UNVERIFIED", note=CONST_CRITERIA_NON_DISCRIMINATING)
+    if refuting:
+        return _CriteriaVerdict(
+            "INVALIDATED", "criteria", 0.0, f"Invalidation criterion verified: {refuting[0]}"
         )
-    if all_ran and ver_passed > 0:
-        passing_cmds = [r.command for r in exec_results if r.command in cmd_set and r.passed]
-        if all(_is_tautological_verification_command(c) for c in passing_cmds):
-            return (
-                "UNVERIFIED",
-                None,
-                min(score, 0.5),
-                "Tautological criteria confirmed location/syntax only",
-            )
-        return "VERIFIED", "criteria", score, None
-    return "UNVERIFIED", None, score, None
+    completed = {
+        r.command for r in exec_results if r.command in verification_commands and r.exit_code != -1
+    }
+    if proving and completed == verification_commands:
+        return _CriteriaVerdict(
+            "VERIFIED", "criteria", round(len(proving) / len(verification_commands), 2)
+        )
+    return None
+
+
+def _evidence(passed: list[str], location: str, repo_root: Path) -> list[str]:
+    """The passing commands, once each, that count as evidence about the code at `location`."""
+    return [c for c in dict.fromkeys(passed) if counts_as_evidence(c, location, repo_root)]
 
 
 def _reconcile_finding_from_criteria(
@@ -410,36 +405,42 @@ def _reconcile_finding_from_criteria(
     exec_results: list[Any],
     matched_ver: list[str],
     matched_inv: list[str],
+    repo_root: Path,
 ) -> Any:
-    all_results = list(dict.fromkeys(finding.criteria_execution_results + exec_results))
-    all_ver = list(dict.fromkeys(finding.verified_criteria_matched + matched_ver))
-    all_inv = list(dict.fromkeys(finding.invalidated_criteria_matched + matched_inv))
+    """Record the criteria results on the finding, with the verdict their evidence settles.
 
-    extra_kwargs: dict[str, Any] = {
-        "criteria_execution_results": all_results,
-        "verified_criteria_matched": all_ver,
-        "invalidated_criteria_matched": all_inv,
+    `matched_ver` and `matched_inv` are the commands that passed. Each is recorded in
+    `criteria_execution_results`; only those that count as evidence are recorded as matched.
+    """
+    proving = _evidence(matched_ver, finding.location, repo_root)
+    refuting = _evidence(matched_inv, finding.location, repo_root)
+    records: dict[str, Any] = {
+        "criteria_execution_results": list(
+            dict.fromkeys(finding.criteria_execution_results + exec_results)
+        ),
+        "verified_criteria_matched": list(
+            dict.fromkeys(finding.verified_criteria_matched + proving)
+        ),
+        "invalidated_criteria_matched": list(
+            dict.fromkeys(finding.invalidated_criteria_matched + refuting)
+        ),
     }
-
-    executable_ver = [
-        c
-        for c in finding.verification_criteria
-        if getattr(c, "executable", False) and getattr(c, "command", None)
-    ]
-    verdict, by, score, reason = _evaluate_criteria_verdict(
-        matched_inv, executable_ver, exec_results
+    verification_commands = {
+        c.command for c in finding.verification_criteria if c.executable and c.command
+    }
+    verdict = _evaluate_criteria_verdict(
+        matched_ver, matched_inv, proving, refuting, verification_commands, exec_results
     )
-    if verdict == "NOOP":
-        return finding.model_copy(update=extra_kwargs)
-    apply_kwargs = dict(extra_kwargs)
-    if reason:
-        apply_kwargs["reason"] = reason
+    if verdict is None:
+        return finding.model_copy(update=records)
     return apply_verdict(
         finding,
-        verdict,
-        by=by,
-        confidence_score=score,
-        **apply_kwargs,
+        verdict.status,
+        by=verdict.by,
+        reason=verdict.reason,
+        confidence_score=verdict.confidence,
+        verification_note=verdict.note,
+        **records,
     )
 
 
@@ -468,5 +469,5 @@ def execute_finding_criteria(finding: Any, repo_root: Path) -> Any:
     inv_results, matched_inv = _run_criteria_group(inv_crit, repo_root)
 
     return _reconcile_finding_from_criteria(
-        finding, ver_results + inv_results, matched_ver, matched_inv
+        finding, ver_results + inv_results, matched_ver, matched_inv, repo_root
     )

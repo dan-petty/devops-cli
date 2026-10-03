@@ -120,8 +120,8 @@ def test_criteria_execution_verdict_finality(tmp_path: Path) -> None:
     py_file.write_text("def test_func():\n    pass\n", encoding="utf-8")
 
     crit = VerificationCriterion(
-        description="Check function exists",
-        command="python -c 'print(1)'",
+        description="test_func returns nothing",
+        command="python -c 'from app import test_func; assert test_func() is None'",
         executable=True,
     )
     f_crit = Finding(
@@ -443,3 +443,208 @@ def test_mcp_review_findings_passes_status_for_all_four_states(
         ["--status", "INVALIDATED"],
         ["--status", "MITIGATED"],
     ]
+
+
+def test_reset_clears_every_verdict_field_a_reviewer_could_write() -> None:
+    """A reviewer's reply cannot carry its own confidence, citation, mitigation or criteria results."""
+    from devops_cli.ai.review_schema import CriterionExecutionResult, reset_verification_state
+
+    written = Finding(
+        title="Self-judged",
+        location="a.py:1",
+        confidence_score=2.0,
+        citation_line=1,
+        mitigating_mechanism="A guard upstream",
+        perimeter_files=["b.py"],
+        regression_test="tests/test_a.py",
+        criteria_execution_results=[CriterionExecutionResult(command="true", passed=True)],
+    )
+
+    cleared = reset_verification_state(written)
+
+    assert (
+        cleared.confidence_score,
+        cleared.citation_line,
+        cleared.mitigating_mechanism,
+        cleared.perimeter_files,
+        cleared.regression_test,
+        cleared.criteria_execution_results,
+    ) == (None, None, None, [], None, [])
+
+
+@pytest.mark.parametrize(("given", "stored"), [(2.0, 1.0), (-0.5, 0.0), (0.4, 0.4)])
+def test_a_verdict_stores_confidence_within_zero_and_one(given: float, stored: float) -> None:
+    """Three findings in session 20261001-224227 carried a confidence of 2.0."""
+    judged = apply_verdict(
+        Finding(title="t", location="a.py:1"), "VERIFIED", by="criteria", confidence_score=given
+    )
+
+    assert judged.confidence_score == stored
+
+
+def test_verdict_fields_hold_every_field_a_verdict_writes() -> None:
+    """`VERDICT_FIELDS` names each field `apply_verdict` writes, whatever the status."""
+    from devops_cli.ai.review.verdicts import VERDICT_FIELDS
+
+    written: set[str] = set()
+    for status in ("VERIFIED", "INVALIDATED", "MITIGATED", "UNVERIFIED"):
+        before = Finding(title="t", location="a.py:1", status="INVALIDATED", reportable=False)
+        after = apply_verdict(
+            before.model_copy(),
+            status,
+            by="llm",
+            reason="r",
+            citation_line=1,
+            mitigating_mechanism="m",
+            perimeter_files=["a.py"],
+            regression_test="tests/test_a.py",
+            verification_note="n",
+            confidence_score=0.5,
+        )
+        written |= {
+            name for name in Finding.model_fields if getattr(after, name) != getattr(before, name)
+        }
+
+    assert (
+        sorted(written - set(VERDICT_FIELDS)),
+        len(VERDICT_FIELDS) == len(set(VERDICT_FIELDS)),
+    ) == (
+        [],
+        True,
+    )
+
+
+def test_the_verification_copy_back_keeps_everything_the_verifier_wrote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The saved finding takes the verifier's severity, location and verdict, not only its status."""
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+
+    def fake_validate(
+        result: ReviewResult, all_segments: list[str], client: object, **_: object
+    ) -> object:
+        judged = apply_verdict(
+            result.findings[0],
+            "VERIFIED",
+            by="llm",
+            citation_line=4,
+            confidence_score=0.7,
+            severity="LOW",
+            location="src/app.py:4",
+            relocated_from="src/app.py:3",
+        )
+        return result.model_copy(update={"findings": [judged]}), 0.1, "backend"
+
+    monkeypatch.setattr("devops_cli.ai.review.pipeline._validate_segment_findings", fake_validate)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_dir=tmp_path / "session",
+        target_dir=tmp_path,
+        llm_client=MagicMock(),
+        verification_client=MagicMock(),
+    )
+    payload = FileReviewPayload(
+        file_path="src/app.py",
+        findings=[
+            SavedFinding(
+                severity="HIGH",
+                location="src/app.py:3",
+                title="Unchecked input",
+                persona="devsecops",
+            )
+        ],
+    )
+
+    orchestrator._verify_single_file_payload(1, 1, payload, "server")
+    saved = payload.findings[0]
+
+    assert (
+        saved.status,
+        saved.severity,
+        saved.location,
+        saved.relocated_from,
+        saved.citation_line,
+        saved.confidence_score,
+        saved.verified_by,
+        saved.persona,
+    ) == ("VERIFIED", "LOW", "src/app.py:4", "src/app.py:3", 4, 0.7, "llm", "devsecops")
+
+
+def _raise_sandbox_unavailable(*_: object, **__: object) -> None:
+    raise OSError("sandbox unavailable")
+
+
+@pytest.mark.parametrize(
+    ("patched", "parallel"),
+    [
+        (
+            "devops_cli.ai.review.verification._run_deterministic_pre_verification_on_findings",
+            False,
+        ),
+        (
+            "devops_cli.ai.review.pipeline.ReviewPipelineOrchestrator._safe_verify_file_payload",
+            False,
+        ),
+        (
+            "devops_cli.ai.review.pipeline.ReviewPipelineOrchestrator._safe_verify_file_payload",
+            True,
+        ),
+    ],
+    ids=["verification-raised", "serial-worker-raised", "parallel-worker-raised"],
+)
+def test_a_file_whose_verification_raised_says_why_its_findings_have_no_verdict(
+    patched: str, parallel: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The findings of an errored file are still reported, so each unverified one says why; a
+    note or verdict verification already wrote stays."""
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+
+    monkeypatch.setattr(patched, _raise_sandbox_unavailable)
+    orchestrator = ReviewPipelineOrchestrator(
+        session_dir=tmp_path / "session",
+        target_dir=tmp_path,
+        llm_client=MagicMock(),
+        verification_client=MagicMock(),
+        concurrency=2,
+        parallel=parallel,
+    )
+    payloads = [
+        FileReviewPayload(
+            file_path=path,
+            findings=[
+                SavedFinding(severity="HIGH", location=f"{path}:3", title="Unchecked input"),
+                SavedFinding(
+                    severity="HIGH",
+                    location=f"{path}:5",
+                    title="Unbounded read",
+                    verification_note="verifier-no-verdict",
+                ),
+                apply_verdict(
+                    SavedFinding(severity="LOW", location=f"{path}:7", title="Weak hash"),
+                    "VERIFIED",
+                    by="llm",
+                    confidence_score=0.8,
+                ),
+            ],
+        )
+        for path in ("src/a.py", "src/b.py")
+    ]
+
+    orchestrator.execute_finding_verification(payloads)
+    reported = orchestrator._collect_and_deduplicate_findings(payloads)
+
+    assert (
+        sorted(orchestrator.errored_files),
+        [(f.status, f.verification_note) for p in payloads for f in p.findings],
+        len(reported),
+        compute_verdict_distributions(reported)["verification_note"],
+    ) == (
+        ["src/a.py", "src/b.py"],
+        [
+            ("UNVERIFIED", "verification-unavailable: OSError"),
+            ("UNVERIFIED", "verifier-no-verdict"),
+            ("VERIFIED", None),
+        ]
+        * 2,
+        6,
+        {"verification-unavailable": 2, "verifier-no-verdict": 2},
+    )
