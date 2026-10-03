@@ -5,6 +5,12 @@ every prompt the pipeline sends tied each recurring failure to the text that inv
 prompt asking for what another calls a non-defect, an instruction to name CVE IDs, examples
 that anchored `HIGH` and `0.95`, prompt files nothing loads, and a reply schema of fields the
 pipeline owns. These tests pin the prompts against each of those.
+
+The next branch review with those prompts, session `20261002-205520`, answered every file that
+held a known real finding with no finding: two NetworkPolicies open to `0.0.0.0/0`, a broad
+`except` and a security claim the code does not bear out (#1015). The recall set in
+`tests/fixtures/review_recall/` lists those findings, and the tests below keep each class named
+by a prompt that reaches its file.
 """
 
 from __future__ import annotations
@@ -13,11 +19,14 @@ import ast
 import contextlib
 import io
 import json
+import os
 import re
+import subprocess
 import sys
 import textwrap
 import tokenize
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,7 +34,11 @@ import pytest
 from devops_cli.ai.agents.pydantic_agent import PydanticAgent
 from devops_cli.ai.mcp.server import code_review_prompt
 from devops_cli.ai.personas import PERSONAS, Persona
-from devops_cli.ai.review.classification import FileContextType, build_context_review_prompt
+from devops_cli.ai.review.classification import (
+    FileContextType,
+    build_context_review_prompt,
+    classify_file_context,
+)
 from devops_cli.ai.review.criteria_evidence import is_tautological_criterion
 from devops_cli.ai.review.review_environment import validate_criteria_command
 from devops_cli.ai.review.verification import _check_placeholder_advisory_hallucination
@@ -46,6 +59,12 @@ _TASKS = _AI / "tasks"
 _PERSONAS = _AI / "personas"
 _VERIFIER = "tasks/verify_finding_system.md"
 _MCP_OUTPUT = "tasks/mcp_code_review_output.md"
+_DEVSECOPS = "personas/devsecops/prompt.md"
+_DOCS = "tasks/docs_review_prompt.md"
+_CONFIG = "tasks/config_review_prompt.md"
+_RECALL_SET = _ROOT / "tests" / "fixtures" / "review_recall" / "recall_set.json"
+_MEASURING_951 = "#### Measuring the threat-model and evidence-bar prompts (#951)"
+_SCORING_RECALL = "#### Scoring recall on known findings (#1015)"
 
 # Every prompt a reviewer model reads before it writes findings: the persona system prompt
 # (role, `review.md`, the persona's own prompt, guardrails), the page prompt for each file kind,
@@ -109,7 +128,7 @@ _DECISIONS: tuple[tuple[str, str], ...] = (
     ("tasks/docs_review_prompt.md", "a statement the code contradicts"),
     ("tasks/docs_review_prompt.md", "a broken relative link"),
     ("tasks/docs_review_prompt.md", "Roadmaps, changelogs, task files and decision records"),
-    ("tasks/config_review_prompt.md", "A setting the workload does not need is not a defect"),
+    ("tasks/config_review_prompt.md", "A missing setting the workload does not need"),
     ("tasks/config_review_prompt.md", "A pinned version tag is pinned"),
     (_VERIFIER, "**Verified** needs the defective line"),
     (_VERIFIER, "the untrusted source and the sink it reaches"),
@@ -168,6 +187,56 @@ _REVIEWER_FINDING_FIELDS: frozenset[str] = frozenset(
     }
 )
 
+# The two kinds of finding the DevSecOps persona reports, and the rules #1015 restored. #951
+# defined a finding as a quoted path from an untrusted source to a sink, and a NetworkPolicy, a
+# broad `except` or a false claim in the docs has no such path. The justification excuses every
+# misconfiguration, so it sits in the definition: inside the Kubernetes bullet it did not reach
+# Network Exposure. A port that must face every source is exempt only with the reason it is safe,
+# as the gateway's policy gives; the monitoring policy's comment names its sources and gives none.
+_RECALL_RULES: tuple[tuple[str, str], ...] = (
+    ("personas/devsecops/role.md", "or the setting that permits more than its job needs"),
+    (_DEVSECOPS, "**A misconfiguration** is a setting or line you can quote"),
+    (_DEVSECOPS, "what it exposes or permits that its job does not need"),
+    (_DEVSECOPS, "It needs no untrusted source"),
+    (_DEVSECOPS, "justify, by saying why it is safe, is not a finding"),
+    (_DEVSECOPS, "only restates the rule or names its sources is not a justification"),
+    (_DEVSECOPS, "no other defect a *Where to Look* class names"),
+    (_DEVSECOPS, "such as authentication, verification, a security check or data integrity"),
+    (_DEVSECOPS, "hides an unexpected error from the operator by logging it below warning"),
+    (_DEVSECOPS, "to a port whose known consumers are fewer than that"),
+    (_DEVSECOPS, "say why that is safe (an ingress controller, an API that authenticates"),
+    (_DEVSECOPS, "a port open to every address without that reason is"),
+    (_CONFIG, "admits more sources to a port than its consumers need"),
+    (_DOCS, "a false security claim"),
+    (_DEVSECOPS, "A value that reaches no sink you can quote is not a vulnerability"),
+    (_DEVSECOPS, "A NetworkPolicy does not publish a port"),
+    (_DEVSECOPS, "no NetworkPolicy rule is SSRF"),
+    (_VERIFIER, "a misconfiguration needs the quoted setting and what it exposes"),
+)
+
+# The rules that silenced the persona in session `20261002-205520`, and wording that keeps a known
+# finding out of reach. The monitoring policy's own comment, "(0.0.0.0/0 and kube-system/traefik)",
+# read as documenting its world-open rule. A colon made the error-handling paths a closed list
+# that the investigator's grounding lookup is not on. The configuration page prompt, which both
+# NetworkPolicies get, called any setting the workload does not need not a defect. The verifier
+# asked every security finding for a source and a sink, so a restored misconfiguration could not
+# be Verified.
+_SILENCING_RULES: tuple[tuple[str, str], ...] = (
+    (_DEVSECOPS, "Most files have no security defect"),
+    (_DEVSECOPS, "when you cannot quote the source, the sink"),
+    (_DEVSECOPS, "document as deliberate"),
+    (_DEVSECOPS, "where failing closed matters: authentication"),
+    (_CONFIG, "A setting the workload does not need is not a defect"),
+    (_VERIFIER, "A security finding also needs the untrusted source"),
+)
+
+# Each restored class and the highest severity it reports without a quoted worse consequence.
+# Session `20261002-205520` reported two broad excepts as HIGH (#948).
+_RESTORED_CAPS: tuple[tuple[str, str], ...] = (
+    ("Network Exposure", "MEDIUM at most"),
+    ("Error Handling", "Report it as LOW"),
+)
+
 
 def _read(name: str) -> str:
     return (_AI / name).read_text(encoding="utf-8")
@@ -177,10 +246,55 @@ def _line_with(name: str, marker: str) -> str:
     return next((line for line in _read(name).splitlines() if marker in line), "")
 
 
-def _measurement_section() -> str:
+def _labels(text: str) -> set[str]:
+    """The bold labels that open a prompt's bullets, such as `Network Exposure`."""
+    return set(re.findall(r"^- \*\*(.+?)\*\*", text, re.MULTILINE))
+
+
+def _doc_section(heading: str) -> str:
+    """A section of `docs/SELF_IMPROVEMENT.md`, up to the next heading of its level or above."""
     text = (_ROOT / "docs" / "SELF_IMPROVEMENT.md").read_text(encoding="utf-8")
-    start = text.index("#### Measuring the threat-model and evidence-bar prompts (#951)")
-    return text[start : text.index("\n### ", start)]
+    start = text.index(heading)
+    end = re.compile(r"\n#{1,4} ").search(text, start + len(heading))
+    return text[start : end.start() if end else len(text)]
+
+
+def _measurement_section() -> str:
+    return _doc_section(_MEASURING_951)
+
+
+def _run_documented_script(section: str, argv: list[str]) -> list[str]:
+    """Run the section's Python script as a person would, and return the lines it prints."""
+    script = re.search(r"```python\n(.*?)```", section, re.DOTALL)
+    assert script is not None
+    out = io.StringIO()
+    with patch.object(sys, "argv", argv), contextlib.redirect_stdout(out):
+        code = compile(textwrap.dedent(script.group(1)), "SELF_IMPROVEMENT.md", "exec")
+        exec(code, {"__name__": argv[0]})
+    return out.getvalue().splitlines()
+
+
+def _recall_set() -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = json.loads(_RECALL_SET.read_text(encoding="utf-8"))["findings"]
+    return findings
+
+
+def _git(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run git on this checkout. A partial clone may not fetch a missing object for it."""
+    return subprocess.run(
+        ["git", "-C", str(_ROOT), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "GIT_NO_LAZY_FETCH": "1"},
+    )
+
+
+def _cited_lines(entry: dict[str, Any]) -> str:
+    """The lines a recall entry cites, read from its file at its revision."""
+    start, end = entry["lines"]
+    shown = _git("show", f"{entry['revision']}:{entry['path']}").stdout
+    return "\n".join(shown.splitlines()[start - 1 : end])
 
 
 def _prompt_names() -> list[str]:
@@ -423,8 +537,6 @@ def test_the_masked_signature_counts_only_the_review_tools_markers(tmp_path: Pat
     known-positive check the task expects B to pass would have scored as a failure.
     """
     section = _measurement_section()
-    script = re.search(r"```python\n(.*?)```", section, re.DOTALL)
-    assert script is not None
     finding = {
         "references": [],
         "fix": "`x`",
@@ -437,11 +549,7 @@ def test_the_masked_signature_counts_only_the_review_tools_markers(tmp_path: Pat
         {**finding, "location": "docs/tls.md:24", "title": "Default", "description": "<masked>"},
     ]
     (tmp_path / "candidates.json").write_text(json.dumps({"findings": findings}))
-    out = io.StringIO()
-    with patch.object(sys, "argv", ["count", str(tmp_path)]), contextlib.redirect_stdout(out):
-        code = compile(textwrap.dedent(script.group(1)), "SELF_IMPROVEMENT.md", "exec")
-        exec(code, {"__name__": "count"})
-    lines = out.getvalue().splitlines()
+    lines = _run_documented_script(section, ["count", str(tmp_path)])
     counts = ast.literal_eval(lines[0][lines[0].index("{") :])
 
     assert (
@@ -632,3 +740,208 @@ def test_this_repositorys_review_conventions_state_its_threat_model_within_the_c
         "even when it is the user's own" in " ".join(own.split()),
         len(own) <= DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS,
     ) == (True, True, True, True, True)
+
+
+def test_the_devsecops_persona_reports_a_misconfiguration_it_can_quote() -> None:
+    """#951 made the persona almost silent (#1015).
+
+    367 of the 380 persona replies in session `20261002-205520` held no finding, and on 270 files
+    identical to an earlier session its candidates fell from 139 to 16. Its evidence bar asked
+    every finding for a path from an untrusted source to a sink, said most files have no security
+    defect, and excused a choice the manifests document. A misconfiguration is the quoted setting
+    and what it opens, with no source, and a comment that restates a rule does not justify it.
+
+    The persona returns no finding only when it can quote none of the kinds it reports, and a
+    broad `except` is none of the first three. The justification is part of the definition, so
+    it excuses a NetworkPolicy as it does a privileged workload, and no class restates it.
+    """
+    no_finding = _line_with(_DEVSECOPS, "**Return no finding**")
+    justified = [
+        line
+        for line in _read(_DEVSECOPS).splitlines()
+        if "justify, by saying why it is safe" in line
+    ]
+
+    assert (
+        [(name, marker) for name, marker in _RECALL_RULES if marker not in _read(name)],
+        [(name, marker) for name, marker in _SILENCING_RULES if marker in _read(name)],
+        [
+            kind
+            for kind in (
+                "vulnerability",
+                "misconfiguration",
+                "false security claim",
+                "*Where to Look* class",
+            )
+            if kind not in no_finding
+        ],
+        justified == [_line_with(_DEVSECOPS, "**A misconfiguration**")],
+    ) == ([], [], [], True)
+
+
+def test_the_restored_classes_report_below_high() -> None:
+    """A world-open port or a swallowed error is MEDIUM or LOW unless a worse consequence is quoted."""
+    assert [
+        (label, cap)
+        for label, cap in _RESTORED_CAPS
+        if cap not in _line_with(_DEVSECOPS, f"- **{label}**")
+    ] == []
+
+
+def test_every_recall_class_is_named_by_a_prompt_that_reaches_its_file() -> None:
+    """Each known real finding has a class that some prompt the reviewer reads names.
+
+    The persona's checklist reaches every page in the system prompt; the page prompt for the
+    file's kind reaches it in the user turn, so it must name the class or leave the checklist
+    uncontradicted. Session `20261002-205520` reviewed each file of the set in one page and
+    answered it with no finding, so the four findings earlier sessions reported never reached
+    verification. Both NetworkPolicies are configuration pages, whose prompt said that a setting
+    the workload does not need is not a defect.
+    """
+    persona = _read(_DEVSECOPS)
+    checklist = _labels(persona[persona.index("## Where to Look") :])
+    pages = {
+        entry["path"]: build_context_review_prompt(
+            classify_file_context(entry["path"]), entry["path"], 1, 1, "1\tx\n"
+        )
+        for entry in _recall_set()
+    }
+    unnamed = [
+        (entry["path"], entry["class"])
+        for entry in _recall_set()
+        if entry["class"] not in checklist | _labels(pages[entry["path"]])
+    ]
+    silenced = sorted(
+        (path, marker)
+        for path, page in pages.items()
+        for _, marker in _SILENCING_RULES
+        if marker in page
+    )
+
+    assert (
+        unnamed,
+        silenced,
+        sorted({classify_file_context(path).value for path in pages}),
+    ) == ([], [], ["code", "configuration", "documentation"])
+
+
+def test_every_recall_finding_is_in_its_file_at_its_revision() -> None:
+    """A person reviews each file of the set at its revision, so the set must point at the defect.
+
+    The revision is a full commit id on `release/v0.2.25`. Release branches are squash-merged and
+    then deleted, and CI checks out one commit, so a clone that does not hold the revision skips
+    this check.
+    """
+    entries = _recall_set()
+    revisions = sorted({entry["revision"] for entry in entries})
+    assert all(re.fullmatch(r"[0-9a-f]{40}", revision) for revision in revisions)
+    absent = [rev for rev in revisions if _git("cat-file", "-e", f"{rev}^{{commit}}").returncode]
+    if absent:
+        pytest.skip(f"this clone does not hold {', '.join(absent)}")
+    missing = [
+        (entry["path"], *entry["lines"])
+        for entry in entries
+        if entry["evidence"] not in _cited_lines(entry)
+    ]
+
+    assert missing == []
+
+
+def test_the_recall_score_counts_the_samples_that_found_each_finding(tmp_path: Path) -> None:
+    """The protocol reviews every file of the set three times, fresh, and scores each finding.
+
+    A finding matches when it names the file, as a repository path or an absolute one, and cites
+    a line inside the set's range, which spans the defective construct. Sessions S1 to S4 cited
+    the monitoring policy's world-open rule at its port list (46-48) and the investigator's
+    `except` at its `try` (280); a range of the cited line alone, widened by three, scored both
+    as misses and scored a false finding three lines from `VISION.md:12` as a hit. Found counts
+    the samples whose candidates hold a match, reported the samples whose report does. Every
+    other finding on the set's files, a location without line numbers as kube-linter gives
+    among them, is listed for the person to label.
+    """
+    section = _doc_section(_SCORING_RECALL)
+
+    def finding(location: str, title: str) -> dict[str, str]:
+        return {"location": location, "title": title}
+
+    world = finding("k8s/monitoring/networkpolicy.yaml:19-20", "World ingress")
+    sessions = {
+        "s1": (
+            [
+                world,
+                finding("/r/t/src/devops_cli/ai/rag/investigator.py:280", "Swallowed error"),
+                finding("src/devops_cli/ai/spend/pricing.py:60", "Between the excepts"),
+            ],
+            [world],
+        ),
+        "s2": (
+            [
+                finding("k8s/otel/networkpolicy.yaml:NetworkPolicy/otel", "No lines"),
+                finding("k8s/monitoring/networkpolicy.yaml:46-48", "Port list"),
+                finding("docs/VISION.md:7-9", "Undeclared variable"),
+                finding("src/devops_cli/ai/review/runner.py:12", "Not in the set"),
+            ],
+            [],
+        ),
+    }
+    for name, (candidates, reported) in sessions.items():
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "candidates.json").write_text(json.dumps({"findings": candidates}))
+        (tmp_path / name / "findings.json").write_text(json.dumps({"findings": reported}))
+    lines = _run_documented_script(
+        section, ["score", str(_RECALL_SET), *(str(tmp_path / name) for name in sessions)]
+    )
+    blocks: list[tuple[str, list[tuple[str, str, str]]]] = []
+    for line in lines:
+        if line.startswith(" "):
+            session, location, title = line.split(maxsplit=2)
+            blocks[-1][1].append((Path(session).name, location, title))
+        else:
+            blocks.append((line, []))
+
+    assert blocks == [
+        (
+            "k8s/monitoring/networkpolicy.yaml:18-47 found 2/2 reported 1/2",
+            [
+                ("s1", "k8s/monitoring/networkpolicy.yaml:19-20", "World ingress"),
+                ("s2", "k8s/monitoring/networkpolicy.yaml:46-48", "Port list"),
+            ],
+        ),
+        ("k8s/otel/networkpolicy.yaml:18-35 found 0/2 reported 0/2", []),
+        (
+            "src/devops_cli/ai/rag/investigator.py:280-295 found 1/2 reported 0/2",
+            [("s1", "/r/t/src/devops_cli/ai/rag/investigator.py:280", "Swallowed error")],
+        ),
+        ("docs/VISION.md:12-12 found 0/2 reported 0/2", []),
+        ("src/devops_cli/ai/spend/pricing.py:53-56 found 0/2 reported 0/2", []),
+        ("src/devops_cli/ai/spend/pricing.py:65-68 found 0/2 reported 0/2", []),
+        (
+            "unmatched on the set's files",
+            [
+                ("s1", "src/devops_cli/ai/spend/pricing.py:60", "Between the excepts"),
+                ("s2", "k8s/otel/networkpolicy.yaml:NetworkPolicy/otel", "No lines"),
+                ("s2", "docs/VISION.md:7-9", "Undeclared variable"),
+            ],
+        ),
+    ]
+
+
+def test_the_recall_protocol_reviews_every_file_of_the_set_fresh_in_any_shell() -> None:
+    """Each sample reviews all of the set's files with no cache, no scanners and one persona.
+
+    An unquoted `$files` holding the paths is one argument in zsh, the devcontainer's shell, so
+    each review got one path that does not exist, found no files and wrote no session. A scanner
+    finding within the set's ranges would count as the model's.
+    """
+    section = _doc_section(_SCORING_RECALL)
+
+    assert (
+        [entry["path"] for entry in _recall_set() if entry["path"] not in section],
+        re.findall(r"\$files\b", section),
+        (
+            '"${files[@]}" --no-cache --no-static-scan' in section,
+            "for sample in 1 2 3" in section,
+            "--all" in section,
+        ),
+        "counts a sample only when one of its matches describes the set's defect" in section,
+    ) == ([], [], (True, True, False), True)

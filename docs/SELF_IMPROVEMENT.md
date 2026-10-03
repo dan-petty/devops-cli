@@ -662,6 +662,150 @@ conventions swap in steps 3 and 4 is part of measuring B, not an option. To isol
 change instead, run both arms under B's `.devops/review.md`; to isolate the conventions, run B
 under each file. Score every arm with explicit `--session` ids.
 
+#### Scoring recall on known findings (#1015)
+
+A corpus scores only the defects its templates inject. None of them injects a NetworkPolicy open
+to every address, a broad `except` or a security claim the code does not bear out, and those are
+what #951's prompts stopped finding: session `20261002-205520` answered each file that held one of
+this repository's known real findings with no finding. So a fixed set of real findings is scored
+beside the corpus A/B, and a prompt change is measured on both.
+
+`tests/fixtures/review_recall/recall_set.json` lists each finding with its file, the revision that
+holds it, its line range, its class and the issue that tracks its fix. The range spans the
+defective construct, such as a whole ingress rule or a whole `try` statement, because a review can
+cite any line of it: sessions S1 to S4 cited the monitoring policy's world-open rule at its port
+list. The class is the label of the rule that names it: a bullet of the DevSecOps persona's *Where
+to Look*, or of the page prompt for the file's kind. A test fails when no prompt that reaches a
+file names its class, when the page prompt a file gets carries a rule that silenced the persona,
+and, in a clone that holds the revision, when the cited lines no longer hold the finding's
+evidence. The gate calls no model, so it cannot score recall; a person runs this.
+
+1. **Setup.** Arm A is the commit to compare against (`38517a8`, #951's prompts, for #1015) and
+   arm B the change. T, at the set's revision, holds the files both arms review and the
+   `.devops/review.md` both read. Pin the models with one shared `DEVOPS_CLI_CONFIG`, as in step 1
+   above. The revision is on `release/v0.2.25`, which is squash-merged into `main`, so a clone
+   made after that branch is gone has to fetch it by its id.
+
+   ```sh
+   R=/tmp/recall
+   git worktree add --detach $R/a 38517a8
+   git worktree add --detach $R/b <B>
+   git worktree add --detach $R/t 38517a89ebd1439e245c08ce0d9ad9cd17932b74
+   ```
+
+2. **Review.** From T, review the set's files three times per arm, alternating arms. Each review
+   is fresh (`--no-cache`), runs no scanners (`--no-static-scan`), so that every candidate is the
+   model's, runs no verification (`--no-verification`), so that each severity is the persona's
+   own (after #846 the copy-back keeps the verifier's), and runs the default DevSecOps persona,
+   which session `20261002-205520` ran. Pin both arms to one model: the first run (2026-10-02)
+   let the pool mix gpt-oss and qwen3-coder per file, and gpt-oss cut two of B's replies. Each arm
+   keeps its sessions in a data directory of its own, and `uv run --project` runs an arm's code on
+   T's files. The paths are an array, expanded in quotes, so that bash and zsh both pass each one
+   as its own argument.
+
+   ```sh
+   cd $R/t
+   files=(k8s/monitoring/networkpolicy.yaml k8s/otel/networkpolicy.yaml src/devops_cli/ai/rag/investigator.py docs/VISION.md src/devops_cli/ai/spend/pricing.py)
+   for sample in 1 2 3; do
+     for arm in a b; do
+       DEVOPS_CLI_DATA_DIR=$R/data-$arm uv run --project $R/$arm devops review path "${files[@]}" --no-cache --no-static-scan --no-verification
+     done
+   done
+   ```
+
+3. **Score.** Save the script below as `score_recall.py` and run it once per arm on that arm's
+   sessions, as in `python3 score_recall.py $R/b/tests/fixtures/review_recall/recall_set.json
+   $R/data-b/reviews/2*/`. For each finding of the set it prints how many samples found it, with a
+   match among the candidates before verification, and how many reported it, then the location
+   and title of each match. A match names the file and cites a line inside the set's range. Last,
+   it lists every other candidate on the set's files.
+
+   ```python
+   import json, re, sys
+
+   recall_set, *sessions = sys.argv[1:]
+   entries = json.load(open(recall_set))["findings"]
+
+
+   def place(finding):
+       """The set's path that a finding names, or None, and the first and last line it cites."""
+       path, _, lines = finding["location"].partition(":")
+       named = next(
+           (e["path"] for e in entries if path == e["path"] or path.endswith("/" + e["path"])),
+           None,
+       )
+       span = re.fullmatch(r"(\d+)(?:-(\d+))?", lines)
+       return named, span and (int(span[1]), int(span[2] or span[1]))
+
+
+   def matches(entry, finding):
+       path, span = place(finding)
+       start, end = entry["lines"]
+       return path == entry["path"] and bool(span) and span[0] <= end and span[1] >= start
+
+
+   def load(session, name):
+       return json.load(open(f"{session}/{name}"))["findings"]
+
+
+   for entry in entries:
+       found = [[f for f in load(s, "candidates.json") if matches(entry, f)] for s in sessions]
+       kept = [[f for f in load(s, "findings.json") if matches(entry, f)] for s in sessions]
+       print(
+           f"{entry['path']}:{entry['lines'][0]}-{entry['lines'][1]}",
+           f"found {sum(map(bool, found))}/{len(sessions)}",
+           f"reported {sum(map(bool, kept))}/{len(sessions)}",
+       )
+       for session, hits in zip(sessions, found):
+           for f in hits:
+               print("   ", session, f["location"], f["title"])
+   print("unmatched on the set's files")
+   for session in sessions:
+       for f in load(session, "candidates.json"):
+           if place(f)[0] and not any(matches(e, f) for e in entries):
+               print("   ", session, f["location"], f["title"])
+   ```
+
+4. **Read.** The bar counts a sample only when one of its matches describes the set's defect:
+   read each title, because a finding on the construct's lines can describe another defect. An
+   unmatched candidate that describes a set's defect on other lines counts for it too; name it in
+   the PR. Label every other unmatched candidate valid, opinion or false: they are what the
+   change adds on the set's own files. B passes when it finds each Network Exposure finding of the
+   set in at least 2 of its 3 samples; the Error Handling and Security Claims findings are counted
+   and reported, not gated. A path review shows no code to a docs page and no diff to a broad
+   `except`, so those two classes are measured in branch reviews; #423 carries broad excepts and
+   #921 the `docs/VISION.md` text. A's counts, read the same way, are the baseline. A finding that B found and
+   did not report was lost at verification, not at generation.
+5. **Precision guard.** Session `20261002-205520` reported 24 findings on 15 files, and 22 of them
+   were false or opinion: all but the broad excepts at `pricing.py:55` and `:65`. Review those
+   files once from B, fresh, at T, and label each finding in the session's `findings.json` valid,
+   opinion or false. B passes with at most 33 false or opinion findings, 1.5 times 22. This review
+   keeps the scanners, as that session did. Bandit failed in that session (#1009) and runs on
+   these 15 files, so count its findings apart. A path review reads whole files where that branch
+   review read diffs, so when B misses the bar, the same review from A gives a like-for-like
+   baseline.
+
+   ```sh
+   cd $R/t
+   DEVOPS_CLI_DATA_DIR=$R/data-precision uv run --project $R/b devops review path .github/project-template.json docs/agent/tasks/task-593-reviews-compute-their-own-symbol-delta.md k8s/cloudflared/deployment.yaml k8s/monitoring/service-aliases.yaml src/devops_cli/ai/mcp/server.py src/devops_cli/ai/rag/indexer.py src/devops_cli/ai/rag/qdrant.py src/devops_cli/ai/spend/pricing.py src/devops_cli/config/settings.py src/devops_cli/docs/generator.py src/devops_cli/github/metrics.py tests/test_ai_request_priority.py tests/test_batch_2_review_defects.py tests/test_review_prompt_consistency.py tests/test_telemetry_profile.py --no-cache
+   ```
+
+6. **Where the restored classes reach.** The files of step 5 hold no NetworkPolicy, Ingress,
+   firewall rule or hand-written claim about a security control, so they cannot show what Network
+   Exposure and Security Claims add. Review every NetworkPolicy, Ingress and Service manifest at T,
+   the Terraform routes to `0.0.0.0/0`, and the hand-written documents that state security
+   controls, once from each arm, fresh and without scanners. Label each finding in each session's
+   `findings.json` valid, opinion or false; a finding of the recall set is valid. Put each arm's
+   false and opinion counts in the PR, and name each false finding B has and A does not.
+
+   ```sh
+   cd $R/t
+   reach=(k8s/argocd/networkpolicy.yaml k8s/cloudflared/networkpolicy.yaml k8s/llm/gateway/networkpolicy.yaml k8s/llm/networkpolicy.yaml k8s/llm/portkey/networkpolicy.yaml k8s/llm/profiles/networkpolicy.yaml k8s/logging/networkpolicy.yaml k8s/monitoring/networkpolicy.yaml k8s/otel/networkpolicy.yaml k8s/ingress/ingress-routes.yaml k8s/llm/gateway/service.yaml k8s/llm/ollama-host-service.yaml k8s/llm/portkey/service.yaml k8s/llm/profiles/services.yaml k8s/llm/valkey-runs.yaml k8s/llm/valkey.yaml k8s/monitoring/service-aliases.yaml k8s/otel/jaeger.yaml k8s/registry/service.yaml tf/aws/main.tf SECURITY.md ARCHITECTURE.md docs/VISION.md)
+   for arm in a b; do
+     DEVOPS_CLI_DATA_DIR=$R/reach-$arm uv run --project $R/$arm devops review path "${reach[@]}" --no-cache --no-static-scan
+   done
+   ```
+
 ### Sample Repositories
 
 devops ai is meant for any technical project. `devops review samples list` shows a checked-in
