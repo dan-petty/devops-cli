@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import re
 import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
@@ -482,6 +483,38 @@ def test_image_path_filter_covers_dockerfile_sources(job_name: str, dockerfile_r
     assert _covered(".dockerignore"), (
         f"The CI image-change filter for {job_name} must watch .dockerignore."
     )
+
+
+def _find_workflow_runner_mutations(workflow_path: Path, pattern: re.Pattern[str]) -> list[str]:
+    """Find commands in workflow run steps that mutate the runner environment (#832)."""
+    import yaml
+
+    data = yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}
+    jobs = data.get("jobs", {}) if isinstance(data, dict) else {}
+    mutations: list[str] = []
+    for job_id, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get("steps", []):
+            run_cmd = step.get("run") if isinstance(step, dict) else None
+            if run_cmd and (matches := pattern.findall(str(run_cmd))):
+                mutations.append(f"{workflow_path.name}:{job_id}:{sorted(set(matches))}")
+    return mutations
+
+
+def test_workflows_never_mutate_runner_and_devcontainer_installs_bubblewrap() -> None:
+    """CI workflows must never mutate runner environment, and bubblewrap is installed in devcontainer (#832)."""
+    repo_root = Path(__file__).resolve().parents[1]
+    pattern = re.compile(r"\b(apt-get|sudo|sysctl)\b")
+    mutations = [
+        m
+        for path in sorted((repo_root / ".github" / "workflows").glob("*.yml"))
+        for m in _find_workflow_runner_mutations(path, pattern)
+    ]
+    dockerfile_text = (repo_root / ".devcontainer" / "Dockerfile").read_text(encoding="utf-8")
+    installs_bwrap = bool(re.search(r"\bbubblewrap\b", dockerfile_text))
+
+    assert (mutations, installs_bwrap) == ([], True)
 
 
 def _check_copy_from_ref(tokens: list[str], stage_names: set[str]) -> bool:
