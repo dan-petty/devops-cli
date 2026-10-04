@@ -52,7 +52,7 @@ devops release prepare [OPTIONS] <version>
 
 ## `devops release pr`
 
-**Create release branch, commit version bumps, and open a GitHub Release Pull Request.**
+**Create release cut branch, commit version bumps, and open a GitHub Release Pull Request.**
 
 ```bash
 devops release pr [OPTIONS]
@@ -66,7 +66,6 @@ devops release pr [OPTIONS]
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
 | `--draft` / `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
 | `--labels`, `-l` | `string` | `release` | Comma-separated labels to attach. |
-| `--push` / `--no-push` | `boolean` | `True` | Push commits or tags to git remote. |
 | `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
 | `--root`, `-r` | `path` | - | Project repository root directory. |

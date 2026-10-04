@@ -342,7 +342,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops docs compact [OPTIONS]` | Compact historical documentation for completed release series. |
 | **release** | `devops release status [OPTIONS]` | Display current release status, versions, tags, changelog, and docs state. |
 |  | `devops release prepare [OPTIONS] <version>` | Bump version across pyproject.toml and source, update changelog, and sync docs. |
-|  | `devops release pr [OPTIONS]` | Create release branch, commit version bumps, and open a GitHub Release Pull Request. |
+|  | `devops release pr [OPTIONS]` | Create release cut branch, commit version bumps, and open a GitHub Release Pull Request. |
 |  | `devops release check [OPTIONS]` | Verify release readiness (version consistency, docs freshness, and CI quality gates). |
 |  | `devops release notes [OPTIONS]` | Print markdown release notes for a specified or current release version. |
 |  | `devops release sync-notes [OPTIONS]` | Republish GitHub release descriptions from CHANGELOG.md. |

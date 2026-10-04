@@ -15,6 +15,7 @@ from typing import Annotated, Any, NamedTuple
 import typer
 
 from devops_cli.config.constants import (
+    CONST_APP_NAME,
     CONST_CHANGELOG_FILENAME,
     CONST_CHANGELOG_FRAGMENTS_DIR,
     CONST_CONVENTIONAL_COMMIT_CATEGORIES,
@@ -30,6 +31,7 @@ from devops_cli.config.constants import (
     CONST_README_FILENAME,
     CONST_SERVICE_IMAGE,
     CONST_SERVICE_IMAGE_KUSTOMIZATION,
+    CONST_UV_LOCK_FILENAME,
 )
 from devops_cli.config.defaults import (
     DEFAULT_RELEASE_LABEL,
@@ -116,6 +118,16 @@ def _get_pyproject_version(root: Path) -> str | None:
     return match.group(1) if match else None
 
 
+def _get_project_name(root: Path) -> str:
+    """Read project name from pyproject.toml, defaulting to CONST_APP_NAME."""
+    pyproject_file = _resolve_safe_project_path(root, CONST_PYPROJECT_FILENAME)
+    if not pyproject_file.exists():
+        return CONST_APP_NAME
+    content = pyproject_file.read_text(encoding="utf-8")
+    match = re.search(r'name\s*=\s*["\']([^"\']+)["\']', content)
+    return match.group(1) if match else CONST_APP_NAME
+
+
 def _get_init_version(root: Path) -> str | None:
     """Read version from src/devops_cli/__init__.py or pyproject.toml."""
     init_file = _resolve_safe_project_path(root, CONST_INIT_PY_PATH)
@@ -182,9 +194,17 @@ def _get_latest_git_tag(root: Path) -> str | None:
 
 def _is_git_clean(root: Path) -> bool:
     """Check whether git working directory has uncommitted changes."""
-    from devops_cli.git.operations import is_git_clean
-
-    return is_git_clean(root)
+    try:
+        proc = _get("run_subprocess")(
+            ["git", "status", "--porcelain"],
+            cwd=root,
+            capture_output=True,
+            check=False,
+            quiet=True,
+        )
+        return proc.returncode == 0 and not bool(proc.stdout.strip())
+    except Exception:
+        return False
 
 
 # =============================================================================
@@ -450,6 +470,27 @@ def _update_init_version(root: Path, new_version: str) -> bool:
     return True
 
 
+def _update_uv_lock_version(root: Path, new_version: str) -> bool:
+    """Update the project package version in uv.lock if present."""
+    from devops_cli.output import write_text_file
+
+    uv_lock_file = _resolve_safe_project_path(root, CONST_UV_LOCK_FILENAME)
+    if not uv_lock_file.exists():
+        return False
+    name = _get_project_name(root)
+    content = uv_lock_file.read_text(encoding="utf-8")
+    pattern = (
+        r'(\[\[package\]\]\s*\n\s*name\s*=\s*["\']'
+        + re.escape(name)
+        + r'["\']\s*\n\s*version\s*=\s*["\'])[^"\']+(["\'])'
+    )
+    new_content, count = re.subn(pattern, rf"\g<1>{new_version}\g<2>", content, count=1)
+    if count > 0:
+        write_text_file(uv_lock_file, new_content)
+        return True
+    return False
+
+
 def _existing_changelog_entries(notes: str | None) -> list[str]:
     """Read the bullet entries already written under a version heading."""
     if not notes:
@@ -625,11 +666,20 @@ def _release_paths(root: Path) -> list[str]:
         CONST_README_FILENAME,
         f"{CONST_DOCS_DIR_NAME}/",
     ]
+    if (root / CONST_UV_LOCK_FILENAME).is_file():
+        paths.append(CONST_UV_LOCK_FILENAME)
     if (root / CONST_CHANGELOG_FRAGMENTS_DIR).is_dir():
         paths.append(f"{CONST_CHANGELOG_FRAGMENTS_DIR}/")
     if (root / CONST_SERVICE_IMAGE_KUSTOMIZATION).is_file():
         paths.append(str(CONST_SERVICE_IMAGE_KUSTOMIZATION))
     return paths
+
+
+def _present_fragment_names(root: Path) -> list[str]:
+    """The fragments present in changelog.d/, as their repository paths."""
+    frag_dir = _resolve_safe_project_path(root, CONST_CHANGELOG_FRAGMENTS_DIR)
+    fragments = read_changelog_fragments(frag_dir)
+    return [f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{frag.path.name}" for frag in fragments]
 
 
 def _format_release_title(
@@ -824,15 +874,30 @@ def release_prepare(
                 target=clean_version,
                 details={
                     "version": clean_version,
-                    "branch": f"release/v{clean_version}",
+                    "branch": f"chore/cut-v{clean_version}",
                     "base": "main",
                     "draft": draft,
                     "labels": "release",
-                    "push": True,
                     "release_type": release_type,
                     "breaking": breaking,
+                    "title": _format_release_title(
+                        clean_version, prefix=release_type, breaking=breaking
+                    ),
+                    "changelog_fragments": _fragment_names(collection),
                 },
             )
+        return
+
+    if create_pr:
+        cut_release(
+            version=clean_version,
+            draft=draft,
+            release_type=release_type,
+            breaking=breaking,
+            sync_docs=sync_docs,
+            is_prepare=True,
+            repo_root=repo_root,
+        )
         return
 
     _get("print_info")(
@@ -872,15 +937,6 @@ def release_prepare(
     msg = f"Release preparation for v{clean_version} completed successfully."
     _get("print_success")(msg)
 
-    if create_pr:
-        release_pr(
-            version=clean_version,
-            draft=draft,
-            release_type=release_type,
-            breaking=breaking,
-            root=root,
-        )
-
 
 # =============================================================================
 # Command: release pr
@@ -889,7 +945,25 @@ def release_prepare(
 
 def _validate_release_version(version: str | None, repo_root: Path) -> str:
     """Validate and normalize release semantic version string."""
-    target_ver = (version or _get_pyproject_version(repo_root) or "").lstrip("v").strip()
+    if version and version.strip():
+        target_ver = version.lstrip("v").strip()
+    else:
+        branch_proc = _get("run_subprocess")(
+            ["git", "branch", "--show-current"],
+            cwd=repo_root,
+            capture_output=True,
+            check=False,
+            quiet=True,
+        )
+        curr_branch = (
+            branch_proc.stdout.strip() if branch_proc.returncode == 0 and branch_proc.stdout else ""
+        )
+        match = re.match(r"^(?:release/v|chore/cut-v)(.+)$", curr_branch)
+        if match:
+            target_ver = match.group(1).lstrip("v").strip()
+        else:
+            target_ver = (_get_pyproject_version(repo_root) or "").lstrip("v").strip()
+
     if not target_ver or not _SEMVER_RE.match(target_ver):
         err = MESSAGES.release.invalid_version.format(version=target_ver or version or "")
         _get("print_error")(err, prefix=False)
@@ -897,37 +971,112 @@ def _validate_release_version(version: str | None, repo_root: Path) -> str:
     return target_ver
 
 
-def _checkout_release_branch(branch_name: str, repo_root: Path) -> None:
-    """Checkout a new or existing git release branch."""
-    _get("print_info")(
-        MESSAGES.release.creating_release_branch.format(branch=branch_name), prefix=False
-    )
-    proc = _get("run_subprocess")(["git", "checkout", "-B", branch_name], cwd=repo_root)
-    if proc.returncode != 0:
+def _verify_clean_tree(root: Path) -> None:
+    """Ensure working directory has no uncommitted changes before cutting release."""
+    if not _is_git_clean(root):
         _get("print_error")(
-            f"Failed to create release branch {branch_name}: {proc.stderr}", prefix=False
+            "Working directory has uncommitted changes. Stash or commit them before cutting a release.",
+            prefix=False,
         )
         raise typer.Exit(1)
-    _get("print_success")(MESSAGES.release.branch_created.format(branch=branch_name), prefix=False)
 
 
-def _commit_and_push_release_branch(
-    branch_name: str, release_title: str, push: bool, repo_root: Path
-) -> None:
-    """Stage release files, create release commit, and optionally push to remote."""
-    _get("run_subprocess")(["git", "add", *_release_paths(repo_root)], cwd=repo_root)
-    commit_proc = _get("run_subprocess")(["git", "commit", "-m", release_title], cwd=repo_root)
-    if commit_proc.returncode != 0 and "nothing to commit" not in str(commit_proc.stdout):
-        _get("print_warning")(f"Note: {commit_proc.stderr or commit_proc.stdout}", prefix=False)
-
-    if push:
-        push_proc = _get("run_subprocess")(
-            ["git", "push", "-u", "origin", branch_name], cwd=repo_root
+def _fetch_remote_release_tip(root: Path, release_branch: str) -> None:
+    """Fetch remote release branch from origin and verify its existence."""
+    remote_ref = f"origin/{release_branch}"
+    _get("run_subprocess")(
+        ["git", "fetch", "origin", release_branch],
+        cwd=root,
+        capture_output=True,
+        check=False,
+        quiet=True,
+    )
+    rev_proc = _get("run_subprocess")(
+        ["git", "rev-parse", "--verify", "--quiet", remote_ref],
+        cwd=root,
+        capture_output=True,
+        check=False,
+        quiet=True,
+    )
+    if rev_proc.returncode != 0:
+        _get("print_error")(
+            f"Remote release branch '{remote_ref}' does not exist.",
+            prefix=False,
         )
-        if push_proc.returncode != 0:
-            _get("print_warning")(
-                f"Warning: Could not push branch to remote: {push_proc.stderr}", prefix=False
+        raise typer.Exit(1)
+
+
+def _checkout_cut_branch(root: Path, cut_branch: str, remote_ref: str) -> None:
+    """Checkout or recreate the cut branch from the remote release branch tip."""
+    _get("print_info")(
+        MESSAGES.release.creating_release_branch.format(branch=cut_branch),
+        prefix=False,
+    )
+    proc = _get("run_subprocess")(
+        ["git", "checkout", "-B", cut_branch, remote_ref],
+        cwd=root,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        _get("print_error")(
+            f"Failed to create release branch {cut_branch}: {proc.stderr}",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+    _get("print_success")(
+        MESSAGES.release.branch_created.format(branch=cut_branch),
+        prefix=False,
+    )
+
+
+def _apply_cut_modifications(root: Path, version: str, sync_docs: bool) -> None:
+    """Apply version bumps to pyproject, init, image tag, uv.lock, and optionally sync docs."""
+    if _update_pyproject_version(root, version):
+        _get("print_info")(MESSAGES.release.updated_pyproject.format(version=version), prefix=False)
+    if _update_init_version(root, version):
+        _get("print_info")(MESSAGES.release.updated_init.format(version=version), prefix=False)
+    if _update_service_image_tag(root, version):
+        _get("print_info")(
+            MESSAGES.release.updated_service_image_tag.format(version=version),
+            prefix=False,
+        )
+    if _update_uv_lock_version(root, version):
+        _get("print_info")(f"Updated {CONST_UV_LOCK_FILENAME} to version {version}.", prefix=False)
+    if sync_docs:
+        generator = _get("DocGenerator")(root_dir=root)
+        generator.write_all_docs(output_dir=root / "docs", sync_readme_table=True)
+
+
+def _commit_and_push_cut_branch(
+    root: Path, cut_branch: str, release_title: str, commit: bool
+) -> None:
+    """Stage modified files, optionally commit, and push cut branch to remote with force-with-lease."""
+    if commit:
+        _get("run_subprocess")(["git", "add", *_release_paths(root)], cwd=root)
+        commit_proc = _get("run_subprocess")(
+            ["git", "commit", "-m", release_title],
+            cwd=root,
+            capture_output=True,
+            check=False,
+        )
+        if commit_proc.returncode != 0 and "nothing to commit" not in str(commit_proc.stdout):
+            _get("print_error")(
+                f"Failed to create release commit: {commit_proc.stderr or commit_proc.stdout}",
+                prefix=False,
             )
+            raise typer.Exit(1)
+
+    push_proc = _get("run_subprocess")(
+        ["git", "push", "--force-with-lease", "-u", "origin", cut_branch],
+        cwd=root,
+        capture_output=True,
+        check=False,
+    )
+    if push_proc.returncode != 0:
+        err = str(push_proc.stderr).strip() or str(push_proc.stdout).strip()
+        _get("print_error")(f"Failed to push {cut_branch} to origin: {err}", prefix=False)
+        raise typer.Exit(1)
 
 
 def _fetch_raw_milestone_issue_numbers(
@@ -1166,49 +1315,100 @@ def _build_release_pr_command(
     return pr_cmd
 
 
-def _strip_pr_cmd_flag(cmd: list[str], flag: str) -> list[str]:
-    """Strip a specified flag and its trailing argument from a command list."""
-    return [
-        arg for idx, arg in enumerate(cmd) if arg != flag and (idx == 0 or cmd[idx - 1] != flag)
-    ]
-
-
-def _build_pr_fallback_cmd(pr_cmd: list[str], err_msg: str, labels: str) -> list[str]:
-    """Build fallback PR creation command by removing rejected flags."""
-    cmd = list(pr_cmd)
-    if labels and "label" in err_msg:
-        cmd = _strip_pr_cmd_flag(cmd, "--label")
-    if "milestone" in err_msg:
-        cmd = _strip_pr_cmd_flag(cmd, "--milestone")
-    return cmd
-
-
-def _execute_release_pr(
-    pr_cmd: list[str],
-    branch_name: str,
-    labels: str,
-    repo_root: Path,
-) -> None:
-    """Execute gh pr create with label and milestone fallback if creation fails."""
+def _execute_release_pr(pr_cmd: list[str], repo_root: Path) -> None:
+    """Execute gh pr create, exiting non-zero if pull request creation fails."""
     run_gh_fn = _get("run_gh")
     pr_proc = run_gh_fn(pr_cmd, cwd=repo_root)
-    if pr_proc.returncode != 0:
-        err_msg = (pr_proc.stderr or "").lower()
-        fallback_cmd = _build_pr_fallback_cmd(pr_cmd, err_msg, labels)
-        if fallback_cmd != pr_cmd:
-            pr_proc = run_gh_fn(fallback_cmd, cwd=repo_root)
-
     if pr_proc.returncode == 0:
         pr_url = str(pr_proc.stdout).strip()
         _get("print_success")(MESSAGES.release.pr_created.format(url=pr_url), prefix=False)
         return
 
     err = str(pr_proc.stderr).strip() or str(pr_proc.stdout).strip()
-    _get("print_warning")(MESSAGES.release.pr_failed.format(error=err), prefix=False)
-    _get("print_info")(
-        f"Branch '{branch_name}' is ready. You can manually open the PR on GitHub.",
-        prefix=False,
+    _get("print_error")(MESSAGES.release.pr_failed.format(error=err), prefix=False)
+    raise typer.Exit(1)
+
+
+def cut_release(
+    version: str | None = None,
+    base: str = CONST_GIT_MAIN_BRANCH,
+    draft: bool = True,
+    labels: str = DEFAULT_RELEASE_LABEL,
+    release_type: str = DEFAULT_RELEASE_TYPE,
+    breaking: bool = False,
+    sync_docs: bool = True,
+    is_prepare: bool = False,
+    repo_root: Path | None = None,
+) -> None:
+    """Execute fail-closed release cut orchestration from origin release branch tip."""
+    root = _get_project_root(repo_root)
+    target_ver = _validate_release_version(version, root)
+    cut_branch = f"chore/cut-v{target_ver}"
+    release_title = _format_release_title(target_ver, prefix=release_type, breaking=breaking)
+
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops release pr",
+            action="create_release_pull_request",
+            target=target_ver,
+            details={
+                "version": target_ver,
+                "branch": cut_branch,
+                "base": base,
+                "draft": draft,
+                "labels": labels,
+                "release_type": release_type,
+                "breaking": breaking,
+                "title": release_title,
+                "changelog_fragments": _present_fragment_names(root),
+            },
+        )
+        return
+
+    _verify_clean_tree(root)
+    release_branch = f"release/v{target_ver}"
+    remote_ref = f"origin/{release_branch}"
+    _fetch_remote_release_tip(root, release_branch)
+    _checkout_cut_branch(root, cut_branch, remote_ref)
+
+    if is_prepare:
+        _apply_cut_modifications(root, target_ver, sync_docs=sync_docs)
+    else:
+        tip_ver = _get_pyproject_version(root)
+        if tip_ver:
+            target_ver = tip_ver.lstrip("v").strip()
+            release_title = _format_release_title(
+                target_ver, prefix=release_type, breaking=breaking
+            )
+
+    _commit_and_push_cut_branch(
+        root=root,
+        cut_branch=cut_branch,
+        release_title=release_title,
+        commit=is_prepare,
     )
+
+    _get("print_info")(
+        MESSAGES.release.creating_release_pr.format(version=target_ver), prefix=False
+    )
+    pr_body = _build_release_pr_body(
+        repo_root=root,
+        target_ver=target_ver,
+        base=base,
+        branch_name=cut_branch,
+        draft=draft,
+        pr_title=release_title,
+    )
+    pr_cmd = _build_release_pr_command(
+        pr_title=release_title,
+        pr_body=pr_body,
+        base=base,
+        branch_name=cut_branch,
+        draft=draft,
+        labels=labels,
+        milestone=f"v{target_ver.lstrip('v')}",
+    )
+    _execute_release_pr(pr_cmd=pr_cmd, repo_root=root)
 
 
 @app.command("pr")
@@ -1229,10 +1429,6 @@ def release_pr(
         str,
         typer.Option("--labels", "-l", help=HELP.options.labels),
     ] = DEFAULT_RELEASE_LABEL,
-    push: Annotated[
-        bool,
-        typer.Option("--push/--no-push", help=HELP.options.push),
-    ] = True,
     release_type: Annotated[
         str,
         typer.Option(
@@ -1254,61 +1450,16 @@ def release_pr(
         typer.Option("--root", "-r", help=HELP.options.root),
     ] = None,
 ) -> None:
-    """Create release branch, commit version bumps, and open a GitHub Release Pull Request."""
-    repo_root = _get_project_root(root)
-    target_ver = _validate_release_version(version, repo_root)
-    branch_name = f"release/v{target_ver}"
-    release_title = _format_release_title(target_ver, prefix=release_type, breaking=breaking)
-
-    if is_dry_run():
-        render_dry_run_result(
-            command="devops release pr",
-            action="create_release_pull_request",
-            target=target_ver,
-            details={
-                "version": target_ver,
-                "branch": branch_name,
-                "base": base,
-                "draft": draft,
-                "labels": labels,
-                "push": push,
-                "release_type": release_type,
-                "breaking": breaking,
-                "title": release_title,
-            },
-        )
-        return
-
-    _checkout_release_branch(branch_name, repo_root)
-    _commit_and_push_release_branch(branch_name, release_title, push, repo_root)
-
-    _get("print_info")(
-        MESSAGES.release.creating_release_pr.format(version=target_ver), prefix=False
-    )
-    pr_title = release_title
-    pr_body = _build_release_pr_body(
-        repo_root=repo_root,
-        target_ver=target_ver,
+    """Create release cut branch, commit version bumps, and open a GitHub Release Pull Request."""
+    cut_release(
+        version=version,
         base=base,
-        branch_name=branch_name,
-        draft=draft,
-        pr_title=pr_title,
-    )
-
-    pr_cmd = _build_release_pr_command(
-        pr_title=pr_title,
-        pr_body=pr_body,
-        base=base,
-        branch_name=branch_name,
         draft=draft,
         labels=labels,
-        milestone=f"v{target_ver.lstrip('v')}",
-    )
-    _execute_release_pr(
-        pr_cmd=pr_cmd,
-        branch_name=branch_name,
-        labels=labels,
-        repo_root=repo_root,
+        release_type=release_type,
+        breaking=breaking,
+        is_prepare=False,
+        repo_root=root,
     )
 
 
