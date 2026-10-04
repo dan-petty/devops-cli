@@ -16,7 +16,6 @@ from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict
 
-from devops_cli.config import Settings, get_service_webhook_secrets, load_settings
 from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
@@ -25,7 +24,12 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_SOURCE_POLL,
 )
-from devops_cli.config.settings import ServiceConfig
+from devops_cli.config.settings import (
+    ServiceConfig,
+    Settings,
+    get_service_webhook_secrets,
+    load_settings,
+)
 from devops_cli.server.routes.webhooks import DeliveryLRUCache, create_webhook_router
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
@@ -365,6 +369,7 @@ def create_service_app(
         lifespan=lifespan,
     )
     app.state.service_manager = manager
+    app.state.job = job_handler
 
     app.include_router(create_webhook_router(manager))
 

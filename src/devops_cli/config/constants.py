@@ -2300,6 +2300,19 @@ CONST_ROADMAP_MIGRATE_BOARD_FILTER: Final[str] = ""
 CONST_ROADMAP_RENDER_BOARD_FILTER: Final[str] = ""
 CONST_ROADMAP_REPRIORITIZE_BOARD_FILTER: Final[str] = ""
 CONST_ROADMAP_INTAKE_BOARD_FILTER: Final[str] = ""
+CONST_ROADMAP_RUN_BOARD_FILTER: Final[str] = ""
+CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
+CONST_ROADMAP_RUN_CLONE_DIRNAME: Final[str] = "clone"
+CONST_ROADMAP_INTAKE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("webhook", "issues", "opened"),
+    ("webhook", "issues", "reopened"),
+)
+CONST_ROADMAP_CLOSURE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("webhook", "pull_request", "closed"),
+)
+CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("webhook", "pull_request", "closed"),
+)
 CONST_ROADMAP_DOCUMENT_PATH: Final[str] = "docs/ROADMAP.md"
 CONST_PROJECT_TEMPLATE_PATH: Final[str] = ".github/project-template.json"
 CONST_ROADMAP_ADR_PATH: Final[str] = "docs/adr/0001-github-is-the-roadmap-source.md"

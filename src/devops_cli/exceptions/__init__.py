@@ -72,6 +72,7 @@ from devops_cli.exceptions.k8s import (
     KubernetesError,
     KubernetesLoggingError,
 )
+from devops_cli.exceptions.roadmap import RoadmapRunError
 from devops_cli.exceptions.sandbox import (
     SandboxError,
     SandboxNotFoundError,
@@ -178,6 +179,7 @@ __all__ = [
     "ModelUnavailableError",
     "PersonaExecutionError",
     "ReviewPoolError",
+    "RoadmapRunError",
     "RunCancelled",
     "SSRFBlockedError",
     "SandboxError",

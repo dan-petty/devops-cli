@@ -35,11 +35,12 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RENDER_BOARD_FILTER,
     CONST_ROADMAP_RENDER_FILE_MODE,
     CONST_ROADMAP_REPRIORITIZE_BOARD_FILTER,
+    CONST_ROADMAP_RUN_BOARD_FILTER,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.dry_run import is_dry_run
-from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.exceptions import DevOpsCLIError, RoadmapRunError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success, write_stdout
 from devops_cli.output.file_writer import write_text_file
@@ -474,3 +475,32 @@ def _close(
     if plan.unread:
         print_error(MESSAGES.roadmap.close_failed.format(count=len(plan.unread)))
         raise typer.Exit(1)
+
+
+@app.command("run", help=HELP.roadmap.run)
+def run_cmd(
+    repo: RepoOption = None,
+    ref: RefOption = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.run_dry_run)] = False,
+    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.run_confirm)] = False,
+) -> None:
+    """Run roadmap jobs that are due: intake, closure, reprioritization, refinement."""
+    target, _config, store = _open_roadmap(repo, ref, CONST_ROADMAP_RUN_BOARD_FILTER)
+    from devops_cli.roadmap.run import run_due_jobs
+
+    if dry_run or not confirm or is_dry_run():
+        due = run_due_jobs(target, store, batch={("poll", "", ""): 1}, dry_run=True)
+        if due:
+            write_stdout(f"Due: {', '.join(due)}\n")
+        else:
+            write_stdout("Due: (none)\n")
+        return
+
+    try:
+        ran = run_due_jobs(target, store, batch={("poll", "", ""): 1}, dry_run=False)
+        if ran:
+            print_success(f"Roadmap jobs completed: {', '.join(ran)}")
+    except RoadmapRunError as exc:
+        msg = f"Roadmap jobs failed: {', '.join(exc.failed_jobs)}" if exc.failed_jobs else str(exc)
+        print_error(msg)
+        raise typer.Exit(1) from exc

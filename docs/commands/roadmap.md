@@ -110,3 +110,22 @@ devops roadmap close [OPTIONS]
 | `--plan` | `boolean` | - | Read GitHub, print each issue the run closes with its comment and the cut or what holds it, write nothing, and end with the GraphQL points spent and left. Close without a mode flag does this. |
 
 ---
+
+## `devops roadmap run`
+
+**Run roadmap jobs that are due: evaluate due criteria across landed jobs, run due jobs in order, and record last-success execution timestamps. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
+
+```bash
+devops roadmap run [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--dry-run` | `boolean` | - | Make no request: print the due list of jobs and the reason each is due, and run nothing. |
+| `--confirm` | `boolean` | - | Execute the due roadmap jobs. Without it, run prints the due list only. |
+
+---

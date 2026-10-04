@@ -138,6 +138,7 @@ def test_fastmcp_tools_registration() -> None:
         "roadmap_migrate",
         "roadmap_render",
         "roadmap_reprioritize",
+        "roadmap_run",
         "pr_ready",
         "pr_diff",
         "pr_close",
@@ -1365,7 +1366,12 @@ def test_the_roadmap_tools_resolve_to_the_roadmap_domain_and_hydrate() -> None:
 def test_the_roadmap_tools_build_the_commands_argv() -> None:
     from unittest.mock import patch
 
-    from devops_cli.ai.mcp.server import roadmap_migrate, roadmap_render, roadmap_reprioritize
+    from devops_cli.ai.mcp.server import (
+        roadmap_migrate,
+        roadmap_render,
+        roadmap_reprioritize,
+        roadmap_run,
+    )
 
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
         roadmap_render()
@@ -1374,6 +1380,8 @@ def test_the_roadmap_tools_build_the_commands_argv() -> None:
         roadmap_migrate(mode="dry-run")
         roadmap_reprioritize()
         roadmap_reprioritize(repo="dan-petty/devops-cli", ref="release/v0.2.25", mode="confirm")
+        roadmap_run()
+        roadmap_run(repo="dan-petty/devops-cli")
     head = ["uv", "run", "devops", "roadmap"]
     target = ["--repo", "dan-petty/devops-cli", "--ref", "release/v0.2.25"]
     assert [call.args[0] for call in run.call_args_list] == [
@@ -1383,6 +1391,8 @@ def test_the_roadmap_tools_build_the_commands_argv() -> None:
         [*head, "migrate", "--dry-run"],
         [*head, "reprioritize", "--plan"],
         [*head, "reprioritize", *target, "--confirm"],
+        [*head, "run", "--dry-run"],
+        [*head, "run", "--repo", "dan-petty/devops-cli", "--dry-run"],
     ]
 
 

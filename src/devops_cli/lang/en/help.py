@@ -1030,6 +1030,15 @@ class RoadmapCommandHelp:
         "Make no request, to GitHub or a model: print the requests a run makes, in order, with "
         "placeholders for values a read gives."
     )
+    run: str = (
+        "Run roadmap jobs that are due: evaluate due criteria across landed jobs, run due jobs in "
+        "order, and record last-success execution timestamps. Without --confirm, or with --dry-run, "
+        "prints the due list and runs nothing."
+    )
+    run_confirm: str = "Execute the due roadmap jobs. Without it, run prints the due list only."
+    run_dry_run: str = (
+        "Make no request: print the due list of jobs and the reason each is due, and run nothing."
+    )
 
 
 @dataclass(frozen=True)
