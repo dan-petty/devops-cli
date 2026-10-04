@@ -355,7 +355,7 @@ def test_a_critical_fix_arriving_while_the_release_pull_request_is_open_goes_to_
     roadmap.person.open_pull_request(
         f"feat(release): {CURRENT}",
         base="main",
-        head=f"release/{CURRENT}",
+        head=f"chore/cut-{CURRENT}",
         labels=("release",),
         release=CURRENT,
     )

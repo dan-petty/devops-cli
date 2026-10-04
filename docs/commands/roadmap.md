@@ -89,3 +89,24 @@ devops roadmap intake [OPTIONS]
 | `--confirm` | `boolean` | - | Plan as --plan does, then make the writes on GitHub. |
 
 ---
+
+## `devops roadmap close`
+
+**Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on chore/cut-vX.Y.Z in the clone at --root, bumps the version, pushes, and opens the release pull request into the default branch. Lists completed items with no changelog fragment. Writes only with --confirm.**
+
+```bash
+devops roadmap close [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--root` | `path` | `.` | The clone the cut runs git in (default: the current directory). |
+| `--confirm` | `boolean` | - | Close the issues and make the cut. Without it, close prints its plan only. |
+| `--dry-run` | `boolean` | - | Make no request and change no git ref: print the requests a run makes, in order, with placeholders for values a read gives. |
+| `--plan` | `boolean` | - | Read GitHub, print each issue the run closes with its comment and the cut or what holds it, write nothing, and end with the GraphQL points spent and left. Close without a mode flag does this. |
+
+---

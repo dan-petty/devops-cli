@@ -43,7 +43,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Feature / PR Lifecycle** | Human Squash Merge | Step 7 | `devops pr merge <id> --squash` | Maintainer merges approved PR into release branch | PR merged and topic branch deleted |
 | **Feature / PR Lifecycle** | Remote Branch Audit & Pruning | Step 8 | `git fetch --prune origin` | Prunes merged, closed, or superseded remote tracking branches | Zero orphan remote branches on origin |
 | **Release Lifecycle** | Release Status Assessment | Step 1 | `uv run devops release status` | Checks version consistency, git tags, and docs state | Clean working tree and version clarity |
-| **Release Lifecycle** | Release Preparation | Step 2 | `uv run devops release prepare <version> --create-pr` | Bumps version, updates changelog, syncs docs, opens PR | Release PR opened targeting `main` |
+| **Release Lifecycle** | Closure & Release Cut | Step 2 | `uv run devops roadmap close --confirm` (manual fallback: `uv run devops release prepare <version> --create-pr`) | Closes each delivered item with a summary comment; once the release holds no open item, bumps the version, renders `docs/ROADMAP.md` and opens the release PR | Release PR opened targeting `main` |
 | **Release Lifecycle** | Authoritative Release Check | Step 3 | `uv run devops release check` | Validates git tree, version matching, CI validation | All checks green |
 | **Release Lifecycle** | Maintainer Release PR Merge | Step 4 | `devops pr merge <id> --squash` | Human maintainer squash-merges release PR into `main` | Push event on `main` branch |
 | **Release Lifecycle** | Automated Tagging & Publish | Step 5 | Automated (`release.yml`) | Cuts annotated git tag `vX.Y.Z`, generates notes, publishes GH Release | GitHub Release published with assets |
@@ -242,7 +242,7 @@ sequenceDiagram
 
 ### Cadence C: Release Lifecycle & Orchestration
 
-Executed per scheduled release (patch/minor) or upon milestone completion.
+Executed per scheduled release (patch/minor) or upon milestone completion. `devops roadmap close` closes each item delivered to the current release and cuts the release once it holds no open item; `devops release prepare <version> --create-pr` is the manual fallback.
 
 ```mermaid
 sequenceDiagram
@@ -252,15 +252,15 @@ sequenceDiagram
     participant CI as GitHub Actions
     participant Hub as GitHub (Main & Releases)
 
-    Maintainer->>Branch: devops release prepare <version> --create-pr
+    Maintainer->>Branch: devops roadmap close --confirm (closes items, cuts chore/cut-vX.Y.Z)
     Branch->>CI: Quality Gates Validate Release PR
     Maintainer->>Hub: Squash-Merge Release PR into main
     CI->>Hub: release.yml cuts tag, creates release, closes milestone, builds image
 ```
 
 #### Step-by-Step Procedure:
-1. **Audit Open Tasks & Issues**: Ensure all milestone deliverables in `docs/ROADMAP.md` and `docs/agent/tasks/` are completed.
-2. **Execute Release Preparation**: Run `devops release prepare <version> --create-pr`.
+1. **Close Delivered Items and Cut**: Run `uv run devops roadmap close` to preview, then `--confirm`. It closes as completed each open issue a pull request merged into `release/vX.Y.Z` closes, with a comment saying what changed and how it was verified, and lists the open items holding the release. Once the release holds no open item, at least one item closed as completed and no release PR, it writes `docs/ROADMAP.md` with `devops roadmap render` on the cut branch and runs the cut below with the PR ready for review; completed items with no `changelog.d/<issue>.md` are listed for a person to add on the release PR.
+2. **Manual Fallback, Release Preparation**: Run `devops release prepare <version> --create-pr`.
    - Bumps version in `pyproject.toml` and `src/devops_cli/__init__.py`.
    - Collects the `changelog.d/` fragments into the target version's block in `CHANGELOG.md` and deletes them, leaving `[Unreleased]` an empty heading.
    - Regenerates docs and updates README Command Matrix.

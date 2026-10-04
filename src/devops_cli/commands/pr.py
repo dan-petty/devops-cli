@@ -1604,7 +1604,7 @@ class _Grounding(NamedTuple):
 
 
 def _closes_one_issue(grounding: _Grounding) -> str | None:
-    """The body closes exactly one issue, read as `gh issues close-merged` will act on it."""
+    """The body closes exactly one issue, read as `devops roadmap close` will act on it."""
     if len(grounding.issues) == 1:
         return None
     if not grounding.issues:

@@ -682,6 +682,25 @@ def roadmap_migrate(
 
 
 @mcp.tool()
+def roadmap_close(
+    repo: str | None = None,
+    ref: str | None = None,
+    mode: Literal["dry-run", "plan"] = "plan",
+) -> str:
+    """Preview closure: each delivered item of the current release it would close, with its
+    comment, and the release cut it would make or what holds it.
+
+    It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
+    spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A
+    person or the service runs `devops roadmap close --confirm`.
+    """
+    return _run_mcp_cmd(
+        _roadmap_cmd(["uv", "run", "devops", "roadmap", "close"], repo, ref, mode),
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
 def roadmap_reprioritize(
     repo: str | None = None,
     ref: str | None = None,

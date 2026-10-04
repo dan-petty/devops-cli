@@ -107,6 +107,7 @@ from devops_cli.roadmap.store import (
     ItemField,
     JobMark,
     JobRecord,
+    MergedPullRequest,
     PullRequest,
     Release,
     RoadmapStore,
@@ -347,6 +348,41 @@ class _GitHubReleasePayload(BaseModel):
     draft: bool
 
 
+class _PullRequestCommitPayload(BaseModel):
+    sha: str
+
+
+class _ClosedPullRequestPayload(BaseModel):
+    """A closed pull request as the REST listing `repos/{repo}/pulls?state=closed` gives it."""
+
+    number: int
+    html_url: str
+    title: str = ""
+    body: str | None = None
+    labels: list[_NamedPayload] = Field(default_factory=list)
+    release: str | None = Field(default=None, validation_alias=AliasPath("milestone", "title"))
+    merged_at: datetime | None = None
+    merge_commit_sha: str | None = None
+    head: _PullRequestCommitPayload
+
+    def merged(self, changed_paths: Sequence[str]) -> MergedPullRequest:
+        return MergedPullRequest(
+            number=self.number,
+            url=self.html_url,
+            title=self.title,
+            body=self.body or "",
+            labels=tuple(label.name for label in self.labels),
+            release=self.release,
+            merge_commit=self.merge_commit_sha or "",
+            head_commit=self.head.sha,
+            changed_paths=tuple(changed_paths),
+        )
+
+
+class _PullRequestFilePayload(BaseModel):
+    filename: str
+
+
 class _CommentPayload(BaseModel):
     body: str = ""
 
@@ -571,6 +607,8 @@ _DEFAULT_BRANCH = TypeAdapter(_DefaultBranchPayload)
 _REF = TypeAdapter(_RefPayload)
 _GITHUB_RELEASE = TypeAdapter(_GitHubReleasePayload)
 _COMMENTS = TypeAdapter(list[_CommentPayload])
+_CLOSED_PULL_REQUESTS = TypeAdapter(list[_ClosedPullRequestPayload])
+_PULL_REQUEST_FILES = TypeAdapter(list[_PullRequestFilePayload])
 _TIMELINE = TypeAdapter(_TimelinePayload)
 _WORKFLOW_RUN = TypeAdapter(_WorkflowRunPayload)
 _ANY_OBJECT = TypeAdapter(dict[str, Any])
@@ -966,6 +1004,17 @@ def issue_events_page_args(repo: str, page: Number) -> list[str]:
 
 def issue_events_endpoint(repo: str, number: Number) -> str:
     return f"repos/{repo}/issues/{number}/events"
+
+
+def merged_pull_requests_endpoint(repo: str, base: str) -> str:
+    """The REST listing of `repo`'s closed pull requests into `base`, oldest first; the merged
+    ones are those with a merge time."""
+    return f"repos/{repo}/pulls?state=closed&base={quote(base, safe='')}&sort=created&direction=asc"
+
+
+def pull_request_files_endpoint(repo: str, number: Number) -> str:
+    """The REST listing of the files pull request `number` changed."""
+    return f"repos/{repo}/pulls/{number}/files"
 
 
 def comments_endpoint(repo: str, number: Number) -> str:
@@ -1554,6 +1603,29 @@ class GitHubRoadmapStore(RoadmapStore):
             f"{release.title} release pull requests",
         )
         return self._pull_requests(payload.connection, f"{release.title} release pull requests")
+
+    def merged_pull_requests(self, base: str) -> list[MergedPullRequest]:
+        """Every pull request merged into `base`, oldest first, each with the paths it changed;
+        each listing is read a full page at a time, and a failed page raises."""
+        closed = self._read_listing(
+            merged_pull_requests_endpoint(self._repo, base),
+            _CLOSED_PULL_REQUESTS,
+            f"pull requests into {base}",
+        )
+        return [
+            pull_request.merged(
+                [
+                    changed.filename
+                    for changed in self._read_listing(
+                        pull_request_files_endpoint(self._repo, pull_request.number),
+                        _PULL_REQUEST_FILES,
+                        f"#{pull_request.number} files",
+                    )
+                ]
+            )
+            for pull_request in closed
+            if pull_request.merged_at is not None
+        ]
 
     def release_published(self, version: str) -> bool:
         """Whether GitHub Release `vX.Y.Z` is published: it exists and is not a draft."""

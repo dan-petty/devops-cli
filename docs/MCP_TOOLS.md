@@ -119,6 +119,12 @@ Pass the domain name alone, for example `k8s`. |
 | [`review_path`](#review-path) | Run an AI code review on local files matching pattern using specified persona. |
 | [`review_pr`](#review-pr) | Fetch GitHub PR diff and review using specified persona; optionally post comment. |
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
+| [`roadmap_close`](#roadmap-close) | Preview closure: each delivered item of the current release it would close, with its
+comment, and the release cut it would make or what holds it.
+
+It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
+spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A
+person or the service runs `devops roadmap close --confirm`. |
 | [`roadmap_intake`](#roadmap-intake) | Turn candidates into roadmap items: duplicate check, type, priority, Value, Effort and
 placement, with the agent filing quota for an agent's new candidate (`title` with `body`,
 and `source`, the link it came from, which `borrow_reason` needs).
@@ -1352,6 +1358,23 @@ Fetch GitHub PR diff and review using specified persona; optionally post comment
 View accuracy metrics and false-positive rates per reviewer persona.
 
 *No parameters required.*
+
+### `roadmap_close`
+
+Preview closure: each delivered item of the current release it would close, with its
+comment, and the release cut it would make or what holds it.
+
+It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
+spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A
+person or the service runs `devops roadmap close --confirm`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+| `ref` | `string` | No | - | - |
+| `mode` | `string` | No | `plan` | - |
 
 ### `roadmap_intake`
 

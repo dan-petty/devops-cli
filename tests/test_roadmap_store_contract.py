@@ -134,7 +134,7 @@ def test_a_renamed_release_keeps_its_number_issues_and_pull_requests(
     """GitHub keeps a milestone by its number, so a rename moves no issue out of it."""
     item = store.seed_issue("planned", release="v0.2.25", on_board=True)
     pull_request = store.as_actor("alice").open_pull_request(
-        "cut", base="main", head="release/v0.2.25", labels=("release",), release="v0.2.25"
+        "cut", base="main", head="chore/cut-v0.2.25", labels=("release",), release="v0.2.25"
     )
     before = store.release("v0.2.25")
     renamed = store.as_actor("alice").edit_release("v0.2.25", title="v0.3.0")
@@ -730,9 +730,9 @@ def test_pull_requests_open_and_the_releases_own_whatever_their_state(
 ) -> None:
     person = store.as_actor("alice")
     release = {"base": "main", "labels": ("release",), "release": "v0.2.25"}
-    closed = person.open_pull_request("first cut", head="release/v0.2.25", **release)
+    closed = person.open_pull_request("first cut", head="chore/cut-v0.2.25", **release)
     person.close_pull_request(closed)
-    cut = person.open_pull_request("cut", head="chore/release-v0.2.25", draft=True, **release)
+    cut = person.open_pull_request("cut", head="chore/cut-v0.2.25", draft=True, **release)
     topic = person.open_pull_request(
         "feat", base="release/v0.2.25", head="feat/x", body="Closes #1"
     )
@@ -931,3 +931,25 @@ def test_a_release_records_when_it_closed_and_forgets_it_when_reopened(
         reopened.closed_at if reopened else "missing",
         (store.release("v0.2.24") or closed).closed_at,
     ) == (clock.now, None, clock.now)
+
+
+def test_merged_pull_requests_are_the_ones_merged_into_the_branch_with_their_paths(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """The merged-PR read (#743): only pull requests merged into the branch, oldest first,
+    each with its body, merge and head commits and changed paths."""
+    person = store.as_actor("alice")
+    branch = "release/v0.2.25"
+    first = person.merge_pull_request(
+        "feat: a", base=branch, body="Closes #1", changed_paths=("a.py", "b.md"), release="v0.2.25"
+    )
+    person.merge_pull_request("feat: elsewhere", base="main")
+    person.open_pull_request("feat: open", base=branch, head="feat/open")
+    person.close_pull_request(person.open_pull_request("feat: shut", base=branch, head="feat/x"))
+    second = person.merge_pull_request("feat: b", base=branch)
+    found = store.merged_pull_requests(branch)
+    assert (
+        [p.number for p in found],
+        (found[0].body, found[0].changed_paths, found[0].release, found[1].changed_paths),
+        [len({p.merge_commit, p.head_commit}) for p in found],
+    ) == ([first, second], ("Closes #1", ("a.py", "b.md"), "v0.2.25", ()), [2, 2])

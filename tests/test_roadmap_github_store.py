@@ -1852,3 +1852,83 @@ def test_issue_records_and_releases_carry_author_and_close_times() -> None:
         datetime(2026, 10, 4, 1, tzinfo=UTC),
         datetime(2026, 10, 3, 20, 37, 25, tzinfo=UTC),
     )
+
+
+# ── Merged pull requests (#743) ──
+
+
+def _closed_pull(number: int, merged: bool = True) -> dict[str, Any]:
+    return {
+        "number": number,
+        "html_url": f"https://github.com/{REPO}/pull/{number}",
+        "title": f"feat: {number}",
+        "body": f"Closes #{number + 1000}" if number % 2 else None,
+        "labels": [{"name": "type/feature"}],
+        "milestone": {"title": "v0.2.26"},
+        "merged_at": "2026-10-03T12:00:00Z" if merged else None,
+        "merge_commit_sha": f"{number:040x}",
+        "head": {"sha": f"{number:040x}"[::-1]},
+    }
+
+
+def _closed_pages(bad: int | None = None) -> Callable[[list[str]], Any]:
+    """Closed pull requests over three pages, 100, 100 and 5; page `bad` fails."""
+
+    def page(args: list[str]) -> Any:
+        (number,) = _query(args, "page")[0]
+        if int(number) == bad:
+            return (1, "gh: Server Error (HTTP 502)")
+        first = (int(number) - 1) * 100 + 1
+        size = 100 if int(number) < 3 else 5
+        return [_closed_pull(n, merged=n != 7) for n in range(first, first + size)]
+
+    return page
+
+
+def test_merged_pull_requests_read_every_page_with_each_ones_files() -> None:
+    store, runner = board_store(
+        {
+            "pulls?state=closed": _closed_pages(),
+            "/files?": [{"filename": "src/a.py"}, {"filename": "docs/agent/tasks/task-1-a.md"}],
+        }
+    )
+    merged = store.merged_pull_requests("release/v0.2.26")
+    first = merged[0]
+    assert (
+        len(merged),
+        [p.number for p in merged][:7],
+        (first.url, first.body, first.labels, first.release, first.changed_paths),
+        (first.merge_commit, first.head_commit) == (f"{1:040x}", f"{1:040x}"[::-1]),
+        runner.calls[0][0][-1].split("&per_page")[0],
+        runner.writes,
+    ) == (
+        204,
+        [1, 2, 3, 4, 5, 6, 8],
+        (
+            f"https://github.com/{REPO}/pull/1",
+            "Closes #1001",
+            ("type/feature",),
+            "v0.2.26",
+            ("src/a.py", "docs/agent/tasks/task-1-a.md"),
+        ),
+        True,
+        f"repos/{REPO}/pulls?state=closed&base=release%2Fv0.2.26&sort=created&direction=asc",
+        [],
+    )
+
+
+@pytest.mark.parametrize("bad", [1, 2, 3])
+def test_a_failed_merged_pull_request_page_raises_and_returns_no_part(bad: int) -> None:
+    store, _ = board_store({"pulls?state=closed": _closed_pages(bad), "/files?": []})
+    with pytest.raises(
+        GitHubOperationError, match=rf"pull requests into release/v0.2.26 \(page {bad}\)"
+    ):
+        store.merged_pull_requests("release/v0.2.26")
+
+
+def test_a_failed_files_listing_raises() -> None:
+    store, _ = board_store(
+        {"pulls?state=closed": _closed_pages(), "/files?": (1, "gh: Server Error (HTTP 502)")}
+    )
+    with pytest.raises(GitHubOperationError, match=r"#1 files \(page 1\)"):
+        store.merged_pull_requests("release/v0.2.26")

@@ -50,7 +50,7 @@ REPO = "dan-petty/devops-cli"
 OWNER = "dan-petty"
 NOW = datetime(2026, 10, 4, tzinfo=UTC)
 runner = CliRunner()
-JOBS = ("reprioritize", "migrate", "render", "intake")
+JOBS = ("reprioritize", "migrate", "render", "intake", "close")
 
 
 # ── No request ────────────────────────────────────────────────────────────────

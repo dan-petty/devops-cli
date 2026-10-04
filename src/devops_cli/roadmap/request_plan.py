@@ -19,6 +19,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 
 from devops_cli.config.constants import (
+    CONST_AGENT_TASKS_DIR,
+    CONST_CHANGELOG_FRAGMENTS_DIR,
     CONST_GH_PROJECT_JOB_RECORD_FIELD,
     CONST_PROJECT_TEMPLATE_PATH,
     CONST_ROADMAP_CONFIG_PATH,
@@ -185,6 +187,24 @@ class StoreRequests:
     def release_pull_requests(self) -> Requests:
         args = gh.release_pull_requests_args(self.repo, _p("milestone"))
         return [*self.releases(), self.gh(args, "release_prs", release=_p("release"))]
+
+    def merged_pull_requests(self, branch: str) -> Requests:
+        texts = MESSAGES.roadmap
+        merged = self.listing(
+            gh.merged_pull_requests_endpoint(self.repo, branch), "merged_prs", branch=branch
+        )
+        files = self.listing(
+            gh.pull_request_files_endpoint(self.repo, _p("number")),
+            "pr_files",
+            subject=_p("number"),
+        )
+        return [*merged, *within(files, repeat=texts.plan_repeat["merged"])]
+
+    def pr_checks(self) -> Requests:
+        from devops_cli.github.check_verdict import pr_checks_args
+
+        args = pr_checks_args(_p("number"), self.repo)[1:]
+        return [self.gh(args, "pr_checks", subject=_p("number"))]
 
     def release_published(self) -> Requests:
         args = gh.release_tag_args(self.repo, _p("tag"))
@@ -526,6 +546,81 @@ def migrate_requests(
     return (*reads, *store.budget()), tuple(writes)
 
 
+def close_requests(
+    repo: str, ref: str | None
+) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
+    """What `devops roadmap close` reads, in order, ending with its closing budget read, and
+    the writes `--confirm` makes before that last read: the closes, then the cut (#743)."""
+    from devops_cli.commands.release import (
+        _build_release_pr_command,
+        milestone_issues_args,
+        milestone_pull_requests_args,
+    )
+    from devops_cli.config.defaults import DEFAULT_RELEASE_LABEL
+
+    store = StoreRequests(repo, CONST_ROADMAP_RENDER_BOARD_FILTER)
+    texts = MESSAGES.roadmap
+    cond, rep = texts.plan_conditions, texts.plan_repeat
+    release, number = _p("release"), _p("number")
+    branch, cut_branch = f"release/{release}", f"chore/cut-{release}"
+    fragment = f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{number}.md"
+    task = f"{CONST_AGENT_TASKS_DIR}/task-{number}-<slug>.md"
+    reads = [
+        *_config(store, ref),
+        *store.releases(),
+        *within(
+            [
+                *store.merged_pull_requests(branch),
+                *store.issues(),
+                *within(store.pr_checks(), cond["closes"], rep["merged"]),
+                *within(store.file(task, _p("sha")), cond["task_file"], rep["closing"]),
+                *within(
+                    [
+                        *store.release_pull_requests(),
+                        *store.default_branch(),
+                        *within(store.file(fragment, branch), repeat=rep["completed"]),
+                    ],
+                    cond["no_open"],
+                ),
+            ],
+            cond["current"],
+        ),
+    ]
+    pr_create = _build_release_pr_command(
+        pr_title=f"feat(release): {release}",
+        pr_body=_p("body"),
+        base=_p("branch"),
+        branch_name=cut_branch,
+        draft=False,
+        labels=DEFAULT_RELEASE_LABEL,
+        milestone=release,
+    )
+    cut = [
+        _git(texts.plan_targets["git_fetch"].format(branch=branch), "fetch", "origin", branch),
+        *store.board_fields(),
+        *store.releases(),
+        *within(store.items(release=release), repeat=rep["release"]),
+        *store.backlog(),
+        _git(
+            texts.plan_targets["git_push"].format(branch=cut_branch),
+            *("push", "--force-with-lease", "-u", "origin", cut_branch),
+        ),
+        store.gh(milestone_issues_args(release), "milestone_issues", release=release),
+        store.gh(milestone_pull_requests_args(release), "milestone_prs", release=release),
+        store.gh(pr_create[1:], "pr_create", branch=cut_branch),
+    ]
+    writes = [
+        *within(store.close_issue(_p("item"), "completed"), cond["closes"], rep["closing"]),
+        *within(cut, cond["cut"]),
+    ]
+    return (*reads, *store.budget()), tuple(writes)
+
+
+def _git(target: str, *args: str) -> PlannedRequest:
+    """A git command against the clone's `origin`."""
+    return PlannedRequest(method="git", target=target, argv=("git", *args))
+
+
 def render_dry_run(
     job: str,
     repo: str,
@@ -548,6 +643,7 @@ def render_dry_run(
 
 __all__ = [
     "StoreRequests",
+    "close_requests",
     "is_page_repeat",
     "migrate_requests",
     "render_dry_run",
