@@ -220,6 +220,7 @@ CONST_LOGS_DIR_NAME = "logs"
 CONST_MODELS_DIR_NAME = "models"
 CONST_CACHE_DIR_NAME = "cache"
 CONST_CI_CACHE_FILENAME = "ci_cache.json"
+CONST_COVERAGE_INDEX_FILENAME = "coverage_index.json"
 # mypy's cache for the type-check probe of review verification, under the cache directory.
 CONST_TYPECHECK_PROBE_CACHE_DIR_NAME = "typecheck-probe"
 # The probe's mypy config: devops-cli's own, never the reviewed tree's (#946). It loads only the

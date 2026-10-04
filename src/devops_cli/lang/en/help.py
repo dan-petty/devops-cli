@@ -515,6 +515,7 @@ class CICommandHelp:
         "reporting success without verifying it."
     )
     html_report: str = "Generate HTML coverage report in .data/htmlcov/."
+    build_index: str = "Build on-demand coverage reverse index for fast test selection."
     auto_fix: str = "Auto-fix violations where possible."
     format_fix: str = "Apply formatting changes in-place."
     format_check: str = "Check formatting without writing changes to files."

@@ -794,6 +794,25 @@ class CIMessages:
         "Clone the repository into the WSL filesystem or a container volume and reopen it there."
     )
     test_budget_exceeded: str = "Tests took {duration}, over the {budget} budget. Slowest tests:"
+    coverage_index_tree_changed: str = (
+        "Files changed during the run; index not saved:\n{files}\n"
+        "Re-run `devops ci coverage --build-index` on a clean working tree."
+    )
+    coverage_index_saved: str = "Coverage index built and saved in {duration}."
+    coverage_index_age: str = (
+        "Coverage index is {age} old ({changed_count} file(s) changed since build)."
+    )
+    coverage_index_missing: str = (
+        "No coverage index found. Run `devops ci coverage --build-index` to build one."
+    )
+    selection_trigger_full_run: str = (
+        "{file} can change the outcome of tests that never import it. "
+        "Running the full test suite. Run `devops ci coverage --build-index` to update."
+    )
+    selection_trigger_refusal: str = (
+        "Refusing to narrow tests because {file} changed. Run without --no-fallback "
+        "or run the full suite."
+    )
 
 
 @dataclass(frozen=True)
