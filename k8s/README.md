@@ -8,7 +8,8 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 | :--- | :--- | :--- | :--- |
 | **`infra`** *(Default)* | ArgoCD (backed by Valkey), Grafana, Prometheus, Alertmanager, Grafana K8s Monitoring Stack (Alloy + exporters), Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector | `argocd`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope) |
 | **`llm`** | Ollama, Open-WebUI, Qdrant Vector DB, Valkey Cache, Valkey Run Index | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
-| **`all`** | All components from both stacks | `argocd`, `monitoring`, `otel`, `llm` | All ports above |
+| **`logging`** | Loki (pod logs shipped from `infra` stack's Alloy) | `logging` | `3100` (Loki) |
+| **`all`** | All components from all stacks | `argocd`, `monitoring`, `otel`, `llm`, `logging` | All ports above |
 
 ## Prerequisites
 

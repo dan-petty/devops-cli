@@ -18,13 +18,13 @@ graph TD
     S --> E[deploy-stack --stack logging]
     C --> F[Argo CD, monitoring, OTel, Jaeger, Pyroscope]
     D --> G[Ollama, Open-WebUI, Qdrant, Valkey, LLM gateway]
-    E --> H[Loki & Fluent Bit]
+    E --> H[Loki]
 ```
 
 - **Stack Metadata**:
   - `infra`: Argo CD in `argocd`; Grafana Kubernetes Monitoring (`k8s-monitoring`), Prometheus, Grafana, dcgm-exporter and Pyroscope in `monitoring`; the OpenTelemetry Collector and Jaeger in `otel`.
   - `llm`: Local LLM stack (Ollama, Open-WebUI, Qdrant Vector DB, Valkey Cache, LiteLLM gateway) in `llm` namespace.
-  - `logging`: Loki and Fluent Bit in `logging` namespace.
+  - `logging`: Loki in `logging` namespace.
   - `all`: `infra`, `llm` and `logging`.
 - **Cluster Secrets**: right after the namespaces, `deploy-stack` pushes every Secret its stacks read from the OS keyring (`devops k8s push-secrets`, workstation keyring → cluster), so the keyring must be unlocked (`devops devcontainer unlock-keyring`). `--no-push-secrets` skips the push on a cluster without a keyring.
 

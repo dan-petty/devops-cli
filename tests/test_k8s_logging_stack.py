@@ -19,21 +19,78 @@ from devops_cli.commands.k8s.stack_lifecycle import (
 runner = CliRunner()
 
 
-def test_logging_stack_definitions() -> None:
-    """Verify logging stack is registered in Helm repos, releases, and manifests."""
-    assert "logging" in VALID_STACKS
-    assert "logging" in _HELM_REPOS_BY_STACK
-    assert "grafana" in _HELM_REPOS_BY_STACK["logging"]
-    assert "fluent" in _HELM_REPOS_BY_STACK["logging"]
+def test_logging_stack_definitions_and_single_shipper() -> None:
+    """Verify logging stack registers Loki alone and Alloy ships pod logs to Loki (#548)."""
+    repo_root = Path(__file__).resolve().parent.parent
+    mon_values = yaml.safe_load(
+        (repo_root / "k8s" / "monitoring" / "k8s-monitoring-values.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    release_names = tuple(r["name"] for r in _HELM_RELEASES_BY_STACK["logging"])
+    repo_names = tuple(_HELM_REPOS_BY_STACK["logging"].keys())
+    pod_logs_enabled = mon_values["podLogsViaLoki"]["enabled"]
+    local_loki_url = mon_values["destinations"]["localLoki"]["url"]
 
-    assert "logging" in _HELM_RELEASES_BY_STACK
-    release_names = [r["name"] for r in _HELM_RELEASES_BY_STACK["logging"]]
-    assert "loki" in release_names
-    assert "fluent-bit" in release_names
+    assert (
+        release_names,
+        repo_names,
+        pod_logs_enabled,
+        local_loki_url,
+    ) == (
+        ("loki",),
+        ("grafana",),
+        True,
+        "http://loki.logging.svc.cluster.local:3100/loki/api/v1/push",
+    )
 
-    assert "logging" in _MANIFESTS_BY_STACK
     manifest_paths = [str(p) for p in _MANIFESTS_BY_STACK["logging"]]
-    assert any("networkpolicy.yaml" in p for p in manifest_paths)
+    assert ("logging" in VALID_STACKS, any("networkpolicy.yaml" in p for p in manifest_paths)) == (
+        True,
+        True,
+    )
+
+
+def test_monitoring_network_policy_alloy_egress_rules() -> None:
+    """Verify monitoring NetworkPolicy retains Alloy API discovery and Loki log shipping egress (#548)."""
+    repo_root = Path(__file__).resolve().parent.parent
+    np_path = repo_root / "k8s" / "monitoring" / "networkpolicy.yaml"
+    np_doc = yaml.safe_load(np_path.read_text(encoding="utf-8"))
+    egress_rules = np_doc.get("spec", {}).get("egress", [])
+
+    api_rule = next(
+        (
+            rule
+            for rule in egress_rules
+            if any(
+                p.get("port") == 6443 and p.get("protocol") == "TCP" for p in rule.get("ports", [])
+            )
+            and any(
+                t.get("ipBlock", {}).get("cidr") == "0.0.0.0/0"
+                and t.get("ipBlock", {}).get("except") == ["169.254.169.254/32"]
+                for t in rule.get("to", [])
+            )
+        ),
+        None,
+    )
+    loki_rule = next(
+        (
+            rule
+            for rule in egress_rules
+            if any(
+                p.get("port") == 3100 and p.get("protocol") == "TCP" for p in rule.get("ports", [])
+            )
+            and any(
+                t.get("namespaceSelector", {})
+                .get("matchLabels", {})
+                .get("kubernetes.io/metadata.name")
+                == "logging"
+                for t in rule.get("to", [])
+            )
+        ),
+        None,
+    )
+    assert (api_rule is not None, loki_rule is not None) == (True, True)
 
 
 def test_deploy_logging_stack_dry_run() -> None:
@@ -178,41 +235,36 @@ def test_k8s_teardown_stack_case_insensitive() -> None:
 
 
 def test_logging_stack_security_and_scoping() -> None:
-    """Verify DevSecOps perimeter hardening and namespace scoping for logging stack (#121)."""
+    """Verify DevSecOps perimeter hardening and bidirectional NetworkPolicy for logging stack (#548)."""
     repo_root = Path(__file__).resolve().parent.parent
     logging_dir = repo_root / "k8s" / "logging"
-
-    # 1. Fluent Bit values verification
-    fluent_bit_path = logging_dir / "fluent-bit-values.yaml"
-    assert fluent_bit_path.is_file()
-    fb_doc = yaml.safe_load(fluent_bit_path.read_text(encoding="utf-8"))
-
-    # Verify HTTP listener configured for kubelet readiness/liveness probes
-    service_conf = fb_doc.get("config", {}).get("service", "")
-    assert "HTTP_Listen 0.0.0.0" in service_conf
-    assert "HTTP_Port 2020" in service_conf
-
-    # Verify container log tailing scoped to default, llm, sandbox
-    inputs_conf = fb_doc.get("config", {}).get("inputs", "")
-    assert "_default_" in inputs_conf
-    assert "_llm_" in inputs_conf
-    assert "_sandbox_" in inputs_conf
-    assert "Path /var/log/containers/*.log" not in inputs_conf
-
-    # 2. NetworkPolicy perimeter verification
     np_path = logging_dir / "networkpolicy.yaml"
     assert np_path.is_file()
     np_doc = yaml.safe_load(np_path.read_text(encoding="utf-8"))
     assert np_doc.get("metadata", {}).get("namespace") == "logging"
 
+    # 1. Egress: exactly intra-namespace and CoreDNS in kube-system
+    egress_rules = np_doc.get("spec", {}).get("egress", [])
+    assert (
+        len(egress_rules),
+        egress_rules[0].get("to"),
+        egress_rules[1].get("to"),
+        egress_rules[1].get("ports"),
+    ) == (
+        2,
+        [{"podSelector": {}}],
+        [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}}}],
+        [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}],
+    )
+
+    # 2. Ingress: intra-namespace and telemetry (monitoring and otel on TCP 3100)
     ingress_rules = np_doc.get("spec", {}).get("ingress", [])
-    assert len(ingress_rules) == 2  # intra-namespace and monitoring only
+    assert len(ingress_rules) == 2
 
     # Ingress rule 1: intra-namespace
     assert ingress_rules[0].get("from") == [{"podSelector": {}}]
 
-    # Ingress rule 2: monitoring and the otel collector on port 3100; the otel peer's pod
-    # selector is pinned in tests/test_k8s_network_policies.py (#1100)
+    # Ingress rule 2: monitoring and the otel collector on port 3100
     rule_telemetry = ingress_rules[1]
     from_telemetry = rule_telemetry.get("from", [])
     allowed_namespaces = {
@@ -235,5 +287,4 @@ def test_logging_stack_security_and_scoping() -> None:
                 .get("matchLabels", {})
                 .get("kubernetes.io/metadata.name", "")
             )
-            assert ns_name != "ingress-nginx"
-            assert "ipBlock" not in f
+            assert (ns_name != "ingress-nginx", "ipBlock" not in f) == (True, True)
