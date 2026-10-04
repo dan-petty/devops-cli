@@ -608,9 +608,11 @@ def test_ci_workflow_parallelizes_quality_gates() -> None:
     ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
     jobs = ci["jobs"]
 
-    assert {"static", "test", "devcontainer"}.issubset(jobs.keys())
+    assert {"static", "test", "devcontainer", "service-image"}.issubset(jobs.keys())
     # No `needs:` between them, so they start concurrently rather than in sequence.
-    assert all(not jobs[name].get("needs") for name in ("static", "test", "devcontainer"))
+    assert all(
+        not jobs[name].get("needs") for name in ("static", "test", "devcontainer", "service-image")
+    )
 
 
 def test_devcontainer_image_publishes_only_for_main_targeted_pull_requests() -> None:
@@ -626,6 +628,114 @@ def test_devcontainer_image_publishes_only_for_main_targeted_pull_requests() -> 
 
     assert "github.base_ref == 'main'" in condition
     assert "github.event_name == 'pull_request'" in condition
+
+
+def test_service_image_ci_job_invariants() -> None:
+    """The CI service-image job runs for PRs to main or dispatch, pushes nothing, and avoids ${{ in scripts."""
+    import yaml
+
+    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
+    job = ci["jobs"]["service-image"]
+    condition = str(job.get("if", ""))
+
+    assert (
+        "github.base_ref == 'main'" in condition,
+        "github.event_name == 'pull_request'" in condition,
+        "github.event_name == 'workflow_dispatch'" in condition,
+        job.get("permissions"),
+    ) == (True, True, True, {"contents": "read"})
+
+    build_step = next(s for s in job["steps"] if s.get("name") == "Build and Load Service Image")
+    assert (
+        build_step.get("with", {}).get("push") in (False, "false"),
+        build_step.get("with", {}).get("load") in (True, "true"),
+    ) == (True, True)
+
+    interpolated_runs = [s.get("name", "") for s in job["steps"] if "${{" in s.get("run", "")]
+    assert not interpolated_runs, (
+        f"run: blocks in service-image job must not contain ${{}}: {interpolated_runs}"
+    )
+
+
+def test_service_image_release_job_invariants() -> None:
+    """The release service-image job verifies needs, permissions, step order, and Trivy inputs."""
+    import yaml
+
+    release_wf = (
+        yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8")) or {}
+    )
+    job = release_wf["jobs"]["service-image"]
+
+    assert (
+        job.get("needs"),
+        job.get("permissions"),
+    ) == (
+        "release",
+        {
+            "contents": "read",
+            "packages": "write",
+            "id-token": "write",
+            "attestations": "write",
+        },
+    )
+
+    step_names = [s.get("name", "") for s in job["steps"]]
+    indices = (
+        step_names.index("Build and Load Service Image"),
+        step_names.index("Run Service Image Smoke Test"),
+        step_names.index("Scan Service Image for Vulnerabilities"),
+        step_names.index("Build and Push Service Image"),
+        step_names.index("Attest Build Provenance"),
+    )
+    assert indices == tuple(sorted(indices)), f"Steps out of order: {indices}"
+
+    trivy_step = next(
+        s for s in job["steps"] if s.get("name") == "Scan Service Image for Vulnerabilities"
+    )
+    trivy_with = trivy_step.get("with", {})
+    assert (
+        trivy_with.get("scanners"),
+        trivy_with.get("severity"),
+        trivy_with.get("ignore-unfixed"),
+        str(trivy_with.get("exit-code")),
+    ) == ("vuln", "HIGH,CRITICAL", True, "1")
+
+    push_step = next(s for s in job["steps"] if s.get("name") == "Build and Push Service Image")
+    assert push_step.get("with", {}).get("sbom") in (True, "true")
+
+    interpolated_runs = [s.get("name", "") for s in job["steps"] if "${{" in s.get("run", "")]
+    assert not interpolated_runs, (
+        f"run: blocks in service-image release job must not contain ${{}}: {interpolated_runs}"
+    )
+
+
+def test_service_image_smoke_test_parity() -> None:
+    """The smoke-test run: block in ci.yml and release.yml must be identical and enforce sandbox flags."""
+    import yaml
+
+    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
+    rel = yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8")) or {}
+
+    ci_smoke = next(
+        s
+        for s in ci["jobs"]["service-image"]["steps"]
+        if s.get("name") == "Run Service Image Smoke Test"
+    )
+    rel_smoke = next(
+        s
+        for s in rel["jobs"]["service-image"]["steps"]
+        if s.get("name") == "Run Service Image Smoke Test"
+    )
+
+    ci_run = ci_smoke["run"].strip()
+    rel_run = rel_smoke["run"].strip()
+
+    assert (
+        ci_run == rel_run,
+        "--read-only" in ci_run,
+        "--cap-drop ALL" in ci_run,
+        "no-new-privileges" in ci_run,
+    ) == (True, True, True, True)
 
 
 def test_resolve_pytest_worker_count() -> None:

@@ -131,6 +131,7 @@ jobs:
             pyproject.toml
             uv.lock
             README.md
+            .dockerignore
             .github/workflows/ci.yml
         run: |
           # The checkout above already fetched full history; this only ensures the base
@@ -187,6 +188,96 @@ jobs:
           cacheFrom: ${{ steps.image_repo.outputs.name }}:latest
           imageTag: pr-${{ github.event.pull_request.number }}
           push: "always"
+
+  service-image:
+    name: Service Image
+    if: (github.event_name == 'pull_request' && github.base_ref == 'main') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect Image Content Changes
+        id: image_changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          IMAGE_CONTENT_PATHS: |
+            Dockerfile
+            .dockerignore
+            .trivyignore
+            src
+            pyproject.toml
+            uv.lock
+            README.md
+            .github/workflows/ci.yml
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "Workflow dispatch triggered; rebuilding."
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags origin "$BASE_REF"
+          readarray -t WATCHED < <(printf '%s\n' "$IMAGE_CONTENT_PATHS" | sed '/^[[:space:]]*$/d')
+          CHANGED=$(git diff --name-only "origin/${BASE_REF}...HEAD" -- "${WATCHED[@]}")
+          if [ -n "$CHANGED" ]; then
+            echo "Image content changed; rebuilding:"
+            echo "$CHANGED"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No image content changed; skipping rebuild."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.image_changes.outputs.changed == 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v3
+
+      - name: Build and Load Service Image
+        if: steps.image_changes.outputs.changed == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          push: false
+          tags: devops-cli-service:local
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Service Image Smoke Test
+        if: steps.image_changes.outputs.changed == 'true'
+        env:
+          IMAGE: devops-cli-service:local
+        run: |
+          docker run -d --name svc --read-only --tmpfs /tmp --tmpfs /home/devops:uid=1000,gid=1000 --cap-drop ALL --security-opt no-new-privileges -p 8000:8000 "$IMAGE"
+          curl -fsS --retry 10 --retry-connrefused --retry-all-errors --retry-delay 1 http://127.0.0.1:8000/healthz
+          docker stop svc && docker rm svc
+          docker run --rm --entrypoint id "$IMAGE" -u
+          docker run --rm --entrypoint gh "$IMAGE" --version
+          docker run --rm --entrypoint git "$IMAGE" --version
+          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:uid=1000,gid=1000 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, pathlib, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
+          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v uv'; then exit 1; fi
+          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
+          if docker run --rm --entrypoint python "$IMAGE" -c 'import pytest'; then exit 1; fi
+
+      - name: Scan Service Image for Vulnerabilities
+        if: steps.image_changes.outputs.changed == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: devops-cli-service:local
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          version: v0.70.0
+
 
   # Advisory only: reports newer upstream releases without gating any merge. Scheduled so
   # the PyPI round-trip never sits on the pull request critical path.
