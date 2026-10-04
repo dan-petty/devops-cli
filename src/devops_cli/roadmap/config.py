@@ -15,9 +15,15 @@ from pydantic import ValidationError as InvalidConfigError
 from devops_cli.config.constants import CONST_ROADMAP_CONFIG_PATH
 from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_DISCOVERY_THRESHOLD,
+    DEFAULT_ROADMAP_OPEN_ISSUE_LIMIT,
+    DEFAULT_ROADMAP_OVERAGE_STEP_FRACTION,
     DEFAULT_ROADMAP_PLANNING_HORIZON,
     DEFAULT_ROADMAP_RELEASE_CAP,
+    DEFAULT_ROADMAP_RELEASE_CREDIT_BASE,
+    DEFAULT_ROADMAP_RELEASE_CREDIT_PER_DELIVERED_ITEM,
+    DEFAULT_ROADMAP_RELEASE_ITEM_TARGET,
     DEFAULT_ROADMAP_STALL_DAYS,
+    DEFAULT_ROADMAP_THROTTLE_START_FRACTION,
 )
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.roadmap.store import RoadmapStore
@@ -33,6 +39,18 @@ class RoadmapConfig(BaseModel):
     discovery_threshold: int = Field(default=DEFAULT_ROADMAP_DISCOVERY_THRESHOLD, ge=0)
     planning_horizon: int = Field(default=DEFAULT_ROADMAP_PLANNING_HORIZON, ge=0)
     stall_days: int = Field(default=DEFAULT_ROADMAP_STALL_DAYS, ge=1)
+    open_issue_limit: int = Field(default=DEFAULT_ROADMAP_OPEN_ISSUE_LIMIT, ge=1)
+    throttle_start_fraction: float = Field(
+        default=DEFAULT_ROADMAP_THROTTLE_START_FRACTION, gt=0.0, lt=1.0
+    )
+    overage_step_fraction: float = Field(
+        default=DEFAULT_ROADMAP_OVERAGE_STEP_FRACTION, gt=0.0, lt=1.0
+    )
+    release_credit_base: int = Field(default=DEFAULT_ROADMAP_RELEASE_CREDIT_BASE, ge=0)
+    release_credit_per_delivered_item: int = Field(
+        default=DEFAULT_ROADMAP_RELEASE_CREDIT_PER_DELIVERED_ITEM, ge=0
+    )
+    release_item_target: int = Field(default=DEFAULT_ROADMAP_RELEASE_ITEM_TARGET, ge=1)
 
 
 def parse_roadmap_config(text: str) -> RoadmapConfig:

@@ -214,6 +214,12 @@ devops --help                        # Access global DevOps automation CLI
         "    - **Automatic Roadmap Ingestion for Features, Suggestions & Integrations**:\n"
         "      - Whenever identifying **features, useful suggestions, constructive enhancements, workflow automations, refactoring ideas, or third-party integrations** that could improve developer velocity, system resilience, or codebase quality, AI agents **MUST FILE A CANDIDATE ISSUE (`devops gh issues create`)** to design and implement them; intake places it in the current release, a planned release or the backlog.\n"
         "      - Any good suggestions, architectural observations, or optimization ideas that emerge while working **MUST BE FILED AS CANDIDATE ISSUES (`devops gh issues create`)**, keeping the roadmap GitHub holds living, accurate, and continuously advancing the state of the art.\n"
+        "    - **Agent Filing Quota, Borrowing & Consolidation Guardrails ([#1153](https://github.com/dan-petty/devops-cli/issues/1153))**:\n"
+        "      - Whenever filing candidate issues, AI agents must actively respect the repository's agent filing quota:\n"
+        "        - **Fold First**: Fold a finding into an existing item first (as an amendment or comment) or join an open consolidation group before opening a new issue.\n"
+        "        - **Agent Attribution**: Label every agent-filed issue `source/agent`. Issues a person files never count toward the quota and are never refused.\n"
+        "        - **Quota & Allowance Formula**: Beyond the release credit (`credit = min(release_credit_base + release_credit_per_delivered_item * delivered, release_item_target)`), each opening costs `r(n)` closures, using the values in `.github/roadmap.toml` (`open_issue_limit`, `throttle_start_fraction`, `overage_step_fraction`). An agent may check allowance via REST search queries (`q=repo:R is:issue is:open`, `q=repo:R is:issue label:source/agent created:>=<start>`, `q=repo:R is:issue is:closed closed:>=<start>`).\n"
+        "        - **Borrowing Only for Work in Flight**: An opening beyond the allowance proceeds only as a borrow (split, required follow-up, P0/P1 bug or security), labelled `budget/borrowed`, and anything else is folded with a line saying why.\n"
         if meta.is_devops_cli
         else ""
     )
