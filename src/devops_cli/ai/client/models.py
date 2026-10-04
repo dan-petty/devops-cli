@@ -65,6 +65,10 @@ class AIClientError(LLMInferenceError, RuntimeError):
     """Raised when an AI provider request fails with a user-actionable message."""
 
 
+class StructuredOutputValidationError(AIClientError):
+    """Raised when the model answered, but no answer validated against the schema after retries."""
+
+
 class AICredentialsError(AIClientError):
     """Raised when a provider rejects the request's credentials; retrying cannot help."""
 

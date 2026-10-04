@@ -22,7 +22,11 @@ import pytest
 from packaging.version import Version
 
 from devops_cli.config.constants import CONST_ROADMAP_RUN_RECORD_BODY
-from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
+from devops_cli.exceptions.git import (
+    GitHubFileNotFoundError,
+    GitHubOperationError,
+    GitHubRateLimitError,
+)
 from devops_cli.github.rate_limiter import reset_github_rate_limiter
 from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.github_store import GitHubRoadmapStore, option_update_request
@@ -32,9 +36,12 @@ from devops_cli.roadmap.store import (
     CardKind,
     ChangeKind,
     CloseReason,
+    Evidence,
+    EvidenceKind,
     FieldOption,
     FieldSpec,
     GitHubState,
+    IssueQuery,
     Item,
     ItemField,
     JobMark,
@@ -1130,10 +1137,14 @@ def test_repository_file_reads_raw_contents_at_the_ref() -> None:
     )
 
 
-def test_a_file_that_cannot_be_read_raises() -> None:
-    store, _ = board_store({"contents/": (1, "HTTP 404: Not Found")})
-    with pytest.raises(GitHubOperationError, match=r"Could not read docs/ROADMAP\.md"):
-        store.repository_file("docs/ROADMAP.md", ref="main")
+def test_a_missing_file_raises_not_found_and_another_failure_raises_as_a_failed_read() -> None:
+    missing, _ = board_store({"contents/": (1, "gh: Not Found (HTTP 404)")})
+    broken, _ = board_store({"contents/": (1, "gh: Server Error (HTTP 502)")})
+    with pytest.raises(GitHubFileNotFoundError, match=r"has no docs/ROADMAP\.md at main"):
+        missing.repository_file("docs/ROADMAP.md", ref="main")
+    with pytest.raises(GitHubOperationError, match=r"Could not read docs/ROADMAP\.md") as failed:
+        broken.repository_file("docs/ROADMAP.md", ref="main")
+    assert isinstance(failed.value, GitHubFileNotFoundError) is False
 
 
 def test_create_board_creates_links_and_gives_the_new_board_the_template_fields() -> None:
@@ -1602,4 +1613,192 @@ def test_a_milestone_change_carries_the_release_now_and_the_items_job_record() -
         ItemField.RELEASE,
         "v0.2.24",
         {ItemField.RELEASE: "v0.2.24"},
+    )
+
+
+# ── What intake reads and writes (#742) ───────────────────────────────────────
+
+
+def issue_payload(number: int, **changes: Any) -> dict[str, Any]:
+    """The recorded open issue #917 as issue `number`, with its node id."""
+    return {**OPEN_ISSUES[1], "number": number, "node_id": f"I_kw{number}", **changes}
+
+
+def test_close_as_duplicate_comments_then_closes_with_the_originals_node_id() -> None:
+    store, runner = board_store(
+        {
+            "-X POST": {},
+            "--input": {"data": {"closeIssue": {"issue": {"number": 950}}}},
+            f"api repos/{REPO}/issues/950": issue_payload(950),
+            f"api repos/{REPO}/issues/742": issue_payload(742),
+        }
+    )
+    store.close_as_duplicate(950, 742, "Duplicate of #742.")
+    (request,) = runner.inputs()
+    assert (runner.writes[0][3:], "DUPLICATE" in request["query"], request["variables"]) == (
+        [f"repos/{REPO}/issues/950/comments", "-f", "body=Duplicate of #742."],
+        True,
+        {"issue": "I_kw950", "original": "I_kw742"},
+    )
+
+
+def test_close_as_duplicate_without_a_comment_writes_only_the_close() -> None:
+    store, runner = board_store(
+        {
+            "--input": {"data": {"closeIssue": {"issue": {"number": 950}}}},
+            f"api repos/{REPO}/issues/950": issue_payload(950),
+            f"api repos/{REPO}/issues/742": issue_payload(742),
+        }
+    )
+    store.close_as_duplicate(950, 742, None)
+    assert ([w for w in runner.writes if "comments" in " ".join(w)], len(runner.inputs())) == (
+        [],
+        1,
+    )
+
+
+def test_close_as_duplicate_refuses_a_pull_request_before_any_write() -> None:
+    store, runner = board_store(
+        {
+            f"api repos/{REPO}/issues/918": OPEN_ISSUES[0],
+            f"api repos/{REPO}/issues/742": issue_payload(742),
+        }
+    )
+    with pytest.raises(GitHubOperationError, match="pull request"):
+        store.close_as_duplicate(742, 918, "no")
+    assert runner.writes == []
+
+
+def _timeline(nodes: list[dict[str, Any]], total: int | None = None) -> dict[str, Any]:
+    connection = {"nodes": nodes, "totalCount": len(nodes) if total is None else total}
+    return {"data": {"repository": {"issue": {"timelineItems": connection}}}}
+
+
+def test_closures_read_the_timelines_closes_and_reopens_oldest_first() -> None:
+    nodes = [
+        {
+            "__typename": "ClosedEvent",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "stateReason": "DUPLICATE",
+            "duplicateOf": {"number": 742},
+        },
+        {"__typename": "ReopenedEvent", "createdAt": "2026-10-01T11:00:00Z"},
+    ]
+    store, runner = board_store({"timelineItems": _timeline(nodes)})
+    closures = store.closures(950)
+    assert (
+        [(c.kind, c.at.hour, c.reason, c.duplicate_of) for c in closures],
+        runner.calls[0][0][-2:],
+    ) == (
+        [(ChangeKind.CLOSED, 10, "duplicate", 742), (ChangeKind.REOPENED, 11, None, None)],
+        ["-F", "number=950"],
+    )
+
+
+def test_closures_past_the_connection_limit_raise() -> None:
+    store, _ = board_store({"timelineItems": _timeline([], total=101)})
+    with pytest.raises(GitHubOperationError, match="Read 0 of 101"):
+        store.closures(950)
+
+
+def test_label_issue_posts_one_label_and_keeps_the_others() -> None:
+    store, runner = board_store({"-X POST": []})
+    store.label_issue(950, "type/bug")
+    assert runner.writes == [
+        ["api", "-X", "POST", f"repos/{REPO}/issues/950/labels", "-f", "labels[]=type/bug"]
+    ]
+
+
+@pytest.mark.parametrize(
+    ("kind", "value", "reply", "endpoint", "holds"),
+    [
+        (
+            "advisory",
+            "GHSA-abcd-efgh-ijkl",
+            {"ghsa_id": "x"},
+            "advisories/GHSA-abcd-efgh-ijkl",
+            True,
+        ),
+        ("advisory", "GHSA-abcd-efgh-ijkl", (1, "gh: Not Found (HTTP 404)"), "advisories/", False),
+        ("failed_run", "123", {"conclusion": "failure"}, f"repos/{REPO}/actions/runs/123", True),
+        ("failed_run", "123", {"conclusion": "success"}, f"repos/{REPO}/actions/runs/123", False),
+        ("regression_commit", "abc1234", {"sha": "abc1234"}, f"repos/{REPO}/commits/abc1234", True),
+        ("regression_commit", "abc1234", (1, "HTTP 422: No commit found"), "commits/", False),
+    ],
+)
+def test_evidence_holds_reads_the_advisory_run_or_commit(
+    kind: str, value: str, reply: Any, endpoint: str, holds: bool
+) -> None:
+    store, runner = board_store({"api ": reply})
+    found = store.evidence_holds(Evidence(kind=EvidenceKind(kind), value=value))
+    assert (found, endpoint in runner.calls[0][0][-1]) == (holds, True)
+
+
+def test_evidence_with_a_path_in_its_value_never_leaves_its_endpoint() -> None:
+    store, runner = board_store({"api ": {"sha": "x"}})
+    store.evidence_holds(Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="../pulls/1"))
+    assert runner.calls[0][0][-1] == f"repos/{REPO}/commits/..%2Fpulls%2F1"
+
+
+def test_count_issues_reads_rest_search_total_count_for_its_query() -> None:
+    store, runner = board_store({"search/issues": {"total_count": 57, "incomplete_results": False}})
+    since = datetime(2026, 10, 3, 20, 37, 25, tzinfo=UTC)
+    counted = store.count_issues(
+        IssueQuery(
+            state=GitHubState.CLOSED,
+            labels=("source/agent",),
+            created_since=since,
+            closed_since=since,
+            reason=CloseReason.NOT_PLANNED,
+            uncommented=True,
+        )
+    )
+    assert (counted, runner.calls[0][0]) == (
+        57,
+        [
+            "api",
+            "-X",
+            "GET",
+            "search/issues",
+            "-f",
+            f'q=repo:{REPO} is:issue is:closed label:"source/agent" '
+            "created:>=2026-10-03T20:37:25+00:00 closed:>=2026-10-03T20:37:25+00:00 "
+            'reason:"not planned" comments:0',
+            "-F",
+            "per_page=1",
+        ],
+    )
+
+
+def test_an_incomplete_search_raises_rather_than_undercount() -> None:
+    store, _ = board_store({"search/issues": {"total_count": 3, "incomplete_results": True}})
+    with pytest.raises(GitHubOperationError, match="incomplete"):
+        store.count_issues(IssueQuery(state=GitHubState.OPEN))
+
+
+def test_issue_records_and_releases_carry_author_and_close_times() -> None:
+    closed = {**MILESTONES[0], "state": "closed", "closed_at": "2026-10-03T20:37:25Z"}
+    store, _ = board_store(
+        {
+            "milestones?state=all": [closed],
+            "issues?state=all": [
+                issue_payload(
+                    950,
+                    author_association="COLLABORATOR",
+                    created_at="2026-10-04T01:00:00Z",
+                    closed_at=None,
+                )
+            ],
+        }
+    )
+    (issue,) = store.issues()
+    (release,) = store.releases()
+    assert (
+        issue.author_association,
+        issue.created_at,
+        release.closed_at,
+    ) == (
+        "COLLABORATOR",
+        datetime(2026, 10, 4, 1, tzinfo=UTC),
+        datetime(2026, 10, 3, 20, 37, 25, tzinfo=UTC),
     )

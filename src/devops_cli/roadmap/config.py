@@ -8,6 +8,7 @@ read, a missing `board` or a key the model doesn't know stops the command.
 from __future__ import annotations
 
 import tomllib
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as InvalidConfigError
@@ -26,7 +27,11 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_THROTTLE_START_FRACTION,
 )
 from devops_cli.exceptions.config import ConfigurationError
+from devops_cli.roadmap import store as roadmap_store
 from devops_cli.roadmap.store import RoadmapStore
+
+if TYPE_CHECKING:
+    from devops_cli.roadmap.github_store import GhRunner
 
 
 class RoadmapConfig(BaseModel):
@@ -77,4 +82,17 @@ def read_roadmap_config(store: RoadmapStore, *, ref: str | None) -> RoadmapConfi
     return parse_roadmap_config(store.repository_file(CONST_ROADMAP_CONFIG_PATH, ref=ref))
 
 
-__all__ = ["RoadmapConfig", "parse_roadmap_config", "read_roadmap_config"]
+def open_roadmap(
+    repo: str, *, ref: str | None, runner: GhRunner | None = None
+) -> tuple[RoadmapConfig, RoadmapStore]:
+    """`repo`'s roadmap configuration on `ref`, and the roadmap store on the board it names;
+    both stores run their `gh` commands through `runner` when one is given."""
+    config = read_roadmap_config(roadmap_store.get_roadmap_store(repo, runner=runner), ref=ref)
+    owner = repo.split("/")[0]
+    board = roadmap_store.get_roadmap_store(
+        repo, board_owner=owner, board_number=config.board, runner=runner
+    )
+    return config, board
+
+
+__all__ = ["RoadmapConfig", "open_roadmap", "parse_roadmap_config", "read_roadmap_config"]

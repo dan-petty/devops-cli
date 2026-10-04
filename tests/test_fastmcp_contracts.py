@@ -134,6 +134,7 @@ def test_fastmcp_tools_registration() -> None:
         "gh_rate_limit",
         "gh_runs_list",
         "gh_run_view",
+        "roadmap_intake",
         "roadmap_migrate",
         "roadmap_render",
         "roadmap_reprioritize",

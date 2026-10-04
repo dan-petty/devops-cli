@@ -42,7 +42,7 @@ def test_issue_triage_audit_model() -> None:
         issues_missing_type=[1, 2],
         issues_missing_scope=[2],
         issues_missing_priority=[1],
-        issues_missing_milestone=[3],
+        issues_awaiting_intake=[3],
     )
     assert audit.total_open == 10
     assert audit.valid_count == 8
@@ -129,7 +129,30 @@ def test_audit_issues_triage() -> None:
         assert 2 in audit.issues_missing_scope
         assert 3 in audit.issues_missing_scope
         assert 2 in audit.issues_missing_priority
-        assert 3 in audit.issues_missing_milestone
+
+
+def test_triage_reports_an_issue_off_the_board_once_as_awaiting_intake() -> None:
+    """A backlog item has no milestone, and an issue off the board has no Priority until intake
+    gives it one, so neither is a triage finding (#742)."""
+    issues = [
+        GitHubIssue(
+            number=1,
+            title="Backlog item",
+            state="open",
+            milestone=None,
+            labels=["type/feature", "scope/cli", "priority/p2-medium"],
+        ),
+        GitHubIssue(number=2, title="Not on the board yet", state="open", labels=[]),
+    ]
+    with patch("devops_cli.github.issues.get_repository_issues", return_value=issues):
+        audit = audit_issues_triage("dan-petty/devops-cli", awaiting_intake={2})
+    assert (
+        audit.valid_count,
+        audit.issues_awaiting_intake,
+        audit.issues_missing_type,
+        audit.issues_missing_scope,
+        audit.issues_missing_priority,
+    ) == (1, [2], [], [], [])
 
 
 def test_get_issues_summary() -> None:

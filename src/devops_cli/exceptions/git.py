@@ -94,6 +94,21 @@ class GitHubOperationError(DevOpsCLIError, RuntimeError):
         super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
 
 
+class GitHubFileNotFoundError(GitHubOperationError):
+    """Raised when a repository file GitHub was asked for does not exist on that ref."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str = "repository_file",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message, operation=operation, error_code="GITHUB_FILE_NOT_FOUND", details=details
+        )
+
+
 class GitHubUnauthenticatedError(GitHubOperationError):
     """Raised when `gh auth token` gives the process no GitHub identity to call GitHub as."""
 

@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import subprocess
+import tempfile
 from typing import Annotated, Any, Literal
 
 from fastmcp import Context, FastMCP
@@ -685,6 +686,50 @@ def roadmap_reprioritize(
     else:
         cmd.append("--confirm")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def roadmap_intake(
+    repo: str | None = None,
+    ref: str | None = None,
+    issues: list[int] | None = None,
+    title: str | None = None,
+    body: str | None = None,
+    source: str | None = None,
+    borrow_reason: Literal["split", "follow-up"] | None = None,
+    mode: Literal["dry-run", "plan", "confirm"] = "plan",
+) -> str:
+    """Turn candidates into roadmap items: duplicate check, type, priority, Value, Effort and
+    placement, with the agent filing quota for an agent's new candidate (`title` with `body`,
+    and `source`, the link it came from, which `borrow_reason` needs).
+
+    `mode="plan"`, the default, previews: it reads GitHub and calls the model, writes nothing,
+    and reports what it spent. `mode="dry-run"` makes no request and returns the requests a run
+    makes; `mode="confirm"` makes the writes. The body is passed as text, never as a path, so
+    the tool reads no file of the caller's choosing.
+    """
+    cmd = ["uv", "run", "devops", "roadmap", "intake"]
+    for name, value in (("repo", repo), ("ref", ref), ("title", title), ("source", source)):
+        if value:
+            _validate_mcp_arg(name, value)
+            cmd.extend([f"--{name}", value])
+    for number in issues or ():
+        _validate_mcp_int_bound("issues", number)
+        cmd.extend(["--issue", str(number)])
+    if borrow_reason:
+        cmd.extend(["--borrow-reason", borrow_reason])
+    cmd.append(f"--{mode}")
+    if body is None:
+        return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+    # The file is created owner-only (0600) and removed when the command ends.
+    with tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", suffix=".md", delete_on_close=False
+    ) as body_file:
+        body_file.write(body)
+        body_file.close()
+        return _run_mcp_cmd(
+            [*cmd, "--body-file", body_file.name], timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS
+        )
 
 
 @mcp.tool()
@@ -1748,7 +1793,7 @@ def gh_issue_create(
 
 @mcp.tool()
 def gh_issue_triage(repo: str | None = None) -> str:
-    """Audit open issues for mandatory taxonomy labels and milestone linkage."""
+    """Audit open issues for mandatory taxonomy labels, and report those awaiting intake."""
     cmd = ["uv", "run", "devops", "gh", "issues", "triage"]
     if repo:
         _validate_mcp_arg("repo", repo)

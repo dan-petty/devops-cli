@@ -807,7 +807,10 @@ class GHCommandHelp:
     issues_app: str = "Manage GitHub Issues, track milestones, and enforce taxonomy standards."
     issues_list: str = "List repository issues with milestone, taxonomy labels, and status."
     issues_create: str = "Create a new issue linking milestone and taxonomy labels."
-    issues_triage: str = "Audit open issues for mandatory taxonomy labels and milestone linkage."
+    issues_triage: str = (
+        "Audit open issues for mandatory taxonomy labels, and report those not on the roadmap "
+        "board as awaiting intake."
+    )
     issues_status: str = "Display aggregated issue counts by priority, type, and milestone."
     issues_edit: str = "Edit an existing issue title, body, state, milestone, or taxonomy labels."
     issues_close_merged: str = (
@@ -901,6 +904,45 @@ class RoadmapCommandHelp:
         "Make the changes on GitHub. Without it, reprioritize prints its plan only."
     )
     reprioritize_dry_run: str = "Print each change with its reason, and write nothing."
+    intake: str = (
+        "Turn candidates into items: every open issue not on the board, and every board item "
+        "intake left without a Priority. Each is checked for a duplicate among the board's "
+        "items and the issues closed as not planned, gets a type, a priority, Value and Effort "
+        "from the model with a reason comment, and goes to the backlog, or a critical fix to "
+        "the release #740's admission rule allows. A candidate an agent files with --title "
+        "and --body-file is labeled source/agent and held to the agent filing quota; a text "
+        "that looks like it holds a secret is refused. --dry-run makes no request and prints "
+        "the requests a run makes; --plan, the default, reads GitHub and calls the model, "
+        "writes nothing and reports what it spent; --confirm makes the writes."
+    )
+    intake_issue: str = "Only this issue (repeatable)."
+    intake_title: str = (
+        "Title of a candidate that is not an issue yet; intake files it only when it is not a "
+        "duplicate. Needs --body-file."
+    )
+    intake_body_file: str = "File holding the new candidate's body. Needs --title."
+    intake_borrow_reason: str = (
+        "Why the new candidate may open beyond the quota's allowance: a split of an item too "
+        "big for one pull request, or a follow-up a reviewer or readiness check requires. "
+        "Needs --source."
+    )
+    intake_source: str = (
+        "Link the new candidate came from, such as the item it splits or the review that found "
+        "it; the filed body ends with it."
+    )
+    intake_filed_by: str = (
+        "Who files the new candidate: an agent's is labeled source/agent and counts toward the "
+        "quota; a person's never does."
+    )
+    intake_confirm: str = "Plan as --plan does, then make the writes on GitHub."
+    intake_plan: str = (
+        "Read GitHub and call the model, print each planned change and what the run spent, and "
+        "write nothing. Intake without a mode flag does this."
+    )
+    intake_dry_run: str = (
+        "Make no request, to GitHub or a model: print the requests a run makes, in order, with "
+        "placeholders for values a read gives."
+    )
 
 
 @dataclass(frozen=True)

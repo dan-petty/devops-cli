@@ -23,7 +23,7 @@ from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.github.branch_protection import (
     audit_branch_protection,
     load_branch_protection_policies,
@@ -80,7 +80,7 @@ from devops_cli.github.secrets import (
     sync_repository_secrets,
 )
 from devops_cli.github.session import get_github_session
-from devops_cli.lang import HELP
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     format_json,
     print,
@@ -94,6 +94,7 @@ from devops_cli.output import (
     write_stdout,
 )
 from devops_cli.roadmap import store as roadmap_store
+from devops_cli.roadmap.config import open_roadmap
 from devops_cli.roadmap.store import GitHubState
 
 logger = logging.getLogger(__name__)
@@ -999,13 +1000,24 @@ def issues_create_cmd(
     print_success(f"Created issue #{created.number}: '{created.title}' ({created.url or 'local'})")
 
 
+def _awaiting_intake(repo: str) -> list[int] | None:
+    """The open issues not on the roadmap board, or None for a repository without
+    `.github/roadmap.toml`; any other failed read raises."""
+    try:
+        _, store = open_roadmap(repo, ref=None)
+    except GitHubFileNotFoundError:
+        return None
+    return [candidate.number for candidate in store.candidates()]
+
+
 @issues_app.command("triage", help=HELP.gh.issues_triage)
 def issues_triage_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
 ) -> None:
-    """Audit open issues for mandatory taxonomy labels and milestone linkage."""
+    """Audit open issues for mandatory taxonomy labels, and report those awaiting intake."""
     target_repo = repo or _resolve_repo()
-    audit = audit_issues_triage(target_repo)
+    awaiting = _awaiting_intake(target_repo)
+    audit = audit_issues_triage(target_repo, awaiting_intake=awaiting or ())
     columns = ["Metric", "Value", "Violating Issues"]
     rows = [
         ["Total Open Issues", str(audit.total_open), "—"],
@@ -1026,16 +1038,18 @@ def issues_triage_cmd(
             ", ".join(f"#{n}" for n in audit.issues_missing_priority) or "None",
         ],
         [
-            "Missing Milestone",
-            str(len(audit.issues_missing_milestone)),
-            ", ".join(f"#{n}" for n in audit.issues_missing_milestone) or "None",
+            "Awaiting Intake",
+            str(len(audit.issues_awaiting_intake)),
+            ", ".join(f"#{n}" for n in audit.issues_awaiting_intake) or "None",
         ],
     ]
     print_table(f"GitHub Issues Triage & Taxonomy Audit ({target_repo})", columns, rows)
-    if audit.valid_count < audit.total_open:
-        print_warning(
-            "Triage audit detected issues missing required taxonomy labels or milestone linkage."
-        )
+    if awaiting is None:
+        print_info(MESSAGES.roadmap.triage_no_board)
+    if audit.valid_count + len(audit.issues_awaiting_intake) < audit.total_open:
+        print_warning("Triage audit detected issues missing required taxonomy labels.")
+    if audit.issues_awaiting_intake:
+        print_info(MESSAGES.roadmap.triage_awaiting_intake)
 
 
 @issues_app.command("status", help=HELP.gh.issues_status)
