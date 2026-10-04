@@ -694,6 +694,9 @@ class ServeCommandHelp:
     workers: str = "Number of worker processes."
     log_level: str = "Logging level (debug, info, warning, error)."
     docs: str = "Enable or disable Swagger UI (/docs) and ReDoc (/redoc)."
+    service: str = (
+        "Run continuous background service with GitHub webhook verification and per-repo queue."
+    )
 
 
 @dataclass(frozen=True)

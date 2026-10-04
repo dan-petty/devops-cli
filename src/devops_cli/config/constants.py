@@ -897,6 +897,21 @@ CONST_GITHUB_IDENTITY_DIGEST_CHARS: Final[int] = 16
 CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE = "GITHUB_UNAUTHENTICATED"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
 CONST_GH_WEBHOOK_SIGNATURE_HEADER = "X-Hub-Signature-256"
+CONST_GH_WEBHOOK_EVENT_HEADER: Final[str] = "X-GitHub-Event"
+CONST_GH_WEBHOOK_DELIVERY_HEADER: Final[str] = "X-GitHub-Delivery"
+CONST_SERVICE_MAX_BODY_BYTES: Final[int] = 25 * 1024 * 1024
+CONST_SERVICE_DELIVERY_LRU_CAPACITY: Final[int] = 10_000
+CONST_SERVICE_SOURCE_WEBHOOK: Final[str] = "webhook"
+CONST_SERVICE_SOURCE_POLL: Final[str] = "poll"
+CONST_SERVICE_PING_EVENT: Final[str] = "ping"
+CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES: Final[str] = "devops_cli_service_webhook_deliveries_total"
+CONST_SERVICE_METRIC_TRIGGERS: Final[str] = "devops_cli_service_triggers_total"
+CONST_SERVICE_METRIC_JOBS: Final[str] = "devops_cli_service_jobs_total"
+CONST_SERVICE_METRIC_JOB_SECONDS: Final[str] = "devops_cli_service_job_seconds_total"
+CONST_SERVICE_METRIC_JOB_START_TIMESTAMP: Final[str] = (
+    "devops_cli_service_job_start_timestamp_seconds"
+)
+CONST_SERVICE_METRIC_QUEUE_DEPTH: Final[str] = "devops_cli_service_queue_depth"
 CONST_GH_NON_API_COMMANDS: Final[frozenset[str]] = frozenset(
     {
         "auth",

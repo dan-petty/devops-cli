@@ -125,6 +125,13 @@ FEATURE_HEADLESS_AUTH = "features.headless_auth"
 # Sandbox Configuration
 SANDBOX_EXCLUDE_HOME_DIR = "sandbox.exclude_home_dir"
 
+# Service Mode Configuration
+SERVICE_REPOS = "service.repos"
+SERVICE_MACHINE_ACCOUNT = "service.machine_account"
+SERVICE_POLL_INTERVAL_SECONDS = "service.poll_interval_seconds"
+SERVICE_DRAIN_TIMEOUT_SECONDS = "service.drain_timeout_seconds"
+SERVICE_WEBHOOK_SECRETS = "service.webhook_secrets"
+
 CONFIG_OPTIONS: tuple[str, ...] = (
     GITHUB_DEFAULT_ORG,
     SSH_KEY_DIR,
@@ -223,6 +230,11 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     CLOUDFLARE_ACCESS_IDP,
     CLOUDFLARE_ACCESS_BYPASS_IPS,
     CLOUDFLARE_ACCESS_PUBLIC_IP_BYPASS,
+    SERVICE_REPOS,
+    SERVICE_MACHINE_ACCOUNT,
+    SERVICE_POLL_INTERVAL_SECONDS,
+    SERVICE_DRAIN_TIMEOUT_SECONDS,
+    SERVICE_WEBHOOK_SECRETS,
 )
 
 SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
@@ -238,6 +250,7 @@ SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
         TELEMETRY_LOGFIRE_TOKEN,
         CLOUDFLARE_API_TOKEN,
         CLOUDFLARE_TUNNEL_TOKEN,
+        SERVICE_WEBHOOK_SECRETS,
     }
 )
 
@@ -253,4 +266,5 @@ KEYRING_KEYS: dict[str, str] = {
     TELEMETRY_LOGFIRE_TOKEN: "logfire_token",
     CLOUDFLARE_API_TOKEN: "cloudflare_api_token",
     CLOUDFLARE_TUNNEL_TOKEN: "cloudflare_tunnel_token",
+    SERVICE_WEBHOOK_SECRETS: "service_webhook_secrets",
 }

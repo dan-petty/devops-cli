@@ -25,11 +25,6 @@ from devops_cli.github.check_verdict import (
     fetch_pr_check_verdicts,
 )
 from devops_cli.github.client import GhCliClient, GitHubClient, RepoInfo
-from devops_cli.github.graphql import (
-    WebhookEvent,
-    WebhookEventDispatcher,
-    verify_webhook_signature,
-)
 from devops_cli.github.issues import (
     GitHubIssue,
     IssueTriageAudit,
@@ -164,8 +159,6 @@ __all__ = [
     "SecretSyncResult",
     "StatusChecksPolicy",
     "ThreadResolutionResult",
-    "WebhookEvent",
-    "WebhookEventDispatcher",
     "WorkflowRunMetric",
     "audit_branch_protection",
     "audit_issues_triage",
@@ -220,5 +213,4 @@ __all__ = [
     "unresolve_pr_review_thread",
     "verify_pages_configuration",
     "verify_project_auth_scopes",
-    "verify_webhook_signature",
 ]

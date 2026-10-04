@@ -931,3 +931,7 @@ DEFAULT_SHELL_DRAIN_TIMEOUT_SECONDS: Final[float] = 2.0
 # remaining members get SIGKILL, and how often the group is probed meanwhile (#958).
 DEFAULT_SHELL_STOP_GRACE_SECONDS: Final[float] = 3.0
 DEFAULT_SHELL_STOP_POLL_SECONDS: Final[float] = 0.05
+
+# ── Service Mode Defaults ─────────────────────────────────────────────────────
+DEFAULT_SERVICE_POLL_INTERVAL_SECONDS: Final[int] = 300
+DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS: Final[int] = 120

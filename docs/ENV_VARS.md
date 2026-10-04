@@ -69,6 +69,11 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_REPOS_BASE_DIR` | `repos.base_dir` | No | Base directory for cloned repositories |
 | `DEVOPS_CLI_RUNS_INDEX_PASSWORD` | `runs.index_password` | 🔒 Yes | Run index Valkey password (stored in OS keyring) |
 | `DEVOPS_CLI_RUNS_INDEX_URL` | `runs.index_url` | No | Valkey holding the run index shared by workstations (set by `devops ai runs connect`) |
+| `DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS` | `service.drain_timeout_seconds` | No | Shutdown drain timeout for running service jobs in seconds |
+| `DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT` | `service.machine_account` | No | GitHub username of the machine account to ignore events from |
+| `DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS` | `service.poll_interval_seconds` | No | Periodic polling interval for service mode in seconds |
+| `DEVOPS_CLI_SERVICE_REPOS` | `service.repos` | No | Target repository list for service mode |
+| `DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS` | `service.webhook_secrets` | 🔒 Yes | JSON map of repo to webhook HMAC secret for incoming GitHub webhooks |
 | `DEVOPS_CLI_SSH_KEY_DIR` | `ssh.key_dir` | No | Directory for SSH key pairs |
 | `DEVOPS_CLI_SSH_KEY_PREFIX` | `ssh.key_prefix` | No | Prefix for generated SSH keys (defaults to devcontainer name or basename pwd) |
 | `DEVOPS_CLI_SSH_ROTATION_DAYS` | `ssh.rotation_days` | No | SSH key rotation interval in days |

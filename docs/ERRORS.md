@@ -61,7 +61,6 @@ names the class each row describes. One code never maps to two exit statuses.
 | `GitHubOperationError` | `GITHUB_OPERATION_FAILED` | `1` | Git | Exception raised for GitHub API or CLI automation failures. |
 | `GitHubRateLimitError` | `GITHUB_RATE_LIMIT_UNKNOWN` | `1` | Git | Exception raised when GitHub rate limit quota state is broken or unknown and cannot be resolved. |
 | `GitHubUnauthenticatedError` | `GITHUB_UNAUTHENTICATED` | `1` | Git | Raised when `gh auth token` gives the process no GitHub identity to call GitHub as. |
-| `GitHubWebhookVerificationError` | `GITHUB_WEBHOOK_VERIFICATION_FAILED` | `1` | Git | Exception raised when GitHub webhook signature verification fails. |
 | `GitOperationError` | `GIT_OPERATION_ERROR` | `1` | Git | Base exception for Git repository and branch operation failures. |
 | `GitOpsSyncError` | `GITOPS_SYNC_ERROR` | `1` | K8s | Raised when GitOps synchronization trigger or reconciliation fails. |
 | `HTTPTimeoutTypeError` | `VALIDATION_ERROR` | `1` | Devops_cli.http.client | Raised when an invalid timeout parameter type is provided. |

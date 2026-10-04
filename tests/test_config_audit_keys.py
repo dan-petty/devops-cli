@@ -25,23 +25,28 @@ def test_config_audit_keys_json_output() -> None:
     result = runner.invoke(app, ["audit-keys", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
-    assert "keyring_backend" in data
-    assert "keys" in data
-    assert "is_compliant" in data
-    assert len(data["keys"]) == 11
+    assert (
+        "keyring_backend" in data,
+        "keys" in data,
+        "is_compliant" in data,
+        len(data["keys"]),
+    ) == (True, True, True, 12)
 
     keys = {k["key"] for k in data["keys"]}
-    assert not [key for key in keys if key.partition(".")[0] == "github"]
-    assert "grafana.token" in keys
-    assert "grafana.password" in keys
-    assert "argocd.token" in keys
-    assert "argocd.password" in keys
-    assert "ai.api_key" in keys
-    assert "qdrant.api_key" in keys
-    assert "valkey.password" in keys
-    assert "runs.index_password" in keys
-    assert "telemetry.logfire_token" in keys
-    assert "cloudflare.api_token" in keys
+    assert (
+        not [key for key in keys if key.partition(".")[0] == "github"],
+        "grafana.token" in keys,
+        "grafana.password" in keys,
+        "argocd.token" in keys,
+        "argocd.password" in keys,
+        "ai.api_key" in keys,
+        "qdrant.api_key" in keys,
+        "valkey.password" in keys,
+        "runs.index_password" in keys,
+        "telemetry.logfire_token" in keys,
+        "cloudflare.api_token" in keys,
+        "service.webhook_secrets" in keys,
+    ) == (True, True, True, True, True, True, True, True, True, True, True, True)
 
 
 def test_config_audit_keys_table_rendering() -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import operator
 import os
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import devops_cli.config.options as opt
@@ -84,6 +85,8 @@ from devops_cli.config.defaults import (
     DEFAULT_RUNS_DATA_DIR,
     DEFAULT_SAMPLES_DATA_DIR,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
+    DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS,
+    DEFAULT_SERVICE_POLL_INTERVAL_SECONDS,
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_KEY_PREFIX,
     DEFAULT_SSH_ROTATION_DAYS,
@@ -618,6 +621,46 @@ _DEFAULT_CHILD_DATA_MAP: dict[str, Path] = {
 }
 
 
+class ServiceConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    repos: list[str] = Field(default_factory=list)
+    machine_account: str | None = None
+    poll_interval_seconds: int = Field(default=DEFAULT_SERVICE_POLL_INTERVAL_SECONDS, ge=60)
+    drain_timeout_seconds: int = Field(default=DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS, gt=0)
+
+    @field_validator("repos", mode="before")
+    @classmethod
+    def _parse_repos(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            trimmed = v.strip()
+            if not trimmed:
+                return []
+            if trimmed.startswith("[") and trimmed.endswith("]"):
+                try:
+                    parsed = json.loads(trimmed)
+                    if isinstance(parsed, list):
+                        return [str(item) for item in parsed if item]
+                except Exception:
+                    pass
+            return [part.strip() for part in trimmed.split(",") if part.strip()]
+        if isinstance(v, list):
+            if (
+                len(v) == 1
+                and isinstance(v[0], str)
+                and v[0].startswith("[")
+                and v[0].endswith("]")
+            ):
+                try:
+                    parsed = json.loads(v[0])
+                    if isinstance(parsed, list):
+                        return [str(item) for item in parsed if item]
+                except Exception:
+                    pass
+            return [str(item) for item in v if item]
+        return []
+
+
 class DataConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -673,6 +716,7 @@ class Settings(BaseSettings):
     ai: AIConfig = AIConfig()
     open_webui: OpenWebUIConfig = OpenWebUIConfig()
     data: DataConfig = DataConfig()
+    service: ServiceConfig = ServiceConfig()
 
 
 _EPHEMERAL_CI_SECRETS: dict[str, str] = {}
@@ -1172,6 +1216,11 @@ def get_cloudflare_api_token(settings: Settings) -> str | None:
     return _resolve(opt.CLOUDFLARE_API_TOKEN, settings)
 
 
+def get_service_webhook_secrets(settings: Settings) -> str | None:
+    """Resolve the JSON mapping of repo to webhook secret."""
+    return _resolve(opt.SERVICE_WEBHOOK_SECRETS, settings)
+
+
 def get_llm_client(task: str | None = None) -> Any:
     """Instantiate a configured LLMClient instance based on active application settings."""
     from devops_cli.ai.client import LLMClient
@@ -1197,11 +1246,17 @@ def _coerce_setting_value(current_val: Any, new_value: Any, is_list_field: bool)
     if isinstance(current_val, int):
         return int(new_value)
     if isinstance(current_val, list) or is_list_field:
-        return (
-            [v.strip() for v in str(new_value).split(",") if v.strip()]
-            if isinstance(new_value, str)
-            else new_value
-        )
+        if isinstance(new_value, str):
+            trimmed = new_value.strip()
+            if trimmed.startswith("[") and trimmed.endswith("]"):
+                try:
+                    parsed = json.loads(trimmed)
+                    if isinstance(parsed, list):
+                        return [str(item) for item in parsed if item]
+                except Exception:
+                    pass
+            return [v.strip() for v in trimmed.split(",") if v.strip()]
+        return new_value
     return new_value
 
 
