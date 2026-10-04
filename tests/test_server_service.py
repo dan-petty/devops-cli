@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import logging
+import sys
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -610,14 +611,19 @@ def test_prometheus_metrics_export() -> None:
 def test_json_log_formatter_zero_leakage() -> None:
     """Test JsonLogFormatter emits valid single-line JSON without secret/signature leakage."""
     formatter = JsonLogFormatter()
+    try:
+        raise RuntimeError("Service exception with key gcp_abcdefghijklmnopqrstuvwxyz")
+    except RuntimeError:
+        exc_info = sys.exc_info()
+
     record = logging.LogRecord(
         name="test_logger",
         level=logging.INFO,
         pathname="service.py",
         lineno=42,
-        msg="Service delivery processed",
+        msg="Service delivery failed with token glpat-abcdefghijklmnopqrstuvwxyz",
         args=(),
-        exc_info=None,
+        exc_info=exc_info,
     )
     record.repo = "example-org/repo1"
     record.source = "webhook"
@@ -638,29 +644,21 @@ def test_json_log_formatter_zero_leakage() -> None:
     assert (
         data["level"],
         data["logger"],
-        data["message"],
+        "glpat-abcdefghijklmnopqrstuvwxyz" in data["message"],
+        "<masked-token>" in data["message"],
+        "gcp_abcdefghijklmnopqrstuvwxyz" in data["exception"],
+        "<masked-gcp-service-account>" in data["exception"],
         data["repo"],
-        data["source"],
-        data["event"],
-        data["action"],
-        data["delivery"],
-        data["outcome"],
-        data["duration_s"],
-        data["result"],
         "secret" in data,
         "signature" in data,
     ) == (
         "INFO",
         "test_logger",
-        "Service delivery processed",
+        False,
+        True,
+        False,
+        True,
         "example-org/repo1",
-        "webhook",
-        "issues",
-        "opened",
-        "deliv-xyz",
-        "accepted",
-        0.045,
-        "success",
         False,
         False,
     )

@@ -8,6 +8,8 @@ import sys
 from datetime import UTC, datetime
 from typing import Any, Final
 
+from devops_cli.security.sanitizer import mask_secrets
+
 CONTEXT_LOG_KEYS: Final[tuple[str, ...]] = (
     "repo",
     "source",
@@ -29,14 +31,14 @@ class JsonLogFormatter(logging.Formatter):
             "time": record_time,
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": mask_secrets(record.getMessage()),
         }
         if record.exc_info:
-            log_entry["exception"] = self.formatException(record.exc_info)
+            log_entry["exception"] = mask_secrets(self.formatException(record.exc_info))
         for key in CONTEXT_LOG_KEYS:
             val = getattr(record, key, None)
             if val is not None:
-                log_entry[key] = val
+                log_entry[key] = mask_secrets(str(val)) if isinstance(val, str) else val
         return json.dumps(log_entry, separators=(",", ":"), ensure_ascii=False)
 
 

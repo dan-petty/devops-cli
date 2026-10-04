@@ -134,10 +134,11 @@ def _read_schedule(schedule_path: Path) -> dict[str, datetime]:
 
 
 def _write_schedule(schedule_path: Path, schedule: Mapping[str, datetime]) -> None:
-    """Write the last successful run time for each job to schedule.json."""
-    schedule_path.parent.mkdir(parents=True, exist_ok=True)
+    """Write the last successful run time for each job to schedule.json atomically."""
+    from devops_cli.output.file_writer import write_json_file
+
     payload = {job: dt.isoformat() for job, dt in schedule.items()}
-    schedule_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    write_json_file(schedule_path, payload, indent=2, atomic=True)
 
 
 def _get_session_login() -> str:
@@ -804,7 +805,7 @@ def service_job(
         active_batch = batch
         repo = repo_or_batch
     else:
-        raise ValueError("TriggerBatch is required")
+        raise RoadmapRunError("TriggerBatch is required")
 
     _target, _config, store = _open_roadmap(repo, None, CONST_ROADMAP_RUN_BOARD_FILTER)
     run_due_jobs(repo, store, batch=active_batch)

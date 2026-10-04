@@ -108,12 +108,16 @@ class ModelGatewayUnreachableError(LLMInferenceError):
     DEFAULT_EXIT_CODE = CONST_EXIT_FAILURE
 
     def __init__(self, gateway: str, cause: Exception, *, consequence: str) -> None:
+        from devops_cli.security.sanitizer import mask_secrets, mask_uri_credentials
+
+        safe_gateway = mask_uri_credentials(str(gateway))
+        safe_cause = mask_secrets(str(cause)[:200])
         super().__init__(
-            f"The model gateway {gateway} did not answer ({type(cause).__name__}: "
-            f"{str(cause)[:200]}), so {consequence}. Run it again once the gateway answers.",
+            f"The model gateway {safe_gateway} did not answer ({type(cause).__name__}: "
+            f"{safe_cause}), so {consequence}. Run it again once the gateway answers.",
             exit_code=CONST_EXIT_FAILURE,
             error_code=CONST_ERROR_CODE_MODEL_GATEWAY_UNREACHABLE,
-            details={"gateway": gateway[:256]},
+            details={"gateway": safe_gateway[:256]},
         )
 
 
