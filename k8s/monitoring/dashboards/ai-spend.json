@@ -336,7 +336,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[1h])) * 86400 * 30 or vector(0)",
+          "expr": "sum(rate(devops_cli_ai_spend_usd_total[$__range])) * 86400 * 30 or vector(0)",
           "instant": true,
           "legendFormat": "Projected Spend (30d)",
           "refId": "A"
@@ -346,7 +346,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_local_cost_equivalent_usd_total[1h])) * 86400 * 30 or vector(0)",
+          "expr": "sum(rate(devops_cli_ai_local_cost_equivalent_usd_total[$__range])) * 86400 * 30 or vector(0)",
           "instant": true,
           "legendFormat": "Projected Savings (30d)",
           "refId": "B"
@@ -394,7 +394,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[1h])) * 86400 * 90 or vector(0)",
+          "expr": "sum(rate(devops_cli_ai_spend_usd_total[$__range])) * 86400 * 90 or vector(0)",
           "instant": true,
           "legendFormat": "Projected Spend (90d)",
           "refId": "A"
@@ -404,7 +404,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_local_cost_equivalent_usd_total[1h])) * 86400 * 90 or vector(0)",
+          "expr": "sum(rate(devops_cli_ai_local_cost_equivalent_usd_total[$__range])) * 86400 * 90 or vector(0)",
           "instant": true,
           "legendFormat": "Projected Savings (90d)",
           "refId": "B"
@@ -452,7 +452,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[1h])) * 86400 * 365 or vector(0)",
+          "expr": "sum(rate(devops_cli_ai_spend_usd_total[$__range])) * 86400 * 365 or vector(0)",
           "instant": true,
           "legendFormat": "Projected Spend (1y)",
           "refId": "A"
@@ -462,7 +462,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_local_cost_equivalent_usd_total[1h])) * 86400 * 365 or vector(0)",
+          "expr": "sum(rate(devops_cli_ai_local_cost_equivalent_usd_total[$__range])) * 86400 * 365 or vector(0)",
           "instant": true,
           "legendFormat": "Projected Savings (1y)",
           "refId": "B"
@@ -583,8 +583,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (server, backend, provider) (rate(devops_cli_ai_spend_usd_total[6h])) * 3600",
-          "legendFormat": "{{backend}} via {{server}} ({{provider}}) (6h Rolling Avg)",
+          "expr": "sum(rate(devops_cli_ai_spend_usd_total[6h])) * 3600",
+          "legendFormat": "Total Rolling Avg (6h)",
           "refId": "B"
         }
       ]
@@ -705,8 +705,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (server, backend, provider) (rate(devops_cli_ai_local_cost_equivalent_usd_total[6h])) * 3600",
-          "legendFormat": "{{backend}} via {{server}} ({{provider}}) (6h Rolling Avg)",
+          "expr": "sum(rate(devops_cli_ai_local_cost_equivalent_usd_total[6h])) * 3600",
+          "legendFormat": "Total Rolling Avg (6h)",
           "refId": "B"
         }
       ]
@@ -771,8 +771,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (type) (rate(devops_cli_ai_tokens_total[30m]))",
-          "legendFormat": "{{type}} tokens/sec (30m Rolling Avg)",
+          "expr": "sum(rate(devops_cli_ai_tokens_total[30m]))",
+          "legendFormat": "Total Rolling Avg (30m)",
           "refId": "B"
         }
       ]
@@ -825,8 +825,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (model, provider) (rate(devops_cli_ai_requests_total[30m]))",
-          "legendFormat": "{{model}} ({{provider}}) (30m Rolling Avg)",
+          "expr": "sum(rate(devops_cli_ai_requests_total[30m]))",
+          "legendFormat": "Total Rolling Avg (30m)",
           "refId": "B"
         }
       ]

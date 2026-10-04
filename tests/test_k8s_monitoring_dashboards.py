@@ -32,6 +32,7 @@ PROVISIONED = {
         "otel-collector.json",
         "prometheus-server.json",
         "pyroscope.json",
+        "nvidia-dcgm.json",
     ],
 }
 # All dashboards are now provisioned via sidecar ConfigMaps.

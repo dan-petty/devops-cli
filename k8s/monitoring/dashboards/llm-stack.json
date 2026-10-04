@@ -289,7 +289,7 @@
           "mode": "multi"
         }
       },
-      "title": "Time to First Token p95 per Deployment",
+      "title": "Time to First Token p95 per Model",
       "type": "timeseries",
       "targets": [
         {
@@ -297,8 +297,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, api_base) (rate(litellm_llm_api_time_to_first_token_metric_bucket[5m]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total)))",
-          "legendFormat": "{{api_base}}",
+          "expr": "histogram_quantile(0.95, sum by (le, model) (rate(litellm_llm_api_time_to_first_token_metric_bucket[5m])))",
+          "legendFormat": "{{model}}",
           "refId": "A"
         }
       ],

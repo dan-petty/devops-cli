@@ -618,3 +618,55 @@ def test_enhanced_dashboard_panels_and_visualizations() -> None:
         True,
         True,
     )
+
+
+def test_grafana_dashboard_projections_and_dcgm_grid_layout() -> None:
+    """Verify aggregated rolling averages, dynamic projections, TTFT, and DCGM 2x2 grid."""
+    ai_dash = json.loads((_REPO_DASHBOARDS / "ai-spend.json").read_text(encoding="utf-8"))
+    llm_dash = json.loads((_REPO_DASHBOARDS / "llm-stack.json").read_text(encoding="utf-8"))
+    dcgm_dash = json.loads((_REPO_DASHBOARDS / "nvidia-dcgm.json").read_text(encoding="utf-8"))
+    proj_dash = json.loads((_REPO_DASHBOARDS / "project-metrics.json").read_text(encoding="utf-8"))
+
+    ai_panels = {p["id"]: p for p in ai_dash.get("panels", [])}
+    dcgm_panels = {p["id"]: p for p in dcgm_dash.get("panels", [])}
+    llm_panels = {p["id"]: p for p in llm_dash.get("panels", [])}
+
+    ai_roll_legends = [ai_panels[pid]["targets"][1]["legendFormat"] for pid in (8, 15, 10, 11)]
+    ai_proj_ranges = [
+        all("[$__range]" in t["expr"] for t in ai_panels[pid]["targets"]) for pid in (16, 17, 18)
+    ]
+    ttft_panel = llm_panels[8]
+    dcgm_coords = [
+        (
+            dcgm_panels[pid]["gridPos"]["x"],
+            dcgm_panels[pid]["gridPos"]["y"],
+            dcgm_panels[pid]["gridPos"]["w"],
+        )
+        for pid in (2, 6, 4, 18)
+    ]
+    proj_has_increase = any(
+        "increase(" in t.get("expr", "")
+        for p in proj_dash.get("panels", [])
+        for t in p.get("targets", [])
+    )
+
+    assert (
+        ai_roll_legends,
+        ai_proj_ranges,
+        ttft_panel["title"],
+        "sum by (le, model)" in ttft_panel["targets"][0]["expr"],
+        dcgm_coords,
+        proj_has_increase,
+    ) == (
+        [
+            "Total Rolling Avg (6h)",
+            "Total Rolling Avg (6h)",
+            "Total Rolling Avg (30m)",
+            "Total Rolling Avg (30m)",
+        ],
+        [True, True, True],
+        "Time to First Token p95 per Model",
+        True,
+        [(0, 16, 12), (12, 16, 12), (0, 24, 12), (12, 24, 12)],
+        False,
+    )
