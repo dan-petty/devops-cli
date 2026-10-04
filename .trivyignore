@@ -1,0 +1,2 @@
+# Trivy vulnerability ignore file.
+# Pinned findings that cannot be remediated immediately must record a reason and expiration date (exp: YYYY-MM-DD).

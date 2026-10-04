@@ -21,6 +21,8 @@ jobs:
     name: Build & Publish Release
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     permissions:
       contents: write
       packages: write
@@ -148,3 +150,93 @@ jobs:
           cacheFrom: ${{ steps.image_repo.outputs.name }}:latest
           imageTag: ${{ steps.ver.outputs.tag }},latest
           push: "always"
+
+  service-image:
+    name: Build & Publish Service Image
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v3
+
+      - name: Extract Metadata for Service Image
+        id: meta
+        uses: docker/metadata-action@8e671d84a3bd81afdfc4fdbb96a42b07c2a80934 # v5
+        with:
+          images: ghcr.io/${{ github.repository }}/service
+          tags: |
+            type=raw,value=v${{ needs.release.outputs.version }}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and Load Service Image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          push: false
+          tags: devops-cli-service:local
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Service Image Smoke Test
+        env:
+          IMAGE: devops-cli-service:local
+        run: |
+          docker run -d --name svc --read-only --tmpfs /tmp --tmpfs /home/devops:uid=1000,gid=1000 --cap-drop ALL --security-opt no-new-privileges -p 8000:8000 "$IMAGE"
+          curl -fsS --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8000/healthz
+          docker stop svc && docker rm svc
+          docker run --rm --entrypoint id "$IMAGE" -u
+          docker run --rm --entrypoint gh "$IMAGE" --version
+          docker run --rm --entrypoint git "$IMAGE" --version
+          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:uid=1000,gid=1000 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, pathlib, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
+          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v uv'; then exit 1; fi
+          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
+          if docker run --rm --entrypoint python "$IMAGE" -c 'import pytest'; then exit 1; fi
+
+      - name: Scan Service Image for Vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: devops-cli-service:local
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          version: v0.70.0
+
+      - name: Build and Push Service Image
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          cache-from: type=gha
+
+      - name: Attest Build Provenance
+        uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad # v2
+        with:
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
