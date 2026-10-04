@@ -203,7 +203,7 @@ jobs:
           IMAGE: devops-cli-service:local
         run: |
           docker run -d --name svc --read-only --tmpfs /tmp --tmpfs /home/devops:uid=1000,gid=1000 --cap-drop ALL --security-opt no-new-privileges -p 8000:8000 "$IMAGE"
-          curl -fsS --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8000/healthz
+          curl -fsS --retry 10 --retry-connrefused --retry-all-errors --retry-delay 1 http://127.0.0.1:8000/healthz
           docker stop svc && docker rm svc
           docker run --rm --entrypoint id "$IMAGE" -u
           docker run --rm --entrypoint gh "$IMAGE" --version
