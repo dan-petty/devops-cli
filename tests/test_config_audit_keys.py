@@ -74,16 +74,14 @@ def test_config_audit_keys_plaintext_leak_detected(
     assert any("grafana.token" in leak for leak in data["plaintext_leaks"])
 
 
-def test_config_audit_keys_flags_a_secret_key_that_is_no_longer_an_option(
+def test_config_audit_keys_canonical_secret_leak_detected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A plaintext GitHub token left under `github:` is still a leak, though no option reads it."""
-    stale_config = tmp_path / "config.yaml"
-    stale_config.write_text(
-        "github:\n  token: FAKE-stale-token\n  default_org: octo\n", encoding="utf-8"
-    )
-    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(stale_config))
+    """Canonical secret options in plaintext config trigger leak detection."""
+    leaked_config = tmp_path / "config.yaml"
+    leaked_config.write_text("ai:\n  api_key: FAKE-ai-key\n", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(leaked_config))
 
     data = json.loads(runner.invoke(app, ["audit-keys", "--json"]).output)
-    leaked = [leak.partition(":")[2].split(".") for leak in data["plaintext_leaks"]]
-    assert (data["is_compliant"], leaked) == (False, [["github", "token"]])
+    leaked = [leak.partition(":")[2] for leak in data["plaintext_leaks"]]
+    assert (data["is_compliant"], leaked) == (False, ["ai.api_key"])

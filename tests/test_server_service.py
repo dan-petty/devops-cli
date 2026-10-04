@@ -664,3 +664,57 @@ def test_json_log_formatter_zero_leakage() -> None:
         False,
         False,
     )
+
+
+def test_shutdown_drains_pending_delivery_enqueued_during_active_job() -> None:
+    """Test that graceful shutdown drains follow-up deliveries enqueued while active batch was running."""
+    settings = _make_settings(repos=["example-org/repo1"], drain_timeout=5)
+    secrets = {"example-org/repo1": "secret-1"}
+    batch1_started = threading.Event()
+    batch1_release = threading.Event()
+    received_batches: list[TriggerBatch] = []
+
+    def draining_job(batch: TriggerBatch) -> None:
+        if ("poll", "", "") in batch.counts and len(batch.counts) == 1:
+            return
+        received_batches.append(batch)
+        if ("webhook", "issues", "first") in batch.counts:
+            batch1_started.set()
+            batch1_release.wait(timeout=2.0)
+
+    app = create_service_app(job=draining_job, settings=settings, secrets=secrets)
+
+    with TestClient(app) as client:
+        # 1. Enqueue first webhook to make worker active
+        p1 = json.dumps(
+            {"repository": {"full_name": "example-org/repo1"}, "action": "first"}
+        ).encode("utf-8")
+        h1 = {
+            "Content-Type": "application/json",
+            CONST_GH_WEBHOOK_EVENT_HEADER: "issues",
+            CONST_GH_WEBHOOK_DELIVERY_HEADER: "deliv-1",
+            CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(p1, "secret-1"),
+        }
+        res1 = client.post("/webhooks/github", content=p1, headers=h1)
+        assert res1.status_code == 202
+        assert batch1_started.wait(timeout=1.0) is True
+
+        # 2. Enqueue second webhook while first batch is executing
+        p2 = json.dumps(
+            {"repository": {"full_name": "example-org/repo1"}, "action": "second"}
+        ).encode("utf-8")
+        h2 = {
+            "Content-Type": "application/json",
+            CONST_GH_WEBHOOK_EVENT_HEADER: "issues",
+            CONST_GH_WEBHOOK_DELIVERY_HEADER: "deliv-2",
+            CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(p2, "secret-1"),
+        }
+        res2 = client.post("/webhooks/github", content=p2, headers=h2)
+        assert res2.status_code == 202
+
+        # 3. Unblock batch 1 to allow execution to proceed to batch 2 during shutdown
+        batch1_release.set()
+
+    # 4. Context exit runs drain_and_stop(). Verify both batches were executed without loss
+    actions = [action for batch in received_batches for (_, _, action) in batch.counts]
+    assert ("first" in actions, "second" in actions, len(received_batches)) == (True, True, 2)

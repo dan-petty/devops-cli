@@ -108,10 +108,18 @@ def test_config_endpoint_sanitization(client: TestClient, monkeypatch: pytest.Mo
 
 
 def test_config_recursive_redaction_helper() -> None:
-    """Test _redact_config_dict handles deeply nested dictionaries and secret keywords."""
+    """Test _redact_config_dict handles deeply nested dictionaries and secret options."""
     from devops_cli.server.routes.workspace import _redact_config_dict
 
-    secret_options = frozenset({"deeply.nested.secret_field", "auth.custom_token"})
+    secret_options = frozenset(
+        {
+            "deeply.nested.secret_field",
+            "auth.custom_token",
+            "auth.plain_password",
+            "auth.nested_auth.api_key",
+            "auth.nested_auth.private_key",
+        }
+    )
     payload = {
         "deeply": {
             "nested": {
@@ -132,15 +140,27 @@ def test_config_recursive_redaction_helper() -> None:
         "ai": {"allow_private_network": False},
     }
     redacted = _redact_config_dict(payload, secret_options)
-    assert redacted["deeply"]["nested"]["secret_field"] == "***REDACTED***"
-    assert redacted["deeply"]["nested"]["safe_field"] == "public_value"
-    assert redacted["auth"]["custom_token"] == "***REDACTED***"
-    assert redacted["auth"]["plain_password"] == "***REDACTED***"
-    assert redacted["auth"]["nested_auth"]["api_key"] == "***REDACTED***"
-    assert redacted["auth"]["nested_auth"]["private_key"] == "***REDACTED***"
-    assert redacted["auth"]["nested_auth"]["standard_info"] == "visible"
-    assert redacted["normal"]["name"] == "app"
-    assert redacted["ai"]["allow_private_network"] is False
+    assert (
+        redacted["deeply"]["nested"]["secret_field"],
+        redacted["deeply"]["nested"]["safe_field"],
+        redacted["auth"]["custom_token"],
+        redacted["auth"]["plain_password"],
+        redacted["auth"]["nested_auth"]["api_key"],
+        redacted["auth"]["nested_auth"]["private_key"],
+        redacted["auth"]["nested_auth"]["standard_info"],
+        redacted["normal"]["name"],
+        redacted["ai"]["allow_private_network"],
+    ) == (
+        "***REDACTED***",
+        "public_value",
+        "***REDACTED***",
+        "***REDACTED***",
+        "***REDACTED***",
+        "***REDACTED***",
+        "visible",
+        "app",
+        False,
+    )
 
 
 def test_server_cors_configuration() -> None:

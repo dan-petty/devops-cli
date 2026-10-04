@@ -538,6 +538,27 @@ def test_state_file_persistence(seeded_store: InMemoryRoadmapStore, tmp_path: Pa
     assert ("intake" in data, second_due) == (True, ())
 
 
+def test_release_read_failure_propagates_closed(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure reading releases from the store propagates rather than being swallowed as None."""
+
+    def broken_releases() -> tuple[Any, ...]:
+        raise RuntimeError("GitHub API timeout during releases read")
+
+    monkeypatch.setattr(seeded_store, "releases", broken_releases)
+    tbl = build_stub_table({"intake": lambda **_: JobOutcome()})
+    with pytest.raises(RuntimeError, match="GitHub API timeout during releases read"):
+        run_due_jobs(
+            REPO,
+            seeded_store,
+            batch={("webhook", "issues", "opened"): 1},
+            table=tbl,
+            data_dir=tmp_path,
+            now=NOW,
+        )
+
+
 def test_checkouts_git_management(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

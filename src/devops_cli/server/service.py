@@ -117,15 +117,15 @@ class RepoWorker:
             self._cond.notify_all()
 
     def wait_active(self, timeout: float) -> bool:
-        """Wait until currently active job completes or timeout expires."""
+        """Wait until currently active job completes and pending queue drains, or timeout expires."""
         deadline = time.perf_counter() + timeout
-        while time.perf_counter() < deadline:
-            with self._cond:
-                if not self._is_active:
-                    return True
-            time.sleep(0.02)
         with self._cond:
-            return not self._is_active
+            while self._is_active or self._pending_counts:
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    break
+                self._cond.wait(timeout=min(remaining, 0.05))
+            return not self._is_active and not self._pending_counts
 
     def _wait_for_next_batch(
         self,
@@ -134,8 +134,6 @@ class RepoWorker:
         with self._cond:
             while not self._pending_counts and not self._stop_event.is_set():
                 self._cond.wait(timeout=0.2)
-            if self._stop_event.is_set() and not self._pending_counts:
-                return None
             if not self._pending_counts:
                 return None
             counts = dict(self._pending_counts)
@@ -182,11 +180,12 @@ class RepoWorker:
             )
             with self._cond:
                 self._is_active = False
+                self._cond.notify_all()
 
     def _run(self) -> None:
         """Main loop of daemon worker thread."""
         try:
-            while not self._stop_event.is_set():
+            while True:
                 batch_data = self._wait_for_next_batch()
                 if batch_data is None:
                     if self._stop_event.is_set():

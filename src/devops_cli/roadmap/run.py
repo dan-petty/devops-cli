@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -31,6 +30,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.env import ENV_DATA_DIR
 from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import GitOperationError, RoadmapRunError, SecurityError
 from devops_cli.roadmap.reprioritize import current_release
 from devops_cli.roadmap.store import (
@@ -171,21 +171,19 @@ def ensure_checkout(
     url = remote_url or f"https://github.com/{repo}.git"
 
     if not (clone_dir / ".git").exists():
-        res = subprocess.run(
+        res = run_subprocess(
             ["git", "clone", url, str(clone_dir)],
-            capture_output=True,
-            text=True,
             check=False,
+            quiet=True,
         )
         if res.returncode != 0:
             raise GitOperationError(f"git clone failed: {res.stderr.strip()}")
 
-    res = subprocess.run(
+    res = run_subprocess(
         ["git", "fetch", "origin"],
-        cwd=str(clone_dir),
-        capture_output=True,
-        text=True,
+        cwd=clone_dir,
         check=False,
+        quiet=True,
     )
     if res.returncode != 0:
         raise GitOperationError(f"git fetch failed: {res.stderr.strip()}")
@@ -196,35 +194,35 @@ def ensure_checkout(
         )
         branch_name = f"{CONST_RELEASE_BRANCH_PREFIX}{rel_title}"
         target_ref = f"origin/{branch_name}"
-        subprocess.run(
+        res = run_subprocess(
             ["git", "checkout", "-B", branch_name, target_ref],
-            cwd=str(clone_dir),
-            capture_output=True,
-            text=True,
-            check=True,
+            cwd=clone_dir,
+            check=False,
+            quiet=True,
         )
-        subprocess.run(
+        if res.returncode != 0:
+            raise GitOperationError(f"git checkout failed: {res.stderr.strip()}")
+        res = run_subprocess(
             ["git", "reset", "--hard", target_ref],
-            cwd=str(clone_dir),
-            capture_output=True,
-            text=True,
-            check=True,
+            cwd=clone_dir,
+            check=False,
+            quiet=True,
         )
+        if res.returncode != 0:
+            raise GitOperationError(f"git reset failed: {res.stderr.strip()}")
 
     login = _get_session_login()
-    subprocess.run(
+    run_subprocess(
         ["git", "config", "user.name", login],
-        cwd=str(clone_dir),
-        capture_output=True,
-        text=True,
+        cwd=clone_dir,
         check=True,
+        quiet=True,
     )
-    subprocess.run(
+    run_subprocess(
         ["git", "config", "user.email", f"{login}@users.noreply.github.com"],
-        cwd=str(clone_dir),
-        capture_output=True,
-        text=True,
+        cwd=clone_dir,
         check=True,
+        quiet=True,
     )
     return clone_dir
 
@@ -575,12 +573,9 @@ def _evaluate_row_due(
     return False
 
 
-def _get_current_release_safe(store: RoadmapStore) -> Release | None:
+def _get_current_release(store: RoadmapStore) -> Release | None:
     """Retrieve current release from store."""
-    try:
-        return current_release(store.releases())
-    except Exception:
-        return None
+    return current_release(store.releases())
 
 
 def _is_initial_idle(
@@ -746,7 +741,7 @@ def run_due_jobs(
 
     cur: Release | None = None
     if changes or any(r.cross_job_predicate is not None for r in rows):
-        cur = _get_current_release_safe(store)
+        cur = _get_current_release(store)
 
     initially_due = {
         row.name: _evaluate_row_due(row, schedule, active_batch, changes, store, cur, current_time)
