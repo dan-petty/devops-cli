@@ -39,7 +39,7 @@ def test_logging_stack_definitions() -> None:
 def test_deploy_logging_stack_dry_run() -> None:
     """Verify deploy-stack --stack logging with dry run."""
     with patch("devops_cli.commands.k8s.stack_lifecycle.is_dry_run", return_value=True):
-        result = runner.invoke(app, ["deploy-stack", "--stack", "logging"])
+        result = runner.invoke(app, ["deploy-stack", "--stack", "logging", "--no-push-secrets"])
         assert result.exit_code == 0
         assert "deploy-stack" in result.output
         assert "logging" in result.output
@@ -64,7 +64,7 @@ def test_deploy_logging_stack_live() -> None:
         patch("devops_cli.commands.k8s.run_subprocess", return_value=mock_proc),
         patch("devops_cli.commands.k8s._run_cmd", return_value=mock_proc),
     ):
-        result = runner.invoke(app, ["deploy-stack", "--stack", "logging"])
+        result = runner.invoke(app, ["deploy-stack", "--stack", "logging", "--no-push-secrets"])
         assert result.exit_code == 0
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from devops_cli.dry_run.decorator import dry_run_command
 from devops_cli.dry_run.models import CommandDryRunResult
+from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.dry_run.state import (
     dry_run_requested_by_environment,
     format_command,
@@ -15,11 +16,13 @@ from devops_cli.dry_run.state import (
 
 __all__ = [
     "CommandDryRunResult",
+    "PlannedRequest",
     "dry_run_command",
     "dry_run_requested_by_environment",
     "format_command",
     "is_dry_run",
     "is_dry_run_requested",
     "render_dry_run_result",
+    "render_request_plan",
     "set_dry_run",
 ]

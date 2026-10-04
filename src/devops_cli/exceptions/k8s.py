@@ -146,8 +146,47 @@ class GitOpsSyncError(KubernetesError, RuntimeError):
         )
 
 
+class ClusterSecretPushError(KubernetesError, RuntimeError):
+    """Raised when cluster Secrets cannot be pushed from the keyring; nothing was written."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = "K8S_SECRET_PUSH_ERROR",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+
+
+class ClusterSecretWriteError(ClusterSecretPushError):
+    """Raised when writing a planned push fails part-way; `completed` names what was written."""
+
+    def __init__(self, message: str, *, completed: tuple[str, ...] = ()) -> None:
+        super().__init__(message, details={"completed": list(completed)})
+        self.completed = completed
+
+
+class ClusterJobError(KubernetesError, RuntimeError):
+    """Raised when a devops-cli Job cannot be created or followed in the cluster."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = "K8S_CLUSTER_JOB_ERROR",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+
+
 __all__ = [
     "ChaosExecutionError",
+    "ClusterJobError",
+    "ClusterSecretPushError",
+    "ClusterSecretWriteError",
     "GitOpsSyncError",
     "KubernetesContextError",
     "KubernetesDeployError",

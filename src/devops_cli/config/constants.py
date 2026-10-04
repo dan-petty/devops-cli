@@ -20,6 +20,9 @@ CONST_CONFIG_PATH = CONST_CONFIG_DIR / "config.yaml"
 # outside that repository. The default data directory is then `~/.local/share/devops-cli/.data`.
 CONST_USER_DATA_ROOT = Path.home() / ".local" / "share" / CONST_APP_NAME
 CONST_KEYRING_SERVICE = CONST_APP_NAME
+# An entry never stored: looking it up tells a locked keyring from an unlocked one, reading no
+# secret (`require_persistent_keyring`).
+CONST_KEYRING_UNLOCK_PROBE_KEY = "keyring-unlock-probe"
 CONST_PROJECT_CONFIG_FILENAME = "config.yaml"
 CONST_PROJECT_CONFIG_ENV = "DEVOPS_CLI_CONFIG"  # absolute path overrides CWD lookup
 # A configuration file is only eligible for caching once it has been still for this
@@ -36,6 +39,9 @@ CONST_PRE_COMMIT_CONFIG_FILENAME = ".pre-commit-config.yaml"
 CONST_CHANGELOG_FILENAME = "CHANGELOG.md"
 CONST_README_FILENAME = "README.md"
 CONST_INIT_PY_PATH = Path("src/devops_cli/__init__.py")
+# The in-cluster runtime's kustomization pins the service image to the release's tag (#741).
+CONST_SERVICE_IMAGE = "ghcr.io/dan-petty/devops-cli/service"
+CONST_SERVICE_IMAGE_KUSTOMIZATION = Path("k8s/devops/kustomization.yaml")
 CONST_CONVENTIONAL_COMMIT_CATEGORIES: Final[dict[str, str]] = {
     "feat": "Added",
     "fix": "Fixed & Hardened",

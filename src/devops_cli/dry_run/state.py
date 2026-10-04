@@ -13,6 +13,11 @@ _DRY_RUN_ENV = "DEVOPS_CLI_DRY_RUN"
 # should clear it: a request the caller exported outlives one invocation, a `--dry-run`
 # flag does not.
 _ACTIVATED_HERE = False
+# Whether this invocation's command line asked for a dry run, a command's own `--dry-run`
+# included. The root callback clears the dry-run state for a command's own flag, which the
+# command reads itself, so this answers for what the whole process must not do: make any
+# external request, its telemetry export included (#412).
+_INVOCATION_DRY_RUN = False
 
 
 def set_dry_run(enabled: bool) -> None:
@@ -41,9 +46,26 @@ def is_dry_run() -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def mark_dry_run_invocation(requested: bool) -> None:
+    """Record whether this invocation's own arguments ask for a dry run."""
+    global _INVOCATION_DRY_RUN
+    _INVOCATION_DRY_RUN = requested
+
+
+def in_dry_run_invocation() -> bool:
+    """Whether this invocation is a dry run, by its own `--dry-run` or the dry-run state."""
+    return _INVOCATION_DRY_RUN or is_dry_run()
+
+
 def is_dry_run_requested(args: list[str]) -> bool:
-    """Return True if --dry-run flag is present in argument list."""
-    return "--dry-run" in args
+    """Return True if --dry-run is among the CLI's own arguments.
+
+    Arguments after a `--` separator belong to the command being passed through, such as the
+    devops command `devops k8s run-job -- ...` runs in the cluster, so a `--dry-run` there is not
+    the CLI's.
+    """
+    own_args = args[: args.index("--")] if "--" in args else args
+    return "--dry-run" in own_args
 
 
 def format_command(command: list[str], *, cwd: str | None = None) -> str:

@@ -19,6 +19,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 import devops_cli.config.options as opt
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
+    CONST_KEYRING_UNLOCK_PROBE_KEY,
     CONST_SETTINGS_CACHE_SETTLE_SECONDS,
 )
 from devops_cli.config.constants import (
@@ -109,6 +110,14 @@ class SecretStorageError(RuntimeError):
 
 class KeyringLockedError(SecretStorageError):
     """Raised when the keyring exists but is locked, so nothing can be stored until unlocked."""
+
+
+class KeyringUnavailableError(SecretStorageError):
+    """Raised when secrets would land in no persistent, encrypted keyring.
+
+    That is no backend, an unencrypted one, or the in-memory store `DEVOPS_CLI_HEADLESS_AUTH`
+    selects, which loses every value when the process exits.
+    """
 
 
 _KEYRING_LOCKED_HINT = "the OS keyring is locked; run `devops devcontainer unlock-keyring`"
@@ -317,6 +326,13 @@ class KubernetesConfig(BaseModel):
     addressing: str | None = Field(
         default=None,
         description="Default addressing mode for cluster services: nodeport, proxy, or fqdn.",
+    )
+    github_account: str | None = Field(
+        default=None,
+        description=(
+            "Login of the machine account whose gh token `devops k8s push-secrets` writes to the "
+            "cluster as GH_TOKEN; `--github-account` overrides it"
+        ),
     )
 
 
@@ -707,12 +723,10 @@ def _keyring_has(key: str) -> bool:
 
 
 def _keyring_set(key: str, value: str) -> None:
-    import os
-
     import keyring
     from keyring.errors import KeyringLocked, NoKeyringError
 
-    if os.environ.get("DEVOPS_CLI_HEADLESS_AUTH", "").lower() in ("true", "1", "yes"):
+    if _headless_auth_enabled():
         _EPHEMERAL_CI_SECRETS[key] = value
         return
 
@@ -728,6 +742,64 @@ def _keyring_set(key: str, value: str) -> None:
         raise KeyringLockedError(f"Cannot store {key}: {_KEYRING_LOCKED_HINT}") from exc
     except Exception as exc:
         raise SecretStorageError(f"Failed to store secret in keyring: {exc}") from exc
+
+
+def _headless_auth_enabled() -> bool:
+    """Report whether `DEVOPS_CLI_HEADLESS_AUTH` keeps secrets in the in-memory store."""
+    import os
+
+    return os.environ.get("DEVOPS_CLI_HEADLESS_AUTH", "").lower() in ("true", "1", "yes")
+
+
+def require_persistent_keyring() -> None:
+    """Raise unless an encrypted OS keyring is in use and unlocked.
+
+    For commands that must never take a locked keyring for a missing entry, nor keep a value
+    only in memory: a locked keyring raises `KeyringLockedError`; no encrypted backend, or the
+    headless in-memory store, raises `KeyringUnavailableError`. The lock is probed by looking
+    up an entry that is never stored, so no secret is read.
+    """
+    import keyring
+
+    if _headless_auth_enabled():
+        raise KeyringUnavailableError(
+            "DEVOPS_CLI_HEADLESS_AUTH keeps secrets in memory only, so a value stored now would "
+            "be lost when the command exits; unset it to use the OS keyring"
+        )
+    if not _ensure_keyring_backend():
+        backend = type(keyring.get_keyring())
+        backend_name = f"{backend.__module__}.{backend.__qualname__}"
+        raise KeyringUnavailableError(
+            f"no encrypted OS keyring backend is available (found {backend_name}); install and "
+            "start one, such as gnome-keyring"
+        )
+    keyring_read(CONST_KEYRING_UNLOCK_PROBE_KEY)
+
+
+def keyring_read(key: str) -> str | None:
+    """Read a keyring entry, raising `KeyringLockedError` instead of returning None when locked."""
+    import keyring
+    from keyring.errors import KeyringError, KeyringLocked
+
+    try:
+        return keyring.get_keyring().get_password(KEYRING_SERVICE, key)
+    except KeyringLocked as exc:
+        raise KeyringLockedError(f"Cannot read {key}: {_KEYRING_LOCKED_HINT}") from exc
+    except KeyringError as exc:
+        raise SecretStorageError(f"Cannot read {key}: {type(exc).__name__}") from exc
+
+
+def keyring_write(key: str, value: str) -> None:
+    """Store a keyring entry in the OS keyring itself, never in the in-memory store."""
+    import keyring
+    from keyring.errors import KeyringError, KeyringLocked
+
+    try:
+        keyring.get_keyring().set_password(KEYRING_SERVICE, key, value)
+    except KeyringLocked as exc:
+        raise KeyringLockedError(f"Cannot store {key}: {_KEYRING_LOCKED_HINT}") from exc
+    except KeyringError as exc:
+        raise SecretStorageError(f"Cannot store {key}: {type(exc).__name__}") from exc
 
 
 def get_keyring_secret(key: str) -> str | None:

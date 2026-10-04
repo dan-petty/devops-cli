@@ -28,7 +28,7 @@ def test_config_audit_keys_json_output() -> None:
     assert "keyring_backend" in data
     assert "keys" in data
     assert "is_compliant" in data
-    assert len(data["keys"]) == 10
+    assert len(data["keys"]) == 11
 
     keys = {k["key"] for k in data["keys"]}
     assert not [key for key in keys if key.partition(".")[0] == "github"]

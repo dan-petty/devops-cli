@@ -254,14 +254,17 @@ def preserve_cwd():
 @pytest.fixture(autouse=True)
 def reset_dry_run_state():
     """Clear dry-run state and give each test a freshly built, standard-width console."""
+    import devops_cli.dry_run.state as dry_run_state
     import devops_cli.output.console as console_module
 
     os.environ.update(_TERMINAL_ENV)
     os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
+    dry_run_state.mark_dry_run_invocation(False)
     console_module._CONSOLE = None
     console_module._STDERR_CONSOLE = None
     yield
     os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
+    dry_run_state.mark_dry_run_invocation(False)
 
 
 @pytest.fixture(autouse=True)

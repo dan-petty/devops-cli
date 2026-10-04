@@ -99,8 +99,11 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
 
     prog = "devops" if is_root_level else f"devops {command_name}"
 
-    # Fast dispatch for help queries to avoid importing telemetry/OTLP network exporters
-    if any(a in ("-h", "--help") for a in args):
+    # Fast dispatch for help queries to avoid importing telemetry/OTLP network exporters.
+    # Arguments after `--` belong to a passed-through command (`devops k8s run-job -- review
+    # --help` runs a Job), so a help flag there is not a help query and the exit code counts.
+    own_args = args[: args.index("--")] if "--" in args else args
+    if any(a in ("-h", "--help") for a in own_args):
         command.main(
             args=effective_args,
             prog_name=prog,

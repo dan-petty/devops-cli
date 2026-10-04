@@ -149,6 +149,8 @@ k8s:
   context: minikube
   # Base or root domain name for homelab ingress routes and tunnel services (e.g. example.com).
   domain: null
+  # Machine account whose gh token `devops k8s push-secrets` writes to the cluster as GH_TOKEN.
+  github_account: null
 
 # ── Cloudflare Zero Trust & Tunnel ───────────────────────────────────────────
 cloudflare:

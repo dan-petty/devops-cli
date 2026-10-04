@@ -4,20 +4,24 @@ Validates:
 1. k8s/llm/values-qdrant.yaml manifests (ClusterIP service, apiKey disabled auto-generation,
    extraEnv secretKeyRef injection).
 2. Configuration & OS Keyring secret mappings for Qdrant API key.
-3. RAG WorkspaceIndexer and QdrantClient automatic OS Keyring resolution.
-4. Kubernetes secret discovery and synchronization for Qdrant stack credentials.
+3. deploy-stack pushing the cluster Secrets from the keyring before anything reads them, in
+   place of the client-side Qdrant Secret apply that leaked the key into an annotation.
 """
 
 from __future__ import annotations
 
-import logging
+from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from typing import Any
+from unittest.mock import patch
 
+import keyring
 import pytest
 import typer
 import yaml
+from click.testing import CliRunner
 
+from devops_cli.commands.k8s.stack_lifecycle import deploy_stack
 from devops_cli.config import env as env_mod
 from devops_cli.config import options as opt
 from devops_cli.config.settings import (
@@ -26,8 +30,13 @@ from devops_cli.config.settings import (
     dotted_set,
     get_qdrant_api_key,
 )
+from devops_cli.telemetry import tracer
+from tests.cluster_secret_fakes import MACHINE_LOGIN, MACHINE_TOKEN, FakeCluster, FakeKeyring
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+_deploy_app = typer.Typer()
+_deploy_app.command()(deploy_stack)
+DEPLOY_COMMAND = typer.main.get_command(_deploy_app)
 
 
 def test_qdrant_helm_values_security() -> None:
@@ -138,175 +147,138 @@ def test_dotted_set_routes_qdrant_api_key_to_keyring() -> None:
         mock_set.assert_called_once_with("qdrant_api_key", "super-secret-vector-token")
 
 
-def test_qdrant_client_resolves_keyring_secret() -> None:
-    """Verify QdrantClient automatically resolves API key from OS Keyring when omitted."""
-    from devops_cli.ai.rag.qdrant import QdrantClient
-
-    with patch(
-        "devops_cli.config.settings.get_qdrant_api_key", return_value="resolved-keyring-key"
-    ):
-        client = QdrantClient("http://localhost:6333", allow_private_network=True)
-        assert client.api_key == "resolved-keyring-key"
-
-    # Explicit api_key overrides keyring lookup
-    client_explicit = QdrantClient(
-        "http://localhost:6333", api_key="explicit-key", allow_private_network=True
-    )
-    assert client_explicit.api_key == "explicit-key"
-
-
-def test_workspace_indexer_resolves_keyring_authenticated_client(tmp_path: Path) -> None:
-    """Verify WorkspaceIndexer and resolve_qdrant_client authenticate via OS Keyring."""
-    from devops_cli.ai.rag.indexer import WorkspaceIndexer, resolve_qdrant_client
-    from devops_cli.ai.rag.qdrant import QdrantClient
-
-    with patch("devops_cli.config.settings.get_qdrant_api_key", return_value="vault-qdrant-token"):
-        client = resolve_qdrant_client("http://localhost:6333", allow_private_network=True)
-        assert client.api_key == "vault-qdrant-token"
-
-        mock_embedder = MagicMock()
-        mock_embedder.model = "test-model"
-
-        # 1. When qdrant client is omitted, it must resolve automatically via Keyring
-        indexer = WorkspaceIndexer(qdrant=None, embedder=mock_embedder, cache_dir=tmp_path)
-        assert indexer.qdrant is not None
-        assert indexer.qdrant.api_key == "vault-qdrant-token"
-
-        # 2. When an unauthenticated qdrant client is provided, it must backfill from Keyring
-        unauth_client = QdrantClient(
-            "http://localhost:6333", api_key=None, allow_private_network=True
-        )
-        unauth_client.api_key = None  # force null
-        indexer_backfill = WorkspaceIndexer(
-            qdrant=unauth_client, embedder=mock_embedder, cache_dir=tmp_path
-        )
-        assert indexer_backfill.qdrant.api_key == "vault-qdrant-token"
-
-
-def test_fetch_qdrant_api_key_from_k8s() -> None:
-    """Verify fetch_qdrant_api_key decodes Secret field and synchronizes to Keyring."""
-    from devops_cli.k8s.credentials import fetch_qdrant_api_key
-
-    mock_secret_data = {"api-key": "k8s-cluster-secret-key"}
+@pytest.fixture
+def cluster(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeCluster]:
+    monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENABLED", "false")
+    # Each child's span would otherwise load the settings twice per test to learn the above.
+    monkeypatch.setattr(tracer, "_resolve_telemetry_settings", lambda: (None, False))
+    monkeypatch.setenv("K8S_CONTEXT", "test-ctx")
+    monkeypatch.setenv("K8S_NAMESPACE", "test")
+    fake = FakeCluster(namespaces={"llm", "cloudflared"})
     with (
-        patch("devops_cli.k8s.credentials.fetch_secret_data", return_value=mock_secret_data),
-        patch("devops_cli.k8s.credentials._keyring_set") as mock_keyring_set,
-        patch("devops_cli.k8s.credentials.GLOBAL_METRICS.increment_counter") as mock_metric,
+        patch("devops_cli.core.process.subprocess.run", side_effect=fake),
+        patch("devops_cli.commands.k8s.cluster_runtime._cluster_reachable", return_value=True),
+        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
     ):
-        key = fetch_qdrant_api_key(namespace="llm", save_to_keyring=True)
-        assert key == "k8s-cluster-secret-key"
-        mock_keyring_set.assert_called_once_with("qdrant_api_key", "k8s-cluster-secret-key")
-        mock_metric.assert_called_once()
+        yield fake
 
 
-def test_sync_k8s_credentials_llm_stack() -> None:
-    """Verify sync_k8s_credentials synchronizes Qdrant API key when stack is llm or all."""
+@pytest.fixture
+def stub_keyring(monkeypatch: pytest.MonkeyPatch, cluster: FakeCluster) -> FakeKeyring:
+    backend = FakeKeyring(
+        {
+            "llm_gateway_master_key": "sk-deploy-gateway-0001",
+            "qdrant_api_key": "deploy-qdrant-0001",
+            "runs_index_password": "deploy-runs-0001",
+            "cloudflare_tunnel_token": "deploy-tunnel-0001",
+        }
+    )
+    monkeypatch.setattr(keyring, "get_keyring", lambda: backend)
+    monkeypatch.delenv("DEVOPS_CLI_HEADLESS_AUTH", raising=False)
+    return backend
+
+
+def _deploy(*args: str) -> Any:
+    return CliRunner().invoke(DEPLOY_COMMAND, ["--context", "test-ctx", "--no-wait", *args])
+
+
+def _pushed(cluster: FakeCluster) -> list[str]:
+    return [
+        f"{i['metadata']['namespace']}/{i['metadata']['name']}" for i in cluster.applied_items()
+    ]
+
+
+def _step(argv: list[str]) -> str:
+    if argv[:3] == ["kubectl", "apply", "-k"]:
+        return "namespaces"
+    if argv[:3] == ["kubectl", "apply", "--server-side"]:
+        return "secrets"
+    if argv[:3] == ["kubectl", "apply", "-f"]:
+        return "manifests"
+    return "helm" if argv[:3] == ["helm", "upgrade", "--install"] else ""
+
+
+def test_deploy_stack_pushes_secrets_after_namespaces_and_before_manifests_and_helm(
+    cluster: FakeCluster, stub_keyring: FakeKeyring
+) -> None:
+    result = _deploy("--stack", "llm")
+    steps = [step for step in (_step(call.argv) for call in cluster.calls) if step]
+    assert (
+        result.exit_code,
+        list(dict.fromkeys(steps)),
+        steps.count("secrets"),
+        _pushed(cluster),
+    ) == (
+        0,
+        ["namespaces", "secrets", "manifests", "helm"],
+        1,
+        [
+            "llm/llm-gateway-secrets",
+            "llm/qdrant-api-key",
+            "llm/valkey-runs-auth",
+            "cloudflared/cloudflared-token",
+        ],
+    )
+
+
+def test_deploy_stack_pushes_devops_only_where_its_namespace_exists(
+    cluster: FakeCluster, stub_keyring: FakeKeyring, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DEVOPS_CLI_K8S_GITHUB_ACCOUNT", MACHINE_LOGIN)
+    without = (_deploy("--stack", "infra").exit_code, _pushed(cluster), cluster.commands("gh"))
+    cluster.calls.clear()
+    cluster.namespaces.add("devops")
+    with_devops = (_deploy("--stack", "infra").exit_code, _pushed(cluster))
+    assert (without, with_devops, cluster.live_data("devops", "devops-cli")["GH_TOKEN"]) == (
+        (0, ["cloudflared/cloudflared-token"], []),
+        (0, ["cloudflared/cloudflared-token", "devops/devops-cli"]),
+        MACHINE_TOKEN,
+    )
+
+
+def test_a_locked_keyring_stops_deploy_stack_before_it_touches_the_cluster(
+    cluster: FakeCluster, stub_keyring: FakeKeyring
+) -> None:
+    """Not even the root kustomization is applied while the keyring is locked."""
+    stub_keyring.locked = True
+    result = _deploy("--stack", "llm")
+    assert (
+        result.exit_code,
+        [call.argv for call in cluster.calls],
+        "devops devcontainer unlock-keyring" in result.output,
+    ) == (1, [], True)
+
+
+def test_a_failed_push_exits_1_before_any_manifest_or_helm_release(
+    cluster: FakeCluster, stub_keyring: FakeKeyring
+) -> None:
+    cluster.add_secret("llm", "qdrant-api-key", {"api-key": "live-differs-0001"})
+    stub_keyring.values["qdrant_api_key"] = "keyring-differs-0001"
+    result = _deploy("--stack", "llm")
+    steps = {_step(call.argv) for call in cluster.calls} - {""}
+    assert (result.exit_code, steps, "--rotate" in result.output) == (1, {"namespaces"}, True)
+
+
+def test_no_push_secrets_pushes_nothing(cluster: FakeCluster, stub_keyring: FakeKeyring) -> None:
+    result = _deploy("--stack", "llm", "--no-push-secrets")
+    assert (result.exit_code, cluster.applies(), stub_keyring.reads) == (0, [], [])
+
+
+def test_the_qdrant_secret_helpers_are_gone() -> None:
+    import devops_cli.commands.k8s as k8s_commands
+    import devops_cli.commands.k8s.stack_lifecycle as stack_lifecycle
+    import devops_cli.k8s.credentials as credentials
+
+    assert (
+        hasattr(stack_lifecycle, "_ensure_qdrant_api_key_secret"),
+        hasattr(k8s_commands, "_ensure_qdrant_api_key_secret"),
+        hasattr(credentials, "fetch_qdrant_api_key"),
+    ) == (False, False, False)
+
+
+def test_sync_k8s_credentials_reads_no_llm_secret() -> None:
     from devops_cli.k8s.credentials import sync_k8s_credentials
 
-    with patch(
-        "devops_cli.k8s.credentials.fetch_qdrant_api_key", return_value="synced-qdrant-key"
-    ) as mock_fetch:
-        results = sync_k8s_credentials(stack="llm", save_to_keyring=True)
-        assert results == {"qdrant": True}
-        mock_fetch.assert_called_once()
-
-    with patch("devops_cli.k8s.credentials.fetch_qdrant_api_key", return_value=None) as mock_fetch:
-        results = sync_k8s_credentials(stack="llm", save_to_keyring=True)
-        assert results == {"qdrant": False}
-
-
-def test_ensure_qdrant_api_key_secret_lifecycle() -> None:
-    """Verify _ensure_qdrant_api_key_secret provisions Secret in K8s and syncs to Keyring."""
-    from devops_cli.commands.k8s.stack_lifecycle import _ensure_qdrant_api_key_secret
-
-    # Scenario A: Secret already exists in Kubernetes -> fetch and sync to Keyring
-    with (
-        patch("devops_cli.commands.k8s.stack_lifecycle.run_subprocess") as mock_run,
-        patch("devops_cli.k8s.credentials.fetch_qdrant_api_key", return_value="existing-key"),
-    ):
-        mock_run.return_value = MagicMock(returncode=0)
-        key = _ensure_qdrant_api_key_secret(namespace="llm")
-        assert key == "existing-key"
-
-    # Scenario B: Secret does not exist -> generate new key, create Secret, and store in Keyring
-    with (
-        patch("devops_cli.commands.k8s.stack_lifecycle.run_subprocess") as mock_run,
-        patch("devops_cli.config.settings._keyring_get", return_value=None),
-        patch("devops_cli.config.settings._keyring_set") as mock_keyring_set,
-    ):
-        # First call: kubectl get secret -> returncode 1 (not found)
-        # Second call: kubectl apply -f - via stdin -> returncode 0
-        mock_run.side_effect = [
-            MagicMock(returncode=1, stderr="Error: secrets 'qdrant-api-key' not found"),
-            MagicMock(returncode=0, stdout="secret/qdrant-api-key created"),
-        ]
-        key = _ensure_qdrant_api_key_secret(namespace="llm")
-        assert key is not None
-        assert len(key) >= 32
-        mock_keyring_set.assert_called_once_with("qdrant_api_key", key)
-
-        # Assert secret was applied via stdin and secret key was NOT passed in argv
-        apply_call = mock_run.call_args_list[1]
-        assert apply_call.args[0][:4] == ["kubectl", "apply", "-f", "-"]
-        assert apply_call.kwargs.get("input") is not None
-        assert f'"api-key": "{key}"' in apply_call.kwargs["input"]
-        assert not any(key in arg for arg in apply_call.args[0])
-
-
-def test_deploy_stack_fails_fast_when_qdrant_secret_fails() -> None:
-    """Verify deploy_stack fails fast with typer.Exit(1) if Qdrant secret creation fails."""
-    from devops_cli.commands.k8s.stack_lifecycle import deploy_stack
-
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s._run_cmd"),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._ensure_qdrant_api_key_secret",
-            return_value=None,
-        ),
-        patch("devops_cli.dry_run.is_dry_run", return_value=False),
-        pytest.raises(typer.Exit) as exc_info,
-    ):
-        deploy_stack(stack="llm")
-    assert exc_info.value.exit_code == 1
-
-
-def test_workspace_indexer_debug_logs_on_keyring_failure(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Verify WorkspaceIndexer logs at DEBUG level when keyring lookup fails."""
-    from devops_cli.ai.rag.indexer import WorkspaceIndexer
-    from devops_cli.ai.rag.qdrant import QdrantClient
-
-    caplog.set_level(logging.DEBUG)
-    mock_embedder = MagicMock()
-    mock_embedder.model = "test-model"
-    unauth_client = QdrantClient("http://localhost:6333", api_key=None, allow_private_network=True)
-    unauth_client.api_key = None
-
-    with patch(
-        "devops_cli.config.settings.get_qdrant_api_key",
-        side_effect=RuntimeError("Keyring unavailable"),
-    ):
-        indexer = WorkspaceIndexer(qdrant=unauth_client, embedder=mock_embedder, cache_dir=tmp_path)
-        assert indexer.qdrant.api_key is None
-        assert any(
-            "Failed to resolve Qdrant API key from keyring" in rec.message for rec in caplog.records
-        )
-
-
-def test_qdrant_client_debug_logs_on_settings_failure(caplog: pytest.LogCaptureFixture) -> None:
-    """Verify QdrantClient logs at DEBUG level when settings resolution fails."""
-    from devops_cli.ai.rag.qdrant import QdrantClient
-
-    caplog.set_level(logging.DEBUG)
-    with patch(
-        "devops_cli.config.settings.get_qdrant_api_key",
-        side_effect=RuntimeError("Keyring unavailable"),
-    ):
-        client = QdrantClient("http://localhost:6333", allow_private_network=True)
-        assert client.api_key is None
-        assert any(
-            "Failed to resolve Qdrant API key from settings" in rec.message
-            for rec in caplog.records
-        )
+    with patch("devops_cli.k8s.credentials.fetch_secret_data") as fetch:
+        results = sync_k8s_credentials(stack="llm", save_to_keyring=False)
+    assert (results, fetch.call_count) == ({}, 0)

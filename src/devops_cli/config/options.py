@@ -86,6 +86,7 @@ TELEMETRY_LOGFIRE_TOKEN = "telemetry.logfire_token"
 # Kubernetes Cluster & Minikube Configuration
 K8S_CONTEXT = "k8s.context"
 K8S_DOMAIN = "k8s.domain"
+K8S_GITHUB_ACCOUNT = "k8s.github_account"
 
 # Cloudflare Zero Trust & Tunnel Configuration
 CLOUDFLARE_DOMAIN = "cloudflare.domain"
@@ -93,6 +94,7 @@ CLOUDFLARE_TUNNEL = "cloudflare.tunnel"
 CLOUDFLARE_ACCOUNT_ID = "cloudflare.account_id"
 CLOUDFLARE_ZONE_ID = "cloudflare.zone_id"
 CLOUDFLARE_API_TOKEN = "cloudflare.api_token"
+CLOUDFLARE_TUNNEL_TOKEN = "cloudflare.tunnel_token"
 CLOUDFLARE_PUBLIC_IP_BYPASS = "cloudflare.public_ip_bypass"
 CLOUDFLARE_ACCESS_ENABLED = "cloudflare.access.enabled"
 CLOUDFLARE_ACCESS_ALLOWED_EMAILS = "cloudflare.access.allowed_emails"
@@ -208,11 +210,13 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     SANDBOX_EXCLUDE_HOME_DIR,
     K8S_CONTEXT,
     K8S_DOMAIN,
+    K8S_GITHUB_ACCOUNT,
     CLOUDFLARE_DOMAIN,
     CLOUDFLARE_TUNNEL,
     CLOUDFLARE_ACCOUNT_ID,
     CLOUDFLARE_ZONE_ID,
     CLOUDFLARE_API_TOKEN,
+    CLOUDFLARE_TUNNEL_TOKEN,
     CLOUDFLARE_PUBLIC_IP_BYPASS,
     CLOUDFLARE_ACCESS_ENABLED,
     CLOUDFLARE_ACCESS_ALLOWED_EMAILS,
@@ -233,6 +237,7 @@ SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
         RUNS_INDEX_PASSWORD,
         TELEMETRY_LOGFIRE_TOKEN,
         CLOUDFLARE_API_TOKEN,
+        CLOUDFLARE_TUNNEL_TOKEN,
     }
 )
 
@@ -247,4 +252,5 @@ KEYRING_KEYS: dict[str, str] = {
     RUNS_INDEX_PASSWORD: "runs_index_password",
     TELEMETRY_LOGFIRE_TOKEN: "logfire_token",
     CLOUDFLARE_API_TOKEN: "cloudflare_api_token",
+    CLOUDFLARE_TUNNEL_TOKEN: "cloudflare_tunnel_token",
 }

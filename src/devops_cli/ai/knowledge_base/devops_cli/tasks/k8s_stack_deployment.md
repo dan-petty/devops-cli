@@ -2,7 +2,7 @@
 
 ## 1. Overview & Purpose
 
-Local Kubernetes stack automation in `devops-cli` allows developers to bootstrap, configure, deploy, and teardown complete cloud-native infrastructure stacks on local Minikube clusters with a single command. Supported stacks include Prometheus metrics collection, Grafana dashboards, ArgoCD GitOps reconciliation, Jaeger distributed tracing, and OpenTelemetry collectors.
+Local Kubernetes stack automation in `devops-cli` allows developers to bootstrap, configure, deploy, and teardown complete cloud-native infrastructure stacks on local Minikube clusters with a single command. Supported stacks include Prometheus metrics collection, Grafana dashboards, ArgoCD GitOps reconciliation, Jaeger distributed tracing, OpenTelemetry collectors, the local LLM stack and centralized logging.
 
 ---
 
@@ -11,21 +11,22 @@ Local Kubernetes stack automation in `devops-cli` allows developers to bootstrap
 ```mermaid
 graph TD
     A[devops k8s bootstrap] --> B[Minikube Docker Driver Cluster]
-    B --> C[deploy-stack monitoring]
-    B --> D[deploy-stack gitops]
-    B --> E[deploy-stack tracing]
-    C --> F[Prometheus & Grafana]
-    D --> G[ArgoCD Server & Controller]
-    E --> H[Jaeger & OTel Collector]
+    B --> N[kubectl apply -k k8s/: namespaces, cloudflared, registry]
+    N --> S[push-secrets: cluster Secrets from the OS keyring]
+    S --> C[deploy-stack --stack infra]
+    S --> D[deploy-stack --stack llm]
+    S --> E[deploy-stack --stack logging]
+    C --> F[Argo CD, monitoring, OTel, Jaeger, Pyroscope]
+    D --> G[Ollama, Open-WebUI, Qdrant, Valkey, LLM gateway]
+    E --> H[Loki & Fluent Bit]
 ```
 
 - **Stack Metadata**:
-  - `monitoring`: Grafana Kubernetes Monitoring chart (`k8s-monitoring`) with Alloy, kube-state-metrics, and node-exporter in `monitoring` namespace.
-  - `gitops`: ArgoCD server, controller, and repo server in `argocd` namespace.
-  - `tracing`: Jaeger distributed tracing query & collector in `otel` namespace.
-  - `otel`: OpenTelemetry Collector DaemonSet/Deployment and Jaeger in `otel` namespace.
-  - `llm`: Local LLM stack (Ollama StatefulSet, Open-WebUI, Qdrant Vector DB, Valkey Cache) in `llm` namespace.
-  - `all`: Bootstraps all stacks (`monitoring`, `gitops`, `otel`, `llm`) with automatic port-forwarding and service URL target detection.
+  - `infra`: Argo CD in `argocd`; Grafana Kubernetes Monitoring (`k8s-monitoring`), Prometheus, Grafana, dcgm-exporter and Pyroscope in `monitoring`; the OpenTelemetry Collector and Jaeger in `otel`.
+  - `llm`: Local LLM stack (Ollama, Open-WebUI, Qdrant Vector DB, Valkey Cache, LiteLLM gateway) in `llm` namespace.
+  - `logging`: Loki and Fluent Bit in `logging` namespace.
+  - `all`: `infra`, `llm` and `logging`.
+- **Cluster Secrets**: right after the namespaces, `deploy-stack` pushes every Secret its stacks read from the OS keyring (`devops k8s push-secrets`, workstation keyring → cluster), so the keyring must be unlocked (`devops devcontainer unlock-keyring`). `--no-push-secrets` skips the push on a cluster without a keyring.
 
 ---
 
@@ -42,26 +43,28 @@ devops k8s switch-context minikube
 # 2. Bootstrap local Minikube cluster explicitly with GPU passthrough
 devops k8s bootstrap
 
-# 3. Deploy complete monitoring and observability stack
-devops k8s deploy-stack monitoring
+# 3. Deploy the infrastructure stack (Argo CD, monitoring, OpenTelemetry & Jaeger)
+devops k8s deploy-stack --stack infra
 
-# 4. Deploy GitOps continuous delivery stack (ArgoCD)
-devops k8s deploy-stack gitops
+# 4. Deploy local LLM stack (Ollama, Open-WebUI, Qdrant, Valkey, gateway)
+devops k8s deploy-stack --stack llm
 
-# 5. Deploy local LLM stack (Ollama, Open-WebUI, Qdrant, Valkey)
-devops k8s deploy-stack llm
+# 5. Preview a deploy: releases, manifests, and the Secrets it pushes (key names only)
+devops k8s deploy-stack --stack all --dry-run
 
-# 6. Deploy OpenTelemetry & Jaeger distributed tracing stack
-devops k8s deploy-stack otel
+# 6. Write or check the cluster Secrets from the keyring alone
+devops k8s push-secrets --dry-run    # no request: the requests a push would make, in order
+devops k8s push-secrets --plan       # reads the keyring, gh and the cluster: each key's state
+devops k8s push-secrets --only llm/qdrant-api-key
 
-# 7. Deploy all stacks simultaneously with automatic port-forwarding
-devops k8s deploy-stack all
+# 7. Run one devops command as a Job in the cluster (after `devops k8s apply k8s/devops/ --template`)
+devops k8s run-job -- ai gateway status --format json
 
 # 8. Check deployed pod health across all namespaces
 devops k8s pods --all-namespaces
 
 # 9. Teardown stack cleanly
-devops k8s teardown-stack llm
+devops k8s teardown-stack --stack llm
 ```
 
 ---
@@ -83,6 +86,7 @@ devops k8s teardown-stack llm
 - **Workstation vs. Production Dual-Mode Guidance**:
   - Local workstation manifests use NodePort (`31434`), hostPort, and `IfNotPresent` pull policies for offline testing.
   - Production deployments must transition to `ClusterIP`, ingress controllers with TLS certificates, non-root users, read-only root filesystems, and strict NetworkPolicies.
+- **Cluster Secrets from the Keyring**: Never create Secrets with `kubectl create secret --from-literal`, which puts the value in the process list and shell history. `devops k8s push-secrets` server-side applies them from stdin, and `devops config set cloudflare.tunnel_token` stores a typed value at a hidden prompt.
 - **Initial Credentials**: Extract and securely store the ArgoCD initial admin secret, then rotate it immediately:
   ```bash
   kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d

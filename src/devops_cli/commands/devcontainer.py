@@ -960,17 +960,21 @@ def _start_minikube_cluster(dry_run: bool) -> tuple[bool, str]:
 
 
 def _auto_deploy_k8s_stack(workspace_dir: Path, stack: str, dry_run: bool) -> str | None:
-    """Auto-deploy Kubernetes stack via devops k8s deploy-stack."""
+    """Auto-deploy Kubernetes stack via devops k8s deploy-stack.
+
+    It runs at post-start, possibly before the first shell unlocks the keyring, and deploy-stack
+    then stops before applying anything, so its warning says how to finish the deploy.
+    """
     if not dry_run:
         res = run_subprocess(
-            ["devops", "k8s", "deploy-stack", stack],
+            ["devops", "k8s", "deploy-stack", "--stack", stack],
             cwd=workspace_dir,
             check=False,
             quiet=True,
         )
         if res.returncode == 0:
             return f"Auto-deployed Kubernetes stack '{stack}'"
-        return f"Warning: Failed to auto-deploy Kubernetes stack '{stack}'"
+        return f"Warning: {MESSAGES.devcontainer.auto_deploy_failed.format(stack=stack)}"
     return f"Auto-deployed Kubernetes stack '{stack}'"
 
 

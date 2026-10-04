@@ -440,6 +440,12 @@ def build_secret_registry(keyring_keys: dict[str, str]) -> dict[str, SecretRef]:
             ("DEVOPS_CLI_CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_TOKEN"),
             None,
         ),
+        (
+            opt.CLOUDFLARE_TUNNEL_TOKEN,
+            "cloudflare_tunnel_token",
+            ("DEVOPS_CLI_CLOUDFLARE_TUNNEL_TOKEN",),
+            None,
+        ),
     )
 
     return {

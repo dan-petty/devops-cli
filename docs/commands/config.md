@@ -32,7 +32,7 @@ devops config get <key>
 
 ## `devops config set`
 
-**Set a configuration value. Tokens are stored in the OS keyring.**
+**Set a configuration value. Credentials go to the OS keyring; omit VALUE to type one hidden.**
 
 ```bash
 devops config set <key> <value>
@@ -43,7 +43,7 @@ devops config set <key> <value>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<key>` | `string` | Yes | Dotted config key, e.g. github.default_org. |
-| `<value>` | `string` | Yes | Value to set. |
+| `<value>` | `string` | No | Value to set. Omit it for a credential to type it at a hidden prompt, keeping it out of the shell history and the process list. |
 
 ---
 
