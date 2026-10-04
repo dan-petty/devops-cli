@@ -90,7 +90,7 @@ def test_workspaces_endpoint_with_nested_repos(
 
 def test_config_endpoint_sanitization(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test /api/v1/config returns sanitized configuration for all secret keys."""
-    monkeypatch.setenv("DEVOPS_CLI_GITHUB_TOKEN", "ghp_secret_token_12345")
+    monkeypatch.setenv("DEVOPS_CLI_GRAFANA_TOKEN", "FAKE-secret-token-12345")
     monkeypatch.setenv("DEVOPS_CLI_ARGOCD_PASSWORD", "secret_argo_pass")
     monkeypatch.setenv("DEVOPS_CLI_GRAFANA_PASSWORD", "secret_graf_pass")
     response = client.get("/api/v1/config")
@@ -102,7 +102,7 @@ def test_config_endpoint_sanitization(client: TestClient, monkeypatch: pytest.Mo
     assert "ssh" in cfg
     assert "repos" in cfg
     assert "workspace" in cfg
-    assert cfg.get("github", {}).get("token") in ("***REDACTED***", None)
+    assert cfg.get("grafana", {}).get("token") in ("***REDACTED***", None)
     assert cfg.get("argocd", {}).get("password") in ("***REDACTED***", None)
     assert cfg.get("grafana", {}).get("password") in ("***REDACTED***", None)
 

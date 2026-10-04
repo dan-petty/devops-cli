@@ -178,7 +178,7 @@ devops gh milestones close v0.2.14
 
 ## 5. Security Recommendations & Zero-Trust Policies
 
-- **Zero-Plaintext Credentials**: GitHub tokens must be retrieved from the OS Keyring (`github_token`) or environment variable (`GITHUB_TOKEN`), never hardcoded or logged.
+- **Zero-Plaintext Credentials**: The GitHub token is gh's own login, which `gh auth token` returns once per process (`GH_TOKEN` overrides it); devops-cli keeps no copy, and never hardcodes or logs it.
 - **Granular Token Scopes**:
   - Labels, Milestones, Issues, and Pages require standard `repo` scope.
   - Projects v2 mutations require `project` or `read:project` scopes. When scopes are restricted, `devops gh` falls back gracefully with clear instructions (`gh auth refresh -s project,read:project`) and preserves read-only/offline functionality.

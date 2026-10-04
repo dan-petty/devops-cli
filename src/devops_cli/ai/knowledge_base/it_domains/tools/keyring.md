@@ -8,10 +8,10 @@ The Python `keyring` library provides a unified, cross-platform interface to the
 
 ## 2. Usage Information & Architecture
 
-- **Zero-Trust Storage Architecture**: `src/devops_cli/config/settings.py` prioritizes OS Keyring for all sensitive credentials (`github.token`, `ai.api_key`, `minikube.password`).
+- **Zero-Trust Storage Architecture**: `src/devops_cli/config/settings.py` prioritizes OS Keyring for all sensitive credentials (`grafana.token`, `ai.api_key`, `minikube.password`). GitHub's token is not among them: it is gh's own login, which gh keeps in the same system keyring.
 - **Service Namespace**: All stored credentials are isolated under the `CONST_KEYRING_SERVICE = "devops-cli"` namespace.
 - **Fallback Hierarchy**:
-  1. Environment variable override (e.g. `DEVOPS_CLI_GITHUB_TOKEN`).
+  1. Environment variable override (e.g. `DEVOPS_CLI_GRAFANA_TOKEN`).
   2. OS Keyring secure lookup via `keyring.get_password(CONST_KEYRING_SERVICE, key)`.
   3. Plaintext configuration file lookup (`config.yaml`).
 - **CLI Commands**: `devops config set <key> <val>` automatically routes secrets to Keyring.
@@ -22,8 +22,8 @@ The Python `keyring` library provides a unified, cross-platform interface to the
 
 ### DevOps CLI Keyring & Secret Management
 ```bash
-# Securely store GitHub token in OS Keyring
-devops config set github.token ghp_xxxx1234567890
+# Securely store a Grafana API token in OS Keyring
+devops config set grafana.token <grafana-api-token>
 
 # Securely store AI API key in OS Keyring
 devops config set ai.api_key sk-ant-api03-xxxx
@@ -41,13 +41,13 @@ import keyring
 from devops_cli.config.constants import CONST_KEYRING_SERVICE
 
 # Store a secret
-keyring.set_password(CONST_KEYRING_SERVICE, "github.token", "secret_token_val")
+keyring.set_password(CONST_KEYRING_SERVICE, "grafana_token", "secret_token_val")
 
 # Retrieve a secret
-token = keyring.get_password(CONST_KEYRING_SERVICE, "github.token")
+token = keyring.get_password(CONST_KEYRING_SERVICE, "grafana_token")
 
 # Delete a secret
-keyring.delete_password(CONST_KEYRING_SERVICE, "github.token")
+keyring.delete_password(CONST_KEYRING_SERVICE, "grafana_token")
 ```
 
 ---
@@ -72,7 +72,7 @@ keyring.delete_password(CONST_KEYRING_SERVICE, "github.token")
 ## 6. General Standards & Reference Guidelines
 
 - **Service Key**: `devops-cli`.
-- **Credential Keys**: `github.token`, `ai.api_key`, `cloud.aws_secret_key`, `cloud.azure_client_secret`.
+- **Credential Keys**: `grafana.token`, `ai.api_key`, `cloud.aws_secret_key`, `cloud.azure_client_secret`.
 
 ---
 

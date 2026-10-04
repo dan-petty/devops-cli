@@ -35,7 +35,7 @@ In `devops-cli`:
 
 ## 4. Key Concepts & Core Patterns
 
-1. **`Github` Instance**: Authenticated via OS Keyring Personal Access Token (`github.token`) or environment variable (`GITHUB_TOKEN`):
+1. **`Github` Instance**: Built once, by the GitHub session (`devops_cli.github.session`), from the process's one token, which `gh auth token` returns:
    ```python
    from github import Github, Auth
 
@@ -72,6 +72,6 @@ def post_pr_review_comment(token: str, repo_name: str, pr_number: int, comment_b
 
 ## 6. Best Practices & Security Standards
 
-1. **Zero Token Hardcoding**: Always retrieve GitHub tokens from `devops_cli.config.keyring_vault` or `get_github_token()`.
+1. **One Identity**: Never build `GitHubClient` or `Github` yourself; use `get_github_session().client`, so every call is made as the session's identity.
 2. **Rate Limit Defense**: Catch `github.RateLimitExceededException` and display the reset timestamp to the user.
 3. **Redact Private Repo Metadata**: Ensure error messages mask internal repository URLs and tokens before emitting to CLI logs.

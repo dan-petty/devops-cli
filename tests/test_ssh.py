@@ -196,7 +196,6 @@ def test_ssh_commands(tmp_path: Path) -> None:
         patch("devops_cli.crypto.ssh_keys.find_newest_key", return_value=priv_file),
         patch("devops_cli.crypto.ssh_keys.get_key_age_days", return_value=10),
         patch("devops_cli.github.ssh.register_key_on_github", return_value=True),
-        patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
         patch("devops_cli.commands.ssh._configure_git_signing"),
     ):
         res_gen = runner.invoke(
@@ -276,7 +275,6 @@ def test_ssh_register_error_branches(tmp_path: Path) -> None:
             "devops_cli.github.ssh.register_key_on_github",
             side_effect=SSHRegistrationError("API error"),
         ),
-        patch("devops_cli.config.settings.get_github_token", return_value="token"),
         patch("devops_cli.config.settings.load_settings") as mock_load,
     ):
         settings = MagicMock()
@@ -446,12 +444,11 @@ def test_ssh_register_honors_prefix_setting_and_option(tmp_path: Path) -> None:
 
     mock_registered_titles: list[str] = []
 
-    def mock_register_gh(pub_key: str, title: str, token: str | None = None) -> None:
+    def mock_register_gh(pub_key: str, title: str) -> None:
         mock_registered_titles.append(title)
 
     with (
         patch("devops_cli.github.ssh.register_key_on_github", side_effect=mock_register_gh),
-        patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
         patch("devops_cli.commands.ssh._configure_git_signing"),
         patch("devops_cli.config.settings.load_settings") as mock_load,
     ):
@@ -523,7 +520,6 @@ def test_ssh_empty_states_and_rotation_failure(tmp_path: Path) -> None:
                 "API timeout for token ghp_secret1234567890123456789012345678901234"
             ),
         ),
-        patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
         patch("devops_cli.config.settings.load_settings") as mock_load,
     ):
         settings = MagicMock()

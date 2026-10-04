@@ -20,11 +20,12 @@ from devops_cli.config.constants import (
     CONST_VSCODE_CLI,
     CONST_VSCODE_WORKSPACE_FILE,
 )
-from devops_cli.config.settings import Settings, get_github_token, load_settings
-from devops_cli.core.cli import new_typer, repo_label
+from devops_cli.config.settings import load_settings
+from devops_cli.core.cli import exit_on_error, new_typer, repo_label
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import is_dry_run
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.git.operations import clone_repo, fetch_all, iter_workspace_repos, pull_tracking
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -50,17 +51,13 @@ def _github_https_url(full_name: str) -> str:
     return f"{CONST_URL_SCHEME_HTTPS}{CONST_GITHUB_HOST}/{full_name}{CONST_GITHUB_REPO_SUFFIX}"
 
 
-def _require_client(settings: Settings) -> GitHubClient:
-    token = get_github_token(settings)
-    if not token:
-        print_error(
-            "GitHub token not configured. Run 'devops config init' or set DEVOPS_CLI_GITHUB_TOKEN.",
-            prefix=False,
-        )
-        raise typer.Exit(1)
-    from devops_cli.github.client import GitHubClient
+def _require_client() -> GitHubClient:
+    """The session's PyGithub client, exiting with the unauthenticated error when gh has no token."""
+    from devops_cli.github.session import get_github_session
 
-    return GitHubClient(token)
+    with exit_on_error(GitHubOperationError):
+        session = get_github_session()
+    return session.client
 
 
 def _current_branch(repo_dir: Path) -> str:
@@ -172,7 +169,7 @@ def clone_org(
 
     root = (base_dir or settings.repos.base_dir).resolve()
     org_dir = _resolve_safe_org_dir(root, org_name)
-    client = _require_client(settings)
+    client = _require_client()
 
     repos = client.get_org_repos(
         org_name,

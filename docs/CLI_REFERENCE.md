@@ -2257,7 +2257,7 @@ devops config auth-headless <key> <token>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<key>` | `string` | Yes | Dotted secret key, e.g. github.token. |
+| `<key>` | `string` | Yes | Dotted secret key, e.g. grafana.token. |
 | `<token>` | `string` | Yes | Secret token string. |
 
 ### `devops config audit-stream`

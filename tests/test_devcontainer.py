@@ -1923,7 +1923,7 @@ def test_plaintext_gh_tokens_are_moved_once_the_keyring_opens(
 
     from devops_cli.commands.devcontainer import _move_plaintext_gh_tokens
 
-    for token_var in ("GH_TOKEN", "GITHUB_TOKEN", "DEVOPS_CLI_GITHUB_TOKEN"):
+    for token_var in ("GH_TOKEN", "GITHUB_TOKEN"):
         monkeypatch.delenv(token_var, raising=False)
 
     hosts_file = _write_gh_hosts(monkeypatch, tmp_path, "github.com:\n  oauth_token: FAKE-token\n")

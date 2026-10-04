@@ -53,7 +53,7 @@ In `devops-cli`:
 
    class AppSettings(BaseSettings):
        model_config = SettingsConfigDict(env_prefix="DEVOPS_CLI_", case_sensitive=False)
-       github_token: str | None = None
+       grafana_token: str | None = None
        log_level: str = "INFO"
    ```
 3. **Model Serialization**:

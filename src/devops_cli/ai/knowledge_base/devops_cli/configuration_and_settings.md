@@ -8,7 +8,7 @@ This document details the configuration management architecture, Pydantic settin
 
 Settings are resolved in the following priority order (highest to lowest):
 1. **CLI Flags & Arguments** (e.g. `--token`, `--model`, `--endpoint`, `--dry-run`)
-2. **Environment Variables** (e.g. `DEVOPS_CLI_AI_API_KEY`, `GITHUB_TOKEN`, `DEVOPS_CLI_TELEMETRY_ENDPOINT`)
+2. **Environment Variables** (e.g. `DEVOPS_CLI_AI_API_KEY`, `DEVOPS_CLI_TELEMETRY_ENDPOINT`)
 3. **Encrypted Secret Store** (OS Keyring via Python `keyring` library)
 4. **Persistent JSON Config** (`~/.config/devops-cli/config.json`)
 5. **Default Settings** (`devops_cli.config.defaults` and Pydantic field defaults)
@@ -22,7 +22,7 @@ Configuration is modeled with immutable and mutable Pydantic v2 schemas:
 | Section | Model | Description | Primary Fields |
 | :--- | :--- | :--- | :--- |
 | **`ai`** | `AISettings` | LLM provider, models, tasks, caching, Ollama endpoints | `provider`, `model`, `reasoning_effort`, `ollama_urls`, `ollama_max_parallel`, `temperature`, `max_tokens`, `tasks` |
-| **`github`** | `GitHubSettings` | GitHub API access, default org, user | `token`, `default_org`, `default_user` |
+| **`github`** | `GitHubConfig` | Default organization (the token is gh's login, never a setting) | `default_org` |
 | **`k8s`** | `K8sSettings` | Kubernetes cluster context and namespaces | `context`, `namespace`, `k8s_dir` |
 | **`ssh`** | `SSHSettings` | SSH key management, directory, key types | `key_dir`, `key_type`, `key_size` |
 | **`tls`** | `TLSSettings` | X.509 TLS certificate generation defaults | `tls_dir`, `organization`, `country`, `validity_days` |
@@ -52,7 +52,6 @@ All configuration values can be overridden via `DEVOPS_CLI_*` environment variab
 | `DEVOPS_CLI_AI_MAX_TOKENS` | `ai.max_tokens` | Response token generation ceiling (e.g. `2048`, `4096`) |
 | `DEVOPS_CLI_AI_OLLAMA_URLS` | `ai.ollama_urls` | Comma-separated list of Ollama host endpoints (e.g. `http://192.0.2.10:11434,http://127.0.0.1:11434`) |
 | `DEVOPS_CLI_AI_OLLAMA_MAX_PARALLEL` | `ai.ollama_max_parallel` | Maximum concurrent requests dispatched per Ollama endpoint |
-| `GITHUB_TOKEN` | `github.token` | GitHub Personal Access Token for API and PR operations |
 | `DEVOPS_CLI_TELEMETRY_ENABLED` | `telemetry.enabled` | Export OpenTelemetry traces and metrics (`true`, `false`) |
 | `DEVOPS_CLI_TELEMETRY_ENDPOINT` | `telemetry.endpoint` | OpenTelemetry collector (e.g. `http://localhost:4318`) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `telemetry.endpoint`, when unset | OpenTelemetry's standard variable, read only when no configuration names `telemetry.endpoint` |
@@ -114,12 +113,14 @@ devops config set github.default_org my-org
 # Get specific configuration values
 devops config get ai.provider
 devops config get ai.tasks.embedding.ollama_urls
-devops config get github.token
+devops config get github.default_org
 
 # Audit configuration for unencrypted plaintext credentials
 devops config audit-keys
 
 # Manage encrypted secrets via OS Keyring
-devops config set github.token ghp_xxxx
 devops config set ai.api_key sk-xxxx
+
+# GitHub access is gh's login: one identity per process, from `gh auth token`
+gh auth login
 ```

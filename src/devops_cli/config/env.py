@@ -14,7 +14,6 @@ ENV_DEVOPS_CLI_CONFIG = "DEVOPS_CLI_CONFIG"
 # names no `telemetry.endpoint`.
 ENV_OTEL_EXPORTER_OTLP_ENDPOINT = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
-ENV_GITHUB_TOKEN = "DEVOPS_CLI_GITHUB_TOKEN"
 ENV_GITHUB_DEFAULT_ORG = "DEVOPS_CLI_GITHUB_DEFAULT_ORG"
 ENV_SSH_KEY_DIR = "DEVOPS_CLI_SSH_KEY_DIR"
 ENV_SSH_KEY_PREFIX = "DEVOPS_CLI_SSH_KEY_PREFIX"
@@ -107,7 +106,6 @@ ENV_DATA_AUDIT_LOG_PATH = "DEVOPS_CLI_DATA_AUDIT_LOG_PATH"
 ENV_DATA_FEEDBACK_DATASET_PATH = "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH"
 
 OPTION_TO_ENV_VAR: dict[str, str] = {
-    opt.GITHUB_TOKEN: ENV_GITHUB_TOKEN,
     opt.GITHUB_DEFAULT_ORG: ENV_GITHUB_DEFAULT_ORG,
     opt.SSH_KEY_DIR: ENV_SSH_KEY_DIR,
     opt.SSH_KEY_PREFIX: ENV_SSH_KEY_PREFIX,
@@ -236,12 +234,6 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             False,
             "Absolute path to project configuration file; outside devops-cli's own "
             "repository, the only one a `devops review` command reads",
-        ),
-        EnvVarSpec(
-            ENV_GITHUB_TOKEN,
-            opt.GITHUB_TOKEN,
-            True,
-            "GitHub Personal Access Token (stored in OS keyring)",
         ),
         EnvVarSpec(
             ENV_GITHUB_DEFAULT_ORG,

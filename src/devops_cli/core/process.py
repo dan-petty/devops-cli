@@ -7,14 +7,29 @@ import fnmatch
 import json
 import os
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any
 
-from devops_cli.config.constants import CONST_GH_CLI
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.constants import (
+    CONST_EXIT_COMMAND_NOT_FOUND,
+    CONST_GH_AUTH_SUBCOMMAND,
+    CONST_GH_CLI,
+    CONST_GH_LOGIN_ENV_VARS,
+    CONST_GH_NON_API_COMMANDS,
+    CONST_GH_TOKEN_ENV,
+    CONST_GH_TOKEN_ENV_VARS,
+    CONST_GIT_CLI,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS,
+    DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+)
 from devops_cli.dry_run import is_dry_run
 from devops_cli.exceptions.base import DevOpsCLIError
+from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.exceptions.tools import SubprocessError
 from devops_cli.output import print_dry_run_command
 from devops_cli.telemetry import record_metric, trace_span
@@ -203,16 +218,126 @@ def _validate_subprocess_cwd(cwd: Path | str | None) -> None:
         raise SecurityError(f"Subprocess cwd cannot reside in forbidden system directory: '{cwd}'.")
 
 
-def _inject_gh_credentials(sub_env: dict[str, str], env: dict[str, str] | None) -> None:
-    """Inject ambient GitHub tokens into subprocess environment when invoking GitHub CLI."""
-    for token_var in ("GH_TOKEN", "GITHUB_TOKEN"):
-        if token_var in os.environ and token_var not in sub_env:
-            sub_env[token_var] = os.environ[token_var]
-    devops_token = (env or {}).get("DEVOPS_CLI_GITHUB_TOKEN") or os.environ.get(
-        "DEVOPS_CLI_GITHUB_TOKEN"
-    )
-    if devops_token and "GH_TOKEN" not in sub_env and "GITHUB_TOKEN" not in sub_env:
-        sub_env["GH_TOKEN"] = devops_token
+# The process's one GitHub identity (#767): None until a lookup finds a token, then that token.
+# A lookup that finds none is not kept, so a later call looks again; when and why it last failed
+# is kept, for the error and for git, which waits before looking again.
+_github_token: str | None = None
+_github_lookup_failure: tuple[float, str] | None = None
+_GITHUB_TOKEN_LOCK = threading.Lock()
+
+
+def _lookup_github_token() -> tuple[str, str]:
+    """Run `gh auth token`; it applies GH_TOKEN, then GITHUB_TOKEN, then gh's stored login.
+
+    The child is a `gh auth` call, so it gets the ambient tokens and never a pinned one. Returns
+    the token, or "" and the unauthenticated error's message when there is none.
+    """
+    from devops_cli.lang import ERRORS
+
+    timeout = DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS
+    try:
+        proc = run_subprocess(
+            [CONST_GH_CLI, CONST_GH_AUTH_SUBCOMMAND, "token"],
+            check=False,
+            quiet=True,
+            timeout=timeout,
+            extra_allowed_env=CONST_GH_LOGIN_ENV_VARS,
+        )
+    except subprocess.TimeoutExpired:
+        reason = ERRORS.git.github_token_lookup_timed_out.format(seconds=timeout)
+        return "", ERRORS.git.github_token_lookup_failed.format(reason=reason)
+    except OSError as err:
+        return "", ERRORS.git.github_token_lookup_failed.format(reason=type(err).__name__)
+    token = proc.stdout.strip() if proc.returncode == 0 else ""
+    if token:
+        return token, ""
+    if proc.returncode == CONST_EXIT_COMMAND_NOT_FOUND:
+        reason = ERRORS.git.github_token_lookup_not_found
+        return "", ERRORS.git.github_token_lookup_failed.format(reason=reason)
+    return "", ERRORS.git.github_unauthenticated.format(status=proc.returncode)
+
+
+def _session_github_token(*, retry_now: bool) -> tuple[str, str]:
+    """The session's token, looked up on first use; or "" and why gh gave none.
+
+    A found token is kept for the life of the process. Without one, `retry_now` looks again at
+    once (gh); otherwise a lookup that failed within the retry interval stands (git).
+    """
+    global _github_token, _github_lookup_failure
+    with _GITHUB_TOKEN_LOCK:
+        if _github_token:
+            return _github_token, ""
+        failure = _github_lookup_failure
+        if (
+            failure is not None
+            and not retry_now
+            and time.monotonic() - failure[0] < DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS
+        ):
+            return "", failure[1]
+        token, why = _lookup_github_token()
+        if token:
+            _github_token, _github_lookup_failure = token, None
+        else:
+            _github_lookup_failure = (time.monotonic(), why)
+        return token, why
+
+
+def github_token() -> str:
+    """The session's GitHub token, raising the unauthenticated error when gh has none."""
+    token, why = _session_github_token(retry_now=True)
+    if not token:
+        raise GitHubUnauthenticatedError(why)
+    return token
+
+
+def reset_github_token() -> None:
+    """Forget the looked-up token, so the next GitHub call runs `gh auth token` again."""
+    global _github_token, _github_lookup_failure
+    with _GITHUB_TOKEN_LOCK:
+        _github_token, _github_lookup_failure = None, None
+
+
+def is_local_gh_command(gh_args: list[str]) -> bool:
+    """Whether gh's arguments make no call of the session's: `gh auth`, version or help.
+
+    These need no identity, so they run before one is resolved and outside the pin.
+    """
+    return not gh_args or gh_args[0].lower() in CONST_GH_NON_API_COMMANDS
+
+
+def _github_client_name(cmd: list[str]) -> str | None:
+    """The GitHub client a command runs, gh or git, or None for any other program."""
+    name = Path(cmd[0]).name if cmd else ""
+    return name if name in (CONST_GH_CLI, CONST_GIT_CLI) else None
+
+
+def _pin_github_token(
+    cmd: list[str], sub_env: dict[str, str], caller_env: dict[str, str] | None = None
+) -> None:
+    """Give a gh or git child GH_TOKEN set to the session's token, and no other GitHub token.
+
+    gh's local commands (`gh auth` subcommands, version and help) are exempt: they get the
+    GH_TOKEN and GITHUB_TOKEN of the environment, or of `caller_env` where the caller set them,
+    unchanged. Other gh calls without a token raise the unauthenticated error before they run;
+    git runs without one.
+    """
+    client = _github_client_name(cmd)
+    if client is None:
+        return
+    for name in CONST_GH_TOKEN_ENV_VARS:
+        sub_env.pop(name, None)
+    if client == CONST_GH_CLI and is_local_gh_command(cmd[1:]):
+        given = {**os.environ, **(caller_env or {})}
+        sub_env.update(
+            {name: str(given[name]) for name in CONST_GH_TOKEN_ENV_VARS if name in given}
+        )
+        return
+    if client == CONST_GH_CLI:
+        token = github_token()
+    else:
+        token, _ = _session_github_token(retry_now=False)
+    if token:
+        sub_env[CONST_GH_TOKEN_ENV] = token
 
 
 def run_subprocess(
@@ -244,8 +369,7 @@ def run_subprocess(
         isolate_env=isolate_env,
         extra_allowed_keys=extra_allowed_env,
     )
-    if bin_name == CONST_GH_CLI:
-        _inject_gh_credentials(sub_env, env)
+    _pin_github_token(cmd, sub_env, env)
 
     with trace_span(
         f"subprocess.{bin_name}",
@@ -276,8 +400,8 @@ def run_subprocess(
         except FileNotFoundError:
             dur = time.perf_counter() - start_time
             span_h.set_attribute("subprocess.executable_found", False)
-            span_h.set_attribute("subprocess.exit_code", 127)
-            span_h.set_attribute("process.exit.code", 127)
+            span_h.set_attribute("subprocess.exit_code", CONST_EXIT_COMMAND_NOT_FOUND)
+            span_h.set_attribute("process.exit.code", CONST_EXIT_COMMAND_NOT_FOUND)
             span_h.set_attribute("subprocess.duration_seconds", dur)
             span_h.set_attribute("subprocess.status", "not_found")
             span_h.add_event("subprocess_not_found", {"bin": bin_name})
@@ -285,7 +409,7 @@ def run_subprocess(
                 raise
             return subprocess.CompletedProcess(
                 cmd,
-                returncode=127,
+                returncode=CONST_EXIT_COMMAND_NOT_FOUND,
                 stdout="",
                 stderr=f"Executable '{bin_name}' not found in PATH",
             )
@@ -342,7 +466,7 @@ def run_subprocess(
         return proc
 
 
-async def run_subprocess_async(  # noqa: C901
+async def run_subprocess_async(
     cmd: list[str],
     *,
     cwd: Path | None = None,
@@ -385,8 +509,8 @@ async def run_subprocess_async(  # noqa: C901
         isolate_env=isolate_env,
         extra_allowed_keys=extra_allowed_env,
     )
-    if bin_name == CONST_GH_CLI:
-        _inject_gh_credentials(sub_env, env)
+    # The first GitHub call runs `gh auth token`, a blocking child; keep it off the event loop.
+    await asyncio.to_thread(_pin_github_token, cmd, sub_env, env)
 
     with trace_span(
         f"subprocess.{bin_name}",
@@ -424,8 +548,8 @@ async def run_subprocess_async(  # noqa: C901
         except FileNotFoundError:
             dur = time.perf_counter() - start_time
             span_h.set_attribute("subprocess.executable_found", False)
-            span_h.set_attribute("subprocess.exit_code", 127)
-            span_h.set_attribute("process.exit.code", 127)
+            span_h.set_attribute("subprocess.exit_code", CONST_EXIT_COMMAND_NOT_FOUND)
+            span_h.set_attribute("process.exit.code", CONST_EXIT_COMMAND_NOT_FOUND)
             span_h.set_attribute("subprocess.duration_seconds", dur)
             span_h.set_attribute("subprocess.status", "not_found")
             span_h.add_event("subprocess_not_found", {"bin": bin_name})
@@ -433,7 +557,7 @@ async def run_subprocess_async(  # noqa: C901
                 raise
             return subprocess.CompletedProcess(
                 cmd,
-                returncode=127,
+                returncode=CONST_EXIT_COMMAND_NOT_FOUND,
                 stdout="",
                 stderr=f"Executable '{bin_name}' not found in PATH",
             )

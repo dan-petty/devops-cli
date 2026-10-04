@@ -2,19 +2,26 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
+import time
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from github.GithubException import UnknownObjectException
 
+from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.github.client import (
     GhCliClient,
     GitHubClient,
     RepoInfo,
     parse_paginated_json,
 )
+
+if TYPE_CHECKING:
+    from tests.web_fakes import StubWeb
 
 
 def test_repo_info_model() -> None:
@@ -288,6 +295,56 @@ def test_get_pr_diff_normal_and_redirect(monkeypatch: pytest.MonkeyPatch) -> Non
     assert len(calls) == 2
 
 
+def _scripted_gh(argv: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+    """Answer `gh auth token` with token A, `gh api rate_limit` with a fresh quota, the rest empty."""
+    answers = {
+        ("auth", "token"): "A\n",
+        ("api", "rate_limit"): json.dumps(
+            {"resources": {"core": {"limit": 5000, "remaining": 5000, "reset": time.time() + 60}}}
+        ),
+    }
+    return subprocess.CompletedProcess(
+        argv, 0, stdout=answers.get(tuple(argv[1:3]), "[]"), stderr=""
+    )
+
+
+def test_one_identity_reaches_pygithub_gh_and_the_quota_refresh(
+    monkeypatch: pytest.MonkeyPatch, stub_web: StubWeb
+) -> None:
+    """The PR diff, two run_gh calls and the quota refresh all act as token A from `gh auth token`."""
+    from devops_cli.core import process
+    from devops_cli.github.rate_limiter import run_gh
+    from devops_cli.github.session import get_github_session
+
+    monkeypatch.setattr(process, "_github_token", None)
+    monkeypatch.setenv("GITHUB_TOKEN", "C")
+    stub_web.page("https://api.github.com/repos/octo/repo/pulls/42", "diff --git a/f b/f")
+    with patch("subprocess.run", side_effect=_scripted_gh) as run:
+        diff = get_github_session().client.get_pr_diff("octo/repo", 42)
+        run_gh(["issue", "list"])
+        run_gh(["label", "list"])
+    children = [
+        (
+            call.args[0][1:3],
+            call.kwargs["env"].get("GH_TOKEN"),
+            call.kwargs["env"].get("GITHUB_TOKEN"),
+        )
+        for call in run.call_args_list
+        if call.args[0][0] == CONST_GH_CLI
+    ]
+    github_requests = [request for request in stub_web.sent if request.url.host == "api.github.com"]
+    assert (diff, [request.headers["authorization"] for request in github_requests], children) == (
+        "diff --git a/f b/f",
+        ["Bearer A"],
+        [
+            (["auth", "token"], None, "C"),
+            (["api", "rate_limit"], "A", None),
+            (["issue", "list"], "A", None),
+            (["label", "list"], "A", None),
+        ],
+    )
+
+
 def test_parse_paginated_json_concatenated_documents() -> None:
     """Verify parse_paginated_json correctly parses multiple concatenated pages from gh api --paginate."""
     page_1 = '[{"number": 1, "title": "v0.1.0"}]'
@@ -364,53 +421,3 @@ def test_gh_cli_client_lists_every_label() -> None:
     argv = run_gh.call_args.args[0]
     # Without --limit, gh lists 30.
     assert (int(argv[argv.index("--limit") + 1]) if "--limit" in argv else 30) > 30
-
-
-def test_get_repo_overview_wraps_graphql_failure() -> None:
-    """A GraphQL transport failure surfaces as a typed, annotated GitHubOperationError.
-
-    The raw exception previously propagated unhandled and crashed the CLI.
-    """
-    from devops_cli.exceptions.git import GitHubOperationError
-
-    with (
-        patch("github.Github"),
-        patch("devops_cli.github.graphql.GitHubGraphQLClient") as mock_graphql_cls,
-    ):
-        mock_graphql_cls.return_value.fetch_repo_overview.side_effect = RuntimeError("rate limited")
-        client = GitHubClient(token="t")
-
-        with pytest.raises(GitHubOperationError) as exc_info:
-            client.get_repo_overview("org/repo")
-
-    assert exc_info.value.details.get("repo") == "org/repo"
-    assert exc_info.value.details.get("operation") == "repo_overview"
-
-
-def test_get_repo_overview_preserves_typed_errors() -> None:
-    """An already-typed GitHub error passes through without being re-wrapped."""
-    from devops_cli.exceptions.git import GitHubOperationError
-
-    original = GitHubOperationError("upstream failure", operation="graphql_batch")
-    with (
-        patch("github.Github"),
-        patch("devops_cli.github.graphql.GitHubGraphQLClient") as mock_graphql_cls,
-    ):
-        mock_graphql_cls.return_value.fetch_repo_overview.side_effect = original
-        client = GitHubClient(token="t")
-
-        with pytest.raises(GitHubOperationError) as exc_info:
-            client.get_repo_overview("org/repo")
-
-    assert exc_info.value is original
-
-
-def test_get_repo_overview_returns_payload_on_success() -> None:
-    """A successful overview query returns the GraphQL payload unchanged."""
-    with (
-        patch("github.Github"),
-        patch("devops_cli.github.graphql.GitHubGraphQLClient") as mock_graphql_cls,
-    ):
-        mock_graphql_cls.return_value.fetch_repo_overview.return_value = {"name": "repo"}
-        client = GitHubClient(token="t")
-        assert client.get_repo_overview("org/repo") == {"name": "repo"}

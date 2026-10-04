@@ -147,7 +147,7 @@ def register(
         ),
     ] = None,
 ) -> None:
-    from devops_cli.config.settings import get_github_token, load_settings
+    from devops_cli.config.settings import load_settings
     from devops_cli.crypto.ssh_keys import find_newest_key, get_ssh_key_prefix
     from devops_cli.dry_run import is_dry_run
     from devops_cli.github.ssh import SSHRegistrationError, register_key_on_github
@@ -165,7 +165,6 @@ def register(
         return
 
     settings = load_settings()
-    token = get_github_token(settings)
     active_prefix = (
         prefix if prefix is not None else (settings.ssh.key_prefix or get_ssh_key_prefix())
     )
@@ -192,7 +191,7 @@ def register(
         key_title = key_file.stem
 
     try:
-        register_key_on_github(pub_key, key_title, token=token)
+        register_key_on_github(pub_key, key_title)
     except SSHRegistrationError as exc:
         from devops_cli.security.sanitizer import mask_secrets
 
@@ -228,7 +227,7 @@ def rotate(
 
     Generates, registers, and reports the old key.
     """
-    from devops_cli.config.settings import get_github_token, load_settings
+    from devops_cli.config.settings import load_settings
     from devops_cli.crypto.ssh_keys import (
         find_newest_key,
         generate_ed25519_key,
@@ -291,12 +290,9 @@ def rotate(
         created_new = True
         print_success(f"Generated: {new_key_path}")
 
-    token = get_github_token(settings)
     pub_key = new_key_path.with_name(f"{new_key_path.name}.pub").read_text(encoding="utf-8").strip()
     try:
-        register_key_on_github(
-            pub_key, f"{active_prefix or 'devops-cli'}-{_date_suffix()}", token=token
-        )
+        register_key_on_github(pub_key, f"{active_prefix or 'devops-cli'}-{_date_suffix()}")
         _configure_git_signing(new_key_path)
         print_success(MESSAGES.ssh.registered_and_configured)
     except SSHRegistrationError as exc:

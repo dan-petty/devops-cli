@@ -6,6 +6,7 @@ import errno
 import ipaddress
 import os
 import subprocess
+import sys
 import threading
 import weakref
 from collections.abc import Callable, Iterator, Sequence
@@ -323,6 +324,48 @@ def isolate_session_bus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def isolate_gh_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Keep tests from reading the developer's gh login, which may hold a plaintext token."""
     monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path / "gh-config"))
+
+
+PINNED_GITHUB_TOKEN = "test-github-token"
+
+
+@pytest.fixture(autouse=True)
+def pin_github_session(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """Give every test one fake GitHub identity, so no test runs a real `gh auth token`.
+
+    Every gh and git child a test starts gets this token as GH_TOKEN, never the developer's login.
+    A test of the lookup itself sets `devops_cli.core.process._github_token` back to None, and
+    `no_github_identity` makes every lookup fail. The session is dropped only once something has
+    imported it: importing it here would load all of `devops_cli.github` in every worker.
+    """
+    from devops_cli.core import process
+
+    def drop_session() -> None:
+        session_module = sys.modules.get("devops_cli.github.session")
+        if session_module is not None:
+            session_module.reset_github_session()
+
+    drop_session()
+    monkeypatch.setattr(process, "_github_token", PINNED_GITHUB_TOKEN)
+    monkeypatch.setattr(process, "_github_lookup_failure", None)
+    yield PINNED_GITHUB_TOKEN
+    drop_session()
+
+
+def fail_the_github_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make `gh auth token` print no token from now on, as when gh has no login."""
+    from devops_cli.core import process
+    from devops_cli.lang import ERRORS
+
+    unauthenticated = ERRORS.git.github_unauthenticated.format(status=1)
+    monkeypatch.setattr(process, "_github_token", None)
+    monkeypatch.setattr(process, "_lookup_github_token", lambda: ("", unauthenticated))
+
+
+@pytest.fixture
+def no_github_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The process has no GitHub identity: every lookup finds no token."""
+    fail_the_github_lookup(monkeypatch)
 
 
 @pytest.fixture(autouse=True, scope="session")

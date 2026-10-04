@@ -25,8 +25,6 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from github.PullRequest import PullRequest
 
-    from devops_cli.github.graphql import GitHubGraphQLClient
-
 
 class RepoInfo(BaseModel):
     name: str
@@ -39,49 +37,13 @@ class RepoInfo(BaseModel):
 
 
 class GitHubClient:
+    """PyGithub with the session's token; `github.session` builds the only one (#767)."""
+
     def __init__(self, token: str) -> None:
         from github import Auth, Github
 
-        from devops_cli.github.graphql import GitHubGraphQLClient
-
         self._token = token
         self._gh = Github(auth=Auth.Token(token))
-        self._graphql = GitHubGraphQLClient(token=token)
-
-    @property
-    def graphql(self) -> GitHubGraphQLClient:
-        """Access high-performance GraphQL client with batching and ETag caching."""
-        return self._graphql
-
-    def get_repo_overview(
-        self,
-        repo: str,
-        issues_limit: int = 50,
-        prs_limit: int = 50,
-        milestones_limit: int = 20,
-    ) -> Any:
-        """Fetch repository overview (issues, PRs, milestones, rate limit) in a single GraphQL call."""
-        if "/" in repo:
-            owner, name = repo.split("/", 1)
-        else:
-            owner = self._gh.get_user().login
-            name = repo
-        try:
-            return self._graphql.fetch_repo_overview(
-                owner=owner,
-                repo=name,
-                issues_limit=issues_limit,
-                prs_limit=prs_limit,
-                milestones_limit=milestones_limit,
-            )
-        except GitHubOperationError:
-            raise
-        except Exception as exc:
-            raise GitHubOperationError(
-                f"Failed fetching repository overview for '{owner}/{name}': {exc}",
-                operation="repo_overview",
-                details={"repo": f"{owner}/{name}"},
-            ) from exc
 
     def get_org_repos(
         self,

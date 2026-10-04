@@ -6,7 +6,6 @@ import copy
 import logging
 import operator
 import os
-import subprocess
 import threading
 import time
 from collections.abc import Iterable
@@ -1046,27 +1045,6 @@ def _resolve(option: str, settings: Settings) -> str | None:
     # Bind the caller's settings so configuration-sourced values reflect this call, not a
     # snapshot captured when the process-wide resolver was first constructed.
     return get_resolver().resolve(ref, settings_source=lambda: settings)
-
-
-def get_github_token(settings: Settings) -> str | None:
-    """Resolve the GitHub token, falling back to an authenticated GitHub CLI session."""
-    return _resolve(opt.GITHUB_TOKEN, settings) or _github_cli_token()
-
-
-def _github_cli_token() -> str | None:
-    """Return token from `gh auth token` when GitHub CLI is authenticated."""
-    from devops_cli.github.rate_limiter import run_gh
-
-    try:
-        result = run_gh(["auth", "token"], quiet=True, timeout=5.0)
-    except FileNotFoundError, OSError, subprocess.SubprocessError:
-        return None
-
-    if result.returncode != 0:
-        return None
-
-    token = result.stdout.strip()
-    return token or None
 
 
 def get_grafana_token(settings: Settings) -> str | None:

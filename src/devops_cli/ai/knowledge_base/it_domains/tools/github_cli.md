@@ -8,7 +8,7 @@ The GitHub CLI (`gh`) brings GitHub pull requests, issues, Actions workflows, re
 
 ## 2. Usage Information & Architecture
 
-- **Token Authentication**: Leverages GitHub Personal Access Tokens (classic or fine-grained) or OAuth tokens securely resolved from OS Keyring (`devops config get github.token`) or environment variable `DEVOPS_CLI_GITHUB_TOKEN`.
+- **Token Authentication**: One GitHub identity per process: on the first GitHub call `gh auth token` runs once (it applies `GH_TOKEN`, then `GITHUB_TOKEN`, then gh's stored login), and every gh and git child gets that token as `GH_TOKEN`. `gh auth` subcommands are exempt and see the environment unchanged.
 - **API Client**: Programmatic interaction via `src/devops_cli/github/client.py` and rate-managed CLI invocation via `run_gh([CONST_GH_CLI, ...])`.
 - **Active Monitoring**: When creating or updating PRs, DevOps CLI actively polls and verifies remote GitHub Actions check runs.
 - **CLI Subcommands**: `devops pr`, `devops repos`, and `devops release` commands wrap GitHub operations.
@@ -69,7 +69,7 @@ gh release download v0.2.0 --pattern "*.tar.gz"
 ## 5. Security Recommendations & Zero-Trust Policies
 
 - **Never Print Tokens in Logs**: Tokens must never be logged or echoed in shell traces.
-- **Keyring Storage**: Always store GitHub tokens in the OS Keyring using `devops config set github.token <token>`.
+- **Keyring Storage**: Log in with `gh auth login`; gh keeps the token in the system keyring, and devops-cli keeps no copy of it.
 - **Human-in-the-Loop Governance**: AI agents prepare PRs and monitor checks, but merging into protected branches requires maintainer approval.
 
 ---

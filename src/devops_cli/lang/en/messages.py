@@ -52,9 +52,6 @@ class ReviewMessages:
         "Could not detect branch. Ensure command is run inside a valid git repo."
     )
     github_repo_parse_failed: str = "Could not parse GitHub repo owner/name from remote URL: {raw}"
-    github_token_not_configured: str = (
-        "GitHub token not configured. Run: devops config set github.token <token>"
-    )
     no_review_sessions_found: str = "No review sessions found in {reviews_dir}"
     no_findings_to_update: str = "Session has no findings to update."
     specify_one_finding: str = "Name one finding: --index <N>, --title <pattern> or --candidate <N>"
@@ -240,10 +237,6 @@ class RepoMessages:
     )
     cloning_org_repos: str = "Cloning [bold]{count}[/bold] repos into [dim]{dest}[/dim]"
     already_cloned: str = "Already cloned at {dest}"
-    github_token_not_configured: str = (
-        "GitHub token not configured. Run 'devops config init' or "
-        "set github.token in 'devops config set'"
-    )
     invalid_dest_path: str = "Invalid repository destination path."
     invalid_url_hyphen: str = "Invalid repository URL: must not start with a hyphen."
     no_repos_found: str = "No repositories found."
@@ -324,9 +317,6 @@ class AnalyzeMessages:
     pr_help: str = "Analyze a GitHub Pull Request and save metadata to .data/analysis/."
     path_not_exists: str = "Path '{path}' does not exist."
     git_branch_failed: str = "Could not determine active git branch."
-    github_token_required: str = (
-        "GitHub token required. Run: devops config set github.token <token>"
-    )
     github_origin_failed: str = "Could not detect GitHub repository origin URL."
     saved_metadata: str = "✓ Analysis metadata saved to [cyan]{path}[/cyan]"
     would_save_metadata: str = (

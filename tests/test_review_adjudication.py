@@ -517,7 +517,6 @@ def test_each_review_command_loads_settings_once(
         patch("devops_cli.commands.review._make_review_clients"),
         patch(f"devops_cli.commands.review.{preparer}", return_value=prepared),
         patch("devops_cli.commands.review._execute_review_workflow", return_value=[]),
-        patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
     ):
         target = [str(tmp_path)] if command == "path" else []
         res = runner.invoke(app, [*args, *target, "--no-logfire"])

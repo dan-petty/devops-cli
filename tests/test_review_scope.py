@@ -107,7 +107,7 @@ def test_the_pr_command_reviews_against_the_pr_head(tmp_path: Path) -> None:
 
     seen: dict[str, Any] = {}
 
-    def prepare(number: int, repo: Any, token: str, head_dir: Path) -> Any:
+    def prepare(number: int, repo: Any, head_dir: Path) -> Any:
         (head_dir / "app.py").write_text("head\n", encoding="utf-8")
         return (["page"], "PR #7", "", MagicMock(), "base/app", None)
 
@@ -118,7 +118,6 @@ def test_the_pr_command_reviews_against_the_pr_head(tmp_path: Path) -> None:
         return []
 
     with (
-        patch("devops_cli.config.settings.get_github_token", return_value="t"),
         patch("devops_cli.commands.review._make_review_clients", return_value=MagicMock()),
         patch("devops_cli.commands.review._prepare_pr_content", side_effect=prepare),
         patch("devops_cli.commands.review._execute_review_workflow", side_effect=run),
@@ -173,7 +172,7 @@ def test_a_pr_review_reads_the_base_at_the_merge_base_and_records_the_delta(
     head_dir.mkdir()
 
     with patch("devops_cli.github.client.GitHubClient", return_value=gh):
-        *_, base_revision = _prepare_pr_content(7, "base/app", "token", head_dir=head_dir)
+        *_, base_revision = _prepare_pr_content(7, "base/app", head_dir=head_dir)
     orchestrator = ReviewPipelineOrchestrator(
         session_id="pr-7",
         llm_client=MagicMock(),

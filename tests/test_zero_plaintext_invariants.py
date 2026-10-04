@@ -11,11 +11,11 @@ from devops_cli.exceptions.security import InsecureConfigError
 def test_find_plaintext_config_leaks_detects_secrets(tmp_path: Path) -> None:
     """Ensure _detect_keyring_secret_leaks detects unencrypted tokens in yaml."""
     leak_file = tmp_path / "config.yaml"
-    leak_file.write_text("github:\n  token: ghp_1234567890abcdef\nai:\n  provider: openai\n")
+    leak_file.write_text("grafana:\n  token: FAKE-1234567890abcdef\nai:\n  provider: openai\n")
 
     leaks = _detect_keyring_secret_leaks([leak_file])
     assert len(leaks) == 1
-    assert "config.yaml:github.token" in leaks[0]
+    assert "config.yaml:grafana.token" in leaks[0]
 
 
 def test_find_plaintext_config_leaks_clean_file(tmp_path: Path) -> None:
@@ -41,11 +41,11 @@ def test_zero_plaintext_in_workspace_configs() -> None:
 def test_exception_sanitization_masks_sensitive_tokens() -> None:
     """Verify security exceptions sanitize credentials and paths."""
     err = InsecureConfigError(
-        option_key="github.token",
+        option_key="grafana.token",
         reason="Plaintext token detected",
         path=Path("/home/user/.devops/config.yaml"),
     )
     msg = str(err)
-    assert "github.token" in msg
+    assert "grafana.token" in msg
     assert err.error_code == "E_INSECURE_CONFIG"
     assert err.exit_code == 126

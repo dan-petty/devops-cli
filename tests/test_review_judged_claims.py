@@ -254,7 +254,7 @@ def test_a_pull_request_review_is_shown_and_suppresses_its_checkouts_judged_clai
     _judged(judged, tree, "The test runs a snippet it wrote itself")
     seen: dict[str, object] = {}
 
-    def prepare(number: int, repo: str | None, token: str, head_dir: Path) -> tuple[object, ...]:
+    def prepare(number: int, repo: str | None, head_dir: Path) -> tuple[object, ...]:
         # As `_materialize_pr_head` writes the PR's changed files.
         (head_dir / "pkg").mkdir(parents=True)
         (head_dir / "pkg" / "runner.py").write_text(_RUNNER, encoding="utf-8")
@@ -269,7 +269,6 @@ def test_a_pull_request_review_is_shown_and_suppresses_its_checkouts_judged_clai
         return []
 
     with (
-        patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
         patch("devops_cli.commands.review.load_settings"),
         patch("devops_cli.commands.review._make_review_clients"),
         patch("devops_cli.commands.review._prepare_pr_content", side_effect=prepare),

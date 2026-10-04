@@ -28,10 +28,10 @@ def test_config_audit_keys_json_output() -> None:
     assert "keyring_backend" in data
     assert "keys" in data
     assert "is_compliant" in data
-    assert len(data["keys"]) == 11
+    assert len(data["keys"]) == 10
 
     keys = {k["key"] for k in data["keys"]}
-    assert "github.token" in keys
+    assert not [key for key in keys if key.partition(".")[0] == "github"]
     assert "grafana.token" in keys
     assert "grafana.password" in keys
     assert "argocd.token" in keys
@@ -49,7 +49,7 @@ def test_config_audit_keys_table_rendering() -> None:
     result = runner.invoke(app, ["audit-keys"])
     assert result.exit_code == 0
     assert "Keyring & Secret Health Audit" in result.output
-    assert "github.token" in result.output
+    assert "grafana.token" in result.output
     assert "Zero-Plaintext Check" in result.output
 
 
@@ -58,11 +58,26 @@ def test_config_audit_keys_plaintext_leak_detected(
 ) -> None:
     """Verify that a plaintext secret in config file triggers leak detection and non-compliant status."""
     leaked_config = tmp_path / "config.yaml"
-    leaked_config.write_text("github:\n  token: ghp_leakedplaintexttoken123456\n", encoding="utf-8")
+    leaked_config.write_text("grafana:\n  token: FAKE-leaked-plaintext-token\n", encoding="utf-8")
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(leaked_config))
 
     result = runner.invoke(app, ["audit-keys", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["is_compliant"] is False
-    assert any("github.token" in leak for leak in data["plaintext_leaks"])
+    assert any("grafana.token" in leak for leak in data["plaintext_leaks"])
+
+
+def test_config_audit_keys_flags_a_secret_key_that_is_no_longer_an_option(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plaintext GitHub token left under `github:` is still a leak, though no option reads it."""
+    stale_config = tmp_path / "config.yaml"
+    stale_config.write_text(
+        "github:\n  token: FAKE-stale-token\n  default_org: octo\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(stale_config))
+
+    data = json.loads(runner.invoke(app, ["audit-keys", "--json"]).output)
+    leaked = [leak.partition(":")[2].split(".") for leak in data["plaintext_leaks"]]
+    assert (data["is_compliant"], leaked) == (False, [["github", "token"]])

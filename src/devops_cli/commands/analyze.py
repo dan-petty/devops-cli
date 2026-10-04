@@ -23,14 +23,15 @@ from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_MATCH_ALL_PATTERN,
 )
-from devops_cli.config.settings import get_ai_api_key, get_github_token, load_settings
-from devops_cli.core.cli import new_typer
+from devops_cli.config.settings import get_ai_api_key, load_settings
+from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.core.repo import (
     find_repo_root,
     get_repo_origin_name,
     list_repo_files,
 )
 from devops_cli.dry_run import is_dry_run
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
@@ -475,18 +476,11 @@ def analyze_pr(  # noqa: C901
 
         render_explanation("analyze")
         return
-    from devops_cli.github.client import GitHubClient
+    from devops_cli.github.session import get_github_session
 
     repo = find_repo_root()
-    settings = load_settings()
-    token = get_github_token(settings)
-    if not token:
-        from devops_cli.config.settings import get_github_token as _get_token
-
-        token = _get_token(settings)
-    if not token:
-        print_error(MESSAGES.analyze.github_token_required, prefix=False)
-        raise typer.Exit(1)
+    with exit_on_error(GitHubOperationError):
+        session = get_github_session()
 
     ai_client = None
     if enhanced and not is_dry_run():
@@ -509,7 +503,7 @@ def analyze_pr(  # noqa: C901
         print_error(MESSAGES.analyze.github_origin_failed, prefix=False)
         raise typer.Exit(1)
 
-    gh_client = GitHubClient(token=token)
+    gh_client = session.client
     pull = gh_client.get_pull(repo_name, pr_number)
     file_metas: list[FileAnalysisMeta] = []
 

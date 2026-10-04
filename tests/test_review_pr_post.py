@@ -188,7 +188,6 @@ def test_devops_review_pr_post_publishes_comment(
 
     with (
         patch("devops_cli.commands.review._init_logfire_if_enabled"),
-        patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
         patch(
             "devops_cli.commands.review._prepare_pr_content",
             return_value=(
@@ -235,7 +234,6 @@ def test_devops_review_pr_post_dry_run_skips_comment(
 
     with (
         patch("devops_cli.commands.review._init_logfire_if_enabled"),
-        patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
         patch(
             "devops_cli.commands.review._prepare_pr_content",
             return_value=(["diff content"], "PR 42", "AGENTS.md", mock_pull, "org/repo", None),

@@ -1162,7 +1162,7 @@ class ConfigCommandHelp:
     value: str = "Value to set."
     export_env: str = "Print environment variables as shell export statements."
     json_env: str = "Print environment variables as JSON."
-    secret_key: str = "Dotted secret key, e.g. github.token."
+    secret_key: str = "Dotted secret key, e.g. grafana.token."
     secret_token: str = "Secret token string."
     destination: str = "Destination Syslog or HTTP URL."
 

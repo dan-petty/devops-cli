@@ -91,7 +91,6 @@ def test_review_pr_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     prepared = (["pr diff"], "PR 10", "AGENTS.md", mock_pull, "org/repo", sentinel.base_revision)
 
     with (
-        patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
         patch("devops_cli.commands.review._prepare_pr_content", return_value=prepared),
         patch(
             "devops_cli.commands.review._execute_review_workflow", return_value=mock_wf
@@ -494,7 +493,6 @@ def test_review_full_flag_reaches_the_review_workflow(
     """`--full` asks the review to print its whole report to the terminal (#987)."""
     prepare, command, prepared = _PREPARED_REVIEWS[target]
     with (
-        patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
         patch(f"devops_cli.commands.review.{prepare}", return_value=prepared),
         patch("devops_cli.commands.review._make_review_clients"),
         patch("devops_cli.commands.review._init_logfire_if_enabled"),

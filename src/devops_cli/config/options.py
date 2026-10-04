@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-GITHUB_TOKEN = "github.token"
 GITHUB_DEFAULT_ORG = "github.default_org"
 SSH_KEY_DIR = "ssh.key_dir"
 SSH_KEY_PREFIX = "ssh.key_prefix"
@@ -125,7 +124,6 @@ FEATURE_HEADLESS_AUTH = "features.headless_auth"
 SANDBOX_EXCLUDE_HOME_DIR = "sandbox.exclude_home_dir"
 
 CONFIG_OPTIONS: tuple[str, ...] = (
-    GITHUB_TOKEN,
     GITHUB_DEFAULT_ORG,
     SSH_KEY_DIR,
     SSH_KEY_PREFIX,
@@ -225,7 +223,6 @@ CONFIG_OPTIONS: tuple[str, ...] = (
 
 SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
     {
-        GITHUB_TOKEN,
         GRAFANA_TOKEN,
         GRAFANA_PASSWORD,
         ARGOCD_TOKEN,
@@ -240,7 +237,6 @@ SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
 )
 
 KEYRING_KEYS: dict[str, str] = {
-    GITHUB_TOKEN: "github_token",
     GRAFANA_TOKEN: "grafana_token",
     GRAFANA_PASSWORD: "grafana_password",
     ARGOCD_TOKEN: "argocd_token",

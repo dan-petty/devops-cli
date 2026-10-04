@@ -109,18 +109,6 @@ def test_gh_views_spec() -> None:
     assert "layout" in result.output
 
 
-def test_get_github_client_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_get_github_client respects DEVOPS_CLI_GITHUB_TOKEN."""
-    from devops_cli.commands.gh import _get_github_client
-    from devops_cli.config.env import ENV_GITHUB_TOKEN
-
-    with patch("devops_cli.commands.gh.get_keyring_secret", return_value=None):
-        monkeypatch.setenv(ENV_GITHUB_TOKEN, "test-env-token-12345")
-        client = _get_github_client()
-        assert client is not None
-        assert client._token == "test-env-token-12345"
-
-
 def test_gh_pages_status() -> None:
     """devops gh pages status outputs site deployment panel."""
     from devops_cli.github.pages import GitHubPagesInfo
@@ -743,3 +731,23 @@ def test_gh_api_error_masked() -> None:
         assert result.exit_code == 1
         assert "GitHub API request failed" in result.output
         assert "ghp_secretkey" not in result.output
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["issues", "list", "-R", "octo/repo"], ["labels", "sync", "-R", "octo/repo"]],
+    ids=["issues-list", "labels-sync"],
+)
+def test_gh_commands_report_no_identity_without_a_traceback(
+    argv: list[str], tmp_path: Path, no_github_identity: None
+) -> None:
+    """Without a gh login, `devops gh` prints the unauthenticated error and exits 1."""
+    labels = tmp_path / "labels.yml"
+    labels.write_text("- name: bug\n  color: d73a4a\n", encoding="utf-8")
+    extra = ["--file", str(labels)] if argv[0] == "labels" else []
+    result = runner.invoke(app, [*argv, *extra])
+    assert (result.exit_code, type(result.exception), "gh auth login" in result.output) == (
+        1,
+        SystemExit,
+        True,
+    )

@@ -36,8 +36,8 @@ from devops_cli.config.constants import (
     CONST_GH_CLI,
     CONST_GH_MUTATION_HTTP_METHODS,
     CONST_GH_MUTATION_VERBS,
-    CONST_GH_NON_API_COMMANDS,
     CONST_GH_QUOTA_CACHE_FILENAME,
+    CONST_GITHUB_IDENTITY_DIGEST_CHARS,
     CONST_GITHUB_RATE_LIMIT_PATTERNS,
     CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS,
 )
@@ -51,7 +51,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_SECONDARY_MAX_CAP,
     DEFAULT_GH_SECONDARY_RATE_WAIT,
 )
-from devops_cli.core.process import run_subprocess
+from devops_cli.core.process import github_token, is_local_gh_command, run_subprocess
 from devops_cli.exceptions.git import GitHubRateLimitError
 
 logger = logging.getLogger(__name__)
@@ -1310,11 +1310,22 @@ _GLOBAL_RATE_LIMITER: GitHubRateLimiter | None = None
 _GLOBAL_LOCK = threading.RLock()
 
 
-def resolve_quota_cache_path() -> Path:
-    """Resolve GitHub quota cache path honoring DEVOPS_CLI_DATA_DIR."""
+def resolve_identity_cache_dir(token: str) -> Path:
+    """The directory of the identity `token` is, under the cache dir, honoring DEVOPS_CLI_DATA_DIR.
+
+    It is named by the first hex characters of the token's SHA-256, so no path holds the token
+    or the login. Two tokens of one account get two directories; each answer's headers correct
+    the figures.
+    """
     env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     base_dir = Path(env_dir) if env_dir else DEFAULT_DATA_DIR
-    return base_dir / CONST_CACHE_DIR_NAME / CONST_GH_QUOTA_CACHE_FILENAME
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    return base_dir / CONST_CACHE_DIR_NAME / digest[:CONST_GITHUB_IDENTITY_DIGEST_CHARS]
+
+
+def resolve_quota_cache_path() -> Path:
+    """The session identity's quota ledger; its response cache sits beside it."""
+    return resolve_identity_cache_dir(github_token()) / CONST_GH_QUOTA_CACHE_FILENAME
 
 
 def reset_github_rate_limiter() -> None:
@@ -1325,13 +1336,12 @@ def reset_github_rate_limiter() -> None:
 
 
 def get_github_rate_limiter() -> GitHubRateLimiter:
-    """Retrieve the global singleton GitHubRateLimiter instance."""
+    """The rate limiter of the session's identity, keeping that identity's quota and cache."""
     global _GLOBAL_RATE_LIMITER
+    persist_path = resolve_quota_cache_path()
     with _GLOBAL_LOCK:
-        if _GLOBAL_RATE_LIMITER is None:
-            _GLOBAL_RATE_LIMITER = GitHubRateLimiter(
-                persist_path=resolve_quota_cache_path(),
-            )
+        if _GLOBAL_RATE_LIMITER is None or _GLOBAL_RATE_LIMITER.persist_path != persist_path:
+            _GLOBAL_RATE_LIMITER = GitHubRateLimiter(persist_path=persist_path)
         return _GLOBAL_RATE_LIMITER
 
 
@@ -1440,11 +1450,7 @@ def _is_rate_limit_check(args: list[str]) -> bool:
 def _is_rate_limit_exempt(args: list[str]) -> bool:
     """Determine whether the command is a read-only rate limit inspection or local non-API command."""
     clean = [a.lower() for a in args if a not in (CONST_GH_CLI, "gh")]
-    if not clean:
-        return False
-    if clean[0] in CONST_GH_NON_API_COMMANDS:
-        return True
-    return _is_rate_limit_check(clean)
+    return bool(clean) and (is_local_gh_command(clean) or _is_rate_limit_check(clean))
 
 
 def _parse_resource_quota(
@@ -1893,8 +1899,20 @@ def run_gh(
     """
     valid_cwd = _validate_gh_cwd(cwd) if cwd is not None else None
     clean_args = _normalize_gh_args(args)
-    limiter = get_github_rate_limiter()
     full_cmd = [CONST_GH_CLI, *clean_args]
+    if is_local_gh_command(clean_args):
+        # They need no identity, so they run outside the session's ledger.
+        proc = run_subprocess(
+            full_cmd,
+            input=input,
+            cwd=valid_cwd,
+            quiet=quiet,
+            timeout=timeout,
+            capture_output=capture_output,
+        )
+        _raise_for_status(proc, full_cmd, check)
+        return proc
+    limiter = get_github_rate_limiter()
     target_resource = resource or _detect_resource(clean_args)
     is_check = _is_rate_limit_check(clean_args)
     is_exempt = _is_rate_limit_exempt(clean_args)
