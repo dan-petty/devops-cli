@@ -134,6 +134,15 @@
           "expr": "avg(rate(litellm_deployment_total_requests_total[5m]))",
           "legendFormat": "Average (Mean)",
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(litellm_deployment_total_requests_total[30m]))",
+          "legendFormat": "Total Rolling Avg (30m)",
+          "refId": "D"
         }
       ]
     },
@@ -629,6 +638,15 @@
           "expr": "avg(DCGM_FI_DEV_GPU_UTIL)",
           "legendFormat": "Average (Mean)",
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "avg(avg_over_time(DCGM_FI_DEV_GPU_UTIL[30m]))",
+          "legendFormat": "Average Rolling Avg (30m)",
+          "refId": "C"
         }
       ]
     },
@@ -695,6 +713,114 @@
           "expr": "avg(DCGM_FI_DEV_FB_USED)",
           "legendFormat": "Average (Mean)",
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "avg(avg_over_time(DCGM_FI_DEV_FB_USED[30m]))",
+          "legendFormat": "Average Rolling Avg (30m)",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisSoftMax": 100,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 90
+              },
+              {
+                "color": "red",
+                "value": 95
+              }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 52
+      },
+      "id": 17,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "GPU Memory Utilization (%)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(max by (hostname, gpu, modelName) (DCGM_FI_DEV_FB_USED) / max by (hostname, gpu, modelName) (DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)) * 100",
+          "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}})",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum(DCGM_FI_DEV_FB_USED) / sum(DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)) * 100",
+          "legendFormat": "Total (Sum)",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(avg(DCGM_FI_DEV_FB_USED) / avg(DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)) * 100",
+          "legendFormat": "Average (Mean)",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "avg_over_time(((avg(DCGM_FI_DEV_FB_USED) / avg(DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)) * 100)[30m:1m])",
+          "legendFormat": "Average Rolling Avg (30m)",
+          "refId": "D"
         }
       ]
     },
@@ -719,7 +845,7 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
+        "x": 12,
         "y": 52
       },
       "id": 15,
@@ -785,8 +911,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 52
+        "x": 0,
+        "y": 60
       },
       "id": 16,
       "options": {

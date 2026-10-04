@@ -296,12 +296,186 @@
       ]
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "currencyUSD"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 5
+      },
+      "id": 16,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "title": "Projected 30-Day Run Rate",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(devops_cli_ai_spend_usd_total[1h])) * 86400 * 30 or vector(0)",
+          "instant": true,
+          "legendFormat": "Projected Spend (30d)",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(devops_cli_ai_local_cost_equivalent_usd_total[1h])) * 86400 * 30 or vector(0)",
+          "instant": true,
+          "legendFormat": "Projected Savings (30d)",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "currencyUSD"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 5
+      },
+      "id": 17,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "title": "Projected 90-Day Run Rate",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(devops_cli_ai_spend_usd_total[1h])) * 86400 * 90 or vector(0)",
+          "instant": true,
+          "legendFormat": "Projected Spend (90d)",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(devops_cli_ai_local_cost_equivalent_usd_total[1h])) * 86400 * 90 or vector(0)",
+          "instant": true,
+          "legendFormat": "Projected Savings (90d)",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "currencyUSD"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 5
+      },
+      "id": 18,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "title": "Projected 1-Year Run Rate",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(devops_cli_ai_spend_usd_total[1h])) * 86400 * 365 or vector(0)",
+          "instant": true,
+          "legendFormat": "Projected Spend (1y)",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(devops_cli_ai_local_cost_equivalent_usd_total[1h])) * 86400 * 365 or vector(0)",
+          "instant": true,
+          "legendFormat": "Projected Savings (1y)",
+          "refId": "B"
+        }
+      ]
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 5
+        "y": 9
       },
       "id": 6,
       "title": "Spend Velocity & Cost Rates",
@@ -329,7 +503,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 6
+        "y": 10
       },
       "id": 7,
       "options": {
@@ -349,6 +523,15 @@
           "expr": "sum(rate(devops_cli_ai_spend_usd_total[5m])) * 3600 or vector(0)",
           "legendFormat": "Spend Rate ($/hr)",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(devops_cli_ai_spend_usd_total[1h])) * 3600 or vector(0)",
+          "legendFormat": "Spend Rate Rolling Avg (1h)",
+          "refId": "B"
         }
       ]
     },
@@ -374,7 +557,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 6
+        "y": 10
       },
       "id": 8,
       "options": {
@@ -394,6 +577,15 @@
           "expr": "sum by (server, backend, provider) (increase(devops_cli_ai_spend_usd_total[1h]))",
           "legendFormat": "{{backend}} via {{server}} ({{provider}})",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (server, backend, provider) (rate(devops_cli_ai_spend_usd_total[6h])) * 3600",
+          "legendFormat": "{{backend}} via {{server}} ({{provider}}) (6h Rolling Avg)",
+          "refId": "B"
         }
       ]
     },
@@ -403,7 +595,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 14
+        "y": 18
       },
       "id": 13,
       "title": "Local Hardware Savings & Amortization Payoff",
@@ -431,7 +623,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 15
+        "y": 19
       },
       "id": 14,
       "options": {
@@ -451,6 +643,15 @@
           "expr": "sum(rate(devops_cli_ai_local_cost_equivalent_usd_total[5m])) * 3600 or vector(0)",
           "legendFormat": "Savings Rate ($/hr)",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(devops_cli_ai_local_cost_equivalent_usd_total[1h])) * 3600 or vector(0)",
+          "legendFormat": "Savings Rate Rolling Avg (1h)",
+          "refId": "B"
         }
       ]
     },
@@ -467,7 +668,9 @@
           },
           "custom": {
             "axisCenteredZero": false,
-            "drawStyle": "bars"
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineInterpolation": "smooth"
           },
           "unit": "currencyUSD"
         }
@@ -476,7 +679,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 15
+        "y": 19
       },
       "id": 15,
       "options": {
@@ -496,6 +699,15 @@
           "expr": "sum by (server, backend, provider) (increase(devops_cli_ai_local_cost_equivalent_usd_total[1h]))",
           "legendFormat": "{{backend}} via {{server}} ({{provider}})",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (server, backend, provider) (rate(devops_cli_ai_local_cost_equivalent_usd_total[6h])) * 3600",
+          "legendFormat": "{{backend}} via {{server}} ({{provider}}) (6h Rolling Avg)",
+          "refId": "B"
         }
       ]
     },
@@ -505,7 +717,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 23
+        "y": 27
       },
       "id": 9,
       "title": "Token Volume & Request Velocity",
@@ -533,7 +745,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 24
+        "y": 28
       },
       "id": 10,
       "options": {
@@ -553,6 +765,15 @@
           "expr": "sum by (type) (rate(devops_cli_ai_tokens_total[5m]))",
           "legendFormat": "{{type}} tokens/sec",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (type) (rate(devops_cli_ai_tokens_total[30m]))",
+          "legendFormat": "{{type}} tokens/sec (30m Rolling Avg)",
+          "refId": "B"
         }
       ]
     },
@@ -578,7 +799,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 24
+        "y": 28
       },
       "id": 11,
       "options": {
@@ -598,6 +819,15 @@
           "expr": "sum by (model, provider) (rate(devops_cli_ai_requests_total[5m]))",
           "legendFormat": "{{model}} ({{provider}})",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (model, provider) (rate(devops_cli_ai_requests_total[30m]))",
+          "legendFormat": "{{model}} ({{provider}}) (30m Rolling Avg)",
+          "refId": "B"
         }
       ]
     }

@@ -977,7 +977,7 @@
       "description": "Continuous CPU profiling flamegraph from Grafana Pyroscope for the selected service.",
       "gridPos": {
         "h": 12,
-        "w": 12,
+        "w": 24,
         "x": 0,
         "y": 52
       },
@@ -1008,9 +1008,9 @@
       "description": "Continuous memory profiling flamegraph (in-use space) from Grafana Pyroscope for the selected service.",
       "gridPos": {
         "h": 12,
-        "w": 12,
-        "x": 12,
-        "y": 52
+        "w": 24,
+        "x": 0,
+        "y": 64
       },
       "id": 20,
       "options": {},

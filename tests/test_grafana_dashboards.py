@@ -562,3 +562,59 @@ def test_dashboards_contain_properly_labeled_sum_and_average_lines() -> None:
         "Total (Sum)" in legends.get(("llm", "GPU Memory Used"), []),
         "Average (Mean)" in legends.get(("llm", "GPU Memory Used"), []),
     ) == (True,) * 16
+
+
+def test_enhanced_dashboard_panels_and_visualizations() -> None:
+    """Verify newly enhanced panels in SRE, AI spend, LLM, Ingress, and DevOps CLI dashboards."""
+    sre_dash = json.loads((_REPO_DASHBOARDS / "sre-service.json").read_text(encoding="utf-8"))
+    ai_dash = json.loads((_REPO_DASHBOARDS / "ai-spend.json").read_text(encoding="utf-8"))
+    llm_dash = json.loads((_REPO_DASHBOARDS / "llm-stack.json").read_text(encoding="utf-8"))
+    ingress_dash = json.loads(
+        (_REPO_DASHBOARDS / "ingress-tunnel.json").read_text(encoding="utf-8")
+    )
+    cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
+
+    sre_flamegraphs = [
+        (p["title"], p["gridPos"]["w"]) for p in sre_dash["panels"] if p.get("type") == "flamegraph"
+    ]
+    ai_projections = [p["title"] for p in ai_dash["panels"] if "Projected" in p.get("title", "")]
+    savings_panel = next(
+        p for p in ai_dash["panels"] if p.get("title") == "Local Savings per Hour by Backend Server"
+    )
+    custom_savings = savings_panel.get("fieldConfig", {}).get("defaults", {}).get("custom", {})
+    gpu_mem_panel = next(
+        p for p in llm_dash["panels"] if p.get("title") == "GPU Memory Utilization (%)"
+    )
+    gpu_custom = gpu_mem_panel.get("fieldConfig", {}).get("defaults", {}).get("custom", {})
+    ingress_router_panel = any(
+        p.get("title") == "Traffic by Ingress Host / Router" for p in ingress_dash["panels"]
+    )
+    cli_command_var = any(
+        v.get("name") == "command" for v in cli_dash.get("templating", {}).get("list", [])
+    )
+    cli_repeat_panel = any(p.get("repeat") == "command" for p in cli_dash.get("panels", []))
+
+    assert (
+        sre_flamegraphs,
+        ai_projections,
+        (custom_savings.get("drawStyle"), custom_savings.get("fillOpacity")),
+        (gpu_custom.get("thresholdsStyle", {}).get("mode"), gpu_custom.get("axisSoftMax")),
+        ingress_router_panel,
+        cli_command_var,
+        cli_repeat_panel,
+    ) == (
+        [
+            ("CPU Profiling Flamegraph (process_cpu)", 24),
+            ("Memory Profiling Flamegraph (inuse_space)", 24),
+        ],
+        [
+            "Projected 30-Day Run Rate",
+            "Projected 90-Day Run Rate",
+            "Projected 1-Year Run Rate",
+        ],
+        ("line", 20),
+        ("line", 100),
+        True,
+        True,
+        True,
+    )
