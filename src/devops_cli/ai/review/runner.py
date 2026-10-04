@@ -1066,7 +1066,7 @@ def _execute_findings_validation(
         from devops_cli.ai.review.pool import ReviewWorkerPool
 
         workers = _calculate_parallel_review_workers(clients, total)
-        val_items = list(enumerate(zip(pages, segment_results), 1))
+        val_items = list(enumerate(zip(pages, segment_results, strict=True), 1))
         pool = ReviewWorkerPool.create(concurrency=workers)
 
         def _val_task(
@@ -1086,7 +1086,7 @@ def _execute_findings_validation(
             )
 
         val_results = pool.run_sync_all(_val_task, val_items, return_exceptions=True)
-        for (idx_val, _), res_entry in zip(val_items, val_results):
+        for (idx_val, _), res_entry in zip(val_items, val_results, strict=False):
             if isinstance(res_entry, tuple) and len(res_entry) == 2:
                 _, val_obj = res_entry
                 validated_results[idx_val - 1] = val_obj
@@ -1098,7 +1098,7 @@ def _execute_findings_validation(
                 )
                 validated_results[idx_val - 1] = None
     else:
-        for i, (page, parsed) in enumerate(zip(pages, segment_results), 1):
+        for i, (page, parsed) in enumerate(zip(pages, segment_results, strict=True), 1):
             try:
                 _, single_res = _validate_single_segment_findings(
                     i,
@@ -1938,7 +1938,6 @@ def _prepare_branch_content(
 def _prepare_pr_content(
     number: int,
     repo_arg: str | None = None,
-    auth: str | None = None,
     **kwargs: Any,
 ) -> tuple[list[str], str, str, Any, str, BaseRevision | None]:
     """Fetch PR details, diff pages, title, and agents_md for PR review target.
@@ -1949,7 +1948,7 @@ def _prepare_pr_content(
     import typer
 
     from devops_cli.ai.review.chunker import diff_pages
-    from devops_cli.github.client import GitHubClient
+    from devops_cli.github.session import get_github_session
     from devops_cli.lang import MESSAGES
 
     repo = repo_arg
@@ -1964,8 +1963,7 @@ def _prepare_pr_content(
 
     fetch_msg = MESSAGES.review.fetching_pr.format(number=number, repo=f"[cyan]{repo}[/cyan]")
     print_info(fetch_msg, prefix=False)
-    effective_auth = auth or kwargs.get("token") or ""
-    gh = GitHubClient(effective_auth)
+    gh = get_github_session().client
     pull = gh.get_pull(repo, number)
     diff = gh.get_pr_diff(repo, number)
     title = f"PR #{number}: {pull.title}"

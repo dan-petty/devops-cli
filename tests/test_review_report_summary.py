@@ -219,8 +219,8 @@ def test_network_references_states_counts(tmp_path: Path) -> None:
 
     pipeline = _make_dummy_pipeline(tmp_path)
     nets = [
-        NetworkReference(target="127.0.0.1", reference_type="ipv4", is_local=True),
-        NetworkReference(target="example.com", reference_type="domain", is_local=False),
+        NetworkReference(target="127.0.0.1", reference_type="ip", is_local=True),
+        NetworkReference(target="https://example.com", reference_type="url", is_local=False),
     ]
     report_md = pipeline._build_consolidated_markdown_report(
         session_id="test-nets-session",

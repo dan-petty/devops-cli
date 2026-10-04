@@ -26,6 +26,41 @@ def test_is_dry_run_requested() -> None:
     assert is_dry_run_requested([]) is False
 
 
+def test_a_dry_run_after_the_separator_belongs_to_the_passed_through_command() -> None:
+    """`devops k8s run-job -- roadmap sync --dry-run` runs the Job; the Job previews."""
+    assert (
+        is_dry_run_requested(["k8s", "run-job", "--", "roadmap", "sync", "--dry-run"]),
+        is_dry_run_requested(["k8s", "run-job", "--dry-run", "--", "--version"]),
+    ) == (False, True)
+
+
+def test_a_help_flag_after_the_separator_runs_the_command_and_keeps_its_exit_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`devops k8s run-job -- review --help` runs the Job, so the Job's exit code is kept."""
+    import sys
+    import types
+
+    import typer
+
+    import devops_cli.main as main_module
+
+    monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENABLED", "false")
+    module = types.ModuleType("fake_passthrough_commands")
+    module.app = typer.Typer()  # type: ignore[attr-defined]
+    received: list[list[str]] = []
+
+    @module.app.command()  # type: ignore[attr-defined]
+    def run(args: list[str]) -> None:
+        received.append(args)
+        raise typer.Exit(3)
+
+    monkeypatch.setitem(sys.modules, "fake_passthrough_commands", module)
+    with pytest.raises(typer.Exit) as exited:
+        main_module._delegate("fake_passthrough_commands", "fake", ["--", "review", "--help"])
+    assert (exited.value.exit_code, received) == (3, [["review", "--help"]])
+
+
 def test_set_and_is_dry_run() -> None:
     set_dry_run(False)
     assert is_dry_run() is False
@@ -114,6 +149,25 @@ def test_entry_main_dry_run_delegation() -> None:
         assert is_dry_run() is True
         mock_app.assert_called_once_with(["--dry-run", "repos", "status"], prog_name="devops")
         set_dry_run(False)
+
+
+def test_a_commands_own_dry_run_marks_the_invocation_after_the_root_callback_clears_it() -> None:
+    """The root callback clears the state for a command's own `--dry-run`; the invocation
+    stays a dry run, so the process makes no external request such as a telemetry export."""
+    from devops_cli.dry_run.state import in_dry_run_invocation
+
+    def root_callback_clears(*_: object, **__: object) -> None:
+        set_dry_run(False)
+
+    seen = []
+    with patch("devops_cli.main.app", MagicMock(side_effect=root_callback_clears)):
+        for argv in (
+            ["k8s", "push-secrets", "--dry-run"],
+            ["k8s", "run-job", "--", "roadmap", "sync", "--dry-run"],
+        ):
+            main(argv)
+            seen.append((is_dry_run(), in_dry_run_invocation()))
+    assert seen == [(False, True), (False, False)]
 
 
 def test_entry_main_default_sys_argv() -> None:

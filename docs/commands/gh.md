@@ -524,7 +524,7 @@ devops gh issues create [OPTIONS]
 
 ### `devops gh issues triage`
 
-**Audit open issues for mandatory taxonomy labels and milestone linkage.**
+**Audit open issues for mandatory taxonomy labels, and report those not on the roadmap board as awaiting intake.**
 
 ```bash
 devops gh issues triage [OPTIONS]
@@ -575,25 +575,6 @@ devops gh issues edit [OPTIONS] <number>
 | `--clear-milestone` | `boolean` | - | Remove milestone linkage from the issue. |
 | `--add-label` | `string` | - | Taxonomy label to attach (repeatable). |
 | `--remove-label` | `string` | - | Taxonomy label to detach (repeatable). |
-| `--repo`, `-R` | `string` | - | Target repository |
-
-### `devops gh issues close-merged`
-
-**Close issues linked by merged pull requests. GitHub only honours closing keywords when a pull request merges into the default branch, so pull requests targeting a release branch leave their issues open.**
-
-```bash
-devops gh issues close-merged [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--pr`, `-p` | `integer` | - | Close issues for this single pull request instead of sweeping. |
-| `--base`, `-b` | `string` | - | Only consider merged pull requests with this base branch. |
-| `--limit`, `-L` | `integer` | `100` | Maximum merged pull requests to examine. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 ---

@@ -10,21 +10,26 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.exceptions.validation import InvalidVersionError
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
 from devops_cli.roadmap.store import (
     BoardField,
     CardKind,
     ChangeKind,
     CloseReason,
+    Closure,
+    Evidence,
+    EvidenceKind,
     FieldOption,
     FieldSpec,
     GitHubState,
+    IssueQuery,
     ItemField,
     JobMark,
     PullRequestState,
+    RefineRecordKey,
     RoadmapStore,
 )
 
@@ -130,7 +135,7 @@ def test_a_renamed_release_keeps_its_number_issues_and_pull_requests(
     """GitHub keeps a milestone by its number, so a rename moves no issue out of it."""
     item = store.seed_issue("planned", release="v0.2.25", on_board=True)
     pull_request = store.as_actor("alice").open_pull_request(
-        "cut", base="main", head="release/v0.2.25", labels=("release",), release="v0.2.25"
+        "cut", base="main", head="chore/cut-v0.2.25", labels=("release",), release="v0.2.25"
     )
     before = store.release("v0.2.25")
     renamed = store.as_actor("alice").edit_release("v0.2.25", title="v0.3.0")
@@ -386,7 +391,7 @@ def test_an_option_renamed_by_hand_keeps_its_id_and_its_cards_value(
 
     No store operation edits options: GitHub's option input takes no id (#739).
     """
-    todo, backlog, ready = _status(board).options
+    _todo, backlog, ready = _status(board).options
     edited = board.edit_options_by_hand(
         "Status",
         [
@@ -523,7 +528,7 @@ def test_a_repository_file_is_read_at_its_ref_and_a_missing_one_raises(
         store.repository_file(".github/roadmap.toml", ref="release/v0.2.25"),
         store.repository_file(".github/roadmap.toml"),
     )
-    with pytest.raises(GitHubOperationError, match=r"no docs/ROADMAP\.md"):
+    with pytest.raises(GitHubFileNotFoundError, match=r"no docs/ROADMAP\.md"):
         store.repository_file("docs/ROADMAP.md")
     assert read == ("board = 2\n", "board = 1\n")
 
@@ -726,9 +731,9 @@ def test_pull_requests_open_and_the_releases_own_whatever_their_state(
 ) -> None:
     person = store.as_actor("alice")
     release = {"base": "main", "labels": ("release",), "release": "v0.2.25"}
-    closed = person.open_pull_request("first cut", head="release/v0.2.25", **release)
+    closed = person.open_pull_request("first cut", head="chore/cut-v0.2.25", **release)
     person.close_pull_request(closed)
-    cut = person.open_pull_request("cut", head="chore/release-v0.2.25", draft=True, **release)
+    cut = person.open_pull_request("cut", head="chore/cut-v0.2.25", draft=True, **release)
     topic = person.open_pull_request(
         "feat", base="release/v0.2.25", head="feat/x", body="Closes #1"
     )
@@ -814,3 +819,202 @@ def test_a_change_reads_the_value_and_job_record_as_they_are_now(
             {ItemField.RELEASE: "v0.2.25"},
         ),
     ]
+
+
+# ── What intake reads and writes (#742) ───────────────────────────────────────
+
+
+def test_a_duplicate_close_comments_then_closes_and_its_timeline_names_the_original(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    original = store.seed_issue("original", state=GitHubState.CLOSED, state_reason="not_planned")
+    copy = store.seed_issue("copy", author_association="NONE")
+    store.close_as_duplicate(copy, original, "Duplicate of #1.")
+    closed_at = clock.now
+    clock.now += timedelta(hours=1)
+    store.as_actor("alice").reopen_issue(copy)
+    issue = next(issue for issue in store.issues() if issue.number == copy)
+    assert (
+        store.comments_on(copy),
+        (issue.state, issue.author_association),
+        store.closures(copy),
+        store.job_writes()[-2:],
+    ) == (
+        ["Duplicate of #1."],
+        (GitHubState.OPEN, "NONE"),
+        [
+            Closure(kind=ChangeKind.CLOSED, at=closed_at, reason="duplicate", duplicate_of=1),
+            Closure(kind=ChangeKind.REOPENED, at=clock.now),
+        ],
+        [
+            JobWrite("comment", copy, value="Duplicate of #1."),
+            JobWrite("close_as_duplicate", copy, value="1"),
+        ],
+    )
+
+
+def test_a_duplicate_close_without_a_comment_only_closes(store: InMemoryRoadmapStore) -> None:
+    """A retry whose duplicate comment is already there closes without a second one."""
+    original = store.seed_issue("original")
+    copy = store.seed_issue("copy")
+    store.close_as_duplicate(copy, original, None)
+    assert (store.comments_on(copy), store.closures(copy)[-1].duplicate_of) == ([], original)
+
+
+def test_a_duplicate_close_refuses_a_pull_request_on_either_side(
+    store: InMemoryRoadmapStore,
+) -> None:
+    issue = store.seed_issue("issue")
+    pull_request = store.seed_issue("a pull request", pull_request=True)
+    refused = []
+    for number, original in ((pull_request, issue), (issue, pull_request)):
+        with pytest.raises(GitHubOperationError, match="not an issue"):
+            store.close_as_duplicate(number, original, "no")
+        refused.append(store.comments_on(number))
+    assert (refused, store.closures(issue)) == ([[], []], [])
+
+
+def test_labeling_an_issue_adds_the_label_once_as_a_job_write(store: InMemoryRoadmapStore) -> None:
+    number = store.seed_issue("unlabeled", labels=("bug",))
+    store.label_issue(number, "type/bug")
+    store.label_issue(number, "type/bug")
+    issue = next(issue for issue in store.issues() if issue.number == number)
+    assert (issue.labels, [w.operation for w in store.job_writes()][-1:]) == (
+        ("bug", "type/bug"),
+        ["label_issue"],
+    )
+
+
+def test_evidence_holds_only_for_what_github_confirms(store: InMemoryRoadmapStore) -> None:
+    store.seed_evidence(Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="abc1234"))
+    asked = [
+        Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="abc1234"),
+        Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="def5678"),
+        Evidence(kind=EvidenceKind.FAILED_RUN, value="abc1234"),
+    ]
+    assert [store.evidence_holds(evidence) for evidence in asked] == [True, False, False]
+
+
+def test_counting_issues_narrows_by_each_condition_given(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    start = clock.now
+    store.seed_issue("before the window", labels=("source/agent",))
+    clock.now += timedelta(hours=1)
+    agent = store.seed_issue("agent", labels=("source/agent", "budget/borrowed"))
+    done = store.seed_issue("done")
+    store.close_issue(done, CloseReason.COMPLETED, "Delivered.")
+    bulk = store.seed_issue("bulk")
+    store.as_actor("alice").close_by_hand(bulk, CloseReason.NOT_PLANNED)
+    store.seed_issue("a pull request", pull_request=True)
+    since = start + timedelta(minutes=1)
+    queries = [
+        IssueQuery(),
+        IssueQuery(state=GitHubState.OPEN),
+        IssueQuery(labels=("source/agent",), created_since=since),
+        IssueQuery(labels=("source/agent", "budget/borrowed")),
+        IssueQuery(state=GitHubState.CLOSED, closed_since=since),
+        IssueQuery(closed_since=since, reason=CloseReason.NOT_PLANNED, uncommented=True),
+        IssueQuery(closed_since=clock.now + timedelta(seconds=1)),
+    ]
+    assert ([store.count_issues(query) for query in queries], agent) == ([4, 2, 1, 1, 2, 1, 0], 2)
+
+
+def test_a_release_records_when_it_closed_and_forgets_it_when_reopened(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    store.close_release("v0.2.25")
+    closed = store.release("v0.2.25")
+    store.edit_release("v0.2.25", state=GitHubState.OPEN)
+    reopened = store.release("v0.2.25")
+    assert (
+        closed.closed_at if closed else None,
+        reopened.closed_at if reopened else "missing",
+        (store.release("v0.2.24") or closed).closed_at,
+    ) == (clock.now, None, clock.now)
+
+
+def test_merged_pull_requests_are_the_ones_merged_into_the_branch_with_their_paths(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """The merged-PR read (#743): only pull requests merged into the branch, oldest first,
+    each with its body, merge and head commits and changed paths."""
+    person = store.as_actor("alice")
+    branch = "release/v0.2.25"
+    first = person.merge_pull_request(
+        "feat: a", base=branch, body="Closes #1", changed_paths=("a.py", "b.md"), release="v0.2.25"
+    )
+    person.merge_pull_request("feat: elsewhere", base="main")
+    person.open_pull_request("feat: open", base=branch, head="feat/open")
+    person.close_pull_request(person.open_pull_request("feat: shut", base=branch, head="feat/x"))
+    second = person.merge_pull_request("feat: b", base=branch)
+    found = store.merged_pull_requests(branch)
+    assert (
+        [p.number for p in found],
+        (found[0].body, found[0].changed_paths, found[0].release, found[1].changed_paths),
+        [len({p.merge_commit, p.head_commit}) for p in found],
+    ) == ([first, second], ("Closes #1", ("a.py", "b.md"), "v0.2.25", ()), [2, 2])
+
+
+def test_read_and_write_issue_body(store: InMemoryRoadmapStore) -> None:
+    num = store.seed_issue("task", body="Initial body")
+    pr_num = store.seed_issue("pr", pull_request=True)
+    initial_read = store.read_issue_body(num)
+    store.write_issue_body(num, "Updated body")
+    updated_read = store.read_issue_body(num)
+    changes = [
+        c.kind for c in store.changes_since(datetime.min.replace(tzinfo=UTC)) if c.number == num
+    ]
+    writes = [w.operation for w in store.job_writes() if w.number == num]
+
+    assert (
+        initial_read,
+        updated_read,
+        ChangeKind.EDITED in changes,
+        "write_issue_body" in writes,
+    ) == ("Initial body", "Updated body", True, True)
+    with pytest.raises(GitHubOperationError, match="not an issue"):
+        store.read_issue_body(pr_num)
+    with pytest.raises(GitHubOperationError, match="not an issue"):
+        store.write_issue_body(pr_num, "fail")
+
+
+def test_repository_visibility_contract(store: InMemoryRoadmapStore) -> None:
+    initial = store.repository_is_private()
+    store.seed_visibility(is_private=True)
+    seeded_private = store.repository_is_private()
+    fresh_private_store = InMemoryRoadmapStore(is_private=True)
+    assert (
+        initial,
+        seeded_private,
+        fresh_private_store.repository_is_private(),
+    ) == (False, True, True)
+
+
+def test_refine_marks_in_job_record(store: InMemoryRoadmapStore) -> None:
+    num = store.seed_issue("refinable")
+    store.add_item(num)
+    item = store.item(num)
+    assert item is not None
+    store.set_marks(
+        item,
+        {
+            RefineRecordKey.BODY_HASH: "abc",
+            RefineRecordKey.SECTION_HASH: "def",
+            RefineRecordKey.NEEDS_SPLIT: "true",
+        },
+    )
+    marked = store.item(num)
+    assert marked is not None
+    assert (
+        marked.job_record.get(RefineRecordKey.BODY_HASH),
+        marked.job_record.get(RefineRecordKey.SECTION_HASH),
+        marked.job_record.get(RefineRecordKey.NEEDS_SPLIT),
+    ) == ("abc", "def", "true")
+
+    # as_actor does not write job record
+    person = store.as_actor("alice")
+    person.set_marks(marked, {RefineRecordKey.NEEDS_SPLIT: "false"})
+    after_person = store.item(num)
+    assert after_person is not None
+    assert after_person.job_record.get(RefineRecordKey.NEEDS_SPLIT) == "true"

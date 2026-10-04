@@ -22,25 +22,38 @@ import pytest
 from packaging.version import Version
 
 from devops_cli.config.constants import CONST_ROADMAP_RUN_RECORD_BODY
-from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
-from devops_cli.github.rate_limiter import reset_github_rate_limiter
+from devops_cli.exceptions.git import (
+    GitHubFileNotFoundError,
+    GitHubOperationError,
+    GitHubRateLimitError,
+)
+from devops_cli.github.rate_limiter import GitHubRateLimiter, reset_github_rate_limiter
 from devops_cli.roadmap.config import RoadmapConfig
-from devops_cli.roadmap.github_store import GitHubRoadmapStore, option_update_request
+from devops_cli.roadmap.github_store import (
+    GitHubRoadmapStore,
+    is_private_args,
+    option_update_request,
+    write_issue_body_args,
+)
 from devops_cli.roadmap.reprioritize import plan_reprioritization
 from devops_cli.roadmap.store import (
     Card,
     CardKind,
     ChangeKind,
     CloseReason,
+    Evidence,
+    EvidenceKind,
     FieldOption,
     FieldSpec,
     GitHubState,
+    IssueQuery,
     Item,
     ItemField,
     JobMark,
     PullRequestState,
     RoadmapStore,
 )
+from tests.roadmap_board_fake import BOARD_READ, BoardServer
 
 FIXTURES = Path(__file__).parent / "fixtures" / "roadmap"
 REPO = "dan-petty/devops-cli"
@@ -259,6 +272,7 @@ def on_board(*numbers: int) -> dict[str, Any]:
     board: dict[str, Any] = deepcopy(BOARD)
     for number in numbers:
         board_entry = deepcopy(board["items"][0])
+        board_entry["id"] = f"PVTI_{number}"
         board_entry["content"].update(number=number, url=f"{ISSUE_URL}/{number}")
         board["items"].append(board_entry)
     board["totalCount"] = len(board["items"])
@@ -268,7 +282,7 @@ def on_board(*numbers: int) -> dict[str, Any]:
 def test_a_board_of_an_issue_a_pull_request_a_draft_and_a_foreign_issue_yields_one_item() -> None:
     store, _ = board_store(
         {
-            "item-list": BOARD,
+            BOARD_READ: BoardServer(BOARD),
             "issues?state=all": ISSUES_IN_RELEASE + OPEN_ISSUES,
             "issues/737": ISSUES_IN_RELEASE[2],
         }
@@ -286,7 +300,7 @@ def test_items_in_a_release_include_a_closed_issue_with_state_and_release_from_r
     store, runner = board_store(
         {
             "milestones?state=all": MILESTONES,
-            "item-list": BOARD,
+            BOARD_READ: BoardServer(BOARD),
             "issues?milestone=43": ISSUES_IN_RELEASE,
         }
     )
@@ -296,7 +310,7 @@ def test_items_in_a_release_include_a_closed_issue_with_state_and_release_from_r
             (item.number, item.state, item.state_reason, item.release, item.status, item.priority)
             for item in items
         ],
-        [args[1] for args, _ in runner.calls if args[0] == "api"],
+        [args[1] for args, _ in runner.calls if args[0] == "api" and args[1] != "graphql"],
     ) == (
         [(737, GitHubState.CLOSED, "completed", "v0.2.25", "Done", "P1-High")],
         [f"{LISTING_MILESTONES}&page=1", f"{LISTING_IN_RELEASE}&page=1"],
@@ -304,14 +318,14 @@ def test_items_in_a_release_include_a_closed_issue_with_state_and_release_from_r
 
 
 def test_items_in_an_unknown_release_are_none() -> None:
-    store, _ = board_store({"milestones?state=all": MILESTONES, "item-list": BOARD})
+    store, _ = board_store({"milestones?state=all": MILESTONES, BOARD_READ: BoardServer(BOARD)})
     assert store.items(release="9.9.9") == []
 
 
 def test_backlog_reads_the_open_issues_in_no_milestone() -> None:
     open_on_board = {**ISSUES_IN_RELEASE[1], "milestone": None}
     store, runner = board_store(
-        {"item-list": on_board(739), "issues?milestone=none": [open_on_board]}
+        {BOARD_READ: BoardServer(on_board(739)), "issues?milestone=none": [open_on_board]}
     )
     assert ([item.number for item in store.backlog()], runner.calls[-1][0][1]) == (
         [739],
@@ -324,7 +338,7 @@ def test_candidates_drop_a_pull_request_and_an_issue_already_on_the_board() -> N
     # `pull_request` key can keep it out.
     listing = deepcopy(OPEN_ISSUES)
     listing[0]["state"] = "open"
-    store, _ = board_store({"item-list": on_board(917), "issues?state=open": listing})
+    store, _ = board_store({BOARD_READ: BoardServer(on_board(917)), "issues?state=open": listing})
     assert [(c.number, c.labels) for c in store.candidates()] == [
         (916, ("type/bug", "scope/security", "priority/p3-low"))
     ]
@@ -335,7 +349,7 @@ def test_items_carry_the_known_keys_of_the_job_record_the_board_holds() -> None:
     board = on_board(739, 768)
     board["items"][-2]["job record"] = '{"Priority": "P1-High", "Release": "v0.2.25"}'
     board["items"][-1]["job record"] = '{"Admitted": "v0.2.25", "NeedsSplit": "yes"}'
-    store, _ = board_store({"item-list": board, "issues?state=all": ISSUES_IN_RELEASE})
+    store, _ = board_store({BOARD_READ: BoardServer(board), "issues?state=all": ISSUES_IN_RELEASE})
     assert [(item.number, item.job_record) for item in store.items()] == [
         (737, {}),
         (739, {ItemField.PRIORITY: "P1-High", ItemField.RELEASE: "v0.2.25"}),
@@ -354,7 +368,9 @@ def test_a_job_record_that_cannot_be_decoded_fails_the_read_and_names_its_card(
     """Read as empty, the card would look as if no job had ever placed or admitted it."""
     board = on_board(768)
     board["items"][-1]["job record"] = record
-    store, runner = board_store({"item-list": board, "issues?state=all": ISSUES_IN_RELEASE})
+    store, runner = board_store(
+        {BOARD_READ: BoardServer(board), "issues?state=all": ISSUES_IN_RELEASE}
+    )
     with pytest.raises(GitHubOperationError, match="job record of #768 is not a JSON object"):
         store.items()
     assert runner.writes == []
@@ -364,7 +380,9 @@ def test_a_job_record_that_cannot_be_decoded_fails_the_read_and_names_its_card(
 
 
 def test_a_value_that_is_not_a_board_option_raises_without_writing() -> None:
-    store, runner = board_store({"field-list": fields_with_job_record(), "item-list": BOARD})
+    store, runner = board_store(
+        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(BOARD)}
+    )
     with pytest.raises(GitHubOperationError, match="not a Priority option"):
         store.set_field(board_item(737), ItemField.PRIORITY, "P9-Someday")
     assert runner.writes == []
@@ -375,7 +393,7 @@ def test_setting_priority_records_it_in_the_job_record_then_edits_the_field() ->
     board = on_board()
     board["items"][0]["job record"] = '{"Status": "Done"}'
     store, runner = board_store(
-        {"field-list": fields_with_job_record(), "item-list": board, "item-edit": ""}
+        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(board), "item-edit": ""}
     )
     store.set_field(board_item(737, status="Done"), ItemField.PRIORITY, "P2-Medium")
     edit = ["project", "item-edit", "2", "--owner", "dan-petty", "--url", f"{ISSUE_URL}/737"]
@@ -393,7 +411,7 @@ def test_a_field_write_sets_marks_in_the_write_that_records_its_value() -> None:
     """The record of the value and the marks go in one write, before the field: a job that
     stops after it finds both, and one that stops before it finds neither."""
     store, runner = board_store(
-        {"field-list": fields_with_job_record(), "item-list": BOARD, "item-edit": ""}
+        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(BOARD), "item-edit": ""}
     )
     store.set_field(board_item(737), ItemField.STATUS, "Ready", marks={JobMark.PENDING: "{}"})
     assert [(args[8], args[9:]) for args in runner.writes] == [
@@ -413,7 +431,7 @@ def test_two_writes_from_one_read_keep_both_fields_in_the_job_record() -> None:
     store, runner = board_store(
         {
             "field-list": fields_with_job_record(),
-            "item-list": board,
+            BOARD_READ: BoardServer(board),
             "item-edit": edit_board,
             f"api repos/{REPO}/issues/737": ISSUES_IN_RELEASE[2],
         }
@@ -429,7 +447,9 @@ def test_two_writes_from_one_read_keep_both_fields_in_the_job_record() -> None:
 
 
 def test_writing_an_item_that_is_not_on_the_board_raises_without_writing() -> None:
-    store, runner = board_store({"field-list": fields_with_job_record(), "item-list": BOARD})
+    store, runner = board_store(
+        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(BOARD)}
+    )
     with pytest.raises(GitHubOperationError, match="#739 is not on the board"):
         store.set_field(board_item(739), ItemField.STATUS, "Ready")
     assert runner.writes == []
@@ -437,7 +457,7 @@ def test_writing_an_item_that_is_not_on_the_board_raises_without_writing() -> No
 
 def test_clearing_a_field_sends_clear_and_records_null() -> None:
     store, runner = board_store(
-        {"field-list": fields_with_job_record(), "item-list": BOARD, "item-edit": ""}
+        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(BOARD), "item-edit": ""}
     )
     store.set_field(board_item(737), ItemField.EFFORT, None)
     assert [args[8:] for args in runner.writes] == [
@@ -460,7 +480,7 @@ def test_placing_an_item_in_a_release_records_it_then_sets_its_milestone() -> No
     store, runner = board_store(
         {
             "field-list": fields_with_job_record(),
-            "item-list": on_board(739),
+            BOARD_READ: BoardServer(on_board(739)),
             "milestones?state=all": MILESTONES,
             "-X PATCH": ISSUES_IN_RELEASE[1],
             "item-edit": "",
@@ -523,13 +543,15 @@ def test_malformed_json_raises() -> None:
 
 
 def test_an_error_object_where_a_listing_belongs_raises() -> None:
-    store, _ = board_store({"issues?state=open": {"message": "Not Found"}, "item-list": BOARD})
+    store, _ = board_store(
+        {"issues?state=open": {"message": "Not Found"}, BOARD_READ: BoardServer(BOARD)}
+    )
     with pytest.raises(GitHubOperationError, match="malformed issues"):
         store.candidates()
 
 
 def test_a_board_listing_with_fewer_items_than_its_total_raises() -> None:
-    store, _ = board_store({"item-list": {**BOARD, "totalCount": 676}})
+    store, _ = board_store({BOARD_READ: BoardServer({**BOARD, "totalCount": 676})})
     with pytest.raises(GitHubOperationError, match="Read 4 of 676"):
         store.backlog()
 
@@ -539,7 +561,7 @@ def test_a_failed_write_raises() -> None:
     store, runner = board_store(
         {
             "field-list": fields_with_job_record(),
-            "item-list": BOARD,
+            BOARD_READ: BoardServer(BOARD),
             "item-edit": (1, "GraphQL: Could not resolve"),
         }
     )
@@ -557,7 +579,7 @@ def test_every_rest_listing_is_read_a_full_page_at_a_time() -> None:
     store, runner = board_store(
         {
             "milestones?state=all": MILESTONES,
-            "item-list": BOARD,
+            BOARD_READ: BoardServer(BOARD),
             "issues?milestone=43": ISSUES_IN_RELEASE,
             "issues?milestone=none": [],
             "issues?state=": OPEN_ISSUES,
@@ -567,7 +589,7 @@ def test_every_rest_listing_is_read_a_full_page_at_a_time() -> None:
     store.items()
     store.backlog()
     store.candidates()
-    listings = [args for args, _ in runner.calls if args[0] == "api"]
+    listings = [args for args, _ in runner.calls if args[0] == "api" and args[1] != "graphql"]
     assert (
         [len(args) for args in listings],
         [_query(args, "per_page", "page") for args in listings],
@@ -688,7 +710,7 @@ def test_a_first_run_whose_issue_listing_is_not_json_refuses_before_any_write() 
     store, runner = board_store(
         {
             "fields(first": FIELDS_REPLY,
-            "item-list": BOARD,
+            BOARD_READ: BoardServer(BOARD),
             "issues?state=all": "<html>upstream</html>",
         }
     )
@@ -703,7 +725,7 @@ def test_every_read_passes_use_cache_false() -> None:
     store, runner = board_store(
         {
             "milestones?state=all": MILESTONES,
-            "item-list": BOARD,
+            BOARD_READ: BoardServer(BOARD),
             "field-list": FIELDS,
             "issues?milestone=43": ISSUES_IN_RELEASE,
             "issues/737": ISSUES_IN_RELEASE[2],
@@ -718,8 +740,8 @@ def test_every_read_passes_use_cache_false() -> None:
     with pytest.raises(GitHubOperationError, match="Job record"):
         store.set_field(board_item(737), ItemField.STATUS, "Ready")
     assert ([kwargs["use_cache"] for _, kwargs in runner.calls], len(runner.calls)) == (
-        [False] * 10,
-        10,
+        [False] * 14,
+        14,
     )
 
 
@@ -740,7 +762,7 @@ def test_changes_since_pages_newest_first_and_stops_at_the_first_older_event() -
             "&page=1": newer_page,
             "&page=2": EVENTS + older_padding,
             "&page=3": (1, "page 3 must not be read"),
-            "item-list": BOARD,
+            BOARD_READ: BoardServer(BOARD),
         }
     )
     changes = store.changes_since(datetime(2026, 10, 1, 22, 0, tzinfo=UTC))
@@ -763,7 +785,7 @@ def test_changes_since_pages_newest_first_and_stops_at_the_first_older_event() -
 def test_changes_since_keeps_issue_release_label_and_state_events_only() -> None:
     closed = next(e for e in EVENTS if e["event"] == "closed" and "pull_request" not in e["issue"])
     reopened = {**closed, "event": "reopened", "created_at": "2026-10-02T01:00:00Z"}
-    store, _ = board_store({"issues/events": [reopened, *EVENTS], "item-list": BOARD})
+    store, _ = board_store({"issues/events": [reopened, *EVENTS], BOARD_READ: BoardServer(BOARD)})
     changes = store.changes_since(datetime(2026, 10, 1))
     assert [
         (change.kind, change.number, change.actor, change.release or change.label)
@@ -941,7 +963,7 @@ def test_delete_field_deletes_the_field_by_its_node_id() -> None:
 
 
 def test_cards_are_everything_on_the_board() -> None:
-    store, _ = board_store({"item-list": BOARD})
+    store, _ = board_store({BOARD_READ: BoardServer(BOARD)})
     assert [(c.kind, c.number, c.repository, c.status) for c in store.cards()] == [
         (CardKind.ISSUE, 737, REPO, "Done"),
         (CardKind.PULL_REQUEST, 246, REPO, "Done"),
@@ -955,7 +977,7 @@ def test_a_card_field_is_set_by_node_ids_then_recorded() -> None:
         {
             "project list": PROJECTS,
             "fields(first": FIELDS_REPLY,
-            "item-list": BOARD,
+            BOARD_READ: BoardServer(BOARD),
             "item-edit": "",
         }
     )
@@ -977,7 +999,7 @@ def test_a_card_write_to_the_release_raises_before_any_read() -> None:
 
 
 def test_remove_card_deletes_the_board_item_by_id() -> None:
-    store, runner = board_store({"item-list": BOARD, "item-delete": ""})
+    store, runner = board_store({BOARD_READ: BoardServer(BOARD), "item-delete": ""})
     card = store.cards()[0]
     store.remove_card(card)
     with pytest.raises(GitHubOperationError, match="not on the board"):
@@ -1130,10 +1152,14 @@ def test_repository_file_reads_raw_contents_at_the_ref() -> None:
     )
 
 
-def test_a_file_that_cannot_be_read_raises() -> None:
-    store, _ = board_store({"contents/": (1, "HTTP 404: Not Found")})
-    with pytest.raises(GitHubOperationError, match=r"Could not read docs/ROADMAP\.md"):
-        store.repository_file("docs/ROADMAP.md", ref="main")
+def test_a_missing_file_raises_not_found_and_another_failure_raises_as_a_failed_read() -> None:
+    missing, _ = board_store({"contents/": (1, "gh: Not Found (HTTP 404)")})
+    broken, _ = board_store({"contents/": (1, "gh: Server Error (HTTP 502)")})
+    with pytest.raises(GitHubFileNotFoundError, match=r"has no docs/ROADMAP\.md at main"):
+        missing.repository_file("docs/ROADMAP.md", ref="main")
+    with pytest.raises(GitHubOperationError, match=r"Could not read docs/ROADMAP\.md") as failed:
+        broken.repository_file("docs/ROADMAP.md", ref="main")
+    assert isinstance(failed.value, GitHubFileNotFoundError) is False
 
 
 def test_create_board_creates_links_and_gives_the_new_board_the_template_fields() -> None:
@@ -1201,6 +1227,44 @@ def test_create_board_creates_links_and_gives_the_new_board_the_template_fields(
         [SCHEMA_OPTION_INPUT_FIELDS] * 4,
         ["Value", "Job record"],
         ["SINGLE_SELECT", "TEXT"],
+    )
+
+
+def test_through_run_gh_board_creation_paces_every_write() -> None:
+    """Through the real `run_gh` with gh's process stubbed (#1125): `project create`, `project
+    link` and the three field writes sent as `gh api graphql --input -` acquire as writes, and
+    the field listing as a read."""
+    new_status = {**STATUS_NODE, "id": "PVTSSF_new"}
+    created = {"id": "PVT_new", "number": 3, "title": "Roadmap", "url": "https://github.com/x"}
+
+    def gh(
+        cmd: list[str], *, input: str | None = None, **_: Any
+    ) -> subprocess.CompletedProcess[str]:
+        command = " ".join(cmd)
+        if "project create" in command:
+            reply: Any = created
+        elif "project link" in command:
+            reply = ""
+        elif "--input" in cmd:
+            reply = updated_field(new_status) if "updateProjectV2Field" in (input or "") else {}
+        else:
+            reply = owned_board("fields", [FIELD_NODES[0], new_status])
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(reply) if reply else "", "")
+
+    specs = [
+        FieldSpec(name="Status", single_select=True, options=(FieldOption(name="New"),)),
+        FieldSpec(name="Value", single_select=True, options=(FieldOption(name="High"),)),
+        FieldSpec(name="Job record"),
+    ]
+    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2)
+    with (
+        patch("devops_cli.github.rate_limiter._burst_protected_subprocess", side_effect=gh),
+        patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0) as acquire,
+    ):
+        board = store.create_board("Roadmap", specs)
+    assert (board.number, [call.kwargs["is_mutation"] for call in acquire.call_args_list]) == (
+        3,
+        [True, True, False, True, True, True],
     )
 
 
@@ -1414,7 +1478,7 @@ def test_set_marks_merges_the_marks_into_the_job_record_the_board_holds_in_one_w
     board = on_board()
     board["items"][0]["job record"] = '{"Pending": "{}", "Release": "v0.2.25"}'
     store, runner = board_store(
-        {"field-list": fields_with_job_record(), "item-list": board, "item-edit": ""}
+        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(board), "item-edit": ""}
     )
     store.set_marks(board_item(737), {JobMark.ADMITTED: "v0.2.25", JobMark.PENDING: None})
     assert [(args[8:10], json.loads(args[-1])) for args in runner.writes] == [
@@ -1430,7 +1494,7 @@ def test_set_marks_records_and_forgets_field_values_in_the_same_write() -> None:
         '{"NeedsSplit": "yes", "Pending": "{}", "Release": "v0.2.26", "Status": "Ready"}'
     )
     store, runner = board_store(
-        {"field-list": fields_with_job_record(), "item-list": board, "item-edit": ""}
+        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(board), "item-edit": ""}
     )
     store.set_marks(
         board_item(737),
@@ -1454,14 +1518,14 @@ def test_every_job_record_write_keeps_the_keys_this_version_does_not_know() -> N
             "project list": PROJECTS,
             "fields(first": FIELDS_REPLY,
             "field-list": fields_with_job_record(),
-            "item-list": board,
+            BOARD_READ: BoardServer(board),
             "item-edit": "",
         }
     )
     store.set_marks(board_item(737), {JobMark.PENDING: "{}"})
     store.set_field(board_item(737), ItemField.PRIORITY, "P1-High")
     marks_and_field = [json.loads(args[-1]) for args in runner.writes if args[-2] == "--text"]
-    runner.replies["item-list"] = run_record
+    runner.replies[BOARD_READ] = BoardServer(run_record)
     store.set_run_record({JobMark.STARTED: "v0.2.26"})
     assert (marks_and_field, json.loads(runner.writes[-1][-1])) == (
         [
@@ -1473,7 +1537,9 @@ def test_every_job_record_write_keeps_the_keys_this_version_does_not_know() -> N
 
 
 def test_set_marks_raises_before_any_write_for_an_item_off_the_board() -> None:
-    store, runner = board_store({"field-list": fields_with_job_record(), "item-list": BOARD})
+    store, runner = board_store(
+        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(BOARD)}
+    )
     with pytest.raises(GitHubOperationError, match="#739 is not on the board"):
         store.set_marks(board_item(739), {JobMark.NUDGED: "2026-10-02T00:00:00+00:00"})
     assert runner.writes == []
@@ -1496,8 +1562,8 @@ def with_run_record(record: str | None) -> dict[str, Any]:
 
 def test_the_run_record_is_the_job_record_of_the_draft_card_titled_for_it() -> None:
     """The board's other draft has a title of its own, so it is not the run record card."""
-    store, _ = board_store({"item-list": with_run_record('{"Started": "v0.2.25"}')})
-    without, _ = board_store({"item-list": BOARD})
+    store, _ = board_store({BOARD_READ: BoardServer(with_run_record('{"Started": "v0.2.25"}'))})
+    without, _ = board_store({BOARD_READ: BoardServer(BOARD)})
     assert (store.run_record(), without.run_record()) == ({JobMark.STARTED: "v0.2.25"}, {})
 
 
@@ -1506,7 +1572,7 @@ def test_set_run_record_creates_its_card_once_then_edits_its_job_record_by_node_
     replies = {
         "project list": PROJECTS,
         "fields(first": FIELDS_REPLY,
-        "item-list": lambda _: next(listings),
+        BOARD_READ: BoardServer(lambda: next(listings)),
         "item-create": "",
         "item-edit": "",
     }
@@ -1550,7 +1616,7 @@ def test_set_run_record_raises_when_the_card_it_created_is_not_listed() -> None:
         {
             "project list": PROJECTS,
             "fields(first": FIELDS_REPLY,
-            "item-list": BOARD,
+            BOARD_READ: BoardServer(BOARD),
             "item-create": "",
         }
     )
@@ -1594,7 +1660,7 @@ def test_a_milestone_change_carries_the_release_now_and_the_items_job_record() -
     joined["issue"]["milestone"] = {"title": "v0.2.24"}
     board = on_board(912)
     board["items"][-1]["job record"] = '{"Release": "v0.2.24"}'
-    store, _ = board_store({"issues/events": [joined], "item-list": board})
+    store, _ = board_store({"issues/events": [joined], BOARD_READ: BoardServer(board)})
     (change,) = store.changes_since(datetime(2026, 10, 1, tzinfo=UTC))
     assert (change.kind, change.release, change.field, change.value, change.job_record) == (
         ChangeKind.JOINED_RELEASE,
@@ -1603,3 +1669,320 @@ def test_a_milestone_change_carries_the_release_now_and_the_items_job_record() -
         "v0.2.24",
         {ItemField.RELEASE: "v0.2.24"},
     )
+
+
+# ── What intake reads and writes (#742) ───────────────────────────────────────
+
+
+def issue_payload(number: int, **changes: Any) -> dict[str, Any]:
+    """The recorded open issue #917 as issue `number`, with its node id."""
+    return {**OPEN_ISSUES[1], "number": number, "node_id": f"I_kw{number}", **changes}
+
+
+def test_close_as_duplicate_comments_then_closes_with_the_originals_node_id() -> None:
+    store, runner = board_store(
+        {
+            "-X POST": {},
+            "--input": {"data": {"closeIssue": {"issue": {"number": 950}}}},
+            f"api repos/{REPO}/issues/950": issue_payload(950),
+            f"api repos/{REPO}/issues/742": issue_payload(742),
+        }
+    )
+    store.close_as_duplicate(950, 742, "Duplicate of #742.")
+    (request,) = runner.inputs()
+    assert (runner.writes[0][3:], "DUPLICATE" in request["query"], request["variables"]) == (
+        [f"repos/{REPO}/issues/950/comments", "-f", "body=Duplicate of #742."],
+        True,
+        {"issue": "I_kw950", "original": "I_kw742"},
+    )
+
+
+def test_close_as_duplicate_without_a_comment_writes_only_the_close() -> None:
+    store, runner = board_store(
+        {
+            "--input": {"data": {"closeIssue": {"issue": {"number": 950}}}},
+            f"api repos/{REPO}/issues/950": issue_payload(950),
+            f"api repos/{REPO}/issues/742": issue_payload(742),
+        }
+    )
+    store.close_as_duplicate(950, 742, None)
+    assert ([w for w in runner.writes if "comments" in " ".join(w)], len(runner.inputs())) == (
+        [],
+        1,
+    )
+
+
+def test_close_as_duplicate_refuses_a_pull_request_before_any_write() -> None:
+    store, runner = board_store(
+        {
+            f"api repos/{REPO}/issues/918": OPEN_ISSUES[0],
+            f"api repos/{REPO}/issues/742": issue_payload(742),
+        }
+    )
+    with pytest.raises(GitHubOperationError, match="pull request"):
+        store.close_as_duplicate(742, 918, "no")
+    assert runner.writes == []
+
+
+def _timeline(nodes: list[dict[str, Any]], total: int | None = None) -> dict[str, Any]:
+    connection = {"nodes": nodes, "totalCount": len(nodes) if total is None else total}
+    return {"data": {"repository": {"issue": {"timelineItems": connection}}}}
+
+
+def test_closures_read_the_timelines_closes_and_reopens_oldest_first() -> None:
+    nodes = [
+        {
+            "__typename": "ClosedEvent",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "stateReason": "DUPLICATE",
+            "duplicateOf": {"number": 742},
+        },
+        {"__typename": "ReopenedEvent", "createdAt": "2026-10-01T11:00:00Z"},
+    ]
+    store, runner = board_store({"timelineItems": _timeline(nodes)})
+    closures = store.closures(950)
+    assert (
+        [(c.kind, c.at.hour, c.reason, c.duplicate_of) for c in closures],
+        runner.calls[0][0][-2:],
+    ) == (
+        [(ChangeKind.CLOSED, 10, "duplicate", 742), (ChangeKind.REOPENED, 11, None, None)],
+        ["-F", "number=950"],
+    )
+
+
+def test_closures_past_the_connection_limit_raise() -> None:
+    store, _ = board_store({"timelineItems": _timeline([], total=101)})
+    with pytest.raises(GitHubOperationError, match="Read 0 of 101"):
+        store.closures(950)
+
+
+def test_label_issue_posts_one_label_and_keeps_the_others() -> None:
+    store, runner = board_store({"-X POST": []})
+    store.label_issue(950, "type/bug")
+    assert runner.writes == [
+        ["api", "-X", "POST", f"repos/{REPO}/issues/950/labels", "-f", "labels[]=type/bug"]
+    ]
+
+
+@pytest.mark.parametrize(
+    ("kind", "value", "reply", "endpoint", "holds"),
+    [
+        (
+            "advisory",
+            "GHSA-abcd-efgh-ijkl",
+            {"ghsa_id": "x"},
+            "advisories/GHSA-abcd-efgh-ijkl",
+            True,
+        ),
+        ("advisory", "GHSA-abcd-efgh-ijkl", (1, "gh: Not Found (HTTP 404)"), "advisories/", False),
+        ("failed_run", "123", {"conclusion": "failure"}, f"repos/{REPO}/actions/runs/123", True),
+        ("failed_run", "123", {"conclusion": "success"}, f"repos/{REPO}/actions/runs/123", False),
+        ("regression_commit", "abc1234", {"sha": "abc1234"}, f"repos/{REPO}/commits/abc1234", True),
+        ("regression_commit", "abc1234", (1, "HTTP 422: No commit found"), "commits/", False),
+    ],
+)
+def test_evidence_holds_reads_the_advisory_run_or_commit(
+    kind: str, value: str, reply: Any, endpoint: str, holds: bool
+) -> None:
+    store, runner = board_store({"api ": reply})
+    found = store.evidence_holds(Evidence(kind=EvidenceKind(kind), value=value))
+    assert (found, endpoint in runner.calls[0][0][-1]) == (holds, True)
+
+
+def test_evidence_with_a_path_in_its_value_never_leaves_its_endpoint() -> None:
+    store, runner = board_store({"api ": {"sha": "x"}})
+    store.evidence_holds(Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="../pulls/1"))
+    assert runner.calls[0][0][-1] == f"repos/{REPO}/commits/..%2Fpulls%2F1"
+
+
+def test_count_issues_reads_rest_search_total_count_for_its_query() -> None:
+    store, runner = board_store({"search/issues": {"total_count": 57, "incomplete_results": False}})
+    since = datetime(2026, 10, 3, 20, 37, 25, tzinfo=UTC)
+    counted = store.count_issues(
+        IssueQuery(
+            state=GitHubState.CLOSED,
+            labels=("source/agent",),
+            created_since=since,
+            closed_since=since,
+            reason=CloseReason.NOT_PLANNED,
+            uncommented=True,
+        )
+    )
+    assert (counted, runner.calls[0][0]) == (
+        57,
+        [
+            "api",
+            "-X",
+            "GET",
+            "search/issues",
+            "-f",
+            f'q=repo:{REPO} is:issue is:closed label:"source/agent" '
+            "created:>=2026-10-03T20:37:25+00:00 closed:>=2026-10-03T20:37:25+00:00 "
+            'reason:"not planned" comments:0',
+            "-F",
+            "per_page=1",
+        ],
+    )
+
+
+def test_an_incomplete_search_raises_rather_than_undercount() -> None:
+    store, _ = board_store({"search/issues": {"total_count": 3, "incomplete_results": True}})
+    with pytest.raises(GitHubOperationError, match="incomplete"):
+        store.count_issues(IssueQuery(state=GitHubState.OPEN))
+
+
+def test_issue_records_and_releases_carry_author_and_close_times() -> None:
+    closed = {**MILESTONES[0], "state": "closed", "closed_at": "2026-10-03T20:37:25Z"}
+    store, _ = board_store(
+        {
+            "milestones?state=all": [closed],
+            "issues?state=all": [
+                issue_payload(
+                    950,
+                    author_association="COLLABORATOR",
+                    created_at="2026-10-04T01:00:00Z",
+                    closed_at=None,
+                )
+            ],
+        }
+    )
+    (issue,) = store.issues()
+    (release,) = store.releases()
+    assert (
+        issue.author_association,
+        issue.created_at,
+        release.closed_at,
+    ) == (
+        "COLLABORATOR",
+        datetime(2026, 10, 4, 1, tzinfo=UTC),
+        datetime(2026, 10, 3, 20, 37, 25, tzinfo=UTC),
+    )
+
+
+# ── Merged pull requests (#743) ──
+
+
+def _closed_pull(number: int, merged: bool = True) -> dict[str, Any]:
+    return {
+        "number": number,
+        "html_url": f"https://github.com/{REPO}/pull/{number}",
+        "title": f"feat: {number}",
+        "body": f"Closes #{number + 1000}" if number % 2 else None,
+        "labels": [{"name": "type/feature"}],
+        "milestone": {"title": "v0.2.26"},
+        "merged_at": "2026-10-03T12:00:00Z" if merged else None,
+        "merge_commit_sha": f"{number:040x}",
+        "head": {"sha": f"{number:040x}"[::-1]},
+    }
+
+
+def _closed_pages(bad: int | None = None) -> Callable[[list[str]], Any]:
+    """Closed pull requests over three pages, 100, 100 and 5; page `bad` fails."""
+
+    def page(args: list[str]) -> Any:
+        (number,) = _query(args, "page")[0]
+        if int(number) == bad:
+            return (1, "gh: Server Error (HTTP 502)")
+        first = (int(number) - 1) * 100 + 1
+        size = 100 if int(number) < 3 else 5
+        return [_closed_pull(n, merged=n != 7) for n in range(first, first + size)]
+
+    return page
+
+
+def test_merged_pull_requests_read_every_page_with_each_ones_files() -> None:
+    store, runner = board_store(
+        {
+            "pulls?state=closed": _closed_pages(),
+            "/files?": [{"filename": "src/a.py"}, {"filename": "docs/agent/tasks/task-1-a.md"}],
+        }
+    )
+    merged = store.merged_pull_requests("release/v0.2.26")
+    first = merged[0]
+    assert (
+        len(merged),
+        [p.number for p in merged][:7],
+        (first.url, first.body, first.labels, first.release, first.changed_paths),
+        (first.merge_commit, first.head_commit) == (f"{1:040x}", f"{1:040x}"[::-1]),
+        runner.calls[0][0][-1].split("&per_page")[0],
+        runner.writes,
+    ) == (
+        204,
+        [1, 2, 3, 4, 5, 6, 8],
+        (
+            f"https://github.com/{REPO}/pull/1",
+            "Closes #1001",
+            ("type/feature",),
+            "v0.2.26",
+            ("src/a.py", "docs/agent/tasks/task-1-a.md"),
+        ),
+        True,
+        f"repos/{REPO}/pulls?state=closed&base=release%2Fv0.2.26&sort=created&direction=asc",
+        [],
+    )
+
+
+@pytest.mark.parametrize("bad", [1, 2, 3])
+def test_a_failed_merged_pull_request_page_raises_and_returns_no_part(bad: int) -> None:
+    store, _ = board_store({"pulls?state=closed": _closed_pages(bad), "/files?": []})
+    with pytest.raises(
+        GitHubOperationError, match=rf"pull requests into release/v0.2.26 \(page {bad}\)"
+    ):
+        store.merged_pull_requests("release/v0.2.26")
+
+
+def test_a_failed_files_listing_raises() -> None:
+    store, _ = board_store(
+        {"pulls?state=closed": _closed_pages(), "/files?": (1, "gh: Server Error (HTTP 502)")}
+    )
+    with pytest.raises(GitHubOperationError, match=r"#1 files \(page 1\)"):
+        store.merged_pull_requests("release/v0.2.26")
+
+
+def test_is_private_args_and_write_issue_body_args() -> None:
+    write_args = write_issue_body_args(REPO, 42, "new body")
+    priv_args = is_private_args(REPO)
+    owner, name = REPO.split("/", 1)
+    assert (
+        write_args,
+        priv_args,
+    ) == (
+        ["api", "-X", "PATCH", f"repos/{REPO}/issues/42", "-f", "body=new body"],
+        [
+            "api",
+            "graphql",
+            "-f",
+            "query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { isPrivate } }",
+            "-f",
+            f"owner={owner}",
+            "-f",
+            f"name={name}",
+        ],
+    )
+
+
+def test_read_and_write_issue_body_github_store() -> None:
+    store, runner = board_store({"-X PATCH": {}, f"api repos/{REPO}/issues/917": OPEN_ISSUES[1]})
+    body = store.read_issue_body(917)
+    store.write_issue_body(917, "Updated content")
+    assert (
+        body,
+        runner.writes,
+    ) == (
+        OPEN_ISSUES[1].get("body") or "",
+        [["api", "-X", "PATCH", f"repos/{REPO}/issues/917", "-f", "body=Updated content"]],
+    )
+
+
+def test_issue_body_on_pull_request_raises_github_store() -> None:
+    store, runner = board_store({f"api repos/{REPO}/issues/918": OPEN_ISSUES[0]})
+    with pytest.raises(GitHubOperationError, match="pull request"):
+        store.read_issue_body(918)
+    with pytest.raises(GitHubOperationError, match="pull request"):
+        store.write_issue_body(918, "content")
+    assert runner.writes == []
+
+
+def test_repository_is_private_github_store() -> None:
+    store, _ = board_store({"isPrivate": {"data": {"repository": {"isPrivate": True}}}})
+    assert store.repository_is_private() is True

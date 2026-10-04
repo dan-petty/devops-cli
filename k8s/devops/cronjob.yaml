@@ -1,0 +1,78 @@
+# The template of every cluster job. It never runs on a schedule: `devops k8s run-job -- ARGS`
+# creates a Job from it with only the container's args, the name and one label changed.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: devops-cli
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: devops-cli
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  schedule: "0 0 1 1 *"
+  suspend: true
+  concurrencyPolicy: Allow
+  jobTemplate:
+    spec:
+      # A command that changed GitHub never runs twice.
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 86400
+      activeDeadlineSeconds: 7200
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: devops-cli
+            app.kubernetes.io/part-of: devops-cli-stack
+        spec:
+          restartPolicy: Never
+          serviceAccountName: devops-cli
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: devops-cli
+              image: ghcr.io/dan-petty/devops-cli/service
+              imagePullPolicy: IfNotPresent
+              args: ["--version"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              envFrom:
+                - secretRef:
+                    name: devops-cli
+              env:
+                - name: DEVOPS_CLI_CONFIG
+                  value: /config/devops-cli.yaml
+                - name: DEVOPS_CLI_DATA_DIR
+                  value: /home/devops/.data
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: home
+                  mountPath: /home/devops
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+          volumes:
+            - name: tmp
+              emptyDir: {}
+            - name: home
+              emptyDir: {}
+            - name: config
+              configMap:
+                name: devops-cli-config

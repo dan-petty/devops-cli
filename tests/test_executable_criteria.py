@@ -187,6 +187,7 @@ def test_verification_criterion_model_normalization_from_dict() -> None:
         VerificationCriterion.model_validate({"command": "rm -rf /", "executable": True})
 
 
+@pytest.mark.bwrap
 def test_sandbox_executes_successful_criterion(tmp_path: Path) -> None:
     """Verify that a successful criterion produces exit_code 0 and passed=True."""
     target_file = tmp_path / "hello.py"
@@ -202,6 +203,7 @@ def test_sandbox_executes_successful_criterion(tmp_path: Path) -> None:
     assert "2" in result.stdout
 
 
+@pytest.mark.bwrap
 def test_sandbox_executes_failing_criterion(tmp_path: Path) -> None:
     """Verify that a failing command produces non-zero exit_code and passed=False."""
     result = execute_criterion_command("python -c 'import sys; sys.exit(42)'", cwd=tmp_path)
@@ -214,6 +216,7 @@ def test_sandbox_executes_failing_criterion(tmp_path: Path) -> None:
     ) == (True, 42, False, None, False)
 
 
+@pytest.mark.bwrap
 def test_sandbox_bounds_timeout_and_terminates_process_group(tmp_path: Path) -> None:
     """Verify that slow commands time out cleanly without leaking process hierarchies."""
     result = execute_criterion_command(
@@ -230,6 +233,7 @@ def test_sandbox_bounds_timeout_and_terminates_process_group(tmp_path: Path) -> 
     ) == (True, -1, False, True, True)
 
 
+@pytest.mark.bwrap
 def test_sandbox_bounds_output_bytes(tmp_path: Path) -> None:
     """Verify that criterion stdout is truncated and process killed when exceeding size cap."""
     result = execute_criterion_command(
@@ -276,6 +280,7 @@ def _verdict(finding: Finding) -> tuple[str, bool, bool, str | None, float | Non
     )
 
 
+@pytest.mark.bwrap
 def test_assertions_over_no_cited_code_do_not_verify(tmp_path: Path) -> None:
     """Passing assertions that import nothing the finding cites are recorded but prove nothing."""
     finding = Finding(
@@ -297,6 +302,7 @@ def test_assertions_over_no_cited_code_do_not_verify(tmp_path: Path) -> None:
     ) == (("UNVERIFIED", False, True, None, None), [True, True], [])
 
 
+@pytest.mark.bwrap
 def test_an_assertion_over_the_cited_code_leaves_the_finding_for_the_verifier(
     tmp_path: Path,
 ) -> None:
@@ -316,6 +322,7 @@ def test_an_assertion_over_the_cited_code_leaves_the_finding_for_the_verifier(
     assert (_verdict(updated), updated.verified_criteria_matched) == (_NO_VERDICT, [command])
 
 
+@pytest.mark.bwrap
 def test_verification_criteria_that_pass_in_part_give_no_confidence(tmp_path: Path) -> None:
     """One of two assertions over the cited code passing is recorded as matched, and the
     criteria give the finding no confidence (#1043). It verified at half confidence before."""
@@ -332,6 +339,7 @@ def test_verification_criteria_that_pass_in_part_give_no_confidence(tmp_path: Pa
     assert (_verdict(updated), updated.verified_criteria_matched) == (_NO_VERDICT, [passing])
 
 
+@pytest.mark.bwrap
 def test_an_assertion_over_no_cited_code_does_not_invalidate(tmp_path: Path) -> None:
     """A passing invalidation criterion that asserts arithmetic leaves the finding for the model."""
     finding = Finding(
@@ -350,6 +358,7 @@ def test_an_assertion_over_no_cited_code_does_not_invalidate(tmp_path: Path) -> 
     ) == (("UNVERIFIED", False, True, None, None), None, [])
 
 
+@pytest.mark.bwrap
 def test_an_assertion_over_the_cited_code_invalidates(tmp_path: Path) -> None:
     """A passing invalidation criterion that runs the cited code still settles INVALIDATED."""
     command = "python -c 'from app import f; assert f(1) == 2'"
@@ -603,6 +612,7 @@ def _app_with_its_own_environment(tmp_path: Path) -> Path:
     return tmp_path
 
 
+@pytest.mark.bwrap
 @pytest.mark.parametrize(
     ("command", "matched"),
     [(_PRINTS_F, []), (_ASSERTS_F, [_ASSERTS_F])],

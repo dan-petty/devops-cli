@@ -201,8 +201,9 @@ class VaultSecretBroker:
         synced_count = 0
         target_keys = keys or list(data.keys())
         for k in target_keys:
-            if k in data and data[k]:
-                val = str(data[k])
+            val_raw = data.get(k)
+            if val_raw:
+                val = str(val_raw)
                 if set_keyring_secret(k, val):
                     synced_count += 1
         return synced_count

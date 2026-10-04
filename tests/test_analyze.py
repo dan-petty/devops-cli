@@ -21,6 +21,7 @@ from devops_cli.commands.analyze import (
 from devops_cli.main import app
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
+from tests.conftest import fail_the_github_lookup
 
 runner = CliRunner()
 
@@ -294,7 +295,6 @@ def test_ai_analyze_branch_and_pr_execution(tmp_path: Path) -> None:
         patch("devops_cli.git.operations.resolve_merge_base", return_value="base-sha"),
         patch("devops_cli.git.operations.read_file_at_revision", return_value=None),
         patch("devops_cli.core.repo.get_repo_origin_name", return_value="org/repo"),
-        patch("devops_cli.config.settings.get_github_token", return_value="mock_token"),
         patch("devops_cli.github.client.GitHubClient.get_pull", return_value=mock_pull),
     ):
         res_branch = runner.invoke(analyze_app, ["branch", "feat/worker", "--no-enhanced"])
@@ -423,7 +423,7 @@ CONST_API_KEY: str = "secret"
 from external_pkg import client
 import internal_sub.helper
 """
-    doc, syms, imps = _analyze_python_ast(py_code)
+    _doc, syms, imps = _analyze_python_ast(py_code)
     assert "CONST_API_KEY" in syms
     assert "external_pkg" in imps
     assert "internal_sub.helper" in imps
@@ -473,25 +473,25 @@ def test_analyze_path_errors(tmp_path: Path) -> None:
             outside.rmdir()
 
 
-def test_analyze_pr_command(tmp_path: Path) -> None:
-    """Verify devops analyze pr with missing token, missing origin, and mock client."""
+def test_analyze_pr_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify devops analyze pr with no gh login, missing origin, and mock client."""
     from devops_cli.config.settings import Settings
 
-    # 1. Missing token
+    # 1. No token from `gh auth token`
     empty_settings = Settings()
     with (
         patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
         patch("devops_cli.commands.analyze.load_settings", return_value=empty_settings),
-        patch("devops_cli.commands.analyze.get_github_token", return_value=None),
+        monkeypatch.context() as unauthenticated,
     ):
+        fail_the_github_lookup(unauthenticated)
         res_no_token = runner.invoke(analyze_app, ["pr", "42"])
-        assert res_no_token.exit_code == 1
+        assert (res_no_token.exit_code, "gh auth login" in res_no_token.output) == (1, True)
 
     # 2. Missing origin
     with (
         patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
         patch("devops_cli.commands.analyze.load_settings", return_value=empty_settings),
-        patch("devops_cli.commands.analyze.get_github_token", return_value="token123"),
         patch("devops_cli.commands.analyze.get_repo_origin_name", return_value=None),
     ):
         res_no_origin = runner.invoke(analyze_app, ["pr", "42"])
@@ -518,7 +518,6 @@ def test_analyze_pr_command(tmp_path: Path) -> None:
     with (
         patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
         patch("devops_cli.commands.analyze.load_settings", return_value=empty_settings),
-        patch("devops_cli.commands.analyze.get_github_token", return_value="token123"),
         patch("devops_cli.commands.analyze.get_repo_origin_name", return_value="owner/repo"),
         patch("devops_cli.github.client.GitHubClient", return_value=mock_gh),
     ):

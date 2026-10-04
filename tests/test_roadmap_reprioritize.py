@@ -193,7 +193,7 @@ class Roadmap:
         return self.person.open_pull_request(
             f"feat(release): {release}",
             base="main",
-            head=f"release/{release}",
+            head=f"chore/cut-{release}",
             labels=("release",),
             release=release,
             draft=draft,
@@ -2658,12 +2658,12 @@ def _snapshot(store: InMemoryRoadmapStore) -> tuple[Iterable[object], ...]:
     return (store.items(), store.releases(), store.job_writes())
 
 
-def test_dry_run_lists_each_change_with_its_reason_and_writes_nothing(board: Roadmap) -> None:
+def test_plan_lists_each_change_with_its_reason_and_writes_nothing(board: Roadmap) -> None:
     held = board.file("held")
     first = _reprioritize("--confirm")
     late = board.file("late feature")
     before = _snapshot(board.store)
-    previews = [_reprioritize("--dry-run"), _reprioritize()]
+    previews = [_reprioritize("--plan"), _reprioritize()]
     unchanged = _snapshot(board.store) == before
     applied = _reprioritize("--confirm")
     change = (
@@ -2679,7 +2679,7 @@ def test_dry_run_lists_each_change_with_its_reason_and_writes_nothing(board: Roa
     ) == (True, [True, True], True, True, [CURRENT, None])
 
 
-def test_the_mcp_mirror_previews_unless_dry_run_is_false(board: Roadmap) -> None:
+def test_the_mcp_mirror_previews_unless_its_mode_is_confirm(board: Roadmap) -> None:
     board.file("held")
     tool = asyncio.run(mcp_server.mcp.get_tool("roadmap_reprioritize"))
     names = {listed.name for listed in asyncio.run(mcp_server.mcp._list_tools())}
@@ -2690,13 +2690,13 @@ def test_the_mcp_mirror_previews_unless_dry_run_is_false(board: Roadmap) -> None
     with patch.object(mcp_server, "_run_mcp_cmd", side_effect=in_process):
         mcp_server.roadmap_reprioritize(repo=REPO)
         previewed = len(board.store.job_writes())
-        mcp_server.roadmap_reprioritize(repo=REPO, dry_run=False)
+        mcp_server.roadmap_reprioritize(repo=REPO, mode="confirm")
     assert (
         "roadmap_reprioritize" in names,
-        tool.parameters["properties"]["dry_run"]["default"] if tool else None,
+        tool.parameters["properties"]["mode"]["default"] if tool else None,
         previewed,
         len(board.store.job_writes()) > previewed,
-    ) == (True, True, 3, True)
+    ) == (True, "plan", 3, True)
 
 
 def test_the_needs_split_label_the_rules_read_is_one_the_repository_declares() -> None:

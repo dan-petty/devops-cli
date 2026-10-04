@@ -131,9 +131,11 @@ def test_k8s_configure_urls_success(
     )
 
 
+# The keyring check comes first; it is not left to whichever backend an earlier test installed.
+@patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push")
 @patch("devops_cli.commands.k8s._cluster_reachable", return_value=False)
 def test_k8s_deploy_stack_fails_when_cluster_unreachable(
-    mock_cluster: MagicMock,
+    mock_cluster: MagicMock, mock_keyring_check: MagicMock
 ) -> None:
     """k8s deploy-stack must fail gracefully when cluster is unreachable."""
     set_dry_run(False)
@@ -167,6 +169,51 @@ def test_k8s_deploy_stack_llm_dry_run() -> None:
         assert "valkey.yaml" in result.output
     finally:
         set_dry_run(False)
+
+
+def _dry_run_details(output: str) -> dict[str, Any]:
+    """The details of a dry-run result, after its heading."""
+    details: dict[str, Any] = json.loads(output[output.index("{") :])["details"]
+    return details
+
+
+def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The dry run lists what the push would write, from the table alone, and runs no command."""
+    from tests.cluster_secret_fakes import forbid_requests
+
+    attempted = forbid_requests(monkeypatch)
+    set_dry_run(True)
+    try:
+        result = runner.invoke(app, ["deploy-stack", "--stack", "infra"])
+        skipped = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
+    finally:
+        set_dry_run(False)
+    assert (
+        result.exit_code,
+        _dry_run_details(result.output)["secrets"],
+        _dry_run_details(skipped.output)["secrets"],
+        attempted,
+    ) == (
+        0,
+        [
+            "cloudflared/cloudflared-token: token",
+            "devops/devops-cli: GH_TOKEN, DEVOPS_CLI_AI_API_KEY, DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS, DEVOPS_CLI_TAVILY_API_KEY (if namespace devops exists)",
+        ],
+        [],
+        [],
+    )
+
+
+def test_deploy_stack_dry_run_makes_no_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No kubectl, helm or gh child, no keyring call and no connection, with the Secret push on
+    and the context left to the settings."""
+    from tests.cluster_secret_fakes import forbid_requests
+
+    attempted = forbid_requests(monkeypatch)
+    result = runner.invoke(app, ["deploy-stack", "--stack", "all", "--dry-run"])
+    assert (result.exit_code, result.exception, attempted) == (0, None, [])
 
 
 def test_k8s_deploy_stack_all_dry_run() -> None:
@@ -554,9 +601,14 @@ def test_k8s_bootstrap_and_stacks(tmp_path: Path) -> None:
             "devops_cli.k8s.credentials.sync_k8s_credentials",
             return_value={"argocd": True, "grafana": True},
         ),
+        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks") as mock_push,
+        patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
+        # Not left to whichever keyring backend an earlier test in this worker installed.
+        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
     ):
         result = runner.invoke(app, ["bootstrap", "--no-auto-start", "--stack", "infra"])
-        assert result.exit_code == 0
+        # bootstrap keeps the push on: the base rows and the infra stack's.
+        assert (result.exit_code, mock_push.call_args.args[0]) == (0, ["base", "infra"])
 
     with (
         patch("devops_cli.commands.k8s.shutil.which", return_value="/usr/local/bin/helm"),
@@ -573,7 +625,7 @@ def test_k8s_bootstrap_and_stacks(tmp_path: Path) -> None:
             return_value={"argocd": True, "grafana": True},
         ),
     ):
-        result = runner.invoke(app, ["deploy-stack", "--stack", "infra"])
+        result = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
         assert result.exit_code == 0
 
     with (
@@ -1022,7 +1074,9 @@ def test_k8s_deploy_stack_no_wait() -> None:
         patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
     ):
         mock_cmd.return_value = _mock_proc(0, "")
-        res_exec = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-wait"])
+        res_exec = runner.invoke(
+            app, ["deploy-stack", "--stack", "infra", "--no-wait", "--no-push-secrets"]
+        )
         helm_cmds = [
             call_args[0][0]
             for call_args in mock_cmd.call_args_list
@@ -1043,7 +1097,9 @@ def test_k8s_deploy_stack_no_wait() -> None:
         patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
     ):
         mock_cmd.return_value = _mock_proc(0, "")
-        res_exec = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-wait"])
+        res_exec = runner.invoke(
+            app, ["deploy-stack", "--stack", "infra", "--no-wait", "--no-push-secrets"]
+        )
         assert res_exec.exit_code == 0
         helm_cmds = [
             call_args[0][0]
@@ -1169,13 +1225,6 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     )
     assert loki_values["singleBinary"]["resources"]["limits"]["cpu"] == "1000m"
     assert loki_values["singleBinary"]["resources"]["limits"]["memory"] == "2048Mi"
-
-    # 9. Fluent Bit values: elevated daemonset limits
-    fb_values = yaml.safe_load(
-        (repo_root / "k8s" / "logging" / "fluent-bit-values.yaml").read_text(encoding="utf-8")
-    )
-    assert fb_values["resources"]["limits"]["cpu"] == "500m"
-    assert fb_values["resources"]["limits"]["memory"] == "1024Mi"
 
     # 10. K8s monitoring stack values: elevated requests and limits to eliminate OOM kills
     k8s_mon_values = yaml.safe_load(
@@ -1323,35 +1372,28 @@ def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:
     """Verify deploy-stack enforces --force-conflicts and k8s manifests meet security & chart contracts."""
     repo_root = Path(__file__).resolve().parent.parent
 
-    # 1. Namespaces: logging has privileged pod-security standard for hostPath daemonset
+    # 1. Namespaces: logging has baseline pod-security standard
     ns_docs = list(
         yaml.safe_load_all((repo_root / "k8s" / "namespaces.yaml").read_text(encoding="utf-8"))
     )
     logging_ns = next(d for d in ns_docs if d and d.get("metadata", {}).get("name") == "logging")
-    assert logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/enforce"] == "privileged"
-    assert logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/warn"] == "baseline"
-    assert logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/audit"] == "baseline"
+    assert (
+        logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/enforce"],
+        logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/warn"],
+        logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/audit"],
+    ) == ("baseline", "baseline", "baseline")
 
     # 2. Loki values: zeroed scalable target replicas for SingleBinary mode
     loki_values = yaml.safe_load(
         (repo_root / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
     )
-    assert loki_values["read"]["replicas"] == 0
-    assert loki_values["write"]["replicas"] == 0
-    assert loki_values["backend"]["replicas"] == 0
+    assert (
+        loki_values["read"]["replicas"],
+        loki_values["write"]["replicas"],
+        loki_values["backend"]["replicas"],
+    ) == (0, 0, 0)
 
-    # 3. Fluent-bit values: official loki output plugin
-    fb_values = yaml.safe_load(
-        (repo_root / "k8s" / "logging" / "fluent-bit-values.yaml").read_text(encoding="utf-8")
-    )
-    assert "Name loki" in fb_values["config"]["outputs"]
-    assert "grafana-loki" not in fb_values["config"]["outputs"]
-    assert "labels job=fluent-bit" in fb_values["config"]["outputs"]
-    assert "namespace=$kubernetes['namespace_name']" in fb_values["config"]["outputs"]
-    assert "pod=$kubernetes['pod_name']" in fb_values["config"]["outputs"]
-    assert "container=$kubernetes['container_name']" in fb_values["config"]["outputs"]
-
-    # 4. Qdrant values: disabled unprivileged volume chown initContainer
+    # 3. Qdrant values: disabled unprivileged volume chown initContainer
     qdrant_values = yaml.safe_load(
         (repo_root / "k8s" / "llm" / "values-qdrant.yaml").read_text(encoding="utf-8")
     )

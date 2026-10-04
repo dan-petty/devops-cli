@@ -20,22 +20,16 @@ from devops_cli.config.constants import (
     CONST_PROJECT_WORKFLOW_EXPECTATIONS,
 )
 from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT
-from devops_cli.config.env import ENV_GITHUB_TOKEN
-from devops_cli.config.settings import get_keyring_secret
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.github.branch_protection import (
     audit_branch_protection,
     load_branch_protection_policies,
     sync_branch_protection,
 )
 from devops_cli.github.client import GhCliClient, GitHubClient
-from devops_cli.github.issue_closure import (
-    close_issues_for_merged_pull_requests,
-    close_issues_for_pull_request,
-)
 from devops_cli.github.issues import (
     audit_issues_triage,
     create_repository_issue,
@@ -81,13 +75,13 @@ from devops_cli.github.secrets import (
     list_repository_secrets,
     sync_repository_secrets,
 )
-from devops_cli.lang import HELP
+from devops_cli.github.session import get_github_session
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     format_json,
     print,
     print_error,
     print_info,
-    print_muted,
     print_panel,
     print_success,
     print_table,
@@ -95,20 +89,31 @@ from devops_cli.output import (
     write_stdout,
 )
 from devops_cli.roadmap import store as roadmap_store
+from devops_cli.roadmap.config import open_roadmap
 from devops_cli.roadmap.store import GitHubState
 
 logger = logging.getLogger(__name__)
 
-app = new_typer(help=HELP.gh.app, no_args_is_help=True)
-labels_app = new_typer(help=HELP.gh.labels_app, no_args_is_help=True)
-milestones_app = new_typer(help=HELP.gh.milestones_app, no_args_is_help=True)
-project_app = new_typer(help=HELP.gh.project_app, no_args_is_help=True)
-views_app = new_typer(help=HELP.gh.views_app, no_args_is_help=True)
-pages_app = new_typer(help=HELP.gh.pages_app, no_args_is_help=True)
-issues_app = new_typer(help=HELP.gh.issues_app, no_args_is_help=True)
-runs_app = new_typer(help=HELP.gh.runs_app, no_args_is_help=True)
-branch_protection_app = new_typer(help=HELP.gh.branch_protection_app, no_args_is_help=True)
-secrets_app = new_typer(help=HELP.gh.secrets_app, no_args_is_help=True)
+# Every `devops gh` command reports a GitHub failure, an unauthenticated one included, as its
+# error rather than a traceback.
+app = new_typer(help=HELP.gh.app, no_args_is_help=True, exit_on=GitHubOperationError)
+labels_app = new_typer(help=HELP.gh.labels_app, no_args_is_help=True, exit_on=GitHubOperationError)
+milestones_app = new_typer(
+    help=HELP.gh.milestones_app, no_args_is_help=True, exit_on=GitHubOperationError
+)
+project_app = new_typer(
+    help=HELP.gh.project_app, no_args_is_help=True, exit_on=GitHubOperationError
+)
+views_app = new_typer(help=HELP.gh.views_app, no_args_is_help=True, exit_on=GitHubOperationError)
+pages_app = new_typer(help=HELP.gh.pages_app, no_args_is_help=True, exit_on=GitHubOperationError)
+issues_app = new_typer(help=HELP.gh.issues_app, no_args_is_help=True, exit_on=GitHubOperationError)
+runs_app = new_typer(help=HELP.gh.runs_app, no_args_is_help=True, exit_on=GitHubOperationError)
+branch_protection_app = new_typer(
+    help=HELP.gh.branch_protection_app, no_args_is_help=True, exit_on=GitHubOperationError
+)
+secrets_app = new_typer(
+    help=HELP.gh.secrets_app, no_args_is_help=True, exit_on=GitHubOperationError
+)
 
 app.add_typer(labels_app, name="labels")
 app.add_typer(milestones_app, name="milestones")
@@ -128,31 +133,11 @@ def _resolve_repo(repo: str | None = None) -> str:
     return target or "unknown/repo"
 
 
-def _resolve_github_token() -> str | None:
-    """Resolve GitHub authentication token from Keyring, environment, or gh CLI."""
-    for key in ("github.token", "github_token", "github"):
-        val = get_keyring_secret(key)
-        if val:
-            return val
-    import os
-
-    for env_var in (ENV_GITHUB_TOKEN, "GITHUB_TOKEN", "GH_TOKEN"):
-        env_val = os.environ.get(env_var)
-        if env_val:
-            return env_val
-    res = run_gh(["auth", "token"], check=False, quiet=True)
-    if res.returncode == 0 and res.stdout.strip():
-        return res.stdout.strip()
-    return None
-
-
 def _get_github_client() -> GitHubClient | None:
-    """Construct an authenticated GitHub client if token is available."""
-    token = _resolve_github_token()
-    if not token:
-        return None
+    """The session's PyGithub client; None when PyGithub cannot be set up."""
+    session = get_github_session()
     try:
-        return GitHubClient(token)
+        return session.client
     except Exception as exc:
         logger.warning("Failed to initialize GitHubClient: %s", exc)
         return None
@@ -1010,13 +995,24 @@ def issues_create_cmd(
     print_success(f"Created issue #{created.number}: '{created.title}' ({created.url or 'local'})")
 
 
+def _awaiting_intake(repo: str) -> list[int] | None:
+    """The open issues not on the roadmap board, or None for a repository without
+    `.github/roadmap.toml`; any other failed read raises."""
+    try:
+        _, store = open_roadmap(repo, ref=None)
+    except GitHubFileNotFoundError:
+        return None
+    return [candidate.number for candidate in store.candidates()]
+
+
 @issues_app.command("triage", help=HELP.gh.issues_triage)
 def issues_triage_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
 ) -> None:
-    """Audit open issues for mandatory taxonomy labels and milestone linkage."""
+    """Audit open issues for mandatory taxonomy labels, and report those awaiting intake."""
     target_repo = repo or _resolve_repo()
-    audit = audit_issues_triage(target_repo)
+    awaiting = _awaiting_intake(target_repo)
+    audit = audit_issues_triage(target_repo, awaiting_intake=awaiting or ())
     columns = ["Metric", "Value", "Violating Issues"]
     rows = [
         ["Total Open Issues", str(audit.total_open), "—"],
@@ -1037,16 +1033,18 @@ def issues_triage_cmd(
             ", ".join(f"#{n}" for n in audit.issues_missing_priority) or "None",
         ],
         [
-            "Missing Milestone",
-            str(len(audit.issues_missing_milestone)),
-            ", ".join(f"#{n}" for n in audit.issues_missing_milestone) or "None",
+            "Awaiting Intake",
+            str(len(audit.issues_awaiting_intake)),
+            ", ".join(f"#{n}" for n in audit.issues_awaiting_intake) or "None",
         ],
     ]
     print_table(f"GitHub Issues Triage & Taxonomy Audit ({target_repo})", columns, rows)
-    if audit.valid_count < audit.total_open:
-        print_warning(
-            "Triage audit detected issues missing required taxonomy labels or milestone linkage."
-        )
+    if awaiting is None:
+        print_info(MESSAGES.roadmap.triage_no_board)
+    if audit.valid_count + len(audit.issues_awaiting_intake) < audit.total_open:
+        print_warning("Triage audit detected issues missing required taxonomy labels.")
+    if audit.issues_awaiting_intake:
+        print_info(MESSAGES.roadmap.triage_awaiting_intake)
 
 
 @issues_app.command("status", help=HELP.gh.issues_status)
@@ -1155,90 +1153,6 @@ def edit_issue_cmd(  # noqa: C901
         print_error(f"Failed to edit issue #{number}: {clean_err}", safe=True)
         raise typer.Exit(res.returncode or 1)
     print_success(f"Issue #{number} updated successfully.")
-
-
-@issues_app.command(
-    "close-merged",
-    help=HELP.gh.issues_close_merged,
-)
-def issues_close_merged_cmd(
-    pr: Annotated[
-        int | None,
-        typer.Option("--pr", "-p", help=HELP.gh.close_merged_pr),
-    ] = None,
-    base: Annotated[
-        str | None,
-        typer.Option("--base", "-b", help=HELP.gh.close_merged_base),
-    ] = None,
-    limit: Annotated[
-        int,
-        typer.Option("--limit", "-L", help=HELP.gh.close_merged_limit),
-    ] = 100,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json", help=HELP.options.json_output),
-    ] = False,
-    repo: Annotated[
-        str | None,
-        typer.Option("--repo", "-R", help="Target repository"),
-    ] = None,
-) -> None:
-    """Close issues linked by merged pull requests that did not target the default branch."""
-    target_repo = repo or _resolve_repo()
-
-    if pr is not None:
-        results = [close_issues_for_pull_request(target_repo, pr, dry_run=dry_run)]
-    else:
-        results = close_issues_for_merged_pull_requests(
-            target_repo, base=base, limit=limit, dry_run=dry_run
-        )
-
-    if json_output:
-        write_stdout(format_json([result.as_dict() for result in results]))
-        return
-
-    failed = [result for result in results if result.error]
-    for result in failed:
-        print_error(f"#{result.pull_request}: {result.error}")
-
-    acted = [result for result in results if result.closed or result.already_closed]
-    if not acted:
-        examined = len(results) - len(failed)
-        print_muted(f"No issues needed closing across {examined} merged pull request(s).")
-        if failed:
-            # Reporting a clean sweep when nothing could be read is a false green.
-            raise typer.Exit(1)
-        return
-
-    columns: list[str | tuple[str, str]] = [("PR", "bold"), "Base", "Closed", "Already Closed"]
-    rows = [
-        [
-            f"#{result.pull_request}",
-            result.base_ref or "-",
-            ", ".join(f"#{n}" for n in result.closed) or "-",
-            ", ".join(f"#{n}" for n in result.already_closed) or "-",
-        ]
-        for result in acted
-    ]
-    mode = " (Dry-Run)" if dry_run else ""
-    print_table(f"Issue Closure{mode} ({target_repo})", columns, rows)
-
-    closed_total = sum(len(result.closed) for result in results)
-    skipped = [(result.pull_request, n, why) for result in results for n, why in result.skipped]
-    for pull_number, issue_number, why in skipped:
-        print_muted(f"#{pull_number}: skipped issue #{issue_number} ({why})")
-
-    if closed_total and not dry_run:
-        print_success(f"Closed {closed_total} issue(s).")
-    elif closed_total:
-        print_muted(f"{closed_total} issue(s) would be closed.")
-
-    if failed:
-        raise typer.Exit(1)
 
 
 # =============================================================================

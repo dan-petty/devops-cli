@@ -156,7 +156,7 @@ def _substitute(
     def find(lines: Lines) -> list[Site]:
         sites: list[Site] = []
         uncommented = _mask_lines(lines, code_only, blank_strings=False) if code_only else lines
-        for index, (line, code) in enumerate(zip(lines, uncommented)):
+        for index, (line, code) in enumerate(zip(lines, uncommented, strict=True)):
             for regex, replacement in compiled:
                 match = regex.search(line)
                 if match is None or (code_only and _span(regex, code) != match.span()):
@@ -516,7 +516,7 @@ _AWAIT = re.compile(r"\bawait\s+(?!foreach\b|using\b|for\b)(?=[\w$(])")
 def _drop_await_keyword(lines: Lines) -> list[Site]:
     """Find `await` in TypeScript/JavaScript or C#; without it the promise or task is never awaited."""
     sites: list[Site] = []
-    for index, (line, code) in enumerate(zip(lines, _code_only(lines))):
+    for index, (line, code) in enumerate(zip(lines, _code_only(lines), strict=True)):
         match = _AWAIT.search(code)
         if not match or re.search(r"\bfor\s+await\b", code):
             continue
@@ -558,7 +558,7 @@ def _call_arguments(code: str, open_at: int) -> tuple[list[tuple[int, int]], int
 def _unbounded_copies(lines: Lines) -> list[Site]:
     """Find bounded string calls in C/C++; the unbounded form can overflow its buffer."""
     sites: list[Site] = []
-    for index, (line, code) in enumerate(zip(lines, _code_only(lines))):
+    for index, (line, code) in enumerate(zip(lines, _code_only(lines), strict=True)):
         match = re.search(rf"\b({'|'.join(_UNBOUNDED)})\s*\(", code)
         parsed = _call_arguments(code, match.end() - 1) if match else None
         if match is None or parsed is None:

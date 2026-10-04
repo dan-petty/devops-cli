@@ -60,6 +60,7 @@ Kubernetes cluster connection, Minikube, Helm, and Kustomize settings.
 | `context` | `str` | `minikube` | `DEVOPS_CLI_K8S_CONTEXT` | Active Kubernetes cluster context name (e.g. minikube, docker-desktop, kind-cluster, or cloud context) |
 | `domain` | `Union` | - | `DEVOPS_CLI_K8S_DOMAIN` | Base domain name for homelab ingress routes and tunnel services (e.g. retric.ai) |
 | `addressing` | `Union` | - | - | Default addressing mode for cluster services: nodeport, proxy, or fqdn. |
+| `github_account` | `Union` | - | `DEVOPS_CLI_K8S_GITHUB_ACCOUNT` | Login of the machine account whose gh token `devops k8s push-secrets` writes to the cluster as GH_TOKEN; `--github-account` overrides it |
 
 ## AI & LLM Configuration (`ai`)
 
@@ -69,7 +70,7 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 |---|---|---|---|---|
 | `provider` | `str` | `ollama` | `DEVOPS_CLI_AI_PROVIDER` | - |
 | `model` | `str` | `gemma4:26b` | `DEVOPS_CLI_AI_MODEL` | - |
-| `reference_model` | `str` | `gpt-4o` | - | - |
+| `reference_model` | `str` | `gpt-4o-mini` | - | - |
 | `hardware_cost_usd` | `float` | `0.0` | - | - |
 | `reasoning_effort` | `Union` | - | `DEVOPS_CLI_AI_REASONING_EFFORT` | - |
 | `temperature` | `float` | `0.1` | - | - |

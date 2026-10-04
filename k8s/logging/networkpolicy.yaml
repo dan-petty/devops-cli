@@ -11,7 +11,7 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # 1. Intra-namespace communications (Fluent Bit -> Loki)
+    # 1. Intra-namespace communications (Loki canary -> Loki)
     - from:
         - podSelector: {}
     # 2. Allow Grafana/Alloy in monitoring and the OTel collector release in otel to push/query
@@ -49,18 +49,3 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # 3. Kubernetes API server and nodes
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: default
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-      ports:
-        - protocol: TCP
-          port: 443
-        - protocol: TCP
-          port: 6443
-        - protocol: TCP
-          port: 10250

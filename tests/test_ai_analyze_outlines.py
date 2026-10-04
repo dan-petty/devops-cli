@@ -352,7 +352,7 @@ def test_outlines_extended_validation_and_shell(tmp_path: Path) -> None:
     res_none, err1 = _validate_enhanced_metadata("not a dict", has_content=True, static_symbols=[])
     assert res_none is None and "must be a JSON object" in err1
 
-    res_none, err2 = _validate_enhanced_metadata(
+    res_none, _err2 = _validate_enhanced_metadata(
         {"confidence_score": 1.5}, has_content=True, static_symbols=[]
     )
     assert res_none is None

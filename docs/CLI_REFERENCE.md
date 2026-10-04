@@ -740,6 +740,12 @@ devops k8s bootstrap-openwebui [OPTIONS]
 
 **Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.**
 
+Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.
+
+Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every
+detached stack whose namespace exists (`devops k8s push-secrets`), before anything that
+reads them. A locked or missing keyring stops it before it applies anything.
+
 ```bash
 devops k8s deploy-stack [OPTIONS]
 ```
@@ -755,10 +761,16 @@ devops k8s deploy-stack [OPTIONS]
 | `--timeout`, `-t` | `string` | `10m` | Timeout for Helm operations when waiting. |
 | `--port-forward` / `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
 | `--configure-urls` / `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
+| `--push-secrets` / `--no-push-secrets` | `boolean` | `True` | Push the stacks' Secrets from the OS keyring before applying anything (--no-push-secrets for a cluster without a keyring). |
+| `--dry-run` | `boolean` | - | Print the releases, manifests and Secrets (key names only) a deploy would apply, and run nothing. |
 
 ### `devops k8s sync-secrets`
 
-**Fetch stack admin credentials (ArgoCD, Grafana) from Kubernetes and store in OS Keyring.**
+**Copy chart-generated admin credentials (Argo CD, Grafana) from the cluster into the OS keyring.**
+
+Copy chart-generated admin credentials (Argo CD, Grafana) from the cluster into the OS keyring.
+
+The direction is cluster → workstation keyring, the reverse of `push-secrets`.
 
 ```bash
 devops k8s sync-secrets [OPTIONS]
@@ -771,6 +783,50 @@ devops k8s sync-secrets [OPTIONS]
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops k8s push-secrets`
+
+**Write the cluster's Secrets from the OS keyring (workstation keyring → cluster, the reverse of sync-secrets). Adopts live values the keyring lacks, generates the ones nobody types, and never replaces a live value without --rotate.**
+
+```bash
+devops k8s push-secrets [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--stack`, `-s` | `string` | `all` | Push the Secrets of one stack: base, infra, llm, logging, devops, or all (default). |
+| `--only` | `string` | - | Push only this Secret, as NAMESPACE/NAME. Repeatable; replaces --stack. |
+| `--github-account` | `string` | - | Machine account whose gh token becomes GH_TOKEN (default: k8s.github_account). |
+| `--rotate` | `boolean` | - | Replace live values that differ from the keyring's. |
+| `--restart` / `--no-restart` | `boolean` | `True` | Restart the workloads of each existing Secret whose data changed; --no-restart prints the commands instead. |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--plan` | `boolean` | - | Read the keyring, the live Secrets and, for the machine account's token, gh's own record of the account (read-only; gh checks the token on github.com); print each key's state and the workloads a change would restart, and write nothing. |
+| `--dry-run` | `boolean` | - | Make no request, reads included: print the requests a push would make, in order, with placeholders for every value. Wins over --plan. |
+
+### `devops k8s run-job`
+
+**Run a devops command as a Job in namespace devops, from CronJob devops-cli's template with only its arguments changed, follow its log and exit with its exit code.**
+
+```bash
+devops k8s run-job [OPTIONS] <args>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<args>` | `string` | Yes | The devops arguments the Job runs, after `--`. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--wait` / `--no-wait` | `boolean` | `True` | Follow the Job's log and exit with its exit code; --no-wait prints the Job's name. |
+| `--start-timeout` | `float` | `120.0` | Seconds to wait for the Job's pod to leave Pending. |
+| `--dry-run` | `boolean` | - | Make no request, not even the CronJob read: print the kubectl requests a run would make, in order, with the Job's template parts as placeholders. |
 
 ### `devops k8s configure-urls`
 
@@ -2179,7 +2235,7 @@ devops config get <key>
 
 ### `devops config set`
 
-**Set a configuration value. Tokens are stored in the OS keyring.**
+**Set a configuration value. Credentials go to the OS keyring; omit VALUE to type one hidden.**
 
 ```bash
 devops config set <key> <value>
@@ -2190,7 +2246,7 @@ devops config set <key> <value>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<key>` | `string` | Yes | Dotted config key, e.g. github.default_org. |
-| `<value>` | `string` | Yes | Value to set. |
+| `<value>` | `string` | No | Value to set. Omit it for a credential to type it at a hidden prompt, keeping it out of the shell history and the process list. |
 
 ### `devops config init`
 
@@ -2257,7 +2313,7 @@ devops config auth-headless <key> <token>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<key>` | `string` | Yes | Dotted secret key, e.g. github.token. |
+| `<key>` | `string` | Yes | Dotted secret key, e.g. grafana.token. |
 | `<token>` | `string` | Yes | Secret token string. |
 
 ### `devops config audit-stream`
@@ -2338,8 +2394,7 @@ devops ci coverage [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--html` | `boolean` | - | Generate HTML coverage report in .data/htmlcov/. |
-| `--xml` | `boolean` | - | Generate XML coverage report in .data/coverage.xml. |
-| `-n`, `--numprocesses` | `string` | `auto` | Number of parallel worker processes. |
+| `--build-index` | `boolean` | - | Build on-demand coverage reverse index for fast test selection. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci lint`
@@ -2906,7 +2961,7 @@ devops ai agents [OPTIONS]
 |---|---|---|---|
 | `--repo`, `-r` | `path` | `.` | Repository root directory (default: current directory). |
 | `--template` | `boolean` | - | Generate from built-in template without calling the LLM. |
-| `--file`, `-f` | `string` | `['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md']` | Files to generate (repeatable). |
+| `--file`, `-f` | `string` | - | Files to generate (repeatable). |
 
 ### `devops ai chat`
 
@@ -4596,7 +4651,7 @@ devops ai cost [OPTIONS] COMMAND [ARGS]...
 |---|---|---|---|
 | `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
-| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o-mini). |
 | `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, markdown. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
@@ -4615,7 +4670,7 @@ devops ai cost report [OPTIONS]
 |---|---|---|---|
 | `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
-| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o-mini). |
 | `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, prometheus. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
@@ -4633,7 +4688,7 @@ devops ai cost roi [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--hardware-cost`, `-H` | `float` | - | Total hardware purchase cost in USD (e.g. 1599.0 for GPU/workstation). |
-| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o-mini). |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
@@ -4721,7 +4776,7 @@ devops ai spend [OPTIONS] COMMAND [ARGS]...
 |---|---|---|---|
 | `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
-| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o-mini). |
 | `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, markdown. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
@@ -4740,7 +4795,7 @@ devops ai spend report [OPTIONS]
 |---|---|---|---|
 | `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
-| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o-mini). |
 | `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, prometheus. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
@@ -4758,7 +4813,7 @@ devops ai spend roi [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--hardware-cost`, `-H` | `float` | - | Total hardware purchase cost in USD (e.g. 1599.0 for GPU/workstation). |
-| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o-mini). |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
@@ -5376,7 +5431,7 @@ devops mcp export-schemas [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output-dir`, `-o` | `path` | `~/.gemini/antigravity-ide/mcp/devops-cli` | Destination directory for tool schema JSON files. |
+| `--output-dir`, `-o` | `path` | - | Destination directory for tool schema JSON files. |
 
 ---
 
@@ -5502,7 +5557,7 @@ devops release prepare [OPTIONS] <version>
 
 ### `devops release pr`
 
-**Create release branch, commit version bumps, and open a GitHub Release Pull Request.**
+**Create release cut branch, commit version bumps, and open a GitHub Release Pull Request.**
 
 ```bash
 devops release pr [OPTIONS]
@@ -5516,7 +5571,6 @@ devops release pr [OPTIONS]
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
 | `--draft` / `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
 | `--labels`, `-l` | `string` | `release` | Comma-separated labels to attach. |
-| `--push` / `--no-push` | `boolean` | `True` | Push commits or tags to git remote. |
 | `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
@@ -5642,7 +5696,8 @@ devops roadmap migrate [OPTIONS]
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
 | `--confirm` | `boolean` | - | Make the planned writes to GitHub. Without it, migrate prints its plan only. |
-| `--dry-run` | `boolean` | - | Print the plan and report, and write nothing. |
+| `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
+| `--plan` | `boolean` | - | Read GitHub, print the plan and report, write nothing, and end with the GraphQL points spent and left. Migrate without a mode flag does this. |
 
 ### `devops roadmap render`
 
@@ -5659,7 +5714,8 @@ devops roadmap render [OPTIONS]
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
 | `--output`, `-o` | `path` | `docs/ROADMAP.md` | File render writes. |
-| `--dry-run` | `boolean` | - | Print the rendered file to stdout instead of writing it. |
+| `--dry-run` | `boolean` | - | Make no request and write no file: print the requests a run makes, in order, with placeholders for values a read gives. |
+| `--plan` | `boolean` | - | Read GitHub and print the rendered file to stdout instead of writing it, ending with the GraphQL points spent and left. |
 
 ### `devops roadmap reprioritize`
 
@@ -5676,7 +5732,88 @@ devops roadmap reprioritize [OPTIONS]
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
 | `--confirm` | `boolean` | - | Make the changes on GitHub. Without it, reprioritize prints its plan only. |
-| `--dry-run` | `boolean` | - | Print each change with its reason, and write nothing. |
+| `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
+| `--plan` | `boolean` | - | Read GitHub, print each change with its reason, write nothing, and end with the GraphQL points spent and left. Reprioritize without a mode flag does this. |
+
+### `devops roadmap intake`
+
+**Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog, or a critical fix to the release #740's admission rule allows. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.**
+
+```bash
+devops roadmap intake [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--issue` | `integer` | - | Only this issue (repeatable). |
+| `--title` | `string` | - | Title of a candidate that is not an issue yet; intake files it only when it is not a duplicate. Needs --body-file. |
+| `--body-file` | `path` | - | File holding the new candidate's body. Needs --title. |
+| `--borrow-reason` | `choice (split|follow-up)` | - | Why the new candidate may open beyond the quota's allowance: a split of an item too big for one pull request, or a follow-up a reviewer or readiness check requires. Needs --source. |
+| `--source` | `string` | - | Link the new candidate came from, such as the item it splits or the review that found it; the filed body ends with it. |
+| `--filed-by` | `choice (agent|person)` | `agent` | Who files the new candidate: an agent's is labeled source/agent and counts toward the quota; a person's never does. |
+| `--dry-run` | `boolean` | - | Make no request, to GitHub or a model: print the requests a run makes, in order, with placeholders for values a read gives. |
+| `--plan` | `boolean` | - | Read GitHub and call the model, print each planned change and what the run spent, and write nothing. Intake without a mode flag does this. |
+| `--confirm` | `boolean` | - | Plan as --plan does, then make the writes on GitHub. |
+
+### `devops roadmap close`
+
+**Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on chore/cut-vX.Y.Z in the clone at --root, bumps the version, pushes, and opens the release pull request into the default branch. Lists completed items with no changelog fragment. Writes only with --confirm.**
+
+```bash
+devops roadmap close [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--root` | `path` | `.` | The clone the cut runs git in (default: the current directory). |
+| `--confirm` | `boolean` | - | Close the issues and make the cut. Without it, close prints its plan only. |
+| `--dry-run` | `boolean` | - | Make no request and change no git ref: print the requests a run makes, in order, with placeholders for values a read gives. |
+| `--plan` | `boolean` | - | Read GitHub, print each issue the run closes with its comment and the cut or what holds it, write nothing, and end with the GraphQL points spent and left. Close without a mode flag does this. |
+
+### `devops roadmap refine`
+
+**Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria. Evaluates Next-release and Backlog New items using code, documentation, and external research.**
+
+```bash
+devops roadmap refine [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--source` | `path` | `.` | Path to the repository checkout (defaults to current directory). |
+| `--item` | `integer` | - | Specific issue number to refine instead of selecting by priority. |
+| `--limit` | `integer` | `3` | Maximum number of New items to refine in this run (default 3). |
+| `--dry-run` | `boolean` | - | Make no request and change no git ref: print what refine would plan and run, with placeholders. |
+| `--confirm` | `boolean` | - | Refine the items and write the proposed designs to GitHub. Without it, refine prints its plan only. |
+
+### `devops roadmap run`
+
+**Run roadmap jobs that are due: evaluate due criteria across landed jobs, run due jobs in order, and record last-success execution timestamps. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
+
+```bash
+devops roadmap run [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--dry-run` | `boolean` | - | Make no request: print the due list of jobs and the reason each is due, and run nothing. |
+| `--confirm` | `boolean` | - | Execute the due roadmap jobs. Without it, run prints the due list only. |
 
 ---
 
@@ -6563,7 +6700,7 @@ devops gh issues create [OPTIONS]
 
 #### `devops gh issues triage`
 
-**Audit open issues for mandatory taxonomy labels and milestone linkage.**
+**Audit open issues for mandatory taxonomy labels, and report those not on the roadmap board as awaiting intake.**
 
 ```bash
 devops gh issues triage [OPTIONS]
@@ -6614,25 +6751,6 @@ devops gh issues edit [OPTIONS] <number>
 | `--clear-milestone` | `boolean` | - | Remove milestone linkage from the issue. |
 | `--add-label` | `string` | - | Taxonomy label to attach (repeatable). |
 | `--remove-label` | `string` | - | Taxonomy label to detach (repeatable). |
-| `--repo`, `-R` | `string` | - | Target repository |
-
-#### `devops gh issues close-merged`
-
-**Close issues linked by merged pull requests. GitHub only honours closing keywords when a pull request merges into the default branch, so pull requests targeting a release branch leave their issues open.**
-
-```bash
-devops gh issues close-merged [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--pr`, `-p` | `integer` | - | Close issues for this single pull request instead of sweeping. |
-| `--base`, `-b` | `string` | - | Only consider merged pull requests with this base branch. |
-| `--limit`, `-L` | `integer` | `100` | Maximum merged pull requests to examine. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 ### `devops gh runs`
@@ -7891,6 +8009,7 @@ devops serve [OPTIONS]
 | `--workers`, `-w` | `integer` | `1` | Number of worker processes. |
 | `--log-level`, `-l` | `string` | `info` | Logging level (debug, info, warning, error). |
 | `--docs` / `--no-docs` | `boolean` | `True` | Enable or disable Swagger UI (/docs) and ReDoc (/redoc). |
+| `--service`, `-s` | `boolean` | - | Run continuous background service with GitHub webhook verification and per-repo queue. |
 
 ---
 

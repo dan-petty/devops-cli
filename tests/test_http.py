@@ -64,7 +64,7 @@ def test_private_ip_allowed_when_env_set(override: str, monkeypatch: pytest.Monk
     ],
 )
 def test_invalid_scheme_rejected(url: str) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"Invalid test URL scheme|missing valid hostname"):
         validate_service_url(url, "test")
 
 

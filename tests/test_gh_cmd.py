@@ -109,18 +109,6 @@ def test_gh_views_spec() -> None:
     assert "layout" in result.output
 
 
-def test_get_github_client_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_get_github_client respects DEVOPS_CLI_GITHUB_TOKEN."""
-    from devops_cli.commands.gh import _get_github_client
-    from devops_cli.config.env import ENV_GITHUB_TOKEN
-
-    with patch("devops_cli.commands.gh.get_keyring_secret", return_value=None):
-        monkeypatch.setenv(ENV_GITHUB_TOKEN, "test-env-token-12345")
-        client = _get_github_client()
-        assert client is not None
-        assert client._token == "test-env-token-12345"
-
-
 def test_gh_pages_status() -> None:
     """devops gh pages status outputs site deployment panel."""
     from devops_cli.github.pages import GitHubPagesInfo
@@ -222,8 +210,9 @@ def test_gh_issues_create() -> None:
         assert "#99" in result.output
 
 
-def test_gh_issues_triage() -> None:
-    """devops gh issues triage reports compliance metrics."""
+def test_gh_issues_triage(roadmap_store: InMemoryRoadmapStore) -> None:
+    """devops gh issues triage reports compliance metrics; with no roadmap board it can't tell
+    which issues await intake, and says so."""
     from devops_cli.github.issues import IssueTriageAudit
 
     mock_audit = IssueTriageAudit(
@@ -232,12 +221,53 @@ def test_gh_issues_triage() -> None:
         issues_missing_type=[],
         issues_missing_scope=[],
         issues_missing_priority=[],
-        issues_missing_milestone=[],
     )
-    with patch("devops_cli.commands.gh.audit_issues_triage", return_value=mock_audit):
+    with patch("devops_cli.commands.gh.audit_issues_triage", return_value=mock_audit) as audit:
         result = runner.invoke(app, ["issues", "triage", "--repo", "dan-petty/devops-cli"])
-        assert result.exit_code == 0
-        assert "5 (100.0%)" in result.output
+    assert (
+        result.exit_code,
+        "5 (100.0%)" in result.output,
+        "Milestone" in result.output,
+        audit.call_args.kwargs,
+    ) == (0, True, False, {"awaiting_intake": ()})
+
+
+def test_gh_issues_triage_passes_the_issues_off_the_board_as_awaiting_intake(
+    roadmap_store: InMemoryRoadmapStore,
+) -> None:
+    from devops_cli.github.issues import IssueTriageAudit
+
+    roadmap_store.seed_file(".github/roadmap.toml", "board = 1\n")
+    off_board = roadmap_store.seed_issue("not on the board yet")
+    roadmap_store.seed_issue("an item", on_board=True)
+    found = IssueTriageAudit(total_open=2, valid_count=1, issues_awaiting_intake=[off_board])
+    with patch("devops_cli.commands.gh.audit_issues_triage", return_value=found) as audit:
+        result = runner.invoke(app, ["issues", "triage", "--repo", "dan-petty/devops-cli"])
+    assert (result.exit_code, audit.call_args.kwargs, f"#{off_board}" in result.output) == (
+        0,
+        {"awaiting_intake": [off_board]},
+        True,
+    )
+
+
+def test_gh_issues_triage_does_not_hide_a_failed_board_read(
+    roadmap_store: InMemoryRoadmapStore,
+) -> None:
+    """Only a missing `.github/roadmap.toml` means no board; a rate limit is reported."""
+    from devops_cli.exceptions.git import GitHubRateLimitError
+    from devops_cli.github.issues import IssueTriageAudit
+
+    roadmap_store.seed_file(".github/roadmap.toml", "board = 1\n")
+    limited = GitHubRateLimitError("API rate limit exceeded")
+    with (
+        patch.object(roadmap_store, "candidates", side_effect=limited),
+        patch(
+            "devops_cli.commands.gh.audit_issues_triage",
+            return_value=IssueTriageAudit(total_open=1, valid_count=1),
+        ),
+    ):
+        result = runner.invoke(app, ["issues", "triage", "--repo", "dan-petty/devops-cli"])
+    assert (result.exit_code != 0, "no .github/roadmap.toml" in result.output) == (True, False)
 
 
 def test_gh_issues_status() -> None:
@@ -743,3 +773,23 @@ def test_gh_api_error_masked() -> None:
         assert result.exit_code == 1
         assert "GitHub API request failed" in result.output
         assert "ghp_secretkey" not in result.output
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["issues", "list", "-R", "octo/repo"], ["labels", "sync", "-R", "octo/repo"]],
+    ids=["issues-list", "labels-sync"],
+)
+def test_gh_commands_report_no_identity_without_a_traceback(
+    argv: list[str], tmp_path: Path, no_github_identity: None
+) -> None:
+    """Without a gh login, `devops gh` prints the unauthenticated error and exits 1."""
+    labels = tmp_path / "labels.yml"
+    labels.write_text("- name: bug\n  color: d73a4a\n", encoding="utf-8")
+    extra = ["--file", str(labels)] if argv[0] == "labels" else []
+    result = runner.invoke(app, [*argv, *extra])
+    assert (result.exit_code, type(result.exception), "gh auth login" in result.output) == (
+        1,
+        SystemExit,
+        True,
+    )

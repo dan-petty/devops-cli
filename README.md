@@ -14,7 +14,7 @@
 
 ## SRE Engineering Tenets & Architectural Highlights
 
-- **Zero-Plaintext Secret Architecture**: Sensitive tokens (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via Python `keyring`. Configuration files contain zero plaintext credentials.
+- **Zero-Plaintext Secret Architecture**: Sensitive tokens (`grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via Python `keyring`. GitHub access is gh's own login: each process acts as the one identity `gh auth token` returns. Configuration files contain zero plaintext credentials.
 - **Active SSRF & Egress Guardrails**: Outbound API requests pass through strict IP validation (`validate_service_url`) blocking private subnets (RFC 1918), loopbacks, and cloud metadata endpoints by default.
 - **Multi-Persona Agentic Code Review**: Paginated diff analysis across branches and PRs using specialized expert personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) backed by `ScratchpadBuffer` reasoning context and deterministic finding verification.
 - **Native DevContainer Lifecycle Engine**: Cross-platform Python lifecycle orchestration (`devops devcontainer run-lifecycle`) replaces legacy shell scripts for post-create and post-start hooks.
@@ -56,8 +56,8 @@ cd devops-cli
 # 2. Inside the Dev Container, sync Python 3.14 dependencies:
 uv sync
 
-# 3. Store credentials securely in the OS Keyring
-devops config set github.token "ghp_your_personal_access_token"
+# 3. Log in to GitHub with gh, and store other credentials in the OS Keyring
+gh auth login
 devops ai config --provider claude
 devops config set ai.api_key "sk-ant-..."
 
@@ -197,7 +197,9 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops k8s bootstrap [OPTIONS]` | Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack. |
 |  | `devops k8s bootstrap-openwebui [OPTIONS]` | Bootstrap or activate a local administrator account for Open-WebUI. |
 |  | `devops k8s deploy-stack [OPTIONS]` | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes. |
-|  | `devops k8s sync-secrets [OPTIONS]` | Fetch stack admin credentials (ArgoCD, Grafana) from Kubernetes and store in OS Keyring. |
+|  | `devops k8s sync-secrets [OPTIONS]` | Copy chart-generated admin credentials (Argo CD, Grafana) from the cluster into the OS keyring. |
+|  | `devops k8s push-secrets [OPTIONS]` | Write the cluster's Secrets from the OS keyring (workstation keyring → cluster, the reverse of sync-secrets). Adopts live values the keyring lacks, generates the ones nobody types, and never replaces a live value without --rotate. |
+|  | `devops k8s run-job [OPTIONS] <args>` | Run a devops command as a Job in namespace devops, from CronJob devops-cli's template with only its arguments changed, follow its log and exit with its exit code. |
 |  | `devops k8s configure-urls [OPTIONS]` | Auto-detect Kubernetes stack URLs and update CLI config. |
 |  | `devops k8s service-url [OPTIONS] <service>` | Show, or fetch from, a cluster service address that needs no port-forward. |
 |  | `devops k8s port-forward [OPTIONS]` | Port-forward k8s monitoring / LLM stack services to localhost ports. |
@@ -248,7 +250,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops argo gitops COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 | **config** | `devops config show` | Print all configuration values, masking secrets. |
 |  | `devops config get <key>` | Print a single configuration value. |
-|  | `devops config set <key> <value>` | Set a configuration value. Tokens are stored in the OS keyring. |
+|  | `devops config set <key> <value>` | Set a configuration value. Credentials go to the OS keyring; omit VALUE to type one hidden. |
 |  | `devops config init` | Interactive first-time setup wizard. |
 |  | `devops config env-vars [OPTIONS]` | Output environment variables available for devops-cli configuration. |
 |  | `devops config env [OPTIONS]` | Output environment variables available for devops-cli configuration. |
@@ -340,7 +342,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops docs compact [OPTIONS]` | Compact historical documentation for completed release series. |
 | **release** | `devops release status [OPTIONS]` | Display current release status, versions, tags, changelog, and docs state. |
 |  | `devops release prepare [OPTIONS] <version>` | Bump version across pyproject.toml and source, update changelog, and sync docs. |
-|  | `devops release pr [OPTIONS]` | Create release branch, commit version bumps, and open a GitHub Release Pull Request. |
+|  | `devops release pr [OPTIONS]` | Create release cut branch, commit version bumps, and open a GitHub Release Pull Request. |
 |  | `devops release check [OPTIONS]` | Verify release readiness (version consistency, docs freshness, and CI quality gates). |
 |  | `devops release notes [OPTIONS]` | Print markdown release notes for a specified or current release version. |
 |  | `devops release sync-notes [OPTIONS]` | Republish GitHub release descriptions from CHANGELOG.md. |
@@ -349,6 +351,10 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 | **roadmap** | `devops roadmap migrate [OPTIONS]` | Make GitHub the roadmap's source, once: bring the board in line with its template, fill unset Status, Priority, Value and Effort, retire release epics and milestones beyond the planning horizon, and record rejected roadmap ideas as issues closed as not planned. Prints the plan and a report, which lists the option renames, additions and removals a person makes in the board's field settings; writes only with --confirm, once the renames and additions are made. |
 |  | `devops roadmap render [OPTIONS]` | Write docs/ROADMAP.md from GitHub: the current release, the planned releases and the backlog by priority. |
 |  | `devops roadmap reprioritize [OPTIONS]` | Hold the current release to its rules: after it starts only a critical fix joins it, a fix that takes it over the cap descopes one unstarted item, and Blocked, dependent, needs-split and stalled items are descoped, each with a reason comment. Once the release ships, close it, branch the next one and fill or trim it to the cap. The first run records the admitted set and moves nothing. Writes only with --confirm. |
+|  | `devops roadmap intake [OPTIONS]` | Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog, or a critical fix to the release #740's admission rule allows. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes. |
+|  | `devops roadmap close [OPTIONS]` | Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on chore/cut-vX.Y.Z in the clone at --root, bumps the version, pushes, and opens the release pull request into the default branch. Lists completed items with no changelog fragment. Writes only with --confirm. |
+|  | `devops roadmap refine [OPTIONS]` | Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria. Evaluates Next-release and Backlog New items using code, documentation, and external research. |
+|  | `devops roadmap run [OPTIONS]` | Run roadmap jobs that are due: evaluate due criteria across landed jobs, run due jobs in order, and record last-success execution timestamps. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
 | **pr** | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |

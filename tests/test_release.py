@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -12,6 +14,7 @@ from unittest.mock import patch
 
 import pytest
 import typer
+import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.release import (
@@ -21,6 +24,7 @@ from devops_cli.commands.release import (
     _get_latest_changelog_version,
     _get_project_root,
     _get_pyproject_version,
+    _release_paths,
     _resolve_safe_project_path,
     _update_changelog_header,
     _update_init_version,
@@ -170,7 +174,15 @@ def test_release_status_watch(sample_project_dir: Path) -> None:
     with patch("devops_cli.commands.release.DocGenerator.check_docs", return_value=(True, [])):
         with patch("devops_cli.watchers.live_resource.LiveResourceWatcher.watch") as mock_watch:
             result = runner.invoke(
-                app, ["status", "--root", str(sample_project_dir), "--watch", "--interval", "1.0"]
+                app,
+                [
+                    "status",
+                    "--root",
+                    str(sample_project_dir),
+                    "--watch",
+                    "--interval",
+                    "1.0",
+                ],
             )
             assert result.exit_code == 0
             assert mock_watch.called
@@ -214,7 +226,10 @@ def test_release_prepare_success(sample_project_dir: Path) -> None:
 def test_release_check_success(sample_project_dir: Path) -> None:
     with (
         patch("devops_cli.commands.release._is_git_clean", return_value=True),
-        patch("devops_cli.commands.release.DocGenerator.check_docs", return_value=(True, [])),
+        patch(
+            "devops_cli.commands.release.DocGenerator.check_docs",
+            return_value=(True, []),
+        ),
         patch("devops_cli.commands.release.run_subprocess") as mock_sub,
     ):
         mock_sub.return_value = subprocess.CompletedProcess(
@@ -236,6 +251,44 @@ def test_release_check_version_mismatch(sample_project_dir: Path) -> None:
     )
     assert result.exit_code == 1
     assert "Version mismatch" in result.output
+
+
+def _write_runtime_kustomization(root: Path, tag: str) -> Path:
+    path = root / "k8s" / "devops" / "kustomization.yaml"
+    path.parent.mkdir(parents=True)
+    document = {
+        "resources": ["cronjob.yaml"],
+        "images": [{"name": "ghcr.io/dan-petty/devops-cli/service", "newTag": tag}],
+    }
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def test_release_prepare_pins_the_service_image_to_the_new_version(
+    sample_project_dir: Path,
+) -> None:
+    path = _write_runtime_kustomization(sample_project_dir, "v0.1.7")
+    with patch("devops_cli.commands.release.DocGenerator.write_all_docs"):
+        result = runner.invoke(app, ["prepare", "0.1.8", "--root", str(sample_project_dir)])
+    images = yaml.safe_load(path.read_text(encoding="utf-8"))["images"]
+    assert (result.exit_code, images[0]["newTag"]) == (0, "v0.1.8")
+
+
+def test_release_paths_stage_the_runtime_kustomization(tmp_path: Path) -> None:
+    _write_runtime_kustomization(tmp_path, "v0.1.7")
+    assert "k8s/devops/kustomization.yaml" in _release_paths(tmp_path)
+
+
+def test_release_check_fails_when_the_service_image_tag_is_out_of_step(
+    sample_project_dir: Path,
+) -> None:
+    _write_runtime_kustomization(sample_project_dir, "v0.1.6")
+    result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--allow-dirty"])
+    output = " ".join(result.output.split())
+    assert (result.exit_code, "k8s/devops/kustomization.yaml pins" in output) == (
+        1,
+        True,
+    )
 
 
 def test_release_check_dirty_repo(sample_project_dir: Path) -> None:
@@ -310,7 +363,7 @@ def test_release_pr_dry_run(sample_project_dir: Path) -> None:
         assert "create_release_pull_request" in result.output
         assert '"dry_run": true' in result.output
         assert '"draft": true' in result.output.lower()
-        assert "release/v0.1.8" in result.output
+        assert "chore/cut-v0.1.8" in result.output
     finally:
         set_dry_run(False)
 
@@ -322,7 +375,14 @@ def test_release_pr_no_draft_override(sample_project_dir: Path) -> None:
     try:
         result = runner.invoke(
             app,
-            ["pr", "--version", "0.1.8", "--no-draft", "--root", str(sample_project_dir)],
+            [
+                "pr",
+                "--version",
+                "0.1.8",
+                "--no-draft",
+                "--root",
+                str(sample_project_dir),
+            ],
         )
         assert result.exit_code == 0
         assert '"draft": false' in result.output.lower()
@@ -449,7 +509,10 @@ def test_release_check_command(sample_project_dir: Path) -> None:
     try:
         with (
             patch("devops_cli.commands.release._is_git_clean", return_value=True),
-            patch("devops_cli.commands.release.DocGenerator.check_docs", return_value=(True, [])),
+            patch(
+                "devops_cli.commands.release.DocGenerator.check_docs",
+                return_value=(True, []),
+            ),
         ):
             res_dry = runner.invoke(app, ["check", "--root", str(sample_project_dir)])
             assert res_dry.exit_code == 0
@@ -474,7 +537,10 @@ def test_release_check_command(sample_project_dir: Path) -> None:
     )
     with (
         patch("devops_cli.commands.release._is_git_clean", return_value=True),
-        patch("devops_cli.commands.release.DocGenerator.check_docs", return_value=(True, [])),
+        patch(
+            "devops_cli.commands.release.DocGenerator.check_docs",
+            return_value=(True, []),
+        ),
         patch("devops_cli.commands.release.run_subprocess", return_value=mock_ci_fail),
     ):
         res_ci_fail = runner.invoke(app, ["check", "--root", str(sample_project_dir)])
@@ -508,7 +574,13 @@ def test_release_tag_push_and_errors(
     The Release closes in the tagged repository, which is not the checkout the tests run in.
     """
     git(sample_project_dir, "init", "--quiet")
-    git(sample_project_dir, "remote", "add", "origin", "https://github.com/example/tagged.git")
+    git(
+        sample_project_dir,
+        "remote",
+        "add",
+        "origin",
+        "https://github.com/example/tagged.git",
+    )
     roadmap_store.create_release("v0.1.7")
     # Dry run
     from devops_cli.dry_run import set_dry_run
@@ -516,7 +588,8 @@ def test_release_tag_push_and_errors(
     set_dry_run(True)
     try:
         res_tag_dry = runner.invoke(
-            app, ["tag", "--version", "0.1.7", "--push", "--root", str(sample_project_dir)]
+            app,
+            ["tag", "--version", "0.1.7", "--push", "--root", str(sample_project_dir)],
         )
         assert res_tag_dry.exit_code == 0
         assert "create_annotated_git_tag" in res_tag_dry.output
@@ -533,7 +606,8 @@ def test_release_tag_push_and_errors(
     mock_ok = subprocess.CompletedProcess(args=["git"], returncode=0, stdout="", stderr="")
     with patch("devops_cli.commands.release.run_subprocess", return_value=mock_ok):
         res_push = runner.invoke(
-            app, ["tag", "--version", "0.1.7", "--push", "--root", str(sample_project_dir)]
+            app,
+            ["tag", "--version", "0.1.7", "--push", "--root", str(sample_project_dir)],
         )
     closed = roadmap_store.release("0.1.7")
     assert (
@@ -545,21 +619,24 @@ def test_release_tag_push_and_errors(
 
 
 def test_release_pr_labels_and_draft(sample_project_dir: Path) -> None:
-    """Verify devops release pr label validation and draft options."""
+    """Verify devops release pr label validation, draft options, and fail-closed error handling."""
 
-    def mock_subproc(cmd, *args, **kwargs):
+    def mock_subproc(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    def mock_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
         if "pr" in cmd and "create" in cmd:
             return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout="https://github.com/org/repo/pull/1\n", stderr=""
+                args=cmd,
+                returncode=0,
+                stdout="https://github.com/org/repo/pull/1\n",
+                stderr="",
             )
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="[]", stderr="")
 
     with (
         patch("devops_cli.commands.release.run_subprocess", side_effect=mock_subproc),
-        patch(
-            "devops_cli.commands.release.run_gh",
-            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout="[]", stderr=""),
-        ),
+        patch("devops_cli.commands.release.run_gh", side_effect=mock_gh),
     ):
         res_bad_lbl = runner.invoke(
             app,
@@ -573,8 +650,10 @@ def test_release_pr_labels_and_draft(sample_project_dir: Path) -> None:
                 str(sample_project_dir),
             ],
         )
-        assert res_bad_lbl.exit_code == 1
-        assert "Invalid label" in res_bad_lbl.output
+        assert (res_bad_lbl.exit_code, "Invalid label" in res_bad_lbl.output) == (
+            1,
+            True,
+        )
 
         res_pr_ok = runner.invoke(
             app,
@@ -585,21 +664,66 @@ def test_release_pr_labels_and_draft(sample_project_dir: Path) -> None:
                 "--labels",
                 "release, automated",
                 "--draft",
-                "--push",
                 "--root",
                 str(sample_project_dir),
             ],
         )
-        assert res_pr_ok.exit_code == 0
-        assert "Created Release Pull Request" in res_pr_ok.output
+        assert (
+            res_pr_ok.exit_code,
+            "Created Release Pull Request" in res_pr_ok.output,
+        ) == (0, True)
 
         # Release check command
         with patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])):
             res_check = runner.invoke(
-                app, ["check", "--skip-ci", "--allow-dirty", "--root", str(sample_project_dir)]
+                app,
+                [
+                    "check",
+                    "--skip-ci",
+                    "--allow-dirty",
+                    "--root",
+                    str(sample_project_dir),
+                ],
             )
-            assert res_check.exit_code == 0
-            assert "release verification checks passed" in res_check.output.lower()
+            assert (
+                res_check.exit_code,
+                "release verification checks passed" in res_check.output.lower(),
+            ) == (0, True)
+
+    def mock_gh_label_fail(
+        cmd: list[str], *args: Any, **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        if "pr" in cmd and "create" in cmd:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=1,
+                stdout="",
+                stderr="GraphQL: Could not resolve to a Label: release",
+            )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="[]", stderr="")
+
+    with (
+        patch("devops_cli.commands.release.run_subprocess", side_effect=mock_subproc),
+        patch("devops_cli.commands.release.run_gh", side_effect=mock_gh_label_fail) as mock_gh_fail,
+    ):
+        res_fail = runner.invoke(
+            app,
+            [
+                "pr",
+                "--version",
+                "0.1.8",
+                "--labels",
+                "release",
+                "--root",
+                str(sample_project_dir),
+            ],
+        )
+        create_calls = [c[0][0] for c in mock_gh_fail.call_args_list if "create" in c[0][0]]
+        assert (
+            res_fail.exit_code,
+            len(create_calls),
+            "could not resolve to a label" in res_fail.output.lower(),
+        ) == (1, 1, True)
 
 
 def test_release_pr_error_branches_and_breaking(sample_project_dir: Path) -> None:
@@ -627,7 +751,10 @@ def test_release_pr_error_branches_and_breaking(sample_project_dir: Path) -> Non
     ) -> subprocess.CompletedProcess[str]:
         if "pr" in cmd and "create" in cmd:
             return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout="https://github.com/org/repo/pull/2\n", stderr=""
+                args=cmd,
+                returncode=0,
+                stdout="https://github.com/org/repo/pull/2\n",
+                stderr="",
             )
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="[]", stderr="")
 
@@ -665,16 +792,18 @@ def test_release_pr_error_branches_and_breaking(sample_project_dir: Path) -> Non
             "devops_cli.commands.release.run_subprocess",
             return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
         ),
-        patch("devops_cli.commands.release.run_gh", side_effect=mock_gh_fail),
+        patch("devops_cli.commands.release.run_gh", side_effect=mock_gh_fail) as gh_fail_mock,
     ):
         res_gh_fail = runner.invoke(
             app, ["pr", "--version", "0.1.8", "--root", str(sample_project_dir)]
         )
-        assert res_gh_fail.exit_code == 0
+        create_calls = [c[0][0] for c in gh_fail_mock.call_args_list if "create" in c[0][0]]
         assert (
+            res_gh_fail.exit_code,
+            len(create_calls),
             "authentication required" in res_gh_fail.output
-            or "Could not open PR" in res_gh_fail.output
-        )
+            or "failed" in res_gh_fail.output.lower(),
+        ) == (1, 1, True)
 
 
 def test_release_notes_tag_and_check_extended(
@@ -720,7 +849,8 @@ def test_release_notes_tag_and_check_extended(
 
     with patch("devops_cli.commands.release.run_subprocess", side_effect=mock_tag_subproc):
         res_tag_ok = runner.invoke(
-            app, ["tag", "--version", "0.1.8", "--push", "--root", str(sample_project_dir)]
+            app,
+            ["tag", "--version", "0.1.8", "--push", "--root", str(sample_project_dir)],
         )
         assert res_tag_ok.exit_code == 0
         assert any("tag" in c and "-a" in c and "v0.1.8" in c for c in called_cmds)
@@ -746,7 +876,10 @@ def test_release_check_changelog_version_mismatch(sample_project_dir: Path) -> N
 
     with (
         patch("devops_cli.commands.release._is_git_clean", return_value=True),
-        patch("devops_cli.commands.release.DocGenerator.check_docs", return_value=(True, [])),
+        patch(
+            "devops_cli.commands.release.DocGenerator.check_docs",
+            return_value=(True, []),
+        ),
     ):
         result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--skip-ci"])
         assert result.exit_code == 1
@@ -763,7 +896,10 @@ def test_release_check_changelog_missing(sample_project_dir: Path) -> None:
 
     with (
         patch("devops_cli.commands.release._is_git_clean", return_value=True),
-        patch("devops_cli.commands.release.DocGenerator.check_docs", return_value=(True, [])),
+        patch(
+            "devops_cli.commands.release.DocGenerator.check_docs",
+            return_value=(True, []),
+        ),
     ):
         result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--skip-ci"])
         assert result.exit_code == 1
@@ -798,7 +934,8 @@ def test_release_notes_fallback_to_git_log(sample_project_dir: Path) -> None:
 
     with patch("devops_cli.commands.release.run_subprocess", return_value=mock_git_log):
         result = runner.invoke(
-            app, ["notes", "--version", "0.1.9", "--raw", "--root", str(sample_project_dir)]
+            app,
+            ["notes", "--version", "0.1.9", "--raw", "--root", str(sample_project_dir)],
         )
         assert result.exit_code == 0
         assert "Changes in v0.1.9" in result.output
@@ -859,7 +996,15 @@ def test_release_changelog_command(sample_project_dir: Path) -> None:
     with patch("devops_cli.commands.release.run_subprocess", return_value=mock_git_log):
         # 1. Test raw output
         result = runner.invoke(
-            app, ["changelog", "--version", "0.1.8", "--raw", "--root", str(sample_project_dir)]
+            app,
+            [
+                "changelog",
+                "--version",
+                "0.1.8",
+                "--raw",
+                "--root",
+                str(sample_project_dir),
+            ],
         )
         assert result.exit_code == 0
         assert "add oidc provider" in result.output
@@ -871,7 +1016,8 @@ def test_release_changelog_command(sample_project_dir: Path) -> None:
         set_dry_run(True)
         try:
             dry_res = runner.invoke(
-                app, ["changelog", "--version", "0.1.8", "--root", str(sample_project_dir)]
+                app,
+                ["changelog", "--version", "0.1.8", "--root", str(sample_project_dir)],
             )
             assert dry_res.exit_code == 0
             assert "compile_release_changelog" in dry_res.output
@@ -880,7 +1026,15 @@ def test_release_changelog_command(sample_project_dir: Path) -> None:
 
         # 3. Test --update
         update_res = runner.invoke(
-            app, ["changelog", "--version", "0.1.8", "--update", "--root", str(sample_project_dir)]
+            app,
+            [
+                "changelog",
+                "--version",
+                "0.1.8",
+                "--update",
+                "--root",
+                str(sample_project_dir),
+            ],
         )
         assert update_res.exit_code == 0
         changelog_content = (sample_project_dir / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -895,8 +1049,16 @@ def test_build_release_pr_body_draft_mode(sample_project_dir: Path) -> None:
     from devops_cli.commands.release import _build_release_pr_body
 
     mock_issues = [
-        {"number": 117, "title": "feat(ai): adaptive embedding batch sizing", "state": "OPEN"},
-        {"number": 118, "title": "perf(ai): high-performance AST context packer", "state": "OPEN"},
+        {
+            "number": 117,
+            "title": "feat(ai): adaptive embedding batch sizing",
+            "state": "OPEN",
+        },
+        {
+            "number": 118,
+            "title": "perf(ai): high-performance AST context packer",
+            "state": "OPEN",
+        },
     ]
     mock_gh_res = subprocess.CompletedProcess(
         args=[CONST_GH_CLI], returncode=0, stdout=json.dumps(mock_issues), stderr=""
@@ -954,7 +1116,9 @@ def test_build_release_pr_body_ready_mode(sample_project_dir: Path) -> None:
             ) == (True, True, None)
 
 
-def test_resolve_clean_release_notes_stale_duplicate_fallback(sample_project_dir: Path) -> None:
+def test_resolve_clean_release_notes_stale_duplicate_fallback(
+    sample_project_dir: Path,
+) -> None:
     """Verify _resolve_clean_release_notes discards notes duplicated from the previous release."""
     from devops_cli.commands.release import _resolve_clean_release_notes
 
@@ -984,9 +1148,14 @@ def test_resolve_clean_release_notes_stale_duplicate_fallback(sample_project_dir
         assert "add new oauth provider for 0.2.19" in notes
 
 
-def test_query_gh_milestone_issues_all_states_and_standalone_prs(sample_project_dir: Path) -> None:
+def test_query_gh_milestone_issues_all_states_and_standalone_prs(
+    sample_project_dir: Path,
+) -> None:
     """Verify _query_gh_milestone_issues queries with --state all and includes standalone PRs."""
-    from devops_cli.commands.release import _build_release_pr_command, _query_gh_milestone_issues
+    from devops_cli.commands.release import (
+        _build_release_pr_command,
+        _query_gh_milestone_issues,
+    )
 
     def mock_run_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
         import sys
@@ -1033,7 +1202,10 @@ def test_query_gh_milestone_issues_all_states_and_standalone_prs(sample_project_
         labels="release",
         milestone="v0.2.21",
     )
-    assert ("--milestone" in pr_cmd, pr_cmd[pr_cmd.index("--milestone") + 1]) == (True, "v0.2.21")
+    assert ("--milestone" in pr_cmd, pr_cmd[pr_cmd.index("--milestone") + 1]) == (
+        True,
+        "v0.2.21",
+    )
 
 
 # =============================================================================
@@ -1131,7 +1303,10 @@ def test_update_fills_a_section_that_already_has_an_entry(tmp_path: Path) -> Non
         return_value="### Changes in v1.0.0\n\n### Added\n- feat(a): one (#1)\n- feat(b): two (#2)\n",
     ):
         section = _build_changelog_section(
-            tmp_path, "1.0.0", "2026-09-22", existing_notes="### Added\n- feat(c): kept (#3)\n"
+            tmp_path,
+            "1.0.0",
+            "2026-09-22",
+            existing_notes="### Added\n- feat(c): kept (#3)\n",
         )
     assert [marker in section for marker in ("kept (#3)", "one (#1)", "two (#2)")] == [
         True,
@@ -1149,7 +1324,10 @@ def test_an_entry_already_written_is_not_repeated(tmp_path: Path) -> None:
         return_value="### Changes in v1.0.0\n\n### Added\n- feat(a): one (#1)\n",
     ):
         section = _build_changelog_section(
-            tmp_path, "1.0.0", "2026-09-22", existing_notes="### Added\n- feat(a): one (#1)\n"
+            tmp_path,
+            "1.0.0",
+            "2026-09-22",
+            existing_notes="### Added\n- feat(a): one (#1)\n",
         )
     assert section.count("feat(a): one") == 1
 
@@ -1261,7 +1439,9 @@ def test_the_cut_merges_three_fragments_into_one_section_and_deletes_them(
     ) == (0, _COLLECTED_CHANGELOG, ["README.md"], "0.1.8"), result.output
 
 
-def test_release_changelog_update_collects_the_fragments_too(sample_project_dir: Path) -> None:
+def test_release_changelog_update_collects_the_fragments_too(
+    sample_project_dir: Path,
+) -> None:
     """`devops release changelog --update` writes the version's section the same way."""
     project = _with_fragments(sample_project_dir, _THREE_FRAGMENTS)
     with patch("devops_cli.commands.release._extract_git_commit_notes", return_value=None):
@@ -1278,9 +1458,21 @@ def test_release_changelog_update_collects_the_fragments_too(sample_project_dir:
 @pytest.mark.parametrize(
     ("name", "text", "reason"),
     [
-        ("7.md", "### Improvements\n- x (#7).\n", "changelog.d/7.md:1 '### Improvements' is not"),
-        ("7.md", "A note first.\n\n### Added\n- x (#7).\n", "changelog.d/7.md:1 is outside a"),
-        ("notes.md", "### Added\n- x.\n", "changelog.d/notes.md is not a changelog fragment"),
+        (
+            "7.md",
+            "### Improvements\n- x (#7).\n",
+            "changelog.d/7.md:1 '### Improvements' is not",
+        ),
+        (
+            "7.md",
+            "A note first.\n\n### Added\n- x (#7).\n",
+            "changelog.d/7.md:1 is outside a",
+        ),
+        (
+            "notes.md",
+            "### Added\n- x.\n",
+            "changelog.d/notes.md is not a changelog fragment",
+        ),
     ],
     ids=["unknown-category", "text-outside-a-category", "misnamed-file"],
 )
@@ -1327,7 +1519,13 @@ def test_a_dry_run_cut_names_the_fragments_and_writes_nothing(
         (project / "CHANGELOG.md").read_text(encoding="utf-8"),
         _left_in_changelog_d(project),
         _get_pyproject_version(project),
-    ) == (0, True, _UNRELEASED_CHANGELOG, sorted([*_THREE_FRAGMENTS, "README.md"]), "0.1.7")
+    ) == (
+        0,
+        True,
+        _UNRELEASED_CHANGELOG,
+        sorted([*_THREE_FRAGMENTS, "README.md"]),
+        "0.1.7",
+    )
 
 
 @pytest.mark.parametrize(
@@ -1340,7 +1538,10 @@ def test_without_fragments_the_section_is_built_as_the_current_code_builds_it(
     tmp_path: Path, unreleased: str, readme_only: bool
 ) -> None:
     """No fragment means no change: `[Unreleased]` is renamed, or filled from the commits."""
-    from devops_cli.commands.release import _plan_fragment_collection, _write_version_changelog
+    from devops_cli.commands.release import (
+        _plan_fragment_collection,
+        _write_version_changelog,
+    )
 
     changelog = "# Changelog\n\n" + unreleased + "## [0.1.7] - 2026-08-13\n\n### Added\n- Old.\n"
     project, before = tmp_path / "project", tmp_path / "before"
@@ -1362,7 +1563,9 @@ def test_without_fragments_the_section_is_built_as_the_current_code_builds_it(
     )
 
 
-def test_a_release_commit_stages_changelog_d_only_where_it_exists(tmp_path: Path) -> None:
+def test_a_release_commit_stages_changelog_d_only_where_it_exists(
+    tmp_path: Path,
+) -> None:
     """The cut deletes the fragments, so the release commit records the deletions.
 
     Naming a path that does not exist would fail the whole `git add`.
@@ -1427,7 +1630,8 @@ def test_release_notes_that_fit_are_printed_unchanged(sample_project_dir: Path) 
     body = "### Added\n- **A Feature**:\n  - its detail (#1).\n\n### Fixed\n- **A Fix** (#2)."
     _with_section(sample_project_dir, body)
     result = runner.invoke(
-        app, ["notes", "--version", "0.2.25", "--raw", "--root", str(sample_project_dir)]
+        app,
+        ["notes", "--version", "0.2.25", "--raw", "--root", str(sample_project_dir)],
     )
     assert (result.exit_code, result.output) == (0, body + "\n")
 
@@ -1438,7 +1642,8 @@ def test_a_200000_character_section_prints_under_the_release_limit_with_its_link
     """Every category and title, no sub-bullet, and the section's link at its tag, last."""
     _with_section(sample_project_dir, synthetic_release_section())
     result = runner.invoke(
-        app, ["notes", "--version", "0.2.25", "--raw", "--root", str(sample_project_dir)]
+        app,
+        ["notes", "--version", "0.2.25", "--raw", "--root", str(sample_project_dir)],
     )
     titles = [synthetic_entry_title(number) for number in range(1, SYNTHETIC_ENTRY_COUNT + 1)]
     assert result.exit_code == 0
@@ -1456,7 +1661,8 @@ def test_without_a_known_repository_the_pointer_names_the_file_and_tag(
     monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     _with_section(sample_project_dir, synthetic_release_section())
     result = runner.invoke(
-        app, ["notes", "--version", "0.2.25", "--raw", "--root", str(sample_project_dir)]
+        app,
+        ["notes", "--version", "0.2.25", "--raw", "--root", str(sample_project_dir)],
     )
     assert result.output.endswith("The full notes are in `CHANGELOG.md` at v0.2.25.\n")
 
@@ -1473,7 +1679,15 @@ def test_the_changelog_fallback_prints_notes_that_fit_unchanged_and_fits_the_res
         with patch("devops_cli.commands.release.run_subprocess", return_value=git_log):
             compiled = _extract_git_commit_notes(sample_project_dir, "0.1.8")
             result = runner.invoke(
-                app, ["changelog", "--version", "0.1.8", "--raw", "--root", str(sample_project_dir)]
+                app,
+                [
+                    "changelog",
+                    "--version",
+                    "0.1.8",
+                    "--raw",
+                    "--root",
+                    str(sample_project_dir),
+                ],
             )
         outputs.append((compiled, result.output))
     (small_notes, small_output), (large_notes, large_output) = outputs
@@ -1515,7 +1729,10 @@ def test_the_release_pr_body_counts_its_other_sections_against_the_limit(
     _with_section(sample_project_dir, notes)
     with (
         patch("devops_cli.commands.release.run_gh", return_value=listed),
-        patch("devops_cli.commands.release._extract_branch_release_notes", return_value=None),
+        patch(
+            "devops_cli.commands.release._extract_branch_release_notes",
+            return_value=None,
+        ),
     ):
         body = _build_release_pr_body(
             repo_root=sample_project_dir,
@@ -1556,3 +1773,647 @@ def test_every_section_of_this_repositorys_changelog_fits_both_limits(
         if size[0] >= CONST_GITHUB_RELEASE_BODY_MAX_CHARS
         or size[1] > CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS
     } == {}
+
+
+# =============================================================================
+# Fail-closed Release Cut Orchestration Tests (#982)
+# =============================================================================
+
+
+@pytest.fixture
+def git_release_repo(tmp_path: Path) -> tuple[Path, Path]:
+    """Create a bare remote repository with origin/main and origin/release/v0.2.26, and a clone."""
+    origin = tmp_path / "origin.git"
+    subprocess.run(
+        ["git", "init", "--bare", "-b", "main", str(origin)],
+        check=True,
+        capture_output=True,
+    )
+
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=clone, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "ci@example.com"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "CI Bot"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "remote", "add", "origin", str(origin)],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+
+    src = clone / "src" / "devops_cli"
+    src.mkdir(parents=True)
+    (clone / "pyproject.toml").write_text(
+        '[project]\nname = "devops-cli"\nversion = "0.2.25"\nrequires-python = ">=3.14"\n',
+        encoding="utf-8",
+    )
+    (src / "__init__.py").write_text('__version__ = "0.2.25"\n', encoding="utf-8")
+    (clone / "CHANGELOG.md").write_text(
+        "## [0.2.25] - 2026-09-01\n- Initial release.\n", encoding="utf-8"
+    )
+    (clone / "README.md").write_text("# devops-cli\n", encoding="utf-8")
+    (clone / "docs").mkdir(parents=True, exist_ok=True)
+    (clone / "docs" / "index.md").write_text("# Docs\n", encoding="utf-8")
+    (clone / "uv.lock").write_text(
+        'version = 1\nrevision = 3\nrequires-python = ">=3.14"\n\n[[package]]\nname = "devops-cli"\nversion = "0.2.25"\nsource = { virtual = "." }\n',
+        encoding="utf-8",
+    )
+
+    subprocess.run(["git", "add", "-A"], cwd=clone, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "chore: initial commit"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "push", "-u", "origin", "main"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+
+    subprocess.run(
+        ["git", "checkout", "-b", "release/v0.2.26"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    (clone / "README.md").write_text("# devops-cli v0.2.26\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "commit", "-am", "chore: release preparation"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "push", "-u", "origin", "release/v0.2.26"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+
+    subprocess.run(
+        ["git", "checkout", "-b", "feature/my-work"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    return origin, clone
+
+
+def test_release_prepare_dirty_tree_rejection(
+    git_release_repo: tuple[Path, Path],
+) -> None:
+    """devops release prepare --create-pr rejects dirty trees without creating branches."""
+    _, clone = git_release_repo
+    (clone / "dirty.txt").write_text("uncommitted change\n", encoding="utf-8")
+    status_before = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=clone, capture_output=True, text=True
+    ).stdout
+
+    res = runner.invoke(app, ["prepare", "0.2.26", "--create-pr", "--root", str(clone)])
+    status_after = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=clone, capture_output=True, text=True
+    ).stdout
+    cut_branch = subprocess.run(
+        ["git", "branch", "--list", "chore/cut-v0.2.26"],
+        cwd=clone,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    assert (
+        res.exit_code,
+        "uncommitted changes" in res.output.lower(),
+        status_after == status_before,
+        cut_branch,
+    ) == (1, True, True, "")
+
+
+def test_release_cut_pushes_from_remote_release_tip_and_leaves_main_untouched(
+    git_release_repo: tuple[Path, Path],
+) -> None:
+    """Release cut pushes chore/cut-v0.2.26 derived from remote tip without moving main."""
+    origin, clone = git_release_repo
+    main_before = subprocess.run(
+        ["git", "rev-parse", "refs/heads/main"],
+        cwd=origin,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    rel_before = subprocess.run(
+        ["git", "rev-parse", "refs/heads/release/v0.2.26"],
+        cwd=origin,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    gh_calls: list[list[str]] = []
+
+    def mock_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        gh_calls.append(list(cmd))
+        if "pr" in cmd and "create" in cmd:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout="https://github.com/example/repo/pull/10\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="[]", stderr="")
+
+    with patch("devops_cli.commands.release.run_gh", side_effect=mock_gh):
+        res = runner.invoke(
+            app,
+            [
+                "prepare",
+                "0.2.26",
+                "--create-pr",
+                "--no-sync-docs",
+                "--root",
+                str(clone),
+            ],
+        )
+
+    main_after = subprocess.run(
+        ["git", "rev-parse", "refs/heads/main"],
+        cwd=origin,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    rel_after = subprocess.run(
+        ["git", "rev-parse", "refs/heads/release/v0.2.26"],
+        cwd=origin,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    parent_commit = subprocess.run(
+        ["git", "rev-parse", "refs/heads/chore/cut-v0.2.26^"],
+        cwd=origin,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    diff_files = (
+        subprocess.run(
+            [
+                "git",
+                "diff-tree",
+                "--no-commit-id",
+                "--name-only",
+                "-r",
+                "refs/heads/chore/cut-v0.2.26",
+            ],
+            cwd=origin,
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+        .splitlines()
+    )
+
+    create_calls = [c for c in gh_calls if "pr" in c and "create" in c]
+    has_merge_or_review = any("merge" in c or "review" in c for c in gh_calls)
+
+    assert (
+        res.exit_code,
+        main_after == main_before,
+        rel_after == rel_before,
+        parent_commit == rel_before,
+        sorted(diff_files),
+        len(create_calls),
+        has_merge_or_review,
+    ) == (
+        0,
+        True,
+        True,
+        True,
+        ["pyproject.toml", "src/devops_cli/__init__.py", "uv.lock"],
+        1,
+        False,
+    )
+
+    pr_cmd = create_calls[0]
+    assert (
+        pr_cmd[pr_cmd.index("--base") + 1],
+        pr_cmd[pr_cmd.index("--head") + 1],
+        pr_cmd[pr_cmd.index("--title") + 1],
+        pr_cmd[pr_cmd.index("--label") + 1],
+        pr_cmd[pr_cmd.index("--milestone") + 1],
+        "--draft" in pr_cmd,
+    ) == (
+        "main",
+        "chore/cut-v0.2.26",
+        "feat(release): v0.2.26",
+        "release",
+        "v0.2.26",
+        True,
+    )
+
+
+def test_uv_lock_check_offline_passes_after_bump(
+    git_release_repo: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """uv lock --check --offline passes on the bumped pyproject.toml and uv.lock."""
+    import shutil
+
+    if not shutil.which("uv"):
+        pytest.skip("uv binary not available on PATH")
+
+    _, clone = git_release_repo
+
+    def mock_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if "pr" in cmd and "create" in cmd:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout="https://github.com/example/repo/pull/11\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="[]", stderr="")
+
+    with patch("devops_cli.commands.release.run_gh", side_effect=mock_gh):
+        res = runner.invoke(
+            app,
+            [
+                "prepare",
+                "0.2.26",
+                "--create-pr",
+                "--no-sync-docs",
+                "--root",
+                str(clone),
+            ],
+        )
+    assert res.exit_code == 0
+
+    stage = tmp_path / "uv_check_stage"
+    stage.mkdir()
+    shutil.copy(clone / "pyproject.toml", stage / "pyproject.toml")
+    shutil.copy(clone / "uv.lock", stage / "uv.lock")
+    cache_dir = tmp_path / "empty_uv_cache"
+    cache_dir.mkdir()
+    # The stage has no virtual environment, so name the interpreter: offline, uv cannot
+    # download one, and a CI runner has no Python 3.14 on its search path.
+    env = {**os.environ, "UV_CACHE_DIR": str(cache_dir), "UV_PYTHON": sys.executable}
+    check_proc = subprocess.run(
+        ["uv", "lock", "--check", "--offline"],
+        cwd=stage,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert check_proc.returncode == 0
+
+
+def test_release_cut_fails_when_origin_release_branch_absent(
+    git_release_repo: tuple[Path, Path],
+) -> None:
+    """Missing origin/release/v<version> exits non-zero naming branch without creating refs."""
+    _, clone = git_release_repo
+    res = runner.invoke(app, ["prepare", "0.9.99", "--create-pr", "--root", str(clone)])
+    status_porcelain = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=clone, capture_output=True, text=True
+    ).stdout.strip()
+    cut_branch = subprocess.run(
+        ["git", "branch", "--list", "chore/cut-v0.9.99"],
+        cwd=clone,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    assert (
+        res.exit_code,
+        "origin/release/v0.9.99" in res.output,
+        status_porcelain,
+        cut_branch,
+    ) == (1, True, "", "")
+
+
+def test_release_cut_rebuilds_on_new_remote_tip(
+    git_release_repo: tuple[Path, Path],
+) -> None:
+    """Subsequent cut run rebuilds cut branch from updated remote tip with force-with-lease."""
+    origin, clone = git_release_repo
+
+    def mock_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if "pr" in cmd and "create" in cmd:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout="https://github.com/example/repo/pull/12\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="[]", stderr="")
+
+    with patch("devops_cli.commands.release.run_gh", side_effect=mock_gh):
+        res1 = runner.invoke(
+            app,
+            [
+                "prepare",
+                "0.2.26",
+                "--create-pr",
+                "--no-sync-docs",
+                "--root",
+                str(clone),
+            ],
+        )
+    assert res1.exit_code == 0
+
+    # Advance release/v0.2.26 on origin
+    subprocess.run(
+        ["git", "checkout", "release/v0.2.26"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    (clone / "new_feature.txt").write_text("added commit\n", encoding="utf-8")
+    subprocess.run(["git", "add", "new_feature.txt"], cwd=clone, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "feat: advance release"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "push", "origin", "release/v0.2.26"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    new_tip = subprocess.run(
+        ["git", "rev-parse", "refs/heads/release/v0.2.26"],
+        cwd=origin,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    subprocess.run(
+        ["git", "checkout", "feature/my-work"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+
+    with patch("devops_cli.commands.release.run_gh", side_effect=mock_gh):
+        res2 = runner.invoke(
+            app,
+            [
+                "prepare",
+                "0.2.26",
+                "--create-pr",
+                "--no-sync-docs",
+                "--root",
+                str(clone),
+            ],
+        )
+
+    parent_commit2 = subprocess.run(
+        ["git", "rev-parse", "refs/heads/chore/cut-v0.2.26^"],
+        cwd=origin,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert (res2.exit_code, parent_commit2 == new_tip) == (0, True)
+
+
+def test_release_cut_without_uv_lock(git_release_repo: tuple[Path, Path]) -> None:
+    """Repositories without uv.lock neither create nor stage uv.lock during release cut."""
+    origin, clone = git_release_repo
+    subprocess.run(
+        ["git", "checkout", "release/v0.2.26"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["git", "rm", "uv.lock"], cwd=clone, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "chore: delete uv.lock"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "push", "origin", "release/v0.2.26"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "checkout", "feature/my-work"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+
+    def mock_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if "pr" in cmd and "create" in cmd:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout="https://github.com/example/repo/pull/13\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="[]", stderr="")
+
+    with patch("devops_cli.commands.release.run_gh", side_effect=mock_gh):
+        res = runner.invoke(
+            app,
+            [
+                "prepare",
+                "0.2.26",
+                "--create-pr",
+                "--no-sync-docs",
+                "--root",
+                str(clone),
+            ],
+        )
+
+    diff_files = (
+        subprocess.run(
+            [
+                "git",
+                "diff-tree",
+                "--no-commit-id",
+                "--name-only",
+                "-r",
+                "refs/heads/chore/cut-v0.2.26",
+            ],
+            cwd=origin,
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+        .splitlines()
+    )
+    assert (res.exit_code, "uv.lock" in diff_files, (clone / "uv.lock").exists()) == (
+        0,
+        False,
+        False,
+    )
+
+
+def test_release_pr_pre_receive_hook_rejection(
+    git_release_repo: tuple[Path, Path],
+) -> None:
+    """Push failure via remote hook exits non-zero and suppresses PR creation."""
+    origin, clone = git_release_repo
+    hooks_dir = origin / "hooks"
+    hooks_dir.mkdir(exist_ok=True)
+    hook_file = hooks_dir / "pre-receive"
+    hook_file.write_text(
+        "#!/bin/sh\necho 'rejected by pre-receive hook' >&2\nexit 1\n", encoding="utf-8"
+    )
+    hook_file.chmod(0o755)
+
+    gh_called = False
+
+    def mock_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        nonlocal gh_called
+        gh_called = True
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    with patch("devops_cli.commands.release.run_gh", side_effect=mock_gh):
+        res = runner.invoke(
+            app,
+            [
+                "prepare",
+                "0.2.26",
+                "--create-pr",
+                "--no-sync-docs",
+                "--root",
+                str(clone),
+            ],
+        )
+
+    assert (res.exit_code, gh_called) == (1, False)
+
+
+def test_release_pr_alone_pushes_remote_tip_and_resolves_tip_version(
+    git_release_repo: tuple[Path, Path],
+) -> None:
+    """release pr alone pushes cut branch identical to remote tip and resolves tip version."""
+    origin, clone = git_release_repo
+    # Remote tip pyproject.toml has version 0.2.26
+    subprocess.run(
+        ["git", "checkout", "release/v0.2.26"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    (clone / "pyproject.toml").write_text(
+        '[project]\nname = "devops-cli"\nversion = "0.2.26"\n', encoding="utf-8"
+    )
+    subprocess.run(
+        ["git", "commit", "-am", "chore: bump version to 0.2.26 on release branch"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "push", "origin", "release/v0.2.26"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    rel_tip = subprocess.run(
+        ["git", "rev-parse", "refs/heads/release/v0.2.26"],
+        cwd=origin,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    # Switch back to clean feature branch where pyproject.toml has version 0.2.25
+    subprocess.run(
+        ["git", "checkout", "feature/my-work"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+
+    gh_cmds: list[list[str]] = []
+
+    def mock_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        gh_cmds.append(list(cmd))
+        if "pr" in cmd and "create" in cmd:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout="https://github.com/example/repo/pull/14\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="[]", stderr="")
+
+    with patch("devops_cli.commands.release.run_gh", side_effect=mock_gh):
+        res = runner.invoke(app, ["pr", "--version", "0.2.26", "--root", str(clone)])
+
+    cut_commit = subprocess.run(
+        ["git", "rev-parse", "refs/heads/chore/cut-v0.2.26"],
+        cwd=origin,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    create_cmds = [c for c in gh_cmds if "pr" in c and "create" in c]
+    pr_title = create_cmds[0][create_cmds[0].index("--title") + 1] if create_cmds else ""
+
+    assert (res.exit_code, cut_commit == rel_tip, pr_title) == (
+        0,
+        True,
+        "feat(release): v0.2.26",
+    )
+
+    # On dirty tree, release pr exits non-zero before writing git refs
+    (clone / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+    res_dirty = runner.invoke(app, ["pr", "--version", "0.2.26", "--root", str(clone)])
+    assert res_dirty.exit_code == 1
+
+
+def test_release_pr_help_has_no_push() -> None:
+    """release pr --help displays no push option flag."""
+    res = runner.invoke(app, ["pr", "--help"])
+    assert (res.exit_code, "--push" in res.output, "--no-push" in res.output) == (
+        0,
+        False,
+        False,
+    )
+
+
+def test_release_prepare_and_pr_dry_run_cut_branch(sample_project_dir: Path) -> None:
+    """Dry-run executions output chore/cut-v<version>, base main, and chdir/gh safety."""
+    from devops_cli.dry_run import set_dry_run
+
+    set_dry_run(True)
+    try:
+        res_prep = runner.invoke(
+            app, ["prepare", "0.2.26", "--create-pr", "--root", str(sample_project_dir)]
+        )
+        res_pr = runner.invoke(
+            app, ["pr", "--version", "0.2.26", "--root", str(sample_project_dir)]
+        )
+    finally:
+        set_dry_run(False)
+
+    assert (
+        res_prep.exit_code,
+        "chore/cut-v0.2.26" in res_prep.output,
+        "main" in res_prep.output,
+        "feat(release): v0.2.26" in res_prep.output,
+        "changelog_fragments" in res_prep.output,
+    ) == (0, True, True, True, True)
+
+    assert (
+        res_pr.exit_code,
+        "chore/cut-v0.2.26" in res_pr.output,
+        "main" in res_pr.output,
+        "feat(release): v0.2.26" in res_pr.output,
+        "changelog_fragments" in res_pr.output,
+    ) == (0, True, True, True, True)

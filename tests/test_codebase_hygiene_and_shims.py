@@ -24,7 +24,6 @@ from devops_cli.ai.tools import Tool
 from devops_cli.commands.rag import app as rag_app
 from devops_cli.commands.scan import app as scan_app
 from devops_cli.exceptions.base import DevOpsCLIError
-from devops_cli.security.reference_extractor import is_file_reference
 
 
 def test_tool_has_no_func_alias() -> None:
@@ -205,17 +204,12 @@ def test_indexer_no_hardcoded_indexable_extensions(tmp_path: Path) -> None:
     assert _is_indexable_file(bin_file, tmp_path) is False
 
 
-def test_reference_extractor_no_hardcoded_extensions(tmp_path: Path) -> None:
+def test_reference_extractor_no_hardcoded_extensions() -> None:
     """reference_extractor.py should not maintain _COMMON_FILE_EXTENSIONS or _PACKAGE_ARCHIVE_EXTENSIONS."""
     import devops_cli.security.reference_extractor as ref_mod
 
     assert not hasattr(ref_mod, "_COMMON_FILE_EXTENSIONS")
     assert not hasattr(ref_mod, "_PACKAGE_ARCHIVE_EXTENSIONS")
-
-    # Dynamic file reference detection should still recognize files with common extensions
-    assert is_file_reference("src/main.py") is True
-    assert is_file_reference("README.md") is True
-    assert is_file_reference("config.json") is True
 
 
 def test_common_hallucinations_mathematical_similarity() -> None:

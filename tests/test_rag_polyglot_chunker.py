@@ -174,8 +174,7 @@ OpenTelemetry Collector routes spans to Jaeger.
     assert all(c.category == "docs" for c in chunks)
     assert all(c.project_name == "org-docs" for c in chunks)
 
-    # Verify hierarchical breadcrumbs
-    sharding_chunk = [c for c in chunks if "Sharding & Replicas" in c.symbol_names][0]
+    sharding_chunk = next(c for c in chunks if "Sharding & Replicas" in c.symbol_names)
     assert sharding_chunk.section_path == [
         "System Architecture",
         "Vector Storage",

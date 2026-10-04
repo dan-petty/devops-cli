@@ -141,7 +141,7 @@ def test_a_pr_review_reaches_the_personas_with_only_reviewable_files(
     """Verify `devops review pr` pages hold only `src/app.py`, offline against a fake client."""
     monkeypatch.setattr("devops_cli.github.client.GitHubClient", _FakeGitHub)
 
-    pages, *_ = _prepare_pr_content(1, "o/r", "token", head_dir=tmp_path)
+    pages, *_ = _prepare_pr_content(1, "o/r", head_dir=tmp_path)
 
     assert _page_files(pages) == ["src/app.py"]
 

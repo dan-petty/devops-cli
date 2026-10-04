@@ -43,7 +43,7 @@ def contexts() -> None:
         ctx_list, active = k8s_config.list_kube_config_contexts()
     except Exception as exc:
         print_error(f"Failed to load kubeconfig: {exc}", prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     active_name = active["name"] if active else ""
     print(format_k8s_contexts_table(ctx_list, active_name=active_name))
@@ -130,7 +130,7 @@ def status() -> None:
         nodes = core_v1_api.list_node()
     except Exception as exc:
         print_error(f"Failed to query cluster: {exc}", prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     print(format_k8s_nodes_table(nodes.items))
 

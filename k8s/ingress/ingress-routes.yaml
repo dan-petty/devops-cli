@@ -383,31 +383,6 @@ spec:
               service:
                 name: loki
                 port:
-                  number: 3100
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: fluent-bit-ingress
-  namespace: logging
-  labels:
-    app.kubernetes.io/name: fluent-bit
-    app.kubernetes.io/part-of: devops-cli-stack
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
-spec:
-  ingressClassName: traefik
-  rules:
-    - host: fluent-bit.example.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: fluent-bit
-                port:
-                  number: 2020
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

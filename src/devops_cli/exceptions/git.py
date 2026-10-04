@@ -7,6 +7,7 @@ from typing import Any
 from devops_cli.config.constants import (
     CONST_ERROR_CODE_GIT,
     CONST_EXIT_FAILURE,
+    CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE,
     CONST_MSG_BRANCH_INVALID,
 )
 from devops_cli.exceptions.base import DevOpsCLIError
@@ -93,6 +94,33 @@ class GitHubOperationError(DevOpsCLIError, RuntimeError):
         super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
 
 
+class GitHubFileNotFoundError(GitHubOperationError):
+    """Raised when a repository file GitHub was asked for does not exist on that ref."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str = "repository_file",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message, operation=operation, error_code="GITHUB_FILE_NOT_FOUND", details=details
+        )
+
+
+class GitHubUnauthenticatedError(GitHubOperationError):
+    """Raised when `gh auth token` gives the process no GitHub identity to call GitHub as."""
+
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
+        super().__init__(
+            message,
+            operation="gh_auth_token",
+            error_code=CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE,
+            details=details,
+        )
+
+
 class GitHubRateLimitError(GitHubOperationError, ValueError):
     """Exception raised when GitHub rate limit quota state is broken or unknown and cannot be resolved."""
 
@@ -112,46 +140,4 @@ class GitHubRateLimitError(GitHubOperationError, ValueError):
             operation=operation,
             error_code="GITHUB_RATE_LIMIT_UNKNOWN",
             details=err_details,
-        )
-
-
-class GitHubGraphQLError(GitHubOperationError):
-    """Exception raised when GitHub GraphQL queries or mutations fail."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        operation: str = "graphql_query",
-        errors: list[dict[str, Any]] | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        err_details: dict[str, Any] = {}
-        if errors:
-            err_details["graphql_errors"] = str(errors)[:256]
-        if details:
-            err_details.update({k: str(v)[:256] for k, v in details.items()})
-        super().__init__(
-            message,
-            operation=operation,
-            error_code="GITHUB_GRAPHQL_ERROR",
-            details=err_details,
-        )
-
-
-class GitHubWebhookVerificationError(GitHubOperationError):
-    """Exception raised when GitHub webhook signature verification fails."""
-
-    def __init__(
-        self,
-        message: str = "GitHub webhook HMAC signature verification failed",
-        *,
-        operation: str = "webhook_verification",
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(
-            message,
-            operation=operation,
-            error_code="GITHUB_WEBHOOK_VERIFICATION_FAILED",
-            details=details,
         )

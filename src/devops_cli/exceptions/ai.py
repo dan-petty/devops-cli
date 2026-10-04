@@ -19,6 +19,7 @@ from devops_cli.config.constants import (
     CONST_ERROR_CODE_LIBRARY_NOT_FOUND,
     CONST_ERROR_CODE_LLM_INFERENCE,
     CONST_ERROR_CODE_MODEL_BUNDLE,
+    CONST_ERROR_CODE_MODEL_GATEWAY_UNREACHABLE,
     CONST_ERROR_CODE_REVIEW_POOL,
     CONST_EXIT_ERROR_INFERENCE,
     CONST_EXIT_FAILURE,
@@ -97,6 +98,26 @@ class ModelUnavailableError(LLMInferenceError):
             exit_code=12,
             error_code="MODEL_UNAVAILABLE",
             details=details,
+        )
+
+
+class ModelGatewayUnreachableError(LLMInferenceError):
+    """Raised when a model call through the gateway fails, so the command decided and wrote nothing."""
+
+    DEFAULT_ERROR_CODE = CONST_ERROR_CODE_MODEL_GATEWAY_UNREACHABLE
+    DEFAULT_EXIT_CODE = CONST_EXIT_FAILURE
+
+    def __init__(self, gateway: str, cause: Exception, *, consequence: str) -> None:
+        from devops_cli.security.sanitizer import mask_secrets, mask_uri_credentials
+
+        safe_gateway = mask_uri_credentials(str(gateway))
+        safe_cause = mask_secrets(str(cause)[:200])
+        super().__init__(
+            f"The model gateway {safe_gateway} did not answer ({type(cause).__name__}: "
+            f"{safe_cause}), so {consequence}. Run it again once the gateway answers.",
+            exit_code=CONST_EXIT_FAILURE,
+            error_code=CONST_ERROR_CODE_MODEL_GATEWAY_UNREACHABLE,
+            details={"gateway": safe_gateway[:256]},
         )
 
 

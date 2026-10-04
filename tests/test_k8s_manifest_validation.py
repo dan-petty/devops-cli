@@ -30,11 +30,7 @@ def test_a_document_declaring_apiversion_is_a_manifest() -> None:
 
 
 def test_a_helm_values_file_declaring_kind_is_not_a_manifest() -> None:
-    """Charts legitimately expose `kind` as a values key.
-
-    fluent-bit uses it to choose between a DaemonSet and a Deployment, so keying on `kind`
-    reports correct values files as broken manifests.
-    """
+    """Charts legitimately expose `kind` as a values key."""
     assert _is_manifest_document({"replicaCount": 1, "kind": "DaemonSet"}) is False
 
 
@@ -80,7 +76,7 @@ def test_a_helm_values_file_produces_no_finding(tmp_path: Path) -> None:
 
 def test_a_values_file_with_a_kind_key_produces_no_finding(tmp_path: Path) -> None:
     """The case that survived the first fix and forced the discriminator to change."""
-    path = write(tmp_path, "fluent-bit-values.yaml", "replicaCount: 1\nkind: DaemonSet\n")
+    path = write(tmp_path, "chart-values.yaml", "replicaCount: 1\nkind: DaemonSet\n")
     assert _validate_single_k8s_file_fallback(path, tmp_path) is None
 
 
@@ -125,7 +121,6 @@ def test_an_empty_file_produces_no_finding(tmp_path: Path) -> None:
         "values.yaml",
         "values-qdrant.yaml",
         "loki-values.yaml",
-        "fluent-bit-values.yaml",
     ],
 )
 def test_the_repository_helm_values_files_are_clean(name: str) -> None:

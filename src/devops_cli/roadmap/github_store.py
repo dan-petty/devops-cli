@@ -3,8 +3,11 @@
 Every command goes through an injected runner that defaults to `run_gh`, and no read is
 cached. REST listings are read a full page at a time until a page is short, and each page must
 be a JSON list: `run_gh`'s own paging (`api --paginate`) ends a listing at a page that is empty
-or not JSON as if it were the last. The board comes from `gh project item-list`, which pages itself and
-reports a total, so a short read is caught. Issue events are read a page at a time, newest
+or not JSON as if it were the last. The board comes from the store's own paged GraphQL query
+(`board_read`): each read passes its job's Projects filter at the source, leaves archived items
+out, checks the budget first and charges each page's reported points, and is checked against the
+total for the same filter, so a short read is caught; a count that changes during the read is
+read again once before the read fails. Issue events are read a page at a time, newest
 first, so the read stops at the first event older than it needs.
 
 The board's own shape (its fields with their option ids, colors and descriptions, and its
@@ -26,7 +29,7 @@ import json
 import logging
 import subprocess
 from collections.abc import Collection, Iterator, Mapping, Sequence
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from http import HTTPStatus
 from itertools import takewhile
 from typing import Any, Protocol
@@ -43,14 +46,16 @@ from devops_cli.config.constants import (
     CONST_GH_PROJECT_SINGLE_SELECT_TYPE,
     CONST_GH_PROJECT_TEXT_TYPE,
     CONST_GH_RAW_CONTENT_ACCEPT,
+    CONST_ROADMAP_OPEN_ITEMS_FILTER,
     CONST_ROADMAP_RUN_RECORD_BODY,
     CONST_ROADMAP_RUN_RECORD_TITLE,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_GH_ISSUE_TIMELINE_LIMIT,
     DEFAULT_GH_MAX_PAGINATED_PAGES,
     DEFAULT_GH_OPEN_PULL_REQUEST_LIMIT,
     DEFAULT_GH_PROJECT_FIELD_LIMIT,
-    DEFAULT_GH_PROJECT_ITEM_LIMIT,
+    DEFAULT_GH_PROJECT_ITEM_PAGE_POINTS,
     DEFAULT_GH_PROJECT_ITEMS_PER_ISSUE,
     DEFAULT_GH_PROJECT_LIST_LIMIT,
     DEFAULT_GH_PROJECT_OPTION_COLOR,
@@ -58,9 +63,25 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_RELEASE_LABEL,
 )
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.github.projects import check_github_rate_limit_error
 from devops_cli.github.rate_limiter import run_gh
+from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.board_read import (
+    BoardBudgetPayload,
+    BoardItemsPage,
+    GraphQLBudget,
+    GraphQLBudgetPayload,
+    GraphQLSpend,
+    board_budget_args,
+    board_items_args,
+    graphql_budget_args,
+    item_list_key,
+    read_cost,
+    require_budget,
+    require_floor,
+    spend_between,
+)
 from devops_cli.roadmap.store import (
     BOARD_FIELDS,
     Board,
@@ -73,16 +94,22 @@ from devops_cli.roadmap.store import (
     Change,
     ChangeKind,
     CloseReason,
+    Closure,
     Dependency,
+    Evidence,
+    EvidenceKind,
     FieldOption,
     FieldSpec,
     GitHubState,
+    IssueQuery,
     IssueRecord,
     Item,
     ItemField,
     JobMark,
     JobRecord,
+    MergedPullRequest,
     PullRequest,
+    RefineRecordKey,
     Release,
     RoadmapStore,
     Workflow,
@@ -135,6 +162,7 @@ class _MilestonePayload(BaseModel):
     open_issues: int = 0
     closed_issues: int = 0
     due_on: datetime | None = None
+    closed_at: datetime | None = None
 
     def release(self) -> Release:
         return Release(
@@ -145,6 +173,7 @@ class _MilestonePayload(BaseModel):
             due_on=self.due_on.date() if self.due_on else None,
             open_issues=self.open_issues,
             closed_issues=self.closed_issues,
+            closed_at=self.closed_at,
         )
 
 
@@ -158,6 +187,10 @@ class _IssuePayload(BaseModel):
     labels: list[_NamedPayload] = Field(default_factory=list)
     release: str | None = Field(default=None, validation_alias=AliasPath("milestone", "title"))
     pull_request: dict[str, Any] | None = None
+    node_id: str | None = None
+    author_association: str | None = None
+    created_at: datetime | None = None
+    closed_at: datetime | None = None
 
     def record(self) -> IssueRecord:
         return IssueRecord(
@@ -170,6 +203,9 @@ class _IssuePayload(BaseModel):
             labels=tuple(label.name for label in self.labels),
             release=self.release,
             pull_request=self.pull_request is not None,
+            author_association=self.author_association,
+            created_at=self.created_at,
+            closed_at=self.closed_at,
         )
 
 
@@ -305,6 +341,10 @@ class _DefaultBranchPayload(BaseModel):
     )
 
 
+class _IsPrivatePayload(BaseModel):
+    is_private: bool = Field(validation_alias=AliasPath("data", "repository", "isPrivate"))
+
+
 class _RefPayload(BaseModel):
     sha: str = Field(validation_alias=AliasPath("object", "sha"))
 
@@ -313,8 +353,81 @@ class _GitHubReleasePayload(BaseModel):
     draft: bool
 
 
+class _PullRequestCommitPayload(BaseModel):
+    sha: str
+
+
+class _ClosedPullRequestPayload(BaseModel):
+    """A closed pull request as the REST listing `repos/{repo}/pulls?state=closed` gives it."""
+
+    number: int
+    html_url: str
+    title: str = ""
+    body: str | None = None
+    labels: list[_NamedPayload] = Field(default_factory=list)
+    release: str | None = Field(default=None, validation_alias=AliasPath("milestone", "title"))
+    merged_at: datetime | None = None
+    merge_commit_sha: str | None = None
+    head: _PullRequestCommitPayload
+
+    def merged(self, changed_paths: Sequence[str]) -> MergedPullRequest:
+        return MergedPullRequest(
+            number=self.number,
+            url=self.html_url,
+            title=self.title,
+            body=self.body or "",
+            labels=tuple(label.name for label in self.labels),
+            release=self.release,
+            merge_commit=self.merge_commit_sha or "",
+            head_commit=self.head.sha,
+            changed_paths=tuple(changed_paths),
+        )
+
+
+class _PullRequestFilePayload(BaseModel):
+    filename: str
+
+
 class _CommentPayload(BaseModel):
     body: str = ""
+
+
+class _TimelineNodePayload(BaseModel):
+    """A `ClosedEvent` or `ReopenedEvent` as `_CLOSURES_QUERY` selects it."""
+
+    typename: str = Field(alias="__typename")
+    created_at: datetime = Field(alias="createdAt")
+    state_reason: str | None = Field(default=None, alias="stateReason")
+    duplicate_of: int | None = Field(
+        default=None, validation_alias=AliasPath("duplicateOf", "number")
+    )
+
+    def closure(self) -> Closure:
+        closed = self.typename == "ClosedEvent"
+        return Closure(
+            kind=ChangeKind.CLOSED if closed else ChangeKind.REOPENED,
+            at=self.created_at,
+            reason=self.state_reason.lower() if self.state_reason else None,
+            duplicate_of=self.duplicate_of,
+        )
+
+
+class _TimelinePayload(BaseModel):
+    nodes: list[_TimelineNodePayload] = Field(
+        validation_alias=AliasPath("data", "repository", "issue", "timelineItems", "nodes")
+    )
+    total_count: int = Field(
+        validation_alias=AliasPath("data", "repository", "issue", "timelineItems", "totalCount")
+    )
+
+
+class _WorkflowRunPayload(BaseModel):
+    conclusion: str | None = None
+
+
+class _SearchPayload(BaseModel):
+    total_count: int
+    incomplete_results: bool = False
 
 
 class _BoardItemPayload(BaseModel):
@@ -352,7 +465,7 @@ class _BoardItemPayload(BaseModel):
         """The card's board fields and job record, keyed as `BoardEntry` and `Card` hold them."""
         extra = self.model_extra or {}
         fields = {
-            f.name.lower(): _text_value(extra.get(_item_list_key(f.value))) for f in BOARD_FIELDS
+            f.name.lower(): _text_value(extra.get(item_list_key(f.value))) for f in BOARD_FIELDS
         }
         return fields | {"job_record": decode_job_record(self.job_record_text(), card=self.name())}
 
@@ -363,7 +476,7 @@ class _BoardItemPayload(BaseModel):
     def job_record_text(self) -> str | None:
         """The job record as the board's text field holds it."""
         extra = self.model_extra or {}
-        return _text_value(extra.get(_item_list_key(CONST_GH_PROJECT_JOB_RECORD_FIELD)))
+        return _text_value(extra.get(item_list_key(CONST_GH_PROJECT_JOB_RECORD_FIELD)))
 
     def recorded(
         self,
@@ -394,11 +507,6 @@ class _BoardItemPayload(BaseModel):
                 "repository": self.content_repository,
             }
         )
-
-
-class _BoardListingPayload(BaseModel):
-    items: list[_BoardItemPayload]
-    total_count: int = Field(alias="totalCount")
 
 
 class _BoardFieldPayload(BaseModel):
@@ -483,11 +591,14 @@ _MILESTONES = TypeAdapter(list[_MilestonePayload])
 _ISSUE = TypeAdapter(_IssuePayload)
 _ISSUES = TypeAdapter(list[_IssuePayload])
 _EVENTS = TypeAdapter(list[_EventPayload])
-_BOARD = TypeAdapter(_BoardListingPayload)
+_BOARD_PAGE = TypeAdapter(BoardItemsPage)
+_BOARD_BUDGET = TypeAdapter(BoardBudgetPayload)
+_GRAPHQL_BUDGET = TypeAdapter(GraphQLBudgetPayload)
+_BOARD_ITEMS = TypeAdapter(list[_BoardItemPayload])
 _FIELDS = TypeAdapter(_FieldListingPayload)
 _JOB_RECORD = TypeAdapter(JobRecord)
 # The job record keys this version reads; the others are a newer version's, kept as they are.
-_JOB_RECORD_KEYS = frozenset(key.value for key in (*ItemField, *JobMark))
+_JOB_RECORD_KEYS = frozenset(key.value for key in (*ItemField, *JobMark, *RefineRecordKey))
 _PROJECT = TypeAdapter(_ProjectPayload)
 _PROJECTS = TypeAdapter(_ProjectListingPayload)
 _BOARD_FIELDS = TypeAdapter(_BoardFieldsPayload)
@@ -498,9 +609,16 @@ _OPEN_PULL_REQUESTS = TypeAdapter(_OpenPullRequestsPayload)
 _RELEASE_PULL_REQUESTS = TypeAdapter(_ReleasePullRequestsPayload)
 _ISSUE_STATUS = TypeAdapter(_IssueStatusPayload)
 _DEFAULT_BRANCH = TypeAdapter(_DefaultBranchPayload)
+_IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
 _REF = TypeAdapter(_RefPayload)
 _GITHUB_RELEASE = TypeAdapter(_GitHubReleasePayload)
 _COMMENTS = TypeAdapter(list[_CommentPayload])
+_CLOSED_PULL_REQUESTS = TypeAdapter(list[_ClosedPullRequestPayload])
+_PULL_REQUEST_FILES = TypeAdapter(list[_PullRequestFilePayload])
+_TIMELINE = TypeAdapter(_TimelinePayload)
+_WORKFLOW_RUN = TypeAdapter(_WorkflowRunPayload)
+_ANY_OBJECT = TypeAdapter(dict[str, Any])
+_SEARCH = TypeAdapter(_SearchPayload)
 
 # The board is found by its owner's login and number; `ProjectV2Owner` covers users and
 # organizations alike.
@@ -559,11 +677,27 @@ _ISSUE_STATUS_QUERY = _REPOSITORY.format(
 _DEFAULT_BRANCH_QUERY = _REPOSITORY.format(
     params="", selection="defaultBranchRef { name target { oid } }"
 )
-
-
-def _item_list_key(field_name: str) -> str:
-    """The key `gh project item-list` gives a field's value: the name, first letter lower-cased."""
-    return field_name[:1].lower() + field_name[1:]
+_IS_PRIVATE_QUERY = _REPOSITORY.format(params="", selection="isPrivate")
+_CLOSURES_QUERY = _REPOSITORY.format(
+    params=", $first: Int!, $number: Int!",
+    selection=(
+        "issue(number: $number) { timelineItems(first: $first, "
+        "itemTypes: [CLOSED_EVENT, REOPENED_EVENT]) { totalCount nodes { __typename "
+        "... on ClosedEvent { createdAt stateReason duplicateOf { "
+        "... on Issue { number } ... on PullRequest { number } } } "
+        "... on ReopenedEvent { createdAt } } } }"
+    ),
+)
+_CLOSE_AS_DUPLICATE_MUTATION = (
+    "mutation($issue: ID!, $original: ID!) { closeIssue(input: {issueId: $issue, "
+    "stateReason: DUPLICATE, duplicateIssueId: $original}) { issue { number } } }"
+)
+# How REST search names each close reason in its `reason:` qualifier.
+_SEARCH_REASONS: Mapping[CloseReason, str] = {
+    CloseReason.COMPLETED: "completed",
+    CloseReason.NOT_PLANNED: '"not planned"',
+    CloseReason.DUPLICATE: "duplicate",
+}
 
 
 def _text_value(raw: object) -> str | None:
@@ -643,6 +777,379 @@ def option_update_request(field_id: str, options: Sequence[FieldOption]) -> dict
     }
 
 
+def _search_time(moment: datetime) -> str:
+    """A time as REST search's `created:` and `closed:` qualifiers take it: ISO 8601 in UTC."""
+    return as_utc(moment).astimezone(UTC).isoformat(timespec="seconds")
+
+
+def repository_file_args(repo: str, path: str, *, ref: str | None) -> list[str]:
+    """The `gh` arguments that read the raw text of `path` on `ref` through the contents API."""
+    query = f"?ref={quote(ref, safe='')}" if ref else ""
+    return ["api", "-H", CONST_GH_RAW_CONTENT_ACCEPT, f"repos/{repo}/contents/{quote(path)}{query}"]
+
+
+def issue_search_text(repo: str, query: IssueQuery) -> str:
+    """The REST search text for `query`: `repo`'s issues, narrowed by each condition."""
+    terms = [f"repo:{repo}", "is:issue"]
+    terms += [f"is:{query.state}"] if query.state else []
+    terms += [f"label:{json.dumps(label)}" for label in query.labels]
+    terms += [f"created:>={_search_time(query.created_since)}"] if query.created_since else []
+    terms += [f"closed:>={_search_time(query.closed_since)}"] if query.closed_since else []
+    terms += [f"reason:{_SEARCH_REASONS[query.reason]}"] if query.reason else []
+    terms += ["comments:0"] if query.uncommented else []
+    return " ".join(terms)
+
+
+def issue_count_args(repo: str, query: IssueQuery) -> list[str]:
+    """The `gh` arguments of the REST search whose `total_count` counts `query`'s issues."""
+    q = issue_search_text(repo, query)
+    return ["api", "-X", "GET", "search/issues", "-f", f"q={q}", "-F", "per_page=1"]
+
+
+def milestones_endpoint(repo: str) -> str:
+    """The REST listing of every milestone of `repo`, open and closed."""
+    return f"repos/{repo}/milestones?state=all"
+
+
+def issues_endpoint(repo: str, query: str = "state=all") -> str:
+    """The REST listing of `repo`'s issues that `query` selects, every one by default."""
+    return f"repos/{repo}/issues?{query}"
+
+
+def listing_page_args(endpoint: str, page: int | str) -> list[str]:
+    """The `gh` arguments that read page `page` of the REST listing `endpoint`, a full page."""
+    separator = "&" if "?" in endpoint else "?"
+    return ["api", f"{endpoint}{separator}per_page={DEFAULT_GH_REST_PER_PAGE}&page={page}"]
+
+
+# The argument builders below are pure: the store runs what they return, and a dry run's request
+# plan (`roadmap/request_plan.py`) lists the same argv with a placeholder in angle brackets
+# wherever a value needs a read (#1125). A number may be given as such a placeholder.
+Number = int | str
+
+
+def _segment(value: str) -> str:
+    """`value` as one URL path segment; a placeholder stays readable."""
+    return value if value.startswith("<") and value.endswith(">") else quote(value, safe="")
+
+
+def repository_query_args(repo: str, query: str, **variables: Number) -> list[str]:
+    """A GraphQL read about `repo`, with its integer variables."""
+    owner, name = repo.split("/", 1)
+    typed = [part for key, value in variables.items() for part in ("-F", f"{key}={value}")]
+    return [
+        "api",
+        "graphql",
+        "-f",
+        f"query={query}",
+        "-f",
+        f"owner={owner}",
+        "-f",
+        f"name={name}",
+    ] + typed
+
+
+def board_query_args(query: str, owner: str, number: Number, first: int) -> list[str]:
+    """A GraphQL read about board `number` of `owner`, asking for up to `first` nodes."""
+    return [
+        "api",
+        "graphql",
+        "-f",
+        f"query={query}",
+        "-f",
+        f"owner={owner}",
+        "-F",
+        f"number={number}",
+        "-F",
+        f"first={first}",
+    ]
+
+
+def board_fields_args(owner: str, number: Number) -> list[str]:
+    """The GraphQL read of board `number`'s fields, with each option's id, color and description."""
+    return board_query_args(_FIELDS_QUERY, owner, number, DEFAULT_GH_PROJECT_FIELD_LIMIT)
+
+
+def board_workflows_args(owner: str, number: Number) -> list[str]:
+    """The GraphQL read of board `number`'s built-in workflows."""
+    return board_query_args(_WORKFLOWS_QUERY, owner, number, DEFAULT_GH_PROJECT_WORKFLOW_LIMIT)
+
+
+def field_list_args(owner: str, number: Number) -> list[str]:
+    """`gh project field-list`: every board field's options by name."""
+    limit = str(DEFAULT_GH_PROJECT_FIELD_LIMIT)
+    return [
+        "project",
+        "field-list",
+        str(number),
+        "--owner",
+        owner,
+        "--format",
+        "json",
+        "--limit",
+        limit,
+    ]
+
+
+def project_list_args(owner: str) -> list[str]:
+    """`gh project list`: every board of `owner`, closed ones included."""
+    limit = str(DEFAULT_GH_PROJECT_LIST_LIMIT)
+    return ["project", "list", "--owner", owner, "--closed", "--format", "json", "--limit", limit]
+
+
+def project_create_args(owner: str, title: str) -> list[str]:
+    return ["project", "create", "--owner", owner, "--title", title, "--format", "json"]
+
+
+def project_link_args(owner: str, number: Number, repo: str) -> list[str]:
+    return ["project", "link", str(number), "--owner", owner, "--repo", repo]
+
+
+def field_delete_args(field_id: str) -> list[str]:
+    return ["project", "field-delete", "--id", field_id]
+
+
+def item_add_args(owner: str, number: Number, url: str) -> list[str]:
+    return ["project", "item-add", str(number), "--owner", owner, "--url", url]
+
+
+def item_edit_args(
+    owner: str, number: Number, url: str, field_name: str, change: Sequence[str]
+) -> list[str]:
+    """`gh project item-edit` on the issue at `url`, by the field's name."""
+    return [
+        "project",
+        "item-edit",
+        str(number),
+        "--owner",
+        owner,
+        "--url",
+        url,
+        "--field",
+        field_name,
+        *change,
+    ]
+
+
+def card_edit_args(
+    card_id: str, project_id: str, field_id: str, change: Sequence[str]
+) -> list[str]:
+    """`gh project item-edit` on any card, by node ids."""
+    return [
+        "project",
+        "item-edit",
+        "--id",
+        card_id,
+        "--project-id",
+        project_id,
+        "--field-id",
+        field_id,
+        *change,
+    ]
+
+
+def run_record_card_args(owner: str, number: Number) -> list[str]:
+    """`gh project item-create`: the run record card, a draft issue."""
+    return [
+        "project",
+        "item-create",
+        str(number),
+        "--owner",
+        owner,
+        "--title",
+        CONST_ROADMAP_RUN_RECORD_TITLE,
+        "--body",
+        CONST_ROADMAP_RUN_RECORD_BODY,
+    ]
+
+
+def item_delete_args(owner: str, number: Number, card_id: str) -> list[str]:
+    return ["project", "item-delete", str(number), "--owner", owner, "--id", card_id]
+
+
+GRAPHQL_INPUT_ARGS: tuple[str, ...] = ("api", "graphql", "--input", "-")
+"""A GraphQL write, its request on stdin, so option lists need no flag encoding."""
+
+
+def graphql_request(query: str, variables: Mapping[str, Any]) -> str:
+    """The stdin of a `GRAPHQL_INPUT_ARGS` write."""
+    return json.dumps({"query": query, "variables": dict(variables)})
+
+
+def create_field_request(project_id: str, name: str, data_type: str, options: object = None) -> str:
+    """The stdin of the `createProjectV2Field` write that gives board `project_id` a field;
+    `options`, for a single-select field, its `singleSelectOptions`."""
+    created: dict[str, object] = {"projectId": project_id, "dataType": data_type, "name": name}
+    extra = {"singleSelectOptions": options} if options is not None else {}
+    return graphql_request(_CREATE_FIELD_MUTATION, {"input": created | extra})
+
+
+def field_spec_request(project_id: str, spec: FieldSpec) -> str:
+    """The `createProjectV2Field` write that gives board `project_id` the spec's field."""
+    if spec.single_select:
+        options = [_option_input(o) for o in spec.options]
+        return create_field_request(
+            project_id, spec.name, CONST_GH_PROJECT_SINGLE_SELECT_TYPE, options
+        )
+    return create_field_request(project_id, spec.name, CONST_GH_PROJECT_TEXT_TYPE)
+
+
+def close_as_duplicate_request(issue_id: str, original_id: str) -> str:
+    return graphql_request(
+        _CLOSE_AS_DUPLICATE_MUTATION, {"issue": issue_id, "original": original_id}
+    )
+
+
+def issue_args(repo: str, number: Number) -> list[str]:
+    return ["api", f"repos/{repo}/issues/{number}"]
+
+
+def issue_events_page_args(repo: str, page: Number) -> list[str]:
+    """A page of `repo`'s issue events, newest first."""
+    return ["api", f"repos/{repo}/issues/events?per_page={DEFAULT_GH_REST_PER_PAGE}&page={page}"]
+
+
+def issue_events_endpoint(repo: str, number: Number) -> str:
+    return f"repos/{repo}/issues/{number}/events"
+
+
+def merged_pull_requests_endpoint(repo: str, base: str) -> str:
+    """The REST listing of `repo`'s closed pull requests into `base`, oldest first; the merged
+    ones are those with a merge time."""
+    return f"repos/{repo}/pulls?state=closed&base={quote(base, safe='')}&sort=created&direction=asc"
+
+
+def pull_request_files_endpoint(repo: str, number: Number) -> str:
+    """The REST listing of the files pull request `number` changed."""
+    return f"repos/{repo}/pulls/{number}/files"
+
+
+def comments_endpoint(repo: str, number: Number) -> str:
+    return f"repos/{repo}/issues/{number}/comments"
+
+
+def dependencies_endpoint(repo: str, number: Number) -> str:
+    return f"repos/{repo}/issues/{number}/dependencies/blocked_by"
+
+
+def milestone_args(
+    repo: str, method: str, number: Number | None = None, fields: Sequence[tuple[str, str]] = ()
+) -> list[str]:
+    """A milestone write: POST to create one, PATCH or DELETE milestone `number`."""
+    path = f"repos/{repo}/milestones" + (f"/{number}" if number is not None else "")
+    flags = [part for name, value in fields for part in ("-f", f"{name}={value}")]
+    return ["api", "-X", method, path, *flags]
+
+
+def issue_milestone_args(repo: str, number: Number, milestone: Number | None) -> list[str]:
+    """Set issue `number`'s milestone, or clear it when `milestone` is None."""
+    value = "null" if milestone is None else milestone
+    return ["api", "-X", "PATCH", f"repos/{repo}/issues/{number}", "-F", f"milestone={value}"]
+
+
+def create_issue_args(repo: str, title: str, body: str, labels: Sequence[str] = ()) -> list[str]:
+    fields = [("title", title), ("body", body), *(("labels[]", label) for label in labels)]
+    flags = [part for name, value in fields for part in ("-f", f"{name}={value}")]
+    return ["api", "-X", "POST", f"repos/{repo}/issues", *flags]
+
+
+def close_issue_args(repo: str, number: Number, reason: str) -> list[str]:
+    return [
+        "api",
+        "-X",
+        "PATCH",
+        f"repos/{repo}/issues/{number}",
+        "-f",
+        "state=closed",
+        "-f",
+        f"state_reason={reason}",
+    ]
+
+
+def write_issue_body_args(repo: str, number: Number, body: str) -> list[str]:
+    """The `gh` arguments that write `body` as the body of issue `number`."""
+    return ["api", "-X", "PATCH", f"repos/{repo}/issues/{number}", "-f", f"body={body}"]
+
+
+def comment_args(repo: str, number: Number, body: str) -> list[str]:
+    return ["api", "-X", "POST", comments_endpoint(repo, number), "-f", f"body={body}"]
+
+
+def label_args(repo: str, number: Number, label: str) -> list[str]:
+    return ["api", "-X", "POST", f"repos/{repo}/issues/{number}/labels", "-f", f"labels[]={label}"]
+
+
+def advisory_args(value: str) -> list[str]:
+    return ["api", f"advisories/{_segment(value)}"]
+
+
+def workflow_run_args(repo: str, value: str) -> list[str]:
+    return ["api", f"repos/{repo}/actions/runs/{_segment(value)}"]
+
+
+def commit_args(repo: str, value: str) -> list[str]:
+    return ["api", f"repos/{repo}/commits/{_segment(value)}"]
+
+
+def release_tag_args(repo: str, tag: str) -> list[str]:
+    tag = tag if tag.startswith("<") else quote(tag)
+    return ["api", f"repos/{repo}/releases/tags/{tag}"]
+
+
+def branch_ref_args(repo: str, name: str) -> list[str]:
+    name = name if name.startswith("<") else quote(name)
+    return ["api", f"repos/{repo}/git/ref/heads/{name}"]
+
+
+def create_branch_args(repo: str, name: str, sha: str) -> list[str]:
+    return [
+        "api",
+        "-X",
+        "POST",
+        f"repos/{repo}/git/refs",
+        "-f",
+        f"ref=refs/heads/{name}",
+        "-f",
+        f"sha={sha}",
+    ]
+
+
+def open_pull_requests_args(repo: str) -> list[str]:
+    return repository_query_args(
+        repo, _OPEN_PULL_REQUESTS_QUERY, first=DEFAULT_GH_OPEN_PULL_REQUEST_LIMIT
+    )
+
+
+def release_pull_requests_args(repo: str, milestone: Number) -> list[str]:
+    return repository_query_args(
+        repo,
+        _RELEASE_PULL_REQUESTS_QUERY,
+        number=milestone,
+        first=DEFAULT_GH_OPEN_PULL_REQUEST_LIMIT,
+    )
+
+
+def issue_status_args(repo: str, number: Number) -> list[str]:
+    return repository_query_args(
+        repo, _ISSUE_STATUS_QUERY, number=number, first=DEFAULT_GH_PROJECT_ITEMS_PER_ISSUE
+    )
+
+
+def default_branch_args(repo: str) -> list[str]:
+    return repository_query_args(repo, _DEFAULT_BRANCH_QUERY)
+
+
+def is_private_args(repo: str) -> list[str]:
+    """The `gh` arguments that query whether `repo` is private."""
+    return repository_query_args(repo, _IS_PRIVATE_QUERY)
+
+
+def closures_args(repo: str, number: Number) -> list[str]:
+    return repository_query_args(
+        repo, _CLOSURES_QUERY, first=DEFAULT_GH_ISSUE_TIMELINE_LIMIT, number=number
+    )
+
+
 def _releases_among(milestones: list[_MilestonePayload]) -> Iterator[Release]:
     for milestone in milestones:
         if is_release_title(milestone.title):
@@ -667,8 +1174,14 @@ class GitHubRoadmapStore(RoadmapStore):
         board_owner: str | None = None,
         board_number: int | None = None,
         runner: GhRunner = run_gh,
+        board_filter: str = "",
     ) -> None:
         self._repo = repo
+        self._board_filter = board_filter
+        # The first and last GraphQL budgets a response reported, and what a board page cost.
+        self._first_budget: GraphQLBudget | None = None
+        self._last_budget: GraphQLBudget | None = None
+        self._page_points = DEFAULT_GH_PROJECT_ITEM_PAGE_POINTS
         self._board: tuple[str, int] | None = (
             (board_owner, board_number) if board_owner and board_number else None
         )
@@ -678,9 +1191,7 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def releases(self) -> list[Release]:
         """Every Release, sorted by version; milestones that aren't versions are skipped."""
-        milestones = self._read_listing(
-            f"repos/{self._repo}/milestones?state=all", _MILESTONES, "milestones"
-        )
+        milestones = self._read_listing(milestones_endpoint(self._repo), _MILESTONES, "milestones")
         return sorted(_releases_among(milestones), key=lambda release: release.version)
 
     def release(self, version: str) -> Release | None:
@@ -704,7 +1215,8 @@ class GitHubRoadmapStore(RoadmapStore):
             "state": state,
         }
         return self._write_milestone(
-            ["api", "-X", "POST", f"repos/{self._repo}/milestones"],
+            "POST",
+            None,
             {name: value for name, value in fields.items() if value is not None},
             f"create Release {title}",
         )
@@ -727,9 +1239,7 @@ class GitHubRoadmapStore(RoadmapStore):
         if not edits:
             return current
         return self._write_milestone(
-            ["api", "-X", "PATCH", f"repos/{self._repo}/milestones/{current.number}"],
-            edits,
-            f"edit Release {current.title}",
+            "PATCH", current.number, edits, f"edit Release {current.title}"
         )
 
     def close_release(self, version: str) -> Release:
@@ -758,12 +1268,12 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def backlog(self) -> list[Item]:
         """The open Items in no Release."""
-        board = self._read_board()
+        board = self._read_board(CONST_ROADMAP_OPEN_ITEMS_FILTER)
         return join_items(self._read_issues("milestone=none&state=open"), board)
 
     def candidates(self) -> list[Candidate]:
         """The open issues of the repository that are not on the board."""
-        board = self._read_board()
+        board = self._read_board(CONST_ROADMAP_OPEN_ITEMS_FILTER)
         return select_candidates(self._read_issues("state=open"), board)
 
     def changes_since(self, since: datetime) -> list[Change]:
@@ -771,15 +1281,7 @@ class GitHubRoadmapStore(RoadmapStore):
         cutoff = as_utc(since)
         changes: list[Change] = []
         for page in range(1, DEFAULT_GH_MAX_PAGINATED_PAGES + 1):
-            events = self._read(
-                [
-                    "api",
-                    f"repos/{self._repo}/issues/events"
-                    f"?per_page={DEFAULT_GH_REST_PER_PAGE}&page={page}",
-                ],
-                _EVENTS,
-                "issue events",
-            )
+            events = self._read(issue_events_page_args(self._repo, page), _EVENTS, "issue events")
             recent = list(takewhile(lambda event: event.created_at >= cutoff, events))
             changes.extend(change for event in recent if (change := event.change()) is not None)
             if len(recent) < len(events) or len(events) < DEFAULT_GH_REST_PER_PAGE:
@@ -802,8 +1304,7 @@ class GitHubRoadmapStore(RoadmapStore):
                 details={"repo": self._repo[:256], "number": number},
             )
         self._write(
-            ["project", "item-add", str(board_number), "--owner", owner, "--url", issue.html_url],
-            f"add #{number} to the board",
+            item_add_args(owner, board_number, issue.html_url), f"add #{number} to the board"
         )
 
     def set_field(
@@ -812,7 +1313,7 @@ class GitHubRoadmapStore(RoadmapStore):
         field: ItemField,
         value: str | None,
         *,
-        marks: Mapping[JobMark, str | None] | None = None,
+        marks: Mapping[Any, str | None] | None = None,
     ) -> None:
         """Record the value in the Item's job record, with `marks`, then set or clear the field.
 
@@ -842,7 +1343,7 @@ class GitHubRoadmapStore(RoadmapStore):
     def set_marks(
         self,
         item: Item,
-        marks: Mapping[JobMark, str | None],
+        marks: Mapping[Any, str | None],
         *,
         recorded: Mapping[ItemField, str | None] | None = None,
         forgotten: Collection[ItemField] = (),
@@ -861,7 +1362,7 @@ class GitHubRoadmapStore(RoadmapStore):
         card = self._run_record_card()
         return card.card().job_record if card else {}
 
-    def set_run_record(self, marks: Mapping[JobMark, str | None]) -> None:
+    def set_run_record(self, marks: Mapping[Any, str | None]) -> None:
         """Set or clear marks in the run record card's job record, creating the card first when
         the board has none. The card is found again after it is created, by its title."""
         board = self._require_existing_board()
@@ -870,25 +1371,14 @@ class GitHubRoadmapStore(RoadmapStore):
         record = require_field(fields, CONST_GH_PROJECT_JOB_RECORD_FIELD, "roadmap.run_record")
         card = self._run_record_card() or self._create_run_record_card()
         self._write(
-            [
-                "project",
-                "item-edit",
-                "--id",
-                card.id,
-                "--project-id",
-                board.id,
-                "--field-id",
-                record.id,
-                "--text",
-                card.recorded(marks),
-            ],
+            card_edit_args(card.id, board.id, record.id, ["--text", card.recorded(marks)]),
             "set the run record",
         )
 
     def release_changes(self, number: int) -> list[Change]:
         """Every time issue `number` joined or left a Release, from its own events."""
         events = self._read_listing(
-            f"repos/{self._repo}/issues/{number}/events", _EVENTS, f"#{number} events"
+            issue_events_endpoint(self._repo, number), _EVENTS, f"#{number} events"
         )
         moves = (ChangeKind.JOINED_RELEASE, ChangeKind.LEFT_RELEASE)
         changes = (event.model_copy(update={"number": number}).change() for event in events)
@@ -898,8 +1388,7 @@ class GitHubRoadmapStore(RoadmapStore):
         """Delete the Release of `version`, raising if there is none."""
         deleted = require_release(self.releases(), version, "roadmap.release.delete")
         self._write(
-            ["api", "-X", "DELETE", f"repos/{self._repo}/milestones/{deleted.number}"],
-            f"delete Release {deleted.title}",
+            milestone_args(self._repo, "DELETE", deleted.number), f"delete Release {deleted.title}"
         )
 
     # ── Issues ──
@@ -910,11 +1399,8 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def create_issue(self, title: str, body: str, *, labels: Sequence[str] = ()) -> IssueRecord:
         """Open an issue with `title`, `body` and `labels`, returning it."""
-        fields = [("title", title), ("body", body), *(("labels[]", label) for label in labels)]
-        flags = [part for name, value in fields for part in ("-f", f"{name}={value}")]
         written = self._write(
-            ["api", "-X", "POST", f"repos/{self._repo}/issues", *flags],
-            f"open the issue {title[:64]!r}",
+            create_issue_args(self._repo, title, body, labels), f"open the issue {title[:64]!r}"
         )
         return self._validate(written, _ISSUE, "issue after it was opened").record()
 
@@ -927,86 +1413,135 @@ class GitHubRoadmapStore(RoadmapStore):
                 details={"repo": self._repo[:256], "number": number},
             )
         self.comment(number, comment)
-        self._write(
-            [
-                "api",
-                "-X",
-                "PATCH",
-                f"repos/{self._repo}/issues/{number}",
-                "-f",
-                "state=closed",
-                "-f",
-                f"state_reason={reason}",
-            ],
-            f"close #{number}",
-        )
+        self._write(close_issue_args(self._repo, number, reason), f"close #{number}")
+
+    def read_issue_body(self, number: int) -> str:
+        """The body of issue `number`, raising if it is not an issue of this repository."""
+        issue = self._read_issue(number)
+        if issue.pull_request is not None:
+            raise GitHubOperationError(
+                f"#{number} in {self._repo} is a pull request, not an issue.",
+                operation="roadmap.issue.read_body",
+                details={"repo": self._repo[:256], "number": number},
+            )
+        return issue.body or ""
+
+    def write_issue_body(self, number: int, body: str) -> None:
+        """Write `body` as the body of issue `number`, raising if it is not an issue of this repository."""
+        if self._read_issue(number).pull_request is not None:
+            raise GitHubOperationError(
+                f"#{number} in {self._repo} is a pull request, not an issue.",
+                operation="roadmap.issue.write_body",
+                details={"repo": self._repo[:256], "number": number},
+            )
+        self._write(write_issue_body_args(self._repo, number, body), f"write body of #{number}")
 
     def comments_on(self, number: int) -> list[str]:
         """The body of every comment on issue `number`, oldest first."""
         listing = self._read_listing(
-            f"repos/{self._repo}/issues/{number}/comments", _COMMENTS, f"#{number} comments"
+            comments_endpoint(self._repo, number), _COMMENTS, f"#{number} comments"
         )
         return [comment.body for comment in listing]
 
     def comment(self, number: int, body: str) -> None:
         """Comment `body` on issue `number`."""
-        self._write(
-            [
-                "api",
-                "-X",
-                "POST",
-                f"repos/{self._repo}/issues/{number}/comments",
-                "-f",
-                f"body={body}",
-            ],
-            f"comment on #{number}",
+        self._write(comment_args(self._repo, number, body), f"comment on #{number}")
+
+    # ── What intake reads and writes ──
+
+    def close_as_duplicate(self, number: int, original: int, comment: str | None) -> None:
+        """Comment on issue `number` unless `comment` is None, then close it as a duplicate of
+        `original` through GraphQL, which alone sets the original (`duplicateIssueId`). Both are
+        read first, so a pull request on either side raises before any write."""
+        node_ids = [self._require_issue_node(n, "roadmap.issue.close") for n in (number, original)]
+        if comment is not None:
+            self.comment(number, comment)
+        self._graphql(
+            close_as_duplicate_request(node_ids[0], node_ids[1]),
+            f"close #{number} as a duplicate of #{original}",
         )
+
+    def closures(self, number: int) -> list[Closure]:
+        """Every close and reopen of issue `number` from its timeline, oldest first."""
+        timeline = self._read(closures_args(self._repo, number), _TIMELINE, f"#{number} timeline")
+        self._require_whole(len(timeline.nodes), timeline.total_count, f"#{number} closes")
+        return [node.closure() for node in timeline.nodes]
+
+    def label_issue(self, number: int, label: str) -> None:
+        """Add `label` to issue `number`; GitHub keeps its other labels."""
+        self._write(label_args(self._repo, number, label), f"label #{number} {label}")
+
+    def evidence_holds(self, evidence: Evidence) -> bool:
+        """Whether GitHub confirms the evidence. The value is one path segment of its endpoint,
+        so no value reaches another resource; a commit GitHub can't resolve answers 422."""
+        if evidence.kind is EvidenceKind.ADVISORY:
+            return (
+                self._read_or_none(advisory_args(evidence.value), _ANY_OBJECT, "advisory")
+                is not None
+            )
+        if evidence.kind is EvidenceKind.FAILED_RUN:
+            run = self._read_or_none(
+                workflow_run_args(self._repo, evidence.value), _WORKFLOW_RUN, "run"
+            )
+            return run is not None and run.conclusion == "failure"
+        commit = self._read_or_none(
+            commit_args(self._repo, evidence.value),
+            _ANY_OBJECT,
+            "commit",
+            absent=(HTTPStatus.NOT_FOUND, HTTPStatus.UNPROCESSABLE_ENTITY),
+        )
+        return commit is not None
+
+    def count_issues(self, query: IssueQuery) -> int:
+        """How many issues match `query`, from REST search's `total_count`, which spends the REST
+        quota and no GraphQL points; an incomplete search raises rather than undercount."""
+        found = self._read(issue_count_args(self._repo, query), _SEARCH, "issue search")
+        if found.incomplete_results:
+            raise GitHubOperationError(
+                f"GitHub's issue search of {self._repo} came back incomplete, so the count can't "
+                "be trusted; run again.",
+                operation="roadmap.read",
+                details={"repo": self._repo[:256]},
+            )
+        return found.total_count
 
     def repository_file(self, path: str, *, ref: str | None = None) -> str:
         """The raw text of `path` on `ref` through the contents API, raising when it can't be read."""
-        query = f"?ref={quote(ref, safe='')}" if ref else ""
-        endpoint = f"repos/{self._repo}/contents/{quote(path)}{query}"
-        proc = self._run(["api", "-H", CONST_GH_RAW_CONTENT_ACCEPT, endpoint])
-        if proc.returncode != 0:
-            raise self._failure(
-                proc, f"read {path} at {ref or 'the default branch'}", "roadmap.read"
+        proc = self._run(repository_file_args(self._repo, path, ref=ref))
+        where = f"{path} at {ref or 'the default branch'}"
+        if proc.returncode == 0:
+            return proc.stdout or ""
+        status = CONST_GH_API_HTTP_STATUS_RE.search(f"{proc.stderr or ''} {proc.stdout or ''}")
+        if status is not None and int(status.group("status")) == HTTPStatus.NOT_FOUND:
+            raise GitHubFileNotFoundError(
+                f"{self._repo} has no {where}.",
+                operation="roadmap.read",
+                details={"repo": self._repo[:256], "path": path[:256]},
             )
-        return proc.stdout or ""
+        raise self._failure(proc, f"read {where}", "roadmap.read")
+
+    def repository_is_private(self) -> bool:
+        """Whether the repository is private."""
+        return self._read(
+            is_private_args(self._repo), _IS_PRIVATE, f"{self._repo} visibility"
+        ).is_private
 
     # ── The board ──
 
     def board(self) -> Board | None:
         """The configured board, or None when its owner has no board with that number."""
         owner, number = self._require_board()
-        listing = self._read(
-            [
-                "project",
-                "list",
-                "--owner",
-                owner,
-                "--closed",
-                "--format",
-                "json",
-                "--limit",
-                str(DEFAULT_GH_PROJECT_LIST_LIMIT),
-            ],
-            _PROJECTS,
-            f"{owner}'s boards",
-        )
+        listing = self._read(project_list_args(owner), _PROJECTS, f"{owner}'s boards")
         self._require_whole(len(listing.projects), listing.total_count, f"{owner}'s boards")
         return next((p.board() for p in listing.projects if p.number == number), None)
 
     def create_board(self, title: str, fields: Sequence[FieldSpec]) -> Board:
         """Create a board titled `title`, link it to the repository, then give it `fields`."""
         owner, _ = self._require_board()
-        written = self._write(
-            ["project", "create", "--owner", owner, "--title", title, "--format", "json"],
-            f"create the board {title[:64]!r}",
-        )
+        written = self._write(project_create_args(owner, title), f"create the board {title[:64]!r}")
         created = self._validate(written, _PROJECT, "board after it was created").board()
         self._write(
-            ["project", "link", str(created.number), "--owner", owner, "--repo", self._repo],
-            f"link board #{created.number}",
+            project_link_args(owner, created.number, self._repo), f"link board #{created.number}"
         )
         current = {
             board_field.name: board_field for board_field in self._read_fields(created.number)
@@ -1022,11 +1557,11 @@ class GitHubRoadmapStore(RoadmapStore):
     def delete_field(self, name: str) -> None:
         """Delete the board field `name`, raising if the board has none."""
         deleted = require_field(self.board_fields(), name, "roadmap.board.delete_field")
-        self._write(["project", "field-delete", "--id", deleted.id], f"delete the {name} field")
+        self._write(field_delete_args(deleted.id), f"delete the {name} field")
 
     def cards(self) -> list[Card]:
         """Everything on the board, whatever it holds and whichever repository it belongs to."""
-        return [board_item.card() for board_item in self._read_board_listing().items]
+        return [board_item.card() for board_item in self._read_board_listing()]
 
     def set_card_field(self, card: Card, field: ItemField, value: str | None) -> None:
         """Set or clear a board field on any card by its node ids, then record it."""
@@ -1046,17 +1581,7 @@ class GitHubRoadmapStore(RoadmapStore):
         )
         for board_field, flags in edits:
             self._write(
-                [
-                    "project",
-                    "item-edit",
-                    "--id",
-                    card.id,
-                    "--project-id",
-                    board.id,
-                    "--field-id",
-                    board_field.id,
-                    *flags,
-                ],
+                card_edit_args(card.id, board.id, board_field.id, flags),
                 f"set {board_field.name} on card {card.id}",
             )
 
@@ -1065,17 +1590,14 @@ class GitHubRoadmapStore(RoadmapStore):
         owner, number = self._require_board()
         self._require_card(card, "roadmap.card.remove")
         self._write(
-            ["project", "item-delete", str(number), "--owner", owner, "--id", card.id],
-            f"remove card {card.id} from board #{number}",
+            item_delete_args(owner, number, card.id), f"remove card {card.id} from board #{number}"
         )
 
     def workflows(self) -> list[Workflow]:
         """The board's built-in workflows."""
         owner, number = self._require_board()
         payload = self._read(
-            self._board_query(_WORKFLOWS_QUERY, owner, number, DEFAULT_GH_PROJECT_WORKFLOW_LIMIT),
-            _WORKFLOWS,
-            f"board #{number} workflows",
+            board_workflows_args(owner, number), _WORKFLOWS, f"board #{number} workflows"
         )
         connection = payload.workflows
         self._require_whole(len(connection.nodes), connection.total_count, "board workflows")
@@ -1086,7 +1608,7 @@ class GitHubRoadmapStore(RoadmapStore):
     def dependencies(self, number: int) -> list[Dependency]:
         """The issues issue `number` waits on through GitHub's blocked-by links."""
         listing = self._read_listing(
-            f"repos/{self._repo}/issues/{number}/dependencies/blocked_by",
+            dependencies_endpoint(self._repo, number),
             _DEPENDENCIES,
             f"#{number} dependencies",
         )
@@ -1096,11 +1618,7 @@ class GitHubRoadmapStore(RoadmapStore):
         """The `updatedAt` of the Item's Status on the configured board, or None without one."""
         owner, board_number = self._require_board()
         payload = self._read(
-            self._repository_query(
-                _ISSUE_STATUS_QUERY, number=number, first=DEFAULT_GH_PROJECT_ITEMS_PER_ISSUE
-            ),
-            _ISSUE_STATUS,
-            f"#{number} board cards",
+            issue_status_args(self._repo, number), _ISSUE_STATUS, f"#{number} board cards"
         )
         cards = payload.cards
         self._require_whole(len(cards.nodes), cards.total_count, f"#{number} board cards")
@@ -1116,11 +1634,7 @@ class GitHubRoadmapStore(RoadmapStore):
     def open_pull_requests(self) -> list[PullRequest]:
         """Every open pull request, from one GraphQL read of up to its limit."""
         payload = self._read(
-            self._repository_query(
-                _OPEN_PULL_REQUESTS_QUERY, first=DEFAULT_GH_OPEN_PULL_REQUEST_LIMIT
-            ),
-            _OPEN_PULL_REQUESTS,
-            "open pull requests",
+            open_pull_requests_args(self._repo), _OPEN_PULL_REQUESTS, "open pull requests"
         )
         return self._pull_requests(payload.connection, "open pull requests")
 
@@ -1128,21 +1642,40 @@ class GitHubRoadmapStore(RoadmapStore):
         """The pull requests with the `release` label in the Release's milestone."""
         release = require_release(self.releases(), version, "roadmap.release.pull_requests")
         payload = self._read(
-            self._repository_query(
-                _RELEASE_PULL_REQUESTS_QUERY,
-                number=release.number,
-                first=DEFAULT_GH_OPEN_PULL_REQUEST_LIMIT,
-            ),
+            release_pull_requests_args(self._repo, release.number),
             _RELEASE_PULL_REQUESTS,
             f"{release.title} release pull requests",
         )
         return self._pull_requests(payload.connection, f"{release.title} release pull requests")
 
+    def merged_pull_requests(self, base: str) -> list[MergedPullRequest]:
+        """Every pull request merged into `base`, oldest first, each with the paths it changed;
+        each listing is read a full page at a time, and a failed page raises."""
+        closed = self._read_listing(
+            merged_pull_requests_endpoint(self._repo, base),
+            _CLOSED_PULL_REQUESTS,
+            f"pull requests into {base}",
+        )
+        return [
+            pull_request.merged(
+                [
+                    changed.filename
+                    for changed in self._read_listing(
+                        pull_request_files_endpoint(self._repo, pull_request.number),
+                        _PULL_REQUEST_FILES,
+                        f"#{pull_request.number} files",
+                    )
+                ]
+            )
+            for pull_request in closed
+            if pull_request.merged_at is not None
+        ]
+
     def release_published(self, version: str) -> bool:
         """Whether GitHub Release `vX.Y.Z` is published: it exists and is not a draft."""
         tag = release_title(version)
         found = self._read_or_none(
-            ["api", f"repos/{self._repo}/releases/tags/{quote(tag)}"],
+            release_tag_args(self._repo, tag),
             _GITHUB_RELEASE,
             f"GitHub Release {tag}",
         )
@@ -1150,33 +1683,17 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def default_branch(self) -> Branch:
         """The default branch and its head commit, from one GraphQL read."""
-        payload = self._read(
-            self._repository_query(_DEFAULT_BRANCH_QUERY), _DEFAULT_BRANCH, "default branch"
-        )
+        payload = self._read(default_branch_args(self._repo), _DEFAULT_BRANCH, "default branch")
         return Branch(name=payload.name, sha=payload.sha)
 
     def branch(self, name: str) -> str | None:
         """The head commit of branch `name`, or None when the ref is not found."""
-        found = self._read_or_none(
-            ["api", f"repos/{self._repo}/git/ref/heads/{quote(name)}"], _REF, f"branch {name}"
-        )
+        found = self._read_or_none(branch_ref_args(self._repo, name), _REF, f"branch {name}")
         return found.sha if found else None
 
     def create_branch(self, name: str, sha: str) -> None:
         """Create branch `name` at `sha`; GitHub refuses a ref that already exists."""
-        self._write(
-            [
-                "api",
-                "-X",
-                "POST",
-                f"repos/{self._repo}/git/refs",
-                "-f",
-                f"ref=refs/heads/{name}",
-                "-f",
-                f"sha={sha}",
-            ],
-            f"create branch {name}",
-        )
+        self._write(create_branch_args(self._repo, name, sha), f"create branch {name}")
 
     # ── Writes ──
 
@@ -1194,26 +1711,13 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def _run_record_card(self) -> _BoardItemPayload | None:
         """The run record card as the board holds it now, or None."""
-        listing = self._read_board_listing().items
+        listing = self._read_board_listing()
         return next((item for item in listing if item.is_run_record()), None)
 
     def _create_run_record_card(self) -> _BoardItemPayload:
         """Put the run record card on the board, and read it back."""
         owner, number = self._require_board()
-        self._write(
-            [
-                "project",
-                "item-create",
-                str(number),
-                "--owner",
-                owner,
-                "--title",
-                CONST_ROADMAP_RUN_RECORD_TITLE,
-                "--body",
-                CONST_ROADMAP_RUN_RECORD_BODY,
-            ],
-            "create the run record card",
-        )
+        self._write(run_record_card_args(owner, number), "create the run record card")
         created = self._run_record_card()
         if created is None:
             raise GitHubOperationError(
@@ -1248,44 +1752,22 @@ class GitHubRoadmapStore(RoadmapStore):
     def _place_in_release(self, item: Item, target: Release | None) -> None:
         """Set or clear the issue's milestone."""
         self._write(
-            [
-                "api",
-                "-X",
-                "PATCH",
-                f"repos/{self._repo}/issues/{item.number}",
-                "-F",
-                f"milestone={target.number if target else 'null'}",
-            ],
+            issue_milestone_args(self._repo, item.number, target.number if target else None),
             f"set the Release of #{item.number}",
         )
 
     def _edit_board_field(self, item: Item, field_name: str, change: list[str]) -> None:
         owner, board_number = self._require_board()
         self._write(
-            [
-                "project",
-                "item-edit",
-                str(board_number),
-                "--owner",
-                owner,
-                "--url",
-                item.url,
-                "--field",
-                field_name,
-                *change,
-            ],
+            item_edit_args(owner, board_number, item.url, field_name, change),
             f"set {field_name} on #{item.number}",
         )
 
     def _write_milestone(
-        self, command: list[str], fields: dict[str, str | date], action: str
+        self, method: str, number: int | None, fields: dict[str, str | date], action: str
     ) -> Release:
-        flags = [
-            part
-            for name, value in fields.items()
-            for part in ("-f", f"{name}={_wire_value(value)}")
-        ]
-        written = self._write([*command, *flags], action)
+        wire = [(name, _wire_value(value)) for name, value in fields.items()]
+        written = self._write(milestone_args(self._repo, method, number, wire), action)
         return self._validate(written, _MILESTONE, f"milestone after {action}").release()
 
     def _write(self, args: list[str], action: str) -> str:
@@ -1305,34 +1787,91 @@ class GitHubRoadmapStore(RoadmapStore):
             )
         return self._board
 
-    def _read_board_listing(self) -> _BoardListingPayload:
-        """Every card on the board, raising on a short read."""
+    def _read_board_listing(self, board_filter: str | None = None) -> list[_BoardItemPayload]:
+        """The board's items that `board_filter`, or the job's filter, selects, archived ones
+        left out, refusing before any page when the budget can't cover the read and raising on a
+        short read. A count that changes during the read is read again once."""
         owner, number = self._require_board()
-        listing = self._read(
-            [
-                "project",
-                "item-list",
-                str(number),
-                "--owner",
-                owner,
-                "--format",
-                "json",
-                "--limit",
-                str(DEFAULT_GH_PROJECT_ITEM_LIMIT),
-            ],
-            _BOARD,
-            f"board #{number}",
+        query = self._board_filter if board_filter is None else board_filter
+        texts = MESSAGES.roadmap
+        what = (
+            texts.board_items_filtered.format(number=number, query=query)
+            if query
+            else texts.board_items.format(number=number)
         )
-        self._require_whole(len(listing.items), listing.total_count, f"board #{number} items")
-        return listing
+        probe = self._read(board_budget_args(owner, number, query), _BOARD_BUDGET, what)
+        self._note_budget(probe.rate_limit)
+        require_budget(
+            probe.rate_limit, read_cost(probe.items.total_count, self._page_points), what
+        )
+        counts: list[int] = []
+        for attempt in range(2):
+            listing, totals = self._read_board_pages(owner, number, query, what)
+            counts.extend(totals)
+            if set(totals) == {len(listing)}:
+                return self._validate(json.dumps(listing), _BOARD_ITEMS, what)
+            if attempt == 0:
+                logger.info(texts.board_reread.format(what=what, counts=_counts(totals, listing)))
+        if len(set(counts)) == 1:
+            self._require_whole(len(listing), counts[0], what)
+        raise GitHubOperationError(
+            texts.board_count_changed.format(what=what, counts=_counts(counts, listing)),
+            operation="roadmap.read",
+            details={"repo": self._repo[:256], "counts": counts[:16]},
+        )
 
-    def _read_board(self) -> dict[int, BoardEntry]:
-        """The board's issues of this repository, by number."""
-        return {number: item.entry() for number, item in self._read_board_items().items()}
+    def _read_board_pages(
+        self, owner: str, number: int, query: str, what: str
+    ) -> tuple[list[dict[str, Any]], list[int]]:
+        """Every page of one read, each item once by its id, and the total each page reported.
 
-    def _read_board_items(self) -> dict[int, _BoardItemPayload]:
+        Before each page after the first, a read with fewer points left than the floor stops.
+        """
+        listing: dict[str, dict[str, Any]] = {}
+        totals: list[int] = []
+        after: str | None = None
+        for page in range(1, DEFAULT_GH_MAX_PAGINATED_PAGES + 1):
+            if page > 1 and self._last_budget is not None:
+                require_floor(self._last_budget, what, page)
+            read = self._read(
+                board_items_args(owner, number, query, after=after),
+                _BOARD_PAGE,
+                f"{what} (page {page})",
+            )
+            self._note_budget(read.rate_limit)
+            self._page_points = max(self._page_points, read.rate_limit.cost)
+            totals.append(read.items.total_count)
+            listing.update((entry["id"], entry) for entry in read.listed())
+            after = read.next_cursor()
+            if after is None:
+                return list(listing.values()), totals
+        raise GitHubOperationError(
+            f"The {what} run past {DEFAULT_GH_MAX_PAGINATED_PAGES} pages, so the read can't "
+            "complete.",
+            operation="roadmap.read",
+            details={"repo": self._repo[:256], "read": what[:256]},
+        )
+
+    def _note_budget(self, budget: GraphQLBudget) -> None:
+        """Keep the first and last GraphQL budgets a response reported."""
+        self._first_budget = self._first_budget or budget
+        self._last_budget = budget
+
+    def graphql_spend(self) -> GraphQLSpend:
+        """The GraphQL points this store's run spent and the points left, read from GraphQL."""
+        budget = self._read(graphql_budget_args(), _GRAPHQL_BUDGET, "the GraphQL budget")
+        self._note_budget(budget.rate_limit)
+        return spend_between(self._first_budget or budget.rate_limit, budget.rate_limit)
+
+    def _read_board(self, board_filter: str | None = None) -> dict[int, BoardEntry]:
+        """The board's issues of this repository that the filter selects, by number."""
+        return {
+            number: item.entry() for number, item in self._read_board_items(board_filter).items()
+        }
+
+    def _read_board_items(self, board_filter: str | None = None) -> dict[int, _BoardItemPayload]:
         """The board's cards of this repository's issues, as listed, by number."""
-        items = self._read_board_listing().items
+        items = self._read_board_listing(board_filter)
         return {
             item.content_number: item
             for item in items
@@ -1352,7 +1891,7 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def _require_card(self, card: Card, operation: str) -> _BoardItemPayload:
         """The card as the board holds it now, raising when it is no longer on the board."""
-        listing = self._read_board_listing().items
+        listing = self._read_board_listing()
         found = next((current for current in listing if current.id == card.id), None)
         if found is None:
             raise GitHubOperationError(
@@ -1362,22 +1901,6 @@ class GitHubRoadmapStore(RoadmapStore):
             )
         return found
 
-    def _repository_query(self, query: str, **variables: int) -> list[str]:
-        """A GraphQL read about this repository, with its integer variables."""
-        owner, name = self._repo.split("/", 1)
-        typed = [part for key, value in variables.items() for part in ("-F", f"{key}={value}")]
-        return [
-            "api",
-            "graphql",
-            "-f",
-            f"query={query}",
-            "-f",
-            f"owner={owner}",
-            "-f",
-            f"name={name}",
-            *typed,
-        ]
-
     def _pull_requests(
         self, connection: _PullRequestConnectionPayload, what: str
     ) -> list[PullRequest]:
@@ -1385,36 +1908,39 @@ class GitHubRoadmapStore(RoadmapStore):
         return [node.pull_request() for node in connection.nodes]
 
     def _read_or_none[PayloadT](
-        self, args: list[str], adapter: TypeAdapter[PayloadT], what: str
+        self,
+        args: list[str],
+        adapter: TypeAdapter[PayloadT],
+        what: str,
+        *,
+        absent: Collection[HTTPStatus] = (HTTPStatus.NOT_FOUND,),
     ) -> PayloadT | None:
-        """Read one REST resource, or None when GitHub answers 404; any other failure raises."""
+        """Read one REST resource, or None when GitHub answers with an `absent` status (404);
+        any other failure raises."""
         proc = self._run(args)
         if proc.returncode == 0:
             return self._validate(proc.stdout or "", adapter, what)
         status = CONST_GH_API_HTTP_STATUS_RE.search(f"{proc.stderr or ''} {proc.stdout or ''}")
-        if status is not None and int(status.group("status")) == HTTPStatus.NOT_FOUND:
+        if status is not None and int(status.group("status")) in absent:
             return None
         raise self._failure(proc, f"read {what}", "roadmap.read")
 
-    def _board_query(self, query: str, owner: str, number: int, first: int) -> list[str]:
-        return [
-            "api",
-            "graphql",
-            "-f",
-            f"query={query}",
-            "-f",
-            f"owner={owner}",
-            "-F",
-            f"number={number}",
-            "-F",
-            f"first={first}",
-        ]
+    def _require_issue_node(self, number: int, operation: str) -> str:
+        """Issue `number`'s node id, raising when it is a pull request."""
+        issue = self._read_issue(number)
+        if issue.pull_request is not None or issue.node_id is None:
+            raise GitHubOperationError(
+                f"#{number} in {self._repo} is a pull request, not an issue.",
+                operation=operation,
+                details={"repo": self._repo[:256], "number": number},
+            )
+        return issue.node_id
 
     def _read_fields(self, number: int) -> list[BoardField]:
         """Board `number`'s fields through GraphQL, which alone gives option colors and descriptions."""
         owner, _ = self._require_board()
         payload = self._read(
-            self._board_query(_FIELDS_QUERY, owner, number, DEFAULT_GH_PROJECT_FIELD_LIMIT),
+            board_fields_args(owner, number),
             _BOARD_FIELDS,
             f"board #{number} fields",
         )
@@ -1430,32 +1956,21 @@ class GitHubRoadmapStore(RoadmapStore):
         The new board holds no cards, so the new option ids its options get cost no value.
         """
         if current is None:
-            data_type = (
-                CONST_GH_PROJECT_SINGLE_SELECT_TYPE
-                if spec.single_select
-                else CONST_GH_PROJECT_TEXT_TYPE
-            )
-            options = (
-                {"singleSelectOptions": [_option_input(o) for o in spec.options]}
-                if spec.single_select
-                else {}
-            )
-            created = {"projectId": board.id, "dataType": data_type, "name": spec.name}
-            request = {"query": _CREATE_FIELD_MUTATION, "variables": {"input": created | options}}
-            self._graphql(request, f"create the {spec.name} field")
+            self._graphql(field_spec_request(board.id, spec), f"create the {spec.name} field")
         elif current.single_select and spec.single_select:
             self._replace_options(current, spec.options)
 
     def _replace_options(self, current: BoardField, options: Sequence[FieldOption]) -> BoardField:
         written = self._graphql(
-            option_update_request(current.id, options), f"replace the {current.name} options"
+            json.dumps(option_update_request(current.id, options)),
+            f"replace the {current.name} options",
         )
         updated = self._validate(written, _UPDATED_FIELD, f"{current.name} field after its update")
         return updated.field.field()
 
-    def _graphql(self, request: dict[str, Any], action: str) -> str:
-        """Send a GraphQL write on stdin, so option lists need no flag encoding."""
-        proc = self._run(["api", "graphql", "--input", "-"], input=json.dumps(request))
+    def _graphql(self, request: str, action: str) -> str:
+        """Send a GraphQL write, its request on stdin, so option lists need no flag encoding."""
+        proc = self._run(list(GRAPHQL_INPUT_ARGS), input=request)
         if proc.returncode != 0:
             raise self._failure(proc, action, "roadmap.write")
         return proc.stdout or ""
@@ -1464,17 +1979,7 @@ class GitHubRoadmapStore(RoadmapStore):
         """Every board field's options by field name; fields that aren't single-select have none."""
         owner, number = self._require_board()
         listing = self._read(
-            [
-                "project",
-                "field-list",
-                str(number),
-                "--owner",
-                owner,
-                "--format",
-                "json",
-                "--limit",
-                str(DEFAULT_GH_PROJECT_FIELD_LIMIT),
-            ],
+            field_list_args(owner, number),
             _FIELDS,
             f"board #{number} fields",
         )
@@ -1485,12 +1990,10 @@ class GitHubRoadmapStore(RoadmapStore):
         }
 
     def _read_issue(self, number: int) -> _IssuePayload:
-        return self._read(
-            ["api", f"repos/{self._repo}/issues/{number}"], _ISSUE, f"issue #{number}"
-        )
+        return self._read(issue_args(self._repo, number), _ISSUE, f"issue #{number}")
 
     def _read_issues(self, query: str) -> list[IssueRecord]:
-        issues = self._read_listing(f"repos/{self._repo}/issues?{query}", _ISSUES, "issues")
+        issues = self._read_listing(issues_endpoint(self._repo, query), _ISSUES, "issues")
         return [issue.record() for issue in issues]
 
     def _read_listing[EntryT](
@@ -1502,16 +2005,10 @@ class GitHubRoadmapStore(RoadmapStore):
         end the listing at a page that is empty or not JSON, as a proxy's error page is, and
         report what it read before as the whole of it.
         """
-        separator = "&" if "?" in endpoint else "?"
         listing: list[EntryT] = []
         for page in range(1, DEFAULT_GH_MAX_PAGINATED_PAGES + 1):
             entries = self._read(
-                [
-                    "api",
-                    f"{endpoint}{separator}per_page={DEFAULT_GH_REST_PER_PAGE}&page={page}",
-                ],
-                adapter,
-                f"{what} (page {page})",
+                listing_page_args(endpoint, page), adapter, f"{what} (page {page})"
             )
             listing.extend(entries)
             if len(entries) < DEFAULT_GH_REST_PER_PAGE:
@@ -1565,10 +2062,64 @@ class GitHubRoadmapStore(RoadmapStore):
         )
 
 
+def _counts(totals: Sequence[int], listing: Sequence[object]) -> str:
+    """The totals a read saw, then what it received."""
+    return ", ".join(str(total) for total in totals) + f"; received {len(listing)}"
+
+
 __all__ = [
+    "GRAPHQL_INPUT_ARGS",
     "GhRunner",
     "GitHubRoadmapStore",
+    "advisory_args",
+    "board_fields_args",
+    "board_query_args",
+    "board_workflows_args",
+    "branch_ref_args",
+    "card_edit_args",
+    "close_as_duplicate_request",
+    "close_issue_args",
+    "closures_args",
+    "comment_args",
+    "comments_endpoint",
+    "commit_args",
+    "create_branch_args",
+    "create_field_request",
+    "create_issue_args",
     "decode_job_record",
+    "default_branch_args",
+    "dependencies_endpoint",
     "encode_job_record",
+    "field_delete_args",
+    "field_list_args",
+    "field_spec_request",
+    "graphql_request",
+    "is_private_args",
+    "issue_args",
+    "issue_count_args",
+    "issue_events_endpoint",
+    "issue_events_page_args",
+    "issue_milestone_args",
+    "issue_search_text",
+    "issue_status_args",
+    "issues_endpoint",
+    "item_add_args",
+    "item_delete_args",
+    "item_edit_args",
+    "label_args",
+    "listing_page_args",
+    "milestone_args",
+    "milestones_endpoint",
+    "open_pull_requests_args",
     "option_update_request",
+    "project_create_args",
+    "project_link_args",
+    "project_list_args",
+    "release_pull_requests_args",
+    "release_tag_args",
+    "repository_file_args",
+    "repository_query_args",
+    "run_record_card_args",
+    "workflow_run_args",
+    "write_issue_body_args",
 ]

@@ -25,6 +25,8 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_JSON_NAME,
     CONST_DEVCONTAINER_JSON_PATH,
     CONST_DEVCONTAINER_PUBLISHED_IMAGE,
+    CONST_GH_LOGIN_ENV_VARS,
+    CONST_GH_TOKEN_ENV_VARS,
     CONST_KEYRING_PACKAGES,
     CONST_KEYRING_PROMPT_TIMEOUT_SECONDS,
     CONST_MCP_JSON_NAME,
@@ -206,7 +208,7 @@ def update(
         data = json.loads(dc_file.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         print_error(ERRORS.devcontainer.invalid_json.format(path=dc_file, exc=exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     data["image"] = f"{CONST_DEVCONTAINER_IMAGE_PREFIX}{python_version}"
     write_json_file(dc_file, data)
     print_success(MESSAGES.devcontainer.updated_image.format(version=python_version))
@@ -317,7 +319,7 @@ def validate(
         data = json.loads(clean_text)
     except Exception as exc:
         print_error(ERRORS.devcontainer.parse_failed.format(path=dc_file, exc=exc), prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     errors = _validate_manifest_content(data, dc_file.parent)
     if errors:
@@ -958,17 +960,21 @@ def _start_minikube_cluster(dry_run: bool) -> tuple[bool, str]:
 
 
 def _auto_deploy_k8s_stack(workspace_dir: Path, stack: str, dry_run: bool) -> str | None:
-    """Auto-deploy Kubernetes stack via devops k8s deploy-stack."""
+    """Auto-deploy Kubernetes stack via devops k8s deploy-stack.
+
+    It runs at post-start, possibly before the first shell unlocks the keyring, and deploy-stack
+    then stops before applying anything, so its warning says how to finish the deploy.
+    """
     if not dry_run:
         res = run_subprocess(
-            ["devops", "k8s", "deploy-stack", stack],
+            ["devops", "k8s", "deploy-stack", "--stack", stack],
             cwd=workspace_dir,
             check=False,
             quiet=True,
         )
         if res.returncode == 0:
             return f"Auto-deployed Kubernetes stack '{stack}'"
-        return f"Warning: Failed to auto-deploy Kubernetes stack '{stack}'"
+        return f"Warning: {MESSAGES.devcontainer.auto_deploy_failed.format(stack=stack)}"
     return f"Auto-deployed Kubernetes stack '{stack}'"
 
 
@@ -1446,10 +1452,10 @@ def _move_plaintext_gh_tokens() -> list[str]:
     Returns the hosts moved. Logging in again with the token already held mints nothing, unlike
     `gh auth refresh`, which counts against GitHub's ten-tokens-per-app limit.
     """
-    if any(os.getenv(name) for name in ("GH_TOKEN", "GITHUB_TOKEN", "DEVOPS_CLI_GITHUB_TOKEN")):
+    if any(os.getenv(name) for name in CONST_GH_TOKEN_ENV_VARS):
         return []  # gh prefers an environment token and refuses to log in over it
     # gh needs the bus to reach the keyring; without it the login falls back to plain text again.
-    gh_env = {"DBUS_SESSION_BUS_ADDRESS", "GH_CONFIG_DIR", "XDG_CONFIG_HOME"}
+    gh_env = CONST_GH_LOGIN_ENV_VARS
     moved: list[str] = []
     for host in _gh_plaintext_token_hosts():
         token = run_subprocess(

@@ -691,7 +691,7 @@ def test_registry_reserve_and_register_pending(tmp_path: Path) -> None:
     port1 = bindings1[0].host_port
 
     # Second allocation must atomically recognize port1 as reserved
-    inst2, bindings2 = reg.reserve_and_register_pending(
+    _inst2, bindings2 = reg.reserve_and_register_pending(
         instance_id="sb-2",
         name="test-2",
         image="alpine",
@@ -1011,3 +1011,14 @@ def test_sandbox_deploy_config_policy_integration() -> None:
         cfg.policy.read_only,
         cfg.policy.declared_security_summary(read_only=True)["pids_limit"],
     ) == (128, True, 128)
+
+
+def test_workload_sandbox_engine_prior_samples_instance_isolation(tmp_path: Path) -> None:
+    """Verify that _prior_samples is isolated per WorkloadSandboxEngine instance (#420)."""
+    reg1 = SandboxRegistry(tmp_path / "reg1.json")
+    reg2 = SandboxRegistry(tmp_path / "reg2.json")
+    engine1 = WorkloadSandboxEngine(registry=reg1)
+    engine2 = WorkloadSandboxEngine(registry=reg2)
+
+    engine1._prior_samples["test-key"] = (100.0, None)  # type: ignore[assignment]
+    assert "test-key" not in engine2._prior_samples

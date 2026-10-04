@@ -14,6 +14,7 @@ import typer
 import devops_cli.commands.k8s.cluster_runtime as runtime
 import devops_cli.commands.k8s.networking as net
 from devops_cli.commands.k8s.cluster_runtime import run_subprocess as run_subprocess
+from devops_cli.commands.k8s.cluster_secret_push import push_for_stacks, require_keyring_for_push
 from devops_cli.config.constants import (
     CONST_HELM_DAEMONSET_RELEASES,
     CONST_HELM_OWNERSHIP_CONFLICT_RE,
@@ -23,9 +24,11 @@ from devops_cli.config.defaults import (
     DEFAULT_HELM_RECOVERY_MAX_RETRIES,
     DEFAULT_K8S_DIR,
     DEFAULT_K8S_STACK,
-    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
+from devops_cli.exceptions.k8s import ClusterSecretPushError
+from devops_cli.k8s.cluster_secrets import BASE_STACK, DETACHED_STACKS, secrets_for_stacks
+from devops_cli.k8s.secret_push import namespace_exists
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
@@ -49,7 +52,6 @@ _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
     },
     "logging": {
         "grafana": "https://grafana.github.io/helm-charts",
-        "fluent": "https://fluent.github.io/helm-charts",
     },
 }
 
@@ -133,12 +135,6 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "chart": "grafana/loki",
             "namespace": "logging",
             "values": str(DEFAULT_K8S_DIR / "logging" / "loki-values.yaml"),
-        },
-        {
-            "name": "fluent-bit",
-            "chart": "fluent/fluent-bit",
-            "namespace": "logging",
-            "values": str(DEFAULT_K8S_DIR / "logging" / "fluent-bit-values.yaml"),
         },
     ],
 }
@@ -306,10 +302,10 @@ def _bootstrap_openwebui_account(
         "count = cur.fetchone()[0]\n"
         "if count == 0:\n"
         "    uid = str(uuid.uuid4())\n"
-        f"    hashed = bcrypt.hashpw({repr(admin_password)}.encode('utf-8'), bcrypt.gensalt(12)).decode('utf-8')\n"
+        f"    hashed = bcrypt.hashpw({admin_password!r}.encode('utf-8'), bcrypt.gensalt(12)).decode('utf-8')\n"  # nosec B608  # Embedded admin bootstrap credentials in inline pod script
         "    cur.execute('INSERT INTO \"user\" (id, name, email, role, profile_image_url, last_active_at, updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', "
-        f"(uid, {repr(admin_name)}, {repr(admin_email)}, 'admin', '/user.png', now, now, now))\n"
-        f"    cur.execute('INSERT INTO auth (id, email, password, active) VALUES (?, ?, ?, ?)', (uid, {repr(admin_email)}, hashed, 1))\n"
+        f"(uid, {admin_name!r}, {admin_email!r}, 'admin', '/user.png', now, now, now))\n"
+        f"    cur.execute('INSERT INTO auth (id, email, password, active) VALUES (?, ?, ?, ?)', (uid, {admin_email!r}, hashed, 1))\n"
         "    print('CREATED')\n"
         "else:\n"
         "    cur.execute('UPDATE auth SET active = 1')\n"
@@ -447,55 +443,6 @@ def bootstrap_openwebui(
         raise typer.Exit(1)
 
 
-def _ensure_qdrant_api_key_secret(
-    context: str | None = None,
-    namespace: str = "llm",
-) -> str | None:
-    """Ensure qdrant-api-key Secret exists in Kubernetes and is synchronized with OS Keyring."""
-    from devops_cli.config.settings import _keyring_get, _keyring_set
-    from devops_cli.k8s.credentials import fetch_qdrant_api_key
-
-    runtime._validate_k8s_identifier(namespace, "namespace", namespace=True)
-    effective_context = runtime.resolve_effective_context(context)
-    if effective_context:
-        runtime._validate_kubeconfig_context_name(effective_context, "context")
-    kubectl_ctx = ["--context", effective_context] if effective_context else []
-
-    check_cmd = ["kubectl", "get", "secret", "qdrant-api-key", "-n", namespace] + kubectl_ctx
-    res = run_subprocess(check_cmd, quiet=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
-    if res.returncode == 0:
-        return fetch_qdrant_api_key(
-            namespace=namespace, context=effective_context, save_to_keyring=True
-        )
-
-    key = _keyring_get("qdrant_api_key") or secrets.token_urlsafe(32)
-    secret_manifest = json.dumps(
-        {
-            "apiVersion": "v1",
-            "kind": "Secret",
-            "metadata": {
-                "name": "qdrant-api-key",
-                "namespace": namespace,
-            },
-            "type": "Opaque",
-            "stringData": {
-                "api-key": key,
-            },
-        }
-    )
-    apply_cmd = ["kubectl", "apply", "-f", "-"] + kubectl_ctx
-    create_res = run_subprocess(
-        apply_cmd,
-        input=secret_manifest,
-        quiet=True,
-        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-    )
-    if create_res.returncode == 0:
-        _keyring_set("qdrant_api_key", key)
-        return key
-    return None
-
-
 def _is_helm_v4_or_newer() -> bool:
     """Detect whether the active Helm CLI is version 4 or newer."""
     proc = runtime._run_cmd(
@@ -601,16 +548,6 @@ def _install_single_release(
     unready_nodes: Sequence[str] = (),
 ) -> None:
     """Install or upgrade a single Helm release with conflict adoption retries."""
-    if release["name"] == "qdrant":
-        qdrant_key = _ensure_qdrant_api_key_secret(
-            context=effective_context, namespace=release["namespace"]
-        )
-        if not qdrant_key:
-            print_error(
-                f"Failed to ensure Qdrant API key secret in namespace '{release['namespace']}'. Aborting deployment.",
-                prefix=False,
-            )
-            raise typer.Exit(1)
     effective_wait = wait
     if wait and unready_nodes and release["name"] in CONST_HELM_DAEMONSET_RELEASES:
         print_warning(
@@ -674,11 +611,6 @@ def _post_deploy_credentials(
             prefix=False,
         )
     if "llm" in selected_stacks:
-        from devops_cli.k8s.credentials import sync_k8s_credentials
-
-        synced_llm = sync_k8s_credentials(context=effective_context, stack="llm")
-        if synced_llm.get("qdrant"):
-            print_success("Qdrant API key securely synced to OS Keyring.")
         _bootstrap_openwebui_account(context=effective_context)
         print_info("[dim]Ollama: http://localhost:11434 (namespace: llm)[/dim]", prefix=False)
         print_info(
@@ -690,6 +622,36 @@ def _post_deploy_credentials(
             prefix=False,
         )
         print_info("[dim]Valkey Cache: localhost:6379 (namespace: llm)[/dim]", prefix=False)
+
+
+def _push_stacks_for(selected_stacks: Sequence[str], context: str | None) -> list[str]:
+    """The base rows, the deployed stacks' and each detached stack whose namespace exists.
+
+    Detached stacks such as `devops` are never deployed here, so their namespace existing is
+    the sign that the cluster runs them.
+    """
+    try:
+        detached = [name for name in DETACHED_STACKS if namespace_exists(name, context)]
+    except ClusterSecretPushError as exc:
+        print_error(MESSAGES.k8s.push_failed.format(reason=str(exc)), prefix=False, safe=True)
+        raise typer.Exit(1) from exc
+    return [BASE_STACK, *selected_stacks, *detached]
+
+
+def _dry_run_secrets(selected_stacks: Sequence[str], push_secrets: bool) -> list[str]:
+    """The Secrets and key names a deploy would push, from the table alone, running nothing.
+
+    A detached stack's rows are pushed only where its namespace exists, which a dry run does
+    not ask the cluster, so they are listed with that condition. No value is listed.
+    """
+    if not push_secrets:
+        return []
+    detached = set(DETACHED_STACKS)
+    return [
+        f"{secret.ref}: {', '.join(entry.key for entry in secret.entries)}"
+        + (f" (if namespace {secret.namespace} exists)" if secret.stack in detached else "")
+        for secret in secrets_for_stacks([BASE_STACK, *selected_stacks, *DETACHED_STACKS])
+    ]
 
 
 def deploy_stack(
@@ -723,8 +685,18 @@ def deploy_stack(
             help=HELP.k8s.configure_urls_flag,
         ),
     ] = False,
+    push_secrets: Annotated[
+        bool,
+        typer.Option("--push-secrets/--no-push-secrets", help=HELP.k8s.push_secrets_flag),
+    ] = True,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.k8s.deploy_dry_run)] = False,
 ) -> None:
-    """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes."""
+    """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.
+
+    Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every
+    detached stack whose namespace exists (`devops k8s push-secrets`), before anything that
+    reads them. A locked or missing keyring stops it before it applies anything.
+    """
     effective_context = runtime.resolve_effective_context(context)
     if effective_context:
         runtime._validate_kubeconfig_context_name(effective_context, "context")
@@ -737,7 +709,7 @@ def deploy_stack(
         all_releases.extend(_HELM_RELEASES_BY_STACK.get(s_name, []))
         all_manifests.extend([str(p) for p in _MANIFESTS_BY_STACK.get(s_name, [])])
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s deploy-stack",
             target=str(k8s_dir),
@@ -751,13 +723,18 @@ def deploy_stack(
                 "timeout": timeout,
                 "port_forward": port_forward,
                 "configure_urls": configure_urls,
+                "secrets": _dry_run_secrets(selected_stacks, push_secrets),
                 "helm_releases": [r["name"] for r in all_releases],
                 "manifests": all_manifests,
             },
         )
         return
 
-    # 1. Verify cluster reachability
+    # 1. A push needs the unlocked keyring: check it before anything reads or writes the cluster
+    if push_secrets:
+        require_keyring_for_push()
+
+    # 2. Verify cluster reachability
     if not runtime._cluster_reachable(context=effective_context):
         print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
         if not effective_context or effective_context.strip().lower() == "minikube":
@@ -767,30 +744,35 @@ def deploy_stack(
     kubectl_ctx = ["--context", effective_context] if effective_context else []
     helm_ctx = ["--kube-context", effective_context] if effective_context else []
 
-    # 2. Apply kustomize base (namespaces)
+    # 3. Apply kustomize base (namespaces)
     print_info("[bold]Applying namespaces...[/bold]", prefix=False)
     runtime._run_cmd(["kubectl", "apply", "-k", str(k8s_dir)] + kubectl_ctx)
 
-    # 3. Add Helm repos for selected stacks
+    # 4. Push the stacks' Secrets before anything reads them
+    if push_secrets:
+        print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
+        push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
+
+    # 5. Add Helm repos for selected stacks
     _deploy_helm_repos(selected_stacks)
 
-    # 4. Install native manifests
+    # 6. Install native manifests
     _apply_manifest_files(all_manifests, kubectl_ctx)
 
-    # 5. Check for unready cluster nodes to avoid DaemonSet wait timeouts
+    # 7. Check for unready cluster nodes to avoid DaemonSet wait timeouts
     unready_nodes = runtime._get_unready_nodes(context=effective_context)
     if unready_nodes and wait:
         print_warning(
             f"Detected unready cluster nodes: {', '.join(unready_nodes)}. Skipping Helm '--wait' for DaemonSet releases to prevent deadline timeouts."
         )
 
-    # 6. Install Helm releases
+    # 8. Install Helm releases
     for release in all_releases:
         _install_single_release(
             release, effective_context, helm_ctx, wait, timeout, unready_nodes=unready_nodes
         )
 
-    # 6. Post-deployment networking & credentials
+    # 9. Post-deployment networking & credentials
     write_stdout("\n")
     print_success(f"Kubernetes stack ({stack}) deployed.")
     write_stdout("\n")
@@ -805,7 +787,10 @@ def sync_secrets(
     ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
-    """Fetch stack admin credentials (ArgoCD, Grafana) from Kubernetes and store in OS Keyring."""
+    """Copy chart-generated admin credentials (Argo CD, Grafana) from the cluster into the OS keyring.
+
+    The direction is cluster → workstation keyring, the reverse of `push-secrets`.
+    """
     effective_context = runtime.resolve_effective_context(context)
     if effective_context:
         runtime._validate_kubeconfig_context_name(effective_context, "context")
@@ -818,7 +803,7 @@ def sync_secrets(
             details={
                 "stack": stack,
                 "context": effective_context or "active",
-                "targets": "argocd.password, grafana.password, qdrant.api_key",
+                "targets": "argocd.password, grafana.password",
             },
         )
         return

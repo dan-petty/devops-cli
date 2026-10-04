@@ -104,10 +104,10 @@ def run_chaos_model_cmd(
     """Execute model dependency chaos fault injection and verify automated fallback recovery."""
     try:
         chaos_mode = ChaosMode(mode.lower())
-    except ValueError:
+    except ValueError as exc:
         valid_modes = ", ".join(m.value for m in ChaosMode)
         print_error(f"Invalid chaos mode '{mode}'. Choose from: {valid_modes}")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
     if latency_ms < 0:
         print_error(f"Invalid --latency-ms '{latency_ms}': must be non-negative (>= 0).")

@@ -209,6 +209,9 @@ def test_deploy_stack_defaults_do_not_port_forward_or_configure_urls() -> None:
         patch("devops_cli.commands.k8s.stack_lifecycle.net.port_forward") as mock_pf,
         patch("devops_cli.commands.k8s.stack_lifecycle.net.configure_urls") as mock_conf,
         patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
+        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks"),
+        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
+        patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
     ):
         deploy_stack(stack="infra")
         assert (mock_pf.called, mock_conf.called) == (False, False)

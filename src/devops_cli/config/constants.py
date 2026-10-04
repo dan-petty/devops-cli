@@ -20,6 +20,9 @@ CONST_CONFIG_PATH = CONST_CONFIG_DIR / "config.yaml"
 # outside that repository. The default data directory is then `~/.local/share/devops-cli/.data`.
 CONST_USER_DATA_ROOT = Path.home() / ".local" / "share" / CONST_APP_NAME
 CONST_KEYRING_SERVICE = CONST_APP_NAME
+# An entry never stored: looking it up tells a locked keyring from an unlocked one, reading no
+# secret (`require_persistent_keyring`).
+CONST_KEYRING_UNLOCK_PROBE_KEY = "keyring-unlock-probe"
 CONST_PROJECT_CONFIG_FILENAME = "config.yaml"
 CONST_PROJECT_CONFIG_ENV = "DEVOPS_CLI_CONFIG"  # absolute path overrides CWD lookup
 # A configuration file is only eligible for caching once it has been still for this
@@ -36,6 +39,9 @@ CONST_PRE_COMMIT_CONFIG_FILENAME = ".pre-commit-config.yaml"
 CONST_CHANGELOG_FILENAME = "CHANGELOG.md"
 CONST_README_FILENAME = "README.md"
 CONST_INIT_PY_PATH = Path("src/devops_cli/__init__.py")
+# The in-cluster runtime's kustomization pins the service image to the release's tag (#741).
+CONST_SERVICE_IMAGE = "ghcr.io/dan-petty/devops-cli/service"
+CONST_SERVICE_IMAGE_KUSTOMIZATION = Path("k8s/devops/kustomization.yaml")
 CONST_CONVENTIONAL_COMMIT_CATEGORIES: Final[dict[str, str]] = {
     "feat": "Added",
     "fix": "Fixed & Hardened",
@@ -220,6 +226,7 @@ CONST_LOGS_DIR_NAME = "logs"
 CONST_MODELS_DIR_NAME = "models"
 CONST_CACHE_DIR_NAME = "cache"
 CONST_CI_CACHE_FILENAME = "ci_cache.json"
+CONST_COVERAGE_INDEX_FILENAME = "coverage_index.json"
 # mypy's cache for the type-check probe of review verification, under the cache directory.
 CONST_TYPECHECK_PROBE_CACHE_DIR_NAME = "typecheck-probe"
 # The probe's mypy config: devops-cli's own, never the reviewed tree's (#946). It loads only the
@@ -549,7 +556,6 @@ CONST_AI_PROVIDER_API_BASES: Final[dict[str, str]] = {
 # no server, so LLM spans write no `server.address` for it.
 CONST_AI_BACKEND_HOST_UNKNOWN = "unknown"
 CONST_URL_GITHUB_API_BASE = "https://api.github.com"
-CONST_URL_GITHUB_GRAPHQL = "https://api.github.com/graphql"
 CONST_URL_CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 CONST_CLOUDFLARE_CFARGOTUNNEL_SUFFIX = ".cfargotunnel.com"
 CONST_CLOUDFLARE_DEFAULT_SERVICE = "http://traefik.kube-system.svc.cluster.local:80"
@@ -876,12 +882,36 @@ CONST_RECOMMENDATION_BLOCK = "BLOCK"
 
 # ── GitHub CLI & Pull Requests ────────────────────────────────────────────────
 CONST_GH_CLI = "gh"
+CONST_GIT_CLI = "git"
+CONST_GH_AUTH_SUBCOMMAND = "auth"
+# The token gh reads first; the session pins it on every gh and git child (#767).
+CONST_GH_TOKEN_ENV = "GH_TOKEN"
+# Every variable gh reads a token from, so a pinned child is given none but the session's.
+CONST_GH_TOKEN_ENV_VARS: Final[tuple[str, ...]] = (CONST_GH_TOKEN_ENV, "GITHUB_TOKEN")
+# Where `gh auth token` finds a stored login: its config directory and the keyring's session bus.
+CONST_GH_LOGIN_ENV_VARS: Final[frozenset[str]] = frozenset(
+    {"GH_CONFIG_DIR", "XDG_CONFIG_HOME", "DBUS_SESSION_BUS_ADDRESS"}
+)
+# Hex characters of the token's SHA-256 that name an identity's cache directory.
+CONST_GITHUB_IDENTITY_DIGEST_CHARS: Final[int] = 16
+CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE = "GITHUB_UNAUTHENTICATED"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
-CONST_GH_ETAG_CACHE_FILENAME = "gh_etag_cache.json"
-CONST_GH_HEADER_ETAG = "ETag"
-CONST_GH_HEADER_IF_NONE_MATCH = "If-None-Match"
-CONST_GH_HEADER_USER_AGENT = "devops-cli"
 CONST_GH_WEBHOOK_SIGNATURE_HEADER = "X-Hub-Signature-256"
+CONST_GH_WEBHOOK_EVENT_HEADER: Final[str] = "X-GitHub-Event"
+CONST_GH_WEBHOOK_DELIVERY_HEADER: Final[str] = "X-GitHub-Delivery"
+CONST_SERVICE_MAX_BODY_BYTES: Final[int] = 25 * 1024 * 1024
+CONST_SERVICE_DELIVERY_LRU_CAPACITY: Final[int] = 10_000
+CONST_SERVICE_SOURCE_WEBHOOK: Final[str] = "webhook"
+CONST_SERVICE_SOURCE_POLL: Final[str] = "poll"
+CONST_SERVICE_PING_EVENT: Final[str] = "ping"
+CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES: Final[str] = "devops_cli_service_webhook_deliveries_total"
+CONST_SERVICE_METRIC_TRIGGERS: Final[str] = "devops_cli_service_triggers_total"
+CONST_SERVICE_METRIC_JOBS: Final[str] = "devops_cli_service_jobs_total"
+CONST_SERVICE_METRIC_JOB_SECONDS: Final[str] = "devops_cli_service_job_seconds_total"
+CONST_SERVICE_METRIC_JOB_START_TIMESTAMP: Final[str] = (
+    "devops_cli_service_job_start_timestamp_seconds"
+)
+CONST_SERVICE_METRIC_QUEUE_DEPTH: Final[str] = "devops_cli_service_queue_depth"
 CONST_GH_NON_API_COMMANDS: Final[frozenset[str]] = frozenset(
     {
         "auth",
@@ -924,19 +954,12 @@ CONST_GH_ISSUE_EVENT_CHANGE_KINDS: Final[dict[str, str]] = {
     "closed": "closed",
     "reopened": "reopened",
 }
-CONST_BRANCH_PREFIXES: tuple[str, ...] = (
-    "feat/",
-    "fix/",
-    "docs/",
-    "chore/",
-    "refactor/",
-    "release/",
-)
 
 # ── Exception & Domain Error Codes ────────────────────────────────────────────
 CONST_ERROR_CODE_DEVOPS_CLI = "DEVOPS_CLI_ERROR"
 CONST_ERROR_CODE_LLM_INFERENCE = "LLM_INFERENCE_ERROR"
 CONST_ERROR_CODE_EMBEDDINGS = "EMBEDDINGS_ERROR"
+CONST_ERROR_CODE_MODEL_GATEWAY_UNREACHABLE = "MODEL_GATEWAY_UNREACHABLE"
 CONST_ERROR_CODE_CONFIG = "CONFIGURATION_ERROR"
 CONST_ERROR_CODE_GIT = "GIT_OPERATION_ERROR"
 CONST_ERROR_CODE_SECURITY = "SECURITY_ERROR"
@@ -986,6 +1009,8 @@ CONST_METRIC_AI_STRUCTURED_VALIDATION_FAILURE = "ai.client.structured_validation
 CONST_EXIT_SUCCESS: int = 0
 CONST_EXIT_FAILURE: int = 1
 CONST_EXIT_ERROR_INFERENCE: int = 10
+# The status the subprocess runners report when the program is not on PATH, as POSIX shells do.
+CONST_EXIT_COMMAND_NOT_FOUND: int = 127
 
 CONST_MSG_KEYRING_UNAVAILABLE = "OS Keyring service is unavailable; run in headless CI mode"
 CONST_MSG_BRANCH_INVALID = "Branch name is invalid"
@@ -1114,109 +1139,6 @@ CONST_EXCLUDED_PUBLIC_REGISTRIES: frozenset[str] = frozenset(
     }
 )
 
-
-# Standard object-oriented receivers in Python
-CONST_STANDARD_RECEIVER_IDENTIFIERS: frozenset[str] = frozenset({"self", "cls"})
-
-# Common code receiver, module, or telemetry metric prefixes
-CONST_CODE_CONFIG_PREFIXES: tuple[str, ...] = (
-    "self.",
-    "cls.",
-    "cli.",
-    "agent.",
-    "process.",
-    "ci.step.",
-    "ci.",
-    "telemetry.",
-    "logger.",
-    "log.",
-    "mcp.",
-    "metric.",
-    "otel.",
-)
-
-# Common property and telemetry metric leaf attributes
-CONST_COMMON_PROPERTY_SUFFIXES: frozenset[str] = frozenset(
-    {
-        "name",
-        "email",
-        "actor",
-        "pid",
-        "group",
-        "security",
-        "docs",
-        "ping",
-        "call",
-        "run",
-        "post",
-        "collection",
-        "sdk",
-        "executable",
-        "runtime",
-        "total",
-        "tools",
-        "count",
-        "size",
-        "duration",
-        "seconds",
-        "ms",
-        "bytes",
-        "status",
-        "state",
-        "type",
-        "id",
-        "rate",
-        "ratio",
-        "max",
-        "min",
-        "avg",
-        "sum",
-        "mean",
-        "input",
-        "output",
-        "calls",
-        "errors",
-        "exceptions",
-        "failures",
-        "successes",
-        "latency",
-        "value",
-        "result",
-        "payload",
-        "level",
-        "severity",
-        "limit",
-        "threshold",
-    }
-)
-
-# MIME types that correspond to top-level domains or legacy formats and should not classify domains as files
-CONST_EXCLUDED_FILE_MIME_TYPES: frozenset[str] = frozenset(
-    {
-        "application/x-msdos-program",
-        "application/vnd.lotus-organizer",
-        "text/org",
-    }
-)
-
-# Common telemetry, metric, and logging invocation function names
-CONST_TELEMETRY_CALL_NAMES: frozenset[str] = frozenset(
-    {
-        "record_metric",
-        "metric_counter",
-        "set_attribute",
-        "add_attribute",
-        "counter",
-        "gauge",
-        "histogram",
-        "meter",
-        "logfire",
-        "otel",
-        "telemetry",
-        "statsd",
-        "prometheus",
-    }
-)
 
 # ── Review Finding Consolidation Signals ─────────────────────────────────────
 # Identifiers too generic to prove two findings describe the same defect. Kept here
@@ -2151,7 +2073,7 @@ CONST_KNOWN_EMBEDDING_DIMENSIONS: Final[dict[str, int]] = {
 
 # Helm releases that deploy DaemonSets across all cluster nodes
 CONST_HELM_DAEMONSET_RELEASES: Final[frozenset[str]] = frozenset(
-    {"k8s-monitoring", "dcgm-exporter", "fluent-bit"}
+    {"k8s-monitoring", "dcgm-exporter"}
 )
 
 # Helm releases teardown-stack leaves installed: deleting a CRD deletes every object of its kind
@@ -2166,29 +2088,61 @@ CONST_HELM_OWNERSHIP_CONFLICT_RE: Final[re.Pattern[str]] = re.compile(
     r'([A-Za-z0-9_-]+)\s+"([^"]+)"\s+in namespace\s+"([^"]*)"'
 )
 
-# GitHub CLI rate limiter mutation verbs and HTTP methods
-CONST_GH_MUTATION_VERBS: Final[frozenset[str]] = frozenset(
+# What a gh request writes (#1125, `github/request_classifier.py`). Uncertain requests count as
+# writes, so a high-level command reads only when its verb is a read verb or its group only reads.
+CONST_GH_READ_VERBS: Final[frozenset[str]] = frozenset(
     {
-        "edit",
-        "create",
-        "delete",
-        "add",
-        "close",
-        "reopen",
-        "merge",
-        "comment",
-        "item-edit",
-        "item-add",
-        "item-create",
-        "item-delete",
-        "field-create",
-        "field-delete",
-        "ready",
-        "resolve",
-        "archive",
-        "sync",
-        "set",
+        "view",
+        "list",
+        "status",
+        "checks",
+        "diff",
+        "show",
+        "item-list",
+        "field-list",
     }
+)
+CONST_GH_READ_GROUPS: Final[frozenset[str]] = frozenset({"search"})
+# The value flags gh takes before a high-level command's verb (`gh -R o/r issue list`,
+# `gh project --owner o item-list 2`), so the verb parser skips them and their values.
+CONST_GH_COMMAND_VALUE_FLAGS: Final[tuple[tuple[str, ...], ...]] = (
+    ("-R", "--repo"),
+    ("--owner",),
+)
+
+# `gh api` as `gh api --help` documents it (gh 2.102.0): the method is GET, or POST when a field
+# or `--input` is given; `-F key=@path` and `--input path` read a file, `-` meaning stdin; the
+# `graphql` endpoint takes its document and operation name from the `query` and `operationName`
+# fields or body keys.
+CONST_GH_API_SUBCOMMAND: Final[str] = "api"
+CONST_GH_API_GRAPHQL_ENDPOINT: Final[str] = "graphql"
+CONST_GH_API_DEFAULT_METHOD: Final[str] = "GET"
+CONST_GH_API_PARAMS_METHOD: Final[str] = "POST"
+CONST_GH_API_FIELD_SEPARATOR: Final[str] = "="
+CONST_GH_API_FILE_VALUE_PREFIX: Final[str] = "@"
+CONST_GH_API_STDIN_PATH: Final[str] = "-"
+CONST_GRAPHQL_QUERY_KEY: Final[str] = "query"
+CONST_GRAPHQL_OPERATION_NAME_KEY: Final[str] = "operationName"
+CONST_GRAPHQL_REQUEST_KEYS: Final[tuple[str, ...]] = (
+    CONST_GRAPHQL_QUERY_KEY,
+    CONST_GRAPHQL_OPERATION_NAME_KEY,
+)
+# The other `gh api` flags, so the argv parser skips them and their values.
+CONST_GH_API_VALUE_FLAGS: Final[tuple[tuple[str, ...], ...]] = (
+    ("--cache",),
+    ("-H", "--header"),
+    ("--hostname",),
+    ("-q", "--jq"),
+    ("-p", "--preview"),
+    ("-t", "--template"),
+)
+CONST_GH_API_SWITCH_FLAGS: Final[tuple[tuple[str, ...], ...]] = (
+    ("--allow-escape-sequences",),
+    ("-i", "--include"),
+    ("--paginate",),
+    ("--silent",),
+    ("--slurp",),
+    ("--verbose",),
 )
 
 CONST_GH_MUTATION_HTTP_METHODS: Final[frozenset[str]] = frozenset(
@@ -2337,6 +2291,34 @@ CONST_FRONTIER_MODEL_PREFIXES: Final[tuple[str, ...]] = (
 # ── Roadmap on GitHub (ADR 0001) ──────────────────────────────────────────────
 # Repository files every roadmap runner reads through the contents API at one ref.
 CONST_ROADMAP_CONFIG_PATH: Final[str] = ".github/roadmap.toml"
+# The Projects filter each board read passes at the source, archived items always left out
+# (#1125). "" reads every item not archived, open and closed: reprioritize judges a Release's
+# closed members, render lists them, intake looks up any issue it is given, and migrate's
+# one-time reads may include closed items. The backlog and the candidates read open items only.
+CONST_ROADMAP_OPEN_ITEMS_FILTER: Final[str] = "is:open"
+CONST_ROADMAP_MIGRATE_BOARD_FILTER: Final[str] = ""
+CONST_ROADMAP_RENDER_BOARD_FILTER: Final[str] = ""
+CONST_ROADMAP_REPRIORITIZE_BOARD_FILTER: Final[str] = ""
+CONST_ROADMAP_INTAKE_BOARD_FILTER: Final[str] = ""
+CONST_ROADMAP_RUN_BOARD_FILTER: Final[str] = ""
+CONST_ROADMAP_REFINE_BOARD_FILTER: Final[str] = ""
+CONST_ROADMAP_REFINE_START_MARKER: Final[str] = "<!-- devops-roadmap-refine:start -->"
+CONST_ROADMAP_REFINE_END_MARKER: Final[str] = "<!-- devops-roadmap-refine:end -->"
+CONST_ROADMAP_REFINE_MAX_BODY_CHARS: Final[int] = 65536
+CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES: Final[int] = 3
+CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY: Final[int] = 5
+CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
+CONST_ROADMAP_RUN_CLONE_DIRNAME: Final[str] = "clone"
+CONST_ROADMAP_INTAKE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("webhook", "issues", "opened"),
+    ("webhook", "issues", "reopened"),
+)
+CONST_ROADMAP_CLOSURE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("webhook", "pull_request", "closed"),
+)
+CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("webhook", "pull_request", "closed"),
+)
 CONST_ROADMAP_DOCUMENT_PATH: Final[str] = "docs/ROADMAP.md"
 CONST_PROJECT_TEMPLATE_PATH: Final[str] = ".github/project-template.json"
 CONST_ROADMAP_ADR_PATH: Final[str] = "docs/adr/0001-github-is-the-roadmap-source.md"
@@ -2401,6 +2383,31 @@ CONST_ROADMAP_RUN_RECORD_BODY: Final[str] = (
     "release `devops roadmap reprioritize` last started. Leave the card on the board: without "
     "it, the job refuses to run until the card is back."
 )
+# `devops roadmap intake` (#742). Its reason comment and its duplicate close each carry their own
+# marker, so a run that finds one posts no second comment of that kind.
+CONST_ROADMAP_INTAKE_REASON_MARKER: Final[str] = "<!-- devops roadmap intake: reason -->"
+CONST_ROADMAP_INTAKE_DUPLICATE_MARKER: Final[str] = "<!-- devops roadmap intake: duplicate -->"
+CONST_ROADMAP_LABELS_PATH: Final[str] = ".github/labels.yml"
+CONST_ROADMAP_TYPE_LABEL_PREFIX: Final[str] = "type/"
+# The agent filing quota's labels (#1153): an agent's candidate, and one opened beyond the allowance.
+CONST_ROADMAP_SOURCE_AGENT_LABEL: Final[str] = "source/agent"
+CONST_ROADMAP_BORROWED_LABEL: Final[str] = "budget/borrowed"
+# The Priority options the model may propose; only verified evidence sets P0-Critical.
+CONST_ROADMAP_MODEL_PRIORITIES: Final[tuple[str, ...]] = ("P1-High", "P2-Medium", "P3-Low")
+# A bug or security opening at these priorities may borrow beyond the allowance (#1153).
+CONST_ROADMAP_BORROWING_PRIORITIES: Final[frozenset[str]] = frozenset({"P0-Critical", "P1-High"})
+# The Value and Effort options (`.github/project-template.json`).
+CONST_ROADMAP_SIZE_OPTIONS: Final[tuple[str, ...]] = ("High", "Medium", "Low")
+# An author with write access, the machine account included, as GitHub's author_association says.
+CONST_ROADMAP_TRUSTED_AUTHORS: Final[frozenset[str]] = frozenset(
+    {"OWNER", "MEMBER", "COLLABORATOR"}
+)
+# What each kind of P0 evidence looks like: a GHSA ID, an Actions run id, a commit SHA.
+CONST_ROADMAP_EVIDENCE_PATTERNS: Final[dict[str, re.Pattern[str]]] = {
+    "advisory": re.compile(r"GHSA(-[23456789cfghjmpqrvwx]{4}){3}"),
+    "failed_run": re.compile(r"[0-9]{1,20}"),
+    "regression_commit": re.compile(r"[0-9a-fA-F]{7,40}"),
+}
 CONST_GH_PROJECT_SINGLE_SELECT_TYPE: Final[str] = "SINGLE_SELECT"
 CONST_GH_PROJECT_TEXT_TYPE: Final[str] = "TEXT"
 CONST_GH_RAW_CONTENT_ACCEPT: Final[str] = "Accept: application/vnd.github.raw+json"
@@ -2908,15 +2915,18 @@ CONST_TELEMETRY_PANEL_MAX_SERIES: Final[int] = 50
 # ── Pull Request Grounding ───────────────────────────────────────────────────
 # Readiness requires a pull request to close exactly one issue and to change that issue's task
 # file. Two kinds of pull request deliver the release process rather than one item, and are
-# exempt: the release pull request, `release/vX.Y.Z` from the same repository into the default
-# branch, and a release-process pull request, `chore/open-vX.Y.Z` or `chore/cut-vX.Y.Z`,
-# optionally followed by `-<slug>`, from the same repository into `release/vX.Y.Z`.
+# exempt: the release pull request, `chore/cut-vX.Y.Z` into `main`, and a release-process
+# pull request, `chore/open-vX.Y.Z`, optionally followed by `-<slug>`, from the same
+# repository into `release/vX.Y.Z`.
 CONST_RELEASE_BRANCH_PREFIX: Final[str] = "release/"
 CONST_RELEASE_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
     rf"{CONST_RELEASE_BRANCH_PREFIX}v(?P<version>\d+\.\d+\.\d+)"
 )
 CONST_RELEASE_PROCESS_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
-    r"chore/(?:open|cut)-v(?P<version>\d+\.\d+\.\d+)(?:-[^/\s]+)?"
+    r"chore/open-v(?P<version>\d+\.\d+\.\d+)(?:-[^/\s]+)?"
+)
+CONST_RELEASE_CUT_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
+    r"chore/cut-v(?P<version>\d+\.\d+\.\d+)(?:-[^/\s]+)?"
 )
 # Files every pull request into a release branch used to edit, so each merge made every other
 # open pull request conflict. The cut writes both: `CHANGELOG.md` from `changelog.d/`, and
@@ -3027,11 +3037,17 @@ CONST_OUTPUT_FORMATS: Final[frozenset[str]] = frozenset(
 # it, so the assertion keeps reporting green through the very regression it was written to
 # catch. A test that expects a failure has to say which one.
 CONST_BLIND_EXCEPTION_TYPES: Final[frozenset[str]] = frozenset({"Exception", "BaseException"})
-# The Ruff rules that keep the blind-assertion class from coming back: B017 for
-# `pytest.raises(Exception)`, RUF043 for a `match=` pattern whose metacharacters are
-# neither escaped nor declared raw. Both defects read as correct tests, so they belong in
-# the lint selection rather than in a reviewer's memory.
-CONST_TEST_ASSERTION_LINT_RULES: Final[frozenset[str]] = frozenset({"B017", "RUF043"})
+# The Ruff rules that keep the blind-assertion class from coming back: B011/B015/B018
+# for assertions that cannot fail, B017 for `pytest.raises(Exception)`, PT011/PT015/PT017
+# for broad exception raises or assertions, and RUF043 for a `match=` pattern whose
+# metacharacters are neither escaped nor declared raw. All of these defects read as
+# correct tests, so they belong in the lint selection rather than in a reviewer's memory.
+CONST_TEST_ASSERTION_LINT_RULES: Final[frozenset[str]] = frozenset(
+    {"B011", "B015", "B017", "B018", "PT011", "PT015", "PT017", "RUF043"}
+)
+# The Ruff rules that govern suppression integrity: PGH003 bans blanket type ignores
+# without a specific error code, and RUF100 removes unused noqa directives.
+CONST_SUPPRESSION_LINT_RULES: Final[frozenset[str]] = frozenset({"PGH003", "RUF100"})
 # The Ruff rules that hold the complexity cap of 10 (#586): C901 is the cap (standard McCabe),
 # RUF100 reports a C901 marker left on a function back under the cap, and PGH004 bans the
 # blanket noqa that would silence C901 without naming it.
@@ -3054,6 +3070,7 @@ CONST_RUFF_LINT_KEYS: Final[frozenset[str]] = frozenset(
         "extend-select",
         "ignore",
         "extend-ignore",
+        "allowed-confusables",
         "mccabe",
         *CONST_RUFF_PER_FILE_IGNORE_KEYS,
     }

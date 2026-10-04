@@ -30,7 +30,7 @@ def test_k8s_apply_manifest_ssrf_rejects_hostname_resolving_to_private_ip(
         monkeypatch.setattr(
             socket,
             "getaddrinfo",
-            lambda host, port, *args, **kwargs: [
+            lambda host, port, *args, fake_ip=fake_ip, **kwargs: [
                 (socket.AF_INET, socket.SOCK_STREAM, 6, "", (fake_ip, 80))
             ],
         )

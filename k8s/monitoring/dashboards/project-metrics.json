@@ -18,7 +18,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Total releases tracked over the selected time range. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "Total releases tracked.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -49,7 +49,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(increase(devops_cli_project_releases_total[$__range])) or vector(0)",
+          "expr": "max(devops_cli_project_releases_total) or vector(0)",
           "instant": true,
           "legendFormat": "Releases",
           "refId": "A"
@@ -58,7 +58,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Average interval in days between published releases. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out high or low (#792).",
+      "description": "Average interval in days between published releases.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -89,7 +89,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(increase(devops_cli_project_release_interval_days_sum[$__range])) / clamp_min(sum(increase(devops_cli_project_release_interval_days_count[$__range])), 1)",
+          "expr": "sum(devops_cli_project_release_interval_days_sum) / clamp_min(sum(devops_cli_project_release_interval_days_count), 1)",
           "instant": true,
           "legendFormat": "Days",
           "refId": "A"
@@ -98,7 +98,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Release cadence percentiles (p50 and p95) in days over the selected time range. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 90 d.",
+      "description": "Release cadence percentiles (p50 and p95) in days. A quantile past the top bucket comes out as that bucket's bound, 90 d.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -114,13 +114,13 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.5, sum by (le) (increase(devops_cli_project_release_interval_days_bucket[$__range])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (devops_cli_project_release_interval_days_bucket))",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum by (le) (increase(devops_cli_project_release_interval_days_bucket[$__range])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (devops_cli_project_release_interval_days_bucket))",
           "legendFormat": "p95",
           "refId": "B"
         }
@@ -128,7 +128,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Interval in days per release. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "Interval in days per release.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -144,7 +144,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (release) (increase(devops_cli_project_release_interval_days_sum[1d]))",
+          "expr": "sum by (release) (devops_cli_project_release_interval_days_sum)",
           "legendFormat": "{{release}}",
           "refId": "A"
         }
@@ -159,7 +159,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Total commits included in each release. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "Total commits included in each release.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -175,7 +175,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (release) (increase(devops_cli_project_commits_total[1d]))",
+          "expr": "sum by (release) (devops_cli_project_commits_total)",
           "legendFormat": "{{release}}",
           "refId": "A"
         }
@@ -183,7 +183,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Total pull requests merged for each release. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "Total pull requests merged for each release.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -199,7 +199,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (release) (increase(devops_cli_project_prs_total[1d]))",
+          "expr": "sum by (release) (devops_cli_project_prs_total)",
           "legendFormat": "{{release}}",
           "refId": "A"
         }
@@ -214,7 +214,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Overall pass rate percentage across all CI workflows. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out high or low (#792).",
+      "description": "Overall pass rate percentage across all CI workflows.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -247,7 +247,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(increase(devops_cli_project_ci_runs_total{conclusion=\"success\"}[$__range])) / clamp_min(sum(increase(devops_cli_project_ci_runs_total[$__range])), 1) * 100",
+          "expr": "sum(devops_cli_project_ci_runs_total{conclusion=\"success\"}) / clamp_min(sum(devops_cli_project_ci_runs_total), 1) * 100",
           "instant": true,
           "legendFormat": "Pass Rate %",
           "refId": "A"
@@ -256,7 +256,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "CI workflow run completions by workflow name and conclusion (success vs failure). Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "CI workflow run completions by workflow name and conclusion (success vs failure).",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -272,7 +272,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (workflow, conclusion) (increase(devops_cli_project_ci_runs_total[1h]))",
+          "expr": "sum by (workflow, conclusion) (devops_cli_project_ci_runs_total)",
           "legendFormat": "{{workflow}} ({{conclusion}})",
           "refId": "A"
         }
@@ -287,7 +287,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Open and closed items tracked per milestone. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "Open and closed items tracked per milestone.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -303,7 +303,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (milestone, state) (increase(devops_cli_project_items_total[1d]))",
+          "expr": "sum by (milestone, state) (devops_cli_project_items_total)",
           "legendFormat": "{{milestone}} ({{state}})",
           "refId": "A"
         }
@@ -311,7 +311,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Aggregate open vs closed items across all milestones. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "Aggregate open vs closed items across all milestones.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -327,7 +327,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (state) (increase(devops_cli_project_items_total[1d]))",
+          "expr": "sum by (state) (devops_cli_project_items_total)",
           "legendFormat": "{{state}}",
           "refId": "A"
         }

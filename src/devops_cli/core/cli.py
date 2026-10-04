@@ -109,7 +109,15 @@ _CommandFunc = TypeVar("_CommandFunc", bound=Callable[..., Any])
 
 
 class OTelTyper(typer.Typer):
-    """Subclass of Typer that wraps every registered command in an OpenTelemetry trace span and supports lazy string module paths."""
+    """Subclass of Typer that wraps every registered command in an OpenTelemetry trace span and supports lazy string module paths.
+
+    With `exit_on`, each of its commands reports that error as `exit_on_error` does, without a
+    traceback.
+    """
+
+    def __init__(self, *args: Any, exit_on: type[DevOpsCLIError] | None = None, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        self._exit_on = exit_on
 
     def add_typer(
         self,
@@ -164,7 +172,10 @@ class OTelTyper(typer.Typer):
 
             @functools.wraps(f)
             def traced_fn(*f_args: Any, **f_kwargs: Any) -> Any:
-                return _execute_traced_cli_command(f, f_args, f_kwargs, cmd_name)
+                if self._exit_on is None:
+                    return _execute_traced_cli_command(f, f_args, f_kwargs, cmd_name)
+                with exit_on_error(self._exit_on):
+                    return _execute_traced_cli_command(f, f_args, f_kwargs, cmd_name)
 
             decorator(traced_fn)
             return f

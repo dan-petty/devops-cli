@@ -291,7 +291,7 @@ def cost_default(
         typer.Option(
             "--reference-model",
             "-m",
-            help="Reference model for counterfactual pricing (default: gpt-4o).",
+            help="Reference model for counterfactual pricing (default: gpt-4o-mini).",
         ),
     ] = None,
     hardware_cost: Annotated[
@@ -369,7 +369,7 @@ def cost_report(
         typer.Option(
             "--reference-model",
             "-m",
-            help="Reference model for counterfactual pricing (default: gpt-4o).",
+            help="Reference model for counterfactual pricing (default: gpt-4o-mini).",
         ),
     ] = None,
     hardware_cost: Annotated[
@@ -436,7 +436,7 @@ def cost_roi(
         typer.Option(
             "--reference-model",
             "-m",
-            help="Reference model for counterfactual pricing (default: gpt-4o).",
+            help="Reference model for counterfactual pricing (default: gpt-4o-mini).",
         ),
     ] = None,
     days: Annotated[

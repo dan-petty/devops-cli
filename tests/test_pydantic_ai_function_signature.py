@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import patch
 
 import pydantic_ai.function_signature as p_fs
@@ -253,7 +253,11 @@ def test_signature_from_tool_variations() -> None:
     class CustomDuckDictTool:
         name = "duck_dict"
         description = "Duck dict tool"
-        parameters = {"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]}
+        parameters: ClassVar[dict[str, Any]] = {
+            "type": "object",
+            "properties": {"x": {"type": "integer"}},
+            "required": ["x"],
+        }
 
         def func(self, **kwargs: Any) -> Any:
             pass
@@ -270,7 +274,7 @@ def test_signature_from_tool_variations() -> None:
     class CustomSimpleTool:
         name = "simple_tool"
         description = "Simple tool"
-        parameters = {"arg1": "str"}
+        parameters: ClassVar[dict[str, Any]] = {"arg1": "str"}
 
         def func(self, **kwargs: Any) -> Any:
             pass

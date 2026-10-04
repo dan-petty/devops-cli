@@ -39,6 +39,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_CLOUDFLARE_API_TOKEN` | `cloudflare.api_token` | 🔒 Yes | Cloudflare API Token (stored in OS keyring) |
 | `DEVOPS_CLI_CLOUDFLARE_DOMAIN` | `cloudflare.domain` | No | Root or zone domain name managed in Cloudflare |
 | `DEVOPS_CLI_CLOUDFLARE_TUNNEL` | `cloudflare.tunnel` | No | Cloudflare tunnel name or identifier |
+| `DEVOPS_CLI_CLOUDFLARE_TUNNEL_TOKEN` | `cloudflare.tunnel_token` | 🔒 Yes | Cloudflare Tunnel token that `devops k8s push-secrets` writes to the cluster (stored in OS keyring) |
 | `DEVOPS_CLI_CLOUDFLARE_ZONE_ID` | `cloudflare.zone_id` | No | Cloudflare Zone ID |
 | `DEVOPS_CLI_CONFIG` | *None* | No | Absolute path to project configuration file; outside devops-cli's own repository, the only one a `devops review` command reads |
 | `DEVOPS_CLI_DATA_ANALYSIS_DIR` | `data.analysis_dir` | No | Storage directory for pre-analysis metadata JSON files |
@@ -55,11 +56,11 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_DATA_SAMPLES_DIR` | `data.samples_dir` | No | Storage directory for open-source sample repositories fetched at their pinned commits |
 | `DEVOPS_CLI_DATA_TLS_DIR` | `data.tls_dir` | No | Storage directory for generated local CA and TLS certificates |
 | `DEVOPS_CLI_GITHUB_DEFAULT_ORG` | `github.default_org` | No | Default GitHub organization |
-| `DEVOPS_CLI_GITHUB_TOKEN` | `github.token` | 🔒 Yes | GitHub Personal Access Token (stored in OS keyring) |
 | `DEVOPS_CLI_GRAFANA_TOKEN` | `grafana.token` | 🔒 Yes | Grafana API token (stored in OS keyring) |
 | `DEVOPS_CLI_GRAFANA_URL` | `grafana.url` | No | Grafana service URL |
 | `DEVOPS_CLI_K8S_CONTEXT` | `k8s.context` | No | Active Kubernetes cluster context (e.g. minikube, kind, or remote cluster) |
 | `DEVOPS_CLI_K8S_DOMAIN` | `k8s.domain` | No | Base or root domain name for homelab ingress routes and tunnel services |
+| `DEVOPS_CLI_K8S_GITHUB_ACCOUNT` | `k8s.github_account` | No | Login of the machine account whose gh token `devops k8s push-secrets` writes to the cluster as GH_TOKEN |
 | `DEVOPS_CLI_PROMETHEUS_URL` | `prometheus.url` | No | Prometheus service URL |
 | `DEVOPS_CLI_QDRANT_API_KEY` | `qdrant.api_key` | 🔒 Yes | Qdrant API key (stored in OS keyring) |
 | `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX` | `qdrant.collection_prefix` | No | Prefix for Qdrant collection names |
@@ -68,9 +69,15 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_REPOS_BASE_DIR` | `repos.base_dir` | No | Base directory for cloned repositories |
 | `DEVOPS_CLI_RUNS_INDEX_PASSWORD` | `runs.index_password` | 🔒 Yes | Run index Valkey password (stored in OS keyring) |
 | `DEVOPS_CLI_RUNS_INDEX_URL` | `runs.index_url` | No | Valkey holding the run index shared by workstations (set by `devops ai runs connect`) |
+| `DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS` | `service.drain_timeout_seconds` | No | Shutdown drain timeout for running service jobs in seconds |
+| `DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT` | `service.machine_account` | No | GitHub username of the machine account to ignore events from |
+| `DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS` | `service.poll_interval_seconds` | No | Periodic polling interval for service mode in seconds |
+| `DEVOPS_CLI_SERVICE_REPOS` | `service.repos` | No | Target repository list for service mode |
+| `DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS` | `service.webhook_secrets` | 🔒 Yes | JSON map of repo to webhook HMAC secret for incoming GitHub webhooks |
 | `DEVOPS_CLI_SSH_KEY_DIR` | `ssh.key_dir` | No | Directory for SSH key pairs |
 | `DEVOPS_CLI_SSH_KEY_PREFIX` | `ssh.key_prefix` | No | Prefix for generated SSH keys (defaults to devcontainer name or basename pwd) |
 | `DEVOPS_CLI_SSH_ROTATION_DAYS` | `ssh.rotation_days` | No | SSH key rotation interval in days |
+| `DEVOPS_CLI_TAVILY_API_KEY` | `tavily.api_key` | 🔒 Yes | API key for Tavily search provider |
 | `DEVOPS_CLI_TELEMETRY_ENABLED` | `telemetry.enabled` | No | Export OpenTelemetry traces and metrics: true or false (default: true) |
 | `DEVOPS_CLI_TELEMETRY_ENDPOINT` | `telemetry.endpoint` | No | OpenTelemetry collector that traces and metrics are exported to (default: OTEL_EXPORTER_OTLP_ENDPOINT, else http://localhost:4318) |
 | `DEVOPS_CLI_VALKEY_DB` | `valkey.db` | No | Valkey database index (default: 0) |

@@ -318,7 +318,7 @@ class TestDevcontainerCli:
             (fake_home / ".gemini" / "config" / "mcp_config.json").read_text(encoding="utf-8")
         )
         assert "mcpServers" in mcp_data
-        server_key = list(mcp_data["mcpServers"].keys())[0]
+        server_key = next(iter(mcp_data["mcpServers"]))
         assert mcp_data["mcpServers"][server_key]["cwd"] == str(tmp_path)
 
     def test_bootstrap_k8s_skips_start_when_minikube_already_running(
@@ -1923,7 +1923,7 @@ def test_plaintext_gh_tokens_are_moved_once_the_keyring_opens(
 
     from devops_cli.commands.devcontainer import _move_plaintext_gh_tokens
 
-    for token_var in ("GH_TOKEN", "GITHUB_TOKEN", "DEVOPS_CLI_GITHUB_TOKEN"):
+    for token_var in ("GH_TOKEN", "GITHUB_TOKEN"):
         monkeypatch.delenv(token_var, raising=False)
 
     hosts_file = _write_gh_hosts(monkeypatch, tmp_path, "github.com:\n  oauth_token: FAKE-token\n")
@@ -2009,3 +2009,34 @@ def test_post_create_skip_tools_flag(tmp_path: Path, runner: CliRunner) -> None:
         res = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
         assert (res.exit_code, mock_pc.call_count) == (0, 1)
         mock_pc.assert_called_once_with(tmp_path.resolve(), dry_run=False, skip_tools=True)
+
+
+def test_auto_deploy_passes_the_stack_as_an_option_and_names_the_unlock_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """deploy-stack takes only `--stack`, and at post-start the keyring may still be locked."""
+    import subprocess
+
+    from devops_cli.commands import devcontainer
+
+    calls: list[list[str]] = []
+    codes = iter([0, 1])
+
+    def fake_run(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, next(codes), "", "")
+
+    monkeypatch.setattr(devcontainer, "run_subprocess", fake_run)
+    deployed = devcontainer._auto_deploy_k8s_stack(tmp_path, "infra", dry_run=False)
+    failed = devcontainer._auto_deploy_k8s_stack(tmp_path, "infra", dry_run=False) or ""
+    assert (
+        calls[0],
+        deployed,
+        "devops devcontainer unlock-keyring" in failed,
+        "devops k8s deploy-stack --stack infra" in failed,
+    ) == (
+        ["devops", "k8s", "deploy-stack", "--stack", "infra"],
+        "Auto-deployed Kubernetes stack 'infra'",
+        True,
+        True,
+    )

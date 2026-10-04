@@ -14,7 +14,6 @@ ENV_DEVOPS_CLI_CONFIG = "DEVOPS_CLI_CONFIG"
 # names no `telemetry.endpoint`.
 ENV_OTEL_EXPORTER_OTLP_ENDPOINT = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
-ENV_GITHUB_TOKEN = "DEVOPS_CLI_GITHUB_TOKEN"
 ENV_GITHUB_DEFAULT_ORG = "DEVOPS_CLI_GITHUB_DEFAULT_ORG"
 ENV_SSH_KEY_DIR = "DEVOPS_CLI_SSH_KEY_DIR"
 ENV_SSH_KEY_PREFIX = "DEVOPS_CLI_SSH_KEY_PREFIX"
@@ -82,11 +81,13 @@ ENV_RUNS_INDEX_PASSWORD = "DEVOPS_CLI_RUNS_INDEX_PASSWORD"
 ENV_AI_CACHE_BACKEND = "DEVOPS_CLI_AI_CACHE_BACKEND"
 ENV_K8S_CONTEXT = "DEVOPS_CLI_K8S_CONTEXT"
 ENV_K8S_DOMAIN = "DEVOPS_CLI_K8S_DOMAIN"
+ENV_K8S_GITHUB_ACCOUNT = "DEVOPS_CLI_K8S_GITHUB_ACCOUNT"
 ENV_CLOUDFLARE_DOMAIN = "DEVOPS_CLI_CLOUDFLARE_DOMAIN"
 ENV_CLOUDFLARE_TUNNEL = "DEVOPS_CLI_CLOUDFLARE_TUNNEL"
 ENV_CLOUDFLARE_ACCOUNT_ID = "DEVOPS_CLI_CLOUDFLARE_ACCOUNT_ID"
 ENV_CLOUDFLARE_ZONE_ID = "DEVOPS_CLI_CLOUDFLARE_ZONE_ID"
 ENV_CLOUDFLARE_API_TOKEN = "DEVOPS_CLI_CLOUDFLARE_API_TOKEN"
+ENV_CLOUDFLARE_TUNNEL_TOKEN = "DEVOPS_CLI_CLOUDFLARE_TUNNEL_TOKEN"
 ENV_TELEMETRY_ENABLED = "DEVOPS_CLI_TELEMETRY_ENABLED"
 ENV_TELEMETRY_ENDPOINT = "DEVOPS_CLI_TELEMETRY_ENDPOINT"
 
@@ -106,8 +107,14 @@ ENV_DATA_TLS_DIR = "DEVOPS_CLI_DATA_TLS_DIR"
 ENV_DATA_AUDIT_LOG_PATH = "DEVOPS_CLI_DATA_AUDIT_LOG_PATH"
 ENV_DATA_FEEDBACK_DATASET_PATH = "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH"
 
+ENV_SERVICE_REPOS = "DEVOPS_CLI_SERVICE_REPOS"
+ENV_SERVICE_MACHINE_ACCOUNT = "DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT"
+ENV_SERVICE_POLL_INTERVAL_SECONDS = "DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS"
+ENV_SERVICE_DRAIN_TIMEOUT_SECONDS = "DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS"
+ENV_SERVICE_WEBHOOK_SECRETS = "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS"
+ENV_TAVILY_API_KEY = "DEVOPS_CLI_TAVILY_API_KEY"
+
 OPTION_TO_ENV_VAR: dict[str, str] = {
-    opt.GITHUB_TOKEN: ENV_GITHUB_TOKEN,
     opt.GITHUB_DEFAULT_ORG: ENV_GITHUB_DEFAULT_ORG,
     opt.SSH_KEY_DIR: ENV_SSH_KEY_DIR,
     opt.SSH_KEY_PREFIX: ENV_SSH_KEY_PREFIX,
@@ -170,11 +177,13 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.AI_CACHE_BACKEND: ENV_AI_CACHE_BACKEND,
     opt.K8S_CONTEXT: ENV_K8S_CONTEXT,
     opt.K8S_DOMAIN: ENV_K8S_DOMAIN,
+    opt.K8S_GITHUB_ACCOUNT: ENV_K8S_GITHUB_ACCOUNT,
     opt.CLOUDFLARE_DOMAIN: ENV_CLOUDFLARE_DOMAIN,
     opt.CLOUDFLARE_TUNNEL: ENV_CLOUDFLARE_TUNNEL,
     opt.CLOUDFLARE_ACCOUNT_ID: ENV_CLOUDFLARE_ACCOUNT_ID,
     opt.CLOUDFLARE_ZONE_ID: ENV_CLOUDFLARE_ZONE_ID,
     opt.CLOUDFLARE_API_TOKEN: ENV_CLOUDFLARE_API_TOKEN,
+    opt.CLOUDFLARE_TUNNEL_TOKEN: ENV_CLOUDFLARE_TUNNEL_TOKEN,
     opt.TELEMETRY_ENABLED: ENV_TELEMETRY_ENABLED,
     opt.TELEMETRY_ENDPOINT: ENV_TELEMETRY_ENDPOINT,
     opt.DATA_DIR: ENV_DATA_DIR,
@@ -190,6 +199,12 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.DATA_TLS_DIR: ENV_DATA_TLS_DIR,
     opt.DATA_AUDIT_LOG_PATH: ENV_DATA_AUDIT_LOG_PATH,
     opt.DATA_FEEDBACK_DATASET_PATH: ENV_DATA_FEEDBACK_DATASET_PATH,
+    opt.SERVICE_REPOS: ENV_SERVICE_REPOS,
+    opt.SERVICE_MACHINE_ACCOUNT: ENV_SERVICE_MACHINE_ACCOUNT,
+    opt.SERVICE_POLL_INTERVAL_SECONDS: ENV_SERVICE_POLL_INTERVAL_SECONDS,
+    opt.SERVICE_DRAIN_TIMEOUT_SECONDS: ENV_SERVICE_DRAIN_TIMEOUT_SECONDS,
+    opt.SERVICE_WEBHOOK_SECRETS: ENV_SERVICE_WEBHOOK_SECRETS,
+    opt.TAVILY_API_KEY: ENV_TAVILY_API_KEY,
 }
 
 ENV_VAR_TO_OPTION: dict[str, str] = {v: k for k, v in OPTION_TO_ENV_VAR.items()}
@@ -236,12 +251,6 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             False,
             "Absolute path to project configuration file; outside devops-cli's own "
             "repository, the only one a `devops review` command reads",
-        ),
-        EnvVarSpec(
-            ENV_GITHUB_TOKEN,
-            opt.GITHUB_TOKEN,
-            True,
-            "GitHub Personal Access Token (stored in OS keyring)",
         ),
         EnvVarSpec(
             ENV_GITHUB_DEFAULT_ORG,
@@ -563,6 +572,13 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "Base or root domain name for homelab ingress routes and tunnel services",
         ),
         EnvVarSpec(
+            ENV_K8S_GITHUB_ACCOUNT,
+            opt.K8S_GITHUB_ACCOUNT,
+            False,
+            "Login of the machine account whose gh token `devops k8s push-secrets` writes to the "
+            "cluster as GH_TOKEN",
+        ),
+        EnvVarSpec(
             ENV_CLOUDFLARE_DOMAIN,
             opt.CLOUDFLARE_DOMAIN,
             False,
@@ -591,6 +607,13 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.CLOUDFLARE_API_TOKEN,
             True,
             "Cloudflare API Token (stored in OS keyring)",
+        ),
+        EnvVarSpec(
+            ENV_CLOUDFLARE_TUNNEL_TOKEN,
+            opt.CLOUDFLARE_TUNNEL_TOKEN,
+            True,
+            "Cloudflare Tunnel token that `devops k8s push-secrets` writes to the cluster "
+            "(stored in OS keyring)",
         ),
         EnvVarSpec(
             ENV_TELEMETRY_ENABLED,
@@ -691,5 +714,41 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.DATA_FEEDBACK_DATASET_PATH,
             False,
             "Path to feedback fine-tuning dataset JSONL file",
+        ),
+        EnvVarSpec(
+            ENV_SERVICE_REPOS,
+            opt.SERVICE_REPOS,
+            False,
+            "Target repository list for service mode",
+        ),
+        EnvVarSpec(
+            ENV_SERVICE_MACHINE_ACCOUNT,
+            opt.SERVICE_MACHINE_ACCOUNT,
+            False,
+            "GitHub username of the machine account to ignore events from",
+        ),
+        EnvVarSpec(
+            ENV_SERVICE_POLL_INTERVAL_SECONDS,
+            opt.SERVICE_POLL_INTERVAL_SECONDS,
+            False,
+            "Periodic polling interval for service mode in seconds",
+        ),
+        EnvVarSpec(
+            ENV_SERVICE_DRAIN_TIMEOUT_SECONDS,
+            opt.SERVICE_DRAIN_TIMEOUT_SECONDS,
+            False,
+            "Shutdown drain timeout for running service jobs in seconds",
+        ),
+        EnvVarSpec(
+            ENV_SERVICE_WEBHOOK_SECRETS,
+            opt.SERVICE_WEBHOOK_SECRETS,
+            True,
+            "JSON map of repo to webhook HMAC secret for incoming GitHub webhooks",
+        ),
+        EnvVarSpec(
+            ENV_TAVILY_API_KEY,
+            opt.TAVILY_API_KEY,
+            True,
+            "API key for Tavily search provider",
         ),
     ]

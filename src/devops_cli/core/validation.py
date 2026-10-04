@@ -216,14 +216,16 @@ def validate_url_egress(
             if host in _LOOPBACK_AND_LOCAL_HOSTS or host.endswith(".local"):
                 raise error_cls(
                     f"{purpose.capitalize()} URL resolves to private or reserved IP: {host}"
-                )
+                ) from None
             resolved_ips = _resolve_host_ips(host)
             if not resolved_ips:
-                raise error_cls(f"DNS resolution failed or timed out for {purpose} URL: {host}")
+                raise error_cls(
+                    f"DNS resolution failed or timed out for {purpose} URL: {host}"
+                ) from None
             if any(is_non_public_ip(ip) for ip in resolved_ips):
                 raise error_cls(
                     f"{purpose.capitalize()} URL resolves to private or reserved IP: {host}"
-                )
+                ) from None
     return clean_url
 
 

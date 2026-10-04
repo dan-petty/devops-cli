@@ -64,7 +64,7 @@ DEFAULT_AI_PROVIDER = "ollama"
 DEFAULT_AI_MODEL = "gemma4:26b"
 DEFAULT_AI_FALLBACK_PROVIDER = "ollama"
 DEFAULT_AI_FALLBACK_MODEL = "qwen2.5-coder:7b"
-DEFAULT_AI_REFERENCE_MODEL: str = "gpt-4o"
+DEFAULT_AI_REFERENCE_MODEL: str = "gpt-4o-mini"
 DEFAULT_AI_HARDWARE_COST_USD: float = 0.0
 DEFAULT_AI_REASONING_EFFORT: str | None = None
 DEFAULT_AI_TEMPERATURE: float = 0.1
@@ -441,7 +441,6 @@ DEFAULT_REVIEW_RATE_LIMIT: float = 10.0
 DEFAULT_REVIEW_RATE_CAPACITY: float = 10.0
 DEFAULT_INVALIDATED_STATUS: str = "INVALIDATED"
 DEFAULT_BANDIT_SEVERITY: str = "medium"
-DEFAULT_BANDIT_EXCLUDE: str = "B608"
 DEFAULT_TRIVY_HIGH_SEVERITY: str = "HIGH,CRITICAL"
 DEFAULT_KUBECONFORM_VERSION: str = "master"
 DEFAULT_PACKAGE_ECOSYSTEM: str = "PyPI"
@@ -696,7 +695,7 @@ DEFAULT_SBOM_FORMAT: str = "cyclonedx"
 DEFAULT_MAX_COMPLEXITY: int = 10
 # The C901 markers src/ and tests/ may carry: the functions over the cap when Ruff began
 # enforcing it (#586). It only goes down; a function over the cap is decomposed instead.
-DEFAULT_C901_SUPPRESSION_CEILING: int = 66
+DEFAULT_C901_SUPPRESSION_CEILING: int = 65
 DEFAULT_MAX_NESTING_DEPTH: int = 5
 DEFAULT_QUANTIZATION_BITS: int = 16
 
@@ -745,19 +744,44 @@ DEFAULT_PR_MONITOR_SETTLE_TIMEOUT_SECONDS: int = 60
 DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS: float = 30.0
 DEFAULT_GH_MAX_RETRIES: int = 2
 DEFAULT_GH_RESOURCE: str = "core"
+# `gh auth token` answers locally; a hung keyring must not stall the first gh or git call (#767).
+DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS: float = 5.0
+# After `gh auth token` printed no token, git runs without one and looks again only this much later;
+# gh calls look again every time, since they cannot run without one.
+DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS: float = 60.0
 DEFAULT_GH_CACHE_TTL_SECONDS: float = 60.0
 DEFAULT_GH_GRAPHQL_SAFETY_THRESHOLD: int = 500
-DEFAULT_GH_GRAPHQL_CACHE_MAX_ENTRIES: int = 500
 DEFAULT_GH_GRAPHQL_MAX_COST_PER_QUERY: int = 100
 DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC: int = 25
 DEFAULT_GH_QUOTA_MAX_AGE_SECONDS: float = 300.0
 DEFAULT_GH_MAX_PAGINATED_PAGES: int = 100
 DEFAULT_GH_REST_PER_PAGE: int = 100
-DEFAULT_GH_PROJECT_ITEM_LIMIT: int = 5000
+# Board reads page GraphQL's `ProjectV2.items` this many items at a time, its largest page (#1125).
+DEFAULT_GH_PROJECT_ITEM_PAGE_SIZE: int = 100
+# A board read stops before a page, and refuses before it starts, while GraphQL reports fewer
+# points left than this: 5% of the 5,000-point hourly budget stays for the run's writes and for
+# the other tools sharing the identity (#1125).
+DEFAULT_GH_GRAPHQL_BUDGET_FLOOR: int = 250
+# What one page of a board read is taken to cost before the run has read a page and measured it:
+# GitHub charges a hundredth of the connection requests a query may make, rounded and at least 1,
+# and a page of 100 items with their field values may make 101 (#1125).
+DEFAULT_GH_PROJECT_ITEM_PAGE_POINTS: int = 1
 DEFAULT_GH_PROJECT_FIELD_LIMIT: int = 100
 DEFAULT_GH_PROJECT_LIST_LIMIT: int = 100
 DEFAULT_GH_PROJECT_WORKFLOW_LIMIT: int = 50
 DEFAULT_GH_PROJECT_OPTION_COLOR: str = "GRAY"
+# Closes and reopens read from one issue's timeline in one GraphQL request (#742).
+DEFAULT_GH_ISSUE_TIMELINE_LIMIT: int = 100
+# `devops roadmap intake` (#742): the nearest items the model judges, and how much of an issue's
+# text it embeds and shows the model.
+DEFAULT_ROADMAP_INTAKE_SHORTLIST: int = 5
+DEFAULT_ROADMAP_INTAKE_TEXT_CHARS: int = 4000
+DEFAULT_ROADMAP_INTAKE_EXCERPT_CHARS: int = 600
+DEFAULT_ROADMAP_INTAKE_REASON_CHARS: int = 240
+# The longest first section of a pull request body a closure comment quotes (#743).
+DEFAULT_ROADMAP_CLOSE_SUMMARY_CHARS: int = 1500
+DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES: int = 60
+DEFAULT_ROADMAP_CLOSURE_INTERVAL_MINUTES: int = 60
 DEFAULT_ROADMAP_MEMORY_REPO: str = "example/roadmap"
 DEFAULT_ROADMAP_MEMORY_ACTOR: str = "devops-cli"
 DEFAULT_ROADMAP_MEMORY_BOARD_NUMBER: int = 1
@@ -772,9 +796,16 @@ DEFAULT_GH_PROJECT_ITEMS_PER_ISSUE: int = 20
 DEFAULT_ROADMAP_STALL_CHECK_HOURS: int = 24
 # `.github/roadmap.toml` keys a repository may leave out. `board` has no default.
 DEFAULT_ROADMAP_RELEASE_CAP: int = 12
+DEFAULT_ROADMAP_REFINE_LIMIT: int = 3
 DEFAULT_ROADMAP_DISCOVERY_THRESHOLD: int = 24
 DEFAULT_ROADMAP_PLANNING_HORIZON: int = 2
 DEFAULT_ROADMAP_STALL_DAYS: int = 14
+DEFAULT_ROADMAP_OPEN_ISSUE_LIMIT: int = 200
+DEFAULT_ROADMAP_THROTTLE_START_FRACTION: float = 0.8
+DEFAULT_ROADMAP_OVERAGE_STEP_FRACTION: float = 0.25
+DEFAULT_ROADMAP_RELEASE_CREDIT_BASE: int = 10
+DEFAULT_ROADMAP_RELEASE_CREDIT_PER_DELIVERED_ITEM: int = 1
+DEFAULT_ROADMAP_RELEASE_ITEM_TARGET: int = 50
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0
 DEFAULT_GH_SECONDARY_RATE_WAIT: float = 60.0
 DEFAULT_GH_SECONDARY_MAX_CAP: float = 300.0
@@ -903,3 +934,7 @@ DEFAULT_SHELL_DRAIN_TIMEOUT_SECONDS: Final[float] = 2.0
 # remaining members get SIGKILL, and how often the group is probed meanwhile (#958).
 DEFAULT_SHELL_STOP_GRACE_SECONDS: Final[float] = 3.0
 DEFAULT_SHELL_STOP_POLL_SECONDS: Final[float] = 0.05
+
+# ── Service Mode Defaults ─────────────────────────────────────────────────────
+DEFAULT_SERVICE_POLL_INTERVAL_SECONDS: Final[int] = 300
+DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS: Final[int] = 120

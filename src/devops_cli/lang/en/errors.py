@@ -26,6 +26,16 @@ class GitErrorMessages:
     exceeds_max_size: str = "Error: Target file '{target}' exceeds maximum size ({max_mb}MB)."
     github_repo_parse_failed: str = "Could not parse GitHub repo owner/name from remote URL: {raw}"
     target_path_outside_repo: str = "Error: Target path '{dest}' is outside repository boundary."
+    github_unauthenticated: str = (
+        "GitHub is not authenticated: `gh auth token` printed no token (exit status {status}). "
+        "Run 'gh auth login', or set GH_TOKEN."
+    )
+    github_token_lookup_failed: str = (
+        "GitHub is not authenticated: `gh auth token` could not run ({reason}). "
+        "Check that gh is installed, on PATH and answering, then run 'gh auth login' or set GH_TOKEN."
+    )
+    github_token_lookup_not_found: str = "gh is not on PATH"
+    github_token_lookup_timed_out: str = "no answer within {seconds:g} s"
 
 
 @dataclass(frozen=True)

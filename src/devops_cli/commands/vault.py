@@ -125,7 +125,7 @@ def vault_get(
         _validate_vault_path(path)
     except (ValueError, VaultConfigurationError) as exc:
         print_error(mask_secrets(str(exc)), prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     broker = VaultSecretBroker()
 
     if is_dry_run():
@@ -172,7 +172,7 @@ def vault_set(
         _validate_vault_path(path)
     except (ValueError, VaultConfigurationError) as exc:
         print_error(mask_secrets(str(exc)), prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     broker = VaultSecretBroker()
     payload: dict[str, str] = {}
 
@@ -223,7 +223,7 @@ def vault_sync(
         _validate_vault_path(path)
     except (ValueError, VaultConfigurationError) as exc:
         print_error(mask_secrets(str(exc)), prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     broker = VaultSecretBroker()
 
     if is_dry_run():
@@ -293,7 +293,7 @@ def vault_login(
             )
     except VaultAuthenticationError as exc:
         print_error(str(exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     if store:
         from devops_cli.config.settings import set_keyring_secret

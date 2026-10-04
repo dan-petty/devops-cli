@@ -633,7 +633,7 @@ wheels = [
 
 [[package]]
 name = "devops-cli"
-version = "0.2.25"
+version = "0.2.26"
 source = { editable = "." }
 dependencies = [
     { name = "aiolimiter" },
@@ -644,6 +644,7 @@ dependencies = [
     { name = "fastmcp" },
     { name = "genai-prices" },
     { name = "gitpython" },
+    { name = "graphql-core" },
     { name = "httpx2" },
     { name = "jinja2" },
     { name = "json-repair" },
@@ -712,6 +713,7 @@ requires-dist = [
     { name = "fastmcp", specifier = "==3.4.7" },
     { name = "genai-prices", specifier = "==0.1.6" },
     { name = "gitpython", specifier = "==3.1.62" },
+    { name = "graphql-core", specifier = "==3.3.0" },
     { name = "httpx2", specifier = "==2.13.0" },
     { name = "jinja2", specifier = "==3.1.6" },
     { name = "json-repair", specifier = "==0.63.4" },
@@ -1084,6 +1086,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8a/c5/4353a188e2c335aee33269e8b654af228278cca8e5f0b4b5f11e5d0e9adb/googleapis_common_protos-1.75.3.tar.gz", hash = "sha256:57c435ac2c68b108999b6db075d9053e4d7a936ba57b4a3d45667b1346f1738a", size = 153905, upload-time = "2026-09-03T22:31:21.869Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1a/7a/7d79170c6ce6f12e109df2b3879d6b934010cf4f99aea8de8b7e5408c174/googleapis_common_protos-1.75.3-py3-none-any.whl", hash = "sha256:a018d2bf098ca9fb6faa08d5bb780e2a2c2f73c566f069761331386c9596d3f2", size = 306984, upload-time = "2026-09-03T22:30:45.133Z" },
+]
+
+[[package]]
+name = "graphql-core"
+version = "3.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fa/90/dfade6d16a55abb45e41b215fcdc940e4f119a6ac7d87430d45d020b659f/graphql_core-3.3.0.tar.gz", hash = "sha256:fd3424e88af3f3211931c6ff96350f1cd9069cf0f1a31b9972899e35d39136b5", size = 726439, upload-time = "2026-09-27T14:50:14.57Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0c/13/03fb01b3581134cc30d7dd3fb8a9c429267574ace881a9e72c2f57896ee9/graphql_core-3.3.0-py3-none-any.whl", hash = "sha256:d37fac6ef4dfc3eaa5daa59dcb498d7cbb118439d240993c68fddc4cb1bade44", size = 347906, upload-time = "2026-09-27T14:50:12.905Z" },
 ]
 
 [[package]]

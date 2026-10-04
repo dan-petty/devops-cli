@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable
-from typing import Any
+from typing import Any, ClassVar
 
 from textual import work
 from textual.app import ComposeResult
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
 from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import DataTable, Label, Static
@@ -32,7 +32,7 @@ from devops_cli.ui.projections import (
 class PodInspector(ModalScreen[None]):
     """A dialog listing one pod's containers and its most recent events."""
 
-    BINDINGS = [Binding("escape", "dismiss", "Close")]
+    BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "dismiss", "Close")]
 
     DEFAULT_CSS = """
     PodInspector {

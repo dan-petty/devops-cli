@@ -74,24 +74,6 @@ def _gh_auth_status() -> bool:
     return result.returncode == 0
 
 
-def _gh_auth_token() -> str | None:
-    from devops_cli.github.rate_limiter import run_gh
-
-    try:
-        result = run_gh(
-            ["auth", "token"],
-            quiet=True,
-            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-        )
-    except OSError, subprocess.SubprocessError:
-        return None
-
-    if result.returncode != 0:
-        return None
-    token = result.stdout.strip()
-    return token or None
-
-
 # =============================================================================
 # Command: devops config show
 # =============================================================================
@@ -116,7 +98,6 @@ def show() -> None:
         display = "[green]set (****)[/green]" if is_configured else not_set_str
         rows.append([key, display])
 
-    _secret_row(opt.GITHUB_TOKEN, _is_secret_configured(opt.GITHUB_TOKEN))
     _row(opt.GITHUB_DEFAULT_ORG, settings.github.default_org)
     _row(opt.SSH_KEY_DIR, settings.ssh.key_dir)
     _row(opt.SSH_ROTATION_DAYS, settings.ssh.rotation_days)
@@ -138,11 +119,13 @@ def show() -> None:
     _secret_row(opt.AI_API_KEY, _is_secret_configured(opt.AI_API_KEY))
     _row(opt.K8S_CONTEXT, settings.k8s.context)
     _row(opt.K8S_DOMAIN, settings.k8s.domain)
+    _row(opt.K8S_GITHUB_ACCOUNT, settings.k8s.github_account)
     _row(opt.CLOUDFLARE_DOMAIN, settings.cloudflare.domain)
     _row(opt.CLOUDFLARE_TUNNEL, settings.cloudflare.tunnel)
     _row(opt.CLOUDFLARE_ACCOUNT_ID, settings.cloudflare.account_id)
     _row(opt.CLOUDFLARE_ZONE_ID, settings.cloudflare.zone_id)
     _secret_row(opt.CLOUDFLARE_API_TOKEN, _is_secret_configured(opt.CLOUDFLARE_API_TOKEN))
+    _secret_row(opt.CLOUDFLARE_TUNNEL_TOKEN, _is_secret_configured(opt.CLOUDFLARE_TUNNEL_TOKEN))
 
     print_table(
         title=MESSAGES.config.header,
@@ -171,9 +154,9 @@ def get_value(
     try:
         value = dotted_get(settings, key)
         print_info(str(value) if value is not None else "[dim](not set)[/dim]", prefix=False)
-    except AttributeError:
+    except AttributeError as exc:
         print_error(f"Unknown config key: {key!r}", prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
 
 # =============================================================================
@@ -181,12 +164,26 @@ def get_value(
 # =============================================================================
 
 
+def _value_or_prompt(key: str, value: str | None) -> str:
+    """The given value, or a credential typed at a hidden prompt, keeping it out of argv.
+
+    A non-credential key without a value exits 2.
+    """
+    if value is not None:
+        return value
+    if key not in _SECRET_FIELDS:
+        print_error(MESSAGES.config.value_required.format(key=key), prefix=False, safe=True)
+        raise typer.Exit(2)
+    return str(typer.prompt(MESSAGES.config.secret_prompt.format(key=key), hide_input=True))
+
+
 @app.command("set")
 def set_value(
     key: Annotated[str, typer.Argument(help=HELP.config.key)],
-    value: Annotated[str, typer.Argument(help=HELP.config.value)],
+    value: Annotated[str | None, typer.Argument(help=HELP.config.value)] = None,
 ) -> None:
-    """Set a configuration value. Tokens are stored in the OS keyring."""
+    """Set a configuration value. Credentials go to the OS keyring; omit VALUE to type one hidden."""
+    value = _value_or_prompt(key, value)
     settings = load_settings()
     try:
         dotted_set(settings, key, value)
@@ -197,10 +194,10 @@ def set_value(
             print_success(f"{key} = {value}", prefix=False)
     except SecretStorageError as exc:
         _render_secret_store_error(key, exc)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     except (AttributeError, ValueError) as exc:
         print_error(f"Failed to set {key!r}: {exc}", prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
 
 # =============================================================================
@@ -216,41 +213,27 @@ def init() -> None:  # noqa: C901
 
     # ── GitHub ─────────────────────────────────────────────────────────────
     print_info("[cyan]GitHub[/cyan]", prefix=False)
-    gh_path = check_binary(CONST_GH_CLI)
-    if gh_path:
-        if not _gh_auth_status() and typer.confirm(
-            "Authenticate with GitHub CLI now using 'gh auth login'?", default=True
-        ):
-            from devops_cli.github.rate_limiter import run_gh
+    if not check_binary(CONST_GH_CLI):
+        print_warning(
+            "GitHub CLI (gh) not found. devops-cli acts on GitHub as gh's login: "
+            "install gh, then run 'gh auth login'.",
+            prefix=False,
+        )
+    elif _gh_auth_status():
+        print_success("Using GitHub CLI authentication via 'gh auth token'.")
+    elif typer.confirm("Authenticate with GitHub CLI now using 'gh auth login'?", default=True):
+        from devops_cli.github.rate_limiter import run_gh
 
-            run_gh(
-                ["auth", "login"],
-                check=False,
-                capture_output=False,
-                timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS * 4,
-            )
-
-        gh_token = _gh_auth_token()
-        if gh_token and typer.confirm("Import GitHub CLI token into devops keyring?", default=True):
-            try:
-                dotted_set(settings, opt.GITHUB_TOKEN, gh_token)
-                print_success("GitHub token stored in keyring.")
-            except SecretStorageError as exc:
-                _render_secret_store_error(opt.GITHUB_TOKEN, exc)
-        elif gh_token:
-            print_success("Using GitHub CLI authentication via 'gh auth token'.")
-        else:
-            print_warning(
-                "No GitHub CLI session found. You can run 'gh auth login' later.", prefix=False
-            )
+        run_gh(
+            ["auth", "login"],
+            check=False,
+            capture_output=False,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS * 4,
+        )
     else:
-        token = typer.prompt("Personal Access Token (PAT)", hide_input=True, default="")
-        if token:
-            try:
-                dotted_set(settings, opt.GITHUB_TOKEN, token)
-                print_success("GitHub token stored in keyring.")
-            except SecretStorageError as exc:
-                _render_secret_store_error(opt.GITHUB_TOKEN, exc)
+        print_warning(
+            "No GitHub CLI session found. You can run 'gh auth login' later.", prefix=False
+        )
 
     default_org = typer.prompt("Default org (leave blank to skip)", default="")
     if default_org:
@@ -317,16 +300,6 @@ def _is_secret_configured(key: str) -> bool:
     env_var = env_var_for_option(key)
     if env_var and bool(os.environ.get(env_var)):
         return True
-    if key == opt.GITHUB_TOKEN:
-        gh_cmd = check_binary(CONST_GH_CLI)
-        if gh_cmd:
-            try:
-                from devops_cli.github.rate_limiter import run_gh
-
-                res = run_gh(["auth", "status"], quiet=True, timeout=3.0)
-                return res.returncode == 0
-            except Exception:
-                pass
     return False
 
 
@@ -496,7 +469,9 @@ def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str]:
     import yaml
 
     from devops_cli.config.options import KEYRING_KEYS
+    from devops_cli.security.sanitizer import is_secret_field
 
+    secret_options = frozenset(KEYRING_KEYS)
     try:
         raw_cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
         if not isinstance(raw_cfg, dict):
@@ -505,9 +480,10 @@ def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str]:
         for section_name, section_dict in raw_cfg.items():
             if not isinstance(section_dict, dict):
                 continue
-            for opt_name in section_dict:
+            for opt_name, value in section_dict.items():
                 composite = f"{section_name}.{opt_name}"
-                if composite in KEYRING_KEYS and bool(section_dict.get(opt_name)):
+                # A secret-named key that is no longer an option is still a plaintext secret.
+                if value and is_secret_field(str(opt_name), composite, secret_options):
                     leaks.append(f"{cfg_file.name}:{composite}")
         return leaks
     except (yaml.YAMLError, OSError, UnicodeDecodeError) as err:
@@ -543,7 +519,7 @@ def audit_keys_cmd(
             details={
                 "backend": "OS Keyring / SecretService",
                 "zero_plaintext_compliance": "VERIFIED",
-                "keys_checked": ["github.token", "grafana.token", "argocd.token", "ai.api_key"],
+                "keys_checked": ["grafana.token", "argocd.token", "ai.api_key"],
                 "status": "COMPLIANT_DRY_RUN",
             },
         )
@@ -656,7 +632,8 @@ def audit_keys_cmd(
     if plaintext_leaks:
         print_error(
             f"Security Alert: Found plaintext secrets stored in config files: {plaintext_leaks}. "
-            f"Migrate secrets to OS Keyring via 'devops config set <key> <val>'.",
+            "Migrate secrets to OS Keyring via 'devops config set <key> <val>', "
+            "and delete any key that is not a config option.",
             prefix=False,
         )
     else:

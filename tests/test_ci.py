@@ -14,10 +14,19 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from devops_cli.commands import ci as ci_module
-from devops_cli.commands.ci import CheckResult, app
+from devops_cli.commands.ci import (
+    CheckResult,
+    CheckSpec,
+    app,
+    get_check_spec,
+    get_check_specs,
+    resolve_selected_specs,
+    resolve_step_rows,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.lang import MESSAGES
@@ -227,14 +236,15 @@ def test_ci_python_version_check_failure(monkeypatch) -> None:
 def test_ci_all_checks_includes_audit_coverage_and_security() -> None:
     called: list[list[str]] = []
 
-    async def mock_exec(
-        name: str,
-        display_title: str,
-        cmd: list[str],
-        span_name: str,
-        metric_step: str,
-        timeout: float = 600.0,
-    ) -> CheckResult:
+    async def mock_exec(spec: CheckSpec | str, *args: Any, **kwargs: Any) -> CheckResult:
+        if isinstance(spec, CheckSpec):
+            name = spec.name
+            display_title = spec.display_title
+            cmd = spec.cmd
+        else:
+            name = spec
+            display_title = args[0] if args else kwargs.get("display_title", spec)
+            cmd = args[1] if len(args) > 1 else kwargs.get("cmd", [])
         called.append(cmd)
         return CheckResult(
             name=name,
@@ -254,7 +264,7 @@ def test_ci_all_checks_includes_audit_coverage_and_security() -> None:
             and "coverage" in result.output
             and "security" in result.output
             and "actionlint" in result.output
-            and "uv_check" in result.output.lower()
+            and ("uv-check" in result.output.lower() or "uv_check" in result.output.lower())
             and "lockfile" in result.output.lower()
             and "outdated" in result.output.lower()
         )
@@ -273,14 +283,15 @@ def test_ci_all_checks_includes_audit_coverage_and_security() -> None:
 def test_ci_all_checks_with_check_flag() -> None:
     called: list[list[str]] = []
 
-    async def mock_exec(
-        name: str,
-        display_title: str,
-        cmd: list[str],
-        span_name: str,
-        metric_step: str,
-        timeout: float = 600.0,
-    ) -> CheckResult:
+    async def mock_exec(spec: CheckSpec | str, *args: Any, **kwargs: Any) -> CheckResult:
+        if isinstance(spec, CheckSpec):
+            name = spec.name
+            display_title = spec.display_title
+            cmd = spec.cmd
+        else:
+            name = spec
+            display_title = args[0] if args else kwargs.get("display_title", spec)
+            cmd = args[1] if len(args) > 1 else kwargs.get("cmd", [])
         called.append(cmd)
         return CheckResult(
             name=name,
@@ -494,7 +505,17 @@ def test_ci_run_docs_fix_when_needed() -> None:
 
     called_cmds = []
 
-    async def mock_execute(name, title, cmd, span, metric, timeout=None):
+    async def mock_execute(spec: CheckSpec | str, *args: Any, **kwargs: Any) -> CheckResult:
+        if isinstance(spec, CheckSpec):
+            name = spec.name
+            title = spec.display_title
+            cmd = spec.cmd
+            if kwargs.get("apply_fix") and spec.fix_cmd:
+                called_cmds.append(spec.fix_cmd)
+        else:
+            name = spec
+            title = args[0] if args else kwargs.get("display_title", spec)
+            cmd = args[1] if len(args) > 1 else kwargs.get("cmd", [])
         called_cmds.append(cmd)
         return CheckResult(
             name=name,
@@ -513,6 +534,22 @@ def test_ci_run_docs_fix_when_needed() -> None:
         results = asyncio.run(_run_all_checks_async(lint_fix=True, format_fix=True, docs_fix=True))
         assert any("generate" in cmd for cmd in called_cmds)
         assert any(r.name == "docs" for r in results)
+
+
+def test_gate_test_step_argv_is_unchanged() -> None:
+    """Verify that the gate's test step argv remains unchanged and does not pass --cov-context."""
+    from devops_cli.commands.ci import _resolve_pytest_cmd, get_check_spec
+
+    spec = get_check_spec("test")
+    assert (
+        spec.cmd,
+        "--cov-context=test" in spec.cmd,
+        any("COVERAGE_CORE" in c for c in spec.cmd),
+    ) == (
+        _resolve_pytest_cmd(),
+        False,
+        False,
+    )
 
 
 def _validate_setup_uv_step(step: dict[str, object], source: str) -> None:
@@ -608,9 +645,11 @@ def test_ci_workflow_parallelizes_quality_gates() -> None:
     ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
     jobs = ci["jobs"]
 
-    assert {"static", "test", "devcontainer"}.issubset(jobs.keys())
+    assert {"static", "test", "devcontainer", "service-image"}.issubset(jobs.keys())
     # No `needs:` between them, so they start concurrently rather than in sequence.
-    assert all(not jobs[name].get("needs") for name in ("static", "test", "devcontainer"))
+    assert all(
+        not jobs[name].get("needs") for name in ("static", "test", "devcontainer", "service-image")
+    )
 
 
 def test_devcontainer_image_publishes_only_for_main_targeted_pull_requests() -> None:
@@ -626,6 +665,114 @@ def test_devcontainer_image_publishes_only_for_main_targeted_pull_requests() -> 
 
     assert "github.base_ref == 'main'" in condition
     assert "github.event_name == 'pull_request'" in condition
+
+
+def test_service_image_ci_job_invariants() -> None:
+    """The CI service-image job runs for PRs to main or dispatch, pushes nothing, and avoids ${{ in scripts."""
+    import yaml
+
+    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
+    job = ci["jobs"]["service-image"]
+    condition = str(job.get("if", ""))
+
+    assert (
+        "github.base_ref == 'main'" in condition,
+        "github.event_name == 'pull_request'" in condition,
+        "github.event_name == 'workflow_dispatch'" in condition,
+        job.get("permissions"),
+    ) == (True, True, True, {"contents": "read"})
+
+    build_step = next(s for s in job["steps"] if s.get("name") == "Build and Load Service Image")
+    assert (
+        build_step.get("with", {}).get("push") in (False, "false"),
+        build_step.get("with", {}).get("load") in (True, "true"),
+    ) == (True, True)
+
+    interpolated_runs = [s.get("name", "") for s in job["steps"] if "${{" in s.get("run", "")]
+    assert not interpolated_runs, (
+        f"run: blocks in service-image job must not contain ${{}}: {interpolated_runs}"
+    )
+
+
+def test_service_image_release_job_invariants() -> None:
+    """The release service-image job verifies needs, permissions, step order, and Trivy inputs."""
+    import yaml
+
+    release_wf = (
+        yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8")) or {}
+    )
+    job = release_wf["jobs"]["service-image"]
+
+    assert (
+        job.get("needs"),
+        job.get("permissions"),
+    ) == (
+        "release",
+        {
+            "contents": "read",
+            "packages": "write",
+            "id-token": "write",
+            "attestations": "write",
+        },
+    )
+
+    step_names = [s.get("name", "") for s in job["steps"]]
+    indices = (
+        step_names.index("Build and Load Service Image"),
+        step_names.index("Run Service Image Smoke Test"),
+        step_names.index("Scan Service Image for Vulnerabilities"),
+        step_names.index("Build and Push Service Image"),
+        step_names.index("Attest Build Provenance"),
+    )
+    assert indices == tuple(sorted(indices)), f"Steps out of order: {indices}"
+
+    trivy_step = next(
+        s for s in job["steps"] if s.get("name") == "Scan Service Image for Vulnerabilities"
+    )
+    trivy_with = trivy_step.get("with", {})
+    assert (
+        trivy_with.get("scanners"),
+        trivy_with.get("severity"),
+        trivy_with.get("ignore-unfixed"),
+        str(trivy_with.get("exit-code")),
+    ) == ("vuln", "HIGH,CRITICAL", True, "1")
+
+    push_step = next(s for s in job["steps"] if s.get("name") == "Build and Push Service Image")
+    assert push_step.get("with", {}).get("sbom") in (True, "true")
+
+    interpolated_runs = [s.get("name", "") for s in job["steps"] if "${{" in s.get("run", "")]
+    assert not interpolated_runs, (
+        f"run: blocks in service-image release job must not contain ${{}}: {interpolated_runs}"
+    )
+
+
+def test_service_image_smoke_test_parity() -> None:
+    """The smoke-test run: block in ci.yml and release.yml must be identical and enforce sandbox flags."""
+    import yaml
+
+    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
+    rel = yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8")) or {}
+
+    ci_smoke = next(
+        s
+        for s in ci["jobs"]["service-image"]["steps"]
+        if s.get("name") == "Run Service Image Smoke Test"
+    )
+    rel_smoke = next(
+        s
+        for s in rel["jobs"]["service-image"]["steps"]
+        if s.get("name") == "Run Service Image Smoke Test"
+    )
+
+    ci_run = ci_smoke["run"].strip()
+    rel_run = rel_smoke["run"].strip()
+
+    assert (
+        ci_run == rel_run,
+        "--read-only" in ci_run,
+        "--cap-drop ALL" in ci_run,
+        "no-new-privileges" in ci_run,
+    ) == (True, True, True, True)
 
 
 def test_resolve_pytest_worker_count() -> None:
@@ -1315,3 +1462,369 @@ def test_help_after_the_separator_is_a_path_and_the_check_names_its_root(
         "Usage:" in result.output,
         MESSAGES.ci.gate_root.format(root=nested.resolve()) in announced,
     ) == (0, False, True)
+
+
+@pytest.mark.parametrize(
+    "subcmd,expected_row",
+    [
+        ("coverage", "test"),
+        ("lint", "lint"),
+        ("format", "format"),
+        ("typecheck", "typecheck"),
+        ("audit", "audit"),
+        ("security", "security"),
+        ("actionlint", "actionlint"),
+        ("docs", "docs"),
+        ("uv-check", "uv-check"),
+        ("lockfile", "lockfile"),
+        ("outdated", "outdated"),
+        ("devcontainer", "devcontainer"),
+    ],
+)
+def test_subcommand_dispatches_exact_table_row_cmd(
+    subcmd: str, expected_row: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify each CLI subcommand executes the exact check argv defined in the check table."""
+    executed_cmds: list[list[str]] = []
+
+    def mock_run(cmd: list[str], *a: Any, **kw: Any) -> subprocess.CompletedProcess[str]:
+        executed_cmds.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    monkeypatch.setattr(ci_module, "run_subprocess", mock_run)
+
+    spec = get_check_spec(expected_row)
+    args = [subcmd]
+    if subcmd in ("lint", "format"):
+        args.append("--check")
+    result = runner.invoke(app, args)
+    spec_cmd = list(spec.cmd)
+    if spec_cmd and spec_cmd[0] == "uv" and "--preview-features" not in spec_cmd:
+        spec_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
+    assert (result.exit_code, any(c == spec_cmd for c in executed_cmds)) == (0, True)
+
+
+@pytest.mark.parametrize(
+    "subcmd,flag,expected_row",
+    [
+        ("lint", None, "lint"),
+        ("format", None, "format"),
+        ("docs", "--fix", "docs"),
+    ],
+)
+def test_subcommand_dispatches_exact_table_row_fix_cmd(
+    subcmd: str, flag: str | None, expected_row: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify CLI subcommands in fix mode execute the exact fix argv defined in the check table."""
+    executed_cmds: list[list[str]] = []
+
+    def mock_run(cmd: list[str], *a: Any, **kw: Any) -> subprocess.CompletedProcess[str]:
+        executed_cmds.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    monkeypatch.setattr(ci_module, "run_subprocess", mock_run)
+
+    spec = get_check_spec(expected_row)
+    args = [subcmd]
+    if flag:
+        args.append(flag)
+    result = runner.invoke(app, args)
+    assert spec.fix_cmd is not None
+    spec_fix_cmd = list(spec.fix_cmd)
+    if spec_fix_cmd and spec_fix_cmd[0] == "uv" and "--preview-features" not in spec_fix_cmd:
+        spec_fix_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
+    assert (result.exit_code, any(c == spec_fix_cmd for c in executed_cmds)) == (0, True)
+
+
+def test_coverage_subcommand_maps_to_test_row() -> None:
+    """Verify coverage maps to the test row in step row resolution."""
+    assert resolve_step_rows("devops ci coverage") == ["test"]
+
+
+@pytest.mark.asyncio
+async def test_ci_fix_execution_order() -> None:
+    """Verify in-place fixes run in strict sequence: format, then lint, before checks."""
+    execution_order: list[str] = []
+
+    async def mock_execute(spec: CheckSpec | str, *args: Any, **kwargs: Any) -> CheckResult:
+        name = spec.name if isinstance(spec, CheckSpec) else spec
+        apply_fix = kwargs.get("apply_fix", False)
+        if apply_fix and isinstance(spec, CheckSpec) and spec.fix_cmd:
+            execution_order.append(f"{name}_fix")
+        execution_order.append(name)
+        return CheckResult(
+            name=name,
+            display_title=name,
+            passed=True,
+            duration_seconds=0.01,
+        )
+
+    with (
+        patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_execute),
+        patch("devops_cli.commands.ci._verify_python_314_environment", return_value=True),
+    ):
+        await ci_module._run_all_checks_async(lint_fix=True, format_fix=True, docs_fix=True)
+
+    format_fix_idx = execution_order.index("format_fix")
+    lint_fix_idx = execution_order.index("lint_fix")
+    lint_check_idx = execution_order.index("lint")
+    format_check_idx = execution_order.index("format")
+    docs_fix_idx = execution_order.index("docs_fix")
+    docs_check_idx = execution_order.index("docs")
+
+    assert (
+        format_fix_idx < lint_fix_idx,
+        lint_fix_idx < lint_check_idx,
+        lint_fix_idx < format_check_idx,
+        docs_fix_idx < docs_check_idx,
+    ) == (True, True, True, True)
+
+
+def test_ci_selection_only_and_skip_options() -> None:
+    """Verify --only and --skip resolution logic and validation."""
+    specs = get_check_specs()
+    all_names = [s.name for s in specs]
+
+    only_lint = resolve_selected_specs(only=["lint"])
+    assert [s.name for s in only_lint] == ["lint"]
+
+    only_multiple = resolve_selected_specs(only=["lint,typecheck", "audit"])
+    assert [s.name for s in only_multiple] == ["lint", "typecheck", "audit"]
+
+    skip_test = resolve_selected_specs(skip=["test,outdated"])
+    expected_skip = [name for name in all_names if name not in ("test", "outdated")]
+    assert [s.name for s in skip_test] == expected_skip
+
+    with pytest.raises(typer.Exit) as exc_both:
+        resolve_selected_specs(only=["lint"], skip=["test"])
+    with pytest.raises(typer.Exit) as exc_only:
+        resolve_selected_specs(only=["nonexistent"])
+    with pytest.raises(typer.Exit) as exc_skip:
+        resolve_selected_specs(skip=["nonexistent"])
+
+    assert (exc_both.value.exit_code, exc_only.value.exit_code, exc_skip.value.exit_code) == (
+        2,
+        2,
+        2,
+    )
+
+
+def test_ci_cli_runner_only_and_skip_validation() -> None:
+    """Verify CLI error reporting for conflicting or invalid check selections."""
+    res_both = runner.invoke(app, ["--only", "lint", "--skip", "test"])
+    res_invalid_only = runner.invoke(app, ["--only", "invalid_gate"])
+    res_invalid_skip = runner.invoke(app, ["--skip", "invalid_gate"])
+
+    assert (
+        res_both.exit_code,
+        "Cannot combine --only and --skip" in res_both.output,
+        res_invalid_only.exit_code,
+        "Invalid check name(s): 'invalid_gate'" in res_invalid_only.output,
+        res_invalid_skip.exit_code,
+        "Invalid check name(s): 'invalid_gate'" in res_invalid_skip.output,
+    ) == (2, True, 2, True, 2, True)
+
+
+@pytest.mark.asyncio
+async def test_ci_single_row_streaming_capture_output() -> None:
+    """Verify single-row run sets capture_output=False for live streaming, while multi-row sets capture_output=True."""
+    captured_flags: list[bool] = []
+
+    async def mock_execute(spec: CheckSpec | str, *args: Any, **kwargs: Any) -> CheckResult:
+        captured_flags.append(kwargs.get("capture_output", True))
+        name = spec.name if isinstance(spec, CheckSpec) else spec
+        return CheckResult(name=name, display_title=name, passed=True, duration_seconds=0.01)
+
+    with (
+        patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_execute),
+        patch("devops_cli.commands.ci._verify_python_314_environment", return_value=True),
+    ):
+        await ci_module._run_all_checks_async(specs=[get_check_spec("lint")])
+        single_row_flag = captured_flags.copy()
+
+        captured_flags.clear()
+        await ci_module._run_all_checks_async(
+            specs=[get_check_spec("lint"), get_check_spec("format")]
+        )
+        multi_row_flags = captured_flags.copy()
+
+    assert (single_row_flag, multi_row_flags) == ([False], [True, True])
+
+
+@pytest.mark.asyncio
+async def test_execute_check_async_timeout_expired() -> None:
+    """Verify TimeoutExpired turns into structured failed CheckResult."""
+    import contextlib
+
+    @contextlib.contextmanager
+    def dummy_span(*a: Any, **kw: Any) -> Any:
+        yield
+
+    async def mock_subprocess_async(*a: Any, **kw: Any) -> Any:
+        raise subprocess.TimeoutExpired(cmd=["test_cmd"], timeout=12.5)
+
+    def mock_get(key: str) -> Any:
+        if key == "trace_span":
+            return dummy_span
+        if key == "run_subprocess_async":
+            return mock_subprocess_async
+        return lambda *a, **kw: None
+
+    with patch("devops_cli.commands.ci._get", side_effect=mock_get):
+        spec = CheckSpec(
+            name="slow_gate",
+            display_title="Slow Gate",
+            cmd=["sleep", "99"],
+            span_name="ci.step.slow_gate",
+            metric_step="slow_gate",
+        )
+        res = await ci_module._execute_check_async(spec, timeout=12.5)
+
+    assert (
+        res.passed,
+        res.name,
+        res.timed_out,
+        res.timeout_seconds,
+        "timed out" in res.stderr.lower(),
+    ) == (False, "slow_gate", True, 12.5, True)
+
+
+def test_ci_narrowed_runs_isolate_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify --only and --skip runs neither read nor populate the gate cache."""
+    cache_read = False
+    cache_written = False
+
+    def mock_try_fast(*a: Any, **kw: Any) -> bool:
+        nonlocal cache_read
+        cache_read = True
+        return False
+
+    def mock_save_cache(*a: Any, **kw: Any) -> None:
+        nonlocal cache_written
+        cache_written = True
+
+    async def mock_run_async(*a: Any, **kw: Any) -> list[CheckResult]:
+        return [CheckResult(name="lint", display_title="Lint", passed=True, duration_seconds=0.01)]
+
+    monkeypatch.setattr(ci_module, "_try_fast_cached_ci", mock_try_fast)
+    monkeypatch.setattr(ci_module, "_try_save_ci_cache", mock_save_cache)
+    monkeypatch.setattr(ci_module, "_run_all_checks_async", mock_run_async)
+    monkeypatch.setattr(ci_module, "_clean_coverage_artifacts", lambda **kw: None)
+
+    cache_read = False
+    cache_written = False
+    result_only = runner.invoke(app, ["--only", "lint", "--check", "--no-cache"])
+    only_state = (result_only.exit_code, cache_read, cache_written)
+
+    cache_read = False
+    cache_written = False
+    result_skip = runner.invoke(app, ["--skip", "test", "--check", "--no-cache"])
+    skip_state = (result_skip.exit_code, cache_read, cache_written)
+
+    assert (only_state, skip_state) == ((0, False, False), (0, False, False))
+
+
+def _collect_ci_workflow_run_steps(workflow_data: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """Extract (job_id, step_name, run_cmd) for all steps with a run command."""
+    results: list[tuple[str, str, str]] = []
+    jobs = workflow_data.get("jobs", {})
+    for job_id, job_info in jobs.items():
+        for step in job_info.get("steps", []):
+            if isinstance(step, dict) and "run" in step:
+                results.append((job_id, str(step.get("name", "unnamed")), str(step["run"])))
+    return results
+
+
+def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
+    """Validate that all workflow run steps run through devops ci and cover all table rows."""
+    jobs = workflow_data.get("jobs", {})
+    static_job = jobs.get("static", {})
+    test_job = jobs.get("test", {})
+    assert static_job.get("name") == "Static Analysis", (
+        "Pinned job 'Static Analysis' missing or renamed"
+    )
+    assert test_job.get("name") == "Tests & Coverage", (
+        "Pinned job 'Tests & Coverage' missing or renamed"
+    )
+
+    allowlist: dict[tuple[str, str], str] = {
+        ("devcontainer", "Detect Image Content Changes"): "Git diff to check changed image sources",
+        (
+            "devcontainer",
+            "Set Image Repository Name",
+        ): "Setting lowercase GHCR repository name output",
+        (
+            "devcontainer",
+            "Check PR Open Status Prior to Publishing Image",
+        ): "GitHub CLI check for PR state",
+        (
+            "service-image",
+            "Detect Image Content Changes",
+        ): "Git diff to check changed service image sources",
+        ("service-image", "Run Service Image Smoke Test"): "Docker container curl/smoke tests",
+    }
+
+    all_specs = get_check_specs()
+    all_spec_names = {s.name for s in all_specs}
+    covered_rows: set[str] = set()
+
+    for job_id, step_name, run_cmd in _collect_ci_workflow_run_steps(workflow_data):
+        if (job_id, step_name) in allowlist:
+            continue
+        rows = resolve_step_rows(run_cmd)
+        assert len(rows) > 0, (
+            f"Step '{step_name}' in job '{job_id}' runs raw non-gate command: {run_cmd}"
+        )
+        covered_rows.update(rows)
+
+    missing = all_spec_names - covered_rows
+    assert not missing, (
+        f"CI workflow does not cover all check table rows. Missing: {sorted(missing)}"
+    )
+
+
+def test_ci_workflow_parity_with_check_table() -> None:
+    """Verify .github/workflows/ci.yml runs all gates through devops ci covering all table rows."""
+    import yaml
+
+    ci_yaml_path = Path(".github/workflows/ci.yml")
+    assert ci_yaml_path.is_file()
+    workflow_data = yaml.safe_load(ci_yaml_path.read_text(encoding="utf-8"))
+    _validate_ci_workflow_parity(workflow_data)
+
+
+def test_ci_workflow_parity_mutations_fail() -> None:
+    """Verify parity check catches raw steps, skipped checks, and renamed pinned jobs."""
+    import copy
+
+    import yaml
+
+    ci_yaml_path = Path(".github/workflows/ci.yml")
+    base_data = yaml.safe_load(ci_yaml_path.read_text(encoding="utf-8"))
+
+    # Mutation 1: Raw ruff check step added to static job
+    mut1 = copy.deepcopy(base_data)
+    mut1["jobs"]["static"]["steps"].append(
+        {
+            "name": "Raw Ruff Step",
+            "run": "uv run ruff check src",
+        }
+    )
+    with pytest.raises(AssertionError, match="runs raw non-gate command"):
+        _validate_ci_workflow_parity(mut1)
+
+    # Mutation 2: Security check skipped in workflow
+    mut2 = copy.deepcopy(base_data)
+    for step in mut2["jobs"]["static"]["steps"]:
+        if "devops ci" in str(step.get("run", "")):
+            step["run"] = "uv run devops ci --check --no-cache --skip test,outdated,security"
+    with pytest.raises(AssertionError, match="Missing: \\['security'\\]"):
+        _validate_ci_workflow_parity(mut2)
+
+    # Mutation 3: Pinned job renamed
+    mut3 = copy.deepcopy(base_data)
+    mut3["jobs"]["static"]["name"] = "Fast Linting"
+    with pytest.raises(AssertionError, match="Pinned job 'Static Analysis' missing or renamed"):
+        _validate_ci_workflow_parity(mut3)

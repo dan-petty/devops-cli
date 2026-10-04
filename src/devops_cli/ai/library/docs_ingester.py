@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import ClassVar
 from urllib.parse import urldefrag, urljoin, urlparse
 
 import httpx2
@@ -39,7 +40,9 @@ def _format_starttag(tag_lower: str) -> str | None:
 class _HTMLContentExtractor(HTMLParser):
     """Extract clean markdown and structural headings from HTML, skipping nav/footer/script."""
 
-    IGNORE_TAGS = {"script", "style", "nav", "footer", "header", "noscript", "svg"}
+    IGNORE_TAGS: ClassVar[frozenset[str]] = frozenset(
+        {"script", "style", "nav", "footer", "header", "noscript", "svg"}
+    )
 
     def __init__(self) -> None:
         super().__init__()

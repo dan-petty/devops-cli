@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from devops_cli.config.constants import (
     CONST_CACHE_DIR_NAME,
     CONST_CI_CACHE_FILENAME,
+    CONST_COVERAGE_INDEX_FILENAME,
     CONST_PRE_COMMIT_CONFIG_FILENAME,
     CONST_PYPROJECT_FILENAME,
     CONST_UV_LOCK_FILENAME,
@@ -86,6 +87,18 @@ def resolve_ci_cache_path(root: Path = Path(".")) -> Path:
     worktree = hashlib.sha256(str(find_worktree_root(root)).encode()).hexdigest()[:16]
     cache_file = Path(CONST_CI_CACHE_FILENAME)
     return cache_dir / f"{cache_file.stem}-{worktree}{cache_file.suffix}"
+
+
+def resolve_coverage_index_path(root: Path = Path(".")) -> Path:
+    """The coverage index file of the worktree at `root`.
+
+    It lives in the configured cache directory (`data.cache_dir`), resolved as every data path
+    is (`resolve_data_path`), with the same per-worktree suffix as `resolve_ci_cache_path`.
+    """
+    ci_cache_file = resolve_ci_cache_path(root)
+    worktree = ci_cache_file.stem.partition("-")[2]
+    cache_file = Path(CONST_COVERAGE_INDEX_FILENAME)
+    return ci_cache_file.parent / f"{cache_file.stem}-{worktree}{cache_file.suffix}"
 
 
 def _hash_file(path: Path) -> str:
@@ -235,6 +248,30 @@ def _git_blob_hashes(root: Path, paths: list[str]) -> dict[str, str]:
     return dict(zip(paths, digests, strict=True))
 
 
+def compute_worktree_blob_hashes(
+    root: Path = Path("."),
+    *,
+    index_hashes: dict[str, str] | None = None,
+    divergent: tuple[list[str], list[str]] | None = None,
+) -> dict[str, str]:
+    """Map every tracked and untracked worktree file to its git blob hash.
+
+    The working copy wins over the index: it is what the checks read. Worktree content is
+    hashed by git rather than directly, because a git blob hash covers a header as well as
+    the bytes -- mixing the two hash spaces would make a staged file look different from
+    the identical unstaged one, which is the invariance this exists to provide.
+    """
+    if index_hashes is None:
+        index_hashes = _index_blob_hashes(root)
+    changed, deleted = divergent if divergent is not None else _worktree_divergent_paths(root)
+
+    content: dict[str, str] = dict(index_hashes)
+    content.update(_git_blob_hashes(root, [p for p in changed if (root / p).is_file()]))
+    for rel_path in deleted:
+        content.pop(rel_path, None)
+    return content
+
+
 def compute_workspace_fingerprint(
     root: Path = Path("."),
     options: dict[str, Any] | None = None,
@@ -256,16 +293,9 @@ def compute_workspace_fingerprint(
     if not index_hashes and head_sha == "":
         return None
 
-    changed, deleted = _worktree_divergent_paths(root)
-
-    # The working copy wins over the index: it is what the checks read. Worktree content is
-    # hashed by git rather than directly, because a git blob hash covers a header as well as
-    # the bytes -- mixing the two hash spaces would make a staged file look different from
-    # the identical unstaged one, which is the invariance this exists to provide.
-    content: dict[str, str] = dict(index_hashes)
-    content.update(_git_blob_hashes(root, [p for p in changed if (root / p).is_file()]))
-    for rel_path in deleted:
-        content.pop(rel_path, None)
+    divergent = _worktree_divergent_paths(root)
+    changed, _ = divergent
+    content = compute_worktree_blob_hashes(root, index_hashes=index_hashes, divergent=divergent)
 
     config_hash = _compute_config_hashes(root)
     opt_str = json.dumps(options or {}, sort_keys=True)
@@ -383,3 +413,16 @@ def clear_ci_cache(root: Path = Path(".")) -> None:
             cache_path.unlink(missing_ok=True)
         except OSError as exc:
             logger.debug("Failed unlinking CI cache: %s", exc)
+
+
+__all__ = [
+    "CICacheEntry",
+    "CICachedCheck",
+    "clear_ci_cache",
+    "compute_workspace_fingerprint",
+    "compute_worktree_blob_hashes",
+    "get_ci_cache",
+    "resolve_ci_cache_path",
+    "resolve_coverage_index_path",
+    "save_ci_cache",
+]

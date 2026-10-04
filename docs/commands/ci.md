@@ -49,8 +49,7 @@ devops ci coverage [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--html` | `boolean` | - | Generate HTML coverage report in .data/htmlcov/. |
-| `--xml` | `boolean` | - | Generate XML coverage report in .data/coverage.xml. |
-| `-n`, `--numprocesses` | `string` | `auto` | Number of parallel worker processes. |
+| `--build-index` | `boolean` | - | Build on-demand coverage reverse index for fast test selection. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

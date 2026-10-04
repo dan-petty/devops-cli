@@ -10,6 +10,7 @@ from devops_cli.ai.client.models import (
     AICredentialsError,
     LLMResponse,
     RequestPriority,
+    StructuredOutputValidationError,
     _is_json_error_payload,
     is_reasoning_model,
 )
@@ -46,6 +47,7 @@ __all__ = [
     "StreamingReasoningSanitizer",
     "StreamingTokenProcessor",
     "StructuredOutputMixin",
+    "StructuredOutputValidationError",
     "_is_json_error_payload",
     "acquire_ollama_slot",
     "current_request_priority",

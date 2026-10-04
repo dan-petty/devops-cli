@@ -340,7 +340,7 @@ def test_index_contract_indexes_methods() -> None:
     )
 
     contract = _create_sample_contract()
-    points_meta, texts, cache_entries = store._collect_contract_items(contract)
+    points_meta, _texts, cache_entries = store._collect_contract_items(contract)
 
     kinds = {item["kind"] for item in points_meta}
     assert "function" in kinds

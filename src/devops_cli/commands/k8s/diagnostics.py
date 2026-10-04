@@ -372,7 +372,7 @@ def security_stream_cmd(
         result = stream_security_events(req, dry_run=False)
     except KubernetesLoggingError as err:
         print_error(str(err))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from err
 
     _handle_security_stream_export(result, output, json_output)
 

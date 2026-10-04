@@ -319,7 +319,7 @@ def scan_bandit(target: str = DEFAULT_SRC_DIR) -> str:
     """Run PyCQA Bandit static security vulnerability analysis on Python source files."""
     return _run_workspace_security_scan(
         target,
-        lambda p: ["bandit", "-r", str(p), "-ll", "-s", "B608", "-q"],
+        lambda p: ["bandit", "-r", str(p), "-ll", "-q"],
         fallback_msg="No high/medium security issues detected by Bandit.",
         missing_tool_name="bandit",
     )

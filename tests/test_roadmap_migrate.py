@@ -215,7 +215,7 @@ def _status_options(store: InMemoryRoadmapStore) -> list[tuple[str | None, str]]
 # ── Without writing ───────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("flags", [("--dry-run",), ()], ids=["dry-run", "no-flag"])
+@pytest.mark.parametrize("flags", [("--plan",), ()], ids=["plan", "no-flag"])
 def test_without_confirm_nothing_changes_and_the_plan_lists_every_write(
     as_found: InMemoryRoadmapStore, flags: tuple[str, ...]
 ) -> None:

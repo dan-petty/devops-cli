@@ -204,16 +204,17 @@ devops --help                        # Access global DevOps automation CLI
 
     devops_roadmap_governance_block = (
         "- **Continuous Roadmap Synthesis, Field Observations & Innovative Self-Improvement**:\n"
-        "  - AI agents must cultivate continuous, innovative self-improvement across all tasks, interactions, and engineering sessions:\n"
-        "    - **Automatic Roadmap Ingestion for Issues, Struggles, Challenges & Insights**:\n"
-        "      - Whenever encountering **any issue, struggle, friction point, debugging challenge, technical hurdle, cognitive barrier, or insight** during any task or interaction, AI agents **MUST FILE A CANDIDATE ISSUE (`devops gh issues create`)**; intake places it in the current release, a planned release or the backlog. Document the root friction and the proposed engineering solution or architectural guardrail to turn real-world struggles into permanent systemic capabilities.\n"
-        "    - **Automatic Roadmap Ingestion for Missing Parameters, API Inconsistencies & Contract Deficiencies**:\n"
-        "      - Whenever encountering **missing parameters, argument mismatches, inconsistent signatures, incomplete parameter propagation, or similar API/interface inconsistencies** across commands, submodules, schemas, or tool calls in the codebase, AI agents **MUST FILE A CANDIDATE ISSUE (`devops gh issues create`)**; intake places it in the current release, a planned release or the backlog. Document the inconsistency, the affected interfaces/functions, and the unified contract specification required to eliminate the discrepancy.\n"
-        "    - **Automatic Roadmap Ingestion for Bad Patterns, Anti-Patterns & Deficiencies**:\n"
-        "      - Whenever observing **bad patterns, anti-patterns, code smells, brittle logic, formatting bugs, missing error boundaries, unhandled edge cases, or recurring architectural deficiencies** during code reviews, audits, investigations, refactoring, or test executions, AI agents **MUST FILE A CANDIDATE ISSUE (`devops gh issues create`)**; intake places it in the current release, a planned release or the backlog. `docs/ROADMAP.md` is rendered from GitHub at the cut and never edited in an item pull request ([ADR 0001](docs/adr/0001-github-is-the-roadmap-source.md)). Capture the anti-pattern, representative locations, and the systemic architectural remediation required to permanently eliminate the deficiency.\n"
-        "    - **Automatic Roadmap Ingestion for Features, Suggestions & Integrations**:\n"
-        "      - Whenever identifying **features, useful suggestions, constructive enhancements, workflow automations, refactoring ideas, or third-party integrations** that could improve developer velocity, system resilience, or codebase quality, AI agents **MUST FILE A CANDIDATE ISSUE (`devops gh issues create`)** to design and implement them; intake places it in the current release, a planned release or the backlog.\n"
-        "      - Any good suggestions, architectural observations, or optimization ideas that emerge while working **MUST BE FILED AS CANDIDATE ISSUES (`devops gh issues create`)**, keeping the roadmap GitHub holds living, accurate, and continuously advancing the state of the art.\n"
+        "  - AI agents must cultivate continuous, innovative self-improvement across all tasks, interactions, and engineering sessions. Every issue, struggle, insight, API or contract inconsistency, anti-pattern, missing capability, integration or useful suggestion they find is filed as a candidate, never written into a release or a roadmap file directly:\n"
+        "    - **Filing Work Through Intake ([#742](https://github.com/dan-petty/devops-cli/issues/742))**:\n"
+        '      - File each candidate with `devops roadmap intake --title "<conventional title>" --body-file <file> --confirm` (or FastMCP `roadmap_intake` with `mode="confirm"`); without `--confirm` intake only previews (`--plan`), and `--dry-run` makes no request. The body states the root friction or finding, its evidence, and the proposed remedy or guardrail. Intake checks it for a duplicate, files it only when it is new, labels it `source/agent`, and gives it a type, Priority, Value, Effort and place: the backlog, or for a verified critical fix the release #740\'s admission rule allows.\n'
+        "      - A duplicate is not filed: intake prints the original's number, and the finding goes into that item as an amendment or a comment.\n"
+        "      - Agents never set a milestone or a priority on a new issue, and never edit `docs/ROADMAP.md`: `devops roadmap render` writes it from GitHub at the cut ([ADR 0001](docs/adr/0001-github-is-the-roadmap-source.md)).\n"
+        "    - **Agent Filing Quota, Borrowing & Consolidation Guardrails ([#1153](https://github.com/dan-petty/devops-cli/issues/1153))**:\n"
+        "      - Whenever filing candidate issues, AI agents must actively respect the repository's agent filing quota, which intake enforces and reports on every run:\n"
+        "        - **Fold First**: Fold a finding into an existing item first (as an amendment or comment) or join an open consolidation group before opening a new issue.\n"
+        "        - **Agent Attribution**: Every agent-filed issue carries `source/agent`; intake adds it. Issues a person files never count toward the quota and are never refused.\n"
+        "        - **Quota & Allowance Formula**: Beyond the release credit (`credit = min(release_credit_base + release_credit_per_delivered_item * delivered, release_item_target)`), each opening costs `r(n)` closures, using the values in `.github/roadmap.toml` (`open_issue_limit`, `throttle_start_fraction`, `overage_step_fraction`). An agent may check allowance via REST search queries (`q=repo:R is:issue is:open`, `q=repo:R is:issue label:source/agent created:>=<start>`, `q=repo:R is:issue is:closed closed:>=<start>`).\n"
+        "        - **Borrowing Only for Work in Flight**: An opening beyond the allowance proceeds only as a borrow (split, required follow-up, P0/P1 bug or security), labelled `budget/borrowed`, and anything else is folded with a line saying why. Pass `--borrow-reason split` or `--borrow-reason follow-up` to intake for the first two, with `--source <link>` to the item it splits or the review that requires it.\n"
         if meta.is_devops_cli
         else ""
     )
@@ -406,7 +407,7 @@ codebase or reviewing target repositories.
   - Link project boards conforming to `.github/project-template.json` to the repository (`devops gh project link <number>`) and synchronize items and custom fields via `devops gh project sync`.
   - Enforce strict remote branch lifecycle: every remote topic branch on `origin` must have an associated open PR, and merged or superseded branches must be deleted immediately.
   - Respect GitHub API rate limits: monitor `devops gh rate-limit`, adaptively fall back to REST when GraphQL complexity limits are reached, avoid unthrottled polling, and honor `Retry-After` reset windows.
-"""
+"""  # nosec B608  # Static Markdown template containing documentation prose, not executable SQL
 
 
 def generate_instruction_content(target_file: str, meta: ProjectMetadata) -> str:

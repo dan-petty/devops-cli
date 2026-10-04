@@ -8,7 +8,8 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 | :--- | :--- | :--- | :--- |
 | **`infra`** *(Default)* | ArgoCD (backed by Valkey), Grafana, Prometheus, Alertmanager, Grafana K8s Monitoring Stack (Alloy + exporters), Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector | `argocd`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope) |
 | **`llm`** | Ollama, Open-WebUI, Qdrant Vector DB, Valkey Cache, Valkey Run Index | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
-| **`all`** | All components from both stacks | `argocd`, `monitoring`, `otel`, `llm` | All ports above |
+| **`logging`** | Loki (pod logs shipped from `infra` stack's Alloy) | `logging` | `3100` (Loki) |
+| **`all`** | All components from all stacks | `argocd`, `monitoring`, `otel`, `llm`, `logging` | All ports above |
 
 ## Prerequisites
 
@@ -64,9 +65,9 @@ minikube service qdrant -n llm --url
 # Valkey In-Memory Cache
 kubectl -n llm exec -it svc/valkey -- valkey-cli ping
 
-# Valkey Run Index: benchmark and evaluation runs shared by workstations. Create its password
-# before the first apply (never commit it), then point devops-cli at it through its NodePort.
-kubectl -n llm create secret generic valkey-runs-auth --from-literal=password="$(openssl rand -hex 32)"
+# Valkey Run Index: benchmark and evaluation runs shared by workstations. Its password Secret
+# comes from the keyring (see Cluster Secrets), then point devops-cli at it through its NodePort.
+devops k8s push-secrets --only llm/valkey-runs-auth
 devops ai runs connect
 
 # LLM Gateway: authenticated OpenAI-compatible API for every model (vLLM and Ollama)
@@ -74,11 +75,7 @@ minikube service llm-gateway -n llm --url
 ```
 
 ### LLM Gateway (`llm-gateway`)
-The LiteLLM gateway is the single entry point to every inference server. It serves the virtual models `devops-chat`, `devops-coder`, `devops-reasoning` and `devops-embedding`, escalates a prompt too long for a model to the next larger context window (`devops-chat` → `devops-coder` 16K → `devops-reasoning` 64K) before calling any backend, falls back from an unavailable `devops-coder` to `devops-reasoning` before the small Ollama model, and rejects requests without its master key. Create the key once per cluster before deploying (it must start with `sk-`):
-```bash
-kubectl -n llm create secret generic llm-gateway-secrets \
-  --from-literal=master-key="sk-$(openssl rand -hex 24)"
-```
+The LiteLLM gateway is the single entry point to every inference server. It serves the virtual models `devops-chat`, `devops-coder`, `devops-reasoning` and `devops-embedding`, escalates a prompt too long for a model to the next larger context window (`devops-chat` → `devops-coder` 16K → `devops-reasoning` 64K) before calling any backend, falls back from an unavailable `devops-coder` to `devops-reasoning` before the small Ollama model, and rejects requests without its master key. `devops k8s deploy-stack` writes the key (`llm/llm-gateway-secrets`, starting with `sk-`) from the keyring before the gateway starts, adopting a live key the keyring lacks and generating one where neither has it; `devops k8s push-secrets --only llm/llm-gateway-secrets` does the same alone (see Cluster Secrets).
 The Service is a NodePort that Kubernetes assigns; find it with `kubectl -n llm get svc llm-gateway`, then call the API from any node address:
 ```bash
 KEY=$(kubectl -n llm get secret llm-gateway-secrets -o jsonpath='{.data.master-key}' | base64 -d)
@@ -295,6 +292,71 @@ kubectl -n monitoring exec statefulset/prometheus-alertmanager -c alertmanager -
 
 In Grafana, Alerting > Silences with the `Alertmanager` datasource selected does the same; anonymous viewers can only list silences. Alertmanager keeps silences on its volume, so they survive a restart.
 
+## Cluster Secrets
+
+Every Secret the stacks read comes from the workstation's OS keyring. `devops k8s push-secrets` writes them (workstation keyring → cluster, the reverse of `devops k8s sync-secrets`), and `devops k8s deploy-stack` runs the same push right after the namespaces, before any manifest or Helm release. One table in `src/devops_cli/k8s/cluster_secrets.py` lists them, and a test fails on any Secret a manifest or values file here references without a row:
+
+| Secret | Key | Source | Required | When the keyring has no value | Stack | Restarted when it changes |
+|---|---|---|---|---|---|---|
+| `llm/llm-gateway-secrets` | `master-key` | keyring `llm_gateway_master_key` | yes | adopt the live value; else generate `sk-` + 48 hex | llm | `deployment/llm-gateway` |
+| `llm/qdrant-api-key` | `api-key` | keyring `qdrant_api_key` | yes | adopt the live value; else generate `token_urlsafe(32)` | llm | `statefulset/qdrant` |
+| `llm/valkey-runs-auth` | `password` | keyring `runs_index_password` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey-runs` |
+| `cloudflared/cloudflared-token` | `token` | keyring `cloudflare_tunnel_token` | no | adopt the live value; else skip with a warning | base | `deployment/cloudflared` |
+| `devops/devops-cli` | `GH_TOKEN` | gh account | yes | fail | devops | `deployment/roadmap-service` |
+| `devops/devops-cli` | `DEVOPS_CLI_AI_API_KEY` | keyring `llm_gateway_master_key` | yes | adopt from `llm/llm-gateway-secrets master-key`; else fail | devops | `deployment/roadmap-service` |
+| `devops/devops-cli` | `DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS` | keyring `service_webhook_secrets` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
+| `devops/devops-cli` | `DEVOPS_CLI_TAVILY_API_KEY` | keyring `tavily_api_key` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
+
+- The keyring must be unlocked (`devops devcontainer unlock-keyring`); a locked or missing keyring stops the push before anything is read or written, and stops deploy-stack before it applies anything.
+- A value the keyring lacks but the cluster holds is adopted into the keyring, so a first push changes nothing live. Only values nobody types are generated, and each is stored in the keyring before it is pushed.
+- Typed values are stored at a hidden prompt: `devops config set cloudflare.tunnel_token`.
+- `GH_TOKEN` is the token gh keeps in the OS keyring for the machine account named by `--github-account` or `devops config set k8s.github_account <login>`. The push takes gh's word for it: `gh auth status` must list the login with its token in the keyring and its own check of the token passing, then `gh auth token --user <login>` reads it. devops-cli never calls GitHub with the machine token itself, so a run keeps the one GitHub identity it has (#767).
+- `devops` rows are pushed wherever namespace `devops` exists, also by every deploy-stack run. `devops k8s deploy-stack --no-push-secrets` skips the push on a cluster without a keyring.
+- Secrets are server-side applied from stdin under field manager `devops-cli`, labelled `app.kubernetes.io/managed-by: devops-cli`, with values in `data`: never in argv, a file, an annotation or the output. A Secret still carrying a client-side apply's `kubectl.kubernetes.io/last-applied-configuration` loses it.
+- `--plan` reads the keyring, the live Secrets and, for `devops/devops-cli`, the machine account's token from gh (`gh auth status`, which checks the token on github.com, then `gh auth token`), says so, and prints each key's state (`would adopt`, `unchanged`, `differs`, ...) and the workloads a change would restart, writing nothing. `--dry-run` makes no request at all, not even those reads: it prints the requests a push would make, in order, with `<placeholders>` for every value and the condition under which each later request runs.
+- A Secret whose data changed has its workloads restarted (`kubectl rollout restart`); `--no-restart` prints the commands instead. Open WebUI keeps the gateway connection in its database, so a changed gateway key is also updated under Admin Panel > Settings > Connections.
+
+Rotation: a live value that differs from the keyring stops the push. Either replace the live value with the keyring's, or adopt the live value by removing the keyring entry:
+```bash
+devops k8s push-secrets --only llm/qdrant-api-key --plan      # reads the cluster; shows "differs"
+devops k8s push-secrets --only llm/qdrant-api-key --rotate     # the keyring's value wins
+uv run keyring del devops-cli qdrant_api_key                  # or: drop it, and the next push adopts the live value
+```
+To rotate a generated value, store a new one at a hidden prompt with `uv run keyring set devops-cli <keyring key>`, then push with `--rotate`.
+
+## devops-cli in the cluster
+
+`k8s/devops/` runs devops-cli as cluster Jobs, so agents drive it with kubectl and never handle keys. It is not part of the root kustomization: apply it with `devops k8s apply k8s/devops/ --template`, which renders the kustomization and its `images:` tag. Each Job reads its credentials from Secret `devops/devops-cli` through `envFrom`, its configuration from ConfigMap `devops-cli-config` (provider `gateway` at `http://llm-gateway.llm.svc.cluster.local:4000/v1`), holds no Kubernetes API token, accepts no ingress, and reaches only DNS, the gateway and public HTTPS. Commands that need Qdrant, Prometheus, Grafana, Argo CD or a repository checkout do not run there yet.
+
+```bash
+devops k8s apply k8s/devops/ --template --context <context>
+devops config set k8s.github_account <machine-login>
+devops k8s push-secrets --context <context> --plan       # reads the keyring, gh and the cluster: key names and states, never a value
+devops k8s push-secrets --context <context>
+devops k8s run-job --context <context> -- --version      # follows the log, exits with the Job's exit code
+devops k8s run-job --context <context> --no-wait -- ai gateway status --format json
+```
+
+`run-job --dry-run` reads nothing, not even the CronJob, and prints the kubectl requests a run would make. `run-job` creates the Job from suspended CronJob `devops-cli`, changing only the container's args, the name (`devops-cli-<UTC time>-<hex>`) and the label `app.kubernetes.io/name: devops-cli-job`. A Job never retries (`backoffLimit: 0`), stops after two hours and is deleted a day after it finishes. Follow or clean up Jobs with kubectl:
+```bash
+kubectl -n devops get jobs -l app.kubernetes.io/name=devops-cli-job
+kubectl -n devops logs -f job/<name>
+```
+
+### Roadmap service
+
+1. `uv run devops config set service.webhook_secrets` (hidden prompt; a JSON object mapping `owner/name` to its secret).
+2. `uv run devops k8s push-secrets --stack devops`, with the machine account's login in `k8s.github_account` (#741). deploy-stack also pushes it once namespace `devops` exists.
+3. Invite the machine account as a Write collaborator on each repo and board.
+4. Check that the GHCR `service` package is public (#741 made it so): `DOCKER_CONFIG=$(mktemp -d) docker pull ghcr.io/dan-petty/devops-cli/service:<tag>`.
+5. `devops cloudflare tunnel routes`. If no route covers the webhook host, add one in the dashboard, not with `tunnel sync` (#794).
+6. `devops cloudflare access status`, then add a Bypass application for `hooks.<domain>/webhooks/github`.
+7. `devops k8s apply k8s/monitoring/networkpolicy.yaml`, until #755 or #913 deploys it.
+8. `devops k8s apply k8s/devops/ --template`, until #755.
+9. Add each repo's webhook: `https://hooks.<domain>/webhooks/github`, `application/json`, that repo's secret, and the Issues, Pull requests and Milestones events.
+10. To rotate a credential, update it in the keyring (`uv run devops config set service.webhook_secrets`, or `gh auth login` for the machine account), then run `uv run devops k8s push-secrets --only devops/devops-cli --rotate`. It restarts `roadmap-service`.
+11. Run one service per set of repos. While it runs, use `devops roadmap run --dry-run` (#981).
+
 ## Teardown
 
 ```bash
@@ -360,12 +422,11 @@ Expose homelab Kubernetes services securely to the internet without public ports
 
 ### 3. In-Cluster Deployment
 
-1. Create the `cloudflared` namespace and tunnel token secret:
+1. Create the namespaces, store the tunnel token in the keyring at a hidden prompt, then write it into the cluster (see Cluster Secrets). `push-secrets --only` fails while namespace `cloudflared` is missing; `devops k8s deploy-stack` does all three in one run.
    ```bash
-   kubectl create namespace cloudflared
-   kubectl create secret generic cloudflared-token \
-     --from-literal=token="<your-tunnel-token>" \
-     -n cloudflared
+   kubectl apply -f k8s/namespaces.yaml
+   devops config set cloudflare.tunnel_token
+   devops k8s push-secrets --only cloudflared/cloudflared-token
    ```
 2. Apply the declarative tunnel manifests:
    ```bash
@@ -393,8 +454,21 @@ k8s/
 ├── cloudflared/
 │   ├── kustomization.yaml    # Kustomize overlay for Cloudflare Tunnel
 │   ├── deployment.yaml       # Multi-replica non-root cloudflared deployment
-│   ├── networkpolicy.yaml    # Network isolation for tunnel ingress and egress
-│   └── secret.example.yaml   # Token secret template and creation instructions
+│   └── networkpolicy.yaml    # Network isolation for tunnel ingress and egress
+├── devops/                   # In-cluster devops-cli runtime; not in the root kustomization
+│   ├── kustomization.yaml    # Its resources, and the service image's tag (`devops release prepare` sets it)
+│   ├── namespace.yaml        # devops namespace, Pod Security restricted
+│   ├── serviceaccount.yaml   # devops-cli service account without an API token
+│   ├── configmap.yaml        # devops-cli config: the in-cluster gateway, no credential
+│   ├── cronjob.yaml          # Suspended CronJob devops-cli, the template of every cluster job
+│   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out
+│   └── roadmap-service/      # Continuous roadmap service Deployment, Service, Ingress, NetworkPolicy, PVC
+│       ├── kustomization.yaml
+│       ├── deployment.yaml
+│       ├── ingress.yaml
+│       ├── networkpolicy.yaml
+│       ├── pvc.yaml
+│       └── service.yaml
 ├── ingress/
 │   ├── kustomization.yaml    # Kustomize overlay for cluster ingress routes
 │   ├── traefik-values.yaml   # Traefik Helm values with ClusterIP service type

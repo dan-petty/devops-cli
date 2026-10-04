@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from devops_cli.ai.common_tools import (
     _html_to_markdown,
     duckduckgo_search_tool,
+    tavily_search,
     tavily_search_tool,
     web_fetch_tool,
 )
@@ -90,6 +92,32 @@ def test_tavily_search_tool(mock_get_client: MagicMock) -> None:
     res = tav_tool.execute(query="pydantic ai")
     lines = [line.strip() for line in res.splitlines()]
     assert any(line.startswith("- **Pydantic AI** (https://ai.pydantic.dev)") for line in lines)
+
+
+@patch("devops_cli.ai.common_tools.new_http_client")
+def test_tavily_search_raises_on_http_error(mock_get_client: MagicMock) -> None:
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "Bad Request", request=MagicMock(), response=mock_resp
+    )
+    mock_client = MagicMock()
+    mock_client.post.return_value = mock_resp
+    mock_get_client.return_value = mock_client
+
+    with pytest.raises(httpx.HTTPStatusError):
+        tavily_search("test query", api_key="test-key")
+
+
+@patch("devops_cli.ai.common_tools.new_http_client")
+def test_tavily_search_raises_on_missing_results(mock_get_client: MagicMock) -> None:
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"query": "test query"}
+    mock_client = MagicMock()
+    mock_client.post.return_value = mock_resp
+    mock_get_client.return_value = mock_client
+
+    with pytest.raises(ValueError, match="results"):
+        tavily_search("test query", api_key="test-key")
 
 
 @pytest.mark.parametrize(

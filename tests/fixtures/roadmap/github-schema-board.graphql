@@ -1,0 +1,164 @@
+# The types of GitHub's public GraphQL schema that the roadmap board reads use (#1125),
+# cut from https://docs.github.com/public/fpt/schema.docs.graphql (downloaded 2026-10-04):
+# each type keeps the fields the documents in devops_cli.roadmap.board_read select, the
+# fields of the interfaces it implements, and the input types and enums their arguments take.
+# Descriptions and directives are dropped. Cut again when a document changes.
+
+scalar Date
+
+scalar DateTime
+
+type DraftIssue {
+  title: String!
+}
+
+type Issue implements ProjectV2Owner {
+  number: Int!
+  projectV2(number: Int!): ProjectV2
+  repository: Repository!
+  title: String!
+  url: URI!
+}
+
+enum OrderDirection {
+  ASC
+  DESC
+}
+
+type Organization implements ProjectV2Owner & RepositoryOwner {
+  id: ID!
+  projectV2(number: Int!): ProjectV2
+}
+
+type PageInfo {
+  endCursor: String
+  hasNextPage: Boolean!
+}
+
+type ProjectV2 {
+  items(after: String, archivedStates: [ProjectV2ItemArchivedState!] = [NOT_ARCHIVED], before: String, first: Int, last: Int, orderBy: ProjectV2ItemOrder = { field: POSITION, direction: ASC }, query: String = ""): ProjectV2ItemConnection!
+}
+
+type ProjectV2Field implements ProjectV2FieldCommon {
+  id: ID!
+  name: String!
+}
+
+interface ProjectV2FieldCommon {
+  name: String!
+}
+
+union ProjectV2FieldConfiguration = ProjectV2Field | ProjectV2IterationField | ProjectV2MultiSelectField | ProjectV2SingleSelectField
+
+type ProjectV2Item {
+  content: ProjectV2ItemContent
+  fieldValues(after: String, before: String, first: Int, last: Int, orderBy: ProjectV2ItemFieldValueOrder = { field: POSITION, direction: ASC }): ProjectV2ItemFieldValueConnection!
+  id: ID!
+}
+
+enum ProjectV2ItemArchivedState {
+  ARCHIVED
+  NOT_ARCHIVED
+}
+
+type ProjectV2ItemConnection {
+  nodes: [ProjectV2Item]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+union ProjectV2ItemContent = DraftIssue | Issue | PullRequest
+
+type ProjectV2ItemFieldDateValue {
+  date: Date
+  field: ProjectV2FieldConfiguration!
+}
+
+type ProjectV2ItemFieldSingleSelectValue {
+  field: ProjectV2FieldConfiguration!
+  name: String
+}
+
+type ProjectV2ItemFieldTextValue {
+  field: ProjectV2FieldConfiguration!
+  text: String
+}
+
+union ProjectV2ItemFieldValue = ProjectV2ItemFieldDateValue | ProjectV2ItemFieldSingleSelectValue | ProjectV2ItemFieldTextValue
+
+type ProjectV2ItemFieldValueConnection {
+  nodes: [ProjectV2ItemFieldValue]
+}
+
+input ProjectV2ItemFieldValueOrder {
+  direction: OrderDirection!
+  field: ProjectV2ItemFieldValueOrderField!
+}
+
+enum ProjectV2ItemFieldValueOrderField {
+  POSITION
+}
+
+input ProjectV2ItemOrder {
+  direction: OrderDirection!
+  field: ProjectV2ItemOrderField!
+}
+
+enum ProjectV2ItemOrderField {
+  POSITION
+}
+
+type ProjectV2IterationField implements ProjectV2FieldCommon {
+  id: ID!
+  name: String!
+}
+
+type ProjectV2MultiSelectField implements ProjectV2FieldCommon {
+  id: ID!
+  name: String!
+}
+
+interface ProjectV2Owner {
+  projectV2(number: Int!): ProjectV2
+}
+
+type ProjectV2SingleSelectField implements ProjectV2FieldCommon {
+  id: ID!
+  name: String!
+}
+
+type PullRequest implements ProjectV2Owner {
+  number: Int!
+  projectV2(number: Int!): ProjectV2
+  repository: Repository!
+  title: String!
+  url: URI!
+}
+
+type Query {
+  rateLimit(dryRun: Boolean = false): RateLimit
+  repositoryOwner(login: String!): RepositoryOwner
+}
+
+type RateLimit {
+  cost: Int!
+  limit: Int!
+  remaining: Int!
+  resetAt: DateTime!
+  used: Int!
+}
+
+type Repository {
+  nameWithOwner: String!
+}
+
+interface RepositoryOwner {
+  id: ID!
+}
+
+scalar URI
+
+type User implements ProjectV2Owner & RepositoryOwner {
+  id: ID!
+  projectV2(number: Int!): ProjectV2
+}

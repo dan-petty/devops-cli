@@ -13,7 +13,7 @@ from devops_cli.commands.k8s.networking import _PROXY_TARGETS_INFRA
 REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
 
-TARGET_NAMESPACES = ("monitoring", "argocd", "llm", "otel")
+TARGET_NAMESPACES = ("monitoring", "argocd", "llm", "otel", "devops")
 METADATA_SSRF_IP = "169.254.169.254/32"
 TRAEFIK_PEER = {
     "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},

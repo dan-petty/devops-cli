@@ -91,7 +91,7 @@ def test_doc_generator_introspect_env_vars(generator: DocGenerator) -> None:
     assert len(specs) >= 20
     var_names = [s.env_var for s in specs]
     assert "DEVOPS_CLI_CONFIG" in var_names
-    assert "DEVOPS_CLI_GITHUB_TOKEN" in var_names
+    assert "DEVOPS_CLI_GRAFANA_TOKEN" in var_names
 
 
 def test_doc_generator_introspect_mcp_tools(generator: DocGenerator) -> None:
@@ -322,7 +322,7 @@ def test_doc_generator_write_all_and_check(generator: DocGenerator, tmp_path: Pa
         written_with_sync = generator.write_all_docs(out_dir, sync_readme_table=True)
         assert len(written_with_sync) > 0
 
-        ok_check, check_errs = generator.check_docs(out_dir, check_readme_table=True)
+        ok_check, _check_errs = generator.check_docs(out_dir, check_readme_table=True)
         assert ok_check is True
 
     # Readme with no markers or table returns error in check_readme

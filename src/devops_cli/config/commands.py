@@ -7,7 +7,6 @@ from pathlib import Path
 
 from devops_cli.config.constants import CONST_K8S_MANIFEST_EXTENSIONS
 from devops_cli.config.defaults import (
-    DEFAULT_BANDIT_EXCLUDE,
     DEFAULT_FIND_MAXDEPTH,
     DEFAULT_GIT_LOG_COUNT,
     DEFAULT_REST_HOST,
@@ -121,11 +120,6 @@ def build_kubectl_port_forward_cmd(
 def build_kustomize_build_cmd(target_path: Path | str) -> list[str]:
     """Build a kustomize build command."""
     return [BIN_KUSTOMIZE, "build", str(target_path)]
-
-
-def build_bandit_cmd(target: Path | str, exclude_tests: str = DEFAULT_BANDIT_EXCLUDE) -> list[str]:
-    """Build a bandit security scan command."""
-    return [BIN_BANDIT, "-r", str(target), "-q", "-x", exclude_tests]
 
 
 def build_trivy_scan_cmd(

@@ -50,7 +50,7 @@ def test_cli_command_handler_typer_exit_and_generic_exception() -> None:
     def generic_err_command() -> None:
         raise ValueError("Something unexpected")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Something unexpected"):
         generic_err_command()
 
     # 3. Success with record_metrics=False

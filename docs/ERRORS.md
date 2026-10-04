@@ -36,6 +36,9 @@ names the class each row describes. One code never maps to two exit statuses.
 | `CloudflareAPIError` | `CLOUDFLARE_API_ERROR` | `1` | Cloudflare | Raised when a Cloudflare API call returns an error response. |
 | `CloudflareAuthError` | `CLOUDFLARE_AUTH_ERROR` | `1` | Cloudflare | Raised when Cloudflare authentication or token verification fails. |
 | `CloudflareError` | `CLOUDFLARE_ERROR` | `1` | Cloudflare | Base exception for Cloudflare domain errors. |
+| `ClusterJobError` | `K8S_CLUSTER_JOB_ERROR` | `1` | K8s | Raised when a devops-cli Job cannot be created or followed in the cluster. |
+| `ClusterSecretPushError` | `K8S_SECRET_PUSH_ERROR` | `1` | K8s | Raised when cluster Secrets cannot be pushed from the keyring; nothing was written. |
+| `ClusterSecretWriteError` | `K8S_SECRET_PUSH_ERROR` | `1` | K8s | Raised when writing a planned push fails part-way; `completed` names what was written. |
 | `ConcurrencyLimitExceeded` | `CONCURRENCY_LIMIT_EXCEEDED` | `25` | Ai | Raised when the concurrency queue depth exceeds max_queued. |
 | `ConfigurationError` | `CONFIGURATION_ERROR` | `1` | Config | Base exception for configuration loading, validation, and serialization errors. |
 | `ConstellationFailoverError` | `CONSTELLATION_FAILOVER_ERROR` | `1` | Ai | Raised when emergency failover routing fails. |
@@ -54,10 +57,10 @@ names the class each row describes. One code never maps to two exit statuses.
 | `DocsIngestionError` | `DOCS_INGESTION_ERROR` | `1` | Ai | Base exception for documentation ingestion errors. |
 | `EmbeddingsError` | `EMBEDDINGS_ERROR` | `1` | Devops_cli.ai.rag.embeddings | Raised when embeddings generation fails across all endpoints. |
 | `GatewayTuneError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.gateway_tune | Raised when the gateway's deployments cannot be discovered or measured. |
-| `GitHubGraphQLError` | `GITHUB_GRAPHQL_ERROR` | `1` | Git | Exception raised when GitHub GraphQL queries or mutations fail. |
+| `GitHubFileNotFoundError` | `GITHUB_FILE_NOT_FOUND` | `1` | Git | Raised when a repository file GitHub was asked for does not exist on that ref. |
 | `GitHubOperationError` | `GITHUB_OPERATION_FAILED` | `1` | Git | Exception raised for GitHub API or CLI automation failures. |
 | `GitHubRateLimitError` | `GITHUB_RATE_LIMIT_UNKNOWN` | `1` | Git | Exception raised when GitHub rate limit quota state is broken or unknown and cannot be resolved. |
-| `GitHubWebhookVerificationError` | `GITHUB_WEBHOOK_VERIFICATION_FAILED` | `1` | Git | Exception raised when GitHub webhook signature verification fails. |
+| `GitHubUnauthenticatedError` | `GITHUB_UNAUTHENTICATED` | `1` | Git | Raised when `gh auth token` gives the process no GitHub identity to call GitHub as. |
 | `GitOperationError` | `GIT_OPERATION_ERROR` | `1` | Git | Base exception for Git repository and branch operation failures. |
 | `GitOpsSyncError` | `GITOPS_SYNC_ERROR` | `1` | K8s | Raised when GitOps synchronization trigger or reconciliation fails. |
 | `HTTPTimeoutTypeError` | `VALIDATION_ERROR` | `1` | Devops_cli.http.client | Raised when an invalid timeout parameter type is provided. |
@@ -80,6 +83,7 @@ names the class each row describes. One code never maps to two exit statuses.
 | `MemoryProfilerError` | `PROFILER_ERROR` | `1` | Devops_cli.telemetry.memory_profiler | Domain exception raised when memory profiling target resolution or execution fails. |
 | `ModelAPIError` | `MODEL_API_ERROR` | `22` | Ai | Raised when a model provider API request fails. |
 | `ModelBundleError` | `MODEL_BUNDLE_ERROR` | `1` | Ai | Raised when an AI model bundle cannot be located, resolved, or loaded. |
+| `ModelGatewayUnreachableError` | `MODEL_GATEWAY_UNREACHABLE` | `1` | Ai | Raised when a model call through the gateway fails, so the command decided and wrote nothing. |
 | `ModelHTTPError` | `MODEL_HTTP_ERROR` | `23` | Ai | Raised when a model provider response has a status code of 4xx or 5xx. |
 | `ModelNotAllowedError` | `MODEL_REQUESTS_DISABLED` | `1` | Devops_cli.ai.agents.testing | Raised when a non-test model request is attempted while ALLOW_MODEL_REQUESTS is False. |
 | `ModelRetry` | `MODEL_RETRY_REQUESTED` | `14` | Ai | Raised by tools or output validators to request the model to retry with corrective feedback. |
@@ -88,6 +92,7 @@ names the class each row describes. One code never maps to two exit statuses.
 | `PoolLoadError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.pool_load | Prometheus could not answer a pool load query. |
 | `QdrantClientError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.rag.qdrant | Raised when an interaction with Qdrant fails. |
 | `ReviewPoolError` | `REVIEW_POOL_ERROR` | `1` | Ai | Raised when an error occurs during parallel review worker pool execution. |
+| `RoadmapRunError` | `DEVOPS_CLI_ERROR` | `1` | Roadmap | Raised when one or more roadmap jobs fail during execution. |
 | `RunCancelled` | `RUN_CANCELLED` | `26` | Ai | Raised when an agent run was cancelled by the application or timeout. |
 | `RunIndexNotConfiguredError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.run_store | No shared run index is configured. |
 | `SSRFBlockedError` | `SSRF_BLOCKED` | `2` | Security | Raised when an outbound HTTP request targets a private or forbidden network IP. |
@@ -100,6 +105,7 @@ names the class each row describes. One code never maps to two exit statuses.
 | `ServiceAddressError` | `K8S_ERROR` | `1` | Devops_cli.k8s.service_proxy | Raised when a cluster service address cannot be resolved. |
 | `ServiceNotReachableError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.k8s.node_port | A service cannot be reached from outside the cluster. |
 | `StructuredOutputSchemaError` | `STRUCTURED_OUTPUT_SCHEMA_INVALID` | `1` | Ai | Raised when a schema class is missing or invalid for structured LLM output generation. |
+| `StructuredOutputValidationError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when the model answered, but no answer validated against the schema after retries. |
 | `SubprocessError` | `SUBPROCESS_FAILED` | `1` | Tools | Raised when an external subprocess command exits with a non-zero code or fails execution. |
 | `SuspendedResponseExpired` | `SUSPENDED_RESPONSE_EXPIRED` | `28` | Ai | Raised when resuming a suspended response whose server-side job is no longer available. |
 | `TelemetryError` | `TELEMETRY_ERROR` | `1` | Telemetry | Base exception for telemetry, tracing, and metric collection errors. |

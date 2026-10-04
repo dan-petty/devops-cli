@@ -276,6 +276,53 @@ class K8sCommandHelp:
     logs: str = "Fetch container logs for a pod."
     bootstrap: str = "Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress."
     deploy_stack: str = "Deploy application stacks (infra, llm, all) via Helm/Kustomize."
+    push_secrets: str = (
+        "Write the cluster's Secrets from the OS keyring (workstation keyring → cluster, the "
+        "reverse of sync-secrets). Adopts live values the keyring lacks, generates the ones "
+        "nobody types, and never replaces a live value without --rotate."
+    )
+    push_stack: str = (
+        "Push the Secrets of one stack: base, infra, llm, logging, devops, or all (default)."
+    )
+    push_only: str = "Push only this Secret, as NAMESPACE/NAME. Repeatable; replaces --stack."
+    push_github_account: str = (
+        "Machine account whose gh token becomes GH_TOKEN (default: k8s.github_account)."
+    )
+    push_rotate: str = "Replace live values that differ from the keyring's."
+    push_restart: str = (
+        "Restart the workloads of each existing Secret whose data changed; "
+        "--no-restart prints the commands instead."
+    )
+    push_dry_run: str = (
+        "Make no request, reads included: print the requests a push would make, in order, "
+        "with placeholders for every value. Wins over --plan."
+    )
+    push_plan: str = (
+        "Read the keyring, the live Secrets and, for the machine account's token, gh's own "
+        "record of the account (read-only; gh checks the token on github.com); print each "
+        "key's state and the workloads a change would restart, and write nothing."
+    )
+    deploy_dry_run: str = (
+        "Print the releases, manifests and Secrets (key names only) a deploy would apply, and "
+        "run nothing."
+    )
+    push_secrets_flag: str = (
+        "Push the stacks' Secrets from the OS keyring before applying anything "
+        "(--no-push-secrets for a cluster without a keyring)."
+    )
+    run_job: str = (
+        "Run a devops command as a Job in namespace devops, from CronJob devops-cli's "
+        "template with only its arguments changed, follow its log and exit with its exit code."
+    )
+    run_job_args: str = "The devops arguments the Job runs, after `--`."
+    run_job_wait: str = (
+        "Follow the Job's log and exit with its exit code; --no-wait prints the Job's name."
+    )
+    run_job_start_timeout: str = "Seconds to wait for the Job's pod to leave Pending."
+    run_job_dry_run: str = (
+        "Make no request, not even the CronJob read: print the kubectl requests a run would "
+        "make, in order, with the Job's template parts as placeholders."
+    )
     teardown_stack: str = "Teardown deployed application stacks."
     urls: str = "Display ingress and service URLs for deployed stacks."
     lint: str = "Run KubeLinter static analysis on Kubernetes manifests."
@@ -515,7 +562,7 @@ class CICommandHelp:
         "reporting success without verifying it."
     )
     html_report: str = "Generate HTML coverage report in .data/htmlcov/."
-    xml_report: str = "Generate XML coverage report in .data/coverage.xml."
+    build_index: str = "Build on-demand coverage reverse index for fast test selection."
     auto_fix: str = "Auto-fix violations where possible."
     format_fix: str = "Apply formatting changes in-place."
     format_check: str = "Check formatting without writing changes to files."
@@ -647,6 +694,9 @@ class ServeCommandHelp:
     workers: str = "Number of worker processes."
     log_level: str = "Logging level (debug, info, warning, error)."
     docs: str = "Enable or disable Swagger UI (/docs) and ReDoc (/redoc)."
+    service: str = (
+        "Run continuous background service with GitHub webhook verification and per-repo queue."
+    )
 
 
 @dataclass(frozen=True)
@@ -808,17 +858,12 @@ class GHCommandHelp:
     issues_app: str = "Manage GitHub Issues, track milestones, and enforce taxonomy standards."
     issues_list: str = "List repository issues with milestone, taxonomy labels, and status."
     issues_create: str = "Create a new issue linking milestone and taxonomy labels."
-    issues_triage: str = "Audit open issues for mandatory taxonomy labels and milestone linkage."
+    issues_triage: str = (
+        "Audit open issues for mandatory taxonomy labels, and report those not on the roadmap "
+        "board as awaiting intake."
+    )
     issues_status: str = "Display aggregated issue counts by priority, type, and milestone."
     issues_edit: str = "Edit an existing issue title, body, state, milestone, or taxonomy labels."
-    issues_close_merged: str = (
-        "Close issues linked by merged pull requests. GitHub only honours closing keywords "
-        "when a pull request merges into the default branch, so pull requests targeting a "
-        "release branch leave their issues open."
-    )
-    close_merged_pr: str = "Close issues for this single pull request instead of sweeping."
-    close_merged_base: str = "Only consider merged pull requests with this base branch."
-    close_merged_limit: str = "Maximum merged pull requests to examine."
     branch_protection_app: str = "Manage declarative branch protection rulesets and policies."
     branch_protection_audit: str = (
         "Audit repository branch protection rulesets against declarative policy specification."
@@ -888,8 +933,22 @@ class RoadmapCommandHelp:
         "docs/ROADMAP.md at (default: the repository's default branch)."
     )
     confirm: str = "Make the planned writes to GitHub. Without it, migrate prints its plan only."
-    migrate_dry_run: str = "Print the plan and report, and write nothing."
-    render_dry_run: str = "Print the rendered file to stdout instead of writing it."
+    migrate_dry_run: str = (
+        "Make no request: print the requests a run makes, in order, with placeholders for "
+        "values a read gives."
+    )
+    migrate_plan: str = (
+        "Read GitHub, print the plan and report, write nothing, and end with the GraphQL points "
+        "spent and left. Migrate without a mode flag does this."
+    )
+    render_dry_run: str = (
+        "Make no request and write no file: print the requests a run makes, in order, with "
+        "placeholders for values a read gives."
+    )
+    render_plan: str = (
+        "Read GitHub and print the rendered file to stdout instead of writing it, ending with "
+        "the GraphQL points spent and left."
+    )
     output: str = "File render writes."
     reprioritize: str = (
         "Hold the current release to its rules: after it starts only a critical fix joins it, "
@@ -901,7 +960,94 @@ class RoadmapCommandHelp:
     reprioritize_confirm: str = (
         "Make the changes on GitHub. Without it, reprioritize prints its plan only."
     )
-    reprioritize_dry_run: str = "Print each change with its reason, and write nothing."
+    reprioritize_dry_run: str = (
+        "Make no request: print the requests a run makes, in order, with placeholders for "
+        "values a read gives."
+    )
+    reprioritize_plan: str = (
+        "Read GitHub, print each change with its reason, write nothing, and end with the "
+        "GraphQL points spent and left. Reprioritize without a mode flag does this."
+    )
+    close: str = (
+        "Close each item delivered to the current release, and cut the release once it holds "
+        "no open item. Reads every pull request merged into release/vX.Y.Z and closes as "
+        "completed each open issue a body closes with a closing keyword, commenting what "
+        "changed and how it was verified (check runs and the task file's Acceptance Criteria). "
+        "Once the release has no open item, one item closed as completed and no release pull "
+        "request, writes docs/ROADMAP.md on chore/cut-vX.Y.Z in the clone at --root, bumps the "
+        "version, pushes, and opens the release pull request into the default branch. Lists "
+        "completed items with no changelog fragment. Writes only with --confirm."
+    )
+    close_confirm: str = (
+        "Close the issues and make the cut. Without it, close prints its plan only."
+    )
+    close_dry_run: str = (
+        "Make no request and change no git ref: print the requests a run makes, in order, with "
+        "placeholders for values a read gives."
+    )
+    close_plan: str = (
+        "Read GitHub, print each issue the run closes with its comment and the cut or what "
+        "holds it, write nothing, and end with the GraphQL points spent and left. Close "
+        "without a mode flag does this."
+    )
+    close_root: str = "The clone the cut runs git in (default: the current directory)."
+    intake: str = (
+        "Turn candidates into items: every open issue not on the board, and every board item "
+        "intake left without a Priority. Each is checked for a duplicate among the board's "
+        "items and the issues closed as not planned, gets a type, a priority, Value and Effort "
+        "from the model with a reason comment, and goes to the backlog, or a critical fix to "
+        "the release #740's admission rule allows. A candidate an agent files with --title "
+        "and --body-file is labeled source/agent and held to the agent filing quota; a text "
+        "that looks like it holds a secret is refused. --dry-run makes no request and prints "
+        "the requests a run makes; --plan, the default, reads GitHub and calls the model, "
+        "writes nothing and reports what it spent; --confirm makes the writes."
+    )
+    intake_issue: str = "Only this issue (repeatable)."
+    intake_title: str = (
+        "Title of a candidate that is not an issue yet; intake files it only when it is not a "
+        "duplicate. Needs --body-file."
+    )
+    intake_body_file: str = "File holding the new candidate's body. Needs --title."
+    intake_borrow_reason: str = (
+        "Why the new candidate may open beyond the quota's allowance: a split of an item too "
+        "big for one pull request, or a follow-up a reviewer or readiness check requires. "
+        "Needs --source."
+    )
+    intake_source: str = (
+        "Link the new candidate came from, such as the item it splits or the review that found "
+        "it; the filed body ends with it."
+    )
+    intake_filed_by: str = (
+        "Who files the new candidate: an agent's is labeled source/agent and counts toward the "
+        "quota; a person's never does."
+    )
+    intake_confirm: str = "Plan as --plan does, then make the writes on GitHub."
+    intake_plan: str = (
+        "Read GitHub and call the model, print each planned change and what the run spent, and "
+        "write nothing. Intake without a mode flag does this."
+    )
+    intake_dry_run: str = (
+        "Make no request, to GitHub or a model: print the requests a run makes, in order, with "
+        "placeholders for values a read gives."
+    )
+    run: str = (
+        "Run roadmap jobs that are due: evaluate due criteria across landed jobs, run due jobs in "
+        "order, and record last-success execution timestamps. Without --confirm, or with --dry-run, "
+        "prints the due list and runs nothing."
+    )
+    run_confirm: str = "Execute the due roadmap jobs. Without it, run prints the due list only."
+    run_dry_run: str = (
+        "Make no request: print the due list of jobs and the reason each is due, and run nothing."
+    )
+    refine: str = (
+        "Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria. "
+        "Evaluates Next-release and Backlog New items using code, documentation, and external research."
+    )
+    refine_item: str = "Specific issue number to refine instead of selecting by priority."
+    refine_limit: str = "Maximum number of New items to refine in this run (default 3)."
+    refine_source: str = "Path to the repository checkout (defaults to current directory)."
+    refine_confirm: str = "Refine the items and write the proposed designs to GitHub. Without it, refine prints its plan only."
+    refine_dry_run: str = "Make no request and change no git ref: print what refine would plan and run, with placeholders."
 
 
 @dataclass(frozen=True)
@@ -1160,10 +1306,13 @@ class ConfigCommandHelp:
         "Audit OS Keyring token health, backend status, and zero-plaintext secret compliance."
     )
     key: str = "Dotted config key, e.g. github.default_org."
-    value: str = "Value to set."
+    value: str = (
+        "Value to set. Omit it for a credential to type it at a hidden prompt, "
+        "keeping it out of the shell history and the process list."
+    )
     export_env: str = "Print environment variables as shell export statements."
     json_env: str = "Print environment variables as JSON."
-    secret_key: str = "Dotted secret key, e.g. github.token."
+    secret_key: str = "Dotted secret key, e.g. grafana.token."
     secret_token: str = "Secret token string."
     destination: str = "Destination Syslog or HTTP URL."
 

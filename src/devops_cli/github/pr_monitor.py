@@ -38,11 +38,7 @@ class PRCheckRun(BaseModel):
             if not data.get("bucket"):
                 raw_status = data.get("status")
                 raw_conclusion = data.get("conclusion")
-                st = (
-                    raw_status
-                    if raw_status is not None
-                    else ("COMPLETED" if raw_conclusion else "COMPLETED")
-                )
+                st = raw_status if raw_status is not None else "COMPLETED"
                 conc = (
                     raw_conclusion
                     if raw_conclusion is not None

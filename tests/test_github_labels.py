@@ -136,3 +136,13 @@ def test_sync_propagates_client_failure(error: Exception) -> None:
             _FailingLabelClient(error), "o/r", [LabelSpec(name="type/bug", color="D73A4A")]
         )
     assert raised.value is error
+
+
+def test_repository_labels_declare_the_release_label() -> None:
+    """The repository's label manifest declares the canonical release label."""
+    from devops_cli.config.defaults import DEFAULT_RELEASE_LABEL
+
+    labels_file = Path(".github/labels.yml")
+    specs = load_label_specs(labels_file)
+    names = {spec.name for spec in specs}
+    assert DEFAULT_RELEASE_LABEL in names

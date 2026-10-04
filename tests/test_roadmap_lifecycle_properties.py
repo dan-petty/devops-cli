@@ -820,7 +820,7 @@ class RoadmapLifecycle(RuleBasedStateMachine):
         return self.person.open_pull_request(
             f"feat(release): {self.cut_release}",
             base="main",
-            head=f"release/{self.cut_release}",
+            head=f"chore/cut-{self.cut_release}",
             labels=("release",),
             release=self.cut_release,
             draft=draft,

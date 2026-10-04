@@ -623,8 +623,8 @@ def test_generate_consolidated_report_with_intelligence_tables(
         ],
         network_references=[
             NetworkReference(
-                target="api.example-corp.com",
-                reference_type="domain",
+                target="https://api.example-corp.com",
+                reference_type="url",
                 source_file="src/main.py",
                 line_number=15,
                 security_status="✓ Safe / Low Risk",
@@ -657,7 +657,7 @@ def test_generate_consolidated_report_with_intelligence_tables(
 
     assert "## Network References & Endpoints (Shodan InternetDB & Cloudflare Radar)" in report_md
     assert (
-        "| `api.example-corp.com` | domain | External | ✓ Safe / Low Risk | `src/main.py:15` |"
+        "| `https://api.example-corp.com` | url | External | ✓ Safe / Low Risk | `src/main.py:15` |"
         in report_md
     )
     assert (
@@ -844,7 +844,7 @@ def test_review_pipeline_skips_and_lists_errored_files(
         network_references=[],
     )
 
-    data_out, report_md = orchestrator.generate_consolidated_report([valid_payload])
+    _data_out, report_md = orchestrator.generate_consolidated_report([valid_payload])
     captured = capsys.readouterr().out
 
     # 1. Console outputs errored files table and summary metric
@@ -935,11 +935,13 @@ def test_review_pipeline_dependency_and_network_auditing() -> None:
     )
 
     # 3. Audit network references
-    net_clean = NetworkReference(target="127.0.0.1", reference_type="ipv4", is_local=True)
-    net_mal = NetworkReference(target="malicious-site.cc", reference_type="domain", is_local=False)
+    net_clean = NetworkReference(target="127.0.0.1", reference_type="ip", is_local=True)
+    net_mal = NetworkReference(
+        target="https://malicious-site.cc", reference_type="url", is_local=False
+    )
     net_cache = {
-        "malicious-site.cc": NetworkReputationRecord(
-            target="malicious-site.cc",
+        "https://malicious-site.cc": NetworkReputationRecord(
+            target="https://malicious-site.cc",
             ip="198.51.100.1",
             is_malicious=True,
             reputation_summary="C2 Server",

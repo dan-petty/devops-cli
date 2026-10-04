@@ -7,6 +7,168 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.26] - 2026-10-04
+
+### Added
+- **Coverage Reverse Index Test Selection (`devops ci coverage --build-index`, `devops ci test`)**:
+  - Added `--build-index` option to `devops ci coverage` to generate a per-worktree reverse coverage index (`coverage_index.json`) mapping source files to covering test files using `COVERAGE_CORE=ctrace` and `--cov-context=test` (#406).
+  - Enhanced `devops ci test` to select tests deterministically from the reverse coverage index, automatically incorporating working-copy drift since index creation and falling back to text-based selection on missing sources (#406).
+  - Added atomic persistence and pre-/post-run working-tree mutation verification during index generation, aborting and cleaning up when repository files change during the run (#406).
+  - Enforced full test suite escalation when trigger files (`conftest.py`, `pyproject.toml`, `uv.lock`, `.python-version`) change, with `--no-fallback` rejection support (#406).
+- **Ruff Correctness Rule Families (`B`, `RUF`, `ASYNC`)**:
+  - Extended Ruff lint selection to whole rule families `B` (flake8-bugbear), `RUF` (Ruff-specific rules), and `ASYNC` (flake8-async), catching runtime bugs, mutable defaults, and unhandled exception chains (#420).
+  - Selected targeted single rules: `SIM115` (unclosed file handles), `PT011`, `PT015`, and `PT017` (pytest assertion and raises integrity), and `PGH003` (explicit type ignore codes) (#420).
+  - Configured `allowed-confusables` for typographic mathematical and informational glyphs (`–`, `×`, `ℹ`) and enabled `ignore-without-code` in mypy configuration (#420).
+  - Resolved all 146 rule violations across the codebase, added architectural invariant tests for suppression rules and mypy configuration, and lowered the C901 suppression ceiling from 66 to 65 (#420).
+- **devops-cli in the cluster (`k8s/devops/`, `devops k8s run-job`)**:
+  - Namespace `devops` with a suspended CronJob template, a token-less service account and a default-deny perimeter; cluster jobs reach the gateway directly (#741).
+  - `devops k8s run-job -- ARGS` creates a Job from the template with only its args changed, follows its log and exits with its exit code; `--dry-run` reads nothing, not even the CronJob, and prints the kubectl requests a run would make (#741).
+- **Cluster Secrets from the keyring (`devops k8s push-secrets`)**:
+  - One table lists every Secret the stacks read; the command adopts live values, generates the ones nobody types and needs `--rotate` to replace a live value (#741).
+  - Server-side apply from stdin: values never reach argv, files, annotations or output (#741).
+  - `--dry-run` makes no request, reads included, and prints the requests a push would make in order with placeholders; `--plan` reads the keyring, the cluster and, for the machine account, gh's own record of it, says so, and prints each key's state (#741).
+  - The machine account's token comes from gh's keyring through `gh auth` alone: gh must list the login with a keyring token its own check passes, and devops-cli never calls GitHub with that token, so a run keeps one GitHub identity (#741).
+- **Hidden prompt for credentials (`devops config set KEY`)**:
+  - Omitting VALUE for a credential prompts for it, keeping it out of shell history (#741).
+- **Single-Entry Item Intake (`devops roadmap intake`, FastMCP `roadmap_intake`)**:
+  - Open issues off the board, unfinished items and new `--title`/`--body-file` candidates get a duplicate check, a code-checked type, Priority, Value and Effort, and a placement; P0 needs verified evidence from a trusted source (#742).
+  - Agent candidates are labelled `source/agent` and open, borrow (`budget/borrowed`) or fold under the agent filing quota (#1153), with its numbers on every run (#742).
+  - The dry-run rule (#412): `--dry-run` makes no request, to GitHub, a model or the telemetry collector, and prints the requests a run makes in order with placeholders, as an `IntakePlan` marked as a dry run, each request a `PlannedRequest` (#741) that shows the exact `gh` command where it is known without a read, the condition it runs on and whether it repeats per page or per candidate; `--plan`, which intake without a mode flag runs, reads GitHub and calls the model, writes nothing and reports its spend (GitHub requests by REST, REST search and GraphQL, embedding and proposal calls); `--confirm` writes. The FastMCP tool takes `mode` (`plan` by default, `dry-run` or `confirm`), and a FastMCP tool dispatched in-process with `--dry-run` exports no telemetry either (#742).
+  - Agent instructions file new work through intake, and `devops gh issues triage` reports issues off the board as awaiting intake instead of missing a milestone (#742).
+- **`devops roadmap close`**: closes as completed each open issue that a pull request merged into the current release's branch closes, with one comment saying what changed (the pull request, its merge commit, the first section of its body and its changed-file count) and how it was verified (each check run with its bucket, and the Acceptance Criteria of the issue's task file at the merge commit). A pull request whose check runs can't be read closes nothing, and the run exits non-zero. Once the release holds no open item, at least one item closed as completed and no release pull request, it writes `docs/ROADMAP.md` on `chore/cut-vX.Y.Z` in the clone at `--root` and opens the release pull request into the default branch, ready for review, through the shared cut path; completed items with no changelog fragment are listed. Writes only with `--confirm`; `--plan` previews, `--dry-run` makes no request. MCP mirror `roadmap_close` previews only (#743).
+- The roadmap store reads every pull request merged into a branch, with its merge and head commits and changed paths, from both adapters (#743).
+- **`devops roadmap refine`**: item refinement to Ready with proposed design, tasks, and acceptance criteria. Selects New items from the next planned release by priority, then New backlog items up to the release cap. Gathers minimal repository context (`CONTEXT.md`, ADRs, cited files, grep identifiers) and up to 3 Tavily search queries for public repositories. Uses structured model output (`RefinementProposal`) validated deterministically against repository commits, cited lines, and verified sources. Writes sanitized plain-text markdown between markers `<!-- devops-roadmap-refine:start -->` and `<!-- devops-roadmap-refine:end -->` on the issue body with SHA/branch tracking and 65k size limit guard. Items that fit in one pull request with complete criteria and no open questions move to Ready with reason comments; oversized items remain New with `refine.needs_split="true"` and are descoped by reprioritization. Supports `--dry-run` and `--confirm`. Hooks into `apply_intake` for critical fixes and P0 features. Added FastMCP mirror tool `roadmap_refine` and due table integration in `devops roadmap run` (#744).
+- **Continuous Service Mode for `devops serve`**:
+  - Added dedicated continuous service mode (`devops serve --service`) for in-cluster deployment, processing and authenticating GitHub webhooks with per-repo single-concurrency job dispatch and coalesced batches (#752).
+  - Added `ServiceConfig` to configuration settings (`repos`, `machine_account`, `poll_interval_seconds`, `drain_timeout_seconds`) and managed credential `service.webhook_secrets` (`DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS`) for repo-to-secret HMAC mapping (#752).
+  - Added structured single-line JSON log formatter (`JsonLogFormatter`) emitting timestamp, level, logger, message, and contextual metadata with zero credential, payload, or signature leakage (#752).
+  - Implemented `POST /webhooks/github` route with 25 MiB size enforcement, Content-Type verification, constant-time HMAC-SHA256 signature verification, 10,000-delivery LRU deduplication, ping handling, and machine-account suppression (#752).
+  - Added `/healthz`, `/readyz`, and `/metrics` Prometheus endpoints recording delivery outcomes, trigger sources, job counts, job durations, start timestamps, and queue depth (#752).
+- **Production Service Image for Scheduled Jobs and Webhook Handlers (`Dockerfile`, `.github/workflows/ci.yml`, `.github/workflows/release.yml`)**:
+  - Root `Dockerfile` multi-stage build packaging Python 3.14 runtime, `gh` CLI, `git`, and `devops-cli` virtual environment into a hardened, non-root (`1000:1000`), read-only container with `/etc/gitconfig` credentials (#753).
+  - Pinned base images (`python:3.14-slim-trixie`, `ghcr.io/astral-sh/uv`) by SHA256 digest with BuildKit layer caching and minimal attack surface (#753).
+  - CI workflow `service-image` job validating content change detection, build/load smoke testing under full sandbox constraints (`--read-only`, `--tmpfs`, `--cap-drop ALL`, `no-new-privileges`), and Trivy vulnerability auditing (#753).
+  - Release workflow `service-image` job publishing `ghcr.io/dan-petty/devops-cli/service:v<version>` and `:latest` with SPDX SBOM generation and cryptographic build provenance attestation via GitHub Actions (#753).
+  - Dependabot `docker` ecosystem tracking in `.github/dependabot.yml` and release routine verification instructions in `docs/ROUTINE_TASKS.md` (#753).
+- **`devops roadmap run`**: evaluates the roadmap due table across landed jobs (`intake`, `close`, `reprioritize`) in a fixed execution order, tracking each job's last successful run time per repository in `<data dir>/roadmap/<owner>/<name>/schedule.json`. Clones repositories for jobs requiring code checkouts to `<data dir>/roadmap/<owner>/<name>/clone`, synced to the tip of `origin/release/vX.Y.Z` with session identity. Supports `--dry-run` and `--confirm` modes. Wires `service_job` adapter to `devops serve --service` for processing coalesced trigger batches. Adds FastMCP mirror tool `roadmap_run` reporting due jobs (#981).
+- **Roadmap Service Kubernetes Deployment**:
+  - Added single-replica `Recreate` Deployment for `roadmap-service` in the `devops` namespace running `serve --service --host 0.0.0.0 --port 8000 --workers 1` with restricted security context, `devops-cli` Secret environment, and health probes (#1083).
+  - Added dedicated 1Gi `local-path` PersistentVolumeClaim (`roadmap-service-home`) mounted at `/home/devops` with Argo CD prune/delete protection (#1083).
+  - Added ClusterIP Service and Traefik Ingress routing external traffic strictly to `POST /webhooks/github` (#1083).
+  - Added `roadmap-service-ingress` NetworkPolicy admitting incoming connections on TCP 8000 only from Traefik in `kube-system` and Prometheus scraping in `monitoring` (#1083).
+  - Added Prometheus egress rule in `k8s/monitoring/networkpolicy.yaml` allowing TCP 8000 metrics scraping into namespace `devops` (#1083).
+  - Registered `DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS` in the cluster secrets push table with `deployment/roadmap-service` rollout restart targeting (#1083).
+  - Updated `devops-cli-config` ConfigMap with `service.repos` and `service.machine_account` (#1083).
+- Runtime dependency `graphql-core==3.3.0` (#1125).
+- `devops roadmap reprioritize`, `migrate` and `render --plan`: a read-only preview that ends with the GraphQL points spent and left; `migrate` and `reprioritize` without a mode flag still preview, and `render` without one writes the file (#1125).
+- **Agent Filing Quota Specification & Pure Quota Engine (`devops_cli.roadmap.quota`, `.github/roadmap.toml`, `.github/labels.yml`)**:
+  - Six roadmap quota configuration keys (`open_issue_limit`, `throttle_start_fraction`, `overage_step_fraction`, `release_credit_base`, `release_credit_per_delivered_item`, `release_item_target`) with Pydantic field constraints and declared repository defaults in `.github/roadmap.toml` (#1153).
+  - Pure calculation module `src/devops_cli/roadmap/quota.py` exposing exact arithmetic implementations of `ratio(n, config)`, `release_credit(delivered, config)`, and `allowance(n, delivered, closures, config)` (#1153).
+  - Added declarative repository labels `source/agent` and `budget/borrowed` in `.github/labels.yml` (#1153).
+  - Established agent filing quota, borrowing, and consolidation guardrails in `AGENTS.md` and `src/devops_cli/ai/instruction_generator.py` (#1153).
+- **Grafana Observability Enhancements (`k8s/monitoring/dashboards/`)**:
+  - Added 30-day, 90-day, and 1-year AI spend run rate projection stat panels to `ai-spend.json` (#1158).
+  - Added rolling average trend lines (`rate(...)[6h]` and `rate(...)[30m]`) across AI spend timeseries panels (#1158).
+  - Added subcommand template variable (`$command`) and per-subcommand repeating latency timeseries panels to `devops-cli.json` (#1158).
+  - Added GPU memory percentage utilization timeseries panel with 90% and 95% threshold alert lines to `llm-stack.json` (#1158).
+  - Added ingress traffic breakdown by host/router panel to `ingress-tunnel.json` (#1158).
+  - Enabled router and service Prometheus metrics labels in Traefik ingress configuration (`k8s/ingress/traefik-values.yaml`) (#1158).
+
+### Changed
+- **Logging Namespace Pod Security Standards**:
+  - Dropped `logging` namespace Pod Security Standards enforcement level from `privileged` to `baseline` in `k8s/namespaces.yaml`, as Loki and Loki canary require no hostPath mounts or elevated capabilities (#548).
+  - Updated Kubernetes stack documentation in `k8s/README.md` to document the single-shipper architecture where Alloy ships container logs to Loki (#548).
+- **deploy-stack pushes Secrets first (`devops k8s deploy-stack`)**:
+  - Pushes the stacks' Secrets after the namespaces and before any manifest or release; `--no-push-secrets` skips it, and `--dry-run` lists key names (#741).
+  - A locked keyring stops it before it applies anything; the devcontainer auto-deploy passes `--stack` and its failure warning names the unlock (#741).
+- **A dry run exports no telemetry (`--dry-run`)**:
+  - A command's own `--dry-run` no longer sends its spans and metrics to the telemetry collector, so a dry run makes no external request (#741).
+- **Service image tag follows the release (`devops release prepare`, `devops release check`)**:
+  - The bump pins `k8s/devops/kustomization.yaml` to `v<version>`, and the check fails when they differ (#741).
+- **One GitHub session per process (`devops_cli.github.session`)**:
+  - gh and git act only as the token `gh auth token` gives; `gh auth` sees the environment unchanged (#767).
+  - Each identity keeps its own quota ledger and response cache (#767).
+  - Removed `github.token`, `DEVOPS_CLI_GITHUB_TOKEN` and the unused GraphQL client: run `gh auth login`, then `keyring del devops-cli github_token` and revoke that token (#767).
+- **Hermetic CI Runner & Bubblewrap Test Confinement (`.github/workflows/ci.yml`, `pyproject.toml`, `tests/conftest.py`)**:
+  - Removed runner package installations (`sudo apt-get update`, `bubblewrap`, `python-is-python3`, and `sysctl` unprivileged user namespace relaxation) from `.github/workflows/ci.yml` (#832).
+  - Registered `bwrap` pytest marker in `pyproject.toml` and introduced `pytest_collection_modifyitems` hook in `tests/conftest.py` to skip bubblewrap-dependent live tests when `bubblewrap` is not installed on the host (#832).
+  - Made sandbox namespace refusal test hermetic using an executable stub binary in `tests/test_host_sandbox.py` (#832).
+  - Added architectural invariant test in `tests/test_architectural_invariants.py` ensuring GitHub Actions workflows never mutate the runner and that `.devcontainer/Dockerfile` installs bubblewrap (#832).
+- **Unified CI Quality Gate & Workflow Parity (`src/devops_cli/commands/ci.py`, `.github/workflows/ci.yml`, `tests/test_ci.py`)**:
+  - Unified all CI verification gates into a single ordered `CheckSpec` table in `src/devops_cli/commands/ci.py`, ensuring CLI subcommands and aggregate gates execute identical check and fix commands (#843).
+  - Added `--only` and `--skip` selection options to `devops ci` with mutual exclusivity and invalid name rejection, and ensured single-row execution streams output directly without buffering (#843).
+  - Aligned `.github/workflows/ci.yml` jobs (`static`, `test`, `dependency-freshness`) to execute through `devops ci`, eliminating drift between local quality gates and remote GitHub Actions CI (#843).
+  - Standardized Bandit security scanning on `-ll` across all scanners, removing global `-s B608` skips, applying targeted `# nosec B608` annotations to `instruction_generator.py` and `stack_lifecycle.py`, and removing obsolete `build_bandit_cmd` (#843).
+  - Removed redundant `--xml` flag from `devops ci coverage` as `.data/coverage.xml` is written by default (#843).
+  - Added offline workflow-to-table parity verification in `tests/test_ci.py` asserting all gate checks run through `devops ci` (#843).
+- **Fail-closed release path (`devops release prepare`, `devops release pr`)**:
+  - One shared, fail-closed release cut path (`cut_release`) creates `chore/cut-v<version>` from `origin/release/v<version>`, updates `pyproject.toml`, `src/devops_cli/__init__.py`, `uv.lock`, and the in-cluster service image tag on the cut branch, pushes with `--force-with-lease`, and opens the release pull request into `main` (#982).
+  - Validates working tree cleanliness before any branch or file is touched, refusing dirty state with exit code 1 (#982).
+  - Version for `devops release pr` is resolved from `pyproject.toml` on the checked-out cut branch rather than the caller's pre-checkout directory (#982).
+  - Release PR opening fails closed immediately upon push errors or rejected labels/milestones, removing warn-and-continue fallback logic (#982).
+  - Grounding exemption is restricted to `chore/cut-vX.Y.Z` into the default branch; PRs targeting release branches or forked cuts are held to full grounding (#982).
+- The `roadmap_render`, `roadmap_migrate` and `roadmap_reprioritize` MCP tools take `mode` instead of `dry_run`, as `roadmap_intake` does: `plan` by default, `dry-run` makes no request, `write` (render) and `confirm` (reprioritize) write (#1125).
+- **Grafana Visualization & AI Spend Reference Model**:
+  - Resized Pyroscope continuous profiling CPU and memory allocation flamegraphs to full 100% width (`w: 24`) and stacked vertically in `sre-service.json` (#1158).
+  - Restyled local savings by backend server in `ai-spend.json` as smooth individual lines with 20% semi-transparent fill (#1158).
+  - Aligned default local AI equivalent reference model `DEFAULT_AI_REFERENCE_MODEL` from `gpt-4o` to `gpt-4o-mini` across defaults, pricing models, CLI commands, and example configuration to match commercial equivalents for `qwen3.8:27b` (#1158).
+
+### Removed
+- **Fluent Bit Logging Agent and Ingress**:
+  - Removed Fluent Bit from the Kubernetes logging stack, manifests, and CLI stack lifecycle in favor of Alloy in `infra`, eliminating duplicate log scraping, unlabelled log streams, and unauthenticated ingress (#548).
+  - Deleted `k8s/logging/fluent-bit-values.yaml` and `fluent-bit-ingress` in `k8s/ingress/ingress-routes.yaml` (#548).
+  - Removed Kubernetes API server egress rule (TCP 443, 6443, 10250) from `k8s/logging/networkpolicy.yaml`, restricting `logging` egress strictly to intra-namespace and CoreDNS (#548).
+  - One-time manual post-merge cleanup commands:
+    ```bash
+    helm uninstall fluent-bit -n logging --kube-context <cluster-context> --wait
+    kubectl --context <cluster-context> delete ingress fluent-bit-ingress -n logging
+    kubectl --context <cluster-context> label --dry-run=server --overwrite ns logging pod-security.kubernetes.io/enforce=baseline
+    uv run devops k8s deploy-stack --stack logging --context <cluster-context>
+    kubectl --context <cluster-context> get pods -n logging
+    kubectl --context <cluster-context> get ns logging --show-labels
+    kubectl --context <cluster-context> get networkpolicy logging-default-perimeter -n logging -o jsonpath='{.spec.egress[*].ports[*].port}'
+    ```
+- **Hand-made Secret steps (`k8s/README.md`, `k8s/cloudflared/secret.example.yaml`)**:
+  - The `--from-literal` instructions and deploy-stack's client-side Qdrant Secret, which leaked the key into an annotation, are gone (#741).
+  - `sync-secrets` no longer copies the Qdrant key into the keyring (#741).
+- `devops gh issues close-merged` and the closure sweep in `github/issue_closure.py`, replaced by `devops roadmap close` (#743).
+- **Dead Webhook Infrastructure**:
+  - Removed obsolete `WebhookEventDispatcher`, `WebhookEvent`, `GitHubWebhookVerificationError`, and deleted legacy `graphql.py` and its tests in favor of canonical service mode webhook router (#752).
+- **Removed options and fallback helpers (`devops release pr`)**:
+  - Removed `--push/--no-push` option from `devops release pr` (#982).
+  - Removed `_build_pr_fallback_cmd`, `_strip_pr_cmd_flag`, and `_checkout_release_branch` (#982).
+
+### Fixed
+- **Network Reference Extraction Grounded in URLs and IP Literals**:
+  - Replaced heuristic bare-word and domain string inspection with strict URL parsing (`urllib.parse.urlsplit`) across any scheme and IP literal parsing (`ipaddress`), ensuring bare words, hostnames, and arbitrary identifiers are never extracted as network references (#431).
+  - Eliminated heuristic constants (`CONST_BRANCH_PREFIXES`, `CONST_CODE_CONFIG_PREFIXES`, `CONST_COMMON_PROPERTY_SUFFIXES`, `CONST_TELEMETRY_CALL_NAMES`, `CONST_STANDARD_RECEIVER_IDENTIFIERS`, `CONST_EXCLUDED_FILE_MIME_TYPES`) and removed dead extraction routines, visitors, and shims (#431).
+  - Simplified Python AST literal extraction to inspect all string constants directly for URLs and IPs, including in dictionary keys and function call arguments, without relying on telemetry or identifier blacklists (#431).
+  - Renamed package repository asset filtering to host-only `is_trusted_registry_host(host: str) -> bool` based strictly on `CONST_EXCLUDED_PUBLIC_REGISTRIES` (#431).
+  - Consolidated network reference types strictly to `"url"` and `"ip"`, removing all legacy `"domain"` reference categorization across models, extractors, and table formatters (#431).
+- **GitHub write pacing decided from the request gh sends (`devops_cli.github.request_classifier`)**:
+  - `run_gh` gives GitHub's one-second write interval to GraphQL mutations (`gh api graphql` with the document in `-f`/`-F query=`, an `@file`, stdin or an `--input` body, `operationName` included) and to `gh api` calls gh sends as an implicit POST (any field or `--input`), so `pr threads resolve-all`, project view and roadmap field writes, and the REST pull request fallback are paced (#1125).
+  - `gh api`'s argv is read with `argparse` in every form gh accepts (`-XPOST`, `-X=POST`, `--method=post`, attached fields), and GraphQL documents with graphql-core, loaded only for a `graphql` request. A request that can't be read counts as a write (#1125).
+  - High-level gh commands are classified by the verb in the verb position: a read verb (`view`, `list`, `status`, `checks`, `diff`, `show`, `item-list`, `field-list`) or the `search` group reads, any other verb writes. `gh project link` is now a write and `gh issue list --label sync` a read (#1125).
+  - High-level commands find the verb past `-R`/`--repo` and `--owner`, so `gh -R o/r issue list` and `gh project --owner o item-list 2` are reads (#1125).
+  - The write interval holds across resources within a process: a REST write and a GraphQL write acquired together are scheduled at least the interval apart. Only the write moves; reads keep their quota's pace and never wait behind another resource's write or quota reset (#1125).
+  - A `gh api` write with `--paginate` goes to gh once, as given, paced as a write, instead of page by page as a read with `?page=1` added to its endpoint (#1125).
+  - A `gh api` call is cached only when gh sends it as a GET with no field or body: a method in any form (`-X=POST`, `-XHEAD`), an attached field (`-ftitle=x`, `--field=k=v`) or an `--input` body, which the old token check let through, is no longer cached, so a repeated write is sent; reads cache as before (#1125).
+  - A high-level gh command is cached only when the verb in the verb position reads: a read verb elsewhere in argv (`pr create --title list`) made the write cacheable (#1125).
+  - Roadmap board reads go through the store's own paged GraphQL query instead of `gh project item-list`, which fetched every field of every item and reported no cost (a `reprioritize --dry-run` spent 2,025 of the 5,000 hourly points on 2026-10-04 while the limiter counted one call). Each page asks for `rateLimit`, and `run_gh` charges the points a GraphQL response reports. Project sync (`devops gh project sync`) reads its board with the same paged query (#1125).
+  - Every board read passes a Projects filter at the source and leaves archived items out (`items(query:, archivedStates: [NOT_ARCHIVED])`); the backlog and candidate reads pass `is:open`. The read is checked against the total for the same filter, so an archived item no longer stops migrate with "Read 930 of 931", and a count that changes during the read is read again once before the run fails (#1125).
+  - Before a board read, the run reads GraphQL's own `rateLimit` and the filter's total, and stops with a clear message, spending nothing on pages, when the read would leave less than 250 points; a read stops before any page while fewer than 250 are left (#1125).
+  - `devops roadmap migrate`, `render`, `reprioritize` and `intake` end with one line giving the GraphQL points the run spent and the points left, read from GraphQL itself (#1125).
+  - `devops roadmap reprioritize`, `migrate` and `render` `--dry-run` make no request at all: they read neither GitHub nor the roadmap configuration (a `reprioritize --dry-run` spent 2,025 GraphQL points on 2026-10-04). Each returns its real result type marked as a dry run and prints the requests a run makes, in order, each with its exact `gh` command and stdin, built by the store's own argument builders, with `<placeholders>` for values a read gives (#412, #1125).
+  - `devops roadmap intake --dry-run` shows the exact `gh` command of every store request, a board write's reads included (#1125).
+- **Grafana Dashboard Projections, Rolling Averages, and Panel Layouts**:
+  - Consolidated multi-series rolling average queries in `ai-spend.json` into unified aggregate totals (`Total Rolling Avg`) across all servers and models, eliminating per-item rolling average line sprawl (#1175).
+  - Updated AI spend and savings projections in `ai-spend.json` to calculate rates over the observed dashboard interval (`[$__range]`) extrapolated to 30-day, 90-day, and 1-year windows, replacing the fixed 1-hour active rate (#1175).
+  - Fixed empty Time to First Token p95 panel in `llm-stack.json` by querying `litellm_llm_api_time_to_first_token_metric_bucket` grouped by model, eliminating failed joins on volatile LiteLLM deployment identifiers (#1175).
+  - Restored Node Exporter Full dropdown selectors and system metrics by setting `useIntegrationAllowList: true` and adding `node_uname_info`, `node_load.*`, `node_disk_io_now`, and `node_netstat_Tcp_CurrEstab` to `includeMetrics` in `k8s-monitoring-values.yaml` (#1175).
+  - Provisioned local `nvidia-dcgm.json` dashboard with bottom panels (GPU SM Clocks, GPU Utilization, Tensor Core Utilization, GPU Framebuffer Memory Used) organized into a balanced 2x2 grid, replacing upstream dashboard 12239's 50% single-column layout (#1175).
+  - Corrected project velocity panels in `project-metrics.json` to evaluate cumulative release, milestone, and CI run counters directly as snapshot states rather than `increase()` deltas (#1175).
+  - Added service traffic fallback to Traffic by Ingress Host / Router in `ingress-tunnel.json` (#1175).
+
 ## [0.2.25] - 2026-10-03
 
 ### Added

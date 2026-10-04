@@ -52,9 +52,6 @@ class ReviewMessages:
         "Could not detect branch. Ensure command is run inside a valid git repo."
     )
     github_repo_parse_failed: str = "Could not parse GitHub repo owner/name from remote URL: {raw}"
-    github_token_not_configured: str = (
-        "GitHub token not configured. Run: devops config set github.token <token>"
-    )
     no_review_sessions_found: str = "No review sessions found in {reviews_dir}"
     no_findings_to_update: str = "Session has no findings to update."
     specify_one_finding: str = "Name one finding: --index <N>, --title <pattern> or --candidate <N>"
@@ -167,6 +164,8 @@ class ConfigMessages:
     not_set: str = "not set"
     set_success: str = "✓ Set {key} = {value}"
     set_secret_success: str = "✓ Set {key} in OS keyring"
+    value_required: str = "{key} needs a VALUE; only a credential may be typed at a hidden prompt."
+    secret_prompt: str = "{key} (typing hidden)"
 
 
 @dataclass(frozen=True)
@@ -240,10 +239,6 @@ class RepoMessages:
     )
     cloning_org_repos: str = "Cloning [bold]{count}[/bold] repos into [dim]{dest}[/dim]"
     already_cloned: str = "Already cloned at {dest}"
-    github_token_not_configured: str = (
-        "GitHub token not configured. Run 'devops config init' or "
-        "set github.token in 'devops config set'"
-    )
     invalid_dest_path: str = "Invalid repository destination path."
     invalid_url_hyphen: str = "Invalid repository URL: must not start with a hyphen."
     no_repos_found: str = "No repositories found."
@@ -298,6 +293,48 @@ class K8sMessages:
     table_title_tls_secrets: str = "Kubernetes TLS Secret Deployment"
     table_title_pods: str = "Kubernetes Pods"
     table_title_contexts: str = "Kubernetes Contexts"
+    push_unknown_secret: str = "Unknown Secret: {names}. The table holds: {known}."
+    push_unknown_stack: str = "Unknown stack '{stack}'. Choose one of: {known}."
+    push_namespace_missing: str = "Namespace {namespace} not found: skipped {secret}."
+    push_restart_command: str = "Restart skipped (--no-restart): {command}"
+    push_failed: str = "Cluster Secrets not pushed; nothing was written. {reason}"
+    push_write_failed: str = (
+        "Cluster Secret push stopped while writing. Already done: {completed}. {reason} "
+        "Fix the cause and rerun; stored keyring values are reused, so nothing is regenerated."
+    )
+    pushing_secrets: str = "[bold]Pushing cluster Secrets from the keyring...[/bold]"
+    push_plan_read: str = (
+        "Plan only: read {sources}{context}; wrote nothing. "
+        "--dry-run lists the requests without making any."
+    )
+    push_plan_sources: str = "the keyring and the cluster"
+    push_plan_sources_github: str = (
+        "the keyring, gh's record of its machine account (gh checks the token on github.com) "
+        "and the cluster"
+    )
+    push_dry_run_heading: str = (
+        "Dry run: no request was made. A push would make these requests, in order:"
+    )
+    push_dry_run_writes: str = (
+        "The writes, from the first keyring write on, run only when every key resolves: no "
+        "source missing or invalid, and no live value differing without --rotate. "
+        "--plan reads the keyring, gh and the cluster to show each key's state."
+    )
+    job_cronjob_missing: str = (
+        "CronJob devops/devops-cli not found. Apply it first: "
+        "devops k8s apply k8s/devops/ --template"
+    )
+    job_created: str = "Created Job {name}. Follow it with: kubectl -n devops logs -f job/{name}"
+    job_dry_run_heading: str = (
+        "Dry run: no request was made. run-job would make these requests, in order:"
+    )
+    job_not_started: str = (
+        "Job {name} did not start within {seconds:g} s. Inspect it: "
+        "kubectl -n devops describe job/{name}"
+    )
+    job_no_exit_code: str = (
+        "Job {name} reported no exit code. Inspect it: kubectl -n devops describe job/{name}"
+    )
     table_title_configured_services: str = "Configured Service Targets ({stack})"
     table_title_policy_violations: str = "Kubernetes Policy Violations ({engine})"
     table_title_rbac_audit: str = "Kubernetes RBAC Security Audit"
@@ -324,9 +361,6 @@ class AnalyzeMessages:
     pr_help: str = "Analyze a GitHub Pull Request and save metadata to .data/analysis/."
     path_not_exists: str = "Path '{path}' does not exist."
     git_branch_failed: str = "Could not determine active git branch."
-    github_token_required: str = (
-        "GitHub token required. Run: devops config set github.token <token>"
-    )
     github_origin_failed: str = "Could not detect GitHub repository origin URL."
     saved_metadata: str = "✓ Analysis metadata saved to [cyan]{path}[/cyan]"
     would_save_metadata: str = (
@@ -387,6 +421,9 @@ class ReleaseMessages:
     preparing_release: str = "Preparing release version [cyan]{version}[/cyan]..."
     updated_pyproject: str = "✓ Updated pyproject.toml to version [bold]{version}[/bold]"
     updated_init: str = "✓ Updated src/devops_cli/__init__.py to version [bold]{version}[/bold]"
+    updated_service_image_tag: str = (
+        "✓ Pinned the service image in k8s/devops/kustomization.yaml to [bold]v{version}[/bold]"
+    )
     updated_changelog: str = (
         "✓ Updated CHANGELOG.md with release header [bold][{version}] - {date}[/bold]"
     )
@@ -596,6 +633,10 @@ class DryRunMessages:
         "[yellow][dry-run][/yellow] Would run delegated command: [cyan]{command}[/cyan]"
     )
     skipped_pr_comment: str = "\n[dry-run] Skipped posting comment to PR #{number}"
+    placeholders_note: str = (
+        "Values in <angle brackets> are placeholders for what the run would read or make; "
+        "no value is shown."
+    )
 
 
 @dataclass(frozen=True)
@@ -782,6 +823,7 @@ class CIMessages:
     bandit_scan: str = "bandit security scan"
     actionlint: str = "actionlint (github workflows)"
     docs_validation: str = "docs validation"
+    devcontainer_validation: str = "devcontainer validation"
     ci_summary_title: str = "CI Summary"
     col_check: str = "Check"
     col_result: str = "Result"
@@ -803,11 +845,34 @@ class CIMessages:
         "Clone the repository into the WSL filesystem or a container volume and reopen it there."
     )
     test_budget_exceeded: str = "Tests took {duration}, over the {budget} budget. Slowest tests:"
+    coverage_index_tree_changed: str = (
+        "Files changed during the run; index not saved:\n{files}\n"
+        "Re-run `devops ci coverage --build-index` on a clean working tree."
+    )
+    coverage_index_saved: str = "Coverage index built and saved in {duration}."
+    coverage_index_age: str = (
+        "Coverage index is {age} old ({changed_count} file(s) changed since build)."
+    )
+    coverage_index_missing: str = (
+        "No coverage index found. Run `devops ci coverage --build-index` to build one."
+    )
+    selection_trigger_full_run: str = (
+        "{file} can change the outcome of tests that never import it. "
+        "Running the full test suite. Run `devops ci coverage --build-index` to update."
+    )
+    selection_trigger_refusal: str = (
+        "Refusing to narrow tests because {file} changed. Run without --no-fallback "
+        "or run the full suite."
+    )
 
 
 @dataclass(frozen=True)
 class DevcontainerMessages:
     already_exists: str = "devcontainer.json already exists: {path}"
+    auto_deploy_failed: str = (
+        "Failed to auto-deploy Kubernetes stack '{stack}'. If the keyring was still locked, run "
+        "`devops devcontainer unlock-keyring`, then `devops k8s deploy-stack --stack {stack}`."
+    )
     created_file: str = "Created: {path}"
     no_manifest_found: str = "No devcontainer.json found: {path}"
     manifest_valid: str = "✓ DevContainer manifest is valid: {path}"
@@ -1015,6 +1080,27 @@ class RoadmapMessages:
     )
     preview_only: str = "Nothing was written. Run again with --confirm to make these writes."
     render_written: str = "Wrote {path}: {items} item(s) in {sections} section(s)."
+    graphql_budget_refused: str = (
+        "GraphQL has {remaining} points left until {reset}, and reading {what} costs about "
+        "{cost} with {floor} kept in reserve, so the run stopped before reading and spent "
+        "nothing on it. Run it again after {reset}."
+    )
+    graphql_budget_floor: str = (
+        "GraphQL has {remaining} points left until {reset}, below the {floor} kept in reserve, "
+        "so the read of {what} stopped before page {page}. Run it again after {reset}."
+    )
+    board_count_changed: str = (
+        "The {what} changed while they were read ({counts}), and again on a second read, so "
+        "the read is incomplete. Run it again once the board is still."
+    )
+    board_items: str = "board #{number} items"
+    board_items_filtered: str = 'board #{number} items matching "{query}"'
+    board_reread: str = "The {what} changed while they were read ({counts}); reading them again."
+    graphql_spend: str = "GraphQL: {spent} points spent, {remaining} left until {reset}."
+    graphql_spend_since_reset: str = (
+        "GraphQL: {spent} points spent since the hourly reset during the run, {remaining} left "
+        "until {reset}."
+    )
     render_current: str = "## Current release: {title}"
     render_planned: str = "## Planned release: {title}"
     render_backlog: str = "## Backlog"
@@ -1162,6 +1248,12 @@ class RoadmapMessages:
     reprioritize_left_backlog: str = (
         "- #{number} left the backlog, where a job placed it, so where a person puts it stands."
     )
+    refine_ready_comment: str = "Status set to Ready at {sha} (see proposed design in issue body)."
+    refine_split_comment: str = (
+        "Proposal needs splitting into {count} items at {sha} (see proposed design in issue body)."
+    )
+    refine_title: str = "# Refinement plan for {repo}"
+    refine_none: str = "No items to refine."
     reprioritize_kept_out: str = (
         "- #{number} was taken out of {release} by a person, as its issue's events show, so it "
         "stays in the backlog: a person's placement stands."
@@ -1191,6 +1283,464 @@ class RoadmapMessages:
     reprioritize_close_release: str = "close Release {release}"
     reprioritize_create_release: str = "create Release {release}"
     reprioritize_create_branch: str = "create branch {branch} at {sha}"
+    # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.
+    plan_dry_run: str = (
+        "Dry run: no request was made. A run makes these requests, in order; a value in "
+        "<angle brackets> comes from an earlier read, a step with a condition runs only when it "
+        "holds, and a step repeated runs as often as it says."
+    )
+    plan_dry_run_writes: str = "With --confirm, after the reads and before the last request:"
+    plan_dry_run_title: str = "# devops roadmap {job} for {repo}"
+    plan_dry_run_render: str = "Then render writes {path}, which makes no request."
+    plan_dry_run_notes: tuple[str, ...] = (
+        "A board read whose count changes while it is read reads it once more, from its first "
+        "page. run_gh may read `gh api rate_limit` to pace a request; that read costs no quota.",
+    )
+    plan_modes_exclusive: str = "Pass one of {modes}, not more."
+    plan_repeat_page: str = "per page, until a page is short"
+    plan_repeat_board_page: str = "per page after the first, while GraphQL reports a next page"
+    plan_placeholders: dict[str, str] = field(
+        default_factory=lambda: {
+            "board": "<board>",
+            "cursor": "<cursor>",
+            "page": "<n>",
+            "number": "<number>",
+            "milestone": "<milestone>",
+            "release": "<release>",
+            "tag": "<tag>",
+            "branch": "<branch>",
+            "sha": "<sha>",
+            "url": "<issue url>",
+            "value": "<value>",
+            "record": "<job record>",
+            "board_id": "<board id>",
+            "field_id": "<field id>",
+            "card_id": "<card id>",
+            "option_id": "<option id>",
+            "comment": "<comment>",
+            "title": "<title>",
+            "body": "<body>",
+            "label": "<label>",
+            "node_id": "<node id>",
+            "original_id": "<original node id>",
+            "evidence": "<evidence>",
+            "field": "<field>",
+            "item": "<item>",
+            "card": "<card>",
+            "new_board": "<new board>",
+            "since": "<since>",
+        }
+    )
+    plan_targets: dict[str, str] = field(
+        default_factory=lambda: {
+            "file": "{path} at {ref}",
+            "milestones": "every milestone",
+            "issues": "the issues ({query})",
+            "board_budget": (
+                "GraphQL's points left and the total of board {board}'s items{matching}; the "
+                "read stops here when the points can't cover it"
+            ),
+            "board_first": "the first page of board {board}'s items{matching}",
+            "board_page": "the next page of board {board}'s items{matching}",
+            "fields": "board {board}'s fields, with their options",
+            "field_options": "board {board}'s field options",
+            "workflows": "board {board}'s workflows",
+            "boards": "{owner}'s boards, to find board {board}",
+            "default_branch": "the default branch and its head",
+            "release_prs": "the release pull requests of {release}",
+            "release_published": "GitHub Release {release}",
+            "open_prs": "every open pull request",
+            "status_at": "when the Status of {subject} last changed",
+            "events": "the events of {subject}",
+            "comments": "the comments on {subject}",
+            "dependencies": "the issues {subject} is blocked by",
+            "branch": "branch {branch}",
+            "issue": "{subject}",
+            "issue_events": "the repository's issue events since {since}",
+            "count": "count the issues matching {query}",
+            "closures": "the closes and reopens on {subject}'s timeline",
+            "advisory": "the advisory {subject} cites",
+            "workflow_run": "the workflow run {subject} cites",
+            "commit": "the commit {subject} cites",
+            "create_release": "create Release {release}",
+            "edit_release": "close Release {release}",
+            "delete_release": "delete Release {release}",
+            "create_branch": "create branch {branch} at {sha}",
+            "record": "the job record of {subject}",
+            "set_field": "set {field} on {subject}",
+            "milestone": "set the milestone of {subject}",
+            "comment": "comment on {subject}",
+            "label": "label {subject}",
+            "add_item": "add {subject} to board {board}",
+            "close_issue": "close {subject}",
+            "close_duplicate": "close {subject} as a duplicate",
+            "create_issue": "open an issue for {subject}",
+            "create_card": "create the run record card",
+            "run_record": "the run record",
+            "card_field": "set {field} on {subject}",
+            "remove_card": "remove {subject} from board {board}",
+            "create_board": "create the board",
+            "link_board": "link the new board to the repository",
+            "create_field": "create or align a template field on the new board",
+            "delete_field": "delete the {field} field",
+            "budget": "GraphQL's points spent and left, for the run's last line",
+            "merged_prs": "the pull requests merged into {branch}",
+            "pr_files": "the files pull request {subject} changed",
+            "pr_checks": "the check runs of pull request {subject}",
+            "milestone_issues": "the issues in milestone {release}, for the pull request body",
+            "milestone_prs": "the pull requests in milestone {release}, for the pull request body",
+            "pr_create": "open the release pull request from {branch}",
+            "git_fetch": "fetch {branch} from origin into the clone",
+            "git_push": "push {branch} to origin, replacing an earlier cut",
+        }
+    )
+    plan_conditions: dict[str, str] = field(
+        default_factory=lambda: {
+            "pending": "an item holds a change an earlier run began",
+            "current": "a release is current",
+            "merged": "a release pull request merged",
+            "judged": "the run judges an item it needs this for",
+            "starting": "the run starts the next release",
+            "change": "the run changes an item",
+            "release_field": "the change sets the Release",
+            "other_field": "the change sets a field other than the Release",
+            "posted": "the change posts a comment",
+            "record": "the run records its release or size",
+            "no_card": "the board has no run record card yet",
+            "closing": "a shipped release's milestone is still open",
+            "release_named": "the value is a Release",
+            "board": "the configured board exists",
+            "no_board": "there is no board yet",
+            "renamed": "the board has a field the template drops",
+            "card": "the run sets a field on a card",
+            "epic": "the board holds a release epic",
+            "beyond": "a release lies beyond the planning horizon",
+            "unset": "an item has the field unset",
+            "not_planned": "the roadmap lists a rejected idea",
+            "unfiled": "the rejected idea has no issue",
+            "done": "the run is done: it comes after any write",
+            "closes": "a merged pull request closes an open issue",
+            "task_file": "the pull request changed a task file of the issue",
+            "no_open": "the release holds no open item",
+            "cut": "the release is due to be cut",
+        }
+    )
+    plan_repeat: dict[str, str] = field(
+        default_factory=lambda: {
+            "release": "for the current release and each planned one in the horizon",
+            "pending": "for each such item",
+            "item": "for each item the run judges or changes",
+            "write": "for each such write",
+            "evidence": "for each piece of evidence the model cites",
+            "field": "for each template field",
+            "merged": "for each merged pull request",
+            "closing": "for each issue the run closes",
+            "completed": "for each item closed as completed",
+        }
+    )
+    # `devops roadmap close` (#743).
+    close_title: str = "# Closure for {repo}, release {release}"
+    close_closing: str = "Close #{number} as completed (delivered by #{pull_request}), commenting:"
+    close_nothing: str = "No open issue to close."
+    close_unread: str = (
+        "Pull request #{number} closes {issues}, which stay open: its check runs could not be "
+        "read ({reason}). The next run retries."
+    )
+    close_holds: dict[str, str] = field(
+        default_factory=lambda: {
+            "no_release": "No cut: there is no open Release.",
+            "unread": "No cut for {release}: a pull request's check runs could not be read.",
+            "open_items": "No cut for {release}: these items are still open:",
+            "nothing_delivered": (
+                "No cut for {release}: no item in it was closed as completed, so it delivers "
+                "nothing."
+            ),
+            "pr_open": "No cut for {release}: its release pull request #{number} is open.",
+            "pr_merged": (
+                "No cut for {release}: its release pull request #{number} has merged, so it "
+                "has shipped."
+            ),
+        }
+    )
+    close_open_item: str = "- #{number} {title}"
+    close_cut: str = "Cut: push {branch} and open the release pull request into {base}, '{title}'."
+    close_cut_files: str = "The cut commit changes {files}."
+    close_cut_fragments: str = (
+        "Changelog fragments on the release branch, left uncollected: {fragments}."
+    )
+    close_cut_missing: str = (
+        "Closed as completed with no changelog fragment (a person adds it on the release pull "
+        "request): {items}."
+    )
+    close_none: str = "none"
+    close_dry_run_note: str = (
+        "A cut commits {files} on chore/cut-<release> and opens it ready for review. --plan "
+        "reads GitHub and lists each issue the run closes with its comment, the fragments on "
+        "the release branch, left uncollected, and the completed items with none."
+    )
+    close_preview: str = "Nothing was written; pass --confirm to close these and make the cut."
+    close_applied: str = "Closed {count} issue(s)."
+    close_failed: str = "Closure is incomplete: {count} pull request(s) had unreadable check runs."
+    close_criteria_heading: str = "Acceptance Criteria"
+    close_comment_changed: str = "### What changed"
+    close_comment_merged: str = "{url}, merged into `{branch}` as {commit}."
+    close_comment_files: str = "{count} file(s) changed."
+    close_comment_verified: str = "### How it was verified"
+    close_comment_checks: str = "Check runs at {commit}:"
+    close_comment_check: str = "- {name}: {bucket}"
+    close_comment_no_checks: str = "No check runs."
+    close_comment_task: str = "Acceptance Criteria of `{path}`:"
+    close_comment_no_criteria: str = "No Acceptance Criteria section."
+    close_comment_no_task: str = "No task file."
+    # `devops roadmap intake` (#742).
+    intake_title: str = "# Intake for {repo}"
+    intake_quota: str = (
+        "Quota (#1153): {open} open issues, r(n) = {ratio:.2f}; credit {credit} from "
+        "{delivered} delivered by {previous}; {closures} closure(s) since {since}; allowance "
+        "{allowance}; {openings} agent opening(s) this cycle, {borrowed} borrowed."
+    )
+    intake_no_previous: str = "no closed release"
+    intake_since_ever: str = "the repository began"
+    intake_unlimited: str = "no limit"
+    intake_nothing: str = "No candidates and no unfinished items."
+    intake_issue: str = "#{number} {title}"
+    intake_new: str = 'new candidate "{title}"'
+    intake_not_candidate: str = (
+        "- #{number}: neither an open issue off the board nor an unfinished item, so intake "
+        "leaves it alone."
+    )
+    intake_place_line: str = (
+        "- {subject}: {type}, {priority}, Value {value}, Effort {effort}; {placement} "
+        "Quota: {quota}."
+    )
+    intake_duplicate_line: str = "- {subject}: duplicate of #{original}: {reason} {action}"
+    intake_duplicate_closes: str = "It is closed as a duplicate."
+    intake_duplicate_files_nothing: str = "Nothing is filed; add to #{original} instead."
+    intake_fold_line: str = (
+        "- {subject}: fold into {target}: the cycle's allowance of {allowance} agent opening(s) "
+        "is used, and it is not a split, a required follow-up or a P0/P1 bug or security "
+        "issue. Nothing is filed; add it to that item as an amendment or a comment."
+    )
+    intake_fold_open: str = (
+        "- {subject}: fold into {target}: this cycle's agent openings are past the allowance of "
+        "{allowance}, and it is not a P0/P1 bug or security issue. Intake leaves it off the "
+        "board; add it to that item as an amendment or a comment, and close it."
+    )
+    intake_fold_nowhere: str = "an existing item"
+    intake_quota_fold: str = "Quota: fold into #{target}."
+    intake_quota_suffix: str = "Quota: {quota}."
+    intake_skip_line: str = "- {subject}: skipped, nothing written: {reason}"
+    intake_writes: str = "  - writes: {writes}"
+    intake_note: str = "  - note: {note}"
+    intake_write_file: str = "file the issue with {labels}"
+    intake_no_labels: str = "no labels"
+    intake_write_label: str = "label {label}"
+    intake_write_add: str = "add to the board"
+    intake_write_release: str = "milestone {release}"
+    intake_write_backlog: str = "clear the milestone"
+    intake_write_field: str = "{field} {value}"
+    intake_write_comment: str = "reason comment"
+    intake_write_close: str = "comment and close as a duplicate of #{original}"
+    intake_write_close_only: str = "close as a duplicate of #{original} (its comment is there)"
+    intake_placement_backlog: str = "to the backlog: {reason}"
+    intake_placement_release: str = "to {release}: {reason}"
+    intake_placement_kept: str = "kept in {release}: {reason}"
+    intake_reason_backlog: str = (
+        "at intake only a critical fix goes into a release; a release start pulls Ready items "
+        "in, P0 features first."
+    )
+    intake_reason_person: str = "a person placed it in {release}, and that placement stands."
+    intake_reason_current_not_critical: str = (
+        "only a critical fix joins the current release at intake; a release start pulls Ready "
+        "items in, P0 features first."
+    )
+    intake_reason_resumed: str = "it was already in {release}."
+    intake_reason_no_release: str = "no Release is open, so a critical fix waits in the backlog."
+    intake_reason_no_next: str = (
+        "{release} admits no more, and no planned release follows it, so it waits in the backlog."
+    )
+    intake_comment: str = "{marker}\nIntake placed this item {placement}\n\n{fields}"
+    intake_comment_field: str = "- {field}: {value}. {reason}"
+    intake_duplicate_comment: str = (
+        "{marker}\nClosed as a duplicate of #{original}: {reason}\n\nIf it is not a duplicate, "
+        "reopen it: intake then places it without the duplicate check."
+    )
+    intake_p0_granted: str = (
+        "P0: the {kind} {value} is evidence GitHub confirms, from a trusted source."
+    )
+    intake_p0_refused: str = (
+        "The {kind} {value} does not set P0: {why}. A person can set P0 on the board."
+    )
+    intake_why_not_verbatim: str = "it does not appear in the candidate's text"
+    intake_why_untrusted: str = (
+        "the author has no write access, and no caller attached it as evidence"
+    )
+    intake_why_unconfirmed: dict[str, str] = field(
+        default_factory=lambda: {
+            "advisory": "GitHub has no such advisory",
+            "failed_run": "no failed run of this repository has that id",
+            "regression_commit": "this repository has no such commit",
+        }
+    )
+    intake_note_duplicate_rejected: str = (
+        "the model named #{number} as the original, which is not one of the nearest items, so "
+        "it was rejected."
+    )
+    intake_note_priority_capped: str = (
+        "the model proposed {priority}, and it can propose only P1 to P3, so {capped} stands."
+    )
+    intake_note_evidence_dropped: str = (
+        "the model's evidence ({kind} {value}) is not a GHSA ID, a run id or a commit SHA, so it "
+        "was dropped."
+    )
+    intake_note_borrow_judged: str = (
+        "it borrows as a {priority} {type}, which rests on the model's judgement, not a person's "
+        "or verified evidence; a person can remove {label}."
+    )
+    intake_invalid: str = "the model's proposal is not valid: {problems}"
+    intake_invalid_value: str = "{field} {value!r} is not one of {choices}"
+    intake_quota_decisions: dict[str, str] = field(
+        default_factory=lambda: {
+            "open": "open, within the allowance",
+            "borrow": "borrowed beyond the allowance (budget/borrowed)",
+            "fold": "fold",
+            "not_counted": "not counted (no source/agent label)",
+        }
+    )
+    intake_preview: str = "Nothing was written. Run again with --confirm to make these writes."
+    intake_plain_note: str = (
+        "Intake without a mode flag runs as --plan: it reads GitHub and calls the model, and "
+        "writes nothing. --dry-run makes no request."
+    )
+    intake_spend: str = (
+        "Spent: {github} GitHub request(s) (REST {rest}, REST search {search}, GraphQL "
+        "{graphql}; GraphQL points not known), {embeddings} embedding call(s) for {texts} "
+        "text(s), {proposals} proposal call(s)."
+    )
+    intake_dry_run: str = (
+        "Dry run: no request was made. A run makes these requests, in order; a value in "
+        "<angle brackets> comes from an earlier read, and a step with a condition runs only "
+        "when it holds."
+    )
+    intake_dry_run_writes: str = (
+        "With --confirm, after the reads and before the last request, for each candidate "
+        "intake places or closes as a duplicate:"
+    )
+    intake_request_read: str = "read"
+    intake_request_write: str = "write"
+    intake_repeat_page: str = "per page, until a page is short"
+    intake_repeat_candidate: str = (
+        "for each candidate: an open issue off the board or an item without a Priority"
+    )
+    intake_placeholder_default_branch: str = "the default branch"
+    intake_placeholder_board: str = "<the board .github/roadmap.toml names>"
+    intake_placeholder_since: str = "<the previous release's close>"
+    intake_placeholder_each: str = "<the candidate>"
+    intake_placeholder_filed: str = "<the filed issue>"
+    intake_placeholder_fields: tuple[str, ...] = (
+        "Status New",
+        "Value <the proposed Value>",
+        "Effort <the proposed Effort>",
+    )
+    intake_requests: dict[str, str] = field(
+        default_factory=lambda: {
+            "config": ".github/roadmap.toml at {ref}, which names the board",
+            "milestones": "every milestone",
+            "issues": "every issue, open and closed",
+            "board": "the items on board {board}, a page of GraphQL at a time",
+            "board_issues": "every issue again, to join the board's items",
+            "quota_milestones": "every milestone again, for the quota's cycle",
+            "count_open": "count the open issues",
+            "count_closed": "count the issues closed since {since}",
+            "count_bulk": "count the issues closed as not planned with no comment since {since}",
+            "count_openings": "count the source/agent issues created since {since}",
+            "count_borrowed": (
+                "count the source/agent issues labeled budget/borrowed created since {since}"
+            ),
+            "closures": "the closes and reopens on {subject}'s timeline",
+            "embed": (
+                "every item, every issue closed as not planned and each candidate off the "
+                "board, in one call"
+            ),
+            "embed_new": (
+                "every item, every issue closed as not planned, the open source/agent issues "
+                "off the board and the new candidate, in one call"
+            ),
+            "labels": ".github/labels.yml at {ref}, for the type/* labels, once",
+            "propose": "the proposal for {subject}",
+            "evidence": "the evidence the model cites for {subject}",
+            "default_branch": "the default branch",
+            "release_milestones": "every milestone again, to find <the current release>",
+            "release_prs": "the release pull requests of <the current release>",
+            "release_published": "GitHub Release <the current release>",
+            "comments": "the comments on {subject}, for intake's marker",
+            "file": ("file {subject} with source/agent, and budget/borrowed when it borrows"),
+            "label": (
+                "label {subject} with its type/* label when it has none, and budget/borrowed "
+                "when it borrows"
+            ),
+            "add": "read {subject}, then add it to board {board}",
+            "item": "board {board} and {subject}, to find its item",
+            "release": (
+                "set the milestone of {subject} to <the placement>: the board's fields and "
+                "items, every milestone, the job record (GraphQL), then the milestone (REST)"
+            ),
+            "field": (
+                "set {field} on {subject}: the board's fields and items, the job record, then "
+                "the field"
+            ),
+            "comment": "the reason comment on {subject}",
+            "priority": (
+                "set Priority <the proposed Priority> on {subject}: the board's fields and "
+                "items, the job record, then the field"
+            ),
+            "duplicate_read": "{subject} and <the original>",
+            "duplicate_comment": "the duplicate comment on {subject}",
+            "duplicate_close": "close {subject} as a duplicate of <the original>",
+        }
+    )
+    intake_request_conditions: dict[str, str] = field(
+        default_factory=lambda: {
+            "closures": "{subject} is not on the board",
+            "embed": "a candidate is off the board",
+            "evidence": "the model cites any",
+            "release_state": "it is the first critical fix of the run while a release is current",
+            "release_published": "one of them merged",
+            "comments": "{subject} is placed or a duplicate",
+            "file": "it is not a duplicate and does not fold",
+            "placed": "intake places {subject}",
+            "add": "it is not on the board",
+            "release": "the placement changes it",
+            "field": "it has none",
+            "comment": "intake's is not there",
+            "duplicate": "{subject} is a duplicate instead of placed",
+            "duplicate_comment": "intake's is not there",
+        }
+    )
+    intake_applied: str = "Intake placed {placed} item(s) and closed {closed} duplicate(s)."
+    intake_filed: str = "Filed #{number}."
+    triage_no_board: str = (
+        "This repository has no .github/roadmap.toml, so issues awaiting intake are not reported."
+    )
+    triage_awaiting_intake: str = (
+        "Issues awaiting intake get their type and Priority from `devops roadmap intake`."
+    )
+    intake_title_needs_body: str = "Pass --title and --body-file together."
+    intake_borrow_needs_source: str = (
+        "--borrow-reason needs --source: the link to the item it splits from, or to the review "
+        "that requires the follow-up."
+    )
+    intake_secret: str = (
+        "The candidate's {part} holds what looks like a secret, so intake sent it to no model "
+        "and filed nothing. Remove it and run again."
+    )
+    intake_borrow_needs_title: str = (
+        "--borrow-reason applies to a new candidate; pass it with --title and --body-file."
+    )
+    intake_issue_or_title: str = (
+        "Pass --issue for existing issues, or --title and --body-file for a new candidate, "
+        "not both."
+    )
 
 
 @dataclass(frozen=True)

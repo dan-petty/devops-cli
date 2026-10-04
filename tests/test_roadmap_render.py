@@ -122,7 +122,7 @@ def test_each_line_holds_number_title_and_fields_and_a_closed_item_is_checked(
 def test_the_backlog_is_sorted_by_priority_unset_last_then_by_number(
     roadmap: InMemoryRoadmapStore,
 ) -> None:
-    text = _render("--dry-run").output  # type: ignore[attr-defined]
+    text = _render("--plan").output  # type: ignore[attr-defined]
     backlog = text[text.index("## Backlog") :]
     assert [line.split(" — ")[0] for line in backlog.splitlines() if line.startswith("- ")] == [
         "- [ ] #9 backlog p0",
@@ -141,12 +141,12 @@ def test_two_runs_on_the_same_state_write_identical_bytes(
     assert (first.read_bytes() == second.read_bytes(), first.stat().st_size > 0) == (True, True)
 
 
-def test_dry_run_prints_the_file_and_writes_nothing(
+def test_plan_prints_the_file_and_writes_nothing(
     roadmap: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:
     output = tmp_path / "ROADMAP.md"
     result = runner.invoke(
-        app, ["render", "--repo", REPO, "--ref", REF, "--output", str(output), "--dry-run"]
+        app, ["render", "--repo", REPO, "--ref", REF, "--output", str(output), "--plan"]
     )
     assert (result.exit_code, output.exists(), CONST_ROADMAP_RENDER_MARKER in result.output) == (
         0,

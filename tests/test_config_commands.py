@@ -23,7 +23,7 @@ def test_config_show_command(tmp_path: Path) -> None:
         patch("devops_cli.commands.config.load_settings", return_value=settings),
         patch(
             "devops_cli.commands.config._is_secret_configured",
-            side_effect=lambda k: k == "github.token",
+            side_effect=lambda k: k == "grafana.token",
         ),
     ):
         result = runner.invoke(config_app, ["show"])
@@ -44,7 +44,7 @@ def test_config_get_command() -> None:
         assert "my-org" in res_ok.output
 
         # Secret key blocked
-        res_sec = runner.invoke(config_app, ["get", "github.token"])
+        res_sec = runner.invoke(config_app, ["get", "grafana.token"])
         assert res_sec.exit_code == 1
         assert "Secret keys cannot be retrieved" in res_sec.output
 
@@ -69,7 +69,7 @@ def test_config_set_command(tmp_path: Path) -> None:
 
         # Set secret key
         with patch("devops_cli.commands.config.dotted_set"):
-            res_sec = runner.invoke(config_app, ["set", "github.token", "ghp_12345"])
+            res_sec = runner.invoke(config_app, ["set", "grafana.token", "FAKE-12345"])
             assert res_sec.exit_code == 0
             assert "stored in keyring" in res_sec.output
 
@@ -78,13 +78,33 @@ def test_config_set_command(tmp_path: Path) -> None:
             "devops_cli.commands.config.dotted_set",
             side_effect=SecretStorageError("Keyring locked"),
         ):
-            res_err = runner.invoke(config_app, ["set", "github.token", "ghp_12345"])
+            res_err = runner.invoke(config_app, ["set", "grafana.token", "FAKE-12345"])
             assert res_err.exit_code == 1
             assert "Could not store secret" in res_err.output
 
         # Invalid key error
         res_inv = runner.invoke(config_app, ["set", "nonexistent.field", "val"])
         assert res_inv.exit_code == 1
+
+
+def test_config_set_prompts_hidden_for_a_credential_without_a_value() -> None:
+    """A credential typed at the hidden prompt goes to the keyring and is never echoed."""
+    with (
+        patch("devops_cli.commands.config.save_settings"),
+        patch("devops_cli.config.settings._keyring_set") as keyring_set,
+    ):
+        result = runner.invoke(config_app, ["set", "ai.api_key"], input="x\n")
+    assert (result.exit_code, keyring_set.call_args.args, "x" in result.output) == (
+        0,
+        ("ai_api_key", "x"),
+        False,
+    )
+
+
+def test_config_set_requires_a_value_for_a_non_credential_key() -> None:
+    with patch("devops_cli.commands.config.save_settings") as save:
+        result = runner.invoke(config_app, ["set", "ai.model"])
+    assert (result.exit_code, save.called) == (2, False)
 
 
 def test_config_init_wizard_flow(tmp_path: Path) -> None:
@@ -106,7 +126,9 @@ def test_config_init_wizard_flow(tmp_path: Path) -> None:
         patch("devops_cli.commands.config.load_settings", return_value=settings),
         patch("devops_cli.commands.config.save_settings"),
         patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_subprocess_gh),
+        patch(
+            "devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_subprocess_gh
+        ) as gh,
         patch("typer.confirm", return_value=True),
         patch(
             "typer.prompt",
@@ -126,6 +148,25 @@ def test_config_init_wizard_flow(tmp_path: Path) -> None:
         assert result.exit_code == 0
         assert "setup wizard" in result.output
         assert "Configuration saved!" in result.output
+    # The wizard reads gh's login and never copies its token anywhere.
+    assert [call.args[0] for call in gh.call_args_list] == [[CONST_GH_CLI, "auth", "status"]]
+
+
+def test_config_init_without_gh_asks_for_no_token(tmp_path: Path) -> None:
+    """Without gh the wizard says to install it and log in; it no longer prompts for a PAT."""
+    prompts = ["", str(tmp_path), "", "", ""]
+    with (
+        patch("devops_cli.commands.config.load_settings", return_value=Settings()),
+        patch("devops_cli.commands.config.save_settings"),
+        patch("devops_cli.commands.config.check_binary", return_value=None),
+        patch("typer.prompt", side_effect=prompts) as prompt,
+    ):
+        result = runner.invoke(config_app, ["init"])
+    assert (result.exit_code, "gh auth login" in result.output, prompt.call_count) == (
+        0,
+        True,
+        len(prompts),
+    )
 
 
 def test_config_output_env_vars() -> None:
@@ -152,7 +193,7 @@ def test_config_output_env_vars() -> None:
 def test_config_auth_headless_and_audit_stream(tmp_path: Path) -> None:
     """Verify devops config auth-headless and audit-stream subcommands."""
     # Auth headless valid key
-    res_auth = runner.invoke(config_app, ["auth-headless", "github.token", "ghp_mock_token"])
+    res_auth = runner.invoke(config_app, ["auth-headless", "grafana.token", "FAKE-token"])
     assert res_auth.exit_code == 0
     assert "Ephemeral secret loaded" in res_auth.output
 
@@ -169,7 +210,7 @@ def test_config_auth_headless_and_audit_stream(tmp_path: Path) -> None:
 
 def test_config_extended_commands(tmp_path: Path) -> None:
     """Verify config env alias and gh auth helpers."""
-    from devops_cli.commands.config import _gh_auth_status, _gh_auth_token
+    from devops_cli.commands.config import _gh_auth_status
 
     settings = Settings()
 
@@ -179,12 +220,11 @@ def test_config_extended_commands(tmp_path: Path) -> None:
         assert res_env.exit_code == 0
         assert "DEVOPS_" in res_env.output
 
-    # 2. _gh_auth_status and _gh_auth_token failure
+    # 2. _gh_auth_status failure
     with patch(
         "devops_cli.github.rate_limiter.run_subprocess", side_effect=OSError("gh not found")
     ):
         assert _gh_auth_status() is False
-        assert _gh_auth_token() is None
 
 
 def test_config_settings_and_keyring(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -196,7 +236,6 @@ def test_config_settings_and_keyring(tmp_path: Path, monkeypatch: pytest.MonkeyP
         get_active_config_path,
         get_ai_api_key,
         get_argocd_token,
-        get_github_token,
         get_grafana_token,
         load_settings,
     )
@@ -231,12 +270,10 @@ def test_config_settings_and_keyring(tmp_path: Path, monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("DEVOPS_CLI_HEADLESS_AUTH", "true")
     dotted_set(s, "ai.api_key", "ai-secret-123")
     dotted_set(s, "argocd.token", "argo-secret-123")
-    dotted_set(s, "github.token", "gh-secret-123")
     dotted_set(s, "grafana.token", "grafana-secret-123")
 
     assert get_ai_api_key(loaded) == "ai-secret-123"
     assert get_argocd_token(loaded) == "argo-secret-123"
-    assert get_github_token(loaded) == "gh-secret-123"
     assert get_grafana_token(loaded) == "grafana-secret-123"
 
     # Dotted set boolean, list, and top-level section guard

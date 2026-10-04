@@ -6,10 +6,8 @@
 # in an append-only file on a volume, never evicts, requires a password and is reachable from
 # workstations on a NodePort that Kubernetes assigns.
 #
-# Create the password before applying, and never commit it:
-#   kubectl -n llm create secret generic valkey-runs-auth \
-#     --from-literal=password="$(openssl rand -hex 32)"
-# Then point devops-cli at it: `devops ai runs connect`.
+# Its password comes from the keyring: `devops k8s push-secrets --only llm/valkey-runs-auth`
+# writes it, generating one the first time. Then point devops-cli at it: `devops ai runs connect`.
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

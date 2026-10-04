@@ -381,7 +381,7 @@ def test_deploy_and_teardown_stack_use_effective_context(
     ):
         # When context is None, deploy_stack resolves effective_context from settings
         res_deploy = runner.invoke(
-            app, ["deploy-stack", "--k8s-dir", str(manifest_dir), "--no-wait"]
+            app, ["deploy-stack", "--k8s-dir", str(manifest_dir), "--no-wait", "--no-push-secrets"]
         )
         assert res_deploy.exit_code == 0
         assert any(

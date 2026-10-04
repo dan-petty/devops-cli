@@ -552,3 +552,49 @@ def test_get_pr_review_thread_not_found() -> None:
     with patch("devops_cli.github.pr_threads.run_gh", return_value=mock_proc):
         with pytest.raises(GitHubOperationError, match="Review thread PRRT_missing not found"):
             get_pr_review_thread("PRRT_missing")
+
+
+def test_resolve_all_paces_each_resolve_as_a_write_and_the_listing_as_a_read() -> None:
+    """Through the real `run_gh` with gh's process stubbed (#1125): the thread listing acquires
+    as a read and each of the three resolves as a write, so `pr threads resolve-all` sends its
+    resolves at least the write interval apart."""
+    import subprocess
+    from typing import Any
+
+    from devops_cli.github.pr_threads import resolve_all_pr_review_threads
+    from devops_cli.github.rate_limiter import GitHubRateLimiter
+
+    replied = {
+        "nodes": [
+            {"id": "C1", "body": "fix", "author": {"login": "reviewer"}, "createdAt": ""},
+            {"id": "C2", "body": "done", "author": {"login": "author"}, "createdAt": ""},
+        ]
+    }
+    threads = [
+        {"id": f"PRRT_{n}", "isResolved": False, "path": "a.py", "line": n, "comments": replied}
+        for n in (1, 2, 3)
+    ]
+    listing = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {"pageInfo": {"hasNextPage": False}, "nodes": threads}
+                }
+            }
+        }
+    }
+    resolved = {"data": {"resolveReviewThread": {"thread": {"isResolved": True}}}}
+
+    def gh(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        reply = resolved if any("resolveReviewThread" in arg for arg in cmd) else listing
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(reply), "")
+
+    with (
+        patch("devops_cli.github.rate_limiter._burst_protected_subprocess", side_effect=gh),
+        patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0) as acquire,
+    ):
+        results = resolve_all_pr_review_threads("o", "r", 7)
+    assert (
+        [result.success for result in results],
+        [call.kwargs["is_mutation"] for call in acquire.call_args_list],
+    ) == ([True, True, True], [False, True, True, True])

@@ -79,7 +79,7 @@ def test_k8s_monitoring_cadvisor_and_ksm_metrics_tuning() -> None:
         required_cadvisor.issubset(cadvisor_inc),
         required_ksm.issubset(ksm_inc),
         use_integration_allow_list,
-    ) == (True, True, False)
+    ) == (True, True, True)
 
 
 def test_node_journals_reach_loki_through_the_alloy_logs_daemonset() -> None:
@@ -139,7 +139,7 @@ def test_host_metrics_keep_the_series_that_explain_a_host_failure() -> None:
         exporter["extraArgs"],
         exporter["env"],
     ) == (
-        False,
+        True,
         [
             "node_time_seconds",
             "node_boot_time_seconds",
@@ -152,6 +152,10 @@ def test_host_metrics_keep_the_series_that_explain_a_host_failure() -> None:
             "node_nvme_info",
             "node_filesystem_avail_bytes",
             "node_filesystem_size_bytes",
+            "node_uname_info",
+            "node_load.*",
+            "node_disk_io_now",
+            "node_netstat_Tcp_CurrEstab",
         ],
         [
             "--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs"

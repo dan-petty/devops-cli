@@ -10,7 +10,7 @@ import html
 import re
 import urllib.parse
 from functools import partial
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 if TYPE_CHECKING:
     from devops_cli.ai.agents.tools import Tool
@@ -456,6 +456,38 @@ def duckduckgo_search_tool(
     )
 
 
+def tavily_search(
+    query: str,
+    api_key: str | None = None,
+    *,
+    max_results: int = DEFAULT_TAVILY_MAX_RESULTS,
+    include_domains: list[str] | None = None,
+    exclude_domains: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Execute a Tavily search query and return raw results list.
+
+    Raises on HTTP error (via raise_for_status) and on a reply with no 'results' list.
+    """
+    client = new_http_client()
+    tavily_url = "https://api.tavily.com/search"
+    payload: dict[str, Any] = {
+        "api_key": api_key or "",
+        "query": query,
+        "max_results": max_results,
+    }
+    if include_domains:
+        payload["include_domains"] = include_domains
+    if exclude_domains:
+        payload["exclude_domains"] = exclude_domains
+
+    resp = client.post(tavily_url, json=payload, timeout=DEFAULT_TAVILY_TIMEOUT_SECONDS)
+    resp.raise_for_status()
+    data = resp.json()
+    if not isinstance(data, dict) or "results" not in data or not isinstance(data["results"], list):
+        raise ValueError("Tavily response missing 'results' list")
+    return cast(list[dict[str, Any]], data["results"])
+
+
 def tavily_search_tool(
     api_key: str | None = None,
     *,
@@ -467,23 +499,14 @@ def tavily_search_tool(
 
     def search_tavily(query: str) -> str:
         """Execute Tavily search query and return top results."""
-        client = new_http_client()
-        tavily_url = "https://api.tavily.com/search"
-        payload: dict[str, Any] = {
-            "api_key": api_key or "",
-            "query": query,
-            "max_results": max_results,
-        }
-        if include_domains:
-            payload["include_domains"] = include_domains
-        if exclude_domains:
-            payload["exclude_domains"] = exclude_domains
-
         try:
-            resp = client.post(tavily_url, json=payload, timeout=DEFAULT_TAVILY_TIMEOUT_SECONDS)
-            resp.raise_for_status()
-            data = resp.json()
-            results = data.get("results", [])
+            results = tavily_search(
+                query,
+                api_key=api_key,
+                max_results=max_results,
+                include_domains=include_domains,
+                exclude_domains=exclude_domains,
+            )
             if not results:
                 return f"No Tavily results found for query '{query}'."
             formatted: list[str] = []
@@ -537,6 +560,7 @@ __all__ = [
     "exa_search_tool",
     "image_generation_tool",
     "is_private_ip_or_localhost",
+    "tavily_search",
     "tavily_search_tool",
     "web_fetch_tool",
     "x_search_tool",

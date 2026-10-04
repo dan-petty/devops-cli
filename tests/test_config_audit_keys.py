@@ -25,23 +25,29 @@ def test_config_audit_keys_json_output() -> None:
     result = runner.invoke(app, ["audit-keys", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
-    assert "keyring_backend" in data
-    assert "keys" in data
-    assert "is_compliant" in data
-    assert len(data["keys"]) == 11
+    assert (
+        "keyring_backend" in data,
+        "keys" in data,
+        "is_compliant" in data,
+        len(data["keys"]),
+    ) == (True, True, True, 13)
 
     keys = {k["key"] for k in data["keys"]}
-    assert "github.token" in keys
-    assert "grafana.token" in keys
-    assert "grafana.password" in keys
-    assert "argocd.token" in keys
-    assert "argocd.password" in keys
-    assert "ai.api_key" in keys
-    assert "qdrant.api_key" in keys
-    assert "valkey.password" in keys
-    assert "runs.index_password" in keys
-    assert "telemetry.logfire_token" in keys
-    assert "cloudflare.api_token" in keys
+    assert (
+        not [key for key in keys if key.partition(".")[0] == "github"],
+        "grafana.token" in keys,
+        "grafana.password" in keys,
+        "argocd.token" in keys,
+        "argocd.password" in keys,
+        "ai.api_key" in keys,
+        "qdrant.api_key" in keys,
+        "valkey.password" in keys,
+        "runs.index_password" in keys,
+        "telemetry.logfire_token" in keys,
+        "cloudflare.api_token" in keys,
+        "service.webhook_secrets" in keys,
+        "tavily.api_key" in keys,
+    ) == (True, True, True, True, True, True, True, True, True, True, True, True, True)
 
 
 def test_config_audit_keys_table_rendering() -> None:
@@ -49,7 +55,7 @@ def test_config_audit_keys_table_rendering() -> None:
     result = runner.invoke(app, ["audit-keys"])
     assert result.exit_code == 0
     assert "Keyring & Secret Health Audit" in result.output
-    assert "github.token" in result.output
+    assert "grafana.token" in result.output
     assert "Zero-Plaintext Check" in result.output
 
 
@@ -58,11 +64,24 @@ def test_config_audit_keys_plaintext_leak_detected(
 ) -> None:
     """Verify that a plaintext secret in config file triggers leak detection and non-compliant status."""
     leaked_config = tmp_path / "config.yaml"
-    leaked_config.write_text("github:\n  token: ghp_leakedplaintexttoken123456\n", encoding="utf-8")
+    leaked_config.write_text("grafana:\n  token: FAKE-leaked-plaintext-token\n", encoding="utf-8")
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(leaked_config))
 
     result = runner.invoke(app, ["audit-keys", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["is_compliant"] is False
-    assert any("github.token" in leak for leak in data["plaintext_leaks"])
+    assert any("grafana.token" in leak for leak in data["plaintext_leaks"])
+
+
+def test_config_audit_keys_canonical_secret_leak_detected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Canonical secret options in plaintext config trigger leak detection."""
+    leaked_config = tmp_path / "config.yaml"
+    leaked_config.write_text("ai:\n  api_key: FAKE-ai-key\n", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(leaked_config))
+
+    data = json.loads(runner.invoke(app, ["audit-keys", "--json"]).output)
+    leaked = [leak.partition(":")[2] for leak in data["plaintext_leaks"]]
+    assert (data["is_compliant"], leaked) == (False, ["ai.api_key"])

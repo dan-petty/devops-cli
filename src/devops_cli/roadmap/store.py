@@ -20,7 +20,7 @@ from collections.abc import Collection, Container, Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from functools import lru_cache
-from typing import Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -29,6 +29,10 @@ from devops_cli.config.constants import CONST_GH_PROJECT_JOB_RECORD_FIELD
 from devops_cli.config.defaults import DEFAULT_GH_PROJECT_OPTION_COLOR, DEFAULT_RELEASE_LABEL
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.validation import InvalidVersionError
+
+if TYPE_CHECKING:
+    from devops_cli.roadmap.board_read import GraphQLSpend
+    from devops_cli.roadmap.github_store import GhRunner
 
 # ── Vocabulary ────────────────────────────────────────────────────────────────
 
@@ -71,6 +75,16 @@ class CloseReason(StrEnum):
 
     COMPLETED = "completed"
     NOT_PLANNED = "not_planned"
+    DUPLICATE = "duplicate"
+
+
+class EvidenceKind(StrEnum):
+    """What a piece of evidence for a P0 is (#742): a GitHub security advisory, a failed Actions
+    run of this repository, or the commit of this repository that introduced a regression."""
+
+    ADVISORY = "advisory"
+    FAILED_RUN = "failed_run"
+    REGRESSION_COMMIT = "regression_commit"
 
 
 class ChangeKind(StrEnum):
@@ -143,7 +157,16 @@ class PullRequestState(StrEnum):
     MERGED = "merged"
 
 
-JobRecord = dict[ItemField | JobMark, str | None]
+class RefineRecordKey(StrEnum):
+    """What refine records in an Item's job record (#744): the body hash outside the section,
+    the section hash, and whether the proposal needs splitting."""
+
+    BODY_HASH = "refine.body_hash"
+    SECTION_HASH = "refine.section_hash"
+    NEEDS_SPLIT = "refine.needs_split"
+
+
+JobRecord = dict[ItemField | JobMark | RefineRecordKey, str | None]
 
 # ── Models ────────────────────────────────────────────────────────────────────
 
@@ -170,13 +193,18 @@ def is_release_title(title: str) -> bool:
     return _version_of(title) is not None
 
 
+def release_cut_branch(version: str) -> str:
+    """The branch the Release of `version` is cut on: `chore/cut-vX.Y.Z` (#982)."""
+    return f"chore/cut-v{parse_release_version(version)}"
+
+
 def release_title(version: str) -> str:
     """The milestone title a Release of `version` carries: the normalized version after a `v`."""
     return f"v{parse_release_version(version)}"
 
 
 class Release(BaseModel):
-    """A milestone whose title parses as a version."""
+    """A milestone whose title parses as a version; `closed_at` is when it last closed."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -187,6 +215,7 @@ class Release(BaseModel):
     due_on: date | None = None
     open_issues: int = 0
     closed_issues: int = 0
+    closed_at: datetime | None = None
 
     @property
     def version(self) -> Version:
@@ -258,7 +287,11 @@ class Change(BaseModel):
 
 
 class IssueRecord(BaseModel):
-    """What the repository's issue listing says about one issue or pull request."""
+    """What the repository's issue listing says about one issue or pull request.
+
+    `author_association` is GitHub's word for the author's relation to the repository, such as
+    `OWNER`, `COLLABORATOR` or `NONE`.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -271,6 +304,46 @@ class IssueRecord(BaseModel):
     labels: tuple[str, ...] = ()
     release: str | None = None
     pull_request: bool = False
+    author_association: str | None = None
+    created_at: datetime | None = None
+    closed_at: datetime | None = None
+
+
+class Closure(BaseModel):
+    """One close or reopen of an issue, as its timeline records it: a close carries its state
+    reason, and the issue it duplicates when it was closed as a duplicate."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: ChangeKind
+    at: datetime
+    reason: str | None = None
+    duplicate_of: int | None = None
+
+
+class IssueQuery(BaseModel):
+    """Which issues to count, never pull requests: each condition given narrows the count.
+
+    `labels` must all be on an issue; `uncommented` keeps issues with no comment at all.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    state: GitHubState | None = None
+    labels: tuple[str, ...] = ()
+    created_since: datetime | None = None
+    closed_since: datetime | None = None
+    reason: CloseReason | None = None
+    uncommented: bool = False
+
+
+class Evidence(BaseModel):
+    """A piece of evidence for a P0: its kind and the value that names it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: EvidenceKind
+    value: str = Field(min_length=1, max_length=128)
 
 
 class BoardEntry(BaseModel):
@@ -395,6 +468,23 @@ class PullRequest(BaseModel):
         return state.lower() if isinstance(state, str) else state
 
 
+class MergedPullRequest(BaseModel):
+    """A pull request merged into a branch: what it says, the commits it merged, and the
+    paths it changed, which closure quotes and reads task files from (#743)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    number: int
+    url: str
+    title: str = ""
+    body: str = ""
+    labels: tuple[str, ...] = ()
+    release: str | None = None
+    merge_commit: str
+    head_commit: str
+    changed_paths: tuple[str, ...] = ()
+
+
 class Branch(BaseModel):
     """A branch and the commit at its head."""
 
@@ -470,7 +560,7 @@ def release_edits(
     return {name: change for name, change in requested.items() if change is not None}
 
 
-def with_marks(record: JobRecord, marks: Mapping[JobMark, str | None]) -> JobRecord:
+def with_marks(record: JobRecord, marks: Mapping[Any, str | None]) -> JobRecord:
     """A copy of the job record with `marks` set or cleared in it."""
     merged: JobRecord = dict(record)
     for mark, value in marks.items():
@@ -482,10 +572,11 @@ def is_release_pull_request(
     pull_request: PullRequest, version: Version, default_branch: str
 ) -> bool:
     """Whether `pull_request` is the Release's pull request, open or not: into the default branch,
-    with the `release` label and the Release's milestone.
+    with the `release` label and the Release's milestone. While one is open, the Release is cut,
+    draft or not.
 
-    Its head is no test: `devops release pr` opens it from `release/vX.Y.Z`, and #743's cut
-    from `chore/release-vX.Y.Z`. While one is open, the Release is cut, draft or not.
+    Its head is no test here, so a renamed Release keeps its pull request; the cut opens it from
+    `release_cut_branch` (#982), which `devops roadmap close` also requires (#743).
     """
     return (
         pull_request.base == default_branch
@@ -641,7 +732,7 @@ class RoadmapStore(Protocol):
         field: ItemField,
         value: str | None,
         *,
-        marks: Mapping[JobMark, str | None] | None = None,
+        marks: Mapping[Any, str | None] | None = None,
     ) -> None:
         """Record the value in the Item's job record, with `marks` set or cleared in the same
         write, then set or clear the field.
@@ -668,8 +759,18 @@ class RoadmapStore(Protocol):
     def close_issue(self, number: int, reason: CloseReason, comment: str) -> None:
         """Comment on issue `number`, then close it for `reason`, raising if it is not an issue."""
 
+    def read_issue_body(self, number: int) -> str:
+        """The body of issue `number`, raising if it is not an issue of this repository."""
+
+    def write_issue_body(self, number: int, body: str) -> None:
+        """Write `body` as the body of issue `number`, raising if it is not an issue of this repository."""
+
     def repository_file(self, path: str, *, ref: str | None = None) -> str:
-        """The text of the repository file at `path` on `ref` (the default branch when None)."""
+        """The text of the repository file at `path` on `ref` (the default branch when None),
+        raising `GitHubFileNotFoundError` when there is no such file."""
+
+    def repository_is_private(self) -> bool:
+        """Whether the repository is private."""
 
     # ── The board itself ──
     # No operation edits an existing board's options. GitHub's option input takes no id, so
@@ -713,7 +814,7 @@ class RoadmapStore(Protocol):
     def set_marks(
         self,
         item: Item,
-        marks: Mapping[JobMark, str | None],
+        marks: Mapping[Any, str | None],
         *,
         recorded: Mapping[ItemField, str | None] | None = None,
         forgotten: Collection[ItemField] = (),
@@ -731,7 +832,7 @@ class RoadmapStore(Protocol):
     def run_record(self) -> JobRecord:
         """The run record: the run record card's job record, empty while the board has none."""
 
-    def set_run_record(self, marks: Mapping[JobMark, str | None]) -> None:
+    def set_run_record(self, marks: Mapping[Any, str | None]) -> None:
         """Set or clear marks in the run record in one write, putting the run record card on
         the board first when it has none. A board with no job record field raises before any
         write."""
@@ -753,6 +854,10 @@ class RoadmapStore(Protocol):
         """Every pull request, open, closed or merged, with the `release` label and the milestone
         of the Release of `version`, raising if there is no such Release."""
 
+    def merged_pull_requests(self, base: str) -> list[MergedPullRequest]:
+        """Every pull request merged into branch `base`, oldest first, with the paths each
+        changed; a read that can't complete raises and returns no part of the list."""
+
     def release_published(self, version: str) -> bool:
         """Whether GitHub Release `vX.Y.Z` of `version` is published; a draft is not."""
 
@@ -771,19 +876,59 @@ class RoadmapStore(Protocol):
     def comments_on(self, number: int) -> list[str]:
         """The body of every comment on issue `number`, oldest first."""
 
+    # ── What intake reads and writes (#742) ──
+
+    def close_as_duplicate(self, number: int, original: int, comment: str | None) -> None:
+        """Comment on issue `number` unless `comment` is None (a retry whose comment is already
+        there), then close it as a duplicate of issue `original`, raising if either is not an
+        issue of this repository."""
+
+    def closures(self, number: int) -> list[Closure]:
+        """Every close and reopen of issue `number`, oldest first, from its timeline."""
+
+    def label_issue(self, number: int, label: str) -> None:
+        """Add `label` to issue `number`, keeping its other labels."""
+
+    def evidence_holds(self, evidence: Evidence) -> bool:
+        """Whether GitHub confirms the evidence: the advisory exists, the run of this repository
+        failed, or the commit exists in this repository."""
+
+    def count_issues(self, query: IssueQuery) -> int:
+        """How many issues of the repository match `query`, never pull requests."""
+
+    def graphql_spend(self) -> GraphQLSpend | None:
+        """The GraphQL points the run spent and the points left, read from GraphQL itself; None
+        for a store that spends none."""
+        return None
+
 
 def get_roadmap_store(
-    repo: str, *, board_owner: str | None = None, board_number: int | None = None
+    repo: str,
+    *,
+    board_owner: str | None = None,
+    board_number: int | None = None,
+    runner: GhRunner | None = None,
+    board_filter: str = "",
 ) -> RoadmapStore:
-    """Open the roadmap store for `repo`.
+    """Open the roadmap store for `repo`, its `gh` commands through `runner` when one is given.
 
     Every caller builds its store here, so a test replaces this one function with a fixture
     that returns the in-memory adapter. Without a board, Release operations work, and Item
-    reads and writes raise.
+    reads and writes raise. Board reads pass `board_filter`, the job's Projects filter.
     """
     from devops_cli.roadmap.github_store import GitHubRoadmapStore
 
-    return GitHubRoadmapStore(repo, board_owner=board_owner, board_number=board_number)
+    if runner is None:
+        return GitHubRoadmapStore(
+            repo, board_owner=board_owner, board_number=board_number, board_filter=board_filter
+        )
+    return GitHubRoadmapStore(
+        repo,
+        board_owner=board_owner,
+        board_number=board_number,
+        runner=runner,
+        board_filter=board_filter,
+    )
 
 
 __all__ = [
@@ -799,17 +944,23 @@ __all__ = [
     "Change",
     "ChangeKind",
     "CloseReason",
+    "Closure",
     "Dependency",
+    "Evidence",
+    "EvidenceKind",
     "FieldOption",
     "FieldSpec",
     "GitHubState",
+    "IssueQuery",
     "IssueRecord",
     "Item",
     "ItemField",
     "JobMark",
     "JobRecord",
+    "MergedPullRequest",
     "PullRequest",
     "PullRequestState",
+    "RefineRecordKey",
     "Release",
     "RoadmapStore",
     "Workflow",
@@ -822,6 +973,7 @@ __all__ = [
     "is_release_title",
     "join_items",
     "parse_release_version",
+    "release_cut_branch",
     "release_edits",
     "release_title",
     "require_board_field",

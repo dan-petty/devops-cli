@@ -25,6 +25,7 @@ from devops_cli.config.constants import (
     CONST_PR_FILE_WRITTEN_STATUSES,
     CONST_RELEASE_BRANCH_PREFIX,
     CONST_RELEASE_BRANCH_RE,
+    CONST_RELEASE_CUT_BRANCH_RE,
     CONST_RELEASE_PROCESS_BRANCH_RE,
     CONST_RELEASE_SHARED_FILES,
 )
@@ -1517,18 +1518,18 @@ def _branch_ref(pr_data: dict[str, Any], side: str) -> str:
 
 
 def _is_release_pr(pr_data: dict[str, Any]) -> bool:
-    """Whether this is the release PR: `release/vX.Y.Z` into the default branch, not from a fork."""
+    """Whether this is the release PR: `chore/cut-vX.Y.Z` into the default branch, not from a fork."""
     base = pr_data.get("base") or {}
     default_branch = str((base.get("repo") or {}).get("default_branch") or "")
     into_default = default_branch != "" and base.get("ref") == default_branch
-    release_head = CONST_RELEASE_BRANCH_RE.fullmatch(_branch_ref(pr_data, "head")) is not None
+    release_head = CONST_RELEASE_CUT_BRANCH_RE.fullmatch(_branch_ref(pr_data, "head")) is not None
     return _same_repository(pr_data) and into_default and release_head
 
 
 def _is_release_process_pr(pr_data: dict[str, Any]) -> bool:
-    """Whether this PR opens or cuts a release rather than delivering an item.
+    """Whether this PR opens a release cycle rather than delivering an item.
 
-    Its head is `chore/open-vX.Y.Z` or `chore/cut-vX.Y.Z`, optionally followed by `-<slug>`,
+    Its head is `chore/open-vX.Y.Z`, optionally followed by `-<slug>`,
     from the same repository, and its base is `release/vX.Y.Z` of the same version.
     """
     process = CONST_RELEASE_PROCESS_BRANCH_RE.fullmatch(_branch_ref(pr_data, "head"))
@@ -1603,7 +1604,7 @@ class _Grounding(NamedTuple):
 
 
 def _closes_one_issue(grounding: _Grounding) -> str | None:
-    """The body closes exactly one issue, read as `gh issues close-merged` will act on it."""
+    """The body closes exactly one issue, read as `devops roadmap close` will act on it."""
     if len(grounding.issues) == 1:
         return None
     if not grounding.issues:
@@ -2193,7 +2194,7 @@ def list_threads(
         threads = list_pr_review_threads(owner, repo_name, number, unresolved_only=unresolved_only)
     except GitHubOperationError as exc:
         print_error(f"Failed to retrieve PR #{number} review threads: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     if output_format == "json":
         from devops_cli.output import print as print_out
@@ -2233,7 +2234,7 @@ def _validate_thread_reply_before_resolution(thread_id: str) -> None:
         thread = get_pr_review_thread(thread_id)
     except Exception as exc:
         print_error(f"Failed to fetch review thread {thread_id}: {exc}", prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     if not has_non_opener_reply(thread):
         print_error(

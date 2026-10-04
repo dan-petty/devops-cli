@@ -307,6 +307,11 @@ def mask_uri_credentials(uri: str) -> str:
     )
 
 
+def is_secret_field(key: str, full_path: str, secret_options: frozenset[str]) -> bool:
+    """Whether a config key, or its dotted path, names a canonical secret option."""
+    return full_path in secret_options or key in secret_options
+
+
 _SENSITIVE_ARG_FLAGS: frozenset[str] = frozenset(
     {"--password", "-p", "--token", "--api-key", "--secret", "--auth-token"}
 )

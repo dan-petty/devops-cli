@@ -32,9 +32,10 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_BENCHMARK_RUNS,
     DEFAULT_REVIEW_CORPUS_SEED,
 )
-from devops_cli.core.cli import new_typer
+from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.core.untrusted_trees import reading_untrusted_trees
 from devops_cli.dry_run import is_dry_run, set_dry_run
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output.serialization import emit_serialized, normalize_format
@@ -735,8 +736,6 @@ def pr(
 
         render_explanation("review")
         return
-    from devops_cli.config.settings import get_github_token
-
     set_dry_run(dry_run)
     settings = load_settings()
     _init_logfire_if_enabled(logfire, settings)
@@ -754,13 +753,10 @@ def pr(
         no_reporting=no_reporting,
         reporting_only=reporting_only,
     )
-    token = get_github_token(settings)
-    if not token:
-        print_error(
-            MESSAGES.review.github_token_not_configured,
-            prefix=False,
-        )
-        raise typer.Exit(1)
+    from devops_cli.github.session import get_github_session
+
+    with exit_on_error(GitHubOperationError):
+        get_github_session()
 
     clients = _make_review_clients(
         settings,
@@ -775,7 +771,7 @@ def pr(
         # A review run from the file-system root names no project, and keeps the directory itself.
         head_dir.mkdir(exist_ok=True)
         pages, title, agents_md, pull, repo_name, base_revision = _prepare_pr_content(
-            number, repo, token, head_dir=head_dir
+            number, repo, head_dir=head_dir
         )
         reviews = _execute_review_workflow(
             pages,

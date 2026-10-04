@@ -1,0 +1,68 @@
+# Task: One GitHub session per identity (#767, Part A)
+
+**Issue**: [#767](https://github.com/dan-petty/devops-cli/issues/767)
+**Status**: Done
+**Milestone**: v0.2.26
+**Priority**: priority/p1-high
+**Scope**: type/refactor, scope/github, priority/p1-high
+
+## Description
+
+ADR 0002 needs a process to have exactly one GitHub identity. The token used to be found five ways, so one `GitHubClient` could act as the keyring's token through PyGithub and as gh's login through `run_gh`. This item delivers Part A of the issue: one identity per process, pinned to every gh and git child, with its own quota ledger and response cache, and the second token source removed.
+
+- **Identity**: on the first GitHub call, `gh auth token` runs once (`core/process.py::github_token`), with a 5 s timeout. gh applies `GH_TOKEN`, then `GITHUB_TOKEN`, then its stored login, so a terminal acts as the person and the service as the machine account whose token #741's Secret sets as `GH_TOKEN`. A found token is kept for the life of the process. A failed lookup is not kept: the next gh call looks again, so a long-running process picks up a later `gh auth login`, and git looks again only after 60 s. With no token a gh call raises `GitHubUnauthenticatedError` (`GITHUB_UNAUTHENTICATED`, listed in `docs/ERRORS.md`). Its message gives the lookup's exit status, or says gh is not on PATH or did not answer. Nothing falls back to another token.
+- **Pin**: both subprocess runners give every gh and git child `GH_TOKEN` set to that token and no `GITHUB_TOKEN`. This replaces `_inject_gh_credentials` and covers gh calls that bypass `run_gh`, such as `_refresh_from_github`. A local git command still runs, without a token, when gh has no login, cannot run or times out. The async runner does the lookup off the event loop. gh's local commands (`gh auth` subcommands, version and help, one predicate `core.process.is_local_gh_command` shared with `run_gh`) are exempt: they get the `GH_TOKEN` and `GITHUB_TOKEN` of the environment, or of the caller's `env` where it sets them, unchanged, and run outside the ledger, since they need no identity.
+- **Session**: `devops_cli/github/session.py` holds the token, `session.login` (`GET /user`, read once), the identity's cache directory and the one PyGithub `GitHubClient`. `repos`, `review` (including `ai/review/runner.py`), `analyze`, SSH key registration and `devops gh` use `get_github_session().client`. `reset_github_session()` is the reset hook, and an autouse fixture in `tests/conftest.py` pins a fake token, so no test runs a real `gh auth token` and every gh child a test starts acts as the fake identity.
+- **Per-identity ledger**: `GitHubRateLimiter`'s quota file and response cache live in `<data dir>/cache/<first 16 hex of the token's SHA-256>/`. A session's `cache_dir` is named by its own token. No path or ledger log line holds a token or a login.
+- **Errors without a traceback**: every `devops gh` command reports a `GitHubOperationError`, the unauthenticated one included, as its error and exits 1 (`new_typer(exit_on=...)` in `core/cli.py`).
+- **Stale secrets still flagged**: `devops config audit-keys` flags any secret-named key with a value (`security/sanitizer.py::is_secret_field`, moved from the server's config route), so a plaintext token left under `github:` is still a leak although no option reads it.
+- **Removed without shims**: `get_github_token` and `_github_cli_token`, `commands/gh.py::_resolve_github_token`, `graphql.py::resolve_github_token`, `commands/config.py::_gh_auth_token`, `config init`'s token import and PAT prompt, `_inject_gh_credentials`, the `github.token` option with its `github_token` keyring entry, registry entry, env spec, `config show` row, audit-keys entry and exports, `DEVOPS_CLI_GITHUB_TOKEN`, `GitHubGraphQLClient` with its models, queries and parsers, `GraphQLTokenBucket`, `RFC7234ETagCache` with its constants, `GitHubClient.graphql` and `.get_repo_overview`, and `GitHubGraphQLError`. `verify_webhook_signature` and `WebhookEventDispatcher` stay in `graphql.py` for #752, with their four tests in `tests/test_github_graphql.py`.
+- **Docs**: README, the `config auth-headless` help example, the regenerated `docs/ENV_VARS.md`, `docs/CLI_REFERENCE.md`, `docs/commands/config.md` and `docs/ERRORS.md`, and the knowledge-base pages that taught the removed option, keyring key, variable or getter.
+
+Part B (the session's `rest`, `graphql` and `paginate` transport, the ledger fed from response headers, the error classes, `Link` pagination, conditional requests with the per-identity ETag store, and moving the roadmap store, PR diff and signing key onto the session) is #983 (v0.2.28) and is not in this change.
+
+## Acceptance Criteria
+
+- [x] **One identity.** With `gh auth token` scripted to print A, one `GitHubClient.get_pr_diff`, two `run_gh` calls and one `_refresh_from_github` all act as A: the diff sends `Authorization: Bearer A`, the three gh children get `GH_TOKEN=A` and no `GITHUB_TOKEN`, and `gh auth token` runs once. Test: `tests/test_github_client.py::test_one_identity_reaches_pygithub_gh_and_the_quota_refresh` (`httpx2.MockTransport` through `stub_web`, patched `subprocess.run`).
+- [x] **Environment tokens are honoured.** With `GH_TOKEN=B`, the lookup passes `GH_TOKEN` and `GITHUB_TOKEN` to `gh auth token` and the token is B. Test: `tests/test_subprocess_env_boundary.py::test_the_identity_lookup_honours_the_environment_tokens`; once per process: `::test_the_identity_is_looked_up_once_per_process`.
+- [x] **No fallback.** When `gh auth token` fails, the first gh call raises the unauthenticated error and no other gh child runs. Tests: `tests/test_subprocess_env_boundary.py::test_a_failed_lookup_raises_and_runs_no_other_gh`, `tests/test_github_session.py::test_without_a_token_the_session_raises_the_unauthenticated_error`, `::test_a_failed_lookup_stops_a_pygithub_caller_with_the_unauthenticated_error`.
+- [x] **A failed lookup is not kept.** After a failed lookup the next gh call looks again and acts as the new token; git waits 60 s before looking again; a timed-out or unrunnable gh leaves git running without a token; the error names the cause. Tests: `tests/test_subprocess_env_boundary.py::test_a_failed_lookup_is_not_kept`, `::test_git_waits_before_looking_again_after_a_failed_lookup`, `::test_a_lookup_that_cannot_run_leaves_git_working_and_says_why` (timeout, not executable), `::test_the_unauthenticated_error_says_why_gh_gave_no_token` (gh missing, exit 1).
+- [x] **`devops gh` reports the error cleanly.** Without a gh login, `devops gh issues list` and `devops gh labels sync` print the unauthenticated error and exit 1 without a traceback. Test: `tests/test_gh_cmd.py::test_gh_commands_report_no_identity_without_a_traceback`.
+- [x] **Stale plaintext token flagged.** Test: `tests/test_config_audit_keys.py::test_config_audit_keys_flags_a_secret_key_that_is_no_longer_an_option`.
+- [x] **`gh auth` is exempt.** With token A pinned, `gh auth login`, `status`, `refresh`, `token`, `switch`, `logout` and `setup-git` get no `GH_TOKEN` when the environment has none, and B unchanged when it has `GH_TOKEN=B`. Tests: `tests/test_subprocess_env_boundary.py::test_gh_auth_gets_the_ambient_tokens_and_never_the_pin` (14 cases), `::test_gh_auth_gets_a_token_its_caller_passes`.
+- [x] **git gets the pin.** A `git push` argv run through `run_subprocess` gets `GH_TOKEN=A` and no `GITHUB_TOKEN`. Tests: `tests/test_subprocess_env_boundary.py::test_gh_and_git_children_get_only_the_pinned_token` (replacing `test_run_subprocess_forwards_tokens_to_gh` and `test_run_subprocess_forwards_explicit_env_devops_token`), `::test_git_runs_without_a_token_when_gh_has_no_login`, `::test_gh_version_and_help_need_no_identity`, `::test_the_async_runner_pins_gh_too`.
+- [x] **Quota and cache per identity.** Tokens A and B write separate quota files and response caches, A's cached `gh api` read is not served to B, and no path or ledger log line holds either token. Test: `tests/test_github_rate_limiter.py::test_each_identity_keeps_its_own_quota_and_response_cache`.
+- [x] **Removed names are gone.** The issue's `rg` command over `src`, `tests`, README and the three generated docs prints nothing. Tests: `tests/test_config_cmd.py::test_github_token_is_not_a_config_option`, `tests/test_config_commands.py::test_config_init_without_gh_asks_for_no_token`, and the gh-only assertion in `::test_config_init_wizard_flow`.
+- [x] **PyGithub is built from the session.** `rg -n "GitHubClient\(" src` shows one construction, in `github/session.py`. Tests: `tests/test_github_session.py::test_pygithub_is_built_only_by_the_session` and `::test_every_pygithub_caller_uses_the_session_client` (repos, `devops gh`, review, SSH, analyze).
+- [x] **Session behaviour.** `session.login` reads `GET /user` once; the session never shows its token. Tests: `tests/test_github_session.py::test_login_is_read_once_from_get_user`, `::test_the_session_never_shows_its_token`, `::test_the_session_is_one_per_identity`, `::test_a_session_keeps_its_own_identity_directory`, `::test_reset_forgets_the_identity`.
+- [x] **Docs regenerated.** `uv run devops docs generate --sync-readme` leaves the tree unchanged; `tests/test_docs.py` no longer expects `DEVOPS_CLI_GITHUB_TOKEN`.
+- [x] **Gate.** Each new test runs under 1 s under `pytest --durations=0` (the command modules `tests/test_github_session.py` exercises are imported at collection), opens no socket outside `prevent_external_network_calls`, and runs no real `gh`.
+- Pending a person: in a terminal logged in to gh, with no `GH_TOKEN` set, `uv run devops gh issues list -R dan-petty/devops-cli` prints the open issues.
+- Pending a person: in the same terminal, `uv run devops gh milestones list -R dan-petty/devops-cli` prints the milestones.
+- Pending a person: `GH_TOKEN=not-a-real-token uv run devops gh issues list -R dan-petty/devops-cli` exits 1 with `Failed to refresh rate limits from GitHub API: HTTP 401: Bad credentials`, without a traceback, and prints no issues.
+- Amended: the issue expects the unauthenticated error for a bad token. `gh auth token` prints any `GH_TOKEN` it is given, so the lookup succeeds, and GitHub's 401 to the first call is reported as a rate-limit refresh failure. Classifying a 401 as unauthenticated is the error-class work of #983.
+
+## Deliverables
+
+- [x] `src/devops_cli/github/session.py`: the session, `get_github_session` and `reset_github_session`.
+- [x] `src/devops_cli/core/process.py`: the identity lookup (`github_token`, `reset_github_token`) and the pin in both runners.
+- [x] `src/devops_cli/core/cli.py`: `new_typer(exit_on=...)`, which `devops gh` uses.
+- [x] `src/devops_cli/security/sanitizer.py` (`is_secret_field`), `server/routes/workspace.py` and the `audit-keys` scan in `commands/config.py`.
+- [x] `src/devops_cli/github/rate_limiter.py`: the per-identity ledger directory; `gh auth`, version and help run outside the ledger.
+- [x] `src/devops_cli/github/client.py`, `github/ssh.py`, `github/graphql.py`, `github/__init__.py`, `exceptions/git.py`, `exceptions/__init__.py`: the GraphQL client and second token path removed; `GitHubUnauthenticatedError` added.
+- [x] `src/devops_cli/commands/{gh,config,repos,review,analyze,ssh,devcontainer}.py`, `ai/review/runner.py`: callers on the session.
+- [x] `src/devops_cli/config/{settings,env,options,__init__,constants,defaults}.py`, `security/secrets.py`, `lang/en/{errors,messages,help}.py`: the option, variable and messages.
+- [x] `tests/conftest.py` (`pin_github_session`), `tests/test_github_session.py` and the 19 test files that named a removed symbol.
+- [x] README, `docs/ENV_VARS.md`, `docs/CLI_REFERENCE.md`, `docs/commands/config.md`, `docs/ERRORS.md`, eight knowledge-base pages.
+- [x] `changelog.d/767.md`.
+
+## Follow-ups
+
+- Part B of this issue: #983 (v0.2.28).
+- Kept as the issue says: every git child gets the pinned token, so hooks that a local `git commit` runs see `GH_TOKEN` too. gh's credential helper would keep the token out of git's environment, but it reads gh's login when git asks, so a `gh auth login` during a run would change git's identity while gh keeps the pinned one, which is what this item prevents. No common command looks the token up at startup (`devops --help`, `version`, `config show`, `ci --help` run no `gh auth token`).
+- `git/operations.py` and `commands/repos.py` run git through GitPython, which does not go through `run_subprocess`, so clones, fetches and pulls there get the ambient environment rather than the pin. The identity is the same while `gh auth token` reads that environment, but the pin does not enforce it.
+- `gh auth status` run through `run_gh` gets no `DBUS_SESSION_BUS_ADDRESS`, so `github/ssh.py::_gh_auth_ok` can miss a keyring login. The code then falls back to PyGithub with the same token, so no second identity results.
+- `security/sanitizer.py` masks `ghp_`, `gho_` and `github_pat_` tokens but not `ghs_` or `ghu_`, which the service may use. This predates this change.
+- `tests/test_analyze.py::test_analyze_path_errors` and `tests/test_repos.py` (`:742`) share `tmp_path.parent / "outside_dir"`. When both run in one worker, the repos test leaves `secret.txt` there and the analyze test's `rmdir` fails. This predates this change.
+- `CONST_GH_WEBHOOK_SIGNATURE_HEADER` (`config/constants.py`) has no reader; #752 moves the webhook helpers and can take it or drop it.
+- `tests/test_review.py::test_review_path_workflow` and four other review tests warn "Logfire API is unreachable": Logfire's credential check tries `logfire-us.pydantic.dev` and is stopped by the network guard. It happens on the base branch too, so a test reaches Logfire's credential lookup that should be stubbed.

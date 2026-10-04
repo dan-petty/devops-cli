@@ -1425,6 +1425,28 @@ class TestPrCommands:
             assert len(mock_sub.call_args_list) == 1
             assert "pulls?head=owner:feat/test" in mock_sub.call_args[0][0][2]
 
+    def test_fallback_create_pr_paces_its_post_as_a_write(self) -> None:
+        """Through the real `run_gh` with gh's process stubbed (#1125): the existing-PR lookup
+        acquires as a read and the implicit-POST `gh api .../pulls -f ...` as a write."""
+        from devops_cli.commands.pr import _fallback_create_pr
+        from devops_cli.github.rate_limiter import GitHubRateLimiter
+
+        def gh(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+            lookup = any("pulls?head=" in arg for arg in cmd)
+            created = {"number": 9, "html_url": "https://github.com/o/r/pull/9"}
+            return subprocess.CompletedProcess(cmd, 0, "[]" if lookup else json.dumps(created), "")
+
+        with (
+            patch("devops_cli.commands.pr._detect_current_branch", return_value="feat/x"),
+            patch("devops_cli.github.rate_limiter._burst_protected_subprocess", side_effect=gh),
+            patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0) as acquire,
+        ):
+            created = _fallback_create_pr(title="t", body="b", base="main", repo="o/r")
+        assert (created, [call.kwargs["is_mutation"] for call in acquire.call_args_list]) == (
+            True,
+            [False, True],
+        )
+
     def test_pr_list_fallback_merged_filter(self) -> None:
         """_render_pr_list_fallback filters merged_at when state is merged."""
         from devops_cli.commands.pr import _render_pr_list_fallback
@@ -1807,13 +1829,13 @@ def test_grounding_blocks_once_and_names_the_cause(body: str, files: object, cau
     assert [cause in blocker for blocker in blockers] == [True], blockers
 
 
-_RELEASE_HEAD = {"ref": "release/v0.2.25", "sha": "a" * 40, "repo": _REPO}
+_RELEASE_HEAD = {"ref": "chore/cut-v0.2.25", "sha": "a" * 40, "repo": _REPO}
 _MAIN_BASE = {"ref": "main", "sha": "b" * 40, "repo": _REPO}
 
 
 @pytest.mark.parametrize("files", [[], _SERVER_ERROR], ids=["files-read", "files-unreadable"])
 def test_grounding_exempts_only_the_release_pr(files: object) -> None:
-    """`release/vX.Y.Z` from this repository into the default branch delivers a release.
+    """`chore/cut-vX.Y.Z` from this repository into the default branch delivers a release.
 
     It is exempt before any lookup, so even a task directory that can't be read doesn't
     block it, and an unread file list is one warning.
@@ -1829,12 +1851,13 @@ def test_grounding_exempts_only_the_release_pr(files: object) -> None:
     [
         {"ref": "feat/x", "sha": "a" * 40, "repo": _REPO},
         {"ref": "release/foo", "sha": "a" * 40, "repo": _REPO},
-        {"ref": "release/v0.2.25", "sha": "a" * 40, "repo": {"full_name": "fork/devops-cli"}},
+        {"ref": "release/v0.2.25", "sha": "a" * 40, "repo": _REPO},
+        {"ref": "chore/cut-v0.2.25", "sha": "a" * 40, "repo": {"full_name": "fork/devops-cli"}},
     ],
-    ids=["topic-branch", "not-a-release-version", "from-a-fork"],
+    ids=["topic-branch", "not-a-release-version", "release-branch-into-main", "cut-from-a-fork"],
 )
 def test_grounding_holds_other_prs_into_the_default_branch(head: dict) -> None:
-    """Only the release PR is exempt; a topic, malformed release or forked head is not."""
+    """Only the release PR is exempt; a topic, malformed release, release branch or forked cut is not."""
     blockers = _blockers(_ready_pr(body="", head=head, base=_MAIN_BASE), gh=_grounding_gh([]))
     assert ["closes no issue" in blocker for blocker in blockers] == [True], blockers
 
@@ -2000,15 +2023,13 @@ _RELEASE_FILES = [_file("CHANGELOG.md"), _file("docs/ROADMAP.md")]
             {"ref": "chore/open-v0.2.25-cycle", "repo": _REPO},
             {"ref": "release/v0.2.25", "repo": _REPO},
         ),
-        ({"ref": "chore/cut-v0.2.25", "repo": _REPO}, {"ref": "release/v0.2.25", "repo": _REPO}),
-        ({"ref": "release/v0.2.25", "repo": _REPO}, _MAIN_BASE),
     ],
-    ids=["bootstrap", "bootstrap-with-slug", "cut", "release-pr"],
+    ids=["bootstrap", "bootstrap-with-slug"],
 )
 def test_release_process_prs_are_exempt_from_grounding(head: dict, base: dict) -> None:
-    """The bootstrap and the cut deliver the release process, not one item.
+    """The bootstrap delivers the release process, not one item.
 
-    They close no issue, keep no task file and write CHANGELOG.md and docs/ROADMAP.md, and are
+    It closes no issue, keeps no task file and writes CHANGELOG.md and docs/ROADMAP.md, and is
     exempt before any lookup, as the release PR is.
     """
     gh = _grounding_gh(_RELEASE_FILES, task_dir=_SERVER_ERROR)
@@ -2020,17 +2041,24 @@ def test_release_process_prs_are_exempt_from_grounding(head: dict, base: dict) -
 @pytest.mark.parametrize(
     ("head", "base", "release_file_blockers"),
     [
+        ("chore/cut-v0.2.25", "release/v0.2.25", 1),
         ("chore/cut-v0.2.26", "release/v0.2.25", 1),
         ("chore/open-cycle-v0.2.25", "release/v0.2.25", 1),
         ("feat/open-v0.2.25", "release/v0.2.25", 1),
         ("chore/open-v0.2.25", "main", 0),
     ],
-    ids=["other-version", "slug-before-version", "not-chore", "into-the-default-branch"],
+    ids=[
+        "cut-into-release",
+        "other-version",
+        "slug-before-version",
+        "not-chore",
+        "into-the-default-branch",
+    ],
 )
 def test_other_branches_are_held_to_grounding(
     head: str, base: str, release_file_blockers: int
 ) -> None:
-    """Only `chore/(open|cut)-vX.Y.Z[-slug]` into `release/vX.Y.Z` of that version is exempt.
+    """Only `chore/open-vX.Y.Z[-slug]` into `release/vX.Y.Z` of that version is exempt.
 
     The release-file rule applies only into a `release/*` branch.
     """
@@ -2044,7 +2072,7 @@ def test_other_branches_are_held_to_grounding(
 
 def test_a_release_process_branch_from_a_fork_is_not_exempt() -> None:
     """A fork can name its branch anything, so the exemption needs the same repository."""
-    fork = {"ref": "chore/cut-v0.2.25", "repo": {"full_name": "fork/devops-cli"}}
+    fork = {"ref": "chore/open-v0.2.25", "repo": {"full_name": "fork/devops-cli"}}
     blockers = _blockers(_ready_pr(body="", head=fork), gh=_grounding_gh(_RELEASE_FILES))
     assert ["closes no issue" in blocker for blocker in blockers] == [True, False], blockers
 

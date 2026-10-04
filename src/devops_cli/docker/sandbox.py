@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -176,18 +176,20 @@ class WorkloadSandboxRunner:
             "user": user_str,
         }
 
-    _FORBIDDEN_ROOTS: set[str] = {
-        "/",
-        "/etc",
-        "/usr",
-        "/bin",
-        "/sbin",
-        "/boot",
-        "/sys",
-        "/proc",
-        "/dev",
-        "/var",
-    }
+    _FORBIDDEN_ROOTS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "/",
+            "/etc",
+            "/usr",
+            "/bin",
+            "/sbin",
+            "/boot",
+            "/sys",
+            "/proc",
+            "/dev",
+            "/var",
+        }
+    )
 
     def _validate_workspace_dir(self) -> Path:
         ws = self.config.workspace_dir

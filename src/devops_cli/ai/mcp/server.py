@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import subprocess
+import tempfile
 from typing import Annotated, Any, Literal
 
 from fastmcp import Context, FastMCP
@@ -633,58 +634,172 @@ def release_status() -> str:
     )
 
 
-@mcp.tool()
-def roadmap_render(repo: str | None = None, ref: str | None = None, dry_run: bool = True) -> str:
-    """Render docs/ROADMAP.md from GitHub's issues, milestones and board; prints it by default."""
-    cmd = ["uv", "run", "devops", "roadmap", "render"]
-    if repo:
-        _validate_mcp_arg("repo", repo)
-        cmd.extend(["--repo", repo])
-    if ref:
-        _validate_mcp_arg("ref", ref)
-        cmd.extend(["--ref", ref])
-    if dry_run:
-        cmd.append("--dry-run")
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+def _roadmap_cmd(cmd: list[str], repo: str | None, ref: str | None, mode: str) -> list[str]:
+    """A `devops roadmap` command on `repo` at `ref`, with `mode`'s flag; `write` has none."""
+    for name, value in (("repo", repo), ("ref", ref)):
+        if value:
+            _validate_mcp_arg(name, value)
+            cmd.extend([f"--{name}", value])
+    if mode != "write":
+        cmd.append(f"--{mode}")
+    return cmd
 
 
 @mcp.tool()
-def roadmap_migrate(repo: str | None = None, ref: str | None = None) -> str:
+def roadmap_render(
+    repo: str | None = None,
+    ref: str | None = None,
+    mode: Literal["dry-run", "plan", "write"] = "plan",
+) -> str:
+    """Render docs/ROADMAP.md from GitHub's issues, milestones and board.
+
+    `mode="plan"`, the default, reads GitHub and prints the file without writing it, ending
+    with the GraphQL points spent and left. `mode="dry-run"` makes no request and returns the
+    requests a run makes; `mode="write"` writes the file.
+    """
+    return _run_mcp_cmd(
+        _roadmap_cmd(["uv", "run", "devops", "roadmap", "render"], repo, ref, mode),
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def roadmap_migrate(
+    repo: str | None = None,
+    ref: str | None = None,
+    mode: Literal["dry-run", "plan"] = "plan",
+) -> str:
     """Preview the one-time move of the roadmap's source to GitHub: its plan and report.
 
-    It never writes. A person reviews the plan and runs `devops roadmap migrate --confirm`.
+    It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
+    spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A
+    person reviews the plan and runs `devops roadmap migrate --confirm`.
     """
-    cmd = ["uv", "run", "devops", "roadmap", "migrate", "--dry-run"]
-    if repo:
-        _validate_mcp_arg("repo", repo)
-        cmd.extend(["--repo", repo])
-    if ref:
-        _validate_mcp_arg("ref", ref)
-        cmd.extend(["--ref", ref])
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+    return _run_mcp_cmd(
+        _roadmap_cmd(["uv", "run", "devops", "roadmap", "migrate"], repo, ref, mode),
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def roadmap_close(
+    repo: str | None = None,
+    ref: str | None = None,
+    mode: Literal["dry-run", "plan"] = "plan",
+) -> str:
+    """Preview closure: each delivered item of the current release it would close, with its
+    comment, and the release cut it would make or what holds it.
+
+    It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
+    spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A
+    person or the service runs `devops roadmap close --confirm`.
+    """
+    return _run_mcp_cmd(
+        _roadmap_cmd(["uv", "run", "devops", "roadmap", "close"], repo, ref, mode),
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
 
 
 @mcp.tool()
 def roadmap_reprioritize(
-    repo: str | None = None, ref: str | None = None, dry_run: bool = True
+    repo: str | None = None,
+    ref: str | None = None,
+    mode: Literal["dry-run", "plan", "confirm"] = "plan",
 ) -> str:
     """Hold the current release to its admission rule, cap and stall window, and start the next
     release once it ships; prints each change with its reason.
 
-    It previews by default. `dry_run=False` makes the changes (`--confirm`).
+    `mode="plan"`, the default, previews: it reads GitHub, writes nothing, and ends with the
+    GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a
+    run makes; `mode="confirm"` makes the changes.
     """
-    cmd = ["uv", "run", "devops", "roadmap", "reprioritize"]
+    return _run_mcp_cmd(
+        _roadmap_cmd(["uv", "run", "devops", "roadmap", "reprioritize"], repo, ref, mode),
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def roadmap_run(repo: str | None = None) -> tuple[str, ...]:
+    """Report the roadmap jobs that are due: runs nothing and returns the due tuple."""
+    from devops_cli.roadmap.run import parse_due_tuple
+
+    cmd = ["uv", "run", "devops", "roadmap", "run"]
     if repo:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])
-    if ref:
-        _validate_mcp_arg("ref", ref)
-        cmd.extend(["--ref", ref])
-    if dry_run:
-        cmd.append("--dry-run")
-    else:
-        cmd.append("--confirm")
+    cmd.append("--dry-run")
+    output = _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+    return parse_due_tuple(output)
+
+
+@mcp.tool()
+def roadmap_refine(
+    repo: str | None = None,
+    ref: str | None = None,
+    item: int | None = None,
+    limit: int | None = None,
+    source: str | None = None,
+) -> str:
+    """Run a dry run of item refinement: returns the refinement plan without making any writes.
+
+    It never accepts a confirm argument, ensuring it is strictly read-only.
+    """
+    cmd = ["uv", "run", "devops", "roadmap", "refine"]
+    for name, value in (("repo", repo), ("ref", ref), ("source", source)):
+        if value:
+            _validate_mcp_arg(name, value)
+            cmd.extend([f"--{name}", value])
+    if item is not None:
+        cmd.extend(["--item", str(item)])
+    if limit is not None:
+        cmd.extend(["--limit", str(limit)])
+    cmd.append("--dry-run")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def roadmap_intake(
+    repo: str | None = None,
+    ref: str | None = None,
+    issues: list[int] | None = None,
+    title: str | None = None,
+    body: str | None = None,
+    source: str | None = None,
+    borrow_reason: Literal["split", "follow-up"] | None = None,
+    mode: Literal["dry-run", "plan", "confirm"] = "plan",
+) -> str:
+    """Turn candidates into roadmap items: duplicate check, type, priority, Value, Effort and
+    placement, with the agent filing quota for an agent's new candidate (`title` with `body`,
+    and `source`, the link it came from, which `borrow_reason` needs).
+
+    `mode="plan"`, the default, previews: it reads GitHub and calls the model, writes nothing,
+    and reports what it spent. `mode="dry-run"` makes no request and returns the requests a run
+    makes; `mode="confirm"` makes the writes. The body is passed as text, never as a path, so
+    the tool reads no file of the caller's choosing.
+    """
+    cmd = ["uv", "run", "devops", "roadmap", "intake"]
+    for name, value in (("repo", repo), ("ref", ref), ("title", title), ("source", source)):
+        if value:
+            _validate_mcp_arg(name, value)
+            cmd.extend([f"--{name}", value])
+    for number in issues or ():
+        _validate_mcp_int_bound("issues", number)
+        cmd.extend(["--issue", str(number)])
+    if borrow_reason:
+        cmd.extend(["--borrow-reason", borrow_reason])
+    cmd.append(f"--{mode}")
+    if body is None:
+        return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+    # The file is created owner-only (0600) and removed when the command ends.
+    with tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", suffix=".md", delete_on_close=False
+    ) as body_file:
+        body_file.write(body)
+        body_file.close()
+        return _run_mcp_cmd(
+            [*cmd, "--body-file", body_file.name], timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS
+        )
 
 
 @mcp.tool()
@@ -1748,7 +1863,7 @@ def gh_issue_create(
 
 @mcp.tool()
 def gh_issue_triage(repo: str | None = None) -> str:
-    """Audit open issues for mandatory taxonomy labels and milestone linkage."""
+    """Audit open issues for mandatory taxonomy labels, and report those awaiting intake."""
     cmd = ["uv", "run", "devops", "gh", "issues", "triage"]
     if repo:
         _validate_mcp_arg("repo", repo)
@@ -2999,12 +3114,17 @@ def reset_hydrated_domains() -> None:
     _HYDRATED_DOMAINS.clear()
 
 
+_BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()
+
+
 def _notify_tool_list_changed(ctx: Context | None) -> None:
     """Send tool list changed notification to client if session is active."""
     if ctx and getattr(ctx, "session", None):
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(ctx.session.send_tool_list_changed())
+            task = loop.create_task(ctx.session.send_tool_list_changed())
+            _BACKGROUND_TASKS.add(task)
+            task.add_done_callback(_BACKGROUND_TASKS.discard)
         except RuntimeError:
             try:
                 asyncio.run(ctx.session.send_tool_list_changed())

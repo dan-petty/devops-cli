@@ -90,7 +90,7 @@ def test_workspaces_endpoint_with_nested_repos(
 
 def test_config_endpoint_sanitization(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test /api/v1/config returns sanitized configuration for all secret keys."""
-    monkeypatch.setenv("DEVOPS_CLI_GITHUB_TOKEN", "ghp_secret_token_12345")
+    monkeypatch.setenv("DEVOPS_CLI_GRAFANA_TOKEN", "FAKE-secret-token-12345")
     monkeypatch.setenv("DEVOPS_CLI_ARGOCD_PASSWORD", "secret_argo_pass")
     monkeypatch.setenv("DEVOPS_CLI_GRAFANA_PASSWORD", "secret_graf_pass")
     response = client.get("/api/v1/config")
@@ -102,16 +102,24 @@ def test_config_endpoint_sanitization(client: TestClient, monkeypatch: pytest.Mo
     assert "ssh" in cfg
     assert "repos" in cfg
     assert "workspace" in cfg
-    assert cfg.get("github", {}).get("token") in ("***REDACTED***", None)
+    assert cfg.get("grafana", {}).get("token") in ("***REDACTED***", None)
     assert cfg.get("argocd", {}).get("password") in ("***REDACTED***", None)
     assert cfg.get("grafana", {}).get("password") in ("***REDACTED***", None)
 
 
 def test_config_recursive_redaction_helper() -> None:
-    """Test _redact_config_dict handles deeply nested dictionaries and secret keywords."""
+    """Test _redact_config_dict handles deeply nested dictionaries and secret options."""
     from devops_cli.server.routes.workspace import _redact_config_dict
 
-    secret_options = frozenset({"deeply.nested.secret_field", "auth.custom_token"})
+    secret_options = frozenset(
+        {
+            "deeply.nested.secret_field",
+            "auth.custom_token",
+            "auth.plain_password",
+            "auth.nested_auth.api_key",
+            "auth.nested_auth.private_key",
+        }
+    )
     payload = {
         "deeply": {
             "nested": {
@@ -132,15 +140,27 @@ def test_config_recursive_redaction_helper() -> None:
         "ai": {"allow_private_network": False},
     }
     redacted = _redact_config_dict(payload, secret_options)
-    assert redacted["deeply"]["nested"]["secret_field"] == "***REDACTED***"
-    assert redacted["deeply"]["nested"]["safe_field"] == "public_value"
-    assert redacted["auth"]["custom_token"] == "***REDACTED***"
-    assert redacted["auth"]["plain_password"] == "***REDACTED***"
-    assert redacted["auth"]["nested_auth"]["api_key"] == "***REDACTED***"
-    assert redacted["auth"]["nested_auth"]["private_key"] == "***REDACTED***"
-    assert redacted["auth"]["nested_auth"]["standard_info"] == "visible"
-    assert redacted["normal"]["name"] == "app"
-    assert redacted["ai"]["allow_private_network"] is False
+    assert (
+        redacted["deeply"]["nested"]["secret_field"],
+        redacted["deeply"]["nested"]["safe_field"],
+        redacted["auth"]["custom_token"],
+        redacted["auth"]["plain_password"],
+        redacted["auth"]["nested_auth"]["api_key"],
+        redacted["auth"]["nested_auth"]["private_key"],
+        redacted["auth"]["nested_auth"]["standard_info"],
+        redacted["normal"]["name"],
+        redacted["ai"]["allow_private_network"],
+    ) == (
+        "***REDACTED***",
+        "public_value",
+        "***REDACTED***",
+        "***REDACTED***",
+        "***REDACTED***",
+        "***REDACTED***",
+        "visible",
+        "app",
+        False,
+    )
 
 
 def test_server_cors_configuration() -> None:
@@ -228,5 +248,69 @@ def test_serve_cli_invocation_mocked() -> None:
         result = runner.invoke(serve_app, ["--host", "0.0.0.0", "--port", "9000"])
         assert result.exit_code == 0
         assert mock_uvicorn.called
-        assert mock_uvicorn.call_args.kwargs["host"] == "0.0.0.0"
-        assert mock_uvicorn.call_args.kwargs["port"] == 9000
+        assert (mock_uvicorn.call_args.kwargs["host"], mock_uvicorn.call_args.kwargs["port"]) == (
+            "0.0.0.0",
+            9000,
+        )
+
+
+def test_serve_service_mode_flags_rejected() -> None:
+    """Test --service rejects --workers > 1 and --reload with exit code 2."""
+    res_workers = runner.invoke(serve_app, ["--service", "--workers", "2"])
+    res_reload = runner.invoke(serve_app, ["--service", "--reload"])
+
+    assert (
+        res_workers.exit_code,
+        "--workers > 1" in res_workers.output,
+        res_reload.exit_code,
+        "--reload" in res_reload.output,
+    ) == (2, True, 2, True)
+
+
+def test_serve_service_mode_config_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test --service enforces repos, machine_account, and valid JSON webhook secrets."""
+    # 1. Missing repos
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", "[]")
+    res_repos = runner.invoke(serve_app, ["--service"])
+
+    # 2. Missing machine_account
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", '["example-org/repo1"]')
+    monkeypatch.delenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", raising=False)
+    res_account = runner.invoke(serve_app, ["--service"])
+
+    # 3. Missing webhook_secrets
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", "bot-account")
+    monkeypatch.delenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", raising=False)
+    res_no_secrets = runner.invoke(serve_app, ["--service"])
+
+    # 4. Invalid JSON webhook_secrets
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", "not-a-json-object")
+    res_bad_secrets = runner.invoke(serve_app, ["--service"])
+
+    assert (
+        res_repos.exit_code,
+        "service.repos" in res_repos.output,
+        res_account.exit_code,
+        "service.machine_account" in res_account.output,
+        res_no_secrets.exit_code,
+        "service.webhook_secrets" in res_no_secrets.output,
+        res_bad_secrets.exit_code,
+        "service.webhook_secrets" in res_bad_secrets.output,
+    ) == (1, True, 1, True, 1, True, 1, True)
+
+
+def test_serve_service_mode_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test valid --service invocation starts uvicorn without banner."""
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", '["example-org/repo1"]')
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", "bot-account")
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", '{"example-org/repo1":"secret-1"}')
+
+    with patch("uvicorn.run") as mock_uvicorn:
+        result = runner.invoke(serve_app, ["--service", "--host", "0.0.0.0", "--port", "8787"])
+        assert (
+            result.exit_code,
+            mock_uvicorn.called,
+            mock_uvicorn.call_args.kwargs["host"],
+            mock_uvicorn.call_args.kwargs["port"],
+            mock_uvicorn.call_args.kwargs["log_config"],
+        ) == (0, True, "0.0.0.0", 8787, None)

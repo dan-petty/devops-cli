@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from devops_cli.github.session import GitHubSession
 from devops_cli.github.ssh import (
     SSHRegistrationError,
     _add_signing_key,
@@ -34,26 +35,28 @@ def test_register_key_on_github_via_gh_cli(monkeypatch: pytest.MonkeyPatch) -> N
     assert called_gh is True
 
 
-def test_register_key_on_github_via_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify register_key_on_github falls back to token API when gh CLI is unavailable."""
+def test_register_key_on_github_via_token(
+    monkeypatch: pytest.MonkeyPatch, pin_github_session: str
+) -> None:
+    """Verify register_key_on_github falls back to the token API with the session's token."""
     monkeypatch.setattr("devops_cli.github.ssh._register_with_gh", lambda pub, t: False)
     called_token = False
 
-    def mock_token_api(token: str, pub: str, t: str) -> None:
+    def mock_token_api(session: GitHubSession, pub: str, t: str) -> None:
         nonlocal called_token
-        called_token = True
+        called_token = session.token == pin_github_session
 
     monkeypatch.setattr("devops_cli.github.ssh._register_with_token_api", mock_token_api)
-    register_key_on_github(
-        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test@example.com", "My Key", token="ghp_secret"
-    )
+    register_key_on_github("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test@example.com", "My Key")
     assert called_token is True
 
 
-def test_register_key_on_github_no_auth(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify SSHRegistrationError is raised when neither gh CLI nor token is provided."""
+def test_register_key_on_github_no_auth(
+    monkeypatch: pytest.MonkeyPatch, no_github_identity: None
+) -> None:
+    """Verify SSHRegistrationError is raised when neither gh nor the session can register."""
     monkeypatch.setattr("devops_cli.github.ssh._register_with_gh", lambda pub, t: False)
-    with pytest.raises(SSHRegistrationError, match="No usable GitHub auth found"):
+    with pytest.raises(SSHRegistrationError, match="gh auth login"):
         register_key_on_github("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test@example.com", "My Key")
 
 
@@ -164,22 +167,23 @@ def test_register_with_gh(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_register_with_token_api(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _register_with_token_api calls GitHubClient and _add_signing_key."""
+    """Verify _register_with_token_api uses the session's client and token."""
     mock_client = MagicMock()
     mock_existing_key = MagicMock()
     mock_existing_key.key = "ssh-rsa OTHERKEY"
     mock_client.get_user_ssh_keys.return_value = [mock_existing_key]
 
-    monkeypatch.setattr("devops_cli.github.ssh.GitHubClient", lambda token: mock_client)
+    session = GitHubSession("FAKE-session-token")
+    monkeypatch.setitem(session.__dict__, "client", mock_client)
     signing_called = False
 
     def mock_signing(token: str, pub: str, t: str) -> None:
         nonlocal signing_called
-        signing_called = True
+        signing_called = token == "FAKE-session-token"
 
     monkeypatch.setattr("devops_cli.github.ssh._add_signing_key", mock_signing)
     _register_with_token_api(
-        "ghp_token", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test@example.com", "Title"
+        session, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test@example.com", "Title"
     )
 
     mock_client.add_user_ssh_key.assert_called_once()

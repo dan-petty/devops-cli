@@ -52,7 +52,7 @@ class SecretRef:
 class SecretAccess:
     """One recorded credential lookup.
 
-    `credential_id` is the credential's *identifier* (for example ``github.token``), not
+    `credential_id` is the credential's *identifier* (for example ``grafana.token``), not
     its value. The value is never carried by this record, logged, or rendered.
     """
 
@@ -77,7 +77,7 @@ class SecretAuditLog:
     def record(self, credential_id: str, provider: str | None, resolved: bool) -> SecretAccess:
         """Append an access record, evicting the oldest entry beyond the cap.
 
-        `credential_id` identifies which credential was requested (``github.token``); the
+        `credential_id` identifies which credential was requested (``grafana.token``); the
         credential's value is never passed to, stored by, or logged from this method.
         """
         entry = SecretAccess(
@@ -415,7 +415,6 @@ def build_secret_registry(keyring_keys: dict[str, str]) -> dict[str, SecretRef]:
     from devops_cli.config import options as opt
 
     definitions: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
-        (opt.GITHUB_TOKEN, "github_token", ("DEVOPS_CLI_GITHUB_TOKEN", "GITHUB_TOKEN"), None),
         (opt.GRAFANA_TOKEN, "grafana_token", ("DEVOPS_CLI_GRAFANA_TOKEN",), None),
         (opt.GRAFANA_PASSWORD, "grafana_password", ("DEVOPS_CLI_GRAFANA_PASSWORD",), None),
         (opt.ARGOCD_TOKEN, "argocd_token", ("DEVOPS_CLI_ARGOCD_TOKEN",), None),
@@ -440,6 +439,24 @@ def build_secret_registry(keyring_keys: dict[str, str]) -> dict[str, SecretRef]:
             "cloudflare_api_token",
             ("DEVOPS_CLI_CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_TOKEN"),
             None,
+        ),
+        (
+            opt.CLOUDFLARE_TUNNEL_TOKEN,
+            "cloudflare_tunnel_token",
+            ("DEVOPS_CLI_CLOUDFLARE_TUNNEL_TOKEN",),
+            None,
+        ),
+        (
+            opt.SERVICE_WEBHOOK_SECRETS,
+            "service_webhook_secrets",
+            ("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS",),
+            None,
+        ),
+        (
+            opt.TAVILY_API_KEY,
+            "tavily_api_key",
+            ("DEVOPS_CLI_TAVILY_API_KEY", "TAVILY_API_KEY"),
+            "tavily.api_key",
         ),
     )
 

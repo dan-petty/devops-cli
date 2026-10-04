@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import operator
 import os
-import subprocess
 import threading
 import time
 from collections.abc import Iterable
@@ -14,12 +14,13 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import devops_cli.config.options as opt
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
+    CONST_KEYRING_UNLOCK_PROBE_KEY,
     CONST_SETTINGS_CACHE_SETTLE_SECONDS,
 )
 from devops_cli.config.constants import (
@@ -84,6 +85,8 @@ from devops_cli.config.defaults import (
     DEFAULT_RUNS_DATA_DIR,
     DEFAULT_SAMPLES_DATA_DIR,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
+    DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS,
+    DEFAULT_SERVICE_POLL_INTERVAL_SECONDS,
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_KEY_PREFIX,
     DEFAULT_SSH_ROTATION_DAYS,
@@ -110,6 +113,14 @@ class SecretStorageError(RuntimeError):
 
 class KeyringLockedError(SecretStorageError):
     """Raised when the keyring exists but is locked, so nothing can be stored until unlocked."""
+
+
+class KeyringUnavailableError(SecretStorageError):
+    """Raised when secrets would land in no persistent, encrypted keyring.
+
+    That is no backend, an unencrypted one, or the in-memory store `DEVOPS_CLI_HEADLESS_AUTH`
+    selects, which loses every value when the process exits.
+    """
 
 
 _KEYRING_LOCKED_HINT = "the OS keyring is locked; run `devops devcontainer unlock-keyring`"
@@ -318,6 +329,13 @@ class KubernetesConfig(BaseModel):
     addressing: str | None = Field(
         default=None,
         description="Default addressing mode for cluster services: nodeport, proxy, or fqdn.",
+    )
+    github_account: str | None = Field(
+        default=None,
+        description=(
+            "Login of the machine account whose gh token `devops k8s push-secrets` writes to the "
+            "cluster as GH_TOKEN; `--github-account` overrides it"
+        ),
     )
 
 
@@ -603,6 +621,46 @@ _DEFAULT_CHILD_DATA_MAP: dict[str, Path] = {
 }
 
 
+class ServiceConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    repos: list[str] = Field(default_factory=list)
+    machine_account: str | None = None
+    poll_interval_seconds: int = Field(default=DEFAULT_SERVICE_POLL_INTERVAL_SECONDS, ge=60)
+    drain_timeout_seconds: int = Field(default=DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS, gt=0)
+
+    @field_validator("repos", mode="before")
+    @classmethod
+    def _parse_repos(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            trimmed = v.strip()
+            if not trimmed:
+                return []
+            if trimmed.startswith("[") and trimmed.endswith("]"):
+                try:
+                    parsed = json.loads(trimmed)
+                    if isinstance(parsed, list):
+                        return [str(item) for item in parsed if item]
+                except Exception:
+                    pass
+            return [part.strip() for part in trimmed.split(",") if part.strip()]
+        if isinstance(v, list):
+            if (
+                len(v) == 1
+                and isinstance(v[0], str)
+                and v[0].startswith("[")
+                and v[0].endswith("]")
+            ):
+                try:
+                    parsed = json.loads(v[0])
+                    if isinstance(parsed, list):
+                        return [str(item) for item in parsed if item]
+                except Exception:
+                    pass
+            return [str(item) for item in v if item]
+        return []
+
+
 class DataConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -627,6 +685,12 @@ class DataConfig(BaseModel):
                 if getattr(self, field) == default_val:
                     setattr(self, field, self.dir / rel_path)
         return self
+
+
+class TavilyConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    api_key: str | None = None
 
 
 class Settings(BaseSettings):
@@ -658,6 +722,8 @@ class Settings(BaseSettings):
     ai: AIConfig = AIConfig()
     open_webui: OpenWebUIConfig = OpenWebUIConfig()
     data: DataConfig = DataConfig()
+    service: ServiceConfig = ServiceConfig()
+    tavily: TavilyConfig = TavilyConfig()
 
 
 _EPHEMERAL_CI_SECRETS: dict[str, str] = {}
@@ -708,12 +774,10 @@ def _keyring_has(key: str) -> bool:
 
 
 def _keyring_set(key: str, value: str) -> None:
-    import os
-
     import keyring
     from keyring.errors import KeyringLocked, NoKeyringError
 
-    if os.environ.get("DEVOPS_CLI_HEADLESS_AUTH", "").lower() in ("true", "1", "yes"):
+    if _headless_auth_enabled():
         _EPHEMERAL_CI_SECRETS[key] = value
         return
 
@@ -729,6 +793,64 @@ def _keyring_set(key: str, value: str) -> None:
         raise KeyringLockedError(f"Cannot store {key}: {_KEYRING_LOCKED_HINT}") from exc
     except Exception as exc:
         raise SecretStorageError(f"Failed to store secret in keyring: {exc}") from exc
+
+
+def _headless_auth_enabled() -> bool:
+    """Report whether `DEVOPS_CLI_HEADLESS_AUTH` keeps secrets in the in-memory store."""
+    import os
+
+    return os.environ.get("DEVOPS_CLI_HEADLESS_AUTH", "").lower() in ("true", "1", "yes")
+
+
+def require_persistent_keyring() -> None:
+    """Raise unless an encrypted OS keyring is in use and unlocked.
+
+    For commands that must never take a locked keyring for a missing entry, nor keep a value
+    only in memory: a locked keyring raises `KeyringLockedError`; no encrypted backend, or the
+    headless in-memory store, raises `KeyringUnavailableError`. The lock is probed by looking
+    up an entry that is never stored, so no secret is read.
+    """
+    import keyring
+
+    if _headless_auth_enabled():
+        raise KeyringUnavailableError(
+            "DEVOPS_CLI_HEADLESS_AUTH keeps secrets in memory only, so a value stored now would "
+            "be lost when the command exits; unset it to use the OS keyring"
+        )
+    if not _ensure_keyring_backend():
+        backend = type(keyring.get_keyring())
+        backend_name = f"{backend.__module__}.{backend.__qualname__}"
+        raise KeyringUnavailableError(
+            f"no encrypted OS keyring backend is available (found {backend_name}); install and "
+            "start one, such as gnome-keyring"
+        )
+    keyring_read(CONST_KEYRING_UNLOCK_PROBE_KEY)
+
+
+def keyring_read(key: str) -> str | None:
+    """Read a keyring entry, raising `KeyringLockedError` instead of returning None when locked."""
+    import keyring
+    from keyring.errors import KeyringError, KeyringLocked
+
+    try:
+        return keyring.get_keyring().get_password(KEYRING_SERVICE, key)
+    except KeyringLocked as exc:
+        raise KeyringLockedError(f"Cannot read {key}: {_KEYRING_LOCKED_HINT}") from exc
+    except KeyringError as exc:
+        raise SecretStorageError(f"Cannot read {key}: {type(exc).__name__}") from exc
+
+
+def keyring_write(key: str, value: str) -> None:
+    """Store a keyring entry in the OS keyring itself, never in the in-memory store."""
+    import keyring
+    from keyring.errors import KeyringError, KeyringLocked
+
+    try:
+        keyring.get_keyring().set_password(KEYRING_SERVICE, key, value)
+    except KeyringLocked as exc:
+        raise KeyringLockedError(f"Cannot store {key}: {_KEYRING_LOCKED_HINT}") from exc
+    except KeyringError as exc:
+        raise SecretStorageError(f"Cannot store {key}: {type(exc).__name__}") from exc
 
 
 def get_keyring_secret(key: str) -> str | None:
@@ -1048,27 +1170,6 @@ def _resolve(option: str, settings: Settings) -> str | None:
     return get_resolver().resolve(ref, settings_source=lambda: settings)
 
 
-def get_github_token(settings: Settings) -> str | None:
-    """Resolve the GitHub token, falling back to an authenticated GitHub CLI session."""
-    return _resolve(opt.GITHUB_TOKEN, settings) or _github_cli_token()
-
-
-def _github_cli_token() -> str | None:
-    """Return token from `gh auth token` when GitHub CLI is authenticated."""
-    from devops_cli.github.rate_limiter import run_gh
-
-    try:
-        result = run_gh(["auth", "token"], quiet=True, timeout=5.0)
-    except FileNotFoundError, OSError, subprocess.SubprocessError:
-        return None
-
-    if result.returncode != 0:
-        return None
-
-    token = result.stdout.strip()
-    return token or None
-
-
 def get_grafana_token(settings: Settings) -> str | None:
     """Resolve the Grafana API token, rejecting masked placeholder values."""
     token = _resolve(opt.GRAFANA_TOKEN, settings)
@@ -1122,6 +1223,17 @@ def get_cloudflare_api_token(settings: Settings) -> str | None:
     return _resolve(opt.CLOUDFLARE_API_TOKEN, settings)
 
 
+def get_service_webhook_secrets(settings: Settings) -> str | None:
+    """Resolve the JSON mapping of repo to webhook secret."""
+    return _resolve(opt.SERVICE_WEBHOOK_SECRETS, settings)
+
+
+def get_tavily_api_key(settings: Settings | None = None) -> str | None:
+    """Resolve the Tavily search API key."""
+    active_settings = settings or load_settings()
+    return _resolve(opt.TAVILY_API_KEY, active_settings)
+
+
 def get_llm_client(task: str | None = None) -> Any:
     """Instantiate a configured LLMClient instance based on active application settings."""
     from devops_cli.ai.client import LLMClient
@@ -1147,11 +1259,17 @@ def _coerce_setting_value(current_val: Any, new_value: Any, is_list_field: bool)
     if isinstance(current_val, int):
         return int(new_value)
     if isinstance(current_val, list) or is_list_field:
-        return (
-            [v.strip() for v in str(new_value).split(",") if v.strip()]
-            if isinstance(new_value, str)
-            else new_value
-        )
+        if isinstance(new_value, str):
+            trimmed = new_value.strip()
+            if trimmed.startswith("[") and trimmed.endswith("]"):
+                try:
+                    parsed = json.loads(trimmed)
+                    if isinstance(parsed, list):
+                        return [str(item) for item in parsed if item]
+                except Exception:
+                    pass
+            return [v.strip() for v in trimmed.split(",") if v.strip()]
+        return new_value
     return new_value
 
 
