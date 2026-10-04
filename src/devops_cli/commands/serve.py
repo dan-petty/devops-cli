@@ -138,6 +138,7 @@ def serve(
 
     if service:
         from devops_cli.config import load_settings
+        from devops_cli.roadmap.run import service_job
         from devops_cli.server.json_logs import setup_service_logging
         from devops_cli.server.service import create_service_app
 
@@ -145,7 +146,7 @@ def serve(
         parsed_secrets = _validate_service_mode(reload=reload, workers=workers, settings=settings)
         setup_service_logging(log_level)
 
-        fastapi_app = create_service_app(settings=settings, secrets=parsed_secrets)
+        fastapi_app = create_service_app(job=service_job, settings=settings, secrets=parsed_secrets)
         uvicorn.run(
             fastapi_app,
             host=host,

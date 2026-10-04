@@ -720,6 +720,20 @@ def roadmap_reprioritize(
 
 
 @mcp.tool()
+def roadmap_run(repo: str | None = None) -> tuple[str, ...]:
+    """Report the roadmap jobs that are due: runs nothing and returns the due tuple."""
+    from devops_cli.roadmap.run import parse_due_tuple
+
+    cmd = ["uv", "run", "devops", "roadmap", "run"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    cmd.append("--dry-run")
+    output = _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+    return parse_due_tuple(output)
+
+
+@mcp.tool()
 def roadmap_intake(
     repo: str | None = None,
     ref: str | None = None,

@@ -149,6 +149,7 @@ release once it ships; prints each change with its reason.
 `mode="plan"`, the default, previews: it reads GitHub, writes nothing, and ends with the
 GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a
 run makes; `mode="confirm"` makes the changes. |
+| [`roadmap_run`](#roadmap-run) | Report the roadmap jobs that are due: runs nothing and returns the due tuple. |
 | [`sandbox_deploy`](#sandbox-deploy) | Deploy an isolated workload container sandbox with security containment and port allocation. |
 | [`sandbox_exec`](#sandbox-exec) | Execute a command inside an active sandbox container. |
 | [`sandbox_network_policy`](#sandbox-network-policy) | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
@@ -1448,6 +1449,16 @@ run makes; `mode="confirm"` makes the changes.
 | `repo` | `string` | No | - | - |
 | `ref` | `string` | No | - | - |
 | `mode` | `string` | No | `plan` | - |
+
+### `roadmap_run`
+
+Report the roadmap jobs that are due: runs nothing and returns the due tuple.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
 
 ### `sandbox_deploy`
 
