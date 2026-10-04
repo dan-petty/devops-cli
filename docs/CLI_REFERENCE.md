@@ -5778,6 +5778,26 @@ devops roadmap close [OPTIONS]
 | `--dry-run` | `boolean` | - | Make no request and change no git ref: print the requests a run makes, in order, with placeholders for values a read gives. |
 | `--plan` | `boolean` | - | Read GitHub, print each issue the run closes with its comment and the cut or what holds it, write nothing, and end with the GraphQL points spent and left. Close without a mode flag does this. |
 
+### `devops roadmap refine`
+
+**Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria. Evaluates Next-release and Backlog New items using code, documentation, and external research.**
+
+```bash
+devops roadmap refine [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
+| `--source` | `path` | `.` | Path to the repository checkout (defaults to current directory). |
+| `--item` | `integer` | - | Specific issue number to refine instead of selecting by priority. |
+| `--limit` | `integer` | `3` | Maximum number of New items to refine in this run (default 3). |
+| `--dry-run` | `boolean` | - | Make no request and change no git ref: print what refine would plan and run, with placeholders. |
+| `--confirm` | `boolean` | - | Refine the items and write the proposed designs to GitHub. Without it, refine prints its plan only. |
+
 ### `devops roadmap run`
 
 **Run roadmap jobs that are due: evaluate due criteria across landed jobs, run due jobs in order, and record last-success execution timestamps. Without --confirm, or with --dry-run, prints the due list and runs nothing.**

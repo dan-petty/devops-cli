@@ -29,6 +29,7 @@ from devops_cli.roadmap.store import (
     ItemField,
     JobMark,
     PullRequestState,
+    RefineRecordKey,
     RoadmapStore,
 )
 
@@ -953,3 +954,67 @@ def test_merged_pull_requests_are_the_ones_merged_into_the_branch_with_their_pat
         (found[0].body, found[0].changed_paths, found[0].release, found[1].changed_paths),
         [len({p.merge_commit, p.head_commit}) for p in found],
     ) == ([first, second], ("Closes #1", ("a.py", "b.md"), "v0.2.25", ()), [2, 2])
+
+
+def test_read_and_write_issue_body(store: InMemoryRoadmapStore) -> None:
+    num = store.seed_issue("task", body="Initial body")
+    pr_num = store.seed_issue("pr", pull_request=True)
+    initial_read = store.read_issue_body(num)
+    store.write_issue_body(num, "Updated body")
+    updated_read = store.read_issue_body(num)
+    changes = [
+        c.kind for c in store.changes_since(datetime.min.replace(tzinfo=UTC)) if c.number == num
+    ]
+    writes = [w.operation for w in store.job_writes() if w.number == num]
+
+    assert (
+        initial_read,
+        updated_read,
+        ChangeKind.EDITED in changes,
+        "write_issue_body" in writes,
+    ) == ("Initial body", "Updated body", True, True)
+    with pytest.raises(GitHubOperationError, match="not an issue"):
+        store.read_issue_body(pr_num)
+    with pytest.raises(GitHubOperationError, match="not an issue"):
+        store.write_issue_body(pr_num, "fail")
+
+
+def test_repository_visibility_contract(store: InMemoryRoadmapStore) -> None:
+    initial = store.repository_is_private()
+    store.seed_visibility(is_private=True)
+    seeded_private = store.repository_is_private()
+    fresh_private_store = InMemoryRoadmapStore(is_private=True)
+    assert (
+        initial,
+        seeded_private,
+        fresh_private_store.repository_is_private(),
+    ) == (False, True, True)
+
+
+def test_refine_marks_in_job_record(store: InMemoryRoadmapStore) -> None:
+    num = store.seed_issue("refinable")
+    store.add_item(num)
+    item = store.item(num)
+    assert item is not None
+    store.set_marks(
+        item,
+        {
+            RefineRecordKey.BODY_HASH: "abc",
+            RefineRecordKey.SECTION_HASH: "def",
+            RefineRecordKey.NEEDS_SPLIT: "true",
+        },
+    )
+    marked = store.item(num)
+    assert marked is not None
+    assert (
+        marked.job_record.get(RefineRecordKey.BODY_HASH),
+        marked.job_record.get(RefineRecordKey.SECTION_HASH),
+        marked.job_record.get(RefineRecordKey.NEEDS_SPLIT),
+    ) == ("abc", "def", "true")
+
+    # as_actor does not write job record
+    person = store.as_actor("alice")
+    person.set_marks(marked, {RefineRecordKey.NEEDS_SPLIT: "false"})
+    after_person = store.item(num)
+    assert after_person is not None
+    assert after_person.job_record.get(RefineRecordKey.NEEDS_SPLIT) == "true"

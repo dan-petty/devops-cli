@@ -204,6 +204,7 @@ from devops_cli.roadmap.store import (
     JobRecord,
     PullRequest,
     PullRequestState,
+    RefineRecordKey,
     Release,
     RoadmapStore,
     field_options,
@@ -1320,7 +1321,11 @@ def _depends_outside(run: _Run, item: Item, members: list[Item]) -> str | None:
 
 
 def _needs_split(_: _Run, item: Item, __: list[Item]) -> str | None:
-    return "" if CONST_ROADMAP_NEEDS_SPLIT_LABEL in item.labels else None
+    if CONST_ROADMAP_NEEDS_SPLIT_LABEL in item.labels:
+        return ""
+    if item.job_record.get(RefineRecordKey.NEEDS_SPLIT) in {"true", "1", "True"}:
+        return ""
+    return None
 
 
 def _others_done(_: _Run, item: Item, members: list[Item]) -> str | None:

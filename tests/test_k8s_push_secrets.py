@@ -175,6 +175,15 @@ def test_table_holds_this_items_seven_entries_in_five_secrets() -> None:
             None,
             ("deployment/roadmap-service",),
         ),
+        (
+            "devops/devops-cli",
+            "DEVOPS_CLI_TAVILY_API_KEY",
+            "devops",
+            False,
+            None,
+            None,
+            ("deployment/roadmap-service",),
+        ),
     ]
 
 
@@ -279,13 +288,16 @@ def test_env_name_keys_of_devops_cli_feed_their_options() -> None:
         {key: ENV_VAR_TO_OPTION.get(key) for key in option_keys},
         OPTION_TO_ENV_VAR[opt.AI_API_KEY],
         OPTION_TO_ENV_VAR[opt.SERVICE_WEBHOOK_SECRETS],
+        OPTION_TO_ENV_VAR[opt.TAVILY_API_KEY],
     ) == (
         {
             "DEVOPS_CLI_AI_API_KEY": opt.AI_API_KEY,
             "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS": opt.SERVICE_WEBHOOK_SECRETS,
+            "DEVOPS_CLI_TAVILY_API_KEY": opt.TAVILY_API_KEY,
         },
         "DEVOPS_CLI_AI_API_KEY",
         "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS",
+        "DEVOPS_CLI_TAVILY_API_KEY",
     )
 
 
@@ -671,7 +683,7 @@ def test_stack_devops_reads_gh_gateway_key_and_webhook_secrets(
         bool(cluster.commands("gh", "auth", "token")),
     ) == (
         0,
-        {LLM_GATEWAY_MASTER_KEY, "service_webhook_secrets"},
+        {LLM_GATEWAY_MASTER_KEY, "service_webhook_secrets", "tavily_api_key"},
         True,
     )
 
@@ -950,6 +962,7 @@ def test_the_dry_run_lists_exactly_the_requests_a_push_then_makes(
     requests = dry_run_push(selected, options).requests
     planned = [r for r in requests if not r.condition or r.condition in holds]
     stub_keyring.values["service_webhook_secrets"] = "service-secrets-value-0001"
+    stub_keyring.values["tavily_api_key"] = "tavily-secrets-value-0001"
     result = _push(
         "--only",
         "llm/qdrant-api-key",
@@ -970,7 +983,7 @@ def test_the_dry_run_lists_exactly_the_requests_a_push_then_makes(
         [call.argv for call in cluster.calls],
         [f"devops-cli/{key}" for key in stub_keyring.reads],
         [{**i, "data": sorted(i["data"])} for i in applied],
-        ["<>", "<>", "<>", "<>"],
+        ["<>", "<>", "<>", "<>", "<>"],
     )
 
 

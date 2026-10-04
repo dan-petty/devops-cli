@@ -77,6 +77,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_SSH_KEY_DIR` | `ssh.key_dir` | No | Directory for SSH key pairs |
 | `DEVOPS_CLI_SSH_KEY_PREFIX` | `ssh.key_prefix` | No | Prefix for generated SSH keys (defaults to devcontainer name or basename pwd) |
 | `DEVOPS_CLI_SSH_ROTATION_DAYS` | `ssh.rotation_days` | No | SSH key rotation interval in days |
+| `DEVOPS_CLI_TAVILY_API_KEY` | `tavily.api_key` | 🔒 Yes | API key for Tavily search provider |
 | `DEVOPS_CLI_TELEMETRY_ENABLED` | `telemetry.enabled` | No | Export OpenTelemetry traces and metrics: true or false (default: true) |
 | `DEVOPS_CLI_TELEMETRY_ENDPOINT` | `telemetry.endpoint` | No | OpenTelemetry collector that traces and metrics are exported to (default: OTEL_EXPORTER_OTLP_ENDPOINT, else http://localhost:4318) |
 | `DEVOPS_CLI_VALKEY_DB` | `valkey.db` | No | Valkey database index (default: 0) |

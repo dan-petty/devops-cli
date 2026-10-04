@@ -20,6 +20,7 @@ import itertools
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from typing import Any
 
 from devops_cli.config.constants import (
     CONST_GH_PROJECT_JOB_RECORD_FIELD,
@@ -61,6 +62,7 @@ from devops_cli.roadmap.store import (
     MergedPullRequest,
     PullRequest,
     PullRequestState,
+    RefineRecordKey,
     Release,
     RoadmapStore,
     Workflow,
@@ -146,6 +148,7 @@ class _Roadmap:
     job_writes: list[JobWrite] = field(default_factory=list)
     # The run record card's job record, or None while the board has no such card.
     run_record: JobRecord | None = None
+    is_private: bool = False
     ids: Iterator[int] = field(default_factory=lambda: itertools.count(1))
 
     def new_id(self, kind: str) -> str:
@@ -167,11 +170,12 @@ class InMemoryRoadmapStore(RoadmapStore):
         board_options: Mapping[ItemField, Iterable[str]] | None = None,
         job_record_field: bool = True,
         board_exists: bool = True,
+        is_private: bool = False,
         repo: str = DEFAULT_ROADMAP_MEMORY_REPO,
         actor: str = DEFAULT_ROADMAP_MEMORY_ACTOR,
         clock: Callable[[], datetime] = _utc_now,
     ) -> None:
-        self._roadmap = _Roadmap(repo=repo, clock=clock, board=None)
+        self._roadmap = _Roadmap(repo=repo, clock=clock, board=None, is_private=is_private)
         self._actor = actor
         self._writes_job_record = True
         if board_exists:
@@ -257,6 +261,10 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Give the board a built-in workflow that is on or off."""
         number = len(self._roadmap.workflows) + 1
         self._roadmap.workflows.append(Workflow(number=number, name=name, enabled=enabled))
+
+    def seed_visibility(self, *, is_private: bool) -> None:
+        """Set whether the repository is private."""
+        self._roadmap.is_private = is_private
 
     def edit_options_by_hand(self, name: str, options: Sequence[FieldOption]) -> BoardField:
         """Edit field `name`'s options as a person does in the board's field settings.
@@ -541,6 +549,22 @@ class InMemoryRoadmapStore(RoadmapStore):
             )
         return text
 
+    def repository_is_private(self) -> bool:
+        """Whether the repository is private."""
+        return self._roadmap.is_private
+
+    def read_issue_body(self, number: int) -> str:
+        """The body of issue `number`, raising if it is not an issue of this repository."""
+        issue = self._require_issue(number, "roadmap.issue.read_body")
+        return issue.body
+
+    def write_issue_body(self, number: int, body: str) -> None:
+        """Write `body` as the body of issue `number`, raising if it is not an issue of this repository."""
+        issue = self._require_issue(number, "roadmap.issue.write_body")
+        self._roadmap.issues[number] = issue.model_copy(update={"body": body})
+        self._log("write_issue_body", number, value=body)
+        self._record(ChangeKind.EDITED, number, issue.release)
+
     # ── Items ──
 
     def item(self, number: int) -> Item | None:
@@ -595,7 +619,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         field: ItemField,
         value: str | None,
         *,
-        marks: Mapping[JobMark, str | None] | None = None,
+        marks: Mapping[Any, str | None] | None = None,
     ) -> None:
         """Set or clear one of the Item's fields; the store's own writes also record the value,
         and `marks` with it, in one step, so no write stops between the two.
@@ -620,7 +644,7 @@ class InMemoryRoadmapStore(RoadmapStore):
     def set_marks(
         self,
         item: Item,
-        marks: Mapping[JobMark, str | None],
+        marks: Mapping[Any, str | None],
         *,
         recorded: Mapping[ItemField, str | None] | None = None,
         forgotten: Collection[ItemField] = (),
@@ -648,7 +672,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._require_board()
         return dict(self._roadmap.run_record or {})
 
-    def set_run_record(self, marks: Mapping[JobMark, str | None]) -> None:
+    def set_run_record(self, marks: Mapping[Any, str | None]) -> None:
         """Set or clear marks in the run record, putting its card on the board when needed."""
         self._require_board()
         require_job_record_field(self._roadmap.board_fields)
@@ -967,7 +991,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             )
 
     def _recorded(
-        self, entry: BoardEntry, field: ItemField | JobMark, value: str | None
+        self, entry: BoardEntry, field: ItemField | JobMark | RefineRecordKey, value: str | None
     ) -> BoardEntry:
         if not self._writes_job_record:
             return entry

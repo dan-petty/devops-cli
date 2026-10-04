@@ -452,6 +452,12 @@ def build_secret_registry(keyring_keys: dict[str, str]) -> dict[str, SecretRef]:
             ("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS",),
             None,
         ),
+        (
+            opt.TAVILY_API_KEY,
+            "tavily_api_key",
+            ("DEVOPS_CLI_TAVILY_API_KEY", "TAVILY_API_KEY"),
+            "tavily.api_key",
+        ),
     )
 
     return {

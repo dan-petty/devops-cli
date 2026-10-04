@@ -734,6 +734,31 @@ def roadmap_run(repo: str | None = None) -> tuple[str, ...]:
 
 
 @mcp.tool()
+def roadmap_refine(
+    repo: str | None = None,
+    ref: str | None = None,
+    item: int | None = None,
+    limit: int | None = None,
+    source: str | None = None,
+) -> str:
+    """Run a dry run of item refinement: returns the refinement plan without making any writes.
+
+    It never accepts a confirm argument, ensuring it is strictly read-only.
+    """
+    cmd = ["uv", "run", "devops", "roadmap", "refine"]
+    for name, value in (("repo", repo), ("ref", ref), ("source", source)):
+        if value:
+            _validate_mcp_arg(name, value)
+            cmd.extend([f"--{name}", value])
+    if item is not None:
+        cmd.extend(["--item", str(item)])
+    if limit is not None:
+        cmd.extend(["--limit", str(limit)])
+    cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def roadmap_intake(
     repo: str | None = None,
     ref: str | None = None,

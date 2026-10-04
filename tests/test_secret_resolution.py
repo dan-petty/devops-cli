@@ -362,6 +362,17 @@ def test_every_registry_entry_declares_a_keyring_key() -> None:
     assert all(ref.keyring_key for ref in registry.values())
 
 
+def test_tavily_api_key_is_in_secrets_registry_and_secret_options() -> None:
+    from devops_cli.config import options as opt
+
+    registry = build_secret_registry(opt.KEYRING_KEYS)
+    assert (
+        opt.TAVILY_API_KEY in opt.SECRET_CONFIG_OPTIONS,
+        opt.TAVILY_API_KEY in registry,
+        registry[opt.TAVILY_API_KEY].keyring_key,
+    ) == (True, True, "tavily_api_key")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Vault authentication
 # ─────────────────────────────────────────────────────────────────────────────

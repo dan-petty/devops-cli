@@ -136,6 +136,7 @@ def test_fastmcp_tools_registration() -> None:
         "gh_run_view",
         "roadmap_intake",
         "roadmap_migrate",
+        "roadmap_refine",
         "roadmap_render",
         "roadmap_reprioritize",
         "roadmap_run",
@@ -1394,6 +1395,52 @@ def test_the_roadmap_tools_build_the_commands_argv() -> None:
         [*head, "run", "--dry-run"],
         [*head, "run", "--repo", "dan-petty/devops-cli", "--dry-run"],
     ]
+
+
+def test_roadmap_refine_contract_and_argv() -> None:
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import roadmap_refine
+
+    params = _roadmap_tool_parameters("roadmap_refine")
+    assert "confirm" not in params
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
+        roadmap_refine()
+        roadmap_refine(
+            repo="dan-petty/devops-cli",
+            ref="release/v0.2.26",
+            item=744,
+            limit=1,
+            source=".",
+        )
+
+    head = ["uv", "run", "devops", "roadmap", "refine"]
+    calls = [call.args[0] for call in run.call_args_list]
+    assert (
+        calls[0],
+        calls[1],
+        all(c[-1] == "--dry-run" for c in calls),
+        any("--confirm" in c for c in calls),
+    ) == (
+        [*head, "--dry-run"],
+        [
+            *head,
+            "--repo",
+            "dan-petty/devops-cli",
+            "--ref",
+            "release/v0.2.26",
+            "--source",
+            ".",
+            "--item",
+            "744",
+            "--limit",
+            "1",
+            "--dry-run",
+        ],
+        True,
+        False,
+    )
 
 
 # =============================================================================
