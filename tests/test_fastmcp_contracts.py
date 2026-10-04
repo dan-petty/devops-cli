@@ -1313,7 +1313,8 @@ def _roadmap_tool_parameters(name: str) -> dict[str, object]:
 
 
 def test_the_roadmap_tools_are_registered_and_migrate_only_previews() -> None:
-    """`roadmap_migrate` has no confirm mode: a bulk change is never one tool call away.
+    """`roadmap_migrate` and `roadmap_close` have no confirm mode: a bulk change is never one
+    tool call away (#743 closes issues and cuts the release).
 
     Each roadmap tool takes a `mode` whose default, `plan`, previews; `dry-run` makes no
     request (#412, #1125), and only `roadmap_reprioritize` can `confirm` (#740).
@@ -1321,11 +1322,13 @@ def test_the_roadmap_tools_are_registered_and_migrate_only_previews() -> None:
     render = _roadmap_tool_parameters("roadmap_render")
     migrate = _roadmap_tool_parameters("roadmap_migrate")
     reprioritize = _roadmap_tool_parameters("roadmap_reprioritize")
+    close = _roadmap_tool_parameters("roadmap_close")
     modes = [
         (tool["mode"].get("default"), tool["mode"].get("enum"))  # type: ignore[attr-defined]
-        for tool in (render, migrate, reprioritize)
+        for tool in (render, migrate, reprioritize, close)
     ]
-    assert (sorted(render), sorted(migrate), sorted(reprioritize), modes) == (
+    assert (sorted(render), sorted(migrate), sorted(reprioritize), sorted(close), modes) == (
+        ["mode", "ref", "repo"],
         ["mode", "ref", "repo"],
         ["mode", "ref", "repo"],
         ["mode", "ref", "repo"],
@@ -1333,6 +1336,7 @@ def test_the_roadmap_tools_are_registered_and_migrate_only_previews() -> None:
             ("plan", ["dry-run", "plan", "write"]),
             ("plan", ["dry-run", "plan"]),
             ("plan", ["dry-run", "plan", "confirm"]),
+            ("plan", ["dry-run", "plan"]),
         ],
     )
 

@@ -11,7 +11,7 @@
               "state": "MERGED",
               "isDraft": false,
               "baseRefName": "main",
-              "headRefName": "release/v0.2.24",
+              "headRefName": "chore/cut-v0.2.24",
               "body": "## feat(release): v0.2.24",
               "updatedAt": "2026-10-01T22:39:30Z",
               "labels": {

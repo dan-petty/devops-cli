@@ -3,7 +3,8 @@ current release's rules and intake, the one way new work becomes an item.
 
 Every command reads `.github/roadmap.toml` through the contents API at `--ref`, then opens the
 roadmap store on the board it names. `migrate` writes to GitHub only with `--confirm`, and only
-once a person has made the option edits its plan lists; `render` writes no GitHub state, only
+once a person has made the option edits its plan lists; `close` closes delivered items and cuts
+the release only with `--confirm`, the cut in the clone at `--root`; `render` writes no GitHub state, only
 `docs/ROADMAP.md`, which git review covers. `reprioritize` and `intake` write GitHub state only
 with `--confirm`, and never a commit.
 
@@ -42,6 +43,14 @@ from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success, write_stdout
 from devops_cli.output.file_writer import write_text_file
+from devops_cli.roadmap.close import (
+    CUT_FILES,
+    Cut,
+    apply_close,
+    dry_run_close,
+    plan_close,
+    render_close,
+)
 from devops_cli.roadmap.config import RoadmapConfig, open_roadmap
 from devops_cli.roadmap.intake import (
     BorrowReason,
@@ -62,7 +71,7 @@ from devops_cli.roadmap.migrate import (
     render_report,
     require_option_edits_made,
 )
-from devops_cli.roadmap.render import dry_run_render, render
+from devops_cli.roadmap.render import dry_run_render, render, render_roadmap
 from devops_cli.roadmap.reprioritize import (
     apply_reprioritization,
     dry_run_reprioritization,
@@ -73,7 +82,9 @@ from devops_cli.roadmap.request_plan import render_dry_run
 from devops_cli.roadmap.store import RoadmapStore
 
 if TYPE_CHECKING:
+    from devops_cli.github.check_verdict import CheckVerdictSummary
     from devops_cli.roadmap.github_store import GhRunner
+    from devops_cli.roadmap.store import MergedPullRequest
 
 logger = logging.getLogger(__name__)
 
@@ -392,3 +403,74 @@ def _intake(
     )
     for number in applied.filed:
         print_info(MESSAGES.roadmap.intake_filed.format(number=number))
+
+
+@app.command("close", help=HELP.roadmap.close)
+def close_cmd(
+    repo: RepoOption = None,
+    ref: RefOption = None,
+    root: Annotated[
+        Path, typer.Option("--root", file_okay=False, help=HELP.roadmap.close_root)
+    ] = Path(),
+    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.close_confirm)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.close_dry_run)] = False,
+    plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.close_plan)] = False,
+) -> None:
+    """Close each delivered item with a summary, and cut the release once it holds no open item."""
+    _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
+    if dry_run or is_dry_run():
+        target = _target(repo)
+        plan = dry_run_close(target, ref=ref)
+        notes = [MESSAGES.roadmap.close_dry_run_note.format(files=", ".join(CUT_FILES))]
+        render_dry_run("close", target, plan.requests, plan.write_requests, notes=notes)
+        return
+    opened: list[RoadmapStore] = []
+    with _reporting_spend(opened):
+        _close(repo, ref, root, confirm=confirm, opened=opened)
+
+
+def _close(
+    repo: str | None, ref: str | None, root: Path, *, confirm: bool, opened: list[RoadmapStore]
+) -> None:
+    from devops_cli.github.check_verdict import fetch_pr_check_verdicts
+
+    with _exit_on_failure("Could not plan closure"):
+        target, config, store = _open_roadmap(repo, ref, CONST_ROADMAP_RENDER_BOARD_FILTER)
+        opened.append(store)
+
+        def checks(pull_request: MergedPullRequest) -> CheckVerdictSummary:
+            return fetch_pr_check_verdicts(
+                pull_request.number, repo=target, head_sha=pull_request.head_commit
+            )
+
+        plan = plan_close(store, repo=target, checks=checks)
+    write_stdout(render_close(plan))
+    if plan.has_writes and not confirm:
+        print_info(MESSAGES.roadmap.close_preview)
+    elif plan.has_writes:
+
+        def cut(planned: Cut) -> None:
+            from devops_cli.commands.release import cut_release
+
+            def write_roadmap(clone: Path) -> None:
+                text = render_roadmap(store, repo=target, config=config)
+                write_text_file(
+                    clone / CONST_ROADMAP_DOCUMENT_PATH, text, mode=CONST_ROADMAP_RENDER_FILE_MODE
+                )
+
+            cut_release(
+                version=planned.version,
+                base=planned.base,
+                draft=False,
+                sync_docs=False,
+                is_prepare=True,
+                repo_root=root.resolve(),
+                edits=write_roadmap,
+            )
+
+        with _exit_on_failure("Closure stopped part-way; run it again to continue"):
+            apply_close(store, plan, cut)
+        print_success(MESSAGES.roadmap.close_applied.format(count=len(plan.closings)))
+    if plan.unread:
+        print_error(MESSAGES.roadmap.close_failed.format(count=len(plan.unread)))
+        raise typer.Exit(1)

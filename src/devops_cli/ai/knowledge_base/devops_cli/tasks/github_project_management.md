@@ -196,7 +196,7 @@ AI coding agents have native access to GitHub project management through these F
 - **Projects**: `gh_project_list`, `gh_project_status`, `gh_project_audit`, `gh_project_sync`
 - **Views**: `gh_views_audit`, `gh_views_sync`, `gh_view_spec`
 - **Milestones**: `gh_milestone_list`, `gh_milestone_close`
-- **Roadmap**: `roadmap_render` (`mode="plan"` by default; `"write"` writes the file), `roadmap_migrate` (preview only), `roadmap_reprioritize` (`"confirm"` writes) and `roadmap_intake` (`"confirm"` writes): each takes a `mode` whose default, `"plan"`, reads GitHub and writes nothing, and whose `"dry-run"` makes no request
+- **Roadmap**: `roadmap_render` (`mode="plan"` by default; `"write"` writes the file), `roadmap_migrate` (preview only), `roadmap_close` (preview only), `roadmap_reprioritize` (`"confirm"` writes) and `roadmap_intake` (`"confirm"` writes): each takes a `mode` whose default, `"plan"`, reads GitHub and writes nothing, and whose `"dry-run"` makes no request
 - **Labels**: `gh_label_list`, `gh_label_sync`
 
 ### Registered Dynamic System Resources

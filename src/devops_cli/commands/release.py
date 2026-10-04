@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import sys
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, NamedTuple
@@ -1079,23 +1080,29 @@ def _commit_and_push_cut_branch(
         raise typer.Exit(1)
 
 
+def milestone_issues_args(milestone_tag: str) -> list[str]:
+    """The `gh` arguments that list the issue numbers in milestone `milestone_tag`."""
+    return [
+        *("issue", "list", "--milestone", milestone_tag, "--state", "all"),
+        *("--json", "number", "--limit", "100"),
+    ]
+
+
+def milestone_pull_requests_args(milestone_tag: str) -> list[str]:
+    """The `gh` arguments that list the pull requests in milestone `milestone_tag`."""
+    search = f"milestone:{milestone_tag}"
+    return [
+        *("pr", "list", "--search", search, "--state", "all"),
+        *("--json", "number,title", "--limit", "100"),
+    ]
+
+
 def _fetch_raw_milestone_issue_numbers(
     run_gh_fn: Any, repo_root: Path, milestone_tag: str
 ) -> set[int]:
     """Fetch all open and closed issue numbers associated with milestone."""
     proc = run_gh_fn(
-        [
-            "issue",
-            "list",
-            "--milestone",
-            milestone_tag,
-            "--state",
-            "all",
-            "--json",
-            "number",
-            "--limit",
-            "100",
-        ],
+        milestone_issues_args(milestone_tag),
         cwd=repo_root,
         quiet=True,
         use_cache=False,
@@ -1114,18 +1121,7 @@ def _fetch_raw_milestone_pr_numbers(
 ) -> set[int]:
     """Fetch standalone PR numbers associated with milestone that don't close an existing issue."""
     pr_proc = run_gh_fn(
-        [
-            "pr",
-            "list",
-            "--search",
-            f"milestone:{milestone_tag}",
-            "--state",
-            "all",
-            "--json",
-            "number,title",
-            "--limit",
-            "100",
-        ],
+        milestone_pull_requests_args(milestone_tag),
         cwd=repo_root,
         quiet=True,
         use_cache=False,
@@ -1339,8 +1335,13 @@ def cut_release(
     sync_docs: bool = True,
     is_prepare: bool = False,
     repo_root: Path | None = None,
+    edits: Callable[[Path], None] | None = None,
 ) -> None:
-    """Execute fail-closed release cut orchestration from origin release branch tip."""
+    """Execute fail-closed release cut orchestration from origin release branch tip.
+
+    `edits`, when given, runs on the cut branch after the version bump and before the commit,
+    as `devops roadmap close` writes `docs/ROADMAP.md` there (#743).
+    """
     root = _get_project_root(repo_root)
     target_ver = _validate_release_version(version, root)
     cut_branch = f"chore/cut-v{target_ver}"
@@ -1373,6 +1374,8 @@ def cut_release(
 
     if is_prepare:
         _apply_cut_modifications(root, target_ver, sync_docs=sync_docs)
+        if edits is not None:
+            edits(root)
     else:
         tip_ver = _get_pyproject_version(root)
         if tip_ver:

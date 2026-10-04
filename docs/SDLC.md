@@ -346,7 +346,7 @@ flowchart TD
 | **4. Pre-Commit**    | Git Hook Interception | `uv run pre-commit run --all-files` | 12/12 hooks passing |
 | **5. AI Review**     | Multi-Persona Review | `devops review branch <branch> --dry-run` | Zero high/critical unmitigated findings |
 | **6. PR Lifecycle**  | Branch Governance | `devops pr create --base release/vX.Y.Z` | CODEOWNERS notified; remote CI checks green |
-| **6. Release**       | Release Train | `devops release prepare <version> --create-pr` | Automated changelog, tag, and GitHub Release |
+| **6. Release**       | Release Train | `devops roadmap close --confirm` (manual fallback: `devops release prepare <version> --create-pr`) | Items closed with summaries; release PR cut; tag and GitHub Release |
 | **7. Observability** | Telemetry Audit | `devops telemetry status` | Active trace spans and Prometheus counters |
 
 ---

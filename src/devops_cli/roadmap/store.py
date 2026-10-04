@@ -184,6 +184,11 @@ def is_release_title(title: str) -> bool:
     return _version_of(title) is not None
 
 
+def release_cut_branch(version: str) -> str:
+    """The branch the Release of `version` is cut on: `chore/cut-vX.Y.Z` (#982)."""
+    return f"chore/cut-v{parse_release_version(version)}"
+
+
 def release_title(version: str) -> str:
     """The milestone title a Release of `version` carries: the normalized version after a `v`."""
     return f"v{parse_release_version(version)}"
@@ -454,6 +459,23 @@ class PullRequest(BaseModel):
         return state.lower() if isinstance(state, str) else state
 
 
+class MergedPullRequest(BaseModel):
+    """A pull request merged into a branch: what it says, the commits it merged, and the
+    paths it changed, which closure quotes and reads task files from (#743)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    number: int
+    url: str
+    title: str = ""
+    body: str = ""
+    labels: tuple[str, ...] = ()
+    release: str | None = None
+    merge_commit: str
+    head_commit: str
+    changed_paths: tuple[str, ...] = ()
+
+
 class Branch(BaseModel):
     """A branch and the commit at its head."""
 
@@ -541,10 +563,11 @@ def is_release_pull_request(
     pull_request: PullRequest, version: Version, default_branch: str
 ) -> bool:
     """Whether `pull_request` is the Release's pull request, open or not: into the default branch,
-    with the `release` label and the Release's milestone.
+    with the `release` label and the Release's milestone. While one is open, the Release is cut,
+    draft or not.
 
-    Its head is no test: `devops release pr` opens it from `release/vX.Y.Z`, and #743's cut
-    from `chore/release-vX.Y.Z`. While one is open, the Release is cut, draft or not.
+    Its head is no test here, so a renamed Release keeps its pull request; the cut opens it from
+    `release_cut_branch` (#982), which `devops roadmap close` also requires (#743).
     """
     return (
         pull_request.base == default_branch
@@ -813,6 +836,10 @@ class RoadmapStore(Protocol):
         """Every pull request, open, closed or merged, with the `release` label and the milestone
         of the Release of `version`, raising if there is no such Release."""
 
+    def merged_pull_requests(self, base: str) -> list[MergedPullRequest]:
+        """Every pull request merged into branch `base`, oldest first, with the paths each
+        changed; a read that can't complete raises and returns no part of the list."""
+
     def release_published(self, version: str) -> bool:
         """Whether GitHub Release `vX.Y.Z` of `version` is published; a draft is not."""
 
@@ -912,6 +939,7 @@ __all__ = [
     "ItemField",
     "JobMark",
     "JobRecord",
+    "MergedPullRequest",
     "PullRequest",
     "PullRequestState",
     "Release",
@@ -926,6 +954,7 @@ __all__ = [
     "is_release_title",
     "join_items",
     "parse_release_version",
+    "release_cut_branch",
     "release_edits",
     "release_title",
     "require_board_field",

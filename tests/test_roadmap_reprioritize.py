@@ -193,7 +193,7 @@ class Roadmap:
         return self.person.open_pull_request(
             f"feat(release): {release}",
             base="main",
-            head=f"release/{release}",
+            head=f"chore/cut-{release}",
             labels=("release",),
             release=release,
             draft=draft,

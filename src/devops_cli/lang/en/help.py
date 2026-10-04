@@ -861,14 +861,6 @@ class GHCommandHelp:
     )
     issues_status: str = "Display aggregated issue counts by priority, type, and milestone."
     issues_edit: str = "Edit an existing issue title, body, state, milestone, or taxonomy labels."
-    issues_close_merged: str = (
-        "Close issues linked by merged pull requests. GitHub only honours closing keywords "
-        "when a pull request merges into the default branch, so pull requests targeting a "
-        "release branch leave their issues open."
-    )
-    close_merged_pr: str = "Close issues for this single pull request instead of sweeping."
-    close_merged_base: str = "Only consider merged pull requests with this base branch."
-    close_merged_limit: str = "Maximum merged pull requests to examine."
     branch_protection_app: str = "Manage declarative branch protection rulesets and policies."
     branch_protection_audit: str = (
         "Audit repository branch protection rulesets against declarative policy specification."
@@ -973,6 +965,29 @@ class RoadmapCommandHelp:
         "Read GitHub, print each change with its reason, write nothing, and end with the "
         "GraphQL points spent and left. Reprioritize without a mode flag does this."
     )
+    close: str = (
+        "Close each item delivered to the current release, and cut the release once it holds "
+        "no open item. Reads every pull request merged into release/vX.Y.Z and closes as "
+        "completed each open issue a body closes with a closing keyword, commenting what "
+        "changed and how it was verified (check runs and the task file's Acceptance Criteria). "
+        "Once the release has no open item, one item closed as completed and no release pull "
+        "request, writes docs/ROADMAP.md on chore/cut-vX.Y.Z in the clone at --root, bumps the "
+        "version, pushes, and opens the release pull request into the default branch. Lists "
+        "completed items with no changelog fragment. Writes only with --confirm."
+    )
+    close_confirm: str = (
+        "Close the issues and make the cut. Without it, close prints its plan only."
+    )
+    close_dry_run: str = (
+        "Make no request and change no git ref: print the requests a run makes, in order, with "
+        "placeholders for values a read gives."
+    )
+    close_plan: str = (
+        "Read GitHub, print each issue the run closes with its comment and the cut or what "
+        "holds it, write nothing, and end with the GraphQL points spent and left. Close "
+        "without a mode flag does this."
+    )
+    close_root: str = "The clone the cut runs git in (default: the current directory)."
     intake: str = (
         "Turn candidates into items: every open issue not on the board, and every board item "
         "intake left without a Priority. Each is checked for a duplicate among the board's "

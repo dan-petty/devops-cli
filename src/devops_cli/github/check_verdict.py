@@ -308,6 +308,12 @@ def _resolve_head_sha(number: int, repo: str | None, runner: Any = run_gh) -> st
         return ""
 
 
+def pr_checks_args(number: int | str, repo: str | None = None) -> list[str]:
+    """The `gh pr checks` command that reads pull request `number`'s check runs as JSON."""
+    cmd = [CONST_GH_CLI, "pr", "checks", str(number), "--json", "name,state,bucket,workflow,link"]
+    return [*cmd, "--repo", repo] if repo else cmd
+
+
 def fetch_pr_check_verdicts(
     number: int,
     repo: str | None = None,
@@ -320,16 +326,7 @@ def fetch_pr_check_verdicts(
     If that fails, returns invalid JSON, or fails closed, falls back to REST check-runs API.
     """
     gh_runner = runner if runner is not None else run_gh
-    cmd = [
-        CONST_GH_CLI,
-        "pr",
-        "checks",
-        str(number),
-        "--json",
-        "name,state,bucket,workflow,link",
-    ]
-    if repo:
-        cmd.extend(["--repo", repo])
+    cmd = pr_checks_args(number, repo)
 
     res = gh_runner(cmd, check=False, quiet=True)
     if res.returncode == 0 and res.stdout.strip():

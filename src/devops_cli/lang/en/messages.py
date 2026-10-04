@@ -1378,6 +1378,14 @@ class RoadmapMessages:
             "create_field": "create or align a template field on the new board",
             "delete_field": "delete the {field} field",
             "budget": "GraphQL's points spent and left, for the run's last line",
+            "merged_prs": "the pull requests merged into {branch}",
+            "pr_files": "the files pull request {subject} changed",
+            "pr_checks": "the check runs of pull request {subject}",
+            "milestone_issues": "the issues in milestone {release}, for the pull request body",
+            "milestone_prs": "the pull requests in milestone {release}, for the pull request body",
+            "pr_create": "open the release pull request from {branch}",
+            "git_fetch": "fetch {branch} from origin into the clone",
+            "git_push": "push {branch} to origin, replacing an earlier cut",
         }
     )
     plan_conditions: dict[str, str] = field(
@@ -1405,6 +1413,10 @@ class RoadmapMessages:
             "not_planned": "the roadmap lists a rejected idea",
             "unfiled": "the rejected idea has no issue",
             "done": "the run is done: it comes after any write",
+            "closes": "a merged pull request closes an open issue",
+            "task_file": "the pull request changed a task file of the issue",
+            "no_open": "the release holds no open item",
+            "cut": "the release is due to be cut",
         }
     )
     plan_repeat: dict[str, str] = field(
@@ -1415,8 +1427,65 @@ class RoadmapMessages:
             "write": "for each such write",
             "evidence": "for each piece of evidence the model cites",
             "field": "for each template field",
+            "merged": "for each merged pull request",
+            "closing": "for each issue the run closes",
+            "completed": "for each item closed as completed",
         }
     )
+    # `devops roadmap close` (#743).
+    close_title: str = "# Closure for {repo}, release {release}"
+    close_closing: str = "Close #{number} as completed (delivered by #{pull_request}), commenting:"
+    close_nothing: str = "No open issue to close."
+    close_unread: str = (
+        "Pull request #{number} closes {issues}, which stay open: its check runs could not be "
+        "read ({reason}). The next run retries."
+    )
+    close_holds: dict[str, str] = field(
+        default_factory=lambda: {
+            "no_release": "No cut: there is no open Release.",
+            "unread": "No cut for {release}: a pull request's check runs could not be read.",
+            "open_items": "No cut for {release}: these items are still open:",
+            "nothing_delivered": (
+                "No cut for {release}: no item in it was closed as completed, so it delivers "
+                "nothing."
+            ),
+            "pr_open": "No cut for {release}: its release pull request #{number} is open.",
+            "pr_merged": (
+                "No cut for {release}: its release pull request #{number} has merged, so it "
+                "has shipped."
+            ),
+        }
+    )
+    close_open_item: str = "- #{number} {title}"
+    close_cut: str = "Cut: push {branch} and open the release pull request into {base}, '{title}'."
+    close_cut_files: str = "The cut commit changes {files}."
+    close_cut_fragments: str = (
+        "Changelog fragments on the release branch, left uncollected: {fragments}."
+    )
+    close_cut_missing: str = (
+        "Closed as completed with no changelog fragment (a person adds it on the release pull "
+        "request): {items}."
+    )
+    close_none: str = "none"
+    close_dry_run_note: str = (
+        "A cut commits {files} on chore/cut-<release> and opens it ready for review. --plan "
+        "reads GitHub and lists each issue the run closes with its comment, the fragments on "
+        "the release branch, left uncollected, and the completed items with none."
+    )
+    close_preview: str = "Nothing was written; pass --confirm to close these and make the cut."
+    close_applied: str = "Closed {count} issue(s)."
+    close_failed: str = "Closure is incomplete: {count} pull request(s) had unreadable check runs."
+    close_criteria_heading: str = "Acceptance Criteria"
+    close_comment_changed: str = "### What changed"
+    close_comment_merged: str = "{url}, merged into `{branch}` as {commit}."
+    close_comment_files: str = "{count} file(s) changed."
+    close_comment_verified: str = "### How it was verified"
+    close_comment_checks: str = "Check runs at {commit}:"
+    close_comment_check: str = "- {name}: {bucket}"
+    close_comment_no_checks: str = "No check runs."
+    close_comment_task: str = "Acceptance Criteria of `{path}`:"
+    close_comment_no_criteria: str = "No Acceptance Criteria section."
+    close_comment_no_task: str = "No task file."
     # `devops roadmap intake` (#742).
     intake_title: str = "# Intake for {repo}"
     intake_quota: str = (

@@ -58,6 +58,7 @@ from devops_cli.roadmap.store import (
     ItemField,
     JobMark,
     JobRecord,
+    MergedPullRequest,
     PullRequest,
     PullRequestState,
     Release,
@@ -132,6 +133,7 @@ class _Roadmap:
     status_times: dict[int, datetime] = field(default_factory=dict)
     dependencies: dict[int, list[int]] = field(default_factory=dict)
     pull_requests: dict[int, PullRequest] = field(default_factory=dict)
+    merged_paths: dict[int, tuple[str, ...]] = field(default_factory=dict)
     published: set[str] = field(default_factory=set)
     closures: dict[int, list[Closure]] = field(default_factory=dict)
     evidence: set[Evidence] = field(default_factory=set)
@@ -345,6 +347,23 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._roadmap.pull_requests[number] = opened
         if self._is_release_pull_request(opened):
             self._record(ChangeKind.RELEASE_CUT, number, release)
+        return number
+
+    def merge_pull_request(
+        self,
+        title: str,
+        *,
+        base: str,
+        body: str = "",
+        changed_paths: Iterable[str] = (),
+        release: str | None = None,
+    ) -> int:
+        """Open a pull request into `base` that changes `changed_paths`, and merge it."""
+        number = self.open_pull_request(
+            title, base=base, head="feat/item", body=body, release=release
+        )
+        self._roadmap.merged_paths[number] = tuple(changed_paths)
+        self.close_pull_request(number, merged=True)
         return number
 
     def close_pull_request(self, number: int, *, merged: bool = False) -> None:
@@ -682,6 +701,24 @@ class InMemoryRoadmapStore(RoadmapStore):
             pull_request
             for _, pull_request in sorted(self._roadmap.pull_requests.items())
             if is_release_pull_request(pull_request, wanted.version, pull_request.base)
+        ]
+
+    def merged_pull_requests(self, base: str) -> list[MergedPullRequest]:
+        """Every pull request merged into `base`, by number, its commits named for it."""
+        return [
+            MergedPullRequest(
+                number=number,
+                url=pull_request.url,
+                title=self._roadmap.issues[number].title,
+                body=pull_request.body,
+                labels=pull_request.labels,
+                release=pull_request.release,
+                merge_commit=f"{number:040x}",
+                head_commit=f"{number:040x}"[::-1],
+                changed_paths=self._roadmap.merged_paths.get(number, ()),
+            )
+            for number, pull_request in sorted(self._roadmap.pull_requests.items())
+            if pull_request.state is PullRequestState.MERGED and pull_request.base == base
         ]
 
     def release_published(self, version: str) -> bool:
