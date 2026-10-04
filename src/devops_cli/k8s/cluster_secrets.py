@@ -232,7 +232,13 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 adopt_from=SecretKeyRef("llm", "llm-gateway-secrets", "master-key"),
                 value_prefix=LITELLM_KEY_PREFIX,
             ),
+            SecretEntry(
+                "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS",
+                KeyringSource("service_webhook_secrets", opt.SERVICE_WEBHOOK_SECRETS),
+                required=False,
+            ),
         ),
+        restarts=(Workload("deployment", "roadmap-service"),),
         labels={"app.kubernetes.io/name": "devops-cli"},
     ),
 )

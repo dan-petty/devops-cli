@@ -6,6 +6,7 @@ resources:
 - configmap.yaml
 - cronjob.yaml
 - networkpolicy.yaml
+- roadmap-service
 images:
 - name: ghcr.io/dan-petty/devops-cli/service
   newTag: v0.2.26
