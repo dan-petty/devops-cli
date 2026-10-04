@@ -7,8 +7,10 @@ import importlib
 import os
 import re
 import shlex
+import subprocess
 import sys
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -146,6 +148,21 @@ class CheckResult(BaseModel):
     duration_seconds: float
     stdout: str = ""
     stderr: str = ""
+    timed_out: bool = False
+    timeout_seconds: float | None = None
+
+
+class CheckSpec(BaseModel):
+    """Specification defining an individual CI quality gate check."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    display_title: str
+    cmd: list[str]
+    span_name: str
+    metric_step: str
+    fix_cmd: list[str] | None = None
 
 
 # =============================================================================
@@ -257,45 +274,90 @@ def _format_check_badge(passed: bool) -> str:
 
 
 async def _execute_check_async(
-    name: str,
-    display_title: str,
-    cmd: list[str],
-    span_name: str,
-    metric_step: str,
+    spec: CheckSpec | str,
+    display_title: str | None = None,
+    cmd: list[str] | None = None,
+    span_name: str | None = None,
+    metric_step: str | None = None,
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    capture_output: bool = True,
+    apply_fix: bool = False,
 ) -> CheckResult:
     """Execute an individual CI verification step asynchronously and record telemetry."""
+    if isinstance(spec, str):
+        check_spec = CheckSpec(
+            name=spec,
+            display_title=display_title or spec,
+            cmd=cmd or [],
+            span_name=span_name or f"ci.step.{spec}",
+            metric_step=metric_step or spec,
+        )
+    else:
+        check_spec = spec
+
     start_time = time.perf_counter()
     root = _get_project_root()
-    full_cmd = list(cmd)
+
+    if apply_fix and check_spec.fix_cmd and check_spec.name == "docs":
+        fix_cmd = list(check_spec.fix_cmd)
+        if fix_cmd and fix_cmd[0] == "uv" and "--preview-features" not in fix_cmd:
+            fix_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
+        await _get("run_subprocess_async")(
+            fix_cmd, cwd=root, timeout=timeout, capture_output=capture_output
+        )
+
+    full_cmd = list(check_spec.cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
         full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
 
-    with _get("trace_span")(span_name):
-        proc = await _get("run_subprocess_async")(
-            full_cmd,
-            cwd=root,
-            timeout=timeout,
-            capture_output=True,
-        )
-        passed = proc.returncode == 0
-        dur = time.perf_counter() - start_time
-        _get("record_metric")(
-            "ci.step_pass", 1.0 if passed else 0.0, attributes={"step": metric_step}
-        )
-        from devops_cli.output import format_duration
+    with _get("trace_span")(check_spec.span_name):
+        try:
+            proc = await _get("run_subprocess_async")(
+                full_cmd,
+                cwd=root,
+                timeout=timeout,
+                capture_output=capture_output,
+            )
+            passed = proc.returncode == 0
+            dur = time.perf_counter() - start_time
+            _get("record_metric")(
+                "ci.step_pass", 1.0 if passed else 0.0, attributes={"step": check_spec.metric_step}
+            )
+            from devops_cli.output import format_duration
 
-        badge = _format_check_badge(passed)
-        _get("print_muted")(f"  {badge} [{name}] {display_title} ({format_duration(dur)})")
-        sys.stdout.flush()
-        return CheckResult(
-            name=name,
-            display_title=display_title,
-            passed=passed,
-            duration_seconds=dur,
-            stdout=_format_process_output(getattr(proc, "stdout", "")),
-            stderr=_format_process_output(getattr(proc, "stderr", "")),
-        )
+            badge = _format_check_badge(passed)
+            _get("print_muted")(
+                f"  {badge} [{check_spec.name}] {check_spec.display_title} ({format_duration(dur)})"
+            )
+            sys.stdout.flush()
+            return CheckResult(
+                name=check_spec.name,
+                display_title=check_spec.display_title,
+                passed=passed,
+                duration_seconds=dur,
+                stdout=_format_process_output(getattr(proc, "stdout", "")),
+                stderr=_format_process_output(getattr(proc, "stderr", "")),
+            )
+        except subprocess.TimeoutExpired as exc:
+            dur = time.perf_counter() - start_time
+            _get("record_metric")("ci.step_pass", 0.0, attributes={"step": check_spec.metric_step})
+            badge = _format_check_badge(False)
+            timeout_val = exc.timeout or timeout
+            timeout_str = f"{timeout_val:g}s"
+            _get("print_muted")(
+                f"  {badge} [{check_spec.name}] {check_spec.display_title} (timed out after {timeout_str})"
+            )
+            sys.stdout.flush()
+            return CheckResult(
+                name=check_spec.name,
+                display_title=check_spec.display_title,
+                passed=False,
+                duration_seconds=dur,
+                stdout="",
+                stderr=f"Check '{check_spec.name}' timed out after {timeout_str}.",
+                timed_out=True,
+                timeout_seconds=float(timeout_val),
+            )
 
 
 # =============================================================================
@@ -309,12 +371,239 @@ def _resolve_pytest_worker_count() -> int:
     return max(1, min(cpu_count, 8))
 
 
-async def _run_all_checks_async(
-    *, lint_fix: bool, format_fix: bool, docs_fix: bool = False
-) -> list[CheckResult]:
-    """Execute all CI verification gates concurrently using asyncio."""
-    _clean_coverage_artifacts()
+def _resolve_pytest_cmd() -> list[str]:
+    """Construct check command line arguments for the pytest and coverage row."""
+    return [
+        "uv",
+        "run",
+        "pytest",
+        "-n",
+        "auto",
+        f"--maxprocesses={_resolve_pytest_worker_count()}",
+        f"--durations={CONST_CI_SLOWEST_TESTS_SHOWN}",
+        "--cov=src",
+        "--cov-report=term-missing",
+        "--cov-report=xml",
+    ]
 
+
+def get_check_specs() -> list[CheckSpec]:
+    """Return the single ordered table of CI quality gate check specifications."""
+    return [
+        CheckSpec(
+            name="test",
+            display_title=MESSAGES.ci.pytest_coverage,
+            cmd=_resolve_pytest_cmd(),
+            span_name="ci.step.test_and_coverage",
+            metric_step="test",
+        ),
+        CheckSpec(
+            name="lint",
+            display_title=MESSAGES.ci.ruff_check,
+            cmd=["uv", "run", "ruff", "check", "."],
+            span_name="ci.step.lint",
+            metric_step="lint",
+            fix_cmd=["uv", "run", "ruff", "check", "--fix", "."],
+        ),
+        CheckSpec(
+            name="format",
+            display_title=MESSAGES.ci.ruff_format,
+            cmd=["uv", "run", "ruff", "format", "--check", "."],
+            span_name="ci.step.format",
+            metric_step="format",
+            fix_cmd=["uv", "run", "ruff", "format", "."],
+        ),
+        CheckSpec(
+            name="typecheck",
+            display_title=f"mypy (py{DEFAULT_PYTHON_VERSION.replace('.', '')} strict)",
+            cmd=[
+                "uv",
+                "run",
+                "mypy",
+                "--python-version",
+                DEFAULT_PYTHON_VERSION,
+                "--strict",
+                "src",
+            ],
+            span_name="ci.step.typecheck",
+            metric_step="typecheck",
+        ),
+        CheckSpec(
+            name="audit",
+            display_title=MESSAGES.ci.uv_audit,
+            cmd=["uv", "audit"],
+            span_name="ci.step.audit",
+            metric_step="audit",
+        ),
+        CheckSpec(
+            name="security",
+            display_title=MESSAGES.ci.bandit_scan,
+            cmd=["uv", "run", "bandit", "-r", "src", "-ll"],
+            span_name="ci.step.security",
+            metric_step="security",
+        ),
+        CheckSpec(
+            name="actionlint",
+            display_title=MESSAGES.ci.actionlint,
+            cmd=["uv", "run", "actionlint"],
+            span_name="ci.step.actionlint",
+            metric_step="actionlint",
+        ),
+        CheckSpec(
+            name="docs",
+            display_title=MESSAGES.ci.docs_validation,
+            cmd=["uv", "run", "devops", "docs", "check"],
+            span_name="ci.step.docs",
+            metric_step="docs",
+            fix_cmd=["uv", "run", "devops", "docs", "generate", "--sync-readme"],
+        ),
+        CheckSpec(
+            name="uv-check",
+            display_title=MESSAGES.ci.uv_check,
+            cmd=["uv", "check"],
+            span_name="ci.step.uv-check",
+            metric_step="uv-check",
+        ),
+        CheckSpec(
+            name="lockfile",
+            display_title=MESSAGES.ci.uv_lock,
+            cmd=["uv", "lock", "--check"],
+            span_name="ci.step.lockfile",
+            metric_step="lockfile",
+        ),
+        CheckSpec(
+            name="outdated",
+            display_title=MESSAGES.ci.uv_outdated,
+            cmd=["uv", "tree", "--outdated", "--depth=1"],
+            span_name="ci.step.outdated",
+            metric_step="outdated",
+        ),
+        CheckSpec(
+            name="devcontainer",
+            display_title=MESSAGES.ci.devcontainer_validation,
+            cmd=["uv", "run", "devops", "devcontainer", "validate", "--workspace", "."],
+            span_name="ci.step.devcontainer",
+            metric_step="devcontainer",
+        ),
+    ]
+
+
+def get_check_spec(name: str) -> CheckSpec:
+    """Retrieve a single check specification by its canonical row name."""
+    for spec in get_check_specs():
+        if spec.name == name:
+            return spec
+    raise KeyError(f"Unknown check spec: {name}")
+
+
+def _parse_check_names(values: Sequence[str] | None) -> list[str]:
+    """Parse comma-separated or repeated check name arguments into a list of names."""
+    if not values:
+        return []
+    names: list[str] = []
+    for item in values:
+        for part in item.split(","):
+            cleaned = part.strip()
+            if cleaned:
+                names.append(cleaned)
+    return names
+
+
+def resolve_selected_specs(
+    only: Sequence[str] | None = None,
+    skip: Sequence[str] | None = None,
+) -> list[CheckSpec]:
+    """Filter check specifications using --only or --skip selection."""
+    all_specs = get_check_specs()
+    valid_names = [s.name for s in all_specs]
+
+    only_names = _parse_check_names(only)
+    skip_names = _parse_check_names(skip)
+
+    if only_names and skip_names:
+        valid_list = ", ".join(valid_names)
+        _get("write_stderr")(
+            f"Cannot combine --only and --skip options. Valid check names: {valid_list}\n"
+        )
+        raise typer.Exit(2)
+
+    if only_names:
+        invalid = [n for n in only_names if n not in valid_names]
+        if invalid:
+            valid_list = ", ".join(valid_names)
+            invalid_list = ", ".join(repr(n) for n in invalid)
+            _get("write_stderr")(
+                f"Invalid check name(s): {invalid_list}. Valid check names: {valid_list}\n"
+            )
+            raise typer.Exit(2)
+        return [s for s in all_specs if s.name in only_names]
+
+    if skip_names:
+        invalid = [n for n in skip_names if n not in valid_names]
+        if invalid:
+            valid_list = ", ".join(valid_names)
+            invalid_list = ", ".join(repr(n) for n in invalid)
+            _get("write_stderr")(
+                f"Invalid check name(s): {invalid_list}. Valid check names: {valid_list}\n"
+            )
+            raise typer.Exit(2)
+        return [s for s in all_specs if s.name not in skip_names]
+
+    return all_specs
+
+
+def _find_args_after_devops_ci(tokens: list[str]) -> list[str] | None:
+    """Return command line arguments following 'devops ci' if present."""
+    for i in range(len(tokens) - 1):
+        if tokens[i] == "devops" and tokens[i + 1] == "ci":
+            return tokens[i + 2 :]
+    return None
+
+
+def _resolve_subcommand_row(subcmd: str, spec_names: set[str]) -> list[str]:
+    """Map a single subcommand to its corresponding check row name."""
+    if subcmd == "coverage":
+        return ["test"]
+    if subcmd in spec_names:
+        return [subcmd]
+    return []
+
+
+def _parse_flag_values(tokens: list[str], flag: str) -> list[str]:
+    """Extract argument values for --<flag>=val or --<flag> val from tokens."""
+    prefix = f"--{flag}="
+    flag_arg = f"--{flag}"
+    vals: list[str] = []
+    for i, tok in enumerate(tokens):
+        if tok.startswith(prefix):
+            vals.append(tok[len(prefix) :])
+        elif tok == flag_arg and i + 1 < len(tokens):
+            vals.append(tokens[i + 1])
+    return vals
+
+
+def resolve_step_rows(command_line: str) -> list[str]:
+    """Resolve check table row names reached by a given workflow or CLI command line."""
+    tokens = shlex.split(command_line.strip())
+    rest = _find_args_after_devops_ci(tokens)
+    if rest is None:
+        return []
+
+    spec_names = {s.name for s in get_check_specs()}
+    if rest and not rest[0].startswith("-"):
+        return _resolve_subcommand_row(rest[0], spec_names)
+
+    only_vals = _parse_flag_values(rest, "only")
+    skip_vals = _parse_flag_values(rest, "skip")
+    selected = resolve_selected_specs(
+        only=only_vals if only_vals else None,
+        skip=skip_vals if skip_vals else None,
+    )
+    return [s.name for s in selected]
+
+
+def _run_python_version_step() -> tuple[bool, CheckResult]:
+    """Execute python runtime version verification."""
     py_t0 = time.perf_counter()
     py_ok = _verify_python_314_environment()
     py_dur = time.perf_counter() - py_t0
@@ -334,37 +623,95 @@ async def _run_all_checks_async(
         f"  {py_badge} [python_version] {py_result.display_title} ({format_duration(py_dur)})"
     )
     sys.stdout.flush()
+    return py_ok, py_result
+
+
+async def _run_pre_fixes_async(
+    selected_specs: Sequence[CheckSpec],
+    *,
+    format_fix: bool,
+    lint_fix: bool,
+) -> None:
+    """Apply in-place modifications first before verification scans."""
+    if format_fix:
+        fmt_spec = next((s for s in selected_specs if s.name == "format"), None)
+        if fmt_spec and fmt_spec.fix_cmd:
+            await _execute_check_async(
+                CheckSpec(
+                    name="format_fix",
+                    display_title=MESSAGES.ci.ruff_format,
+                    cmd=fmt_spec.fix_cmd,
+                    span_name="ci.step.format_fix",
+                    metric_step="format_fix",
+                )
+            )
+    if lint_fix:
+        lint_spec = next((s for s in selected_specs if s.name == "lint"), None)
+        if lint_spec and lint_spec.fix_cmd:
+            await _execute_check_async(
+                CheckSpec(
+                    name="lint_fix",
+                    display_title=MESSAGES.ci.ruff_check,
+                    cmd=lint_spec.fix_cmd,
+                    span_name="ci.step.lint_fix",
+                    metric_step="lint_fix",
+                )
+            )
+
+
+def _assemble_ci_results(
+    py_result: CheckResult,
+    selected_specs: Sequence[CheckSpec],
+    raw_results: Sequence[CheckResult],
+) -> list[CheckResult]:
+    """Assemble final results including virtual coverage gate if test check was executed."""
+    test_idx = next((i for i, s in enumerate(selected_specs) if s.name == "test"), None)
+    if test_idx is None:
+        return [py_result, *raw_results]
+
+    test_result = raw_results[test_idx]
+    coverage_result = CheckResult(
+        name="coverage",
+        display_title=MESSAGES.ci.pytest_coverage,
+        passed=test_result.passed,
+        duration_seconds=test_result.duration_seconds,
+        stdout=test_result.stdout,
+        stderr=test_result.stderr,
+    )
+    assembled: list[CheckResult] = [py_result]
+    for i, res in enumerate(raw_results):
+        assembled.append(res)
+        if i == test_idx:
+            assembled.append(coverage_result)
+    return assembled
+
+
+async def _run_all_checks_async(
+    *,
+    lint_fix: bool = False,
+    format_fix: bool = False,
+    docs_fix: bool = False,
+    specs: Sequence[CheckSpec] | None = None,
+) -> list[CheckResult]:
+    """Execute CI verification gates concurrently using asyncio."""
+    _clean_coverage_artifacts()
+
+    py_ok, py_result = _run_python_version_step()
     if not py_ok:
         return [py_result]
 
-    # If fixes were requested, apply in-place modifications first before verification scans
-    if format_fix:
-        await _execute_check_async(
-            "format_fix",
-            MESSAGES.ci.ruff_format,
-            ["uv", "run", "ruff", "format", "."],
-            "ci.step.format_fix",
-            "format_fix",
-        )
-    if lint_fix:
-        await _execute_check_async(
-            "lint_fix",
-            MESSAGES.ci.ruff_check,
-            ["uv", "run", "ruff", "check", "--fix", "."],
-            "ci.step.lint_fix",
-            "lint_fix",
-        )
-    if docs_fix:
-        await _execute_check_async(
-            "docs_fix",
-            MESSAGES.ci.docs_validation,
-            ["uv", "run", "devops", "docs", "generate", "--sync-readme"],
-            "ci.step.docs_fix",
-            "docs_fix",
-        )
+    selected_specs = list(specs) if specs is not None else get_check_specs()
+    if not selected_specs:
+        return [py_result]
 
-    _get("print_muted")(f"  ⏳ [test] {MESSAGES.ci.pytest_coverage} running in background...")
-    sys.stdout.flush()
+    await _run_pre_fixes_async(selected_specs, format_fix=format_fix, lint_fix=lint_fix)
+
+    has_test = any(s.name == "test" for s in selected_specs)
+    if has_test:
+        _get("print_muted")(f"  ⏳ [test] {MESSAGES.ci.pytest_coverage} running in background...")
+        sys.stdout.flush()
+
+    capture_output = len(selected_specs) != 1
 
     with _get("trace_span")(
         "ci.run_pipeline",
@@ -373,116 +720,16 @@ async def _run_all_checks_async(
         _clean_coverage_artifacts()
         tasks = [
             _execute_check_async(
-                "test",
-                MESSAGES.ci.pytest_coverage,
-                [
-                    "uv",
-                    "run",
-                    "pytest",
-                    "-n",
-                    "auto",
-                    f"--maxprocesses={_resolve_pytest_worker_count()}",
-                    f"--durations={CONST_CI_SLOWEST_TESTS_SHOWN}",
-                    "--cov=src",
-                    "--cov-report=term-missing",
-                ],
-                "ci.step.test_and_coverage",
-                "test",
-            ),
-            _execute_check_async(
-                "lint",
-                MESSAGES.ci.ruff_check,
-                ["uv", "run", "ruff", "check", "."],
-                "ci.step.lint",
-                "lint",
-            ),
-            _execute_check_async(
-                "format",
-                MESSAGES.ci.ruff_format,
-                ["uv", "run", "ruff", "format", "--check", "."],
-                "ci.step.format",
-                "format",
-            ),
-            _execute_check_async(
-                "typecheck",
-                f"mypy (py{DEFAULT_PYTHON_VERSION.replace('.', '')} strict)",
-                [
-                    "uv",
-                    "run",
-                    "mypy",
-                    "--python-version",
-                    DEFAULT_PYTHON_VERSION,
-                    "--strict",
-                    "src",
-                ],
-                "ci.step.typecheck",
-                "typecheck",
-            ),
-            _execute_check_async(
-                "audit",
-                MESSAGES.ci.uv_audit,
-                ["uv", "audit"],
-                "ci.step.audit",
-                "audit",
-            ),
-            _execute_check_async(
-                "security",
-                MESSAGES.ci.bandit_scan,
-                ["uv", "run", "bandit", "-r", "src", "-ll", "-s", "B608"],
-                "ci.step.security",
-                "security",
-            ),
-            _execute_check_async(
-                "actionlint",
-                MESSAGES.ci.actionlint,
-                ["uv", "run", "actionlint"],
-                "ci.step.actionlint",
-                "actionlint",
-            ),
-            _execute_check_async(
-                "docs",
-                MESSAGES.ci.docs_validation,
-                ["uv", "run", "devops", "docs", "check"],
-                "ci.step.docs",
-                "docs",
-            ),
-            _execute_check_async(
-                "uv_check",
-                MESSAGES.ci.uv_check,
-                ["uv", "check"],
-                "ci.step.uv_check",
-                "uv_check",
-            ),
-            _execute_check_async(
-                "lockfile",
-                MESSAGES.ci.uv_lock,
-                ["uv", "lock", "--check"],
-                "ci.step.lockfile",
-                "lockfile",
-            ),
-            _execute_check_async(
-                "outdated",
-                MESSAGES.ci.uv_outdated,
-                ["uv", "tree", "--outdated", "--depth=1"],
-                "ci.step.outdated",
-                "outdated",
-            ),
+                spec=spec,
+                capture_output=capture_output,
+                apply_fix=(docs_fix if spec.name == "docs" else False),
+            )
+            for spec in selected_specs
         ]
 
         raw_results = await asyncio.gather(*tasks)
         _clean_coverage_artifacts()
-
-        test_result = raw_results[0]
-        coverage_result = CheckResult(
-            name="coverage",
-            display_title=MESSAGES.ci.pytest_coverage,
-            passed=test_result.passed,
-            duration_seconds=test_result.duration_seconds,
-            stdout=test_result.stdout,
-            stderr=test_result.stderr,
-        )
-
-        return [py_result, test_result, coverage_result] + list(raw_results[1:])
+        return _assemble_ci_results(py_result, selected_specs, raw_results)
 
 
 def _run_all_checks(
@@ -515,11 +762,15 @@ def _print_summary(
 
     rows: list[list[str]] = []
     for res in results:
-        status_text = (
-            "[green]✓ pass (cached)[/green]"
-            if (cached and res.passed)
-            else ("[green]✓ pass[/green]" if res.passed else "[red]✗ fail[/red]")
-        )
+        if res.timed_out:
+            limit_str = f"{res.timeout_seconds:g}s" if res.timeout_seconds else "limit"
+            status_text = f"[red]✗ fail (timed out after {limit_str})[/red]"
+        elif cached and res.passed:
+            status_text = "[green]✓ pass (cached)[/green]"
+        elif res.passed:
+            status_text = "[green]✓ pass[/green]"
+        else:
+            status_text = "[red]✗ fail[/red]"
         dur_text = format_duration(res.duration_seconds) if res.duration_seconds > 0 else "<0.01s"
         rows.append([res.name, status_text, dur_text])
 
@@ -645,8 +896,9 @@ def _warn_when_over_budget(results: list[CheckResult]) -> None:
         ),
         safe=True,
     )
-    for entry in slowest_tests(test_result.stdout):
-        _get("print_muted")(f"  {entry}")
+    if test_result.stdout:
+        for entry in slowest_tests(test_result.stdout):
+            _get("print_muted")(f"  {entry}")
 
 
 def _handle_ci_results(
@@ -654,6 +906,8 @@ def _handle_ci_results(
     root: Path,
     all_files: list[str] | None,
     ci_options: dict[str, Any],
+    *,
+    save_cache: bool = True,
 ) -> None:
     """Handle post-execution caching or failure exit.
 
@@ -663,7 +917,7 @@ def _handle_ci_results(
     made the next ordinary run repeat it for no reason.
     """
     if all(res.passed for res in results):
-        if not is_dry_run():
+        if save_cache and not is_dry_run():
             _try_save_ci_cache(root, results, all_files, ci_options)
         return
 
@@ -692,6 +946,18 @@ def all_checks(
         bool,
         typer.Option("--force", "-f", help=HELP.ci.force),
     ] = False,
+    only: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--only", help="Run only the specified check names (comma-separated or repeated)."
+        ),
+    ] = None,
+    skip: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--skip", help="Skip the specified check names (comma-separated or repeated)."
+        ),
+    ] = None,
     files: Annotated[
         list[str] | None,
         typer.Option("--files", help=HELP.ci.files),
@@ -710,11 +976,16 @@ def all_checks(
     if dry_run:
         set_dry_run(True)
 
+    selected_specs = resolve_selected_specs(only=only, skip=skip)
+    is_narrowed = bool(only or skip)
+
     effective_fix = fix and not check
     ci_options = {"fix": effective_fix, "check": check}
     all_files = _collect_ci_target_files(files, getattr(ctx, "args", []))
 
-    if _try_fast_cached_ci(root, all_files, ci_options, cache=cache, force=force):
+    if not is_narrowed and _try_fast_cached_ci(
+        root, all_files, ci_options, cache=cache, force=force
+    ):
         return
 
     start_time = time.perf_counter()
@@ -722,13 +993,16 @@ def all_checks(
     sys.stdout.flush()
     results = asyncio.run(
         _run_all_checks_async(
-            lint_fix=effective_fix, format_fix=effective_fix, docs_fix=effective_fix
+            lint_fix=effective_fix,
+            format_fix=effective_fix,
+            docs_fix=effective_fix,
+            specs=selected_specs,
         )
     )
     _print_failures(results)
     _print_summary(results, total_elapsed=time.perf_counter() - start_time)
     _warn_when_over_budget(results)
-    _handle_ci_results(results, root, all_files, ci_options)
+    _handle_ci_results(results, root, all_files, ci_options, save_cache=(not is_narrowed))
 
 
 # =============================================================================
@@ -840,10 +1114,6 @@ def test(
 @app.command()
 def coverage(
     html: Annotated[bool, typer.Option("--html", help=HELP.ci.html_report)] = False,
-    xml: Annotated[bool, typer.Option("--xml", help=HELP.ci.xml_report)] = False,
-    numprocesses: Annotated[
-        str, typer.Option("-n", "--numprocesses", help=HELP.ci.num_workers)
-    ] = DEFAULT_PYTEST_NUMPROCESSES,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -854,19 +1124,10 @@ def coverage(
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    cmd = [
-        "uv",
-        "run",
-        "pytest",
-        "-n",
-        numprocesses,
-        "--cov=src",
-        "--cov-report=term-missing",
-    ]
+    spec = get_check_spec("test")
+    cmd = list(spec.cmd)
     if html:
         cmd.append("--cov-report=html")
-    if xml:
-        cmd.append("--cov-report=xml")
     if not _run(cmd):
         raise typer.Exit(1)
 
@@ -888,9 +1149,8 @@ def lint(
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    cmd = ["uv", "run", "ruff", "check", "."]
-    if fix and not check:
-        cmd.append("--fix")
+    spec = get_check_spec("lint")
+    cmd = spec.fix_cmd if (fix and not check and spec.fix_cmd) else spec.cmd
     if not _run(cmd):
         raise typer.Exit(1)
 
@@ -912,10 +1172,8 @@ def fmt(
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    cmd = ["uv", "run", "ruff", "format"]
-    if check or not fix:
-        cmd.append("--check")
-    cmd.append(".")
+    spec = get_check_spec("format")
+    cmd = spec.cmd if (check or not fix) else (spec.fix_cmd or spec.cmd)
     if not _run(cmd):
         raise typer.Exit(1)
 
@@ -932,17 +1190,8 @@ def typecheck(
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    if not _run(
-        [
-            "uv",
-            "run",
-            "mypy",
-            "--python-version",
-            DEFAULT_PYTHON_VERSION,
-            "--strict",
-            "src",
-        ]
-    ):
+    spec = get_check_spec("typecheck")
+    if not _run(spec.cmd):
         raise typer.Exit(1)
 
 
@@ -958,7 +1207,8 @@ def audit(
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    if not _run(["uv", "audit"]):
+    spec = get_check_spec("audit")
+    if not _run(spec.cmd):
         raise typer.Exit(1)
 
 
@@ -978,10 +1228,14 @@ def security(
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    level_flag = (
-        "-lll" if severity.lower() == "high" else ("-l" if severity.lower() == "low" else "-ll")
-    )
-    cmd = ["uv", "run", "bandit", "-r", "src", level_flag, "-s", "B608"]
+    spec = get_check_spec("security")
+    if severity.lower() == DEFAULT_BANDIT_SEVERITY.lower():
+        cmd = list(spec.cmd)
+    else:
+        level_flag = (
+            "-lll" if severity.lower() == "high" else ("-l" if severity.lower() == "low" else "-ll")
+        )
+        cmd = ["uv", "run", "bandit", "-r", "src", level_flag]
     if not _run(cmd):
         raise typer.Exit(1)
 
@@ -998,7 +1252,8 @@ def actionlint(
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    if not _run(["uv", "run", "actionlint"]):
+    spec = get_check_spec("actionlint")
+    if not _run(spec.cmd):
         raise typer.Exit(1)
 
 
@@ -1018,10 +1273,11 @@ def docs(
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    if fix:
-        if not _run(["uv", "run", "devops", "docs", "generate", "--sync-readme"]):
+    spec = get_check_spec("docs")
+    if fix and spec.fix_cmd:
+        if not _run(spec.fix_cmd):
             raise typer.Exit(1)
-    if not _run(["uv", "run", "devops", "docs", "check"]):
+    if not _run(spec.cmd):
         raise typer.Exit(1)
 
 
@@ -1037,7 +1293,8 @@ def uv_check(
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    if not _run(["uv", "check"]):
+    spec = get_check_spec("uv-check")
+    if not _run(spec.cmd):
         raise typer.Exit(1)
 
 
@@ -1053,7 +1310,8 @@ def lockfile(
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    if not _run(["uv", "lock", "--check"]):
+    spec = get_check_spec("lockfile")
+    if not _run(spec.cmd):
         raise typer.Exit(1)
 
 
@@ -1069,7 +1327,8 @@ def outdated(
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    if not _run(["uv", "tree", "--outdated", "--depth=1"]):
+    spec = get_check_spec("outdated")
+    if not _run(spec.cmd):
         raise typer.Exit(1)
 
 

@@ -782,6 +782,7 @@ class CIMessages:
     bandit_scan: str = "bandit security scan"
     actionlint: str = "actionlint (github workflows)"
     docs_validation: str = "docs validation"
+    devcontainer_validation: str = "devcontainer validation"
     ci_summary_title: str = "CI Summary"
     col_check: str = "Check"
     col_result: str = "Result"

@@ -74,13 +74,13 @@ class BanditScanner(BaseSecurityScanner):
             valid_files = [str(p.resolve()) for p in target_path if p.exists() and p.is_file()]
             if not valid_files:
                 return []
-            return [self.binary_name, *valid_files, "-q", level_flag, "-s", "B608", "-f", "json"]
+            return [self.binary_name, *valid_files, "-q", level_flag, "-f", "json"]
 
         if not target_path.exists():
             return []
         target_abs = target_path.resolve()
         if target_abs.is_file():
-            return [self.binary_name, str(target_abs), "-q", level_flag, "-s", "B608", "-f", "json"]
+            return [self.binary_name, str(target_abs), "-q", level_flag, "-f", "json"]
 
         return [
             self.binary_name,
@@ -90,8 +90,6 @@ class BanditScanner(BaseSecurityScanner):
             ".venv,venv,node_modules,.data,repos,.git",
             "-q",
             level_flag,
-            "-s",
-            "B608",
             "-f",
             "json",
         ]

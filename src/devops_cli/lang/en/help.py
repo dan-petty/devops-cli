@@ -515,7 +515,6 @@ class CICommandHelp:
         "reporting success without verifying it."
     )
     html_report: str = "Generate HTML coverage report in .data/htmlcov/."
-    xml_report: str = "Generate XML coverage report in .data/coverage.xml."
     auto_fix: str = "Auto-fix violations where possible."
     format_fix: str = "Apply formatting changes in-place."
     format_check: str = "Check formatting without writing changes to files."

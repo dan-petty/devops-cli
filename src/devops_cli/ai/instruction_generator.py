@@ -412,7 +412,7 @@ codebase or reviewing target repositories.
   - Link project boards conforming to `.github/project-template.json` to the repository (`devops gh project link <number>`) and synchronize items and custom fields via `devops gh project sync`.
   - Enforce strict remote branch lifecycle: every remote topic branch on `origin` must have an associated open PR, and merged or superseded branches must be deleted immediately.
   - Respect GitHub API rate limits: monitor `devops gh rate-limit`, adaptively fall back to REST when GraphQL complexity limits are reached, avoid unthrottled polling, and honor `Retry-After` reset windows.
-"""
+"""  # nosec B608  # Static Markdown template containing documentation prose, not executable SQL
 
 
 def generate_instruction_content(target_file: str, meta: ProjectMetadata) -> str:

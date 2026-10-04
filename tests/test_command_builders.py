@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from devops_cli.config.commands import (
-    BIN_BANDIT,
     BIN_FIND,
     BIN_GIT,
     BIN_GITLEAKS,
@@ -19,7 +18,6 @@ from devops_cli.config.commands import (
     BIN_TOFU,
     BIN_TRIVY,
     BIN_UV,
-    build_bandit_cmd,
     build_find_files_cmd,
     build_git_clone_cmd,
     build_git_diff_cmd,
@@ -74,7 +72,6 @@ def test_command_builders() -> None:
     ]
 
     assert build_kustomize_build_cmd("overlays/prod") == [BIN_KUSTOMIZE, "build", "overlays/prod"]
-    assert build_bandit_cmd("src") == [BIN_BANDIT, "-r", "src", "-q", "-x", "B608"]
     assert build_trivy_scan_cmd("src", "fs") == [
         BIN_TRIVY,
         "fs",

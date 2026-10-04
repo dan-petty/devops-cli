@@ -39,34 +39,8 @@ jobs:
         with:
           cache-suffix: static
 
-      - name: Lockfile Freshness & Dependency Audit
-        run: |
-          uv lock --check
-          uv audit
-
-      - name: Type Checking & Project Validation (uv check)
-        run: uv check
-
-      - name: Linting (Ruff)
-        run: uv run ruff check .
-
-      - name: Formatting Check (Ruff)
-        run: uv run ruff format --check .
-
-      - name: Strict Type Checking (Mypy)
-        run: uv run mypy --python-version 3.14 --strict src
-
-      - name: Security Scan (Bandit)
-        run: uv run bandit -r src/ -ll -ii
-
-      - name: Documentation Freshness Check
-        run: uv run devops docs check
-
-      - name: Workflow Linting (actionlint)
-        run: uv run actionlint
-
-      - name: DevContainer Manifest Smoke Test
-        run: uv run devops devcontainer validate --workspace .
+      - name: Static Analysis Quality Gate
+        run: uv run devops ci --check --no-cache --skip test,outdated
 
   test:
     name: Tests & Coverage
@@ -87,8 +61,8 @@ jobs:
           tooling-cache-paths: |
             .pytest_cache
 
-      - name: Unit Tests & Code Coverage
-        run: uv run pytest --cov=src --cov-report=xml
+      - name: Tests & Coverage Quality Gate
+        run: uv run devops ci --check --no-cache --only test
 
   # The published image packages devops-cli itself, so it is rebuilt only for pull
   # requests targeting main, and only when the change actually alters image content.
@@ -293,4 +267,4 @@ jobs:
           cache-suffix: freshness
 
       - name: Report Outdated Dependencies
-        run: uv tree --outdated --depth=1
+        run: uv run devops ci outdated
