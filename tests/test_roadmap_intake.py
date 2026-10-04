@@ -10,8 +10,9 @@ import asyncio
 import json
 import subprocess
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+from itertools import groupby
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -774,7 +775,8 @@ def test_dry_run_makes_no_request_and_prints_the_requests_a_run_makes_in_order(
         f"gh api 'repos/{REPO}/milestones?state=all&per_page=100&page=<n>' [repeated per page",
         "GraphQL read the items on board <the board .github/roadmap.toml names>",
         f"gh api -X GET search/issues -f 'q=repo:{REPO} is:issue is:open' -F per_page=1",
-        "GraphQL read the closes and reopens on #7's timeline [only if #7 is not on the board]",
+        "GraphQL read the closes and reopens on #7's timeline",
+        "[only if #7 is not on the board]",
         "embedding every item",
         f"{REPO}/contents/.github/labels.yml",
         "model the proposal for #7",
@@ -791,7 +793,9 @@ def test_a_dry_run_is_an_intake_plan_of_planned_requests_with_placeholders() -> 
     new = dry_run_intake(REPO, new=NewCandidate(title="feat: idea", body="text"))
     config = every.requests[0]
     repeated = {
-        r.repeat for r in every.requests + every.writes if r.target.endswith("<the candidate>")
+        r.repeat.split("; ")[0]
+        for r in every.requests + every.writes
+        if r.target.endswith("<the candidate>")
     }
     assert (
         (type(every), every.dry_run, every.quota, every.decisions, every.has_writes),
@@ -877,10 +881,17 @@ class _Recorded:
 
 
 def _operations(plan: IntakePlan) -> list[tuple[str, bool]]:
-    """The store or model operation of each planned request, and whether it runs every time."""
+    """The store or model operation of each planned step, and whether it runs every time. A
+    step lists each `gh` command its operation runs, all with the step's target, so a run of
+    requests with one target is one operation, run every time when any of its commands is."""
     templates = MESSAGES.roadmap.intake_requests
     operations = []
-    for request in plan.requests + plan.writes:
+    steps = groupby(plan.requests + plan.writes, key=lambda request: request.target)
+    for _, group in steps:
+        commands = list(group)
+        request = replace(commands[0], condition=min(r.condition for r in commands))
+        if request.target == MESSAGES.roadmap.plan_targets["budget"]:
+            continue  # the closing budget read, which the in-memory store doesn't make
         key = max(
             (
                 key
@@ -946,7 +957,7 @@ def test_a_dry_run_shows_the_exact_commands_the_store_runs() -> None:
     store.repository_file(".github/labels.yml", ref="v0.2.26")
     planned = dry_run_intake(REPO, ref="v0.2.26").requests
     shown = {tuple(arg.replace("<n>", "1") for arg in r.argv) for r in planned if r.argv}
-    assert (len(ran), set(ran)) == (5, shown)
+    assert (len(ran), set(ran) <= shown) == (5, True)
 
 
 def test_a_dry_run_still_refuses_a_candidate_holding_a_secret(

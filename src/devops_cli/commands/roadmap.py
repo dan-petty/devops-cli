@@ -5,14 +5,19 @@ Every command reads `.github/roadmap.toml` through the contents API at `--ref`, 
 roadmap store on the board it names. `migrate` writes to GitHub only with `--confirm`, and only
 once a person has made the option edits its plan lists; `render` writes no GitHub state, only
 `docs/ROADMAP.md`, which git review covers. `reprioritize` and `intake` write GitHub state only
-with `--confirm`, and never a commit. `intake --dry-run` makes no request at all and prints the
-requests a run makes; `intake --plan`, and `intake` with no mode flag, read GitHub and call the
-model, write nothing, and report what they spent.
+with `--confirm`, and never a commit.
+
+Every job's `--dry-run` makes no request at all (#412, #1125): it returns the job's result type
+marked as a dry run and prints the requests a run makes, each with its exact `gh` command. Its
+`--plan`, and `migrate`, `reprioritize` and `intake` with no mode flag, read GitHub (and, for
+intake, call the model) and write nothing. Every run that reads ends with the GraphQL points it
+spent and the points left.
 """
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterator
+import logging
+from collections.abc import Collection, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -24,7 +29,11 @@ import typer
 from devops_cli.config.constants import (
     CONST_ROADMAP_CONFIG_PATH,
     CONST_ROADMAP_DOCUMENT_PATH,
+    CONST_ROADMAP_INTAKE_BOARD_FILTER,
+    CONST_ROADMAP_MIGRATE_BOARD_FILTER,
+    CONST_ROADMAP_RENDER_BOARD_FILTER,
     CONST_ROADMAP_RENDER_FILE_MODE,
+    CONST_ROADMAP_REPRIORITIZE_BOARD_FILTER,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import get_repo_origin_name
@@ -48,20 +57,25 @@ from devops_cli.roadmap.intake_model import build_intake_model
 from devops_cli.roadmap.intake_requests import SpendMeter
 from devops_cli.roadmap.migrate import (
     apply_migration,
+    dry_run_migration,
     plan_migration,
     render_report,
     require_option_edits_made,
 )
-from devops_cli.roadmap.render import render_roadmap
+from devops_cli.roadmap.render import dry_run_render, render
 from devops_cli.roadmap.reprioritize import (
     apply_reprioritization,
+    dry_run_reprioritization,
     plan_reprioritization,
     render_plan,
 )
+from devops_cli.roadmap.request_plan import render_dry_run
 from devops_cli.roadmap.store import RoadmapStore
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.github_store import GhRunner
+
+logger = logging.getLogger(__name__)
 
 app = new_typer(help=HELP.roadmap.app, no_args_is_help=True)
 
@@ -89,12 +103,38 @@ def _target(repo: str | None) -> str:
 
 
 def _open_roadmap(
-    repo: str | None, ref: str | None, runner: GhRunner | None = None
+    repo: str | None, ref: str | None, board_filter: str, runner: GhRunner | None = None
 ) -> tuple[str, RoadmapConfig, RoadmapStore]:
-    """The repository, its roadmap configuration on `ref`, and the store on its board."""
+    """The repository, its roadmap configuration on `ref`, and the store on its board, whose
+    board reads pass the job's Projects filter."""
     target = _target(repo)
-    config, store = open_roadmap(target, ref=ref, runner=runner)
+    config, store = open_roadmap(target, ref=ref, runner=runner, board_filter=board_filter)
     return target, config, store
+
+
+def _one_mode(**modes: bool) -> None:
+    """Refuse more than one mode flag."""
+    if sum(modes.values()) > 1:
+        flags = [f"--{name.replace('_', '-')}" for name in modes]
+        listed = f"{', '.join(flags[:-1])} and {flags[-1]}"
+        _refuse(MESSAGES.roadmap.plan_modes_exclusive.format(modes=listed))
+
+
+@contextmanager
+def _reporting_spend(stores: list[RoadmapStore]) -> Iterator[None]:
+    """End the run, however it ends, with the GraphQL points it spent and the points left, read
+    from GraphQL itself, once it has opened a store that spends them (#1125)."""
+    try:
+        yield
+    finally:
+        for store in stores:
+            try:
+                spend = store.graphql_spend()
+            except DevOpsCLIError as exc:
+                logger.warning("Could not read the GraphQL budget: %s", exc)
+                continue
+            if spend is not None:
+                print_info(spend.line())
 
 
 @app.command("migrate", help=HELP.roadmap.migrate)
@@ -103,10 +143,26 @@ def migrate_cmd(
     ref: RefOption = None,
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.confirm)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.migrate_dry_run)] = False,
+    plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.migrate_plan)] = False,
 ) -> None:
     """Plan the move of the roadmap's source to GitHub, and make it with --confirm."""
+    _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
+    if dry_run or is_dry_run():
+        target = _target(repo)
+        plan = dry_run_migration(target, ref=ref)
+        render_dry_run("migrate", target, plan.requests, plan.write_requests)
+        return
+    opened: list[RoadmapStore] = []
+    with _reporting_spend(opened):
+        _migrate(repo, ref, confirm=confirm, opened=opened)
+
+
+def _migrate(
+    repo: str | None, ref: str | None, *, confirm: bool, opened: list[RoadmapStore]
+) -> None:
     with _exit_on_failure("Could not plan the roadmap migration"):
-        target, config, store = _open_roadmap(repo, ref)
+        target, config, store = _open_roadmap(repo, ref, CONST_ROADMAP_MIGRATE_BOARD_FILTER)
+        opened.append(store)
         plan = plan_migration(store, repo=target, ref=ref, config=config)
     write_stdout(render_report(plan))
     if not plan.writes:
@@ -115,7 +171,7 @@ def migrate_cmd(
         else:
             print_success(MESSAGES.roadmap.nothing_to_do)
         return
-    if dry_run or is_dry_run() or not confirm:
+    if not confirm:
         print_info(MESSAGES.roadmap.preview_only)
         return
     with _exit_on_failure("Nothing was written"):
@@ -139,14 +195,29 @@ def render_cmd(
         CONST_ROADMAP_DOCUMENT_PATH
     ),
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.render_dry_run)] = False,
+    plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.render_plan)] = False,
 ) -> None:
     """Write the roadmap's Markdown view from GitHub; a failed read writes nothing."""
-    with _exit_on_failure("Could not render the roadmap"):
-        target, config, store = _open_roadmap(repo, ref)
-        text = render_roadmap(store, repo=target, config=config)
+    _one_mode(dry_run=dry_run, plan=plan_only)
     if dry_run or is_dry_run():
-        write_stdout(text)
+        target = _target(repo)
+        planned = dry_run_render(target, ref=ref)
+        notes = [MESSAGES.roadmap.plan_dry_run_render.format(path=output)]
+        render_dry_run("render", target, planned.requests, notes=notes)
         return
+    opened: list[RoadmapStore] = []
+    with _reporting_spend(opened):
+        with _exit_on_failure("Could not render the roadmap"):
+            target, config, store = _open_roadmap(repo, ref, CONST_ROADMAP_RENDER_BOARD_FILTER)
+            opened.append(store)
+            rendered = render(store, repo=target, config=config)
+        if plan_only:
+            write_stdout(rendered.text)
+            return
+        _write_render(output, rendered.text)
+
+
+def _write_render(output: Path, text: str) -> None:
     write_text_file(output, text, mode=CONST_ROADMAP_RENDER_FILE_MODE)
     items = sum(line.startswith("- [") for line in text.splitlines())
     sections = sum(line.startswith("## ") for line in text.splitlines())
@@ -165,15 +236,31 @@ def reprioritize_cmd(
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help=HELP.roadmap.reprioritize_dry_run)
     ] = False,
+    plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.reprioritize_plan)] = False,
 ) -> None:
     """Hold the current release to its rules, and start the next one once it ships."""
+    _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
+    if dry_run or is_dry_run():
+        target = _target(repo)
+        plan = dry_run_reprioritization(target, ref=ref, now=datetime.now(UTC))
+        render_dry_run("reprioritize", target, plan.requests, plan.write_requests)
+        return
+    opened: list[RoadmapStore] = []
+    with _reporting_spend(opened):
+        _reprioritize(repo, ref, confirm=confirm, opened=opened)
+
+
+def _reprioritize(
+    repo: str | None, ref: str | None, *, confirm: bool, opened: list[RoadmapStore]
+) -> None:
     with _exit_on_failure("Could not plan reprioritization"):
-        target, config, store = _open_roadmap(repo, ref)
+        target, config, store = _open_roadmap(repo, ref, CONST_ROADMAP_REPRIORITIZE_BOARD_FILTER)
+        opened.append(store)
         plan = plan_reprioritization(store, repo=target, config=config, now=datetime.now(UTC))
     write_stdout(render_plan(plan))
     if not plan.has_writes:
         return
-    if dry_run or is_dry_run() or not confirm:
+    if not confirm:
         print_info(MESSAGES.roadmap.reprioritize_preview)
         return
     with _exit_on_failure("Reprioritization stopped part-way; run it again to continue"):
@@ -240,8 +327,7 @@ def intake_cmd(
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.intake_confirm)] = False,
 ) -> None:
     """Turn candidates into items: duplicate check, type, priority, Value, Effort and placement."""
-    if dry_run + plan_only + confirm > 1:
-        _refuse(MESSAGES.roadmap.intake_modes_exclusive)
+    _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
     given = _new_candidate(title, body_file, borrow_reason)
     if given is not None and issue:
         _refuse(MESSAGES.roadmap.intake_issue_or_title)
@@ -263,15 +349,32 @@ def intake_cmd(
         return
     if not (plan_only or confirm):
         print_info(MESSAGES.roadmap.intake_plain_note)
+    opened: list[RoadmapStore] = []
+    with _reporting_spend(opened):
+        _intake(repo, ref, issue or (), new, confirm=confirm, opened=opened)
+
+
+def _intake(
+    repo: str | None,
+    ref: str | None,
+    issues: Sequence[int],
+    new: NewCandidate | None,
+    *,
+    confirm: bool,
+    opened: list[RoadmapStore],
+) -> None:
     meter = SpendMeter()
     with _exit_on_failure("Could not plan intake"):
-        target, config, store = _open_roadmap(repo, ref, runner=meter.run)
+        target, config, store = _open_roadmap(
+            repo, ref, CONST_ROADMAP_INTAKE_BOARD_FILTER, runner=meter.run
+        )
+        opened.append(store)
         plan = plan_intake(
             store,
             config=config,
             model=meter.model(build_intake_model()),
             ref=ref,
-            issues=issue or (),
+            issues=issues,
             new=new,
         )
     if not confirm:

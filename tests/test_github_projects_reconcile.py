@@ -13,6 +13,7 @@ from devops_cli.github.projects import (
     plan_item_changes,
     reconcile_project_custom_fields,
 )
+from tests.roadmap_board_fake import board_page_reply
 
 _URL = "https://github.com/owner/repo/issues/7"
 _STATUSES = ("New", "Ready", "In Progress", "In Review", "Done")
@@ -173,8 +174,8 @@ def test_reconcile_project_custom_fields_live() -> None:
         res = MagicMock()
         res.returncode = 0
         cmd_str = " ".join(cmd)
-        if "item-list" in cmd_str:
-            res.stdout = json.dumps(existing_items_resp)
+        if "RoadmapBoardItems" in cmd_str:
+            res.stdout = board_page_reply(existing_items_resp)
         elif "repos/owner/repo/issues" in cmd_str:
             res.stdout = json.dumps(issues_resp)
         elif "repos/owner/repo/pulls" in cmd_str:

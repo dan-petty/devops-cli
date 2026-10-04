@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -2061,7 +2062,9 @@ def test_uv_lock_check_offline_passes_after_bump(
     shutil.copy(clone / "uv.lock", stage / "uv.lock")
     cache_dir = tmp_path / "empty_uv_cache"
     cache_dir.mkdir()
-    env = {**os.environ, "UV_CACHE_DIR": str(cache_dir)}
+    # The stage has no virtual environment, so name the interpreter: offline, uv cannot
+    # download one, and a CI runner has no Python 3.14 on its search path.
+    env = {**os.environ, "UV_CACHE_DIR": str(cache_dir), "UV_PYTHON": sys.executable}
     check_proc = subprocess.run(
         ["uv", "lock", "--check", "--offline"],
         cwd=stage,

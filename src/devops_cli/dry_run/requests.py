@@ -47,9 +47,14 @@ def both(*conditions: str) -> str:
 
 
 def render_request_plan(
-    heading: str, requests: Sequence[PlannedRequest], notes: Sequence[str] = ()
+    heading: str,
+    requests: Sequence[PlannedRequest],
+    notes: Sequence[str] = (),
+    *,
+    described: bool = False,
 ) -> None:
     """Print the requests numbered, each body indented beneath its request, then the notes.
+    `described` puts each request's method and target first, its command on the next line.
 
     Written as plain text, so a command can be copied as printed.
     """
@@ -57,7 +62,11 @@ def render_request_plan(
 
     lines = [heading]
     for number, request in enumerate(requests, start=1):
-        lines.append(f"{number:>3}. {request.line()}")
+        if described and request.argv:
+            lines.append(f"{number:>3}. {request.method} {request.target}")
+            lines.append(f"       {request.line()}")
+        else:
+            lines.append(f"{number:>3}. {request.line()}")
         if request.stdin is not None:
             lines.extend(f"       {body}" for body in request.stdin.splitlines())
     lines.extend(notes)

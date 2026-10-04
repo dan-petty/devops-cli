@@ -19,7 +19,8 @@ devops roadmap migrate [OPTIONS]
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
 | `--confirm` | `boolean` | - | Make the planned writes to GitHub. Without it, migrate prints its plan only. |
-| `--dry-run` | `boolean` | - | Print the plan and report, and write nothing. |
+| `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
+| `--plan` | `boolean` | - | Read GitHub, print the plan and report, write nothing, and end with the GraphQL points spent and left. Migrate without a mode flag does this. |
 
 ---
 
@@ -38,7 +39,8 @@ devops roadmap render [OPTIONS]
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
 | `--output`, `-o` | `path` | `docs/ROADMAP.md` | File render writes. |
-| `--dry-run` | `boolean` | - | Print the rendered file to stdout instead of writing it. |
+| `--dry-run` | `boolean` | - | Make no request and write no file: print the requests a run makes, in order, with placeholders for values a read gives. |
+| `--plan` | `boolean` | - | Read GitHub and print the rendered file to stdout instead of writing it, ending with the GraphQL points spent and left. |
 
 ---
 
@@ -57,7 +59,8 @@ devops roadmap reprioritize [OPTIONS]
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
 | `--confirm` | `boolean` | - | Make the changes on GitHub. Without it, reprioritize prints its plan only. |
-| `--dry-run` | `boolean` | - | Print each change with its reason, and write nothing. |
+| `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, in order, with placeholders for values a read gives. |
+| `--plan` | `boolean` | - | Read GitHub, print each change with its reason, write nothing, and end with the GraphQL points spent and left. Reprioritize without a mode flag does this. |
 
 ---
 
