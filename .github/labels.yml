@@ -79,6 +79,10 @@
   color: "1D76DB"
   description: "Release coordination, changelog generation, and milestone epics"
 
+- name: "release"
+  color: "1D76DB"
+  description: "Pull request or issue associated with a release cut"
+
 # ── Priority Labels ─────────────────────────────────────────────────────────
 - name: "priority/p0-critical"
   color: "B60205"
