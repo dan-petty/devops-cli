@@ -32,11 +32,13 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_DOCUMENT_PATH,
     CONST_ROADMAP_INTAKE_BOARD_FILTER,
     CONST_ROADMAP_MIGRATE_BOARD_FILTER,
+    CONST_ROADMAP_REFINE_BOARD_FILTER,
     CONST_ROADMAP_RENDER_BOARD_FILTER,
     CONST_ROADMAP_RENDER_FILE_MODE,
     CONST_ROADMAP_REPRIORITIZE_BOARD_FILTER,
     CONST_ROADMAP_RUN_BOARD_FILTER,
 )
+from devops_cli.config.defaults import DEFAULT_ROADMAP_REFINE_LIMIT
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.dry_run import is_dry_run
@@ -475,6 +477,55 @@ def _close(
     if plan.unread:
         print_error(MESSAGES.roadmap.close_failed.format(count=len(plan.unread)))
         raise typer.Exit(1)
+
+
+@app.command("refine", help=HELP.roadmap.refine)
+def refine_cmd(
+    repo: RepoOption = None,
+    ref: RefOption = None,
+    source: Annotated[Path, typer.Option("--source", help=HELP.roadmap.refine_source)] = Path("."),
+    item: Annotated[int | None, typer.Option("--item", help=HELP.roadmap.refine_item)] = None,
+    limit: Annotated[
+        int, typer.Option("--limit", help=HELP.roadmap.refine_limit)
+    ] = DEFAULT_ROADMAP_REFINE_LIMIT,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.refine_dry_run)] = False,
+    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.refine_confirm)] = False,
+) -> None:
+    """Refine roadmap items to Ready with proposed design, tasks and acceptance criteria."""
+    _one_mode(dry_run=dry_run, confirm=confirm)
+    from devops_cli.roadmap.refine import apply_refine, plan_refine, render_refine_plan
+
+    target_repo = repo or get_repo_origin_name(source)
+    if not target_repo or "/" not in target_repo:
+        print_error("Cannot resolve the repository; pass --repo owner/name.")
+        raise typer.Exit(1)
+
+    opened: list[RoadmapStore] = []
+    with _reporting_spend(opened):
+        with _exit_on_failure("Could not plan refinement"):
+            _, config, store = _open_roadmap(target_repo, ref, CONST_ROADMAP_REFINE_BOARD_FILTER)
+            opened.append(store)
+            plan = plan_refine(
+                store,
+                repo=target_repo,
+                source=source,
+                ref=ref,
+                item_number=item,
+                limit=limit,
+                config=config,
+            )
+        write_stdout(render_refine_plan(plan) + "\n")
+        if dry_run or not confirm or is_dry_run():
+            print_info(MESSAGES.roadmap.preview_only)
+            return
+        if not plan.has_writes:
+            return
+        with _exit_on_failure("Could not apply refinement"):
+            applied = apply_refine(store, plan)
+            print_success(
+                f"Refined {applied.refined_count} item(s): {applied.readied_count} set to Ready, "
+                f"{applied.split_count} marked for split."
+            )
 
 
 @app.command("run", help=HELP.roadmap.run)

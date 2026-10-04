@@ -237,6 +237,11 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 KeyringSource("service_webhook_secrets", opt.SERVICE_WEBHOOK_SECRETS),
                 required=False,
             ),
+            SecretEntry(
+                "DEVOPS_CLI_TAVILY_API_KEY",
+                KeyringSource("tavily_api_key", opt.TAVILY_API_KEY),
+                required=False,
+            ),
         ),
         restarts=(Workload("deployment", "roadmap-service"),),
         labels={"app.kubernetes.io/name": "devops-cli"},

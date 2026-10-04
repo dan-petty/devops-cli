@@ -687,6 +687,12 @@ class DataConfig(BaseModel):
         return self
 
 
+class TavilyConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    api_key: str | None = None
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="DEVOPS_CLI_",
@@ -717,6 +723,7 @@ class Settings(BaseSettings):
     open_webui: OpenWebUIConfig = OpenWebUIConfig()
     data: DataConfig = DataConfig()
     service: ServiceConfig = ServiceConfig()
+    tavily: TavilyConfig = TavilyConfig()
 
 
 _EPHEMERAL_CI_SECRETS: dict[str, str] = {}
@@ -1219,6 +1226,12 @@ def get_cloudflare_api_token(settings: Settings) -> str | None:
 def get_service_webhook_secrets(settings: Settings) -> str | None:
     """Resolve the JSON mapping of repo to webhook secret."""
     return _resolve(opt.SERVICE_WEBHOOK_SECRETS, settings)
+
+
+def get_tavily_api_key(settings: Settings | None = None) -> str | None:
+    """Resolve the Tavily search API key."""
+    active_settings = settings or load_settings()
+    return _resolve(opt.TAVILY_API_KEY, active_settings)
 
 
 def get_llm_client(task: str | None = None) -> Any:

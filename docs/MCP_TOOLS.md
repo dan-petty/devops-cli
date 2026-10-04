@@ -138,6 +138,9 @@ the tool reads no file of the caller's choosing. |
 It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
 spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A
 person reviews the plan and runs `devops roadmap migrate --confirm`. |
+| [`roadmap_refine`](#roadmap-refine) | Run a dry run of item refinement: returns the refinement plan without making any writes.
+
+It never accepts a confirm argument, ensuring it is strictly read-only. |
 | [`roadmap_render`](#roadmap-render) | Render docs/ROADMAP.md from GitHub's issues, milestones and board.
 
 `mode="plan"`, the default, reads GitHub and prints the file without writing it, ending
@@ -1416,6 +1419,22 @@ person reviews the plan and runs `devops roadmap migrate --confirm`.
 | `repo` | `string` | No | - | - |
 | `ref` | `string` | No | - | - |
 | `mode` | `string` | No | `plan` | - |
+
+### `roadmap_refine`
+
+Run a dry run of item refinement: returns the refinement plan without making any writes.
+
+It never accepts a confirm argument, ensuring it is strictly read-only.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+| `ref` | `string` | No | - | - |
+| `item` | `integer` | No | - | - |
+| `limit` | `integer` | No | - | - |
+| `source` | `string` | No | - | - |
 
 ### `roadmap_render`
 

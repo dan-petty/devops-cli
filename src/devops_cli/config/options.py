@@ -132,6 +132,9 @@ SERVICE_POLL_INTERVAL_SECONDS = "service.poll_interval_seconds"
 SERVICE_DRAIN_TIMEOUT_SECONDS = "service.drain_timeout_seconds"
 SERVICE_WEBHOOK_SECRETS = "service.webhook_secrets"
 
+# Search Provider Configuration
+TAVILY_API_KEY = "tavily.api_key"
+
 CONFIG_OPTIONS: tuple[str, ...] = (
     GITHUB_DEFAULT_ORG,
     SSH_KEY_DIR,
@@ -235,6 +238,7 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     SERVICE_POLL_INTERVAL_SECONDS,
     SERVICE_DRAIN_TIMEOUT_SECONDS,
     SERVICE_WEBHOOK_SECRETS,
+    TAVILY_API_KEY,
 )
 
 SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
@@ -251,6 +255,7 @@ SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
         CLOUDFLARE_API_TOKEN,
         CLOUDFLARE_TUNNEL_TOKEN,
         SERVICE_WEBHOOK_SECRETS,
+        TAVILY_API_KEY,
     }
 )
 
@@ -267,4 +272,5 @@ KEYRING_KEYS: dict[str, str] = {
     CLOUDFLARE_API_TOKEN: "cloudflare_api_token",
     CLOUDFLARE_TUNNEL_TOKEN: "cloudflare_tunnel_token",
     SERVICE_WEBHOOK_SECRETS: "service_webhook_secrets",
+    TAVILY_API_KEY: "tavily_api_key",
 }

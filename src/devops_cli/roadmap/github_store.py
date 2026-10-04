@@ -109,6 +109,7 @@ from devops_cli.roadmap.store import (
     JobRecord,
     MergedPullRequest,
     PullRequest,
+    RefineRecordKey,
     Release,
     RoadmapStore,
     Workflow,
@@ -338,6 +339,10 @@ class _DefaultBranchPayload(BaseModel):
     sha: str = Field(
         validation_alias=AliasPath("data", "repository", "defaultBranchRef", "target", "oid")
     )
+
+
+class _IsPrivatePayload(BaseModel):
+    is_private: bool = Field(validation_alias=AliasPath("data", "repository", "isPrivate"))
 
 
 class _RefPayload(BaseModel):
@@ -593,7 +598,7 @@ _BOARD_ITEMS = TypeAdapter(list[_BoardItemPayload])
 _FIELDS = TypeAdapter(_FieldListingPayload)
 _JOB_RECORD = TypeAdapter(JobRecord)
 # The job record keys this version reads; the others are a newer version's, kept as they are.
-_JOB_RECORD_KEYS = frozenset(key.value for key in (*ItemField, *JobMark))
+_JOB_RECORD_KEYS = frozenset(key.value for key in (*ItemField, *JobMark, *RefineRecordKey))
 _PROJECT = TypeAdapter(_ProjectPayload)
 _PROJECTS = TypeAdapter(_ProjectListingPayload)
 _BOARD_FIELDS = TypeAdapter(_BoardFieldsPayload)
@@ -604,6 +609,7 @@ _OPEN_PULL_REQUESTS = TypeAdapter(_OpenPullRequestsPayload)
 _RELEASE_PULL_REQUESTS = TypeAdapter(_ReleasePullRequestsPayload)
 _ISSUE_STATUS = TypeAdapter(_IssueStatusPayload)
 _DEFAULT_BRANCH = TypeAdapter(_DefaultBranchPayload)
+_IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
 _REF = TypeAdapter(_RefPayload)
 _GITHUB_RELEASE = TypeAdapter(_GitHubReleasePayload)
 _COMMENTS = TypeAdapter(list[_CommentPayload])
@@ -671,6 +677,7 @@ _ISSUE_STATUS_QUERY = _REPOSITORY.format(
 _DEFAULT_BRANCH_QUERY = _REPOSITORY.format(
     params="", selection="defaultBranchRef { name target { oid } }"
 )
+_IS_PRIVATE_QUERY = _REPOSITORY.format(params="", selection="isPrivate")
 _CLOSURES_QUERY = _REPOSITORY.format(
     params=", $first: Int!, $number: Int!",
     selection=(
@@ -1059,6 +1066,11 @@ def close_issue_args(repo: str, number: Number, reason: str) -> list[str]:
     ]
 
 
+def write_issue_body_args(repo: str, number: Number, body: str) -> list[str]:
+    """The `gh` arguments that write `body` as the body of issue `number`."""
+    return ["api", "-X", "PATCH", f"repos/{repo}/issues/{number}", "-f", f"body={body}"]
+
+
 def comment_args(repo: str, number: Number, body: str) -> list[str]:
     return ["api", "-X", "POST", comments_endpoint(repo, number), "-f", f"body={body}"]
 
@@ -1125,6 +1137,11 @@ def issue_status_args(repo: str, number: Number) -> list[str]:
 
 def default_branch_args(repo: str) -> list[str]:
     return repository_query_args(repo, _DEFAULT_BRANCH_QUERY)
+
+
+def is_private_args(repo: str) -> list[str]:
+    """The `gh` arguments that query whether `repo` is private."""
+    return repository_query_args(repo, _IS_PRIVATE_QUERY)
 
 
 def closures_args(repo: str, number: Number) -> list[str]:
@@ -1296,7 +1313,7 @@ class GitHubRoadmapStore(RoadmapStore):
         field: ItemField,
         value: str | None,
         *,
-        marks: Mapping[JobMark, str | None] | None = None,
+        marks: Mapping[Any, str | None] | None = None,
     ) -> None:
         """Record the value in the Item's job record, with `marks`, then set or clear the field.
 
@@ -1326,7 +1343,7 @@ class GitHubRoadmapStore(RoadmapStore):
     def set_marks(
         self,
         item: Item,
-        marks: Mapping[JobMark, str | None],
+        marks: Mapping[Any, str | None],
         *,
         recorded: Mapping[ItemField, str | None] | None = None,
         forgotten: Collection[ItemField] = (),
@@ -1345,7 +1362,7 @@ class GitHubRoadmapStore(RoadmapStore):
         card = self._run_record_card()
         return card.card().job_record if card else {}
 
-    def set_run_record(self, marks: Mapping[JobMark, str | None]) -> None:
+    def set_run_record(self, marks: Mapping[Any, str | None]) -> None:
         """Set or clear marks in the run record card's job record, creating the card first when
         the board has none. The card is found again after it is created, by its title."""
         board = self._require_existing_board()
@@ -1397,6 +1414,27 @@ class GitHubRoadmapStore(RoadmapStore):
             )
         self.comment(number, comment)
         self._write(close_issue_args(self._repo, number, reason), f"close #{number}")
+
+    def read_issue_body(self, number: int) -> str:
+        """The body of issue `number`, raising if it is not an issue of this repository."""
+        issue = self._read_issue(number)
+        if issue.pull_request is not None:
+            raise GitHubOperationError(
+                f"#{number} in {self._repo} is a pull request, not an issue.",
+                operation="roadmap.issue.read_body",
+                details={"repo": self._repo[:256], "number": number},
+            )
+        return issue.body or ""
+
+    def write_issue_body(self, number: int, body: str) -> None:
+        """Write `body` as the body of issue `number`, raising if it is not an issue of this repository."""
+        if self._read_issue(number).pull_request is not None:
+            raise GitHubOperationError(
+                f"#{number} in {self._repo} is a pull request, not an issue.",
+                operation="roadmap.issue.write_body",
+                details={"repo": self._repo[:256], "number": number},
+            )
+        self._write(write_issue_body_args(self._repo, number, body), f"write body of #{number}")
 
     def comments_on(self, number: int) -> list[str]:
         """The body of every comment on issue `number`, oldest first."""
@@ -1481,6 +1519,12 @@ class GitHubRoadmapStore(RoadmapStore):
                 details={"repo": self._repo[:256], "path": path[:256]},
             )
         raise self._failure(proc, f"read {where}", "roadmap.read")
+
+    def repository_is_private(self) -> bool:
+        """Whether the repository is private."""
+        return self._read(
+            is_private_args(self._repo), _IS_PRIVATE, f"{self._repo} visibility"
+        ).is_private
 
     # ── The board ──
 
@@ -2050,6 +2094,7 @@ __all__ = [
     "field_list_args",
     "field_spec_request",
     "graphql_request",
+    "is_private_args",
     "issue_args",
     "issue_count_args",
     "issue_events_endpoint",
@@ -2076,4 +2121,5 @@ __all__ = [
     "repository_query_args",
     "run_record_card_args",
     "workflow_run_args",
+    "write_issue_body_args",
 ]

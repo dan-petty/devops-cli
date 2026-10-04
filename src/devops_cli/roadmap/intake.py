@@ -62,12 +62,14 @@ to fold. Two runs at once can both open within one slot, as search lags recent f
 
 from __future__ import annotations
 
+import logging
 import string
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from functools import cached_property
+from typing import Any
 
 import yaml
 from pydantic import TypeAdapter
@@ -144,6 +146,7 @@ from devops_cli.security.sanitizer import redact_text
 
 _LABEL_SPECS = TypeAdapter(list[LabelSpec])
 _P0_PROPOSALS = frozenset({CONST_ROADMAP_CRITICAL_PRIORITY, CONST_ROADMAP_P0_PRIORITY})
+logger = logging.getLogger(__name__)
 
 
 class BorrowReason(StrEnum):
@@ -1175,15 +1178,56 @@ def _apply_placement(store: RoadmapStore, decision: IntakeDecision) -> int | Non
     return filed
 
 
-def apply_intake(store: RoadmapStore, plan: IntakePlan) -> IntakeApplied:
+def _should_refine_on_intake(decision: IntakeDecision) -> bool:
+    if decision.outcome is not Outcome.PLACE:
+        return False
+    all_labels = set(decision.labels) | set(decision.filing_labels) | set(decision.subject.labels)
+    is_crit_fix = not CONST_ROADMAP_CRITICAL_FIX_LABELS.isdisjoint(all_labels)
+    is_p0 = decision.priority in (CONST_ROADMAP_CRITICAL_PRIORITY, CONST_ROADMAP_P0_PRIORITY)
+    admitted = decision.placement is not None and decision.placement.release is not None
+    return (is_crit_fix and admitted) or (is_p0 and not is_crit_fix)
+
+
+def refine_item(store: RoadmapStore, number: int, **kwargs: Any) -> Any:
+    """Refine hook called by intake when admitting a critical fix or placing a P0 feature."""
+    from devops_cli.roadmap.refine import refine_item as _refine_item
+
+    return _refine_item(store, number, **kwargs)
+
+
+def _maybe_refine_intake(
+    refine_hook: Callable[[RoadmapStore, int], Any],
+    store: RoadmapStore,
+    decision: IntakeDecision,
+    number: int | None,
+) -> None:
+    if not _should_refine_on_intake(decision):
+        return
+    item_number = decision.subject.number or number
+    if item_number is None:
+        return
+    try:
+        refine_hook(store, item_number)
+    except Exception as exc:
+        logger.warning("Intake refine hook failed for #%d: %s", item_number, exc)
+
+
+def apply_intake(
+    store: RoadmapStore,
+    plan: IntakePlan,
+    *,
+    refine: Callable[[RoadmapStore, int], Any] | None = None,
+) -> IntakeApplied:
     """Make the plan's writes, one candidate at a time."""
     filed: list[int] = []
     placed = closed = 0
+    refine_hook = refine or refine_item
     for decision in plan.decisions:
         if decision.outcome is Outcome.PLACE:
             number = _apply_placement(store, decision)
             filed += [number] if number is not None else []
             placed += 1
+            _maybe_refine_intake(refine_hook, store, decision, number)
         elif decision.outcome is Outcome.DUPLICATE and decision.subject.number is not None:
             assert decision.original is not None
             store.close_as_duplicate(decision.subject.number, decision.original, decision.comment)
@@ -1312,6 +1356,7 @@ __all__ = [
     "intake_candidate",
     "plan_intake",
     "read_quota",
+    "refine_item",
     "render_intake",
     "render_intake_dry_run",
     "validate_proposal",

@@ -1248,6 +1248,12 @@ class RoadmapMessages:
     reprioritize_left_backlog: str = (
         "- #{number} left the backlog, where a job placed it, so where a person puts it stands."
     )
+    refine_ready_comment: str = "Status set to Ready at {sha} (see proposed design in issue body)."
+    refine_split_comment: str = (
+        "Proposal needs splitting into {count} items at {sha} (see proposed design in issue body)."
+    )
+    refine_title: str = "# Refinement plan for {repo}"
+    refine_none: str = "No items to refine."
     reprioritize_kept_out: str = (
         "- #{number} was taken out of {release} by a person, as its issue's events show, so it "
         "stays in the backlog: a person's placement stands."

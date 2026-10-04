@@ -20,7 +20,7 @@ from collections.abc import Collection, Container, Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from functools import lru_cache
-from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -157,7 +157,16 @@ class PullRequestState(StrEnum):
     MERGED = "merged"
 
 
-JobRecord = dict[ItemField | JobMark, str | None]
+class RefineRecordKey(StrEnum):
+    """What refine records in an Item's job record (#744): the body hash outside the section,
+    the section hash, and whether the proposal needs splitting."""
+
+    BODY_HASH = "refine.body_hash"
+    SECTION_HASH = "refine.section_hash"
+    NEEDS_SPLIT = "refine.needs_split"
+
+
+JobRecord = dict[ItemField | JobMark | RefineRecordKey, str | None]
 
 # ── Models ────────────────────────────────────────────────────────────────────
 
@@ -551,7 +560,7 @@ def release_edits(
     return {name: change for name, change in requested.items() if change is not None}
 
 
-def with_marks(record: JobRecord, marks: Mapping[JobMark, str | None]) -> JobRecord:
+def with_marks(record: JobRecord, marks: Mapping[Any, str | None]) -> JobRecord:
     """A copy of the job record with `marks` set or cleared in it."""
     merged: JobRecord = dict(record)
     for mark, value in marks.items():
@@ -723,7 +732,7 @@ class RoadmapStore(Protocol):
         field: ItemField,
         value: str | None,
         *,
-        marks: Mapping[JobMark, str | None] | None = None,
+        marks: Mapping[Any, str | None] | None = None,
     ) -> None:
         """Record the value in the Item's job record, with `marks` set or cleared in the same
         write, then set or clear the field.
@@ -750,9 +759,18 @@ class RoadmapStore(Protocol):
     def close_issue(self, number: int, reason: CloseReason, comment: str) -> None:
         """Comment on issue `number`, then close it for `reason`, raising if it is not an issue."""
 
+    def read_issue_body(self, number: int) -> str:
+        """The body of issue `number`, raising if it is not an issue of this repository."""
+
+    def write_issue_body(self, number: int, body: str) -> None:
+        """Write `body` as the body of issue `number`, raising if it is not an issue of this repository."""
+
     def repository_file(self, path: str, *, ref: str | None = None) -> str:
         """The text of the repository file at `path` on `ref` (the default branch when None),
         raising `GitHubFileNotFoundError` when there is no such file."""
+
+    def repository_is_private(self) -> bool:
+        """Whether the repository is private."""
 
     # ── The board itself ──
     # No operation edits an existing board's options. GitHub's option input takes no id, so
@@ -796,7 +814,7 @@ class RoadmapStore(Protocol):
     def set_marks(
         self,
         item: Item,
-        marks: Mapping[JobMark, str | None],
+        marks: Mapping[Any, str | None],
         *,
         recorded: Mapping[ItemField, str | None] | None = None,
         forgotten: Collection[ItemField] = (),
@@ -814,7 +832,7 @@ class RoadmapStore(Protocol):
     def run_record(self) -> JobRecord:
         """The run record: the run record card's job record, empty while the board has none."""
 
-    def set_run_record(self, marks: Mapping[JobMark, str | None]) -> None:
+    def set_run_record(self, marks: Mapping[Any, str | None]) -> None:
         """Set or clear marks in the run record in one write, putting the run record card on
         the board first when it has none. A board with no job record field raises before any
         write."""
@@ -942,6 +960,7 @@ __all__ = [
     "MergedPullRequest",
     "PullRequest",
     "PullRequestState",
+    "RefineRecordKey",
     "Release",
     "RoadmapStore",
     "Workflow",

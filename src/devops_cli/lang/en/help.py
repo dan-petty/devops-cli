@@ -1039,6 +1039,15 @@ class RoadmapCommandHelp:
     run_dry_run: str = (
         "Make no request: print the due list of jobs and the reason each is due, and run nothing."
     )
+    refine: str = (
+        "Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria. "
+        "Evaluates Next-release and Backlog New items using code, documentation, and external research."
+    )
+    refine_item: str = "Specific issue number to refine instead of selecting by priority."
+    refine_limit: str = "Maximum number of New items to refine in this run (default 3)."
+    refine_source: str = "Path to the repository checkout (defaults to current directory)."
+    refine_confirm: str = "Refine the items and write the proposed designs to GitHub. Without it, refine prints its plan only."
+    refine_dry_run: str = "Make no request and change no git ref: print what refine would plan and run, with placeholders."
 
 
 @dataclass(frozen=True)

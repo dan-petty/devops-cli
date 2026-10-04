@@ -418,6 +418,25 @@ def _run_reprioritize_adapter(
     return JobOutcome(changes=changes)
 
 
+def _run_refine_adapter(
+    store: RoadmapStore,
+    repo: str = "",
+    clone_path: Path | None = None,
+    config: RoadmapConfig | None = None,
+    **_: Any,
+) -> JobOutcome:
+    """Run refine job and return JobOutcome."""
+    from devops_cli.roadmap.config import read_roadmap_config
+    from devops_cli.roadmap.refine import apply_refine, plan_refine
+
+    active_config = config or read_roadmap_config(store, ref=None)
+    source = clone_path or Path.cwd()
+    plan = plan_refine(store, repo=repo, source=source, config=active_config)
+    if plan.has_writes:
+        apply_refine(store, plan)
+    return JobOutcome()
+
+
 DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (
     JobRow(
         name="intake",
@@ -439,6 +458,12 @@ DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (
         runner=_run_reprioritize_adapter,
         change_predicate=_reprioritize_change_predicate,
         cross_job_predicate=_reprioritize_cross_job,
+    ),
+    JobRow(
+        name="refine",
+        runner=_run_refine_adapter,
+        needs_clone=True,
+        cross_job_predicate=_refine_cross_job,
     ),
 )
 

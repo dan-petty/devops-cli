@@ -29,7 +29,12 @@ from devops_cli.exceptions.git import (
 )
 from devops_cli.github.rate_limiter import GitHubRateLimiter, reset_github_rate_limiter
 from devops_cli.roadmap.config import RoadmapConfig
-from devops_cli.roadmap.github_store import GitHubRoadmapStore, option_update_request
+from devops_cli.roadmap.github_store import (
+    GitHubRoadmapStore,
+    is_private_args,
+    option_update_request,
+    write_issue_body_args,
+)
 from devops_cli.roadmap.reprioritize import plan_reprioritization
 from devops_cli.roadmap.store import (
     Card,
@@ -1932,3 +1937,52 @@ def test_a_failed_files_listing_raises() -> None:
     )
     with pytest.raises(GitHubOperationError, match=r"#1 files \(page 1\)"):
         store.merged_pull_requests("release/v0.2.26")
+
+
+def test_is_private_args_and_write_issue_body_args() -> None:
+    write_args = write_issue_body_args(REPO, 42, "new body")
+    priv_args = is_private_args(REPO)
+    owner, name = REPO.split("/", 1)
+    assert (
+        write_args,
+        priv_args,
+    ) == (
+        ["api", "-X", "PATCH", f"repos/{REPO}/issues/42", "-f", "body=new body"],
+        [
+            "api",
+            "graphql",
+            "-f",
+            "query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { isPrivate } }",
+            "-f",
+            f"owner={owner}",
+            "-f",
+            f"name={name}",
+        ],
+    )
+
+
+def test_read_and_write_issue_body_github_store() -> None:
+    store, runner = board_store({"-X PATCH": {}, f"api repos/{REPO}/issues/917": OPEN_ISSUES[1]})
+    body = store.read_issue_body(917)
+    store.write_issue_body(917, "Updated content")
+    assert (
+        body,
+        runner.writes,
+    ) == (
+        OPEN_ISSUES[1].get("body") or "",
+        [["api", "-X", "PATCH", f"repos/{REPO}/issues/917", "-f", "body=Updated content"]],
+    )
+
+
+def test_issue_body_on_pull_request_raises_github_store() -> None:
+    store, runner = board_store({f"api repos/{REPO}/issues/918": OPEN_ISSUES[0]})
+    with pytest.raises(GitHubOperationError, match="pull request"):
+        store.read_issue_body(918)
+    with pytest.raises(GitHubOperationError, match="pull request"):
+        store.write_issue_body(918, "content")
+    assert runner.writes == []
+
+
+def test_repository_is_private_github_store() -> None:
+    store, _ = board_store({"isPrivate": {"data": {"repository": {"isPrivate": True}}}})
+    assert store.repository_is_private() is True
