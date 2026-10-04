@@ -117,6 +117,7 @@ def test_verdict_invariants_enforcement_raises() -> None:
         assert_verdict_invariants([bad_mit_rep])
 
 
+@pytest.mark.bwrap
 def test_criteria_execution_verdict_finality(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

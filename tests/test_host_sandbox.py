@@ -71,6 +71,7 @@ def _repo_with_virtualenv(repo: Path, interpreter: Path) -> Path:
     return repo
 
 
+@pytest.mark.bwrap
 def test_host_sandbox_reads_repo(tmp_path: Path) -> None:
     """Live test: sandboxed child can read files from the mounted repository."""
     data_file = tmp_path / "hello.txt"
@@ -85,6 +86,7 @@ def test_host_sandbox_reads_repo(tmp_path: Path) -> None:
     ) == (True, True, 0, True)
 
 
+@pytest.mark.bwrap
 def test_host_sandbox_cannot_list_home(tmp_path: Path) -> None:
     """Live test: sandboxed child cannot access /home."""
     sandbox = HostSandbox()
@@ -96,6 +98,7 @@ def test_host_sandbox_cannot_list_home(tmp_path: Path) -> None:
     ) == (False, True, True)
 
 
+@pytest.mark.bwrap
 def test_host_sandbox_cannot_write_repo(tmp_path: Path) -> None:
     """Live test: sandboxed child cannot mutate files in the mounted repository."""
     sandbox = HostSandbox()
@@ -109,6 +112,7 @@ def test_host_sandbox_cannot_write_repo(tmp_path: Path) -> None:
     ) == (False, True, True, False)
 
 
+@pytest.mark.bwrap
 def test_host_sandbox_cannot_connect_network(tmp_path: Path) -> None:
     """Live test: sandboxed child cannot establish non-loopback network connections."""
     sandbox = HostSandbox()
@@ -123,6 +127,7 @@ def test_host_sandbox_cannot_connect_network(tmp_path: Path) -> None:
     ) == (False, True, True)
 
 
+@pytest.mark.bwrap
 def test_host_sandbox_clears_sensitive_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Live test: sandboxed child inherits no host credentials and uses isolated HOME."""
     monkeypatch.setenv("GITHUB_TOKEN", "super_secret_host_token")
@@ -182,7 +187,10 @@ def test_host_sandbox_build_args_structure(tmp_path: Path) -> None:
 
 def test_host_sandbox_handles_namespace_refusal(tmp_path: Path) -> None:
     """Verify that bubblewrap namespace refusal is caught and reported as sandbox error."""
-    sandbox = HostSandbox()
+    stub_bwrap = tmp_path / "bwrap"
+    stub_bwrap.write_text("#!/bin/sh\n", encoding="utf-8")
+    stub_bwrap.chmod(0o755)
+    sandbox = HostSandbox(bwrap_binary=stub_bwrap)
     mock_proc = MagicMock()
     mock_proc.communicate.return_value = (
         "",
@@ -227,11 +235,16 @@ def test_host_sandbox_consumes_custom_policy(tmp_path: Path) -> None:
     ) == (True, True, True, True, True, True, True, True)
 
 
+@pytest.mark.bwrap
 def test_host_sandbox_kills_process_exceeding_output_cap(tmp_path: Path) -> None:
     """Verify that process generating unbounded output is terminated and output is capped (#663)."""
     sandbox = HostSandbox()
     res = sandbox.execute(
-        ["python3", "-c", "import sys; sys.stdout.write('A' * 50000); sys.stdout.flush()"],
+        [
+            "python3",
+            "-c",
+            "import sys; sys.stdout.write('A' * 50000); sys.stdout.flush()",
+        ],
         cwd=tmp_path,
         max_output_bytes=1024,
     )
@@ -242,6 +255,7 @@ def test_host_sandbox_kills_process_exceeding_output_cap(tmp_path: Path) -> None
     ) == (False, True, True)
 
 
+@pytest.mark.bwrap
 def test_host_sandbox_nested_clone_cannot_read_parent_workspace(tmp_path: Path) -> None:
     """Verify nearest repo root is mounted so nested clone cannot traverse parent (#663)."""
     parent = tmp_path / "workspace"
@@ -263,6 +277,7 @@ def test_host_sandbox_nested_clone_cannot_read_parent_workspace(tmp_path: Path) 
     ) == (False, True, True)
 
 
+@pytest.mark.bwrap
 def test_host_sandbox_linked_worktree_runs_git(tmp_path: Path) -> None:
     """Verify linked worktree binds common git directory so git commands succeed (#663)."""
     import subprocess
@@ -278,7 +293,9 @@ def test_host_sandbox_linked_worktree_runs_git(tmp_path: Path) -> None:
     subprocess.run(["git", "add", "README.md"], cwd=main_repo, check=True)
     subprocess.run(["git", "commit", "-m", "initial commit"], cwd=main_repo, check=True)
     subprocess.run(
-        ["git", "worktree", "add", str(worktree), "-b", "feat"], cwd=main_repo, check=True
+        ["git", "worktree", "add", str(worktree), "-b", "feat"],
+        cwd=main_repo,
+        check=True,
     )
 
     sandbox = HostSandbox()
@@ -340,6 +357,7 @@ def _project_with_its_own_environment(root: Path) -> Path:
     return root
 
 
+@pytest.mark.bwrap
 def test_host_sandbox_runs_the_repo_environment_tools(tmp_path: Path) -> None:
     """Live test: ruff and python come from the reviewed repository's own virtualenv (#847)."""
     project = _project_with_its_own_environment(tmp_path)
@@ -356,6 +374,7 @@ def test_host_sandbox_runs_the_repo_environment_tools(tmp_path: Path) -> None:
     ) == (True, True, True, None, str(project / ".venv"))
 
 
+@pytest.mark.bwrap
 def test_python_criterion_imports_the_repo_test_dependencies(tmp_path: Path) -> None:
     """Live test: a criterion importing pytest runs under the repository's interpreter (#847).
 
@@ -452,7 +471,9 @@ def test_sandbox_never_binds_an_interpreter_prefix_the_repository_could_aim_else
     )
 
 
-def test_sandbox_ignores_a_virtualenv_linked_from_outside_the_repository(tmp_path: Path) -> None:
+def test_sandbox_ignores_a_virtualenv_linked_from_outside_the_repository(
+    tmp_path: Path,
+) -> None:
     """A `.venv` that links outside the bound repository is not put on the PATH (#847)."""
     outside = tmp_path / "outside-venv"
     (outside / "bin").mkdir(parents=True)

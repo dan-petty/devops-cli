@@ -116,6 +116,9 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-n logical"
+markers = [
+    "bwrap: live sandbox tests requiring bubblewrap; skipped where bwrap is not installed",
+]
 
 
 [tool.coverage.run]

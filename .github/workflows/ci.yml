@@ -87,12 +87,6 @@ jobs:
           tooling-cache-paths: |
             .pytest_cache
 
-      - name: Install bubblewrap host sandbox dependencies
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y bubblewrap python-is-python3
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-
       - name: Unit Tests & Code Coverage
         run: uv run pytest --cov=src --cov-report=xml
 
