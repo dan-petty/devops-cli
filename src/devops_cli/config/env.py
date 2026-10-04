@@ -107,6 +107,12 @@ ENV_DATA_TLS_DIR = "DEVOPS_CLI_DATA_TLS_DIR"
 ENV_DATA_AUDIT_LOG_PATH = "DEVOPS_CLI_DATA_AUDIT_LOG_PATH"
 ENV_DATA_FEEDBACK_DATASET_PATH = "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH"
 
+ENV_SERVICE_REPOS = "DEVOPS_CLI_SERVICE_REPOS"
+ENV_SERVICE_MACHINE_ACCOUNT = "DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT"
+ENV_SERVICE_POLL_INTERVAL_SECONDS = "DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS"
+ENV_SERVICE_DRAIN_TIMEOUT_SECONDS = "DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS"
+ENV_SERVICE_WEBHOOK_SECRETS = "DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS"
+
 OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.GITHUB_DEFAULT_ORG: ENV_GITHUB_DEFAULT_ORG,
     opt.SSH_KEY_DIR: ENV_SSH_KEY_DIR,
@@ -192,6 +198,11 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.DATA_TLS_DIR: ENV_DATA_TLS_DIR,
     opt.DATA_AUDIT_LOG_PATH: ENV_DATA_AUDIT_LOG_PATH,
     opt.DATA_FEEDBACK_DATASET_PATH: ENV_DATA_FEEDBACK_DATASET_PATH,
+    opt.SERVICE_REPOS: ENV_SERVICE_REPOS,
+    opt.SERVICE_MACHINE_ACCOUNT: ENV_SERVICE_MACHINE_ACCOUNT,
+    opt.SERVICE_POLL_INTERVAL_SECONDS: ENV_SERVICE_POLL_INTERVAL_SECONDS,
+    opt.SERVICE_DRAIN_TIMEOUT_SECONDS: ENV_SERVICE_DRAIN_TIMEOUT_SECONDS,
+    opt.SERVICE_WEBHOOK_SECRETS: ENV_SERVICE_WEBHOOK_SECRETS,
 }
 
 ENV_VAR_TO_OPTION: dict[str, str] = {v: k for k, v in OPTION_TO_ENV_VAR.items()}
@@ -701,5 +712,35 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.DATA_FEEDBACK_DATASET_PATH,
             False,
             "Path to feedback fine-tuning dataset JSONL file",
+        ),
+        EnvVarSpec(
+            ENV_SERVICE_REPOS,
+            opt.SERVICE_REPOS,
+            False,
+            "Target repository list for service mode",
+        ),
+        EnvVarSpec(
+            ENV_SERVICE_MACHINE_ACCOUNT,
+            opt.SERVICE_MACHINE_ACCOUNT,
+            False,
+            "GitHub username of the machine account to ignore events from",
+        ),
+        EnvVarSpec(
+            ENV_SERVICE_POLL_INTERVAL_SECONDS,
+            opt.SERVICE_POLL_INTERVAL_SECONDS,
+            False,
+            "Periodic polling interval for service mode in seconds",
+        ),
+        EnvVarSpec(
+            ENV_SERVICE_DRAIN_TIMEOUT_SECONDS,
+            opt.SERVICE_DRAIN_TIMEOUT_SECONDS,
+            False,
+            "Shutdown drain timeout for running service jobs in seconds",
+        ),
+        EnvVarSpec(
+            ENV_SERVICE_WEBHOOK_SECRETS,
+            opt.SERVICE_WEBHOOK_SECRETS,
+            True,
+            "JSON map of repo to webhook HMAC secret for incoming GitHub webhooks",
         ),
     ]

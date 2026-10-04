@@ -141,21 +141,3 @@ class GitHubRateLimitError(GitHubOperationError, ValueError):
             error_code="GITHUB_RATE_LIMIT_UNKNOWN",
             details=err_details,
         )
-
-
-class GitHubWebhookVerificationError(GitHubOperationError):
-    """Exception raised when GitHub webhook signature verification fails."""
-
-    def __init__(
-        self,
-        message: str = "GitHub webhook HMAC signature verification failed",
-        *,
-        operation: str = "webhook_verification",
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(
-            message,
-            operation=operation,
-            error_code="GITHUB_WEBHOOK_VERIFICATION_FAILED",
-            details=details,
-        )

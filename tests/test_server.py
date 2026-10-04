@@ -228,5 +228,69 @@ def test_serve_cli_invocation_mocked() -> None:
         result = runner.invoke(serve_app, ["--host", "0.0.0.0", "--port", "9000"])
         assert result.exit_code == 0
         assert mock_uvicorn.called
-        assert mock_uvicorn.call_args.kwargs["host"] == "0.0.0.0"
-        assert mock_uvicorn.call_args.kwargs["port"] == 9000
+        assert (mock_uvicorn.call_args.kwargs["host"], mock_uvicorn.call_args.kwargs["port"]) == (
+            "0.0.0.0",
+            9000,
+        )
+
+
+def test_serve_service_mode_flags_rejected() -> None:
+    """Test --service rejects --workers > 1 and --reload with exit code 2."""
+    res_workers = runner.invoke(serve_app, ["--service", "--workers", "2"])
+    res_reload = runner.invoke(serve_app, ["--service", "--reload"])
+
+    assert (
+        res_workers.exit_code,
+        "--workers > 1" in res_workers.output,
+        res_reload.exit_code,
+        "--reload" in res_reload.output,
+    ) == (2, True, 2, True)
+
+
+def test_serve_service_mode_config_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test --service enforces repos, machine_account, and valid JSON webhook secrets."""
+    # 1. Missing repos
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", "[]")
+    res_repos = runner.invoke(serve_app, ["--service"])
+
+    # 2. Missing machine_account
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", '["example-org/repo1"]')
+    monkeypatch.delenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", raising=False)
+    res_account = runner.invoke(serve_app, ["--service"])
+
+    # 3. Missing webhook_secrets
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", "bot-account")
+    monkeypatch.delenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", raising=False)
+    res_no_secrets = runner.invoke(serve_app, ["--service"])
+
+    # 4. Invalid JSON webhook_secrets
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", "not-a-json-object")
+    res_bad_secrets = runner.invoke(serve_app, ["--service"])
+
+    assert (
+        res_repos.exit_code,
+        "service.repos" in res_repos.output,
+        res_account.exit_code,
+        "service.machine_account" in res_account.output,
+        res_no_secrets.exit_code,
+        "service.webhook_secrets" in res_no_secrets.output,
+        res_bad_secrets.exit_code,
+        "service.webhook_secrets" in res_bad_secrets.output,
+    ) == (1, True, 1, True, 1, True, 1, True)
+
+
+def test_serve_service_mode_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test valid --service invocation starts uvicorn without banner."""
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", '["example-org/repo1"]')
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", "bot-account")
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", '{"example-org/repo1":"secret-1"}')
+
+    with patch("uvicorn.run") as mock_uvicorn:
+        result = runner.invoke(serve_app, ["--service", "--host", "0.0.0.0", "--port", "8787"])
+        assert (
+            result.exit_code,
+            mock_uvicorn.called,
+            mock_uvicorn.call_args.kwargs["host"],
+            mock_uvicorn.call_args.kwargs["port"],
+            mock_uvicorn.call_args.kwargs["log_config"],
+        ) == (0, True, "0.0.0.0", 8787, None)

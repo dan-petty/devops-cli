@@ -58,7 +58,6 @@ from devops_cli.exceptions.git import (
     GitHubOperationError,
     GitHubRateLimitError,
     GitHubUnauthenticatedError,
-    GitHubWebhookVerificationError,
     GitOperationError,
     InvalidBranchNameError,
 )
@@ -154,7 +153,6 @@ __all__ = [
     "GitHubOperationError",
     "GitHubRateLimitError",
     "GitHubUnauthenticatedError",
-    "GitHubWebhookVerificationError",
     "GitOperationError",
     "GitOpsSyncError",
     "HarnessExecutionError",

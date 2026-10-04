@@ -446,6 +446,12 @@ def build_secret_registry(keyring_keys: dict[str, str]) -> dict[str, SecretRef]:
             ("DEVOPS_CLI_CLOUDFLARE_TUNNEL_TOKEN",),
             None,
         ),
+        (
+            opt.SERVICE_WEBHOOK_SECRETS,
+            "service_webhook_secrets",
+            ("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS",),
+            None,
+        ),
     )
 
     return {
