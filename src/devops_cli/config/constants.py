@@ -945,6 +945,7 @@ CONST_BRANCH_PREFIXES: tuple[str, ...] = (
 CONST_ERROR_CODE_DEVOPS_CLI = "DEVOPS_CLI_ERROR"
 CONST_ERROR_CODE_LLM_INFERENCE = "LLM_INFERENCE_ERROR"
 CONST_ERROR_CODE_EMBEDDINGS = "EMBEDDINGS_ERROR"
+CONST_ERROR_CODE_MODEL_GATEWAY_UNREACHABLE = "MODEL_GATEWAY_UNREACHABLE"
 CONST_ERROR_CODE_CONFIG = "CONFIGURATION_ERROR"
 CONST_ERROR_CODE_GIT = "GIT_OPERATION_ERROR"
 CONST_ERROR_CODE_SECURITY = "SECURITY_ERROR"
@@ -2411,6 +2412,31 @@ CONST_ROADMAP_RUN_RECORD_BODY: Final[str] = (
     "release `devops roadmap reprioritize` last started. Leave the card on the board: without "
     "it, the job refuses to run until the card is back."
 )
+# `devops roadmap intake` (#742). Its reason comment and its duplicate close each carry their own
+# marker, so a run that finds one posts no second comment of that kind.
+CONST_ROADMAP_INTAKE_REASON_MARKER: Final[str] = "<!-- devops roadmap intake: reason -->"
+CONST_ROADMAP_INTAKE_DUPLICATE_MARKER: Final[str] = "<!-- devops roadmap intake: duplicate -->"
+CONST_ROADMAP_LABELS_PATH: Final[str] = ".github/labels.yml"
+CONST_ROADMAP_TYPE_LABEL_PREFIX: Final[str] = "type/"
+# The agent filing quota's labels (#1153): an agent's candidate, and one opened beyond the allowance.
+CONST_ROADMAP_SOURCE_AGENT_LABEL: Final[str] = "source/agent"
+CONST_ROADMAP_BORROWED_LABEL: Final[str] = "budget/borrowed"
+# The Priority options the model may propose; only verified evidence sets P0-Critical.
+CONST_ROADMAP_MODEL_PRIORITIES: Final[tuple[str, ...]] = ("P1-High", "P2-Medium", "P3-Low")
+# A bug or security opening at these priorities may borrow beyond the allowance (#1153).
+CONST_ROADMAP_BORROWING_PRIORITIES: Final[frozenset[str]] = frozenset({"P0-Critical", "P1-High"})
+# The Value and Effort options (`.github/project-template.json`).
+CONST_ROADMAP_SIZE_OPTIONS: Final[tuple[str, ...]] = ("High", "Medium", "Low")
+# An author with write access, the machine account included, as GitHub's author_association says.
+CONST_ROADMAP_TRUSTED_AUTHORS: Final[frozenset[str]] = frozenset(
+    {"OWNER", "MEMBER", "COLLABORATOR"}
+)
+# What each kind of P0 evidence looks like: a GHSA ID, an Actions run id, a commit SHA.
+CONST_ROADMAP_EVIDENCE_PATTERNS: Final[dict[str, re.Pattern[str]]] = {
+    "advisory": re.compile(r"GHSA(-[23456789cfghjmpqrvwx]{4}){3}"),
+    "failed_run": re.compile(r"[0-9]{1,20}"),
+    "regression_commit": re.compile(r"[0-9a-fA-F]{7,40}"),
+}
 CONST_GH_PROJECT_SINGLE_SELECT_TYPE: Final[str] = "SINGLE_SELECT"
 CONST_GH_PROJECT_TEXT_TYPE: Final[str] = "TEXT"
 CONST_GH_RAW_CONTENT_ACCEPT: Final[str] = "Accept: application/vnd.github.raw+json"

@@ -20,6 +20,7 @@ from devops_cli.ai.benchmark.embedding_tasks import (
 )
 from devops_cli.ai.benchmark.runner import _get_benchmarks_base_dir, _key_for_endpoint
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+from devops_cli.ai.vector_similarity import cosine_similarity
 from devops_cli.config.constants import (
     CONST_EMBEDDING_REPORT_FILENAME,
     CONST_FP32_BYTES_PER_ELEMENT,
@@ -60,18 +61,6 @@ from devops_cli.output import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
-    """Compute cosine similarity between two numeric vectors."""
-    if not vec_a or not vec_b or len(vec_a) != len(vec_b):
-        return 0.0
-    dot = sum(a * b for a, b in zip(vec_a, vec_b, strict=False))
-    norm_a = math.sqrt(sum(a * a for a in vec_a))
-    norm_b = math.sqrt(sum(b * b for b in vec_b))
-    if norm_a == 0.0 or norm_b == 0.0:
-        return 0.0
-    return float(dot / (norm_a * norm_b))
 
 
 def compute_ndcg_at_k(ranked_indices: list[int], target_idx: int, k: int = 5) -> float:

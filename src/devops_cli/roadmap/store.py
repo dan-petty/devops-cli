@@ -20,7 +20,7 @@ from collections.abc import Collection, Container, Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from functools import lru_cache
-from typing import Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -29,6 +29,9 @@ from devops_cli.config.constants import CONST_GH_PROJECT_JOB_RECORD_FIELD
 from devops_cli.config.defaults import DEFAULT_GH_PROJECT_OPTION_COLOR, DEFAULT_RELEASE_LABEL
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.validation import InvalidVersionError
+
+if TYPE_CHECKING:
+    from devops_cli.roadmap.github_store import GhRunner
 
 # ── Vocabulary ────────────────────────────────────────────────────────────────
 
@@ -71,6 +74,16 @@ class CloseReason(StrEnum):
 
     COMPLETED = "completed"
     NOT_PLANNED = "not_planned"
+    DUPLICATE = "duplicate"
+
+
+class EvidenceKind(StrEnum):
+    """What a piece of evidence for a P0 is (#742): a GitHub security advisory, a failed Actions
+    run of this repository, or the commit of this repository that introduced a regression."""
+
+    ADVISORY = "advisory"
+    FAILED_RUN = "failed_run"
+    REGRESSION_COMMIT = "regression_commit"
 
 
 class ChangeKind(StrEnum):
@@ -176,7 +189,7 @@ def release_title(version: str) -> str:
 
 
 class Release(BaseModel):
-    """A milestone whose title parses as a version."""
+    """A milestone whose title parses as a version; `closed_at` is when it last closed."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -187,6 +200,7 @@ class Release(BaseModel):
     due_on: date | None = None
     open_issues: int = 0
     closed_issues: int = 0
+    closed_at: datetime | None = None
 
     @property
     def version(self) -> Version:
@@ -258,7 +272,11 @@ class Change(BaseModel):
 
 
 class IssueRecord(BaseModel):
-    """What the repository's issue listing says about one issue or pull request."""
+    """What the repository's issue listing says about one issue or pull request.
+
+    `author_association` is GitHub's word for the author's relation to the repository, such as
+    `OWNER`, `COLLABORATOR` or `NONE`.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -271,6 +289,46 @@ class IssueRecord(BaseModel):
     labels: tuple[str, ...] = ()
     release: str | None = None
     pull_request: bool = False
+    author_association: str | None = None
+    created_at: datetime | None = None
+    closed_at: datetime | None = None
+
+
+class Closure(BaseModel):
+    """One close or reopen of an issue, as its timeline records it: a close carries its state
+    reason, and the issue it duplicates when it was closed as a duplicate."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: ChangeKind
+    at: datetime
+    reason: str | None = None
+    duplicate_of: int | None = None
+
+
+class IssueQuery(BaseModel):
+    """Which issues to count, never pull requests: each condition given narrows the count.
+
+    `labels` must all be on an issue; `uncommented` keeps issues with no comment at all.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    state: GitHubState | None = None
+    labels: tuple[str, ...] = ()
+    created_since: datetime | None = None
+    closed_since: datetime | None = None
+    reason: CloseReason | None = None
+    uncommented: bool = False
+
+
+class Evidence(BaseModel):
+    """A piece of evidence for a P0: its kind and the value that names it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: EvidenceKind
+    value: str = Field(min_length=1, max_length=128)
 
 
 class BoardEntry(BaseModel):
@@ -669,7 +727,8 @@ class RoadmapStore(Protocol):
         """Comment on issue `number`, then close it for `reason`, raising if it is not an issue."""
 
     def repository_file(self, path: str, *, ref: str | None = None) -> str:
-        """The text of the repository file at `path` on `ref` (the default branch when None)."""
+        """The text of the repository file at `path` on `ref` (the default branch when None),
+        raising `GitHubFileNotFoundError` when there is no such file."""
 
     # ── The board itself ──
     # No operation edits an existing board's options. GitHub's option input takes no id, so
@@ -771,11 +830,35 @@ class RoadmapStore(Protocol):
     def comments_on(self, number: int) -> list[str]:
         """The body of every comment on issue `number`, oldest first."""
 
+    # ── What intake reads and writes (#742) ──
+
+    def close_as_duplicate(self, number: int, original: int, comment: str | None) -> None:
+        """Comment on issue `number` unless `comment` is None (a retry whose comment is already
+        there), then close it as a duplicate of issue `original`, raising if either is not an
+        issue of this repository."""
+
+    def closures(self, number: int) -> list[Closure]:
+        """Every close and reopen of issue `number`, oldest first, from its timeline."""
+
+    def label_issue(self, number: int, label: str) -> None:
+        """Add `label` to issue `number`, keeping its other labels."""
+
+    def evidence_holds(self, evidence: Evidence) -> bool:
+        """Whether GitHub confirms the evidence: the advisory exists, the run of this repository
+        failed, or the commit exists in this repository."""
+
+    def count_issues(self, query: IssueQuery) -> int:
+        """How many issues of the repository match `query`, never pull requests."""
+
 
 def get_roadmap_store(
-    repo: str, *, board_owner: str | None = None, board_number: int | None = None
+    repo: str,
+    *,
+    board_owner: str | None = None,
+    board_number: int | None = None,
+    runner: GhRunner | None = None,
 ) -> RoadmapStore:
-    """Open the roadmap store for `repo`.
+    """Open the roadmap store for `repo`, its `gh` commands through `runner` when one is given.
 
     Every caller builds its store here, so a test replaces this one function with a fixture
     that returns the in-memory adapter. Without a board, Release operations work, and Item
@@ -783,7 +866,11 @@ def get_roadmap_store(
     """
     from devops_cli.roadmap.github_store import GitHubRoadmapStore
 
-    return GitHubRoadmapStore(repo, board_owner=board_owner, board_number=board_number)
+    if runner is None:
+        return GitHubRoadmapStore(repo, board_owner=board_owner, board_number=board_number)
+    return GitHubRoadmapStore(
+        repo, board_owner=board_owner, board_number=board_number, runner=runner
+    )
 
 
 __all__ = [
@@ -799,10 +886,14 @@ __all__ = [
     "Change",
     "ChangeKind",
     "CloseReason",
+    "Closure",
     "Dependency",
+    "Evidence",
+    "EvidenceKind",
     "FieldOption",
     "FieldSpec",
     "GitHubState",
+    "IssueQuery",
     "IssueRecord",
     "Item",
     "ItemField",

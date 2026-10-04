@@ -210,8 +210,9 @@ def test_gh_issues_create() -> None:
         assert "#99" in result.output
 
 
-def test_gh_issues_triage() -> None:
-    """devops gh issues triage reports compliance metrics."""
+def test_gh_issues_triage(roadmap_store: InMemoryRoadmapStore) -> None:
+    """devops gh issues triage reports compliance metrics; with no roadmap board it can't tell
+    which issues await intake, and says so."""
     from devops_cli.github.issues import IssueTriageAudit
 
     mock_audit = IssueTriageAudit(
@@ -220,12 +221,53 @@ def test_gh_issues_triage() -> None:
         issues_missing_type=[],
         issues_missing_scope=[],
         issues_missing_priority=[],
-        issues_missing_milestone=[],
     )
-    with patch("devops_cli.commands.gh.audit_issues_triage", return_value=mock_audit):
+    with patch("devops_cli.commands.gh.audit_issues_triage", return_value=mock_audit) as audit:
         result = runner.invoke(app, ["issues", "triage", "--repo", "dan-petty/devops-cli"])
-        assert result.exit_code == 0
-        assert "5 (100.0%)" in result.output
+    assert (
+        result.exit_code,
+        "5 (100.0%)" in result.output,
+        "Milestone" in result.output,
+        audit.call_args.kwargs,
+    ) == (0, True, False, {"awaiting_intake": ()})
+
+
+def test_gh_issues_triage_passes_the_issues_off_the_board_as_awaiting_intake(
+    roadmap_store: InMemoryRoadmapStore,
+) -> None:
+    from devops_cli.github.issues import IssueTriageAudit
+
+    roadmap_store.seed_file(".github/roadmap.toml", "board = 1\n")
+    off_board = roadmap_store.seed_issue("not on the board yet")
+    roadmap_store.seed_issue("an item", on_board=True)
+    found = IssueTriageAudit(total_open=2, valid_count=1, issues_awaiting_intake=[off_board])
+    with patch("devops_cli.commands.gh.audit_issues_triage", return_value=found) as audit:
+        result = runner.invoke(app, ["issues", "triage", "--repo", "dan-petty/devops-cli"])
+    assert (result.exit_code, audit.call_args.kwargs, f"#{off_board}" in result.output) == (
+        0,
+        {"awaiting_intake": [off_board]},
+        True,
+    )
+
+
+def test_gh_issues_triage_does_not_hide_a_failed_board_read(
+    roadmap_store: InMemoryRoadmapStore,
+) -> None:
+    """Only a missing `.github/roadmap.toml` means no board; a rate limit is reported."""
+    from devops_cli.exceptions.git import GitHubRateLimitError
+    from devops_cli.github.issues import IssueTriageAudit
+
+    roadmap_store.seed_file(".github/roadmap.toml", "board = 1\n")
+    limited = GitHubRateLimitError("API rate limit exceeded")
+    with (
+        patch.object(roadmap_store, "candidates", side_effect=limited),
+        patch(
+            "devops_cli.commands.gh.audit_issues_triage",
+            return_value=IssueTriageAudit(total_open=1, valid_count=1),
+        ),
+    ):
+        result = runner.invoke(app, ["issues", "triage", "--repo", "dan-petty/devops-cli"])
+    assert (result.exit_code != 0, "no .github/roadmap.toml" in result.output) == (True, False)
 
 
 def test_gh_issues_status() -> None:

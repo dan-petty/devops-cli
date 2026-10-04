@@ -10,18 +10,22 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.exceptions.validation import InvalidVersionError
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
 from devops_cli.roadmap.store import (
     BoardField,
     CardKind,
     ChangeKind,
     CloseReason,
+    Closure,
+    Evidence,
+    EvidenceKind,
     FieldOption,
     FieldSpec,
     GitHubState,
+    IssueQuery,
     ItemField,
     JobMark,
     PullRequestState,
@@ -523,7 +527,7 @@ def test_a_repository_file_is_read_at_its_ref_and_a_missing_one_raises(
         store.repository_file(".github/roadmap.toml", ref="release/v0.2.25"),
         store.repository_file(".github/roadmap.toml"),
     )
-    with pytest.raises(GitHubOperationError, match=r"no docs/ROADMAP\.md"):
+    with pytest.raises(GitHubFileNotFoundError, match=r"no docs/ROADMAP\.md"):
         store.repository_file("docs/ROADMAP.md")
     assert read == ("board = 2\n", "board = 1\n")
 
@@ -814,3 +818,116 @@ def test_a_change_reads_the_value_and_job_record_as_they_are_now(
             {ItemField.RELEASE: "v0.2.25"},
         ),
     ]
+
+
+# ── What intake reads and writes (#742) ───────────────────────────────────────
+
+
+def test_a_duplicate_close_comments_then_closes_and_its_timeline_names_the_original(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    original = store.seed_issue("original", state=GitHubState.CLOSED, state_reason="not_planned")
+    copy = store.seed_issue("copy", author_association="NONE")
+    store.close_as_duplicate(copy, original, "Duplicate of #1.")
+    closed_at = clock.now
+    clock.now += timedelta(hours=1)
+    store.as_actor("alice").reopen_issue(copy)
+    issue = next(issue for issue in store.issues() if issue.number == copy)
+    assert (
+        store.comments_on(copy),
+        (issue.state, issue.author_association),
+        store.closures(copy),
+        store.job_writes()[-2:],
+    ) == (
+        ["Duplicate of #1."],
+        (GitHubState.OPEN, "NONE"),
+        [
+            Closure(kind=ChangeKind.CLOSED, at=closed_at, reason="duplicate", duplicate_of=1),
+            Closure(kind=ChangeKind.REOPENED, at=clock.now),
+        ],
+        [
+            JobWrite("comment", copy, value="Duplicate of #1."),
+            JobWrite("close_as_duplicate", copy, value="1"),
+        ],
+    )
+
+
+def test_a_duplicate_close_without_a_comment_only_closes(store: InMemoryRoadmapStore) -> None:
+    """A retry whose duplicate comment is already there closes without a second one."""
+    original = store.seed_issue("original")
+    copy = store.seed_issue("copy")
+    store.close_as_duplicate(copy, original, None)
+    assert (store.comments_on(copy), store.closures(copy)[-1].duplicate_of) == ([], original)
+
+
+def test_a_duplicate_close_refuses_a_pull_request_on_either_side(
+    store: InMemoryRoadmapStore,
+) -> None:
+    issue = store.seed_issue("issue")
+    pull_request = store.seed_issue("a pull request", pull_request=True)
+    refused = []
+    for number, original in ((pull_request, issue), (issue, pull_request)):
+        with pytest.raises(GitHubOperationError, match="not an issue"):
+            store.close_as_duplicate(number, original, "no")
+        refused.append(store.comments_on(number))
+    assert (refused, store.closures(issue)) == ([[], []], [])
+
+
+def test_labeling_an_issue_adds_the_label_once_as_a_job_write(store: InMemoryRoadmapStore) -> None:
+    number = store.seed_issue("unlabeled", labels=("bug",))
+    store.label_issue(number, "type/bug")
+    store.label_issue(number, "type/bug")
+    issue = next(issue for issue in store.issues() if issue.number == number)
+    assert (issue.labels, [w.operation for w in store.job_writes()][-1:]) == (
+        ("bug", "type/bug"),
+        ["label_issue"],
+    )
+
+
+def test_evidence_holds_only_for_what_github_confirms(store: InMemoryRoadmapStore) -> None:
+    store.seed_evidence(Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="abc1234"))
+    asked = [
+        Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="abc1234"),
+        Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="def5678"),
+        Evidence(kind=EvidenceKind.FAILED_RUN, value="abc1234"),
+    ]
+    assert [store.evidence_holds(evidence) for evidence in asked] == [True, False, False]
+
+
+def test_counting_issues_narrows_by_each_condition_given(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    start = clock.now
+    store.seed_issue("before the window", labels=("source/agent",))
+    clock.now += timedelta(hours=1)
+    agent = store.seed_issue("agent", labels=("source/agent", "budget/borrowed"))
+    done = store.seed_issue("done")
+    store.close_issue(done, CloseReason.COMPLETED, "Delivered.")
+    bulk = store.seed_issue("bulk")
+    store.as_actor("alice").close_by_hand(bulk, CloseReason.NOT_PLANNED)
+    store.seed_issue("a pull request", pull_request=True)
+    since = start + timedelta(minutes=1)
+    queries = [
+        IssueQuery(),
+        IssueQuery(state=GitHubState.OPEN),
+        IssueQuery(labels=("source/agent",), created_since=since),
+        IssueQuery(labels=("source/agent", "budget/borrowed")),
+        IssueQuery(state=GitHubState.CLOSED, closed_since=since),
+        IssueQuery(closed_since=since, reason=CloseReason.NOT_PLANNED, uncommented=True),
+        IssueQuery(closed_since=clock.now + timedelta(seconds=1)),
+    ]
+    assert ([store.count_issues(query) for query in queries], agent) == ([4, 2, 1, 1, 2, 1, 0], 2)
+
+
+def test_a_release_records_when_it_closed_and_forgets_it_when_reopened(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    store.close_release("v0.2.25")
+    closed = store.release("v0.2.25")
+    store.edit_release("v0.2.25", state=GitHubState.OPEN)
+    reopened = store.release("v0.2.25")
+    assert (
+        closed.closed_at if closed else None,
+        reopened.closed_at if reopened else "missing",
+        (store.release("v0.2.24") or closed).closed_at,
+    ) == (clock.now, None, clock.now)

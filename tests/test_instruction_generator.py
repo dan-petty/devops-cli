@@ -363,16 +363,25 @@ def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:
     devops_content = generate_agents_md(devops_meta)
     devops_expected = (
         "Continuous Roadmap Synthesis, Field Observations & Innovative Self-Improvement",
-        "MUST BE FILED AS CANDIDATE ISSUES (`devops gh issues create`)",
-        "Automatic Roadmap Ingestion for Issues, Struggles, Challenges & Insights",
-        "Automatic Roadmap Ingestion for Missing Parameters, API Inconsistencies & Contract Deficiencies",
-        "Automatic Roadmap Ingestion for Bad Patterns, Anti-Patterns & Deficiencies",
-        "Automatic Roadmap Ingestion for Features, Suggestions & Integrations",
+        "devops roadmap intake --title",
+        "--body-file",
+        "never set a milestone or a priority on a new issue",
+        "never edit `docs/ROADMAP.md`",
         "source/agent",
         "budget/borrowed",
         "open_issue_limit",
     )
     missing_devops = [p for p in devops_expected if p not in devops_content]
-    # docs/ROADMAP.md is rendered from GitHub at the cut (ADR 0001); no rule adds to it (#952).
-    adds_to_roadmap_file = "TO THE ROADMAP (`docs/ROADMAP.md`)" in devops_content
-    assert (missing_devops, adds_to_roadmap_file) == ([], False)
+    # Intake is the one way in (#742): the ingestion rules that filed straight into a release
+    # or into docs/ROADMAP.md are gone, and docs/ROADMAP.md is rendered from GitHub (ADR 0001).
+    ingestion_rules = [
+        rule
+        for rule in (
+            "Automatic Roadmap Ingestion",
+            "TO THE ROADMAP (`docs/ROADMAP.md`)",
+            "STRUCTURED ROADMAP TASKS",
+            "MUST FILE A CANDIDATE ISSUE (`devops gh issues create`)",
+        )
+        if rule in devops_content
+    ]
+    assert (missing_devops, ingestion_rules) == ([], [])

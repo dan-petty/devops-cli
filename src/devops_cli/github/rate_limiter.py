@@ -481,6 +481,12 @@ def _detect_resource(args: list[str]) -> str:
     return "core"
 
 
+def gh_request_resource(args: list[str]) -> str:
+    """The rate-limit resource a `gh` command spends (`core`, `graphql`, `search`, ...), as
+    `run_gh` paces it."""
+    return _detect_resource(_normalize_gh_args(args))
+
+
 def _is_api_mutation(api_args: list[str]) -> bool:
     """Determine whether API call arguments constitute a write mutation."""
     for arg in api_args:

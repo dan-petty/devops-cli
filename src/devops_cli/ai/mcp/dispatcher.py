@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from devops_cli.config.constants import CONST_MCP_DOMAINS
@@ -14,6 +15,11 @@ from devops_cli.config.defaults import (
     DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess
+from devops_cli.dry_run.state import (
+    in_dry_run_invocation,
+    is_dry_run_requested,
+    mark_dry_run_invocation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +163,35 @@ def _extract_devops_sub_args(cmd: list[str]) -> list[str] | None:
     return None
 
 
+_DRY_RUN_LOCK = threading.Lock()
+_dry_runs = 0
+_invocation_before = False
+
+
+@contextmanager
+def _dry_run_invocation(sub_args: list[str]) -> Iterator[None]:
+    """While a dispatched command with its own `--dry-run` runs, the process is a dry run, so
+    the command's telemetry is not exported either (#412). The entry point marks this for a
+    command line; an in-process dispatch does not pass through it. Other commands dispatched
+    meanwhile export nothing until the last dry run ends."""
+    global _dry_runs, _invocation_before
+    if not is_dry_run_requested(sub_args):
+        yield
+        return
+    with _DRY_RUN_LOCK:
+        if not _dry_runs:
+            _invocation_before = in_dry_run_invocation()
+        _dry_runs += 1
+        mark_dry_run_invocation(True)
+    try:
+        yield
+    finally:
+        with _DRY_RUN_LOCK:
+            _dry_runs -= 1
+            if not _dry_runs:
+                mark_dry_run_invocation(_invocation_before)
+
+
 class InProcessDispatcher:
     """Direct in-process execution engine for devops-cli tools eliminating subshell spawning."""
 
@@ -239,7 +274,8 @@ class InProcessDispatcher:
         runner = CliRunner()
         try:
             start_t = time.perf_counter()
-            res = runner.invoke(app, sub_args, env=env)
+            with _dry_run_invocation(sub_args):
+                res = runner.invoke(app, sub_args, env=env)
             dur_ms = (time.perf_counter() - start_t) * 1000
             logger.debug("In-process dispatch finished in %.2fms", dur_ms)
 

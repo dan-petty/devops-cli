@@ -761,6 +761,14 @@ DEFAULT_GH_PROJECT_FIELD_LIMIT: int = 100
 DEFAULT_GH_PROJECT_LIST_LIMIT: int = 100
 DEFAULT_GH_PROJECT_WORKFLOW_LIMIT: int = 50
 DEFAULT_GH_PROJECT_OPTION_COLOR: str = "GRAY"
+# Closes and reopens read from one issue's timeline in one GraphQL request (#742).
+DEFAULT_GH_ISSUE_TIMELINE_LIMIT: int = 100
+# `devops roadmap intake` (#742): the nearest items the model judges, and how much of an issue's
+# text it embeds and shows the model.
+DEFAULT_ROADMAP_INTAKE_SHORTLIST: int = 5
+DEFAULT_ROADMAP_INTAKE_TEXT_CHARS: int = 4000
+DEFAULT_ROADMAP_INTAKE_EXCERPT_CHARS: int = 600
+DEFAULT_ROADMAP_INTAKE_REASON_CHARS: int = 240
 DEFAULT_ROADMAP_MEMORY_REPO: str = "example/roadmap"
 DEFAULT_ROADMAP_MEMORY_ACTOR: str = "devops-cli"
 DEFAULT_ROADMAP_MEMORY_BOARD_NUMBER: int = 1

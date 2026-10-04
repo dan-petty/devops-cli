@@ -5,7 +5,11 @@ from __future__ import annotations
 import os
 import sys
 
-from devops_cli.dry_run.state import is_dry_run_requested, set_dry_run
+from devops_cli.dry_run.state import (
+    is_dry_run_requested,
+    mark_dry_run_invocation,
+    set_dry_run,
+)
 
 
 def is_completion_requested() -> bool:
@@ -33,7 +37,9 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     # 2. Dry-run state activation
-    if is_dry_run_requested(raw_args):
+    requested = is_dry_run_requested(raw_args)
+    mark_dry_run_invocation(requested)
+    if requested:
         set_dry_run(True)
 
     # 3. Standard Typer execution for delegated subcommands and help

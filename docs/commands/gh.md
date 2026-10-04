@@ -524,7 +524,7 @@ devops gh issues create [OPTIONS]
 
 ### `devops gh issues triage`
 
-**Audit open issues for mandatory taxonomy labels and milestone linkage.**
+**Audit open issues for mandatory taxonomy labels, and report those not on the roadmap board as awaiting intake.**
 
 ```bash
 devops gh issues triage [OPTIONS]

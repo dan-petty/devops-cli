@@ -6,8 +6,9 @@ change fields and record changes under their name, but never touch the job recor
 option names, and `edit_options_by_hand` renames or clears them by option id, as GitHub's
 cards, which hold option ids, show after a person edits a field's options in its settings.
 
-A person also opens, closes and merges pull requests, publishes GitHub Releases and adds
-blocked-by links through the helpers below; each records the change a poll would find. Every
+A person also opens, closes and merges pull requests, publishes GitHub Releases, closes and
+reopens issues and adds blocked-by links through the helpers below; each records the change a
+poll would find. `seed_evidence` makes a piece of evidence one GitHub confirms. Every
 write the store makes as a job, not as a person, is kept in `job_writes`, so a test can check
 what a job wrote and that a preview wrote nothing. The only draft issue the board holds is the
 run record card, once a job has written the run record.
@@ -31,7 +32,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_MEMORY_HEAD_SHA,
     DEFAULT_ROADMAP_MEMORY_REPO,
 )
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.roadmap.store import (
     BOARD_FIELDS,
     RELEASE_CHANGE_KINDS,
@@ -45,10 +46,13 @@ from devops_cli.roadmap.store import (
     Change,
     ChangeKind,
     CloseReason,
+    Closure,
     Dependency,
+    Evidence,
     FieldOption,
     FieldSpec,
     GitHubState,
+    IssueQuery,
     IssueRecord,
     Item,
     ItemField,
@@ -81,6 +85,10 @@ from devops_cli.roadmap.store import (
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _at_or_after(moment: datetime | None, since: datetime) -> bool:
+    return moment is not None and moment >= as_utc(since)
 
 
 def _card_id(number: int) -> str:
@@ -125,6 +133,8 @@ class _Roadmap:
     dependencies: dict[int, list[int]] = field(default_factory=dict)
     pull_requests: dict[int, PullRequest] = field(default_factory=dict)
     published: set[str] = field(default_factory=set)
+    closures: dict[int, list[Closure]] = field(default_factory=dict)
+    evidence: set[Evidence] = field(default_factory=set)
     default_branch: str = DEFAULT_ROADMAP_MEMORY_DEFAULT_BRANCH
     branches: dict[str, str] = field(
         default_factory=lambda: {
@@ -196,14 +206,17 @@ class InMemoryRoadmapStore(RoadmapStore):
         release: str | None = None,
         pull_request: bool = False,
         on_board: bool = False,
+        author_association: str | None = None,
     ) -> int:
         """Open an issue (or a pull request) as GitHub would, returning its number.
 
         Seeding records no change. `on_board` puts it on the board with no fields set, which
-        `add_item` refuses for a pull request but GitHub's board allows.
+        `add_item` refuses for a pull request but GitHub's board allows. The issue is created
+        now by the store's clock, and closed now when seeded closed.
         """
         number = len(self._roadmap.issues) + 1
         kind = "pull" if pull_request else "issues"
+        now = self._roadmap.clock()
         self._roadmap.issues[number] = IssueRecord(
             number=number,
             title=title,
@@ -214,6 +227,9 @@ class InMemoryRoadmapStore(RoadmapStore):
             labels=tuple(labels),
             release=release,
             pull_request=pull_request,
+            author_association=author_association,
+            created_at=now,
+            closed_at=now if state is GitHubState.CLOSED else None,
         )
         if on_board:
             self._roadmap.cards[number] = BoardEntry(number=number)
@@ -277,9 +293,18 @@ class InMemoryRoadmapStore(RoadmapStore):
         issue = self._require_issue(number, "roadmap.issue.reopen")
         if issue.state is GitHubState.CLOSED:
             self._roadmap.issues[number] = issue.model_copy(
-                update={"state": GitHubState.OPEN, "state_reason": None}
+                update={"state": GitHubState.OPEN, "state_reason": None, "closed_at": None}
             )
+            self._closure(number, ChangeKind.REOPENED)
             self._record(ChangeKind.REOPENED, number, issue.release)
+
+    def close_by_hand(self, number: int, reason: CloseReason) -> None:
+        """Close an issue without a comment, as a person's bulk close does on GitHub."""
+        self._close(self._require_issue(number, "roadmap.issue.close"), reason)
+
+    def seed_evidence(self, evidence: Evidence) -> None:
+        """Make `evidence` one GitHub confirms: the advisory, failed run or commit exists."""
+        self._roadmap.evidence.add(evidence)
 
     def link_dependency(self, number: int, on: int) -> None:
         """Add a blocked-by link: issue `number` waits on issue `on`."""
@@ -374,7 +399,12 @@ class InMemoryRoadmapStore(RoadmapStore):
         title = require_new_release(self.releases(), version, "roadmap.release.create")
         number = max(self._roadmap.releases, default=0) + 1
         created = Release(
-            number=number, title=title, description=description, state=state, due_on=due_on
+            number=number,
+            title=title,
+            description=description,
+            state=state,
+            due_on=due_on,
+            closed_at=self._roadmap.clock() if state is GitHubState.CLOSED else None,
         )
         self._roadmap.releases[number] = created
         self._log("create_release", value=title)
@@ -399,7 +429,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         edits = release_edits(
             releases, current, title=title, description=description, due_on=due_on, state=state
         )
-        edited = current.model_copy(update=edits)
+        edited = current.model_copy(update=edits | self._closed_at(current, edits.get("state")))
         self._roadmap.releases[current.number] = edited
         if edited.title != current.title:
             self._retitle(current.title, edited.title)
@@ -435,11 +465,40 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Comment on issue `number`, then close it for `reason`."""
         issue = self._require_issue(number, "roadmap.issue.close")
         self.comment(number, comment)
-        self._roadmap.issues[number] = issue.model_copy(
-            update={"state": GitHubState.CLOSED, "state_reason": reason.value}
-        )
+        self._close(issue, reason)
         self._log("close_issue", number, value=reason.value)
-        self._record(ChangeKind.CLOSED, number, issue.release)
+
+    def close_as_duplicate(self, number: int, original: int, comment: str | None) -> None:
+        """Comment on issue `number` unless `comment` is None, then close it as a duplicate of
+        issue `original`."""
+        issue = self._require_issue(number, "roadmap.issue.close_as_duplicate")
+        self._require_issue(original, "roadmap.issue.close_as_duplicate")
+        if comment is not None:
+            self.comment(number, comment)
+        self._close(issue, CloseReason.DUPLICATE, duplicate_of=original)
+        self._log("close_as_duplicate", number, value=str(original))
+
+    def closures(self, number: int) -> list[Closure]:
+        """Every close and reopen of issue `number`, oldest first."""
+        return list(self._roadmap.closures.get(number, []))
+
+    def label_issue(self, number: int, label: str) -> None:
+        """Add `label` to issue `number`, keeping its other labels."""
+        issue = self._require_issue(number, "roadmap.issue.label")
+        if label not in issue.labels:
+            self._roadmap.issues[number] = issue.model_copy(
+                update={"labels": (*issue.labels, label)}
+            )
+            self._record(ChangeKind.LABELED, number, issue.release, label=label)
+        self._log("label_issue", number, value=label)
+
+    def evidence_holds(self, evidence: Evidence) -> bool:
+        """Whether the evidence was seeded as one GitHub confirms."""
+        return evidence in self._roadmap.evidence
+
+    def count_issues(self, query: IssueQuery) -> int:
+        """How many issues match `query`, never pull requests."""
+        return sum(self._matches(issue, query) for issue in self.issues())
 
     def comment(self, number: int, body: str) -> None:
         """Comment `body` on issue `number`."""
@@ -456,7 +515,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         """The text committed at `path` on `ref`, raising when there is none."""
         text = self._roadmap.files.get((path, ref))
         if text is None:
-            raise GitHubOperationError(
+            raise GitHubFileNotFoundError(
                 f"{self._roadmap.repo} has no {path} on {ref or 'its default branch'}.",
                 operation="roadmap.read",
                 details={"path": path[:256], "ref": (ref or "")[:256]},
@@ -724,6 +783,50 @@ class InMemoryRoadmapStore(RoadmapStore):
         return list(self._roadmap.workflows)
 
     # ── Helpers ──
+
+    def _closed_at(self, current: Release, state: object) -> dict[str, datetime | None]:
+        """When an edit closes the Release, now; when it reopens it, never; else unchanged."""
+        if state is None or state == current.state:
+            return {}
+        return {"closed_at": self._roadmap.clock() if state == GitHubState.CLOSED else None}
+
+    def _close(
+        self, issue: IssueRecord, reason: CloseReason, *, duplicate_of: int | None = None
+    ) -> None:
+        """Close the issue for `reason` now, recording the close in its timeline and changes."""
+        self._roadmap.issues[issue.number] = issue.model_copy(
+            update={
+                "state": GitHubState.CLOSED,
+                "state_reason": reason.value,
+                "closed_at": self._roadmap.clock(),
+            }
+        )
+        self._closure(issue.number, ChangeKind.CLOSED, reason.value, duplicate_of)
+        self._record(ChangeKind.CLOSED, issue.number, issue.release)
+
+    def _closure(
+        self,
+        number: int,
+        kind: ChangeKind,
+        reason: str | None = None,
+        duplicate_of: int | None = None,
+    ) -> None:
+        closure = Closure(
+            kind=kind, at=self._roadmap.clock(), reason=reason, duplicate_of=duplicate_of
+        )
+        self._roadmap.closures.setdefault(number, []).append(closure)
+
+    def _matches(self, issue: IssueRecord, query: IssueQuery) -> bool:
+        """Whether the issue meets every condition `query` gives, as GitHub's search counts it."""
+        conditions = (
+            query.state is None or issue.state is query.state,
+            set(query.labels) <= set(issue.labels),
+            query.created_since is None or _at_or_after(issue.created_at, query.created_since),
+            query.closed_since is None or _at_or_after(issue.closed_at, query.closed_since),
+            query.reason is None or issue.state_reason == query.reason.value,
+            not query.uncommented or not self._roadmap.comments.get(issue.number),
+        )
+        return all(conditions)
 
     def _require_issue(self, number: int, operation: str) -> IssueRecord:
         issue = self._roadmap.issues.get(number)

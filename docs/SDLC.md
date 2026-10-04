@@ -45,7 +45,7 @@ sequenceDiagram
     participant CI as GitHub Actions CI
     participant Rel as Release Train
 
-    Dev->>Plan: Author RFC / implementation_plan.md & update ROADMAP.md
+    Dev->>Plan: Author RFC / implementation_plan.md & file candidates via devops roadmap intake
     Dev->>Test: Author unit/integration tests (tests/test_*.py)
     Dev->>Code: Implement domain logic meeting architectural invariants
     Dev->>Gate: Execute devops ci (10/10 quality gates & >=90% coverage)
@@ -68,8 +68,8 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
    - For multi-step or architectural modifications, author an `implementation_plan.md` in the agent artifacts tier (`.data/agent/brain/<plan-name>/`) or documentation RFC.
    - Outline problem motivation, architectural diagrams, component impacts, and proposed file modifications categorized with `[NEW]`, `[MODIFY]`, or `[DELETE]` annotations.
 2. **Roadmap & Backlog Synchronization**:
-   - Register milestones and strategic features in the Master Strategic Roadmap ([`docs/ROADMAP.md`](ROADMAP.md)).
-   - Prioritize deliverables using the **Value vs. Effort Prioritization Matrix** (Quick Wins, Major Projects, Fill-Ins, Reconsider).
+   - File new work as a candidate with `devops roadmap intake --title "<conventional title>" --body-file <file> --confirm`. Intake checks it for a duplicate and gives it its type, Priority, Value, Effort and place, the backlog unless it is a critical fix; never set a milestone or priority on a new issue, and never edit [`docs/ROADMAP.md`](ROADMAP.md), which `devops roadmap render` writes from GitHub at the cut.
+   - The Value and Effort intake sets place each item in the **Value vs. Effort Prioritization Matrix** (Quick Wins, Major Projects, Fill-Ins, Reconsider).
 3. **Active Milestone GitHub Resource Population**:
    - When cutting a new release branch or activating a milestone, proactively create GitHub tracking issues for all scheduled features from [`docs/ROADMAP.md`](ROADMAP.md).
    - Link each issue to the active release milestone, apply declarative taxonomy labels (`type/*`, `scope/*`, `priority/*`), and synchronize to GitHub Projects v2 board (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`).

@@ -1182,6 +1182,255 @@ class RoadmapMessages:
     reprioritize_close_release: str = "close Release {release}"
     reprioritize_create_release: str = "create Release {release}"
     reprioritize_create_branch: str = "create branch {branch} at {sha}"
+    # `devops roadmap intake` (#742).
+    intake_title: str = "# Intake for {repo}"
+    intake_quota: str = (
+        "Quota (#1153): {open} open issues, r(n) = {ratio:.2f}; credit {credit} from "
+        "{delivered} delivered by {previous}; {closures} closure(s) since {since}; allowance "
+        "{allowance}; {openings} agent opening(s) this cycle, {borrowed} borrowed."
+    )
+    intake_no_previous: str = "no closed release"
+    intake_since_ever: str = "the repository began"
+    intake_unlimited: str = "no limit"
+    intake_nothing: str = "No candidates and no unfinished items."
+    intake_issue: str = "#{number} {title}"
+    intake_new: str = 'new candidate "{title}"'
+    intake_not_candidate: str = (
+        "- #{number}: neither an open issue off the board nor an unfinished item, so intake "
+        "leaves it alone."
+    )
+    intake_place_line: str = (
+        "- {subject}: {type}, {priority}, Value {value}, Effort {effort}; {placement} "
+        "Quota: {quota}."
+    )
+    intake_duplicate_line: str = "- {subject}: duplicate of #{original}: {reason} {action}"
+    intake_duplicate_closes: str = "It is closed as a duplicate."
+    intake_duplicate_files_nothing: str = "Nothing is filed; add to #{original} instead."
+    intake_fold_line: str = (
+        "- {subject}: fold into {target}: the cycle's allowance of {allowance} agent opening(s) "
+        "is used, and it is not a split, a required follow-up or a P0/P1 bug or security "
+        "issue. Nothing is filed; add it to that item as an amendment or a comment."
+    )
+    intake_fold_open: str = (
+        "- {subject}: fold into {target}: this cycle's agent openings are past the allowance of "
+        "{allowance}, and it is not a P0/P1 bug or security issue. Intake leaves it off the "
+        "board; add it to that item as an amendment or a comment, and close it."
+    )
+    intake_fold_nowhere: str = "an existing item"
+    intake_quota_fold: str = "Quota: fold into #{target}."
+    intake_quota_suffix: str = "Quota: {quota}."
+    intake_skip_line: str = "- {subject}: skipped, nothing written: {reason}"
+    intake_writes: str = "  - writes: {writes}"
+    intake_note: str = "  - note: {note}"
+    intake_write_file: str = "file the issue with {labels}"
+    intake_no_labels: str = "no labels"
+    intake_write_label: str = "label {label}"
+    intake_write_add: str = "add to the board"
+    intake_write_release: str = "milestone {release}"
+    intake_write_backlog: str = "clear the milestone"
+    intake_write_field: str = "{field} {value}"
+    intake_write_comment: str = "reason comment"
+    intake_write_close: str = "comment and close as a duplicate of #{original}"
+    intake_write_close_only: str = "close as a duplicate of #{original} (its comment is there)"
+    intake_placement_backlog: str = "to the backlog: {reason}"
+    intake_placement_release: str = "to {release}: {reason}"
+    intake_placement_kept: str = "kept in {release}: {reason}"
+    intake_reason_backlog: str = (
+        "at intake only a critical fix goes into a release; a release start pulls Ready items "
+        "in, P0 features first."
+    )
+    intake_reason_person: str = "a person placed it in {release}, and that placement stands."
+    intake_reason_current_not_critical: str = (
+        "only a critical fix joins the current release at intake; a release start pulls Ready "
+        "items in, P0 features first."
+    )
+    intake_reason_resumed: str = "it was already in {release}."
+    intake_reason_no_release: str = "no Release is open, so a critical fix waits in the backlog."
+    intake_reason_no_next: str = (
+        "{release} admits no more, and no planned release follows it, so it waits in the backlog."
+    )
+    intake_comment: str = "{marker}\nIntake placed this item {placement}\n\n{fields}"
+    intake_comment_field: str = "- {field}: {value}. {reason}"
+    intake_duplicate_comment: str = (
+        "{marker}\nClosed as a duplicate of #{original}: {reason}\n\nIf it is not a duplicate, "
+        "reopen it: intake then places it without the duplicate check."
+    )
+    intake_p0_granted: str = (
+        "P0: the {kind} {value} is evidence GitHub confirms, from a trusted source."
+    )
+    intake_p0_refused: str = (
+        "The {kind} {value} does not set P0: {why}. A person can set P0 on the board."
+    )
+    intake_why_not_verbatim: str = "it does not appear in the candidate's text"
+    intake_why_untrusted: str = (
+        "the author has no write access, and no caller attached it as evidence"
+    )
+    intake_why_unconfirmed: dict[str, str] = field(
+        default_factory=lambda: {
+            "advisory": "GitHub has no such advisory",
+            "failed_run": "no failed run of this repository has that id",
+            "regression_commit": "this repository has no such commit",
+        }
+    )
+    intake_note_duplicate_rejected: str = (
+        "the model named #{number} as the original, which is not one of the nearest items, so "
+        "it was rejected."
+    )
+    intake_note_priority_capped: str = (
+        "the model proposed {priority}, and it can propose only P1 to P3, so {capped} stands."
+    )
+    intake_note_evidence_dropped: str = (
+        "the model's evidence ({kind} {value}) is not a GHSA ID, a run id or a commit SHA, so it "
+        "was dropped."
+    )
+    intake_note_borrow_judged: str = (
+        "it borrows as a {priority} {type}, which rests on the model's judgement, not a person's "
+        "or verified evidence; a person can remove {label}."
+    )
+    intake_invalid: str = "the model's proposal is not valid: {problems}"
+    intake_invalid_value: str = "{field} {value!r} is not one of {choices}"
+    intake_quota_decisions: dict[str, str] = field(
+        default_factory=lambda: {
+            "open": "open, within the allowance",
+            "borrow": "borrowed beyond the allowance (budget/borrowed)",
+            "fold": "fold",
+            "not_counted": "not counted (no source/agent label)",
+        }
+    )
+    intake_preview: str = "Nothing was written. Run again with --confirm to make these writes."
+    intake_plain_note: str = (
+        "Intake without a mode flag runs as --plan: it reads GitHub and calls the model, and "
+        "writes nothing. --dry-run makes no request."
+    )
+    intake_modes_exclusive: str = "Pass one of --dry-run, --plan and --confirm, not more."
+    intake_spend: str = (
+        "Spent: {github} GitHub request(s) (REST {rest}, REST search {search}, GraphQL "
+        "{graphql}; GraphQL points not known), {embeddings} embedding call(s) for {texts} "
+        "text(s), {proposals} proposal call(s)."
+    )
+    intake_dry_run: str = (
+        "Dry run: no request was made. A run makes these requests, in order; a value in "
+        "<angle brackets> comes from an earlier read, and a step with a condition runs only "
+        "when it holds."
+    )
+    intake_dry_run_writes: str = (
+        "With --confirm, then, for each candidate intake places or closes as a duplicate:"
+    )
+    intake_request_read: str = "read"
+    intake_request_write: str = "write"
+    intake_repeat_page: str = "per page, until a page is short"
+    intake_repeat_candidate: str = (
+        "for each candidate: an open issue off the board or an item without a Priority"
+    )
+    intake_placeholder_default_branch: str = "the default branch"
+    intake_placeholder_board: str = "<the board .github/roadmap.toml names>"
+    intake_placeholder_since: str = "<the previous release's close>"
+    intake_placeholder_each: str = "<the candidate>"
+    intake_placeholder_filed: str = "<the filed issue>"
+    intake_placeholder_fields: tuple[str, ...] = (
+        "Status New",
+        "Value <the proposed Value>",
+        "Effort <the proposed Effort>",
+    )
+    intake_requests: dict[str, str] = field(
+        default_factory=lambda: {
+            "config": ".github/roadmap.toml at {ref}, which names the board",
+            "milestones": "every milestone",
+            "issues": "every issue, open and closed",
+            "board": "the items on board {board} (gh project item-list)",
+            "board_issues": "every issue again, to join the board's items",
+            "quota_milestones": "every milestone again, for the quota's cycle",
+            "count_open": "count the open issues",
+            "count_closed": "count the issues closed since {since}",
+            "count_bulk": "count the issues closed as not planned with no comment since {since}",
+            "count_openings": "count the source/agent issues created since {since}",
+            "count_borrowed": (
+                "count the source/agent issues labeled budget/borrowed created since {since}"
+            ),
+            "closures": "the closes and reopens on {subject}'s timeline",
+            "embed": (
+                "every item, every issue closed as not planned and each candidate off the "
+                "board, in one call"
+            ),
+            "embed_new": (
+                "every item, every issue closed as not planned, the open source/agent issues "
+                "off the board and the new candidate, in one call"
+            ),
+            "labels": ".github/labels.yml at {ref}, for the type/* labels, once",
+            "propose": "the proposal for {subject}",
+            "evidence": "the evidence the model cites for {subject}",
+            "default_branch": "the default branch",
+            "release_milestones": "every milestone again, to find <the current release>",
+            "release_prs": "the release pull requests of <the current release>",
+            "release_published": "GitHub Release <the current release>",
+            "comments": "the comments on {subject}, for intake's marker",
+            "file": ("file {subject} with source/agent, and budget/borrowed when it borrows"),
+            "label": (
+                "label {subject} with its type/* label when it has none, and budget/borrowed "
+                "when it borrows"
+            ),
+            "add": "read {subject}, then add it to board {board}",
+            "item": "board {board} and {subject}, to find its item",
+            "release": (
+                "set the milestone of {subject} to <the placement>: the board's fields and "
+                "items, every milestone, the job record (GraphQL), then the milestone (REST)"
+            ),
+            "field": (
+                "set {field} on {subject}: the board's fields and items, the job record, then "
+                "the field"
+            ),
+            "comment": "the reason comment on {subject}",
+            "priority": (
+                "set Priority <the proposed Priority> on {subject}: the board's fields and "
+                "items, the job record, then the field"
+            ),
+            "duplicate_read": "{subject} and <the original>",
+            "duplicate_comment": "the duplicate comment on {subject}",
+            "duplicate_close": "close {subject} as a duplicate of <the original>",
+        }
+    )
+    intake_request_conditions: dict[str, str] = field(
+        default_factory=lambda: {
+            "closures": "{subject} is not on the board",
+            "embed": "a candidate is off the board",
+            "evidence": "the model cites any",
+            "release_state": "it is the first critical fix of the run while a release is current",
+            "release_published": "one of them merged",
+            "comments": "{subject} is placed or a duplicate",
+            "file": "it is not a duplicate and does not fold",
+            "placed": "intake places {subject}",
+            "add": "it is not on the board",
+            "release": "the placement changes it",
+            "field": "it has none",
+            "comment": "intake's is not there",
+            "duplicate": "{subject} is a duplicate instead of placed",
+            "duplicate_comment": "intake's is not there",
+        }
+    )
+    intake_applied: str = "Intake placed {placed} item(s) and closed {closed} duplicate(s)."
+    intake_filed: str = "Filed #{number}."
+    triage_no_board: str = (
+        "This repository has no .github/roadmap.toml, so issues awaiting intake are not reported."
+    )
+    triage_awaiting_intake: str = (
+        "Issues awaiting intake get their type and Priority from `devops roadmap intake`."
+    )
+    intake_title_needs_body: str = "Pass --title and --body-file together."
+    intake_borrow_needs_source: str = (
+        "--borrow-reason needs --source: the link to the item it splits from, or to the review "
+        "that requires the follow-up."
+    )
+    intake_secret: str = (
+        "The candidate's {part} holds what looks like a secret, so intake sent it to no model "
+        "and filed nothing. Remove it and run again."
+    )
+    intake_borrow_needs_title: str = (
+        "--borrow-reason applies to a new candidate; pass it with --title and --body-file."
+    )
+    intake_issue_or_title: str = (
+        "Pass --issue for existing issues, or --title and --body-file for a new candidate, "
+        "not both."
+    )
 
 
 @dataclass(frozen=True)

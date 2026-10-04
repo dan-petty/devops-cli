@@ -1219,8 +1219,13 @@ class OTelTelemetryClient:
             logger.debug("OTel payload send failed to %s%s: %s", self.endpoint, path, exc)
 
     def _send_payload(self, path: str, payload: dict[str, Any]) -> None:
-        """Send payload asynchronously via background thread executor to prevent blocking CLI execution."""
-        if not self.enabled:
+        """Send payload asynchronously via background thread executor to prevent blocking CLI execution.
+
+        A dry run sends nothing: it makes no external request, the collector included (#412).
+        """
+        from devops_cli.dry_run.state import in_dry_run_invocation
+
+        if not self.enabled or in_dry_run_invocation():
             return
         try:
             executor = self._get_executor()

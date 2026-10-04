@@ -12,7 +12,11 @@ from typing import Any, TypeVar
 import json_repair
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from devops_cli.ai.client.models import AIClientError, LLMResponse, genai_provider_name
+from devops_cli.ai.client.models import (
+    LLMResponse,
+    StructuredOutputValidationError,
+    genai_provider_name,
+)
 from devops_cli.ai.schema_reflection import (
     SchemaReflectionReport,
     format_schema_validation_error,
@@ -285,6 +289,6 @@ class StructuredOutputMixin:
                 f"Response validation failed for model '{model_name}' "
                 f"after {max_attempts} attempts. Last error: {last_error}"
             )
-            exc = AIClientError(fail_msg)
+            exc = StructuredOutputValidationError(fail_msg)
             span_h.record_exception(exc)
             raise exc

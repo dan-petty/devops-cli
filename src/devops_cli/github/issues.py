@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
+from collections.abc import Collection
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -40,7 +41,7 @@ class IssueTriageAudit(BaseModel):
     issues_missing_type: list[int] = Field(default_factory=list)
     issues_missing_scope: list[int] = Field(default_factory=list)
     issues_missing_priority: list[int] = Field(default_factory=list)
-    issues_missing_milestone: list[int] = Field(default_factory=list)
+    issues_awaiting_intake: list[int] = Field(default_factory=list)
 
     @property
     def compliance_rate(self) -> float:
@@ -291,16 +292,23 @@ def create_repository_issue(
     return _parse_created_issue(res.stdout, title, body, assigned_milestone, labels)
 
 
-def audit_issues_triage(repo: str) -> IssueTriageAudit:
-    """Audit open issues against mandatory taxonomy labeling and milestone rules."""
+def audit_issues_triage(repo: str, *, awaiting_intake: Collection[int] = ()) -> IssueTriageAudit:
+    """Audit open issues against mandatory taxonomy labeling rules.
+
+    An issue in `awaiting_intake`, open and not on the roadmap board, is reported once, as
+    awaiting intake: `devops roadmap intake` gives it its type and Priority (#742). A backlog
+    item has no milestone, so a missing milestone is no finding.
+    """
     open_issues = get_repository_issues(repo, state="open", limit=100)
     audit = IssueTriageAudit(total_open=len(open_issues))
 
     for issue in open_issues:
+        if issue.number in awaiting_intake:
+            audit.issues_awaiting_intake.append(issue.number)
+            continue
         has_type = any(lbl.startswith("type/") for lbl in issue.labels)
         has_scope = any(lbl.startswith("scope/") for lbl in issue.labels)
         has_priority = any(lbl.startswith("priority/") for lbl in issue.labels)
-        has_milestone = bool(issue.milestone)
 
         is_valid = True
         if not has_type:
@@ -311,9 +319,6 @@ def audit_issues_triage(repo: str) -> IssueTriageAudit:
             is_valid = False
         if not has_priority:
             audit.issues_missing_priority.append(issue.number)
-            is_valid = False
-        if not has_milestone:
-            audit.issues_missing_milestone.append(issue.number)
             is_valid = False
 
         if is_valid:

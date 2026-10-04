@@ -22,6 +22,7 @@ from devops_cli.exceptions.ai import (
     LLMInferenceError,
     ModelAPIError,
     ModelBundleError,
+    ModelGatewayUnreachableError,
     ModelHTTPError,
     ModelRetry,
     ModelUnavailableError,
@@ -53,6 +54,7 @@ from devops_cli.exceptions.docker import (
 from devops_cli.exceptions.docs import DocCompactionError
 from devops_cli.exceptions.git import (
     BranchAlreadyExistsError,
+    GitHubFileNotFoundError,
     GitHubOperationError,
     GitHubRateLimitError,
     GitHubUnauthenticatedError,
@@ -142,6 +144,7 @@ __all__ = [
     "DockerError",
     "DockerSandboxError",
     "DocsIngestionError",
+    "GitHubFileNotFoundError",
     "GitHubOperationError",
     "GitHubRateLimitError",
     "GitHubUnauthenticatedError",
@@ -165,6 +168,7 @@ __all__ = [
     "LogfireConfigurationError",
     "ModelAPIError",
     "ModelBundleError",
+    "ModelGatewayUnreachableError",
     "ModelHTTPError",
     "ModelRetry",
     "ModelUnavailableError",
