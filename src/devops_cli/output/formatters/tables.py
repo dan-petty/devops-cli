@@ -215,7 +215,7 @@ def format_network_references_table(refs: list[Any]) -> TablePayload:
             else "green"
         )
         target = getattr(network_reference, "target", str(network_reference))
-        ref_type = getattr(network_reference, "reference_type", "domain")
+        ref_type = getattr(network_reference, "reference_type", "url")
         loc_str = getattr(network_reference, "location", "-")
         rows.append(
             [

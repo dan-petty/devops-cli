@@ -939,14 +939,6 @@ CONST_GH_ISSUE_EVENT_CHANGE_KINDS: Final[dict[str, str]] = {
     "closed": "closed",
     "reopened": "reopened",
 }
-CONST_BRANCH_PREFIXES: tuple[str, ...] = (
-    "feat/",
-    "fix/",
-    "docs/",
-    "chore/",
-    "refactor/",
-    "release/",
-)
 
 # ── Exception & Domain Error Codes ────────────────────────────────────────────
 CONST_ERROR_CODE_DEVOPS_CLI = "DEVOPS_CLI_ERROR"
@@ -1132,109 +1124,6 @@ CONST_EXCLUDED_PUBLIC_REGISTRIES: frozenset[str] = frozenset(
     }
 )
 
-
-# Standard object-oriented receivers in Python
-CONST_STANDARD_RECEIVER_IDENTIFIERS: frozenset[str] = frozenset({"self", "cls"})
-
-# Common code receiver, module, or telemetry metric prefixes
-CONST_CODE_CONFIG_PREFIXES: tuple[str, ...] = (
-    "self.",
-    "cls.",
-    "cli.",
-    "agent.",
-    "process.",
-    "ci.step.",
-    "ci.",
-    "telemetry.",
-    "logger.",
-    "log.",
-    "mcp.",
-    "metric.",
-    "otel.",
-)
-
-# Common property and telemetry metric leaf attributes
-CONST_COMMON_PROPERTY_SUFFIXES: frozenset[str] = frozenset(
-    {
-        "name",
-        "email",
-        "actor",
-        "pid",
-        "group",
-        "security",
-        "docs",
-        "ping",
-        "call",
-        "run",
-        "post",
-        "collection",
-        "sdk",
-        "executable",
-        "runtime",
-        "total",
-        "tools",
-        "count",
-        "size",
-        "duration",
-        "seconds",
-        "ms",
-        "bytes",
-        "status",
-        "state",
-        "type",
-        "id",
-        "rate",
-        "ratio",
-        "max",
-        "min",
-        "avg",
-        "sum",
-        "mean",
-        "input",
-        "output",
-        "calls",
-        "errors",
-        "exceptions",
-        "failures",
-        "successes",
-        "latency",
-        "value",
-        "result",
-        "payload",
-        "level",
-        "severity",
-        "limit",
-        "threshold",
-    }
-)
-
-# MIME types that correspond to top-level domains or legacy formats and should not classify domains as files
-CONST_EXCLUDED_FILE_MIME_TYPES: frozenset[str] = frozenset(
-    {
-        "application/x-msdos-program",
-        "application/vnd.lotus-organizer",
-        "text/org",
-    }
-)
-
-# Common telemetry, metric, and logging invocation function names
-CONST_TELEMETRY_CALL_NAMES: frozenset[str] = frozenset(
-    {
-        "record_metric",
-        "metric_counter",
-        "set_attribute",
-        "add_attribute",
-        "counter",
-        "gauge",
-        "histogram",
-        "meter",
-        "logfire",
-        "otel",
-        "telemetry",
-        "statsd",
-        "prometheus",
-    }
-)
 
 # ── Review Finding Consolidation Signals ─────────────────────────────────────
 # Identifiers too generic to prove two findings describe the same defect. Kept here

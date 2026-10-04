@@ -120,8 +120,7 @@ def prevent_external_network_calls() -> None:
     listeners: weakref.WeakKeyDictionary[socket.socket, int] = weakref.WeakKeyDictionary()
     listeners_lock = threading.RLock()
 
-    # A blocked connect still pays for a real DNS query first, and the extractor resolves every
-    # domain-like token it scans: each lookup costs a round trip per xdist worker. Fail external
+    # A blocked connect still pays for a real DNS query first. Fail external
     # names the way an unresolvable one does, so callers take their existing gaierror path at once.
     def guarded_getaddrinfo(host, *args, **kwargs):
         name = host.decode() if isinstance(host, bytes) else str(host)
