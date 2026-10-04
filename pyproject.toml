@@ -74,7 +74,7 @@ dev = [
     "pytest-cov==7.1.0",
     "pytest-xdist==3.8.0",
     "bandit==1.9.4",
-    "actionlint-py==1.7.12.24",
+    "actionlint-py==1.7.12.25",
     "pre-commit==4.6.2",
     "hypothesis==6.168.3",
 ]
