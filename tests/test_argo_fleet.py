@@ -464,7 +464,7 @@ def test_render_table_formatters() -> None:
 
 def test_rollout_metric_threshold_invalid_operator() -> None:
     """Verify RolloutMetricThreshold rejects unsupported operators."""
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Input should be"):
         RolloutMetricThreshold(
             metric_name="bad_operator",
             query="sum(rate(http_requests[1m]))",

@@ -3073,11 +3073,17 @@ CONST_OUTPUT_FORMATS: Final[frozenset[str]] = frozenset(
 # it, so the assertion keeps reporting green through the very regression it was written to
 # catch. A test that expects a failure has to say which one.
 CONST_BLIND_EXCEPTION_TYPES: Final[frozenset[str]] = frozenset({"Exception", "BaseException"})
-# The Ruff rules that keep the blind-assertion class from coming back: B017 for
-# `pytest.raises(Exception)`, RUF043 for a `match=` pattern whose metacharacters are
-# neither escaped nor declared raw. Both defects read as correct tests, so they belong in
-# the lint selection rather than in a reviewer's memory.
-CONST_TEST_ASSERTION_LINT_RULES: Final[frozenset[str]] = frozenset({"B017", "RUF043"})
+# The Ruff rules that keep the blind-assertion class from coming back: B011/B015/B018
+# for assertions that cannot fail, B017 for `pytest.raises(Exception)`, PT011/PT015/PT017
+# for broad exception raises or assertions, and RUF043 for a `match=` pattern whose
+# metacharacters are neither escaped nor declared raw. All of these defects read as
+# correct tests, so they belong in the lint selection rather than in a reviewer's memory.
+CONST_TEST_ASSERTION_LINT_RULES: Final[frozenset[str]] = frozenset(
+    {"B011", "B015", "B017", "B018", "PT011", "PT015", "PT017", "RUF043"}
+)
+# The Ruff rules that govern suppression integrity: PGH003 bans blanket type ignores
+# without a specific error code, and RUF100 removes unused noqa directives.
+CONST_SUPPRESSION_LINT_RULES: Final[frozenset[str]] = frozenset({"PGH003", "RUF100"})
 # The Ruff rules that hold the complexity cap of 10 (#586): C901 is the cap (standard McCabe),
 # RUF100 reports a C901 marker left on a function back under the cap, and PGH004 bans the
 # blanket noqa that would silence C901 without naming it.
@@ -3100,6 +3106,7 @@ CONST_RUFF_LINT_KEYS: Final[frozenset[str]] = frozenset(
         "extend-select",
         "ignore",
         "extend-ignore",
+        "allowed-confusables",
         "mccabe",
         *CONST_RUFF_PER_FILE_IGNORE_KEYS,
     }

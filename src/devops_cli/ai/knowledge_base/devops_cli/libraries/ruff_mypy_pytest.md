@@ -34,10 +34,7 @@
 ## 4. Key Concepts & Core Patterns
 
 1. **Ruff Ruleset Configuration (`pyproject.toml`)**:
-   ```toml
-   [tool.ruff.lint]
-   select = ["E", "F", "I", "N", "W", "UP"]
-   ```
+   - Ruff selects `E`, `F`, `I`, `N`, `W`, `UP`, `B`, `RUF`, and `ASYNC`, plus selected codes (`C901`, `PGH004`, `PGH003`, `RUF100`, `SIM115`, `PT011`, `PT015`, `PT017`), with full configuration defined in `pyproject.toml`.
 2. **Strict Mypy Invariants**:
    - Disallows untyped `def` functions.
    - Enforces Pydantic model type checking via `pydantic.mypy` plugin.

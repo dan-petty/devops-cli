@@ -225,7 +225,9 @@ def _scan_reviewed_files(
     scanner: SemgrepScanner, files: list[Path], tree: Path, config: str, timeout: float
 ) -> ScanOutcome:
     """Scan a review's files in batches, each isolated and under its own timeout (#1079)."""
-    batches = [list(batch) for batch in batched(files, DEFAULT_SEMGREP_REVIEW_BATCH_FILES)] or [[]]
+    batches = [
+        list(batch) for batch in batched(files, DEFAULT_SEMGREP_REVIEW_BATCH_FILES, strict=False)
+    ] or [[]]
     outcomes = [
         scanner.scan(batch, timeout=timeout, isolated=True, config=config, tree=tree)
         for batch in batches

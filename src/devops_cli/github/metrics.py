@@ -342,7 +342,7 @@ def get_label_taxonomy_metrics(repo: str) -> list[LabelTaxonomyMetric]:
         for lbl in labels:
             name = lbl.get("name", "") if isinstance(lbl, dict) else str(lbl)
             if "/" in name:
-                cat, val = name.split("/", 1)
+                cat, _val = name.split("/", 1)
                 counts[(cat, name)] += 1
 
     metrics = [

@@ -844,7 +844,7 @@ def test_review_pipeline_skips_and_lists_errored_files(
         network_references=[],
     )
 
-    data_out, report_md = orchestrator.generate_consolidated_report([valid_payload])
+    _data_out, report_md = orchestrator.generate_consolidated_report([valid_payload])
     captured = capsys.readouterr().out
 
     # 1. Console outputs errored files table and summary metric

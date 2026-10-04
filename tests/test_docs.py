@@ -322,7 +322,7 @@ def test_doc_generator_write_all_and_check(generator: DocGenerator, tmp_path: Pa
         written_with_sync = generator.write_all_docs(out_dir, sync_readme_table=True)
         assert len(written_with_sync) > 0
 
-        ok_check, check_errs = generator.check_docs(out_dir, check_readme_table=True)
+        ok_check, _check_errs = generator.check_docs(out_dir, check_readme_table=True)
         assert ok_check is True
 
     # Readme with no markers or table returns error in check_readme

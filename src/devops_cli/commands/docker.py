@@ -57,7 +57,7 @@ def _engine() -> DockerEngineService:
         engine.client()
     except DockerError as exc:
         print_error(ERRORS.docker.cannot_connect.format(exc=exc), prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     return engine
 
 
@@ -605,7 +605,7 @@ def docker_sign(
         print_success(f"✓ Image '{image}' signed successfully. (signature: {res.signature_ref})")
     except (DependencyError, CosignError) as exc:
         print_error(str(exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
 
 @app.command("verify")
@@ -685,4 +685,4 @@ def docker_verify(
         )
     except (DependencyError, CosignVerificationError) as exc:
         print_error(str(exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc

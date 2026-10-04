@@ -330,7 +330,7 @@ class InMemoryDocumentTokenizer:
         # Sample evenly across all detected categories first
         cats = list(cat_to_indices.keys())
         per_cat = max(1, sample_count // len(cats)) if cats else 1
-        for cat, idxs in cat_to_indices.items():
+        for _cat, idxs in cat_to_indices.items():
             k = min(per_cat, len(idxs))
             selected_indices.extend(rng.sample(idxs, k))
 

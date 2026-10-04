@@ -229,7 +229,7 @@ def test_context_propagating_thread_pool_executor(monkeypatch: pytest.MonkeyPatc
         for p in sent_payloads
         if p[0] == "/v1/traces"
     ]
-    root_span = [s for s in all_spans if s["name"] == "root_cli_span"][0]
+    root_span = next(s for s in all_spans if s["name"] == "root_cli_span")
     child_spans = [s for s in all_spans if s["name"].startswith("worker_child_span_")]
 
     assert len(child_spans) == 3

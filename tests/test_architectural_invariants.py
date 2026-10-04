@@ -5,7 +5,9 @@ from __future__ import annotations
 import ast
 import re
 import tomllib
+from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +31,7 @@ from devops_cli.config.constants import (
     CONST_RUFF_PER_FILE_IGNORE_KEYS,
     CONST_RUFF_SOURCE_SUFFIXES,
     CONST_RUFF_TOP_LEVEL_KEYS,
+    CONST_SUPPRESSION_LINT_RULES,
     CONST_TEST_ASSERTION_LINT_RULES,
 )
 from devops_cli.config.defaults import DEFAULT_C901_SUPPRESSION_CEILING, DEFAULT_MAX_COMPLEXITY
@@ -315,71 +318,76 @@ def _record_import_edges(
                 _resolve_import_from_edge(sub, mod, pkg_parts, module_files, graph)
 
 
-def test_no_circular_imports_in_decoupled_subsystems() -> None:  # noqa: C901
-    """Ensure decoupled subsystems (k8s commands, output, ai.review, config) have zero circular imports."""
-    from collections import defaultdict
+@dataclass
+class _TarjanState:
+    graph: dict[str, set[str]]
+    index: int = 0
+    indices: dict[str, int] = field(default_factory=dict)
+    lowlinks: dict[str, int] = field(default_factory=dict)
+    on_stack: set[str] = field(default_factory=set)
+    stack: list[str] = field(default_factory=list)
+    cycles: list[list[str]] = field(default_factory=list)
 
+
+def _strongconnect(state: _TarjanState, v: str) -> None:
+    state.indices[v] = state.index
+    state.lowlinks[v] = state.index
+    state.index += 1
+    state.stack.append(v)
+    state.on_stack.add(v)
+
+    for w in state.graph.get(v, ()):
+        if w not in state.indices:
+            _strongconnect(state, w)
+            state.lowlinks[v] = min(state.lowlinks[v], state.lowlinks[w])
+        elif w in state.on_stack:
+            state.lowlinks[v] = min(state.lowlinks[v], state.indices[w])
+
+    if state.lowlinks[v] == state.indices[v]:
+        scc: list[str] = []
+        while True:
+            w = state.stack.pop()
+            state.on_stack.remove(w)
+            scc.append(w)
+            if w == v:
+                break
+        if len(scc) > 1:
+            state.cycles.append(scc)
+
+
+def _import_cycles(root: Path) -> list[list[str]]:
+    assert root.is_dir(), f"Directory {root} does not exist"
+    graph: dict[str, set[str]] = defaultdict(set)
+    module_files: dict[str, Path] = {}
+
+    for py_file in root.rglob("*.py"):
+        rel = py_file.relative_to(Path("src"))
+        parts = list(rel.with_suffix("").parts)
+        if parts[-1] == "__init__":
+            parts = parts[:-1]
+        mod = ".".join(parts)
+        module_files[mod] = py_file
+
+    for mod, py_file in module_files.items():
+        _record_import_edges(mod, py_file, module_files, graph)
+
+    state = _TarjanState(graph=graph)
+    for node in module_files:
+        if node not in state.indices:
+            _strongconnect(state, node)
+    return state.cycles
+
+
+def test_no_circular_imports_in_decoupled_subsystems() -> None:
+    """Ensure decoupled subsystems (k8s commands, output, ai.review, config) have zero circular imports."""
     subsystems = [
         Path("src/devops_cli/commands/k8s"),
         Path("src/devops_cli/output"),
         Path("src/devops_cli/ai/review"),
         Path("src/devops_cli/config"),
     ]
-
     for root in subsystems:
-        assert root.is_dir(), f"Directory {root} does not exist"
-        graph: dict[str, set[str]] = defaultdict(set)
-        module_files: dict[str, Path] = {}
-
-        for py_file in root.rglob("*.py"):
-            rel = py_file.relative_to(Path("src"))
-            parts = list(rel.with_suffix("").parts)
-            if parts[-1] == "__init__":
-                parts = parts[:-1]
-            mod = ".".join(parts)
-            module_files[mod] = py_file
-
-        for mod, py_file in module_files.items():
-            _record_import_edges(mod, py_file, module_files, graph)
-
-        # Tarjan's SCC
-        index = 0
-        indices: dict[str, int] = {}
-        lowlinks: dict[str, int] = {}
-        on_stack: set[str] = set()
-        stack: list[str] = []
-        cycles: list[list[str]] = []
-
-        def strongconnect(v: str) -> None:
-            nonlocal index
-            indices[v] = index
-            lowlinks[v] = index
-            index += 1
-            stack.append(v)
-            on_stack.add(v)
-
-            for w in graph.get(v, []):
-                if w not in indices:
-                    strongconnect(w)
-                    lowlinks[v] = min(lowlinks[v], lowlinks[w])
-                elif w in on_stack:
-                    lowlinks[v] = min(lowlinks[v], indices[w])
-
-            if lowlinks[v] == indices[v]:
-                scc: list[str] = []
-                while True:
-                    w = stack.pop()
-                    on_stack.remove(w)
-                    scc.append(w)
-                    if w == v:
-                        break
-                if len(scc) > 1:
-                    cycles.append(scc)
-
-        for node in list(module_files.keys()):
-            if node not in indices:
-                strongconnect(node)
-
+        cycles = _import_cycles(root)
         assert not cycles, f"Import cycles detected in {root}: {cycles}"
 
 
@@ -649,6 +657,27 @@ def test_a_broad_ignore_defeats_a_broad_select() -> None:
         _ruff_enforces("RUF043", ["ALL"], ["RUF"]),
         _ruff_enforces("RUF043", ["ALL"], []),
     ) == (False, True)
+
+
+def test_suppression_lint_rules_enforced() -> None:
+    """Rules that audit suppressions (PGH003, RUF100) must remain enforced by Ruff configuration."""
+    repo_root = Path(__file__).resolve().parents[1]
+    config = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
+    lint = config["tool"]["ruff"]["lint"]
+    unenforced = sorted(
+        rule
+        for rule in CONST_SUPPRESSION_LINT_RULES
+        if not _ruff_enforces(rule, lint["select"], lint.get("ignore", []))
+    )
+    assert unenforced == []
+
+
+def test_mypy_ignore_without_code_enabled() -> None:
+    """Mypy configuration must enforce ignore-without-code to reject blanket type ignores."""
+    repo_root = Path(__file__).resolve().parents[1]
+    config = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
+    enabled = config.get("tool", {}).get("mypy", {}).get("enable_error_code", [])
+    assert "ignore-without-code" in enabled
 
 
 def _unlisted_keys(table: str, keys: Iterable[str], allowed: frozenset[str]) -> list[str]:

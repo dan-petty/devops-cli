@@ -168,14 +168,13 @@ def _check_workspace_sensitive_paths(resolved: Path) -> None:
 class WorkloadSandboxEngine:
     """Orchestrator for managing isolated background Docker container sandboxes."""
 
-    _prior_samples: dict[str, tuple[float, CgroupV2Metrics]] = {}
-
     def __init__(
         self,
         registry: SandboxRegistry | None = None,
         *,
         exclude_home_dir: bool | None = None,
     ) -> None:
+        self._prior_samples: dict[str, tuple[float, CgroupV2Metrics]] = {}
         self.registry = registry or SandboxRegistry()
         if exclude_home_dir is not None:
             self.exclude_home_dir = exclude_home_dir

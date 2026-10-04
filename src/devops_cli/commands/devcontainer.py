@@ -208,7 +208,7 @@ def update(
         data = json.loads(dc_file.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         print_error(ERRORS.devcontainer.invalid_json.format(path=dc_file, exc=exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     data["image"] = f"{CONST_DEVCONTAINER_IMAGE_PREFIX}{python_version}"
     write_json_file(dc_file, data)
     print_success(MESSAGES.devcontainer.updated_image.format(version=python_version))
@@ -319,7 +319,7 @@ def validate(
         data = json.loads(clean_text)
     except Exception as exc:
         print_error(ERRORS.devcontainer.parse_failed.format(path=dc_file, exc=exc), prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     errors = _validate_manifest_content(data, dc_file.parent)
     if errors:

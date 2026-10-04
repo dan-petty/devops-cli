@@ -134,7 +134,7 @@ def test_shell_denied_and_interactive_blocks(tmp_path: Path) -> None:
     denied_res = tools["run_command"].execute(command="rm -rf /tmp/foo")
     assert "blocked by security denylist" in denied_res
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="mutually exclusive"):
         Shell(allowed_commands=["ls"], denied_commands=["rm"])
 
 
@@ -1145,11 +1145,11 @@ def test_tool_output_limits_suite(tmp_path: Path) -> None:
     )
 
     # Tool exemption: read_tool_result
-    res_exempt, red_exempt = tol.reduce_output("read_tool_result", "X" * 5000)
+    _res_exempt, red_exempt = tol.reduce_output("read_tool_result", "X" * 5000)
     assert not red_exempt
 
     # Tool filter: unlisted tool passes through
-    res_unlisted, red_unlisted = tol.reduce_output("other_tool", "X" * 5000)
+    _res_unlisted, red_unlisted = tol.reduce_output("other_tool", "X" * 5000)
     assert not red_unlisted
 
     # Bytes pass through
@@ -1158,7 +1158,7 @@ def test_tool_output_limits_suite(tmp_path: Path) -> None:
     assert res_bytes == b"raw bytes"
 
     # Structured object with serializer
-    res_struct, red_struct = tol.reduce_output("structured_tool", {"large": "data" * 100})
+    _res_struct, red_struct = tol.reduce_output("structured_tool", {"large": "data" * 100})
     assert red_struct
 
     # per_tool override

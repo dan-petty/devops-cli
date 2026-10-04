@@ -118,7 +118,7 @@ def jira(
         _get("print_success")(ok_msg, prefix=False)
     except ValueError as exc:
         _get("print_error")(str(exc), prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
 
 # =============================================================================

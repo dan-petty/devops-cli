@@ -3044,12 +3044,17 @@ def reset_hydrated_domains() -> None:
     _HYDRATED_DOMAINS.clear()
 
 
+_BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()
+
+
 def _notify_tool_list_changed(ctx: Context | None) -> None:
     """Send tool list changed notification to client if session is active."""
     if ctx and getattr(ctx, "session", None):
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(ctx.session.send_tool_list_changed())
+            task = loop.create_task(ctx.session.send_tool_list_changed())
+            _BACKGROUND_TASKS.add(task)
+            task.add_done_callback(_BACKGROUND_TASKS.discard)
         except RuntimeError:
             try:
                 asyncio.run(ctx.session.send_tool_list_changed())

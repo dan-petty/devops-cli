@@ -480,7 +480,7 @@ def config(
                     f"Use environment variable fallback: export {env_var}=<value>",
                     prefix=False,
                 )
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
 
     save_settings(settings)
     print_success(f"AI configuration saved{f' for the {task} task' if task else ''}")
@@ -528,7 +528,7 @@ def models() -> None:
         model_list = client.list_models()
     except Exception as exc:
         print_error(f"Failed to list models: {exc}", prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     print_table(
         title=f"Available Models — {settings.ai.provider}",
@@ -690,7 +690,7 @@ def test(
         print_success(f"{str(resp).strip()} [dim](handled by {handled}{wall_sec})[/dim]")
     except Exception as exc:
         print_error(f"AI provider test failed: {exc}", prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
 
 def _resolve_prewarm_urls(
@@ -860,9 +860,14 @@ def agents(
         typer.Option("--template", help=HELP.ai.template),
     ] = False,
     files: Annotated[
-        list[str],
-        typer.Option("--file", "-f", help=HELP.ai.generate_file),
-    ] = list(_AGENT_FILES),
+        list[str] | None,
+        typer.Option(
+            "--file",
+            "-f",
+            show_default=", ".join(_AGENT_FILES),
+            help=HELP.ai.generate_file,
+        ),
+    ] = None,
 ) -> None:
     """Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md)."""
     from devops_cli.ai.client import LLMClient
@@ -883,7 +888,8 @@ def agents(
             print_warning(f"LLM unavailable ({exc}), falling back to template.", prefix=False)
             use_llm = False
 
-    for target in files:
+    target_files = files if files is not None else list(_AGENT_FILES)
+    for target in target_files:
         from devops_cli.lang import MESSAGES
 
         dest = (repo / target).resolve()

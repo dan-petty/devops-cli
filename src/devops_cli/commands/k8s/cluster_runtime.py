@@ -30,9 +30,9 @@ def _k8s_clients() -> tuple[Any, Any]:
         from kubernetes import config as k8s_config
 
         return k8s_config, k8s_client
-    except ImportError:
+    except ImportError as exc:
         print_error("kubernetes package not installed. Run: pip install kubernetes", prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
 
 def _run_cmd(

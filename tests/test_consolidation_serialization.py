@@ -44,5 +44,5 @@ def test_extract_json_block_invalid_with_default() -> None:
 def test_extract_json_block_invalid_without_default() -> None:
     """Raises ValueError when JSON is invalid and no default is provided."""
     raw = "Invalid json content"
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Could not extract valid JSON from input text"):
         extract_json_block(raw)

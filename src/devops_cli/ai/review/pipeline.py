@@ -2971,7 +2971,7 @@ class ReviewPipelineOrchestrator:
 
                 pool = ReviewWorkerPool.create(concurrency=n_workers)
                 review_results = pool.run_sync_all(_review_task, items, return_exceptions=True)
-                for (idx, payload), res in zip(items, review_results):
+                for (_idx, payload), res in zip(items, review_results, strict=False):
                     if isinstance(res, Exception):
                         err_desc = _format_error_detail("ReviewWorker", res)
                         logger.error(
@@ -3103,7 +3103,7 @@ class ReviewPipelineOrchestrator:
             verified_list = review_res.findings
 
             updated_saved: list[SavedFinding] = []
-            for orig, v in zip(payload.findings, verified_list):
+            for orig, v in zip(payload.findings, verified_list, strict=False):
                 for field in VERDICT_FIELDS:
                     setattr(orig, field, getattr(v, field))
                 updated_saved.append(orig)
@@ -3244,7 +3244,9 @@ class ReviewPipelineOrchestrator:
                 verify_results = pool.run_sync_all(
                     _verify_task, payloads_with_findings, return_exceptions=True
                 )
-                for (idx, payload), res in zip(payloads_with_findings, verify_results):
+                for (_idx, payload), res in zip(
+                    payloads_with_findings, verify_results, strict=False
+                ):
                     if isinstance(res, Exception):
                         err_desc = _format_error_detail("VerificationWorker", res)
                         logger.error(

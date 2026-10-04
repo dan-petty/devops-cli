@@ -99,7 +99,7 @@ devops ai agents [OPTIONS]
 |---|---|---|---|
 | `--repo`, `-r` | `path` | `.` | Repository root directory (default: current directory). |
 | `--template` | `boolean` | - | Generate from built-in template without calling the LLM. |
-| `--file`, `-f` | `string` | `['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md']` | Files to generate (repeatable). |
+| `--file`, `-f` | `string` | - | Files to generate (repeatable). |
 
 ---
 

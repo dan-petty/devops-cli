@@ -68,7 +68,7 @@ def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
         )
     except ValueError as exc:
         print_error(str(exc), prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     headers: dict[str, str] = {"Content-Type": "application/json"}
     token = get_grafana_token(settings)
     if token and not token.startswith("*"):
@@ -145,9 +145,9 @@ def dashboards_export(
             from devops_cli.core.paths import validate_no_path_traversal
 
             validate_no_path_traversal(output, label="Dashboard export output path")
-        except Exception:
+        except Exception as exc:
             print_error(ERRORS.grafana.invalid_output_path, prefix=False)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
         resolved = output.resolve()
         if not resolved.is_relative_to(Path.cwd().resolve()):
             print_error(ERRORS.grafana.invalid_output_path, prefix=False)
@@ -195,7 +195,7 @@ def dashboards_import(
         raw = json.loads(file.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         print_error(ERRORS.grafana.parse_failed.format(path=file, exc=exc), prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     if not isinstance(raw, dict):
         print_error(ERRORS.grafana.invalid_json_object.format(path=file), prefix=False)

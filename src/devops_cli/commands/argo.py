@@ -103,7 +103,7 @@ def _load_manifest(path: Path) -> dict[str, Any]:
         manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         print_error(f"Failed parsing manifest '{path}': {exc}", prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     if not isinstance(manifest, dict):
         print_error(f"Manifest '{path}' must contain a single resource document", prefix=False)
@@ -170,7 +170,7 @@ def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
         validate_service_url(settings.argocd.url, "ArgoCD", allow=settings.ai.allow_private_network)
     except ValueError as exc:
         print_error(str(exc), prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     headers: dict[str, str] = {"Content-Type": "application/json"}
     token = get_argocd_token(settings) or get_or_mint_argocd_token(settings)
     if token:
@@ -381,7 +381,7 @@ def cd_apps_bootstrap_gitops(
         )
     except ArgoError as exc:
         print_error(f"Failed to bootstrap GitOps root app: {exc}", prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     print_success(f"GitOps root Application '{applied.name}' applied from {root_app_path}")
 

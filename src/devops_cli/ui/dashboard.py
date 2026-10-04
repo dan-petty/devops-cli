@@ -9,11 +9,11 @@ the sum of five network round trips and one unreachable cluster froze every unre
 from __future__ import annotations
 
 from functools import partial
-from typing import Any
+from typing import Any, ClassVar
 
 from textual import work
 from textual.app import App, ComposeResult
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
 from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widget import Widget
@@ -115,7 +115,7 @@ class HelpScreen(ModalScreen[None]):
     }
     """
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "dismiss", "Close Help"),
         Binding("enter", "dismiss", "Close Help"),
     ]
@@ -165,7 +165,7 @@ class DashboardApp(App[None]):
     # The numeric tab bindings are hidden from the footer. Each tab already shows its own
     # number in its label, and listing nine of them crowded out Refresh, Help and Quit --
     # the footer truncated mid-word, leaving "q Qu".
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         *(
             Binding(
                 str(index),

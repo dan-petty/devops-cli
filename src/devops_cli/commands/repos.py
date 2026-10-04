@@ -255,9 +255,9 @@ def clone(
         org_name, raw_name = _parse_clone_destination(url)
         validate_no_path_traversal(org_name, label="Organization name")
         validate_no_path_traversal(raw_name, label="Repository name")
-    except Exception:
+    except Exception as exc:
         print_error(MESSAGES.repos.invalid_dest_path, prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     dest_dir = (root / org_name).resolve()
     dest = (dest_dir / raw_name).resolve()

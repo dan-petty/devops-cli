@@ -76,7 +76,7 @@ def test_parse_schema_model_reports_field_error_over_json_error() -> None:
     """Schema reflection prioritizes field-level validation errors over generic JSON errors."""
     data = {"count": "not_an_integer"}
     raw_content = '{"count": "not_an_integer" defective}'
-    model, err_summary, report, notes = _parse_schema_model(_CountModel, data, raw_content)
+    model, err_summary, report, _notes = _parse_schema_model(_CountModel, data, raw_content)
     assert (
         model is None,
         "count" in (err_summary or "").lower(),

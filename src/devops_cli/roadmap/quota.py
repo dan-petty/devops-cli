@@ -75,5 +75,5 @@ def allowance(
     if r_exact == Fraction(0):
         return math.inf
     credit = release_credit(delivered, config)
-    from_closures = int(math.floor(Fraction(closures) / r_exact))
+    from_closures = math.floor(Fraction(closures) / r_exact)
     return credit + from_closures

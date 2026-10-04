@@ -215,7 +215,8 @@ def _acquire_advisory_lock(lock_file: Path) -> tuple[Any, bool]:
     fd: Any = None
     try:
         lock_file.parent.mkdir(parents=True, exist_ok=True)
-        fd = open(lock_file, "a+", encoding="utf-8")
+        # Caller holds the open file to maintain the advisory flock; a with-block would close and release it.
+        fd = open(lock_file, "a+", encoding="utf-8")  # noqa: SIM115
         fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
         _DISK_LOCK_STATE.depth[lock_file] = 1
         return fd, True

@@ -333,7 +333,7 @@ def _get_workspace_filenames(root_dir_str: str = "") -> tuple[set[str], tuple[st
 class PythonSymbolContext:
     """Container for AST-extracted symbols, attribute chains, and telemetry keys."""
 
-    __slots__ = ("symbols", "attribute_chains", "metric_keys", "dict_keys")
+    __slots__ = ("attribute_chains", "dict_keys", "metric_keys", "symbols")
 
     def __init__(
         self,

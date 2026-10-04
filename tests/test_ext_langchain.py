@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock
 
 import pytest
@@ -33,7 +33,7 @@ class MockSimpleTool:
 
     name: str = "simple_calc"
     description: str = "Simple calculator."
-    args: dict[str, Any] = {"expr": {"type": "str"}}
+    args: ClassVar[dict[str, Any]] = {"expr": {"type": "str"}}
 
     def run(self, input_dict: dict[str, Any]) -> str:
         return f"Evaluated: {input_dict.get('expr')}"

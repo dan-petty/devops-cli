@@ -268,7 +268,7 @@ def test_reviews_saved_from_a_worktree_outlive_it(
 ) -> None:
     """Verify a review run in a linked worktree saves into no worktree's data directory: review
     data is kept under the user-level data root (#972), which removing a worktree leaves alone."""
-    main, linked = repo_with_worktree
+    _main, linked = repo_with_worktree
     monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
     monkeypatch.chdir(linked)
 
@@ -287,7 +287,7 @@ def test_the_spend_ledger_is_shared_from_any_directory(
     from devops_cli.ai.spend.ledger import SpendLedger
     from devops_cli.config.defaults import DEFAULT_AI_SPEND_DB_FILENAME
 
-    main, linked = repo_with_worktree
+    _main, linked = repo_with_worktree
     (linked / "src").mkdir()
     monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
     monkeypatch.chdir(linked / "src")

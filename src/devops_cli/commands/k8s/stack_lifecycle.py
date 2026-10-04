@@ -309,10 +309,10 @@ def _bootstrap_openwebui_account(
         "count = cur.fetchone()[0]\n"
         "if count == 0:\n"
         "    uid = str(uuid.uuid4())\n"
-        f"    hashed = bcrypt.hashpw({repr(admin_password)}.encode('utf-8'), bcrypt.gensalt(12)).decode('utf-8')\n"  # nosec B608  # Embedded admin bootstrap credentials in inline pod script
+        f"    hashed = bcrypt.hashpw({admin_password!r}.encode('utf-8'), bcrypt.gensalt(12)).decode('utf-8')\n"  # nosec B608  # Embedded admin bootstrap credentials in inline pod script
         "    cur.execute('INSERT INTO \"user\" (id, name, email, role, profile_image_url, last_active_at, updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', "
-        f"(uid, {repr(admin_name)}, {repr(admin_email)}, 'admin', '/user.png', now, now, now))\n"
-        f"    cur.execute('INSERT INTO auth (id, email, password, active) VALUES (?, ?, ?, ?)', (uid, {repr(admin_email)}, hashed, 1))\n"
+        f"(uid, {admin_name!r}, {admin_email!r}, 'admin', '/user.png', now, now, now))\n"
+        f"    cur.execute('INSERT INTO auth (id, email, password, active) VALUES (?, ?, ?, ?)', (uid, {admin_email!r}, hashed, 1))\n"
         "    print('CREATED')\n"
         "else:\n"
         "    cur.execute('UPDATE auth SET active = 1')\n"

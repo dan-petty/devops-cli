@@ -1910,7 +1910,7 @@ _CLAIMS_A_CRITERION_PASSED = re.compile(CONST_CRITERION_PASSED_CLAIM_PATTERN, re
 
 
 def _reason_words(text: str) -> list[str]:
-    return _REASON_WORD.findall(text.lower().replace("’", "'"))
+    return _REASON_WORD.findall(text.lower().replace("\u2019", "'"))
 
 
 def _is_negation(word: str) -> bool:

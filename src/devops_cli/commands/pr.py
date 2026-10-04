@@ -2194,7 +2194,7 @@ def list_threads(
         threads = list_pr_review_threads(owner, repo_name, number, unresolved_only=unresolved_only)
     except GitHubOperationError as exc:
         print_error(f"Failed to retrieve PR #{number} review threads: {exc}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     if output_format == "json":
         from devops_cli.output import print as print_out
@@ -2234,7 +2234,7 @@ def _validate_thread_reply_before_resolution(thread_id: str) -> None:
         thread = get_pr_review_thread(thread_id)
     except Exception as exc:
         print_error(f"Failed to fetch review thread {thread_id}: {exc}", prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     if not has_non_opener_reply(thread):
         print_error(
