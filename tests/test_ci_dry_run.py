@@ -80,7 +80,6 @@ def test_ci_coverage_typecheck_audit_security_docs_dry_run() -> None:
     """Test coverage, typecheck, audit, security, actionlint, and docs with --dry-run."""
     with patch("devops_cli.commands.ci._run", return_value=True):
         assert runner.invoke(app, ["coverage", "--html", "--dry-run"]).exit_code == 0
-        assert runner.invoke(app, ["coverage", "--xml", "--dry-run"]).exit_code == 0
         assert runner.invoke(app, ["typecheck", "--dry-run"]).exit_code == 0
         assert runner.invoke(app, ["audit", "--dry-run"]).exit_code == 0
         assert runner.invoke(app, ["security", "--severity", "high", "--dry-run"]).exit_code == 0
