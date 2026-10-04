@@ -15,17 +15,28 @@ command is built on, is covered by 38 test files and the textual selector picks 
 them; `output/formatters/tables.py` misses 39, `ai/text_utils.py` 24. Narrowing a run on
 that basis reports green having executed nothing that exercises the change.
 
+Building this index requires the `ctrace` coverage core (`COVERAGE_CORE=ctrace`), because
+under Python 3.14's default `sysmon` core, dynamic contexts are unsupported
+(`no-sysmon-context`) and lines are disabled after the first hit, attributing coverage
+almost entirely to whichever test ran first.
+
 Coverage contexts record which test executed which line, so an index built from them has
-full recall by construction for every file it contains. This module builds, stores and
-queries that index. It does not decide policy: a caller that cannot get a confident answer
-must run everything, and `select_from_index` says so rather than guessing.
+full recall for code executed within each test's own context. Lines run during module import
+have an empty context and are dropped, and code executed exclusively inside shared session
+fixtures or memoized helpers is credited only to the first test that reached it.
+
+This module builds, stores, and queries that index. It does not decide policy: a caller that
+cannot get a confident answer must run everything, and `select_from_index` says so rather
+than guessing.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
+import tempfile
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,7 +50,7 @@ from devops_cli.config.constants import (
 
 # Bumped when the stored shape changes, so an index written by an older version is treated
 # as absent rather than misread.
-INDEX_FORMAT_VERSION = 1
+INDEX_FORMAT_VERSION = 2
 
 # Changing any of these can alter the outcome of tests that never import the changed
 # module, so they defeat the index entirely and force a full run.
@@ -121,6 +132,8 @@ class CoverageIndex:
 
     covering_tests: dict[str, list[str]] = field(default_factory=dict)
     test_files: list[str] = field(default_factory=list)
+    source_hashes: dict[str, str] = field(default_factory=dict)
+    built_at: float = 0.0
     version: int = INDEX_FORMAT_VERSION
 
     @property
@@ -134,7 +147,36 @@ class CoverageIndex:
             "version": self.version,
             "test_files": sorted(self.test_files),
             "covering_tests": {k: sorted(v) for k, v in sorted(self.covering_tests.items())},
+            "source_hashes": dict(sorted(self.source_hashes.items())),
+            "built_at": self.built_at,
         }
+
+
+def filter_coverage_source_hashes(hashes: dict[str, str]) -> dict[str, str]:
+    """Filter worktree blob hashes to files affecting coverage or test selection."""
+    filtered: dict[str, str] = {}
+    for path, sha in hashes.items():
+        norm = path.replace("\\", "/")
+        name = Path(norm).name
+        if name in _FULL_RUN_TRIGGERS:
+            filtered[norm] = sha
+        elif (
+            norm.startswith(f"{CONST_SOURCE_ROOT_DIR}/")
+            or norm.startswith(f"{CONST_TESTS_ROOT_DIR}/")
+        ) and norm.endswith(CONST_PYTHON_FILE_SUFFIX):
+            filtered[norm] = sha
+    return filtered
+
+
+def compute_index_drift(
+    index: CoverageIndex,
+    current_hashes: dict[str, str],
+) -> list[str]:
+    """Return sorted list of files that were added, removed, or modified since build."""
+    curr_filtered = filter_coverage_source_hashes(current_hashes)
+    stored = index.source_hashes
+    all_keys = set(stored.keys()) | set(curr_filtered.keys())
+    return sorted(k for k in all_keys if stored.get(k) != curr_filtered.get(k))
 
 
 @dataclass
@@ -155,7 +197,12 @@ class IndexedSelection:
         return bool(self.full_run_reason or self.unindexed_sources)
 
 
-def build_index_from_coverage(database: Path, repo_root: Path) -> CoverageIndex:
+def build_index_from_coverage(
+    database: Path,
+    repo_root: Path,
+    source_hashes: dict[str, str] | None = None,
+    built_at: float | None = None,
+) -> CoverageIndex:
     """Read a coverage database written with `--cov-context=test` into a reverse index.
 
     A context looks like `tests/test_foo.py::test_case|run`; only the file part is kept,
@@ -170,20 +217,25 @@ def build_index_from_coverage(database: Path, repo_root: Path) -> CoverageIndex:
     connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
     try:
         rows = connection.execute(
-            "SELECT f.path, c.context FROM line_bits lb "
+            "SELECT DISTINCT f.path, substr(c.context, 1, instr(c.context || '::', '::') - 1) "
+            "FROM line_bits lb "
             "JOIN file f ON f.id = lb.file_id "
             "JOIN context c ON c.id = lb.context_id "
             "WHERE c.context != ''"
         )
-        for path, context in rows:
-            test_file = str(context).split("::")[0]
-            if not test_file.startswith(f"{CONST_TESTS_ROOT_DIR}/"):
+        path_cache: dict[str, str | None] = {}
+        for path, test_file in rows:
+            test_file_str = str(test_file)
+            if not test_file_str.startswith(f"{CONST_TESTS_ROOT_DIR}/"):
                 continue
-            source = _normalize_source_path(str(path), repo_root)
+            path_str = str(path)
+            if path_str not in path_cache:
+                path_cache[path_str] = _normalize_source_path(path_str, repo_root)
+            source = path_cache[path_str]
             if source is None:
                 continue
-            covering.setdefault(source, set()).add(test_file)
-            tests.add(test_file)
+            covering.setdefault(source, set()).add(test_file_str)
+            tests.add(test_file_str)
     except sqlite3.DatabaseError:
         return CoverageIndex()
     finally:
@@ -197,13 +249,21 @@ def build_index_from_coverage(database: Path, repo_root: Path) -> CoverageIndex:
     return CoverageIndex(
         covering_tests={k: sorted(v) for k, v in covering.items()},
         test_files=sorted(_current_test_files(repo_root) | tests),
+        source_hashes=dict(source_hashes or {}),
+        built_at=float(built_at or 0.0),
     )
 
 
 def save_index(index: CoverageIndex, destination: Path) -> None:
-    """Write the index where a later run can find it."""
+    """Write the index atomically where a later run can find it."""
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(index.to_dict(), indent=2) + "\n", encoding="utf-8")
+    content = json.dumps(index.to_dict(), indent=2) + "\n"
+    with tempfile.NamedTemporaryFile(
+        "w", dir=destination.parent, delete=False, encoding="utf-8"
+    ) as tf:
+        tf.write(content)
+        temp_name = tf.name
+    os.replace(temp_name, destination)
 
 
 def load_index(source: Path) -> CoverageIndex:
@@ -219,11 +279,21 @@ def load_index(source: Path) -> CoverageIndex:
 
     covering = raw.get("covering_tests")
     tests = raw.get("test_files")
+    source_hashes = raw.get("source_hashes")
+    built_at = raw.get("built_at")
     if not isinstance(covering, dict) or not isinstance(tests, list):
         return CoverageIndex()
+    hashes_dict = (
+        {str(k): str(v) for k, v in source_hashes.items()}
+        if isinstance(source_hashes, dict)
+        else {}
+    )
+    ts = float(built_at) if isinstance(built_at, int | float) else 0.0
     return CoverageIndex(
         covering_tests={str(k): [str(x) for x in v] for k, v in covering.items()},
         test_files=[str(x) for x in tests],
+        source_hashes=hashes_dict,
+        built_at=ts,
     )
 
 
@@ -240,17 +310,14 @@ def _current_test_files(repo_root: Path) -> set[str]:
 def staleness_reason(index: CoverageIndex, repo_root: Path) -> str:
     """Explain why the index cannot be trusted, or return an empty string.
 
-    A test added since the index was built is invisible to it, and that test may be the
-    only one covering the change. Rather than rank that risk, any drift in the set of test
-    files invalidates the index outright.
+    Only an absent or format-version-mismatched index is unusable. Drift in source or test
+    files since the build is handled by adding changed files to the selection set rather
+    than invalidating the index.
     """
     if index.is_empty:
         return "no coverage index has been built"
-    present = _current_test_files(repo_root)
-    missing = present - set(index.test_files)
-    if missing:
-        sample = ", ".join(sorted(missing)[:3])
-        return f"{len(missing)} test file(s) added since the index was built: {sample}"
+    if index.version != INDEX_FORMAT_VERSION:
+        return f"coverage index format version {index.version} is not supported"
     return ""
 
 
@@ -276,7 +343,8 @@ def select_from_index(
             )
         if path.startswith(f"{CONST_TESTS_ROOT_DIR}/"):
             if _is_test_file(path):
-                selected.add(path)
+                if (repo_root / path).is_file():
+                    selected.add(path)
             else:
                 importing = _find_tests_importing_helper(path, repo_root, known_tests)
                 if importing:
@@ -294,14 +362,20 @@ def select_from_index(
             continue
         selected.update(covering)
 
-    return IndexedSelection(test_files=sorted(selected), unindexed_sources=sorted(unindexed))
+    valid_selected = sorted(t for t in selected if (repo_root / t).is_file())
+    return IndexedSelection(test_files=valid_selected, unindexed_sources=sorted(unindexed))
 
 
 __all__ = [
     "INDEX_FORMAT_VERSION",
     "CoverageIndex",
     "IndexedSelection",
+    "_find_tests_importing_helper",
+    "_is_test_file",
+    "_normalize_source_path",
     "build_index_from_coverage",
+    "compute_index_drift",
+    "filter_coverage_source_hashes",
     "load_index",
     "save_index",
     "select_from_index",

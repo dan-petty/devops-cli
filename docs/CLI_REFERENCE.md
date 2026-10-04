@@ -2338,6 +2338,7 @@ devops ci coverage [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--html` | `boolean` | - | Generate HTML coverage report in .data/htmlcov/. |
+| `--build-index` | `boolean` | - | Build on-demand coverage reverse index for fast test selection. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci lint`

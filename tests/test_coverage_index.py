@@ -6,6 +6,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from devops_cli.core.coverage_index import (
     INDEX_FORMAT_VERSION,
     CoverageIndex,
@@ -96,6 +98,55 @@ def test_a_corrupt_database_yields_an_empty_index(tmp_path: Path) -> None:
     assert build_index_from_coverage(broken, tmp_path).is_empty
 
 
+def test_builder_normalizes_once_per_distinct_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A database with 2,000 rows over 3 distinct paths calls the normalizer 3 times."""
+    import devops_cli.core.coverage_index as cov_idx_mod
+
+    repo = _repo(tmp_path, ["test_a.py", "test_b.py", "test_c.py"])
+    for name in ("a.py", "b.py", "c.py"):
+        p = repo / "src" / "devops_cli" / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("", encoding="utf-8")
+
+    paths = [
+        str(repo / "src" / "devops_cli" / "a.py"),
+        str(repo / "src" / "devops_cli" / "b.py"),
+        str(repo / "src" / "devops_cli" / "c.py"),
+    ]
+    contexts = [
+        "tests/test_a.py::test_one|run",
+        "tests/test_b.py::test_two|run",
+        "tests/test_c.py::test_three|run",
+    ]
+    rows = [(paths[i % 3], contexts[i % 3]) for i in range(2000)]
+    db = _coverage_db(tmp_path, rows)
+
+    calls = 0
+    orig_normalize = cov_idx_mod._normalize_source_path
+
+    def spy_normalize(path: str, repo_root: Path) -> str | None:
+        nonlocal calls
+        calls += 1
+        return orig_normalize(path, repo_root)
+
+    monkeypatch.setattr(cov_idx_mod, "_normalize_source_path", spy_normalize)
+
+    index = build_index_from_coverage(db, repo)
+    assert (
+        calls,
+        sorted(index.covering_tests.keys()),
+    ) == (
+        3,
+        [
+            "src/devops_cli/a.py",
+            "src/devops_cli/b.py",
+            "src/devops_cli/c.py",
+        ],
+    )
+
+
 # =============================================================================
 # Storage
 # =============================================================================
@@ -131,14 +182,13 @@ def test_unreadable_json_is_treated_as_absent(tmp_path: Path) -> None:
 # =============================================================================
 
 
-def test_a_new_test_file_invalidates_the_index(tmp_path: Path) -> None:
-    """A test added since the build is invisible to the index, and may be the only one
-    covering the change."""
+def test_a_new_test_file_does_not_invalidate_the_index(tmp_path: Path) -> None:
+    """A test added since the build is handled by adding it to the changed set, not invalidating the index."""
     repo = _repo(tmp_path, ["test_a.py", "test_brand_new.py"])
     index = CoverageIndex(
         covering_tests={"src/devops_cli/a.py": ["tests/test_a.py"]}, test_files=["tests/test_a.py"]
     )
-    assert "test_brand_new.py" in staleness_reason(index, repo)
+    assert staleness_reason(index, repo) == ""
 
 
 def test_an_unindexed_source_forces_a_full_run(tmp_path: Path) -> None:

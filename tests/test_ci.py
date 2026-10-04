@@ -536,6 +536,22 @@ def test_ci_run_docs_fix_when_needed() -> None:
         assert any(r.name == "docs" for r in results)
 
 
+def test_gate_test_step_argv_is_unchanged() -> None:
+    """Verify that the gate's test step argv remains unchanged and does not pass --cov-context."""
+    from devops_cli.commands.ci import _resolve_pytest_cmd, get_check_spec
+
+    spec = get_check_spec("test")
+    assert (
+        spec.cmd,
+        "--cov-context=test" in spec.cmd,
+        any("COVERAGE_CORE" in c for c in spec.cmd),
+    ) == (
+        _resolve_pytest_cmd(),
+        False,
+        False,
+    )
+
+
 def _validate_setup_uv_step(step: dict[str, object], source: str) -> None:
     with_args = step.get("with", {})
     assert isinstance(with_args, dict), f"{source}: 'with' block must be a dict"

@@ -190,6 +190,7 @@ def _run(
     cmd: list[str],
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     capture_output: bool = False,
+    env: dict[str, str] | None = None,
 ) -> bool:
     """Run a CI check subprocess synchronously."""
     root = _get_project_root()
@@ -197,7 +198,7 @@ def _run(
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
         full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
     result = _get("run_subprocess")(
-        full_cmd, cwd=root, timeout=timeout, capture_output=capture_output
+        full_cmd, cwd=root, timeout=timeout, capture_output=capture_output, env=env
     )
     return bool(result.returncode == 0)
 
@@ -297,14 +298,6 @@ async def _execute_check_async(
 
     start_time = time.perf_counter()
     root = _get_project_root()
-
-    if apply_fix and check_spec.fix_cmd and check_spec.name == "docs":
-        fix_cmd = list(check_spec.fix_cmd)
-        if fix_cmd and fix_cmd[0] == "uv" and "--preview-features" not in fix_cmd:
-            fix_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
-        await _get("run_subprocess_async")(
-            fix_cmd, cwd=root, timeout=timeout, capture_output=capture_output
-        )
 
     full_cmd = list(check_spec.cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
@@ -631,6 +624,7 @@ async def _run_pre_fixes_async(
     *,
     format_fix: bool,
     lint_fix: bool,
+    docs_fix: bool = False,
 ) -> None:
     """Apply in-place modifications first before verification scans."""
     if format_fix:
@@ -655,6 +649,18 @@ async def _run_pre_fixes_async(
                     cmd=lint_spec.fix_cmd,
                     span_name="ci.step.lint_fix",
                     metric_step="lint_fix",
+                )
+            )
+    if docs_fix:
+        docs_spec = next((s for s in selected_specs if s.name == "docs"), None)
+        if docs_spec and docs_spec.fix_cmd:
+            await _execute_check_async(
+                CheckSpec(
+                    name="docs_fix",
+                    display_title=MESSAGES.ci.docs_validation,
+                    cmd=docs_spec.fix_cmd,
+                    span_name="ci.step.docs_fix",
+                    metric_step="docs_fix",
                 )
             )
 
@@ -704,7 +710,12 @@ async def _run_all_checks_async(
     if not selected_specs:
         return [py_result]
 
-    await _run_pre_fixes_async(selected_specs, format_fix=format_fix, lint_fix=lint_fix)
+    await _run_pre_fixes_async(
+        selected_specs,
+        format_fix=format_fix,
+        lint_fix=lint_fix,
+        docs_fix=docs_fix,
+    )
 
     has_test = any(s.name == "test" for s in selected_specs)
     if has_test:
@@ -722,7 +733,6 @@ async def _run_all_checks_async(
             _execute_check_async(
                 spec=spec,
                 capture_output=capture_output,
-                apply_fix=(docs_fix if spec.name == "docs" else False),
             )
             for spec in selected_specs
         ]
@@ -1010,34 +1020,201 @@ def all_checks(
 # =============================================================================
 
 
-def _report_selection(selection: Any) -> None:
+def _normalize_repo_rel_path(path: Path | str, root: Path) -> str:
+    """Normalize a path to a repo-relative forward-slash POSIX path."""
+    p = Path(path)
+    if p.is_absolute():
+        try:
+            return p.resolve().relative_to(root.resolve()).as_posix()
+        except ValueError, OSError:
+            return p.as_posix()
+    return p.as_posix().lstrip("./")
+
+
+def _check_trigger_files(all_paths: set[str], fallback: bool) -> bool:
+    """Check if any trigger files are in the changed path set."""
+    from devops_cli.core.coverage_index import _FULL_RUN_TRIGGERS
+
+    triggers = [p for p in sorted(all_paths) if Path(p).name in _FULL_RUN_TRIGGERS]
+    if not triggers:
+        return True
+    first_trigger = triggers[0]
+    if not fallback:
+        _get("print_error")(
+            MESSAGES.ci.selection_trigger_refusal.format(file=first_trigger),
+            prefix=False,
+        )
+        raise typer.Exit(1)
+    _get("print_warning")(MESSAGES.ci.selection_trigger_full_run.format(file=first_trigger))
+    return False
+
+
+def _map_test_tree_path(
+    path: str,
+    root: Path,
+    selected_tests: set[str],
+    mapped_sources: dict[str, list[str]],
+    unmapped_sources: list[str],
+    source_selectors: dict[str, str],
+) -> None:
+    """Handle a path under the tests/ directory."""
+    from devops_cli.config.constants import (
+        CONST_PYTHON_FILE_SUFFIX,
+        CONST_TEST_FILE_PREFIX,
+        CONST_TESTS_ROOT_DIR,
+    )
+    from devops_cli.core.coverage_index import _find_tests_importing_helper, _is_test_file
+
+    if _is_test_file(path):
+        if (root / path).is_file():
+            selected_tests.add(path)
+            mapped_sources[path] = [path]
+            source_selectors[path] = "direct"
+        return
+
+    if not (root / path).is_file():
+        return
+
+    if path.endswith(CONST_PYTHON_FILE_SUFFIX):
+        tests_dir = root / CONST_TESTS_ROOT_DIR
+        all_test_files = [
+            p.relative_to(root).as_posix()
+            for p in tests_dir.rglob(f"{CONST_TEST_FILE_PREFIX}*{CONST_PYTHON_FILE_SUFFIX}")
+            if p.is_file()
+        ]
+        importing = _find_tests_importing_helper(path, root, all_test_files)
+        source_selectors[path] = "text-based selector"
+        if importing:
+            selected_tests.update(importing)
+            mapped_sources[path] = sorted(importing)
+        else:
+            unmapped_sources.append(path)
+
+
+def _map_src_tree_path(
+    path: str,
+    root: Path,
+    index: Any,
+    has_index: bool,
+    selected_tests: set[str],
+    mapped_sources: dict[str, list[str]],
+    unmapped_sources: list[str],
+    source_selectors: dict[str, str],
+) -> None:
+    """Handle a path under the src/ directory."""
+    if has_index and path in index.covering_tests:
+        covering = index.covering_tests[path]
+        selected_tests.update(covering)
+        mapped_sources[path] = sorted(covering)
+        source_selectors[path] = "coverage index"
+        return
+
+    from devops_cli.core.test_selection import select_tests_for_sources
+
+    text_sel = select_tests_for_sources([path], root)
+    source_selectors[path] = "text-based selector"
+    if text_sel.has_selection:
+        targets = text_sel.pytest_targets()
+        selected_tests.update(targets)
+        mapped_sources[path] = targets
+    else:
+        unmapped_sources.append(path)
+
+
+def _map_changed_paths(
+    all_paths: set[str],
+    root: Path,
+    index: Any,
+    has_index: bool,
+) -> tuple[list[str], dict[str, list[str]], list[str], dict[str, str]]:
+    """Map each candidate path under src/ or tests/ onto test targets and selectors."""
+    from devops_cli.config.constants import CONST_SOURCE_ROOT_DIR, CONST_TESTS_ROOT_DIR
+
+    selected_tests: set[str] = set()
+    mapped_sources: dict[str, list[str]] = {}
+    unmapped_sources: list[str] = []
+    source_selectors: dict[str, str] = {}
+
+    for raw_path in sorted(all_paths):
+        path = raw_path.replace("\\", "/")
+        if path.startswith(f"{CONST_TESTS_ROOT_DIR}/"):
+            _map_test_tree_path(
+                path, root, selected_tests, mapped_sources, unmapped_sources, source_selectors
+            )
+        elif path.startswith(f"{CONST_SOURCE_ROOT_DIR}/"):
+            _map_src_tree_path(
+                path,
+                root,
+                index,
+                has_index,
+                selected_tests,
+                mapped_sources,
+                unmapped_sources,
+                source_selectors,
+            )
+
+    valid_targets = sorted(t for t in selected_tests if (root / t).is_file())
+    return valid_targets, mapped_sources, unmapped_sources, source_selectors
+
+
+def _report_selection(
+    mapped_sources: dict[str, list[str]],
+    unmapped_sources: list[str],
+    source_selectors: dict[str, str],
+) -> None:
     """Explain which tests were chosen for the supplied files, and which were not."""
-    for source, tests in sorted(selection.mapped_sources.items()):
-        _get("print_muted")(f"  {source} → {', '.join(tests)}")
-    if selection.unmapped_sources:
+    for source in sorted(mapped_sources):
+        tests = mapped_sources[source]
+        selector = source_selectors.get(source, "coverage index")
+        selector_suffix = "" if selector == "direct" else f" ({selector})"
+        _get("print_muted")(f"  {source} → {', '.join(tests)}{selector_suffix}")
+    if unmapped_sources:
         _get("print_warning")(
-            MESSAGES.ci.no_covering_tests.format(files=", ".join(selection.unmapped_sources))
+            MESSAGES.ci.no_covering_tests.format(files=", ".join(sorted(unmapped_sources)))
         )
 
 
 def _resolve_test_targets(paths: list[Path], fallback: bool) -> list[str] | None:
-    """Map changed files onto pytest targets.
+    """Map changed files onto pytest targets using coverage index and text fallback."""
+    from devops_cli.ci.cache import compute_worktree_blob_hashes, resolve_coverage_index_path
+    from devops_cli.core.coverage_index import (
+        compute_index_drift,
+        load_index,
+    )
+    from devops_cli.output import format_duration
 
-    Returns the targets to run, or ``None`` when the caller should run the whole suite.
-    Selection never yields an empty run for changed sources: an unmappable source either
-    escalates to the full suite or is reported, so a narrowed run can't report a false
-    green for code nothing covered.
-    """
-    from devops_cli.core.test_selection import select_tests_for_sources
+    root = _get_project_root()
+    index_path = resolve_coverage_index_path(root)
+    index = load_index(index_path)
+    has_index = not index.is_empty
 
-    selection = select_tests_for_sources(paths, _get_project_root())
-    _report_selection(selection)
+    user_paths = {_normalize_repo_rel_path(p, root) for p in paths}
+    all_paths = set(user_paths)
 
-    if selection.has_selection:
-        return selection.pytest_targets()
+    if has_index:
+        current_hashes = compute_worktree_blob_hashes(root)
+        drift_files = compute_index_drift(index, current_hashes)
+        all_paths.update(drift_files)
+        age_seconds = max(0.0, time.time() - index.built_at) if index.built_at > 0 else 0.0
+        age_str = format_duration(age_seconds) if age_seconds > 0 else "0s"
+        _get("print_muted")(
+            MESSAGES.ci.coverage_index_age.format(age=age_str, changed_count=len(drift_files))
+        )
+    else:
+        _get("print_muted")(MESSAGES.ci.coverage_index_missing)
 
-    if not selection.unmapped_sources:
-        # Only non-source files were supplied (docs, manifests); nothing to verify.
+    if not _check_trigger_files(all_paths, fallback):
+        return None
+
+    targets, mapped_sources, unmapped_sources, source_selectors = _map_changed_paths(
+        all_paths, root, index, has_index
+    )
+    _report_selection(mapped_sources, unmapped_sources, source_selectors)
+
+    if targets:
+        return targets
+
+    if not unmapped_sources and not mapped_sources:
         _get("print_muted")(MESSAGES.ci.no_testable_files)
         return []
 
@@ -1111,9 +1288,58 @@ def test(
         raise typer.Exit(1)
 
 
+def _handle_coverage_index_build(cmd: list[str]) -> None:
+    """Execute full test suite with coverage contexts and persist coverage reverse index."""
+    from devops_cli.ci.cache import compute_worktree_blob_hashes, resolve_coverage_index_path
+    from devops_cli.core.coverage_index import (
+        build_index_from_coverage,
+        filter_coverage_source_hashes,
+        save_index,
+    )
+
+    root = _get_project_root()
+    index_cmd = list(cmd)
+    index_cmd.append("--cov-context=test")
+
+    hashes_before = filter_coverage_source_hashes(compute_worktree_blob_hashes(root))
+    env = {"COVERAGE_CORE": "ctrace"}
+    if not _run(index_cmd, env=env):
+        raise typer.Exit(1)
+
+    hashes_after = filter_coverage_source_hashes(compute_worktree_blob_hashes(root))
+    if hashes_before != hashes_after:
+        all_keys = set(hashes_before.keys()) | set(hashes_after.keys())
+        changed = sorted(k for k in all_keys if hashes_before.get(k) != hashes_after.get(k))
+        _get("print_error")(
+            MESSAGES.ci.coverage_index_tree_changed.format(files=", ".join(changed)),
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    t0 = time.perf_counter()
+    coverage_db = root / ".data" / ".coverage"
+    if not coverage_db.is_file() and (root / ".coverage").is_file():
+        coverage_db = root / ".coverage"
+
+    index = build_index_from_coverage(
+        coverage_db, root, source_hashes=hashes_after, built_at=time.time()
+    )
+    destination = resolve_coverage_index_path(root)
+    save_index(index, destination)
+    elapsed = time.perf_counter() - t0
+    _get("print_info")(
+        MESSAGES.ci.coverage_index_saved.format(duration=f"{elapsed:.2f}s"),
+        safe=True,
+    )
+
+
 @app.command()
 def coverage(
     html: Annotated[bool, typer.Option("--html", help=HELP.ci.html_report)] = False,
+    build_index: Annotated[
+        bool,
+        typer.Option("--build-index", help=HELP.ci.build_index),
+    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -1128,6 +1354,9 @@ def coverage(
     cmd = list(spec.cmd)
     if html:
         cmd.append("--cov-report=html")
+    if build_index:
+        _handle_coverage_index_build(cmd)
+        return
     if not _run(cmd):
         raise typer.Exit(1)
 

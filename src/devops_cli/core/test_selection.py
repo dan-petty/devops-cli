@@ -21,6 +21,7 @@ from devops_cli.config.constants import (
     CONST_TEST_FILE_PREFIX,
     CONST_TESTS_ROOT_DIR,
 )
+from devops_cli.core.coverage_index import _find_tests_importing_helper
 
 
 @dataclass
@@ -31,6 +32,7 @@ class TestSelection:
     mapped_sources: dict[str, list[str]] = field(default_factory=dict)
     unmapped_sources: list[str] = field(default_factory=list)
     passthrough_files: list[Path] = field(default_factory=list)
+    source_selectors: dict[str, str] = field(default_factory=dict)
 
     @property
     def has_selection(self) -> bool:
@@ -109,6 +111,33 @@ def _referencing_tests(
     return {path for path in test_files if pattern.search(contents.get(path, ""))}
 
 
+def _handle_test_tree_entry(
+    candidate: Path,
+    rel_tests_path: Path,
+    root: Path,
+    all_tests: Sequence[Path],
+    selection: TestSelection,
+) -> set[Path]:
+    """Handle a candidate path located under the tests/ directory."""
+    display = str(candidate)
+    name = rel_tests_path.name
+    if name.startswith(CONST_TEST_FILE_PREFIX) and name.endswith(CONST_PYTHON_FILE_SUFFIX):
+        selection.passthrough_files.append(rel_tests_path)
+        selection.source_selectors[display] = "direct"
+        return set()
+    selection.source_selectors[display] = "text-based selector"
+    if name == "conftest.py" or not name.endswith(CONST_PYTHON_FILE_SUFFIX):
+        selection.unmapped_sources.append(display)
+        return set()
+    known_tests = [str(p.relative_to(root)) for p in all_tests]
+    importing = _find_tests_importing_helper(rel_tests_path.as_posix(), root, known_tests)
+    if importing:
+        selection.mapped_sources[display] = sorted(importing)
+        return {root / imp for imp in importing}
+    selection.unmapped_sources.append(display)
+    return set()
+
+
 def select_tests_for_sources(
     paths: Iterable[Path | str], repo_root: Path | None = None
 ) -> TestSelection:
@@ -129,13 +158,16 @@ def select_tests_for_sources(
         candidate = Path(raw)
         absolute = candidate if candidate.is_absolute() else root / candidate
 
-        # A test file supplied directly is run as given.
+        # A path supplied under the tests tree
         try:
             relative_to_tests = absolute.resolve().relative_to(tests_root.resolve())
         except ValueError, OSError:
             relative_to_tests = None
         if relative_to_tests is not None:
-            selection.passthrough_files.append(Path(CONST_TESTS_ROOT_DIR) / relative_to_tests)
+            rel_tests_path = Path(CONST_TESTS_ROOT_DIR) / relative_to_tests
+            selected |= _handle_test_tree_entry(
+                candidate, rel_tests_path, root, all_tests, selection
+            )
             continue
 
         module_path = module_path_for_source(absolute, root)
@@ -153,6 +185,7 @@ def select_tests_for_sources(
         matched = conventional | _referencing_tests(module_path, all_tests, contents)
 
         display = str(candidate)
+        selection.source_selectors[display] = "text-based selector"
         if matched:
             selected |= matched
             selection.mapped_sources[display] = sorted(
