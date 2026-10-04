@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,7 +20,7 @@ def test_config_output_table_view() -> None:
     result = runner.invoke(app, ["output"])
     assert result.exit_code == 0
     assert "DEVOPS_CLI_AI_MODEL" in result.stdout
-    assert "DEVOPS_CLI_GITHUB_TOKEN" in result.stdout
+    assert "DEVOPS_CLI_GRAFANA_TOKEN" in result.stdout
     assert "devops-cli environment variables" in result.stdout
 
 
@@ -28,7 +29,7 @@ def test_config_output_export_view() -> None:
     assert result.exit_code == 0
     assert "# devops-cli environment variables export" in result.stdout
     assert "export DEVOPS_CLI_" in result.stdout or "# export DEVOPS_CLI_" in result.stdout
-    assert '# export DEVOPS_CLI_GITHUB_TOKEN="****"' in result.stdout
+    assert '# export DEVOPS_CLI_GRAFANA_TOKEN="****"' in result.stdout
 
 
 def test_config_output_json_view() -> None:
@@ -39,15 +40,34 @@ def test_config_output_json_view() -> None:
     env_vars = [item["env_var"] for item in data]
     assert "DEVOPS_CLI_CONFIG" in env_vars
     assert "DEVOPS_CLI_AI_MODEL" in env_vars
-    assert "DEVOPS_CLI_GITHUB_TOKEN" in env_vars
+    assert "DEVOPS_CLI_GRAFANA_TOKEN" in env_vars
 
     ai_model_item = next(item for item in data if item["env_var"] == "DEVOPS_CLI_AI_MODEL")
     assert ai_model_item["option_key"] == "ai.model"
     assert ai_model_item["is_secret"] is False
 
-    github_token_item = next(item for item in data if item["env_var"] == "DEVOPS_CLI_GITHUB_TOKEN")
-    assert github_token_item["option_key"] == "github.token"
-    assert github_token_item["is_secret"] is True
+    grafana_token_item = next(
+        item for item in data if item["env_var"] == "DEVOPS_CLI_GRAFANA_TOKEN"
+    )
+    assert (grafana_token_item["option_key"], grafana_token_item["is_secret"]) == (
+        "grafana.token",
+        True,
+    )
+
+
+def test_github_token_is_not_a_config_option() -> None:
+    """GitHub's identity comes only from `gh auth token`: no option, keyring key or variable holds it."""
+    from devops_cli.config import options as opt
+    from devops_cli.config.env import get_all_env_var_specs
+
+    def github_section(keys: Iterable[str]) -> list[str]:
+        return sorted(key for key in keys if key.partition(".")[0] == "github")
+
+    assert (
+        github_section(opt.CONFIG_OPTIONS),
+        github_section(opt.SECRET_CONFIG_OPTIONS | opt.KEYRING_KEYS.keys()),
+        [spec.env_var for spec in get_all_env_var_specs() if "GITHUB" in spec.env_var],
+    ) == (["github.default_org"], [], ["DEVOPS_CLI_GITHUB_DEFAULT_ORG"])
 
 
 def test_config_env_aliases() -> None:
@@ -121,7 +141,6 @@ def test_config_commands_comprehensive(tmp_path: Path) -> None:
     with (
         patch("devops_cli.config.settings.CONFIG_PATH", cfg_file),
         patch("devops_cli.commands.config._gh_auth_status", return_value=True),
-        patch("devops_cli.commands.config._gh_auth_token", return_value="ghp_test"),
     ):
         res_show = runner.invoke(main_app, ["config", "show"])
         assert res_show.exit_code == 0
@@ -138,7 +157,7 @@ def test_config_commands_comprehensive(tmp_path: Path) -> None:
         res_env = runner.invoke(main_app, ["config", "env"])
         assert res_env.exit_code == 0
 
-        res_headless = runner.invoke(app, ["auth-headless", "github.token", "ghp_mocktoken"])
+        res_headless = runner.invoke(app, ["auth-headless", "grafana.token", "FAKE-token"])
         assert res_headless.exit_code == 0
 
         res_headless_bad = runner.invoke(app, ["auth-headless", "invalid_key", "val"])
@@ -239,7 +258,7 @@ def test_storing_into_a_locked_keyring_names_the_unlock_command(
     _locked_keyring(monkeypatch)
 
     with pytest.raises(KeyringLockedError, match="devops devcontainer unlock-keyring"):
-        _keyring_set("github_token", "FAKE-token")
+        _keyring_set("grafana_token", "FAKE-token")
 
 
 def test_reading_from_a_locked_keyring_names_the_unlock_command(
@@ -254,7 +273,7 @@ def test_reading_from_a_locked_keyring_names_the_unlock_command(
         settings.logger, "warning", lambda message, *args: warnings.append(message % args)
     )
 
-    assert (settings._keyring_get("github_token"), settings._keyring_has("github_token")) == (
+    assert (settings._keyring_get("grafana_token"), settings._keyring_has("grafana_token")) == (
         None,
         False,
     )

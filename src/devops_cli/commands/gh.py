@@ -20,8 +20,6 @@ from devops_cli.config.constants import (
     CONST_PROJECT_WORKFLOW_EXPECTATIONS,
 )
 from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT
-from devops_cli.config.env import ENV_GITHUB_TOKEN
-from devops_cli.config.settings import get_keyring_secret
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.exceptions import DevOpsCLIError
@@ -81,6 +79,7 @@ from devops_cli.github.secrets import (
     list_repository_secrets,
     sync_repository_secrets,
 )
+from devops_cli.github.session import get_github_session
 from devops_cli.lang import HELP
 from devops_cli.output import (
     format_json,
@@ -99,16 +98,26 @@ from devops_cli.roadmap.store import GitHubState
 
 logger = logging.getLogger(__name__)
 
-app = new_typer(help=HELP.gh.app, no_args_is_help=True)
-labels_app = new_typer(help=HELP.gh.labels_app, no_args_is_help=True)
-milestones_app = new_typer(help=HELP.gh.milestones_app, no_args_is_help=True)
-project_app = new_typer(help=HELP.gh.project_app, no_args_is_help=True)
-views_app = new_typer(help=HELP.gh.views_app, no_args_is_help=True)
-pages_app = new_typer(help=HELP.gh.pages_app, no_args_is_help=True)
-issues_app = new_typer(help=HELP.gh.issues_app, no_args_is_help=True)
-runs_app = new_typer(help=HELP.gh.runs_app, no_args_is_help=True)
-branch_protection_app = new_typer(help=HELP.gh.branch_protection_app, no_args_is_help=True)
-secrets_app = new_typer(help=HELP.gh.secrets_app, no_args_is_help=True)
+# Every `devops gh` command reports a GitHub failure, an unauthenticated one included, as its
+# error rather than a traceback.
+app = new_typer(help=HELP.gh.app, no_args_is_help=True, exit_on=GitHubOperationError)
+labels_app = new_typer(help=HELP.gh.labels_app, no_args_is_help=True, exit_on=GitHubOperationError)
+milestones_app = new_typer(
+    help=HELP.gh.milestones_app, no_args_is_help=True, exit_on=GitHubOperationError
+)
+project_app = new_typer(
+    help=HELP.gh.project_app, no_args_is_help=True, exit_on=GitHubOperationError
+)
+views_app = new_typer(help=HELP.gh.views_app, no_args_is_help=True, exit_on=GitHubOperationError)
+pages_app = new_typer(help=HELP.gh.pages_app, no_args_is_help=True, exit_on=GitHubOperationError)
+issues_app = new_typer(help=HELP.gh.issues_app, no_args_is_help=True, exit_on=GitHubOperationError)
+runs_app = new_typer(help=HELP.gh.runs_app, no_args_is_help=True, exit_on=GitHubOperationError)
+branch_protection_app = new_typer(
+    help=HELP.gh.branch_protection_app, no_args_is_help=True, exit_on=GitHubOperationError
+)
+secrets_app = new_typer(
+    help=HELP.gh.secrets_app, no_args_is_help=True, exit_on=GitHubOperationError
+)
 
 app.add_typer(labels_app, name="labels")
 app.add_typer(milestones_app, name="milestones")
@@ -128,31 +137,11 @@ def _resolve_repo(repo: str | None = None) -> str:
     return target or "unknown/repo"
 
 
-def _resolve_github_token() -> str | None:
-    """Resolve GitHub authentication token from Keyring, environment, or gh CLI."""
-    for key in ("github.token", "github_token", "github"):
-        val = get_keyring_secret(key)
-        if val:
-            return val
-    import os
-
-    for env_var in (ENV_GITHUB_TOKEN, "GITHUB_TOKEN", "GH_TOKEN"):
-        env_val = os.environ.get(env_var)
-        if env_val:
-            return env_val
-    res = run_gh(["auth", "token"], check=False, quiet=True)
-    if res.returncode == 0 and res.stdout.strip():
-        return res.stdout.strip()
-    return None
-
-
 def _get_github_client() -> GitHubClient | None:
-    """Construct an authenticated GitHub client if token is available."""
-    token = _resolve_github_token()
-    if not token:
-        return None
+    """The session's PyGithub client; None when PyGithub cannot be set up."""
+    session = get_github_session()
     try:
-        return GitHubClient(token)
+        return session.client
     except Exception as exc:
         logger.warning("Failed to initialize GitHubClient: %s", exc)
         return None

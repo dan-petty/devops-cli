@@ -16,7 +16,7 @@
 **Keyring** provides a cross-platform Python interface to the operating system's native credential and secret storage systems (SecretService / FreeDesktop DBus on Linux, Apple Keychain on macOS, Windows Credential Manager on Windows).
 
 In `devops-cli`:
-- **Zero-Trust Security**: Plaintext secrets (GitHub tokens, OpenAI API keys, Kubernetes credentials) are never written to disk files (`config.yaml`) or logged.
+- **Zero-Trust Security**: Plaintext secrets (Grafana tokens, OpenAI API keys, Kubernetes credentials) are never written to disk files (`config.yaml`) or logged.
 - **Service Namespace**: All stored credentials reside under the isolated `CONST_KEYRING_SERVICE = "devops-cli"` namespace.
 - **Resolution Priority**: Env Vars $\rightarrow$ OS Keyring $\rightarrow$ Config File.
 
@@ -49,19 +49,19 @@ import keyring
 from devops_cli.config.constants import CONST_KEYRING_SERVICE
 
 # Store an encrypted token
-keyring.set_password(CONST_KEYRING_SERVICE, "github.token", "ghp_securetoken123")
+keyring.set_password(CONST_KEYRING_SERVICE, "grafana_token", "<grafana-api-token>")
 
 # Retrieve the token
-token = keyring.get_password(CONST_KEYRING_SERVICE, "github.token")
+token = keyring.get_password(CONST_KEYRING_SERVICE, "grafana_token")
 
 # Delete the token on workstation teardown
-keyring.delete_password(CONST_KEYRING_SERVICE, "github.token")
+keyring.delete_password(CONST_KEYRING_SERVICE, "grafana_token")
 ```
 
 ### CLI Secret Management Commands
 ```bash
-# Securely write GitHub PAT to OS Keyring
-devops config set github.token ghp_xxxx1234567890
+# Securely write a Grafana API token to OS Keyring (GitHub access is gh's own login)
+devops config set grafana.token <grafana-api-token>
 
 # View configuration with secrets automatically masked
 devops config show

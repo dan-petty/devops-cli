@@ -744,9 +744,13 @@ DEFAULT_PR_MONITOR_SETTLE_TIMEOUT_SECONDS: int = 60
 DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS: float = 30.0
 DEFAULT_GH_MAX_RETRIES: int = 2
 DEFAULT_GH_RESOURCE: str = "core"
+# `gh auth token` answers locally; a hung keyring must not stall the first gh or git call (#767).
+DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS: float = 5.0
+# After `gh auth token` printed no token, git runs without one and looks again only this much later;
+# gh calls look again every time, since they cannot run without one.
+DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS: float = 60.0
 DEFAULT_GH_CACHE_TTL_SECONDS: float = 60.0
 DEFAULT_GH_GRAPHQL_SAFETY_THRESHOLD: int = 500
-DEFAULT_GH_GRAPHQL_CACHE_MAX_ENTRIES: int = 500
 DEFAULT_GH_GRAPHQL_MAX_COST_PER_QUERY: int = 100
 DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC: int = 25
 DEFAULT_GH_QUOTA_MAX_AGE_SECONDS: float = 300.0

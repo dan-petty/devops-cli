@@ -25,6 +25,8 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_JSON_NAME,
     CONST_DEVCONTAINER_JSON_PATH,
     CONST_DEVCONTAINER_PUBLISHED_IMAGE,
+    CONST_GH_LOGIN_ENV_VARS,
+    CONST_GH_TOKEN_ENV_VARS,
     CONST_KEYRING_PACKAGES,
     CONST_KEYRING_PROMPT_TIMEOUT_SECONDS,
     CONST_MCP_JSON_NAME,
@@ -1446,10 +1448,10 @@ def _move_plaintext_gh_tokens() -> list[str]:
     Returns the hosts moved. Logging in again with the token already held mints nothing, unlike
     `gh auth refresh`, which counts against GitHub's ten-tokens-per-app limit.
     """
-    if any(os.getenv(name) for name in ("GH_TOKEN", "GITHUB_TOKEN", "DEVOPS_CLI_GITHUB_TOKEN")):
+    if any(os.getenv(name) for name in CONST_GH_TOKEN_ENV_VARS):
         return []  # gh prefers an environment token and refuses to log in over it
     # gh needs the bus to reach the keyring; without it the login falls back to plain text again.
-    gh_env = {"DBUS_SESSION_BUS_ADDRESS", "GH_CONFIG_DIR", "XDG_CONFIG_HOME"}
+    gh_env = CONST_GH_LOGIN_ENV_VARS
     moved: list[str] = []
     for host in _gh_plaintext_token_hosts():
         token = run_subprocess(

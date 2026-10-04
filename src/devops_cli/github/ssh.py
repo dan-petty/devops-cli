@@ -12,32 +12,31 @@ from devops_cli.config.defaults import (
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
-from devops_cli.github.client import GitHubClient
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.rate_limiter import run_gh
+from devops_cli.github.session import GitHubSession, get_github_session
 
 
 class SSHRegistrationError(RuntimeError):
     """Raised when SSH/signing key registration on GitHub fails."""
 
 
-def register_key_on_github(pub_key: str, title: str, token: str | None = None) -> None:
-    """Add *pub_key* to GitHub as both an auth key and a signing key."""
+def register_key_on_github(pub_key: str, title: str) -> None:
+    """Add *pub_key* to GitHub as both an auth key and a signing key, as the session's identity."""
     if _register_with_gh(pub_key, title):
         return
-
-    if token:
-        _register_with_token_api(token, pub_key, title)
-        return
-
-    raise SSHRegistrationError(
-        "No usable GitHub auth found for key registration. "
-        "Run 'gh auth login' or configure DEVOPS_CLI_GITHUB_TOKEN."
-    )
+    try:
+        session = get_github_session()
+    except GitHubOperationError as exc:
+        raise SSHRegistrationError(
+            "No usable GitHub auth found for key registration. Run 'gh auth login'."
+        ) from exc
+    _register_with_token_api(session, pub_key, title)
 
 
-def _register_with_token_api(token: str, pub_key: str, title: str) -> None:
-    """Register using token-backed PyGithub + REST API fallback."""
-    client = GitHubClient(token)
+def _register_with_token_api(session: GitHubSession, pub_key: str, title: str) -> None:
+    """Register through PyGithub and the REST API with the session's token."""
+    client = session.client
 
     # Authentication key — skip if an identical key body already exists
     key_body = " ".join(pub_key.split()[:2])  # "ssh-ed25519 <base64>"
@@ -46,7 +45,7 @@ def _register_with_token_api(token: str, pub_key: str, title: str) -> None:
         client.add_user_ssh_key(title=title, key=pub_key)
 
     # Signing key (separate endpoint, not yet in PyGithub)
-    _add_signing_key(token, pub_key, title)
+    _add_signing_key(session.token, pub_key, title)
 
 
 def _register_with_gh(pub_key: str, title: str) -> bool:

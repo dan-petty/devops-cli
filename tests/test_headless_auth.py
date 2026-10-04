@@ -16,8 +16,8 @@ def test_ephemeral_keyring_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     _EPHEMERAL_CI_SECRETS.clear()
     monkeypatch.setenv("DEVOPS_CLI_HEADLESS_AUTH", "true")
 
-    _keyring_set("github_token", "ghp_test_token_123")
-    assert _keyring_get("github_token") == "ghp_test_token_123"
+    _keyring_set("grafana_token", "FAKE-test-token-123")
+    assert _keyring_get("grafana_token") == "FAKE-test-token-123"
 
 
 def test_ephemeral_keyring_options() -> None:

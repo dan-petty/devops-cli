@@ -224,7 +224,7 @@ def test_prepare_content_helpers(tmp_path: Path) -> None:
         mock_gh.get_pull.return_value = MagicMock(title="Mock PR Title")
         mock_gh.get_pr_diff.return_value = "diff --git a/test.py b/test.py\n+content\n"
         pr_pages, pr_title, pr_agents, pull, repo, pr_base = _prepare_pr_content(
-            123, repo_arg="owner/repo", token="ghp_test"
+            123, repo_arg="owner/repo"
         )
         assert len(pr_pages) >= 1
         assert "PR #123" in pr_title

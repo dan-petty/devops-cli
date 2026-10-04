@@ -14,7 +14,7 @@
 
 ## SRE Engineering Tenets & Architectural Highlights
 
-- **Zero-Plaintext Secret Architecture**: Sensitive tokens (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via Python `keyring`. Configuration files contain zero plaintext credentials.
+- **Zero-Plaintext Secret Architecture**: Sensitive tokens (`grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via Python `keyring`. GitHub access is gh's own login: each process acts as the one identity `gh auth token` returns. Configuration files contain zero plaintext credentials.
 - **Active SSRF & Egress Guardrails**: Outbound API requests pass through strict IP validation (`validate_service_url`) blocking private subnets (RFC 1918), loopbacks, and cloud metadata endpoints by default.
 - **Multi-Persona Agentic Code Review**: Paginated diff analysis across branches and PRs using specialized expert personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) backed by `ScratchpadBuffer` reasoning context and deterministic finding verification.
 - **Native DevContainer Lifecycle Engine**: Cross-platform Python lifecycle orchestration (`devops devcontainer run-lifecycle`) replaces legacy shell scripts for post-create and post-start hooks.
@@ -56,8 +56,8 @@ cd devops-cli
 # 2. Inside the Dev Container, sync Python 3.14 dependencies:
 uv sync
 
-# 3. Store credentials securely in the OS Keyring
-devops config set github.token "ghp_your_personal_access_token"
+# 3. Log in to GitHub with gh, and store other credentials in the OS Keyring
+gh auth login
 devops ai config --provider claude
 devops config set ai.api_key "sk-ant-..."
 

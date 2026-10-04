@@ -307,6 +307,27 @@ def mask_uri_credentials(uri: str) -> str:
     )
 
 
+def is_secret_field(key: str, full_path: str, secret_options: frozenset[str]) -> bool:
+    """Whether a config key, or its dotted path, names a secret: a known secret option, or a key
+    such as `token`, `password` or `*_api_key`, so a key that is no longer an option still counts.
+    """
+    if full_path in secret_options:
+        return True
+    key_lower = key.lower()
+    if key_lower.startswith("non_"):
+        return False
+    if key_lower in {"token", "password", "secret", "api_key", "private_key"}:
+        return True
+    parts = set(key_lower.split("_"))
+    if parts & {"token", "password", "secret"}:
+        return True
+
+    return any(
+        key_lower.endswith(sfx)
+        for sfx in ("_token", "_password", "_secret", "_api_key", "_private_key")
+    )
+
+
 _SENSITIVE_ARG_FLAGS: frozenset[str] = frozenset(
     {"--password", "-p", "--token", "--api-key", "--secret", "--auth-token"}
 )

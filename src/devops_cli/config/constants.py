@@ -549,7 +549,6 @@ CONST_AI_PROVIDER_API_BASES: Final[dict[str, str]] = {
 # no server, so LLM spans write no `server.address` for it.
 CONST_AI_BACKEND_HOST_UNKNOWN = "unknown"
 CONST_URL_GITHUB_API_BASE = "https://api.github.com"
-CONST_URL_GITHUB_GRAPHQL = "https://api.github.com/graphql"
 CONST_URL_CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 CONST_CLOUDFLARE_CFARGOTUNNEL_SUFFIX = ".cfargotunnel.com"
 CONST_CLOUDFLARE_DEFAULT_SERVICE = "http://traefik.kube-system.svc.cluster.local:80"
@@ -876,11 +875,20 @@ CONST_RECOMMENDATION_BLOCK = "BLOCK"
 
 # ── GitHub CLI & Pull Requests ────────────────────────────────────────────────
 CONST_GH_CLI = "gh"
+CONST_GIT_CLI = "git"
+CONST_GH_AUTH_SUBCOMMAND = "auth"
+# The token gh reads first; the session pins it on every gh and git child (#767).
+CONST_GH_TOKEN_ENV = "GH_TOKEN"
+# Every variable gh reads a token from, so a pinned child is given none but the session's.
+CONST_GH_TOKEN_ENV_VARS: Final[tuple[str, ...]] = (CONST_GH_TOKEN_ENV, "GITHUB_TOKEN")
+# Where `gh auth token` finds a stored login: its config directory and the keyring's session bus.
+CONST_GH_LOGIN_ENV_VARS: Final[frozenset[str]] = frozenset(
+    {"GH_CONFIG_DIR", "XDG_CONFIG_HOME", "DBUS_SESSION_BUS_ADDRESS"}
+)
+# Hex characters of the token's SHA-256 that name an identity's cache directory.
+CONST_GITHUB_IDENTITY_DIGEST_CHARS: Final[int] = 16
+CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE = "GITHUB_UNAUTHENTICATED"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
-CONST_GH_ETAG_CACHE_FILENAME = "gh_etag_cache.json"
-CONST_GH_HEADER_ETAG = "ETag"
-CONST_GH_HEADER_IF_NONE_MATCH = "If-None-Match"
-CONST_GH_HEADER_USER_AGENT = "devops-cli"
 CONST_GH_WEBHOOK_SIGNATURE_HEADER = "X-Hub-Signature-256"
 CONST_GH_NON_API_COMMANDS: Final[frozenset[str]] = frozenset(
     {
@@ -986,6 +994,8 @@ CONST_METRIC_AI_STRUCTURED_VALIDATION_FAILURE = "ai.client.structured_validation
 CONST_EXIT_SUCCESS: int = 0
 CONST_EXIT_FAILURE: int = 1
 CONST_EXIT_ERROR_INFERENCE: int = 10
+# The status the subprocess runners report when the program is not on PATH, as POSIX shells do.
+CONST_EXIT_COMMAND_NOT_FOUND: int = 127
 
 CONST_MSG_KEYRING_UNAVAILABLE = "OS Keyring service is unavailable; run in headless CI mode"
 CONST_MSG_BRANCH_INVALID = "Branch name is invalid"

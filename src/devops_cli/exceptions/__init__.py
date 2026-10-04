@@ -53,9 +53,9 @@ from devops_cli.exceptions.docker import (
 from devops_cli.exceptions.docs import DocCompactionError
 from devops_cli.exceptions.git import (
     BranchAlreadyExistsError,
-    GitHubGraphQLError,
     GitHubOperationError,
     GitHubRateLimitError,
+    GitHubUnauthenticatedError,
     GitHubWebhookVerificationError,
     GitOperationError,
     InvalidBranchNameError,
@@ -142,9 +142,9 @@ __all__ = [
     "DockerError",
     "DockerSandboxError",
     "DocsIngestionError",
-    "GitHubGraphQLError",
     "GitHubOperationError",
     "GitHubRateLimitError",
+    "GitHubUnauthenticatedError",
     "GitHubWebhookVerificationError",
     "GitOperationError",
     "GitOpsSyncError",

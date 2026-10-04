@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from devops_cli.config.settings import Settings
 from devops_cli.core.repo import main_worktree_root
+from devops_cli.security.sanitizer import is_secret_field
 
 router = APIRouter(prefix="/api/v1", tags=["Workspaces & Config"])
 
@@ -88,25 +89,6 @@ async def list_workspaces() -> WorkspacesResponse:
     )
 
 
-def _is_secret_field(key: str, full_path: str, secret_options: frozenset[str]) -> bool:
-    """Predicate to determine if a config key or dotted path represents a secret."""
-    if full_path in secret_options:
-        return True
-    key_lower = key.lower()
-    if key_lower.startswith("non_"):
-        return False
-    if key_lower in {"token", "password", "secret", "api_key", "private_key"}:
-        return True
-    parts = set(key_lower.split("_"))
-    if parts & {"token", "password", "secret"}:
-        return True
-
-    return any(
-        key_lower.endswith(sfx)
-        for sfx in ("_token", "_password", "_secret", "_api_key", "_private_key")
-    )
-
-
 def _redact_config_dict(
     data: dict[str, Any],
     secret_options: frozenset[str],
@@ -118,7 +100,7 @@ def _redact_config_dict(
         full_path = f"{prefix}.{k}" if prefix else k
         if isinstance(v, dict):
             sanitized[k] = _redact_config_dict(v, secret_options, full_path)
-        elif not isinstance(v, bool) and _is_secret_field(k, full_path, secret_options):
+        elif not isinstance(v, bool) and is_secret_field(k, full_path, secret_options):
             sanitized[k] = "***REDACTED***" if v else None
         else:
             sanitized[k] = v

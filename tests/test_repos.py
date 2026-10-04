@@ -72,24 +72,21 @@ def test_repo_name_extraction(url: str, expected_name: str) -> None:
     assert name == expected_name
 
 
-def test_repos_clone_requires_token(tmp_path: Path) -> None:
-    with (
-        patch("devops_cli.commands.repos.load_settings") as mock_load,
-        patch("devops_cli.commands.repos.get_github_token", return_value=None),
-    ):
+def test_repos_clone_requires_a_gh_login(tmp_path: Path, no_github_identity: None) -> None:
+    """Without a token from `gh auth token`, clone-org stops and says to run `gh auth login`."""
+    with patch("devops_cli.commands.repos.load_settings") as mock_load:
         settings = MagicMock()
         settings.repos.base_dir = tmp_path / "repos"
         mock_load.return_value = settings
 
         result = runner.invoke(app, ["repos", "clone-org", "my-org"])
 
-    assert result.exit_code != 0
+    assert (result.exit_code != 0, "gh auth login" in result.output) == (True, True)
 
 
 def test_repos_clone_org_uses_default_org(tmp_path: Path) -> None:
     with (
         patch("devops_cli.commands.repos.load_settings") as mock_load,
-        patch("devops_cli.commands.repos.get_github_token", return_value="token"),
         patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
         patch("devops_cli.commands.repos.sync_from_repos") as mock_sync,
         patch("devops_cli.commands.repos._reload_workspace") as mock_reload,
@@ -140,7 +137,6 @@ def test_repos_clone_org_skips_archived_repos(tmp_path: Path) -> None:
 
     with (
         patch("devops_cli.commands.repos.load_settings") as mock_load,
-        patch("devops_cli.commands.repos.get_github_token", return_value="token"),
         patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
         patch("devops_cli.commands.repos.sync_from_repos") as mock_sync,
         patch("devops_cli.commands.repos._reload_workspace") as mock_reload,
@@ -177,7 +173,6 @@ def test_repos_clone_org_skips_path_traversal_repo(tmp_path: Path) -> None:
 
     with (
         patch("devops_cli.commands.repos.load_settings") as mock_load,
-        patch("devops_cli.commands.repos.get_github_token", return_value="token"),
         patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
         patch("devops_cli.commands.repos.sync_from_repos"),
         patch("devops_cli.commands.repos._reload_workspace"),
@@ -202,7 +197,6 @@ def test_repos_clone_org_rejects_path_traversal_org(tmp_path: Path) -> None:
     """Verify clone-org aborts when organization name attempts path traversal."""
     with (
         patch("devops_cli.commands.repos.load_settings") as mock_load,
-        patch("devops_cli.commands.repos.get_github_token", return_value="token"),
         patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
         patch("devops_cli.github.client.GitHubClient") as mock_client_cls,
     ):

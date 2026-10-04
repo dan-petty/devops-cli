@@ -292,7 +292,7 @@ def test_audit_debug_log_carries_only_the_credential_identifier(
     """The debug log line records which credential was requested, never its value.
 
     CodeQL flagged the previous parameter name as clear-text logging of a secret. The
-    parameter holds an identifier such as `github.token`; this pins that the emitted log
+    parameter holds an identifier such as `grafana.token`; this pins that the emitted log
     record cannot contain the credential value.
     """
     import logging
@@ -345,11 +345,13 @@ def test_registry_describes_every_managed_credential() -> None:
     from devops_cli.config import options as opt
 
     registry = build_secret_registry(opt.KEYRING_KEYS)
-    github = registry[opt.GITHUB_TOKEN]
+    grafana = registry[opt.GRAFANA_TOKEN]
 
-    assert github.keyring_key == opt.KEYRING_KEYS[opt.GITHUB_TOKEN]
-    assert "DEVOPS_CLI_GITHUB_TOKEN" in github.env_vars
-    assert github.vault_path.startswith("secret/data/")
+    assert (
+        grafana.keyring_key == opt.KEYRING_KEYS[opt.GRAFANA_TOKEN],
+        "DEVOPS_CLI_GRAFANA_TOKEN" in grafana.env_vars,
+        grafana.vault_path.startswith("secret/data/"),
+    ) == (True, True, True)
 
 
 def test_every_registry_entry_declares_a_keyring_key() -> None:

@@ -64,7 +64,7 @@ def test_vault_broker_fallback_to_keyring() -> None:
     with patch(
         "devops_cli.security.vault_broker.get_keyring_secret", return_value="keyring-cached-token"
     ):
-        val = broker.get_secret("secret/data/myapp", key="github.token")
+        val = broker.get_secret("secret/data/myapp", key="grafana.token")
         assert val == "keyring-cached-token"
 
 

@@ -91,7 +91,7 @@ def test_doc_generator_introspect_env_vars(generator: DocGenerator) -> None:
     assert len(specs) >= 20
     var_names = [s.env_var for s in specs]
     assert "DEVOPS_CLI_CONFIG" in var_names
-    assert "DEVOPS_CLI_GITHUB_TOKEN" in var_names
+    assert "DEVOPS_CLI_GRAFANA_TOKEN" in var_names
 
 
 def test_doc_generator_introspect_mcp_tools(generator: DocGenerator) -> None:

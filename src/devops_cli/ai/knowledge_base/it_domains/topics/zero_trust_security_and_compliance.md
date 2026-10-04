@@ -38,8 +38,8 @@ graph TD
 
 ### Common Commands
 ```bash
-# Securely configure GitHub token in OS Keyring
-devops config set github.token ghp_xxxx1234567890
+# GitHub access is gh's own login, kept in the system keyring by gh
+gh auth login
 
 # Audit workstation SSH key permissions and configurations
 devops ssh audit

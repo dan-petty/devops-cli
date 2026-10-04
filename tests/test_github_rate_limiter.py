@@ -7,7 +7,9 @@ and mandatory pause enforcement.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import subprocess
 import time
 from collections.abc import Generator
@@ -17,6 +19,7 @@ from unittest.mock import patch
 
 import pytest
 
+from devops_cli.core import process
 from devops_cli.exceptions.git import GitHubRateLimitError
 from devops_cli.github.rate_limiter import (
     GitHubRateLimiter,
@@ -1127,3 +1130,40 @@ def test_is_secondary_rate_limit() -> None:
         limiter.is_secondary_rate_limit(prim),
         limiter.is_secondary_rate_limit(normal),
     ) == (True, True, False, False)
+
+
+def test_each_identity_keeps_its_own_quota_and_response_cache(
+    monkeypatch: pytest.MonkeyPatch, isolate_data_dir: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Tokens A and B write separate ledgers and caches; A's cached read is never served to B.
+
+    The identity directory is named by the token's SHA-256, so no path and no log line the
+    ledger writes holds a token.
+    """
+    tokens = ("gho_identityAAAA", "gho_identityBBBB")
+    caplog.set_level(logging.DEBUG, logger="devops_cli.github.rate_limiter")
+    limiters: list[GitHubRateLimiter] = []
+    answer = subprocess.CompletedProcess([], 0, stdout='[{"number": 1}]', stderr="")
+    with patch("subprocess.run", return_value=answer) as run:
+        for token in tokens:
+            monkeypatch.setattr(process, "_github_token", token)
+            limiter = get_github_rate_limiter()
+            limiter.update_quota("core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0)
+            run_gh(["api", "repos/octo/repo/issues"], use_cache=True)
+            run_gh(["api", "repos/octo/repo/issues"], use_cache=True)
+            limiters.append(limiter)
+    identity_dirs = [limiter.persist_path.parent for limiter in limiters if limiter.persist_path]
+    written = [str(path) for path in isolate_data_dir.rglob("*")]
+    assert (
+        [call.kwargs["env"]["GH_TOKEN"] for call in run.call_args_list],
+        [directory.name for directory in identity_dirs],
+        [len(list((directory / "responses").glob("*.json"))) for directory in identity_dirs],
+        [(directory / "gh_quota.json").is_file() for directory in identity_dirs],
+        [token for token in tokens if token in "\n".join(written) or token in caplog.text],
+    ) == (
+        list(tokens),
+        [hashlib.sha256(token.encode()).hexdigest()[:16] for token in tokens],
+        [1, 1],
+        [True, True],
+        [],
+    )
