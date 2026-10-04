@@ -122,6 +122,14 @@
   color: "FBCA04"
   description: "Too big for one pull request; reprioritization descopes it until it is split"
 
+- name: "source/agent"
+  color: "5319E7"
+  description: "Filed by an agent; counts toward the filing quota"
+
+- name: "budget/borrowed"
+  color: "B60205"
+  description: "Agent opening beyond the quota allowance; counts as debt until closed"
+
 # ── Review Feedback Labels ──────────────────────────────────────────────────
 - name: "review/approved"
   color: "0E8A16"

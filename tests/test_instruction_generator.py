@@ -368,6 +368,9 @@ def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:
         "Automatic Roadmap Ingestion for Missing Parameters, API Inconsistencies & Contract Deficiencies",
         "Automatic Roadmap Ingestion for Bad Patterns, Anti-Patterns & Deficiencies",
         "Automatic Roadmap Ingestion for Features, Suggestions & Integrations",
+        "source/agent",
+        "budget/borrowed",
+        "open_issue_limit",
     )
     missing_devops = [p for p in devops_expected if p not in devops_content]
     # docs/ROADMAP.md is rendered from GitHub at the cut (ADR 0001); no rule adds to it (#952).
