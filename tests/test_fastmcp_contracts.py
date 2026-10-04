@@ -954,7 +954,10 @@ async def _published_schemas() -> dict[str, dict]:
         mcp_server.hydrate_tool_domain(domain)
     async with Client(mcp_server.mcp) as client:
         tools = await client.list_tools()
-    return {tool.name: tool.inputSchema for tool in tools}
+    return {
+        tool.name: (getattr(tool, "input_schema", None) or getattr(tool, "inputSchema", None))
+        for tool in tools
+    }
 
 
 def _branches(schema: dict) -> list[dict]:
