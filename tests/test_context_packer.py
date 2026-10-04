@@ -349,7 +349,7 @@ def test_find_truncation_index_short_statements_expands_to_full_body() -> None:
     assert len(pruned) == 0
     assert "x_49" in unparsed
 
-    best_k, cand = _find_truncation_index(tree.body, budget)
+    best_k, _cand = _find_truncation_index(tree.body, budget)
     assert best_k == len(tree.body)
 
     # When budget is strictly constrained, truncation occurs and pruned symbols are recorded

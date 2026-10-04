@@ -45,6 +45,6 @@ devops mcp export-schemas [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output-dir`, `-o` | `path` | `~/.gemini/antigravity-ide/mcp/devops-cli` | Destination directory for tool schema JSON files. |
+| `--output-dir`, `-o` | `path` | - | Destination directory for tool schema JSON files. |
 
 ---

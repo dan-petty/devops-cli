@@ -195,7 +195,7 @@ def test_prepare_content_helpers(tmp_path: Path) -> None:
     """Verify content preparation for paths, branches, and PRs."""
     test_file = Path("src/devops_cli/main.py")
 
-    pages, title, agents_md, routed = _prepare_path_content(test_file, "*")
+    pages, title, _agents_md, routed = _prepare_path_content(test_file, "*")
     assert (len(pages) >= 1, "main.py" in title, routed) == (True, True, [])
 
     import subprocess
@@ -212,7 +212,7 @@ def test_prepare_content_helpers(tmp_path: Path) -> None:
         patch("devops_cli.git.operations.resolve_merge_base", return_value="base-sha"),
         patch("devops_cli.git.operations.list_changed_files", return_value=[]),
     ):
-        b_pages, b_title, b_agents, b_target, _ = _prepare_branch_content(
+        b_pages, b_title, _b_agents, b_target, _ = _prepare_branch_content(
             "feat/test", "main", Path(".")
         )
         assert len(b_pages) >= 1
@@ -223,7 +223,7 @@ def test_prepare_content_helpers(tmp_path: Path) -> None:
         mock_gh = mock_gh_cls.return_value
         mock_gh.get_pull.return_value = MagicMock(title="Mock PR Title")
         mock_gh.get_pr_diff.return_value = "diff --git a/test.py b/test.py\n+content\n"
-        pr_pages, pr_title, pr_agents, pull, repo, pr_base = _prepare_pr_content(
+        pr_pages, pr_title, _pr_agents, _pull, _repo, pr_base = _prepare_pr_content(
             123, repo_arg="owner/repo"
         )
         assert len(pr_pages) >= 1
@@ -715,7 +715,7 @@ def test_prepare_branch_content_on_main_and_base_switching() -> None:
         patch("devops_cli.git.operations.resolve_merge_base", return_value="base-sha"),
         patch("devops_cli.git.operations.list_changed_files", return_value=[]),
     ):
-        pages, title, agents, target, _ = _prepare_branch_content("main", "main", Path("."))
+        pages, title, _agents, target, _ = _prepare_branch_content("main", "main", Path("."))
         assert len(pages) >= 1
         assert "release/v0.2.19" in title
         assert "main" in title
@@ -731,7 +731,7 @@ def test_prepare_branch_content_on_main_and_base_switching() -> None:
         patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_diff),
         patch("devops_cli.git.operations.list_changed_files", return_value=[]),
     ):
-        pages, title, agents, target, _ = _prepare_branch_content(None, "main", Path("."))
+        pages, title, _agents, target, _ = _prepare_branch_content(None, "main", Path("."))
         assert len(pages) >= 1
         assert "main" in title
         assert "HEAD" in title

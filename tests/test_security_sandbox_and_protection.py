@@ -209,13 +209,13 @@ def test_docker_sandbox_rejects_symlinks_and_system_roots(tmp_path: Path) -> Non
     # Sensitive root path
     cfg_root = WorkloadSandboxConfig(workspace_dir=Path("/etc"), command=["echo", "test"])
     runner_root = WorkloadSandboxRunner(cfg_root)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="sensitive root system directory"):
         runner_root.run()
 
     # User home path
     cfg_home = WorkloadSandboxConfig(workspace_dir=Path.home(), command=["echo", "test"])
     runner_home = WorkloadSandboxRunner(cfg_home)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="user home directory"):
         runner_home.run()
 
     # Sensitive credential and metadata subpaths
@@ -224,7 +224,7 @@ def test_docker_sandbox_rejects_symlinks_and_system_roots(tmp_path: Path) -> Non
         sens_dir.mkdir(exist_ok=True)
         cfg_sens = WorkloadSandboxConfig(workspace_dir=sens_dir, command=["echo", "test"])
         runner_sens = WorkloadSandboxRunner(cfg_sens)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="sensitive credential or repository metadata"):
             runner_sens.run()
 
     # Docker socket reference
@@ -232,7 +232,7 @@ def test_docker_sandbox_rejects_symlinks_and_system_roots(tmp_path: Path) -> Non
     sock_path.touch()
     cfg_sock = WorkloadSandboxConfig(workspace_dir=sock_path, command=["echo", "test"])
     runner_sock = WorkloadSandboxRunner(cfg_sock)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Docker socket"):
         runner_sock.run()
 
     # Symlinked workspace path
@@ -243,7 +243,7 @@ def test_docker_sandbox_rejects_symlinks_and_system_roots(tmp_path: Path) -> Non
         sym_ws.symlink_to(real_ws)
         cfg_sym = WorkloadSandboxConfig(workspace_dir=sym_ws, command=["echo", "test"])
         runner_sym = WorkloadSandboxRunner(cfg_sym)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="symbolic link"):
             runner_sym.run()
     except OSError:
         pass
@@ -379,7 +379,7 @@ def test_status_endpoint_masks_tool_paths() -> None:
     assert response.status_code == 200
     data = response.json()
     assert "tools" in data
-    for tool_name, tool_info in data["tools"].items():
+    for _tool_name, tool_info in data["tools"].items():
         if tool_info.get("installed") and tool_info.get("path"):
             # Path should either be masked or tool basename, never revealing internal system directory structure
             assert not tool_info["path"].startswith("/home/")

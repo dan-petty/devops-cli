@@ -69,7 +69,7 @@ def serve_cmd(
         run_mcp_server(transport=transport, host=host, port=port, allow_remote=allow_remote)
     except ValueError as exc:
         print_error(str(exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
 
 @app.command("tools", help=HELP.mcp.tools)
@@ -87,13 +87,14 @@ def tools_cmd() -> None:
 @app.command("export-schemas", help=HELP.mcp.export_schemas)
 def export_schemas_cmd(
     output_dir: Annotated[
-        Path,
+        Path | None,
         typer.Option(
             "--output-dir",
             "-o",
+            show_default="~/.gemini/antigravity-ide/mcp/devops-cli",
             help=HELP.mcp.output_dir,
         ),
-    ] = Path.home() / ".gemini" / "antigravity-ide" / "mcp" / "devops-cli",
+    ] = None,
 ) -> None:
     """Export tool JSON schemas and instructions for MCP clients and Antigravity IDE."""
     import asyncio
@@ -101,7 +102,8 @@ def export_schemas_cmd(
 
     from devops_cli.ai.mcp.server import mcp
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = output_dir or (Path.home() / ".gemini" / "antigravity-ide" / "mcp" / "devops-cli")
+    out_dir.mkdir(parents=True, exist_ok=True)
     # The registry, not the client-facing listing: exported schemas document the whole
     # catalogue, and `mcp.list_tools()` runs the domain gate, which would cut the export
     # to the eager domains alone.
@@ -114,15 +116,15 @@ def export_schemas_cmd(
             "description": t.description,
             "parameters": t.parameters,
         }
-        dest = output_dir / f"{t.name}.json"
+        dest = out_dir / f"{t.name}.json"
         dest.write_text(json.dumps(schema, separators=(",", ":")), encoding="utf-8")
         count += 1
 
-    instructions_file = output_dir / "instructions.md"
+    instructions_file = out_dir / "instructions.md"
     instructions_text = getattr(mcp, "instructions", "") or ""
     instructions_file.write_text(instructions_text, encoding="utf-8")
 
     if instructions_text:
-        print_info(f"✓ Exported {count} tool schema(s) and instructions to {output_dir}")
+        print_info(f"✓ Exported {count} tool schema(s) and instructions to {out_dir}")
     else:
-        print_info(f"✓ Exported {count} tool schema(s) to {output_dir}")
+        print_info(f"✓ Exported {count} tool schema(s) to {out_dir}")

@@ -88,21 +88,23 @@ line-length = 100
 exclude = ["repos"]
 
 [tool.ruff.lint]
-# RUF022/RUF068 guard the declared public surface: F822 would catch a name in
-# `__all__` that is defined nowhere, but a module-level `__getattr__` — which the
-# lazily re-exporting packages all define — suppresses it for the entire module.
-# Selected individually rather than as the whole RUF family, which is a separate
-# roadmap item with its own triage.
-# C901 is the complexity cap of 10 (standard McCabe, #586). The functions over it when it was
-# turned on carry a C901 noqa marker; RUF100 reports a marker once its function is back under
-# the cap, PGH004 bans the blanket noqa that would hide C901, and
-# `test_c901_suppressions_stay_under_the_ceiling` keeps the markers from growing in number.
-# `test_the_complexity_cap_has_no_escape` bans every other way past the cap, and counts the
-# three as enforced only when named by their own codes here: Ruff reads `C9` as `C90`.
+# BLE family left out: #423 owns BLE001 and requires triage before enforcement.
+# SIM family left out: readability preference; SIM115 (unclosed file) kept.
+# PT018 left out: #851 decides composite assertion rewrites together with the tuple-assert mandate.
+# C901 is the complexity cap of 10 (standard McCabe, #586).
 select = [
-    "E", "F", "I", "N", "W", "UP", "B017", "C901", "PGH004", "RUF022", "RUF043", "RUF068", "RUF100",
+    "E", "F", "I", "N", "W", "UP", "B", "RUF", "ASYNC",
+    "C901", "PGH004", "PGH003", "RUF100", "SIM115", "PT011", "PT015", "PT017",
 ]
-ignore = ["E501", "N818"]
+ignore = [
+    "E501",      # ruff format owns line length
+    "N818",      # AI exception names mirror pydantic-ai exception API
+    "B009",      # getattr with constant preferred over dynamic access that fails mypy strict
+    "B010",      # setattr with constant preferred over dynamic access that fails mypy strict
+    "RUF005",    # array concatenation is a readability preference over unpacked list literals
+    "ASYNC109",  # subprocess timeouts cancel and reap child rather than abandoning it
+]
+allowed-confusables = ["–", "×", "ℹ"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
@@ -111,6 +113,7 @@ max-complexity = 10
 python_version = "3.14"
 strict = true
 plugins = ['pydantic.mypy']
+enable_error_code = ["ignore-without-code"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

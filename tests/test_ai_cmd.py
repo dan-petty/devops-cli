@@ -238,12 +238,12 @@ def test_ai_multi_server_test_and_agents_validation(tmp_path: Path) -> None:
     st = Settings()
     st.ai.ollama_urls = ["http://localhost:11434"]
     with patch("devops_cli.ai.client.LLMClient.chat", return_value="OK"):
-        u, ok, ans, wall = _test_single_ollama_endpoint("http://localhost:11434", "sys", "user", st)
+        _, ok, ans, _ = _test_single_ollama_endpoint("http://localhost:11434", "sys", "user", st)
         assert ok is True
         assert ans == "OK"
 
     with patch("devops_cli.ai.client.LLMClient.chat", side_effect=AIClientError("down")):
-        u, ok, ans, wall = _test_single_ollama_endpoint("http://localhost:11434", "sys", "user", st)
+        _, ok, ans, _ = _test_single_ollama_endpoint("http://localhost:11434", "sys", "user", st)
         assert ok is False
         assert "down" in ans
 

@@ -154,9 +154,9 @@ def get_value(
     try:
         value = dotted_get(settings, key)
         print_info(str(value) if value is not None else "[dim](not set)[/dim]", prefix=False)
-    except AttributeError:
+    except AttributeError as exc:
         print_error(f"Unknown config key: {key!r}", prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
 
 # =============================================================================
@@ -194,10 +194,10 @@ def set_value(
             print_success(f"{key} = {value}", prefix=False)
     except SecretStorageError as exc:
         _render_secret_store_error(key, exc)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     except (AttributeError, ValueError) as exc:
         print_error(f"Failed to set {key!r}: {exc}", prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
 
 # =============================================================================

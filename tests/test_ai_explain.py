@@ -17,7 +17,7 @@ def test_explanation_definitions_coverage() -> None:
     assert "analyze" in EXPLANATIONS
     assert "rag" in EXPLANATIONS
 
-    for key, data in EXPLANATIONS.items():
+    for data in EXPLANATIONS.values():
         assert "title" in data
         assert "description" in data
         assert "sections" in data

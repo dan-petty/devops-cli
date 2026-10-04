@@ -53,7 +53,7 @@ def _base_url(settings: Settings) -> str:
         from devops_cli.security.sanitizer import mask_secrets
 
         print_error(mask_secrets(str(exc)), prefix=False)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     return settings.prometheus.url.rstrip("/")
 
 

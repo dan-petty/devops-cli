@@ -309,7 +309,7 @@ def test_check_python_script_suppresses_invalid_escape_syntax_warning() -> None:
     cmd = "python -c \"val = 'C:\\\\windows\\\\path'\""
     with warnings.catch_warnings(record=True) as recorded_cmd:
         warnings.simplefilter("always")
-        is_valid, reason, args = validate_criteria_command(cmd)
+        is_valid, reason, _args = validate_criteria_command(cmd)
 
     cmd_warnings = [w for w in recorded_cmd if issubclass(w.category, SyntaxWarning)]
     assert (is_valid, reason, len(cmd_warnings)) == (True, None, 0)

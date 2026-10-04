@@ -423,7 +423,7 @@ CONST_API_KEY: str = "secret"
 from external_pkg import client
 import internal_sub.helper
 """
-    doc, syms, imps = _analyze_python_ast(py_code)
+    _doc, syms, imps = _analyze_python_ast(py_code)
     assert "CONST_API_KEY" in syms
     assert "external_pkg" in imps
     assert "internal_sub.helper" in imps

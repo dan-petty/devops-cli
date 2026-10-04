@@ -583,7 +583,7 @@ def test_validate_segment_findings_bypasses_llm_when_deterministic(tmp_path: Pat
     mock_client = MagicMock()
     result = ReviewResult(findings=[syntax_finding])
 
-    validated, proc_sec, backend = _validate_segment_findings(
+    validated, _proc_sec, backend = _validate_segment_findings(
         result,
         all_segments=["def hello() -> str:"],
         client=mock_client,

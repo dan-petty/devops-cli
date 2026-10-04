@@ -96,7 +96,7 @@ def test_all_registered_subcommands_have_help() -> None:
     from devops_cli.main import _COMMAND_SPECS
 
     all_have_help = True
-    for name, (module_path, _) in _COMMAND_SPECS.items():
+    for _name, (module_path, _) in _COMMAND_SPECS.items():
         mod = import_module(module_path)
         app = getattr(mod, "app", None)
         if app is None:

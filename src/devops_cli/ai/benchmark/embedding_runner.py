@@ -293,7 +293,7 @@ class EmbeddingBenchmarkRunner:
         """Execute full benchmark evaluation for a single model."""
         endpoint = server_url
         if "@" in model_name:
-            clean_model, _, explicit_endpoint = model_name.partition("@")
+            _clean_model, _, explicit_endpoint = model_name.partition("@")
             if explicit_endpoint:
                 endpoint = explicit_endpoint
         if not endpoint:

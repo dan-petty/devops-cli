@@ -185,7 +185,7 @@ def test_build_multi_persona_pipeline_agents_carry_guardrails_and_exemplars(
         session_id="20260925-test-orchestrator-prompts",
         target_dir=tmp_path,
     )
-    pipeline, lookup = orchestrator._build_multi_persona_pipeline(
+    pipeline, _lookup = orchestrator._build_multi_persona_pipeline(
         ["devsecops", "architect"], "Strict project guidelines."
     )
 

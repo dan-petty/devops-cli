@@ -58,7 +58,7 @@ def test_execute_update_branch(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test execution of update branch command on success and failure."""
     mock_success = MagicMock(returncode=0, stdout='{"message": "Updating branch"}', stderr="")
     monkeypatch.setattr("devops_cli.commands.pr.run_gh", lambda *args, **kwargs: mock_success)
-    success, msg = _execute_update_branch(["gh", "api"])
+    success, _msg = _execute_update_branch(["gh", "api"])
 
     mock_fail = MagicMock(
         returncode=1,

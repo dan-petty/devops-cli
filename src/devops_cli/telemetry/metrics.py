@@ -151,7 +151,7 @@ class InMemoryMetricsRegistry:
         """Retrieve aggregated snapshot of recorded metrics (counters, gauges, histogram counts)."""
         with self._lock:
             counters = {name: sum(cd.values()) for name, cd in self._counters.items()}
-            gauges = {name: list(gd.values())[0] for name, gd in self._gauges.items() if gd}
+            gauges = {name: next(iter(gd.values())) for name, gd in self._gauges.items() if gd}
             hist_count = len(self._histograms)
         return {
             "counters": counters,

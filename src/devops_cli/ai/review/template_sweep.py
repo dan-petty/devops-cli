@@ -320,7 +320,7 @@ def _is_inside_block_marker(
 ) -> bool:
     """Check whether a line falls between multi-line block markers."""
     in_block = False
-    for idx, line in enumerate(lines[: start_line + 1]):
+    for line in lines[: start_line + 1]:
         stripped = line.strip()
         if in_block:
             if close_marker in stripped:

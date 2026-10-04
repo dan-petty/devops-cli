@@ -153,7 +153,7 @@ class ValkeyCacheProvider:
             if not keys:
                 return 0
             deleted = 0
-            for chunk in batched(keys, 500):
+            for chunk in batched(keys, 500, strict=False):
                 deleted += self._client.delete(*chunk)
             return deleted
         except ValkeyError as exc:

@@ -8,6 +8,7 @@ split file started mid-file with no offset: an injected defect at line 248 was r
 from __future__ import annotations
 
 import re
+from itertools import pairwise
 from pathlib import Path
 
 from devops_cli.ai.review.chunker import (
@@ -110,7 +111,7 @@ def test_split_parts_overlap_and_cover_the_file() -> None:
     parts = _split_source_file_blocks(Path("a.py"), "py", _source(), max_chars=4000)
     spans = [_numbers(p) for p in parts]
 
-    assert all(a[-1] >= b[0] for a, b in zip(spans, spans[1:]))
+    assert all(a[-1] >= b[0] for a, b in pairwise(spans))
     assert sorted({n for span in spans for n in span}) == list(range(1, 301))
 
 
@@ -128,7 +129,7 @@ def test_the_pipeline_split_repeats_the_header_and_keeps_the_numbers() -> None:
     assert all(p.startswith("### File: known_hosts.py\n```py\n") for p in pages)
     assert all(p.endswith("```") and len(p) <= 3000 for p in pages)
     spans = [_numbers(p) for p in pages]
-    assert all(a[-1] >= b[0] for a, b in zip(spans, spans[1:]))
+    assert all(a[-1] >= b[0] for a, b in pairwise(spans))
     assert sorted({n for span in spans for n in span}) == list(range(1, 301))
     assert any(f"248\t{_DEFECT}" in p for p in pages[1:])
 

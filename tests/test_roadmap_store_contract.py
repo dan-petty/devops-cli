@@ -390,7 +390,7 @@ def test_an_option_renamed_by_hand_keeps_its_id_and_its_cards_value(
 
     No store operation edits options: GitHub's option input takes no id (#739).
     """
-    todo, backlog, ready = _status(board).options
+    _todo, backlog, ready = _status(board).options
     edited = board.edit_options_by_hand(
         "Status",
         [

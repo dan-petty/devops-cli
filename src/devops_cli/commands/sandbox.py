@@ -441,7 +441,7 @@ def probe(
             )
         else:
             raise SandboxNotFoundError(f"Sandbox '{identifier}' not found")
-    except SandboxNotFoundError:
+    except SandboxNotFoundError as exc:
         if "://" in identifier or ":" in identifier:
             from devops_cli.sandbox.probe import run_sandbox_probes
 
@@ -456,7 +456,7 @@ def probe(
             )
         else:
             print_error(f"Sandbox instance '{identifier}' not found.")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
 
     if json_output:
         typer.echo(json.dumps(report.model_dump(), indent=2))
@@ -658,7 +658,7 @@ def metrics(
                 cpu_threshold_pct=warn_cpu_pct,
                 latency_sla_ms=latency_sla_ms,
             )
-        except SandboxNotFoundError:
+        except SandboxNotFoundError as exc:
             if "://" in identifier or ":" in identifier:
                 from devops_cli.sandbox.metrics import collect_sandbox_metrics
 
@@ -672,7 +672,7 @@ def metrics(
                 )
             else:
                 print_error(f"Sandbox instance '{identifier}' not found.")
-                raise typer.Exit(1)
+                raise typer.Exit(1) from exc
 
         if json_output:
             typer.echo(json.dumps(snapshot.model_dump(), indent=2))

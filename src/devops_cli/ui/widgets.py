@@ -16,11 +16,11 @@ import queue
 import threading
 import time
 from collections.abc import Callable, Iterable
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, ClassVar, Protocol, runtime_checkable
 
 from textual import work
 from textual.app import ComposeResult
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import DataTable, Input, Select, Static, TabbedContent, TabPane
 
@@ -188,7 +188,7 @@ class K8sPanel(Vertical):
 
     # Hidden from the footer, which already truncates; the help screen lists them. Bound
     # here, so they act only while focus is inside the Kubernetes tab.
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("slash", "focus_filter", "Filter pods", show=False),
         Binding("e", "inspect", "Inspect pod", show=False),
         Binding("escape", "clear_filter", "Clear filter", show=False),
@@ -444,7 +444,9 @@ class ReviewPanel(Vertical):
 
     # Hidden from the footer, which already truncates; the help screen lists it. Bound
     # here, so it acts only while focus is inside AI Review.
-    BINDINGS = [Binding("i", "toggle_detail", "Finding detail", show=False)]
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("i", "toggle_detail", "Finding detail", show=False)
+    ]
 
     DEFAULT_CSS = """
     ReviewPanel {
@@ -599,7 +601,7 @@ class LogPane(Vertical, can_focus=True):
     only on the focused widget and its ancestors.
     """
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("up", "scroll_lines(-1)", "Up", show=False),
         Binding("down", "scroll_lines(1)", "Down", show=False),
         Binding("pageup", "scroll_pages(-1)", "Page Up", show=False),

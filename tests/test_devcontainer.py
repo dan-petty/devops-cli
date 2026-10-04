@@ -318,7 +318,7 @@ class TestDevcontainerCli:
             (fake_home / ".gemini" / "config" / "mcp_config.json").read_text(encoding="utf-8")
         )
         assert "mcpServers" in mcp_data
-        server_key = list(mcp_data["mcpServers"].keys())[0]
+        server_key = next(iter(mcp_data["mcpServers"]))
         assert mcp_data["mcpServers"][server_key]["cwd"] == str(tmp_path)
 
     def test_bootstrap_k8s_skips_start_when_minikube_already_running(

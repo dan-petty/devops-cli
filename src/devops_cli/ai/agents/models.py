@@ -143,7 +143,7 @@ class AgentResponse[T](BaseModel):
         if not isinstance(resp, ModelResponse):
             return cls(content=str(resp))
 
-        content, thinking, tool_parts = extract_model_response_parts(resp)
+        content, _thinking, tool_parts = extract_model_response_parts(resp)
         tool_calls = [
             ToolCall(
                 tool_name=p.tool_name,

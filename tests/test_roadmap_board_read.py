@@ -333,7 +333,7 @@ def test_a_reprioritize_run_on_a_board_of_931_items_charges_its_pages() -> None:
 
 
 class _Spending:
-    def __init__(self, spend: GraphQLSpend | None | Exception) -> None:
+    def __init__(self, spend: GraphQLSpend | Exception | None) -> None:
         self.spend = spend
 
     def graphql_spend(self) -> GraphQLSpend | None:

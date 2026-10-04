@@ -1066,7 +1066,7 @@ def _execute_findings_validation(
         from devops_cli.ai.review.pool import ReviewWorkerPool
 
         workers = _calculate_parallel_review_workers(clients, total)
-        val_items = list(enumerate(zip(pages, segment_results), 1))
+        val_items = list(enumerate(zip(pages, segment_results, strict=True), 1))
         pool = ReviewWorkerPool.create(concurrency=workers)
 
         def _val_task(
@@ -1086,7 +1086,7 @@ def _execute_findings_validation(
             )
 
         val_results = pool.run_sync_all(_val_task, val_items, return_exceptions=True)
-        for (idx_val, _), res_entry in zip(val_items, val_results):
+        for (idx_val, _), res_entry in zip(val_items, val_results, strict=False):
             if isinstance(res_entry, tuple) and len(res_entry) == 2:
                 _, val_obj = res_entry
                 validated_results[idx_val - 1] = val_obj
@@ -1098,7 +1098,7 @@ def _execute_findings_validation(
                 )
                 validated_results[idx_val - 1] = None
     else:
-        for i, (page, parsed) in enumerate(zip(pages, segment_results), 1):
+        for i, (page, parsed) in enumerate(zip(pages, segment_results, strict=True), 1):
             try:
                 _, single_res = _validate_single_segment_findings(
                     i,
