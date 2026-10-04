@@ -1080,6 +1080,27 @@ class RoadmapMessages:
     )
     preview_only: str = "Nothing was written. Run again with --confirm to make these writes."
     render_written: str = "Wrote {path}: {items} item(s) in {sections} section(s)."
+    graphql_budget_refused: str = (
+        "GraphQL has {remaining} points left until {reset}, and reading {what} costs about "
+        "{cost} with {floor} kept in reserve, so the run stopped before reading and spent "
+        "nothing on it. Run it again after {reset}."
+    )
+    graphql_budget_floor: str = (
+        "GraphQL has {remaining} points left until {reset}, below the {floor} kept in reserve, "
+        "so the read of {what} stopped before page {page}. Run it again after {reset}."
+    )
+    board_count_changed: str = (
+        "The {what} changed while they were read ({counts}), and again on a second read, so "
+        "the read is incomplete. Run it again once the board is still."
+    )
+    board_items: str = "board #{number} items"
+    board_items_filtered: str = 'board #{number} items matching "{query}"'
+    board_reread: str = "The {what} changed while they were read ({counts}); reading them again."
+    graphql_spend: str = "GraphQL: {spent} points spent, {remaining} left until {reset}."
+    graphql_spend_since_reset: str = (
+        "GraphQL: {spent} points spent since the hourly reset during the run, {remaining} left "
+        "until {reset}."
+    )
     render_current: str = "## Current release: {title}"
     render_planned: str = "## Planned release: {title}"
     render_backlog: str = "## Backlog"
@@ -1256,6 +1277,146 @@ class RoadmapMessages:
     reprioritize_close_release: str = "close Release {release}"
     reprioritize_create_release: str = "create Release {release}"
     reprioritize_create_branch: str = "create branch {branch} at {sha}"
+    # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.
+    plan_dry_run: str = (
+        "Dry run: no request was made. A run makes these requests, in order; a value in "
+        "<angle brackets> comes from an earlier read, a step with a condition runs only when it "
+        "holds, and a step repeated runs as often as it says."
+    )
+    plan_dry_run_writes: str = "With --confirm, after the reads and before the last request:"
+    plan_dry_run_title: str = "# devops roadmap {job} for {repo}"
+    plan_dry_run_render: str = "Then render writes {path}, which makes no request."
+    plan_dry_run_notes: tuple[str, ...] = (
+        "A board read whose count changes while it is read reads it once more, from its first "
+        "page. run_gh may read `gh api rate_limit` to pace a request; that read costs no quota.",
+    )
+    plan_modes_exclusive: str = "Pass one of {modes}, not more."
+    plan_repeat_page: str = "per page, until a page is short"
+    plan_repeat_board_page: str = "per page after the first, while GraphQL reports a next page"
+    plan_placeholders: dict[str, str] = field(
+        default_factory=lambda: {
+            "board": "<board>",
+            "cursor": "<cursor>",
+            "page": "<n>",
+            "number": "<number>",
+            "milestone": "<milestone>",
+            "release": "<release>",
+            "tag": "<tag>",
+            "branch": "<branch>",
+            "sha": "<sha>",
+            "url": "<issue url>",
+            "value": "<value>",
+            "record": "<job record>",
+            "board_id": "<board id>",
+            "field_id": "<field id>",
+            "card_id": "<card id>",
+            "option_id": "<option id>",
+            "comment": "<comment>",
+            "title": "<title>",
+            "body": "<body>",
+            "label": "<label>",
+            "node_id": "<node id>",
+            "original_id": "<original node id>",
+            "evidence": "<evidence>",
+            "field": "<field>",
+            "item": "<item>",
+            "card": "<card>",
+            "new_board": "<new board>",
+            "since": "<since>",
+        }
+    )
+    plan_targets: dict[str, str] = field(
+        default_factory=lambda: {
+            "file": "{path} at {ref}",
+            "milestones": "every milestone",
+            "issues": "the issues ({query})",
+            "board_budget": (
+                "GraphQL's points left and the total of board {board}'s items{matching}; the "
+                "read stops here when the points can't cover it"
+            ),
+            "board_first": "the first page of board {board}'s items{matching}",
+            "board_page": "the next page of board {board}'s items{matching}",
+            "fields": "board {board}'s fields, with their options",
+            "field_options": "board {board}'s field options",
+            "workflows": "board {board}'s workflows",
+            "boards": "{owner}'s boards, to find board {board}",
+            "default_branch": "the default branch and its head",
+            "release_prs": "the release pull requests of {release}",
+            "release_published": "GitHub Release {release}",
+            "open_prs": "every open pull request",
+            "status_at": "when the Status of {subject} last changed",
+            "events": "the events of {subject}",
+            "comments": "the comments on {subject}",
+            "dependencies": "the issues {subject} is blocked by",
+            "branch": "branch {branch}",
+            "issue": "{subject}",
+            "issue_events": "the repository's issue events since {since}",
+            "count": "count the issues matching {query}",
+            "closures": "the closes and reopens on {subject}'s timeline",
+            "advisory": "the advisory {subject} cites",
+            "workflow_run": "the workflow run {subject} cites",
+            "commit": "the commit {subject} cites",
+            "create_release": "create Release {release}",
+            "edit_release": "close Release {release}",
+            "delete_release": "delete Release {release}",
+            "create_branch": "create branch {branch} at {sha}",
+            "record": "the job record of {subject}",
+            "set_field": "set {field} on {subject}",
+            "milestone": "set the milestone of {subject}",
+            "comment": "comment on {subject}",
+            "label": "label {subject}",
+            "add_item": "add {subject} to board {board}",
+            "close_issue": "close {subject}",
+            "close_duplicate": "close {subject} as a duplicate",
+            "create_issue": "open an issue for {subject}",
+            "create_card": "create the run record card",
+            "run_record": "the run record",
+            "card_field": "set {field} on {subject}",
+            "remove_card": "remove {subject} from board {board}",
+            "create_board": "create the board",
+            "link_board": "link the new board to the repository",
+            "create_field": "create or align a template field on the new board",
+            "delete_field": "delete the {field} field",
+            "budget": "GraphQL's points spent and left, for the run's last line",
+        }
+    )
+    plan_conditions: dict[str, str] = field(
+        default_factory=lambda: {
+            "pending": "an item holds a change an earlier run began",
+            "current": "a release is current",
+            "merged": "a release pull request merged",
+            "judged": "the run judges an item it needs this for",
+            "starting": "the run starts the next release",
+            "change": "the run changes an item",
+            "release_field": "the change sets the Release",
+            "other_field": "the change sets a field other than the Release",
+            "posted": "the change posts a comment",
+            "record": "the run records its release or size",
+            "no_card": "the board has no run record card yet",
+            "closing": "a shipped release's milestone is still open",
+            "release_named": "the value is a Release",
+            "board": "the configured board exists",
+            "no_board": "there is no board yet",
+            "renamed": "the board has a field the template drops",
+            "card": "the run sets a field on a card",
+            "epic": "the board holds a release epic",
+            "beyond": "a release lies beyond the planning horizon",
+            "unset": "an item has the field unset",
+            "not_planned": "the roadmap lists a rejected idea",
+            "unfiled": "the rejected idea has no issue",
+            "done": "the run is done: it comes after any write",
+        }
+    )
+    plan_repeat: dict[str, str] = field(
+        default_factory=lambda: {
+            "release": "for the current release and each planned one in the horizon",
+            "pending": "for each such item",
+            "item": "for each item the run judges or changes",
+            "write": "for each such write",
+            "evidence": "for each piece of evidence the model cites",
+            "field": "for each template field",
+        }
+    )
     # `devops roadmap intake` (#742).
     intake_title: str = "# Intake for {repo}"
     intake_quota: str = (
@@ -1376,7 +1537,6 @@ class RoadmapMessages:
         "Intake without a mode flag runs as --plan: it reads GitHub and calls the model, and "
         "writes nothing. --dry-run makes no request."
     )
-    intake_modes_exclusive: str = "Pass one of --dry-run, --plan and --confirm, not more."
     intake_spend: str = (
         "Spent: {github} GitHub request(s) (REST {rest}, REST search {search}, GraphQL "
         "{graphql}; GraphQL points not known), {embeddings} embedding call(s) for {texts} "
@@ -1388,7 +1548,8 @@ class RoadmapMessages:
         "when it holds."
     )
     intake_dry_run_writes: str = (
-        "With --confirm, then, for each candidate intake places or closes as a duplicate:"
+        "With --confirm, after the reads and before the last request, for each candidate "
+        "intake places or closes as a duplicate:"
     )
     intake_request_read: str = "read"
     intake_request_write: str = "write"
@@ -1411,7 +1572,7 @@ class RoadmapMessages:
             "config": ".github/roadmap.toml at {ref}, which names the board",
             "milestones": "every milestone",
             "issues": "every issue, open and closed",
-            "board": "the items on board {board} (gh project item-list)",
+            "board": "the items on board {board}, a page of GraphQL at a time",
             "board_issues": "every issue again, to join the board's items",
             "quota_milestones": "every milestone again, for the quota's cycle",
             "count_open": "count the open issues",

@@ -756,7 +756,16 @@ DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC: int = 25
 DEFAULT_GH_QUOTA_MAX_AGE_SECONDS: float = 300.0
 DEFAULT_GH_MAX_PAGINATED_PAGES: int = 100
 DEFAULT_GH_REST_PER_PAGE: int = 100
-DEFAULT_GH_PROJECT_ITEM_LIMIT: int = 5000
+# Board reads page GraphQL's `ProjectV2.items` this many items at a time, its largest page (#1125).
+DEFAULT_GH_PROJECT_ITEM_PAGE_SIZE: int = 100
+# A board read stops before a page, and refuses before it starts, while GraphQL reports fewer
+# points left than this: 5% of the 5,000-point hourly budget stays for the run's writes and for
+# the other tools sharing the identity (#1125).
+DEFAULT_GH_GRAPHQL_BUDGET_FLOOR: int = 250
+# What one page of a board read is taken to cost before the run has read a page and measured it:
+# GitHub charges a hundredth of the connection requests a query may make, rounded and at least 1,
+# and a page of 100 items with their field values may make 101 (#1125).
+DEFAULT_GH_PROJECT_ITEM_PAGE_POINTS: int = 1
 DEFAULT_GH_PROJECT_FIELD_LIMIT: int = 100
 DEFAULT_GH_PROJECT_LIST_LIMIT: int = 100
 DEFAULT_GH_PROJECT_WORKFLOW_LIMIT: int = 50

@@ -938,8 +938,22 @@ class RoadmapCommandHelp:
         "docs/ROADMAP.md at (default: the repository's default branch)."
     )
     confirm: str = "Make the planned writes to GitHub. Without it, migrate prints its plan only."
-    migrate_dry_run: str = "Print the plan and report, and write nothing."
-    render_dry_run: str = "Print the rendered file to stdout instead of writing it."
+    migrate_dry_run: str = (
+        "Make no request: print the requests a run makes, in order, with placeholders for "
+        "values a read gives."
+    )
+    migrate_plan: str = (
+        "Read GitHub, print the plan and report, write nothing, and end with the GraphQL points "
+        "spent and left. Migrate without a mode flag does this."
+    )
+    render_dry_run: str = (
+        "Make no request and write no file: print the requests a run makes, in order, with "
+        "placeholders for values a read gives."
+    )
+    render_plan: str = (
+        "Read GitHub and print the rendered file to stdout instead of writing it, ending with "
+        "the GraphQL points spent and left."
+    )
     output: str = "File render writes."
     reprioritize: str = (
         "Hold the current release to its rules: after it starts only a critical fix joins it, "
@@ -951,7 +965,14 @@ class RoadmapCommandHelp:
     reprioritize_confirm: str = (
         "Make the changes on GitHub. Without it, reprioritize prints its plan only."
     )
-    reprioritize_dry_run: str = "Print each change with its reason, and write nothing."
+    reprioritize_dry_run: str = (
+        "Make no request: print the requests a run makes, in order, with placeholders for "
+        "values a read gives."
+    )
+    reprioritize_plan: str = (
+        "Read GitHub, print each change with its reason, write nothing, and end with the "
+        "GraphQL points spent and left. Reprioritize without a mode flag does this."
+    )
     intake: str = (
         "Turn candidates into items: every open issue not on the board, and every board item "
         "intake left without a Priority. Each is checked for a duplicate among the board's "

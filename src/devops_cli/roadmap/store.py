@@ -31,6 +31,7 @@ from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.validation import InvalidVersionError
 
 if TYPE_CHECKING:
+    from devops_cli.roadmap.board_read import GraphQLSpend
     from devops_cli.roadmap.github_store import GhRunner
 
 # ── Vocabulary ────────────────────────────────────────────────────────────────
@@ -850,6 +851,11 @@ class RoadmapStore(Protocol):
     def count_issues(self, query: IssueQuery) -> int:
         """How many issues of the repository match `query`, never pull requests."""
 
+    def graphql_spend(self) -> GraphQLSpend | None:
+        """The GraphQL points the run spent and the points left, read from GraphQL itself; None
+        for a store that spends none."""
+        return None
+
 
 def get_roadmap_store(
     repo: str,
@@ -857,19 +863,26 @@ def get_roadmap_store(
     board_owner: str | None = None,
     board_number: int | None = None,
     runner: GhRunner | None = None,
+    board_filter: str = "",
 ) -> RoadmapStore:
     """Open the roadmap store for `repo`, its `gh` commands through `runner` when one is given.
 
     Every caller builds its store here, so a test replaces this one function with a fixture
     that returns the in-memory adapter. Without a board, Release operations work, and Item
-    reads and writes raise.
+    reads and writes raise. Board reads pass `board_filter`, the job's Projects filter.
     """
     from devops_cli.roadmap.github_store import GitHubRoadmapStore
 
     if runner is None:
-        return GitHubRoadmapStore(repo, board_owner=board_owner, board_number=board_number)
+        return GitHubRoadmapStore(
+            repo, board_owner=board_owner, board_number=board_number, board_filter=board_filter
+        )
     return GitHubRoadmapStore(
-        repo, board_owner=board_owner, board_number=board_number, runner=runner
+        repo,
+        board_owner=board_owner,
+        board_number=board_number,
+        runner=runner,
+        board_filter=board_filter,
     )
 
 

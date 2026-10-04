@@ -695,8 +695,11 @@ def test_sync_repository_issues_to_project() -> None:
     from unittest.mock import MagicMock, patch
 
     from devops_cli.github.projects import sync_repository_issues_to_project
+    from tests.roadmap_board_fake import board_page_reply
 
-    existing_items = [{"content": {"html_url": "https://example.com/owner/repo/issues/75"}}]
+    existing_items = [
+        {"id": "PVTI_75", "content": {"url": "https://example.com/owner/repo/issues/75"}}
+    ]
     repo_issues = [
         {"html_url": "https://example.com/owner/repo/issues/75", "number": 75},
         {"html_url": "https://example.com/owner/repo/issues/78", "number": 78},
@@ -704,7 +707,7 @@ def test_sync_repository_issues_to_project() -> None:
 
     mock_proc = MagicMock(
         side_effect=[
-            MagicMock(returncode=0, stdout=json.dumps(existing_items), stderr=""),
+            MagicMock(returncode=0, stdout=board_page_reply(existing_items), stderr=""),
             MagicMock(returncode=0, stdout=json.dumps(repo_issues), stderr=""),
             MagicMock(returncode=0, stdout="{}", stderr=""),
         ]
@@ -945,30 +948,6 @@ def test_extract_item_fields_case_insensitive() -> None:
     }
 
 
-def test_parse_project_items_json_with_preamble() -> None:
-    """_parse_project_items_json correctly parses JSON with diagnostic preambles."""
-    from devops_cli.github.projects import _parse_project_items_json
-
-    raw_output = """
-Fetching ViewerOwner...
-Fetching ViewerProjectWithItems...
-{
-  "items": [
-    {
-      "id": "ITEM_1",
-      "Status": "In Progress",
-      "Priority": "P1-High",
-      "content": {"url": "https://example.com/owner/repo/issues/10"}
-    }
-  ]
-}
-"""
-    data = _parse_project_items_json(raw_output)
-    assert "https://example.com/owner/repo/issues/10" in data
-    assert data["https://example.com/owner/repo/issues/10"]["status"] == "In Progress"
-    assert data["https://example.com/owner/repo/issues/10"]["priority"] == "P1-High"
-
-
 def test_mutation_budget_lifecycle() -> None:
     """MutationBudget decrements remaining, tracks total_mutations, and exhausts at limit."""
     from devops_cli.github.projects import MutationBudget
@@ -1107,3 +1086,84 @@ def test_the_board_template_follows_adr_0001() -> None:
         ["Low", "Medium", "High"],
         True,
     )
+
+
+def test_project_view_writes_are_paced_as_writes_and_the_view_read_is_not() -> None:
+    """Through the real `run_gh` with gh's process stubbed (#1125): the views query acquires as
+    a read, and `createProjectV2View` and `updateProjectV2View` as writes."""
+    import json
+    import subprocess
+    from typing import Any
+    from unittest.mock import patch
+
+    from devops_cli.github.projects import (
+        _create_project_view,
+        _rename_default_view,
+        get_remote_project_views,
+    )
+    from devops_cli.github.rate_limiter import GitHubRateLimiter
+
+    def gh(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        reply: dict[str, Any] = {"data": {"repository": {"projectsV2": {"nodes": []}}}}
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(reply), "")
+
+    with (
+        patch("devops_cli.github.rate_limiter._burst_protected_subprocess", side_effect=gh),
+        patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0) as acquire,
+    ):
+        get_remote_project_views("o", "r")
+        written = (
+            _create_project_view("PVT_1", "Sprint Kanban", "BOARD"),
+            _rename_default_view("PVTV_1", "Triage", "TABLE"),
+        )
+    assert (written, [call.kwargs["is_mutation"] for call in acquire.call_args_list]) == (
+        (True, True),
+        [False, True, True],
+    )
+
+
+def test_project_sync_reads_the_board_a_charged_graphql_page_at_a_time() -> None:
+    """Project sync reads its board with the roadmap store's paged GraphQL query, not
+    `gh project item-list`, which pages unseen and reports no cost (#1125): through the real
+    `run_gh` with gh's process stubbed, 150 items and one archived take two pages, each charged
+    the points it reports, and the archived item neither shows nor fails the count."""
+    import json
+    import subprocess
+    from typing import Any
+    from unittest.mock import patch
+
+    from devops_cli.github import rate_limiter
+    from devops_cli.github.projects import _fetch_project_items_data
+    from tests.roadmap_board_fake import BoardServer
+
+    def entry(n: int, **extra: Any) -> dict[str, Any]:
+        url = f"https://github.com/o/r/issues/{n}"
+        content = {"type": "Issue", "number": n, "url": url, "repository": "o/r"}
+        return {"id": f"PVTI_{n}", "content": content, "status": "Ready", **extra}
+
+    items = [entry(n) for n in range(1, 151)] + [entry(151, isArchived=True)]
+    server = BoardServer({"items": items, "totalCount": 150}, page_cost=2)
+    sent: list[list[str]] = []
+
+    def gh(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        sent.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(server(cmd[1:])), "")
+
+    limiter = rate_limiter.get_github_rate_limiter()
+    for resource in ("core", "graphql"):
+        limiter.update_quota(resource, remaining=5000, reset_epoch=4_102_444_800.0, limit=5000)
+    before = limiter.points_charged("graphql")
+    with (
+        patch.object(rate_limiter, "_burst_protected_subprocess", side_effect=gh),
+        patch.object(rate_limiter, "run_subprocess", side_effect=AssertionError("ran gh")),
+        patch("devops_cli.github.rate_limiter.time.sleep"),
+        patch("devops_cli.github.projects._get_authenticated_user", return_value="me"),
+    ):
+        found = _fetch_project_items_data("o", 2)
+    assert (
+        len(found),
+        found["https://github.com/o/r/issues/7"]["status"],
+        "https://github.com/o/r/issues/151" in found,
+        [cmd[1:3] for cmd in sent],
+        limiter.points_charged("graphql") - before,
+    ) == (150, "Ready", False, [["api", "graphql"]] * 2, 4)

@@ -36,6 +36,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RENDER_MARKER,
     CONST_ROADMAP_STATUS_FIELD,
 )
+from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.projects import (
@@ -153,6 +154,9 @@ class MigrationPlan:
     left_alone: tuple[PlannedChange, ...] = ()
     auto_add: tuple[Workflow, ...] = ()
     option_edits: tuple[OptionEdit, ...] = ()
+    dry_run: bool = False
+    requests: tuple[PlannedRequest, ...] = ()
+    write_requests: tuple[PlannedRequest, ...] = ()
 
     @property
     def changes(self) -> list[PlannedChange]:
@@ -603,6 +607,24 @@ def plan_migration(
     )
 
 
+def dry_run_migration(repo: str, *, ref: str | None) -> MigrationPlan:
+    """The plan a dry run returns, having made no request: no write planned, and the requests a
+    run on `repo` makes, in order (#412, #1125). `requests` are the reads, ending with the
+    closing GraphQL budget read; `write_requests` the writes `--confirm` makes before it."""
+    from devops_cli.roadmap.request_plan import migrate_requests
+
+    reads, writes = migrate_requests(repo, ref)
+    return MigrationPlan(
+        repo=repo,
+        ref=ref,
+        writes=(),
+        imported=False,
+        dry_run=True,
+        requests=reads,
+        write_requests=writes,
+    )
+
+
 def require_option_edits_made(plan: MigrationPlan) -> None:
     """Refuse a plan whose writes need options a person has yet to put on the board."""
     due = plan.edits_due
@@ -699,6 +721,7 @@ __all__ = [
     "PlannedWrite",
     "ReportedEntry",
     "apply_migration",
+    "dry_run_migration",
     "plan_migration",
     "read_document",
     "read_template",

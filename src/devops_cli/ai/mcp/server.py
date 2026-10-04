@@ -634,58 +634,70 @@ def release_status() -> str:
     )
 
 
-@mcp.tool()
-def roadmap_render(repo: str | None = None, ref: str | None = None, dry_run: bool = True) -> str:
-    """Render docs/ROADMAP.md from GitHub's issues, milestones and board; prints it by default."""
-    cmd = ["uv", "run", "devops", "roadmap", "render"]
-    if repo:
-        _validate_mcp_arg("repo", repo)
-        cmd.extend(["--repo", repo])
-    if ref:
-        _validate_mcp_arg("ref", ref)
-        cmd.extend(["--ref", ref])
-    if dry_run:
-        cmd.append("--dry-run")
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+def _roadmap_cmd(cmd: list[str], repo: str | None, ref: str | None, mode: str) -> list[str]:
+    """A `devops roadmap` command on `repo` at `ref`, with `mode`'s flag; `write` has none."""
+    for name, value in (("repo", repo), ("ref", ref)):
+        if value:
+            _validate_mcp_arg(name, value)
+            cmd.extend([f"--{name}", value])
+    if mode != "write":
+        cmd.append(f"--{mode}")
+    return cmd
 
 
 @mcp.tool()
-def roadmap_migrate(repo: str | None = None, ref: str | None = None) -> str:
+def roadmap_render(
+    repo: str | None = None,
+    ref: str | None = None,
+    mode: Literal["dry-run", "plan", "write"] = "plan",
+) -> str:
+    """Render docs/ROADMAP.md from GitHub's issues, milestones and board.
+
+    `mode="plan"`, the default, reads GitHub and prints the file without writing it, ending
+    with the GraphQL points spent and left. `mode="dry-run"` makes no request and returns the
+    requests a run makes; `mode="write"` writes the file.
+    """
+    return _run_mcp_cmd(
+        _roadmap_cmd(["uv", "run", "devops", "roadmap", "render"], repo, ref, mode),
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def roadmap_migrate(
+    repo: str | None = None,
+    ref: str | None = None,
+    mode: Literal["dry-run", "plan"] = "plan",
+) -> str:
     """Preview the one-time move of the roadmap's source to GitHub: its plan and report.
 
-    It never writes. A person reviews the plan and runs `devops roadmap migrate --confirm`.
+    It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
+    spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A
+    person reviews the plan and runs `devops roadmap migrate --confirm`.
     """
-    cmd = ["uv", "run", "devops", "roadmap", "migrate", "--dry-run"]
-    if repo:
-        _validate_mcp_arg("repo", repo)
-        cmd.extend(["--repo", repo])
-    if ref:
-        _validate_mcp_arg("ref", ref)
-        cmd.extend(["--ref", ref])
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+    return _run_mcp_cmd(
+        _roadmap_cmd(["uv", "run", "devops", "roadmap", "migrate"], repo, ref, mode),
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
 
 
 @mcp.tool()
 def roadmap_reprioritize(
-    repo: str | None = None, ref: str | None = None, dry_run: bool = True
+    repo: str | None = None,
+    ref: str | None = None,
+    mode: Literal["dry-run", "plan", "confirm"] = "plan",
 ) -> str:
     """Hold the current release to its admission rule, cap and stall window, and start the next
     release once it ships; prints each change with its reason.
 
-    It previews by default. `dry_run=False` makes the changes (`--confirm`).
+    `mode="plan"`, the default, previews: it reads GitHub, writes nothing, and ends with the
+    GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a
+    run makes; `mode="confirm"` makes the changes.
     """
-    cmd = ["uv", "run", "devops", "roadmap", "reprioritize"]
-    if repo:
-        _validate_mcp_arg("repo", repo)
-        cmd.extend(["--repo", repo])
-    if ref:
-        _validate_mcp_arg("ref", ref)
-        cmd.extend(["--ref", ref])
-    if dry_run:
-        cmd.append("--dry-run")
-    else:
-        cmd.append("--confirm")
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+    return _run_mcp_cmd(
+        _roadmap_cmd(["uv", "run", "devops", "roadmap", "reprioritize"], repo, ref, mode),
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
 
 
 @mcp.tool()

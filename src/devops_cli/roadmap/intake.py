@@ -1270,8 +1270,9 @@ def render_intake_dry_run(plan: IntakePlan, *, repo: str) -> None:
     `--confirm` adds, each command as it would run."""
     texts = MESSAGES.roadmap
     heading = "\n\n".join([texts.intake_title.format(repo=repo), texts.intake_dry_run])
-    render_request_plan(heading, plan.requests)
-    render_request_plan(texts.intake_dry_run_writes, plan.writes)
+    render_request_plan(heading, plan.requests, described=True)
+    notes = texts.plan_dry_run_notes
+    render_request_plan(texts.intake_dry_run_writes, plan.writes, notes, described=True)
 
 
 def render_intake(plan: IntakePlan, *, repo: str) -> str:

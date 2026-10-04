@@ -120,8 +120,10 @@ devops gh milestones list
 # Regenerate docs/ROADMAP.md from the milestones, issues and board (at the release cut)
 devops roadmap render --ref release/v0.2.25
 
-# Preview the current release's admission, cap, descoping and stall decisions, then make them
+# List the requests a reprioritize run makes, making none (--dry-run); preview its admission,
+# cap, descoping and stall decisions, reading GitHub (--plan); then make them
 devops roadmap reprioritize --dry-run
+devops roadmap reprioritize --plan
 devops roadmap reprioritize --confirm
 
 # Close a release milestone upon release merge or publish
@@ -194,7 +196,7 @@ AI coding agents have native access to GitHub project management through these F
 - **Projects**: `gh_project_list`, `gh_project_status`, `gh_project_audit`, `gh_project_sync`
 - **Views**: `gh_views_audit`, `gh_views_sync`, `gh_view_spec`
 - **Milestones**: `gh_milestone_list`, `gh_milestone_close`
-- **Roadmap**: `roadmap_render`, `roadmap_migrate` (preview only), `roadmap_reprioritize` (previews unless `dry_run=False`), `roadmap_intake` (`mode="plan"` by default; `"dry-run"` makes no request, `"confirm"` writes)
+- **Roadmap**: `roadmap_render` (`mode="plan"` by default; `"write"` writes the file), `roadmap_migrate` (preview only), `roadmap_reprioritize` (`"confirm"` writes) and `roadmap_intake` (`"confirm"` writes): each takes a `mode` whose default, `"plan"`, reads GitHub and writes nothing, and whose `"dry-run"` makes no request
 - **Labels**: `gh_label_list`, `gh_label_sync`
 
 ### Registered Dynamic System Resources
