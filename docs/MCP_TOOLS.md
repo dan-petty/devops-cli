@@ -129,12 +129,20 @@ makes; `mode="confirm"` makes the writes. The body is passed as text, never as a
 the tool reads no file of the caller's choosing. |
 | [`roadmap_migrate`](#roadmap-migrate) | Preview the one-time move of the roadmap's source to GitHub: its plan and report.
 
-It never writes. A person reviews the plan and runs `devops roadmap migrate --confirm`. |
-| [`roadmap_render`](#roadmap-render) | Render docs/ROADMAP.md from GitHub's issues, milestones and board; prints it by default. |
+It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
+spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A
+person reviews the plan and runs `devops roadmap migrate --confirm`. |
+| [`roadmap_render`](#roadmap-render) | Render docs/ROADMAP.md from GitHub's issues, milestones and board.
+
+`mode="plan"`, the default, reads GitHub and prints the file without writing it, ending
+with the GraphQL points spent and left. `mode="dry-run"` makes no request and returns the
+requests a run makes; `mode="write"` writes the file. |
 | [`roadmap_reprioritize`](#roadmap-reprioritize) | Hold the current release to its admission rule, cap and stall window, and start the next
 release once it ships; prints each change with its reason.
 
-It previews by default. `dry_run=False` makes the changes (`--confirm`). |
+`mode="plan"`, the default, previews: it reads GitHub, writes nothing, and ends with the
+GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a
+run makes; `mode="confirm"` makes the changes. |
 | [`sandbox_deploy`](#sandbox-deploy) | Deploy an isolated workload container sandbox with security containment and port allocation. |
 | [`sandbox_exec`](#sandbox-exec) | Execute a command inside an active sandbox container. |
 | [`sandbox_network_policy`](#sandbox-network-policy) | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
@@ -1373,7 +1381,9 @@ the tool reads no file of the caller's choosing.
 
 Preview the one-time move of the roadmap's source to GitHub: its plan and report.
 
-It never writes. A person reviews the plan and runs `devops roadmap migrate --confirm`.
+It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
+spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A
+person reviews the plan and runs `devops roadmap migrate --confirm`.
 
 **Parameters:**
 
@@ -1381,10 +1391,15 @@ It never writes. A person reviews the plan and runs `devops roadmap migrate --co
 |---|---|---|---|---|
 | `repo` | `string` | No | - | - |
 | `ref` | `string` | No | - | - |
+| `mode` | `string` | No | `plan` | - |
 
 ### `roadmap_render`
 
-Render docs/ROADMAP.md from GitHub's issues, milestones and board; prints it by default.
+Render docs/ROADMAP.md from GitHub's issues, milestones and board.
+
+`mode="plan"`, the default, reads GitHub and prints the file without writing it, ending
+with the GraphQL points spent and left. `mode="dry-run"` makes no request and returns the
+requests a run makes; `mode="write"` writes the file.
 
 **Parameters:**
 
@@ -1392,14 +1407,16 @@ Render docs/ROADMAP.md from GitHub's issues, milestones and board; prints it by 
 |---|---|---|---|---|
 | `repo` | `string` | No | - | - |
 | `ref` | `string` | No | - | - |
-| `dry_run` | `boolean` | No | `True` | - |
+| `mode` | `string` | No | `plan` | - |
 
 ### `roadmap_reprioritize`
 
 Hold the current release to its admission rule, cap and stall window, and start the next
 release once it ships; prints each change with its reason.
 
-It previews by default. `dry_run=False` makes the changes (`--confirm`).
+`mode="plan"`, the default, previews: it reads GitHub, writes nothing, and ends with the
+GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a
+run makes; `mode="confirm"` makes the changes.
 
 **Parameters:**
 
@@ -1407,7 +1424,7 @@ It previews by default. `dry_run=False` makes the changes (`--confirm`).
 |---|---|---|---|---|
 | `repo` | `string` | No | - | - |
 | `ref` | `string` | No | - | - |
-| `dry_run` | `boolean` | No | `True` | - |
+| `mode` | `string` | No | `plan` | - |
 
 ### `sandbox_deploy`
 

@@ -1425,6 +1425,28 @@ class TestPrCommands:
             assert len(mock_sub.call_args_list) == 1
             assert "pulls?head=owner:feat/test" in mock_sub.call_args[0][0][2]
 
+    def test_fallback_create_pr_paces_its_post_as_a_write(self) -> None:
+        """Through the real `run_gh` with gh's process stubbed (#1125): the existing-PR lookup
+        acquires as a read and the implicit-POST `gh api .../pulls -f ...` as a write."""
+        from devops_cli.commands.pr import _fallback_create_pr
+        from devops_cli.github.rate_limiter import GitHubRateLimiter
+
+        def gh(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+            lookup = any("pulls?head=" in arg for arg in cmd)
+            created = {"number": 9, "html_url": "https://github.com/o/r/pull/9"}
+            return subprocess.CompletedProcess(cmd, 0, "[]" if lookup else json.dumps(created), "")
+
+        with (
+            patch("devops_cli.commands.pr._detect_current_branch", return_value="feat/x"),
+            patch("devops_cli.github.rate_limiter._burst_protected_subprocess", side_effect=gh),
+            patch.object(GitHubRateLimiter, "acquire", autospec=True, return_value=0.0) as acquire,
+        ):
+            created = _fallback_create_pr(title="t", body="b", base="main", repo="o/r")
+        assert (created, [call.kwargs["is_mutation"] for call in acquire.call_args_list]) == (
+            True,
+            [False, True],
+        )
+
     def test_pr_list_fallback_merged_filter(self) -> None:
         """_render_pr_list_fallback filters merged_at when state is merged."""
         from devops_cli.commands.pr import _render_pr_list_fallback

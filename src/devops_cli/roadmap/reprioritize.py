@@ -187,6 +187,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STALL_CHECK_HOURS
+from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.github.issue_closure import extract_linked_issues
 from devops_cli.lang import MESSAGES
@@ -730,6 +731,9 @@ class ReprioritizationPlan:
     opens_record: bool = False
     size: int = 0
     numbers: Mapping[str, int] = field(default_factory=dict)
+    dry_run: bool = False
+    requests: tuple[PlannedRequest, ...] = ()
+    write_requests: tuple[PlannedRequest, ...] = ()
 
     @property
     def changes(self) -> list[Decision]:
@@ -1925,6 +1929,25 @@ def plan_reprioritization(
     return _judged(run, lambda r: _plan_rules(r, current, state), current.title)
 
 
+def dry_run_reprioritization(repo: str, *, ref: str | None, now: datetime) -> ReprioritizationPlan:
+    """The plan a dry run returns, having made no request: no release read, so nothing to
+    judge, and the requests a run on `repo` makes, in order (#412, #1125). `requests` are the
+    reads, ending with the closing GraphQL budget read; `write_requests` the writes `--confirm`
+    makes before that read."""
+    from devops_cli.roadmap.request_plan import reprioritize_requests
+
+    reads, writes = reprioritize_requests(repo, ref)
+    return ReprioritizationPlan(
+        repo=repo,
+        now=now,
+        current=None,
+        state=None,
+        dry_run=True,
+        requests=reads,
+        write_requests=writes,
+    )
+
+
 def _field_writes(decision: Decision) -> list[tuple[ItemField, str | None]]:
     """The fields a decision sets: the Release for a move, then Status for a stalled item."""
     status: list[tuple[ItemField, str | None]] = [(ItemField.STATUS, CONST_ROADMAP_STATUS_READY)]
@@ -2356,6 +2379,7 @@ __all__ = [
     "apply_reprioritization",
     "current_release",
     "decide",
+    "dry_run_reprioritization",
     "is_critical_fix",
     "is_due",
     "is_own_change",

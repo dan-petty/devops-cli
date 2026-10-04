@@ -10,8 +10,10 @@ in full before anything is written, so a failed read leaves the file as it was.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from devops_cli.config.constants import CONST_ROADMAP_RENDER_MARKER
+from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.store import (
@@ -51,6 +53,30 @@ def _ordered(items: Sequence[Item], priorities: Sequence[str]) -> list[Item]:
     return sorted(items, key=key)
 
 
+@dataclass(frozen=True)
+class RenderedRoadmap:
+    """What render produces: the Markdown view of `repo`'s roadmap. A dry run (`dry_run`) made
+    no request, so it has no text: `requests` holds the requests a run makes, in order, ending
+    with the closing GraphQL budget read (#412, #1125)."""
+
+    repo: str
+    text: str = ""
+    dry_run: bool = False
+    requests: tuple[PlannedRequest, ...] = ()
+
+
+def dry_run_render(repo: str, *, ref: str | None) -> RenderedRoadmap:
+    """The result a dry run returns, having made no request."""
+    from devops_cli.roadmap.request_plan import render_requests
+
+    return RenderedRoadmap(repo=repo, dry_run=True, requests=render_requests(repo, ref))
+
+
+def render(store: RoadmapStore, *, repo: str, config: RoadmapConfig) -> RenderedRoadmap:
+    """The roadmap's Markdown view, read through `store`."""
+    return RenderedRoadmap(repo=repo, text=render_roadmap(store, repo=repo, config=config))
+
+
 def render_roadmap(store: RoadmapStore, *, repo: str, config: RoadmapConfig) -> str:
     """The roadmap's Markdown view: the current and planned releases, then the backlog."""
     messages = MESSAGES.roadmap
@@ -74,4 +100,4 @@ def render_roadmap(store: RoadmapStore, *, repo: str, config: RoadmapConfig) -> 
     return "\n".join(lines).rstrip() + "\n"
 
 
-__all__ = ["render_roadmap"]
+__all__ = ["RenderedRoadmap", "dry_run_render", "render", "render_roadmap"]

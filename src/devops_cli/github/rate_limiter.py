@@ -33,10 +33,10 @@ from tenacity import RetryCallState, Retrying, wait_random_exponential
 
 from devops_cli.config.constants import (
     CONST_CACHE_DIR_NAME,
+    CONST_GH_API_DEFAULT_METHOD,
     CONST_GH_CLI,
-    CONST_GH_MUTATION_HTTP_METHODS,
-    CONST_GH_MUTATION_VERBS,
     CONST_GH_QUOTA_CACHE_FILENAME,
+    CONST_GH_READ_VERBS,
     CONST_GITHUB_IDENTITY_DIGEST_CHARS,
     CONST_GITHUB_RATE_LIMIT_PATTERNS,
     CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS,
@@ -53,10 +53,19 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.process import github_token, is_local_gh_command, run_subprocess
 from devops_cli.exceptions.git import GitHubRateLimitError
+from devops_cli.github.request_classifier import (
+    gh_command_words,
+    is_write_gh_command,
+    parse_gh_api_args,
+)
 
 logger = logging.getLogger(__name__)
 
 _BURST_LIMIT_DECORATOR: Any = limits(calls=60, period=60)
+# The high-level gh groups whose reads `run_gh` may answer from its response cache.
+_CACHEABLE_CLI_GROUPS = frozenset(
+    {"pr", "issue", "project", "label", "milestone", "repo", "workflow", "run"}
+)
 
 
 @sleep_and_retry  # type: ignore[untyped-decorator]
@@ -488,34 +497,6 @@ def gh_request_resource(args: list[str]) -> str:
     return _detect_resource(_normalize_gh_args(args))
 
 
-def _is_api_mutation(api_args: list[str]) -> bool:
-    """Determine whether API call arguments constitute a write mutation."""
-    for arg in api_args:
-        upper = arg.upper()
-        if upper in CONST_GH_MUTATION_HTTP_METHODS:
-            return True
-        if any(
-            upper.startswith(f"-X{m}") or upper.startswith(f"--METHOD={m}")
-            for m in CONST_GH_MUTATION_HTTP_METHODS
-        ):
-            return True
-    return False
-
-
-def _is_mutation_command(args: list[str]) -> bool:
-    """Determine whether a GitHub CLI command is a write mutation."""
-    if not args:
-        return False
-    clean = [a.lower() for a in args if a not in (CONST_GH_CLI, "gh")]
-    if not clean:
-        return False
-    if any(arg in CONST_GH_MUTATION_VERBS for arg in clean[1:]):
-        return True
-    if clean[0] == "api":
-        return _is_api_mutation(clean[1:])
-    return False
-
-
 def _parse_reset_epoch(reset_at: str | None) -> float | None:
     """Parse ISO resetAt string into epoch timestamp."""
     if not reset_at:
@@ -529,7 +510,8 @@ def _parse_reset_epoch(reset_at: str | None) -> float | None:
 
 
 def _extract_graphql_ratelimit_json(output: str, limiter: GitHubRateLimiter) -> None:
-    """Extract GraphQL rateLimit from response and update tracked state."""
+    """Charge the points a GraphQL response's `rateLimit` reports it cost, and track the points
+    left; a response without one is charged only `acquire`'s estimate."""
     payload = extract_json_payload(output)
     if not isinstance(payload, dict):
         return
@@ -538,6 +520,9 @@ def _extract_graphql_ratelimit_json(output: str, limiter: GitHubRateLimiter) -> 
         return
     rl = data.get("rateLimit")
     if isinstance(rl, dict):
+        cost = rl.get("cost")
+        if isinstance(cost, int):
+            limiter.charge_points("graphql", cost)
         rem = rl.get("remaining")
         lim = rl.get("limit")
         used = rl.get("used")
@@ -770,6 +755,8 @@ class GitHubRateLimiter:
         self._async_limiters: dict[str, AsyncLimiter] = {}
         self._is_refreshing: bool = False
         self._total_requests: int = 0
+        # GraphQL points the responses reported, by resource (#1125).
+        self._points_charged: dict[str, int] = {}
         self._last_request_epoch: float = 0.0
         self._last_disk_prune_epoch: float = 0.0
         self._total_throttles: int = 0
@@ -1033,20 +1020,27 @@ class GitHubRateLimiter:
         ):
             prev_scheduled = now
 
-        scheduled_time = max(now, prev_scheduled) + delay
-        raw_sleep = max(0.0, scheduled_time - now)
+        # The resource's own schedule follows its quota alone; only the write itself moves to
+        # the write slot, so reads after it are never held by another resource's write.
+        paced_time = max(now, prev_scheduled) + delay
+        scheduled_time = self._write_slot_locked(paced_time) if is_mutation else paced_time
+        sleep_duration = max(0.0, scheduled_time - now)
 
-        sleep_duration = raw_sleep
-        self._next_allowed_time[target] = now + sleep_duration
+        self._next_allowed_time[target] = paced_time
         self._last_request_epoch = now + sleep_duration
         if is_mutation:
-            self._last_mutation_epoch = now + sleep_duration
+            self._last_mutation_epoch = scheduled_time
         if state and state.is_valid(now, max_age=self.quota_max_age):
             state.record_utilization(cost=cost)
         self._total_requests += 1
         self._persist_to_disk_locked()
 
         return sleep_duration
+
+    def _write_slot_locked(self, scheduled_time: float) -> float:
+        """A write's slot: at least `mutation_min_interval` after the last write was scheduled,
+        whichever resource either uses, so concurrent callers in one process share the spacing."""
+        return max(scheduled_time, self._last_mutation_epoch + self.mutation_min_interval)
 
     @staticmethod
     def _validate_quota_update_args(
@@ -1145,6 +1139,18 @@ class GitHubRateLimiter:
         if state and state.is_valid():
             state.record_utilization(cost=cost)
             self._total_requests += cost
+
+    def charge_points(self, subcommand: str, points: int) -> None:
+        """Charge `points`, the cost a response reported, to `subcommand` (#1125)."""
+        if points < 0:
+            raise ValueError(f"charged points must be non-negative, got {points}")
+        with self._lock:
+            self._points_charged[subcommand] = self._points_charged.get(subcommand, 0) + points
+
+    def points_charged(self, subcommand: str) -> int:
+        """The points the responses on `subcommand` reported they cost."""
+        with self._lock:
+            return self._points_charged.get(subcommand, 0)
 
     def decrement_quota_estimate(self, subcommand: str, cost: int = 1) -> None:
         """Pessimistically decrement quota estimate when a command lacks rate limit headers."""
@@ -1359,29 +1365,25 @@ def _is_sensitive_command(args: list[str]) -> bool:
     return any(marker in combined_args for marker in sensitive_markers)
 
 
-def _is_cacheable_cli_read(first: str, rest_args: list[str]) -> bool:
-    """Predicate determining if top-level gh subcommand is a read query."""
-    if first not in ("pr", "issue", "project", "label", "milestone", "repo", "workflow", "run"):
+def _is_cacheable_cli_read(args: list[str]) -> bool:
+    """Whether a high-level gh command is a cacheable read: its group is one whose listings are
+    cached, and its verb, in the verb position, reads. A read verb elsewhere in argv, as in
+    `pr create --title list`, does not make it one."""
+    words = gh_command_words(args)
+    if words is None:
         return False
-    read_verbs = {
-        "view",
-        "list",
-        "status",
-        "checks",
-        "diff",
-        "show",
-        "item-list",
-        "field-list",
-    }
-    return any(arg in read_verbs for arg in rest_args)
+    group, verb = words
+    return group in _CACHEABLE_CLI_GROUPS and verb in CONST_GH_READ_VERBS
 
 
 def _is_cacheable_api_call(args: list[str]) -> bool:
-    """Predicate determining if gh api call is safe for read caching."""
-    if _is_api_mutation(args):
-        return False
-    has_field = any(arg in ("-f", "--field", "-F", "--raw-field") for arg in args)
-    return not has_field
+    """Whether a `gh api` call is safe to cache: gh sends it as a GET with no fields or body."""
+    api_args = parse_gh_api_args(args[1:])
+    return (
+        api_args is not None
+        and api_args.method == CONST_GH_API_DEFAULT_METHOD
+        and not api_args.has_params
+    )
 
 
 def _should_cache(args: list[str], use_cache: bool, input: str | None = None) -> bool:
@@ -1390,7 +1392,7 @@ def _should_cache(args: list[str], use_cache: bool, input: str | None = None) ->
         return False
     if _is_sensitive_command(args):
         return False
-    if _is_cacheable_cli_read(args[0], args[1:]):
+    if _is_cacheable_cli_read(args):
         return True
     if args[0] == "api":
         return _is_cacheable_api_call(args)
@@ -1715,13 +1717,17 @@ def _handle_cached_or_paginated(
     check: bool,
     target_resource: str,
     is_check: bool,
+    is_mutation: bool,
 ) -> subprocess.CompletedProcess[str] | None:
-    """Check cache or execute paginated API request if applicable."""
+    """Check cache or execute paginated API request if applicable.
+
+    Page-by-page fetching is for reads; a write with `--paginate` goes to gh once, as given.
+    """
     cached = _check_cached_result(limiter, clean_args, input, use_cache)
     if cached is not None:
         return cached
 
-    if not is_check and "--paginate" in clean_args:
+    if not is_check and not is_mutation and "--paginate" in clean_args:
         proc = _run_gh_paginated(
             clean_args,
             limiter=limiter,
@@ -1923,6 +1929,7 @@ def run_gh(
     target_resource = resource or _detect_resource(clean_args)
     is_check = _is_rate_limit_check(clean_args)
     is_exempt = _is_rate_limit_exempt(clean_args)
+    is_mutation = not is_exempt and is_write_gh_command(clean_args, input=input, cwd=valid_cwd)
 
     early_res = _handle_cached_or_paginated(
         limiter,
@@ -1937,11 +1944,11 @@ def run_gh(
         check,
         target_resource,
         is_check,
+        is_mutation,
     )
     if early_res is not None:
         return early_res
 
-    is_mutation = _is_mutation_command(clean_args)
     effective_cost = _calculate_effective_cost(clean_args, target_resource, cost)
 
     proc = _run_gh_retry_loop(

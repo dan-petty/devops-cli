@@ -83,14 +83,19 @@ def read_roadmap_config(store: RoadmapStore, *, ref: str | None) -> RoadmapConfi
 
 
 def open_roadmap(
-    repo: str, *, ref: str | None, runner: GhRunner | None = None
+    repo: str, *, ref: str | None, runner: GhRunner | None = None, board_filter: str = ""
 ) -> tuple[RoadmapConfig, RoadmapStore]:
-    """`repo`'s roadmap configuration on `ref`, and the roadmap store on the board it names;
-    both stores run their `gh` commands through `runner` when one is given."""
+    """`repo`'s roadmap configuration on `ref`, and the roadmap store on the board it names,
+    whose board reads pass the job's Projects filter `board_filter`; both stores run their `gh`
+    commands through `runner` when one is given."""
     config = read_roadmap_config(roadmap_store.get_roadmap_store(repo, runner=runner), ref=ref)
     owner = repo.split("/")[0]
     board = roadmap_store.get_roadmap_store(
-        repo, board_owner=owner, board_number=config.board, runner=runner
+        repo,
+        board_owner=owner,
+        board_number=config.board,
+        runner=runner,
+        board_filter=board_filter,
     )
     return config, board
 

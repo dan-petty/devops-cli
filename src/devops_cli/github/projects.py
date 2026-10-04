@@ -16,6 +16,7 @@ from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.defaults import (
     DEFAULT_GH_CACHE_TTL_SECONDS,
     DEFAULT_GH_GRAPHQL_SAFETY_THRESHOLD,
+    DEFAULT_GH_MAX_PAGINATED_PAGES,
     DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC,
     DEFAULT_GH_PROJECT_OPTION_COLOR,
 )
@@ -25,6 +26,12 @@ from devops_cli.github.rate_limiter import (
     extract_json_payload,
     get_github_rate_limiter,
     run_gh,
+)
+from devops_cli.roadmap.board_read import (
+    BoardItemsPage,
+    GraphQLBudget,
+    board_items_args,
+    require_floor,
 )
 
 logger = logging.getLogger(__name__)
@@ -711,60 +718,60 @@ def _extract_item_fields(it: dict[str, Any]) -> dict[str, str | None]:
     }
 
 
-def _parse_project_items_json(stdout: str) -> dict[str, dict[str, str | None]]:
-    """Parse output of gh project item-list or REST items into mapping of URL -> {field: value}."""
-    if not stdout or not stdout.strip():
-        return {}
-    payload = extract_json_payload(stdout)
-    raw_items = payload.get("items", []) if isinstance(payload, dict) else payload
-    if not isinstance(raw_items, list):
-        return {}
-    items_data: dict[str, dict[str, str | None]] = {}
-    for it in raw_items:
-        if isinstance(it, dict):
-            url = _extract_item_url(it)
-            if url:
-                items_data[url] = _extract_item_fields(it)
-    return items_data
-
-
 def _fetch_project_items_data(owner: str, project_number: int) -> dict[str, dict[str, str | None]]:
     """Retrieve items and current custom field values from the project board.
 
-    Raises when the board cannot be read, so a failed read never looks like an empty board.
+    The board is read with the roadmap store's paged GraphQL query (#1125), every item not
+    archived, a page at a time; each page reports the points it cost, which `run_gh` charges,
+    and the read stops before a page while fewer than the floor are left. `gh project
+    item-list` paged the board unseen and reported no cost. Raises when the board cannot be
+    read whole, so a failed read never looks like an empty board.
     """
-    owner_arg = _resolve_project_owner_arg(owner)
-    cmd = [
-        CONST_GH_CLI,
-        "project",
-        "item-list",
-        str(project_number),
-        "--owner",
-        owner_arg,
-        "--format",
-        "json",
-        "--limit",
-        "1000",
-    ]
-    proc = run_gh(cmd, check=False, quiet=True, use_cache=True, cache_ttl=60.0)
-    if proc.returncode != 0 and owner_arg != "@me":
-        fallback_cmd = [
-            CONST_GH_CLI,
-            "project",
-            "item-list",
-            str(project_number),
-            "--owner",
-            "@me",
-            "--format",
-            "json",
-            "--limit",
-            "1000",
-        ]
-        proc = run_gh(fallback_cmd, check=False, quiet=True, use_cache=True, cache_ttl=60.0)
+    login = owner.strip()
+    if login == "@me":
+        login = _get_authenticated_user() or login
+    what = f"project #{project_number} items"
+    listing: dict[str, dict[str, Any]] = {}
+    total = 0
+    after: str | None = None
+    budget: GraphQLBudget | None = None
+    for page in range(1, DEFAULT_GH_MAX_PAGINATED_PAGES + 1):
+        if budget is not None:
+            require_floor(budget, what, page)
+        read = _read_project_items_page(login, project_number, after)
+        budget = read.rate_limit
+        total = read.items.total_count
+        listing.update((entry["id"], entry) for entry in read.listed())
+        after = read.next_cursor()
+        if after is None:
+            break
+    if after is not None or len(listing) < total:
+        raise GitHubOperationError(
+            f"Read {len(listing)} of {total} {what}, so the read is incomplete.",
+            operation="fetch_project_items",
+            details={"project_number": project_number, "received": len(listing), "total": total},
+        )
+    items_data: dict[str, dict[str, str | None]] = {}
+    for entry in listing.values():
+        url = _extract_item_url(entry)
+        if url:
+            items_data[url] = _extract_item_fields(entry)
+    return items_data
 
+
+def _read_project_items_page(owner: str, project_number: int, after: str | None) -> BoardItemsPage:
+    """One page of the board's items, raising when GitHub can't be read or answers malformed."""
+    args = board_items_args(owner, project_number, "", after=after)
+    proc = run_gh([CONST_GH_CLI, *args], check=False, quiet=True, use_cache=False)
     if proc.returncode == 0:
-        return _parse_project_items_json(proc.stdout or "")
-
+        try:
+            return BoardItemsPage.model_validate_json(proc.stdout or "")
+        except ValueError as exc:
+            raise GitHubOperationError(
+                f"GitHub returned malformed project #{project_number} items: {str(exc)[:256]}",
+                operation="fetch_project_items",
+                details={"project_number": project_number},
+            ) from exc
     err_output = f"{proc.stderr or ''} {proc.stdout or ''}".strip()
     check_github_rate_limit_error(err_output, operation="fetch_project_items")
     raise GitHubOperationError(

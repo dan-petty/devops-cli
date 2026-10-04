@@ -2184,29 +2184,61 @@ CONST_HELM_OWNERSHIP_CONFLICT_RE: Final[re.Pattern[str]] = re.compile(
     r'([A-Za-z0-9_-]+)\s+"([^"]+)"\s+in namespace\s+"([^"]*)"'
 )
 
-# GitHub CLI rate limiter mutation verbs and HTTP methods
-CONST_GH_MUTATION_VERBS: Final[frozenset[str]] = frozenset(
+# What a gh request writes (#1125, `github/request_classifier.py`). Uncertain requests count as
+# writes, so a high-level command reads only when its verb is a read verb or its group only reads.
+CONST_GH_READ_VERBS: Final[frozenset[str]] = frozenset(
     {
-        "edit",
-        "create",
-        "delete",
-        "add",
-        "close",
-        "reopen",
-        "merge",
-        "comment",
-        "item-edit",
-        "item-add",
-        "item-create",
-        "item-delete",
-        "field-create",
-        "field-delete",
-        "ready",
-        "resolve",
-        "archive",
-        "sync",
-        "set",
+        "view",
+        "list",
+        "status",
+        "checks",
+        "diff",
+        "show",
+        "item-list",
+        "field-list",
     }
+)
+CONST_GH_READ_GROUPS: Final[frozenset[str]] = frozenset({"search"})
+# The value flags gh takes before a high-level command's verb (`gh -R o/r issue list`,
+# `gh project --owner o item-list 2`), so the verb parser skips them and their values.
+CONST_GH_COMMAND_VALUE_FLAGS: Final[tuple[tuple[str, ...], ...]] = (
+    ("-R", "--repo"),
+    ("--owner",),
+)
+
+# `gh api` as `gh api --help` documents it (gh 2.102.0): the method is GET, or POST when a field
+# or `--input` is given; `-F key=@path` and `--input path` read a file, `-` meaning stdin; the
+# `graphql` endpoint takes its document and operation name from the `query` and `operationName`
+# fields or body keys.
+CONST_GH_API_SUBCOMMAND: Final[str] = "api"
+CONST_GH_API_GRAPHQL_ENDPOINT: Final[str] = "graphql"
+CONST_GH_API_DEFAULT_METHOD: Final[str] = "GET"
+CONST_GH_API_PARAMS_METHOD: Final[str] = "POST"
+CONST_GH_API_FIELD_SEPARATOR: Final[str] = "="
+CONST_GH_API_FILE_VALUE_PREFIX: Final[str] = "@"
+CONST_GH_API_STDIN_PATH: Final[str] = "-"
+CONST_GRAPHQL_QUERY_KEY: Final[str] = "query"
+CONST_GRAPHQL_OPERATION_NAME_KEY: Final[str] = "operationName"
+CONST_GRAPHQL_REQUEST_KEYS: Final[tuple[str, ...]] = (
+    CONST_GRAPHQL_QUERY_KEY,
+    CONST_GRAPHQL_OPERATION_NAME_KEY,
+)
+# The other `gh api` flags, so the argv parser skips them and their values.
+CONST_GH_API_VALUE_FLAGS: Final[tuple[tuple[str, ...], ...]] = (
+    ("--cache",),
+    ("-H", "--header"),
+    ("--hostname",),
+    ("-q", "--jq"),
+    ("-p", "--preview"),
+    ("-t", "--template"),
+)
+CONST_GH_API_SWITCH_FLAGS: Final[tuple[tuple[str, ...], ...]] = (
+    ("--allow-escape-sequences",),
+    ("-i", "--include"),
+    ("--paginate",),
+    ("--silent",),
+    ("--slurp",),
+    ("--verbose",),
 )
 
 CONST_GH_MUTATION_HTTP_METHODS: Final[frozenset[str]] = frozenset(
@@ -2355,6 +2387,15 @@ CONST_FRONTIER_MODEL_PREFIXES: Final[tuple[str, ...]] = (
 # ── Roadmap on GitHub (ADR 0001) ──────────────────────────────────────────────
 # Repository files every roadmap runner reads through the contents API at one ref.
 CONST_ROADMAP_CONFIG_PATH: Final[str] = ".github/roadmap.toml"
+# The Projects filter each board read passes at the source, archived items always left out
+# (#1125). "" reads every item not archived, open and closed: reprioritize judges a Release's
+# closed members, render lists them, intake looks up any issue it is given, and migrate's
+# one-time reads may include closed items. The backlog and the candidates read open items only.
+CONST_ROADMAP_OPEN_ITEMS_FILTER: Final[str] = "is:open"
+CONST_ROADMAP_MIGRATE_BOARD_FILTER: Final[str] = ""
+CONST_ROADMAP_RENDER_BOARD_FILTER: Final[str] = ""
+CONST_ROADMAP_REPRIORITIZE_BOARD_FILTER: Final[str] = ""
+CONST_ROADMAP_INTAKE_BOARD_FILTER: Final[str] = ""
 CONST_ROADMAP_DOCUMENT_PATH: Final[str] = "docs/ROADMAP.md"
 CONST_PROJECT_TEMPLATE_PATH: Final[str] = ".github/project-template.json"
 CONST_ROADMAP_ADR_PATH: Final[str] = "docs/adr/0001-github-is-the-roadmap-source.md"
