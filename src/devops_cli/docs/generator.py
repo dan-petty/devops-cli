@@ -163,7 +163,12 @@ def _parse_mcp_input_schema_parameters(input_schema: Any) -> list[dict[str, Any]
 
 def _mcp_tool_to_doc(tool: Any) -> MCPToolDoc:
     """Convert an instantiated FastMCP tool to an MCPToolDoc documentation model."""
-    input_schema = getattr(tool, "parameters", None) or getattr(tool, "inputSchema", None) or {}
+    input_schema = (
+        getattr(tool, "parameters", None)
+        or getattr(tool, "input_schema", None)
+        or getattr(tool, "inputSchema", None)
+        or {}
+    )
     return MCPToolDoc(
         name=tool.name,
         description=tool.description or "",
