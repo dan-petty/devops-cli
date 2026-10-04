@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: roadmap-service-ingress
+  namespace: devops
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: roadmap-service
+  policyTypes:
+    - Ingress
+  ingress:
+    # 1. Traefik pods in kube-system
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8000
+    # 2. Prometheus metrics scraping from monitoring
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8000

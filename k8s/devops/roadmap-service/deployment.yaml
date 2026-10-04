@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: roadmap-service
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: roadmap-service
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: roadmap-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: roadmap-service
+        app.kubernetes.io/part-of: devops-cli-stack
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+    spec:
+      terminationGracePeriodSeconds: 150
+      serviceAccountName: devops-cli
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: service
+          image: ghcr.io/dan-petty/devops-cli/service
+          imagePullPolicy: IfNotPresent
+          args:
+            - serve
+            - --service
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            - --workers
+            - "1"
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          envFrom:
+            - secretRef:
+                name: devops-cli
+          env:
+            - name: DEVOPS_CLI_CONFIG
+              value: /config/devops-cli.yaml
+            - name: DEVOPS_CLI_DATA_DIR
+              value: /home/devops/.data
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: home
+              mountPath: /home/devops
+            - name: config
+              mountPath: /config
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: home
+          persistentVolumeClaim:
+            claimName: roadmap-service-home
+        - name: config
+          configMap:
+            name: devops-cli-config

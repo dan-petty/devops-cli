@@ -28,3 +28,7 @@ data:
     telemetry:
       # The perimeter admits no collector.
       enabled: false
+    service:
+      repos:
+        - dan-petty/devops-cli
+      machine_account: devops-bot

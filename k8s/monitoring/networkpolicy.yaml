@@ -117,6 +117,13 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
+              kubernetes.io/metadata.name: devops
+      ports:
+        - protocol: TCP
+          port: 8000
+    - to:
+        - namespaceSelector:
+            matchLabels:
               kubernetes.io/metadata.name: otel
       ports:
         - protocol: TCP

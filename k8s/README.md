@@ -302,8 +302,9 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `llm/qdrant-api-key` | `api-key` | keyring `qdrant_api_key` | yes | adopt the live value; else generate `token_urlsafe(32)` | llm | `statefulset/qdrant` |
 | `llm/valkey-runs-auth` | `password` | keyring `runs_index_password` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey-runs` |
 | `cloudflared/cloudflared-token` | `token` | keyring `cloudflare_tunnel_token` | no | adopt the live value; else skip with a warning | base | `deployment/cloudflared` |
-| `devops/devops-cli` | `GH_TOKEN` | gh account | yes | fail | devops | none |
-| `devops/devops-cli` | `DEVOPS_CLI_AI_API_KEY` | keyring `llm_gateway_master_key` | yes | adopt from `llm/llm-gateway-secrets master-key`; else fail | devops | none |
+| `devops/devops-cli` | `GH_TOKEN` | gh account | yes | fail | devops | `deployment/roadmap-service` |
+| `devops/devops-cli` | `DEVOPS_CLI_AI_API_KEY` | keyring `llm_gateway_master_key` | yes | adopt from `llm/llm-gateway-secrets master-key`; else fail | devops | `deployment/roadmap-service` |
+| `devops/devops-cli` | `DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS` | keyring `service_webhook_secrets` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
 
 - The keyring must be unlocked (`devops devcontainer unlock-keyring`); a locked or missing keyring stops the push before anything is read or written, and stops deploy-stack before it applies anything.
 - A value the keyring lacks but the cluster holds is adopted into the keyring, so a first push changes nothing live. Only values nobody types are generated, and each is stored in the keyring before it is pushed.
@@ -340,6 +341,20 @@ devops k8s run-job --context <context> --no-wait -- ai gateway status --format j
 kubectl -n devops get jobs -l app.kubernetes.io/name=devops-cli-job
 kubectl -n devops logs -f job/<name>
 ```
+
+### Roadmap service
+
+1. `uv run devops config set service.webhook_secrets` (hidden prompt; a JSON object mapping `owner/name` to its secret).
+2. `uv run devops k8s push-secrets --stack devops`, with the machine account's login in `k8s.github_account` (#741). deploy-stack also pushes it once namespace `devops` exists.
+3. Invite the machine account as a Write collaborator on each repo and board.
+4. Check that the GHCR `service` package is public (#741 made it so): `DOCKER_CONFIG=$(mktemp -d) docker pull ghcr.io/dan-petty/devops-cli/service:<tag>`.
+5. `devops cloudflare tunnel routes`. If no route covers the webhook host, add one in the dashboard, not with `tunnel sync` (#794).
+6. `devops cloudflare access status`, then add a Bypass application for `hooks.<domain>/webhooks/github`.
+7. `devops k8s apply k8s/monitoring/networkpolicy.yaml`, until #755 or #913 deploys it.
+8. `devops k8s apply k8s/devops/ --template`, until #755.
+9. Add each repo's webhook: `https://hooks.<domain>/webhooks/github`, `application/json`, that repo's secret, and the Issues, Pull requests and Milestones events.
+10. To rotate a credential, update it in the keyring (`uv run devops config set service.webhook_secrets`, or `gh auth login` for the machine account), then run `uv run devops k8s push-secrets --only devops/devops-cli --rotate`. It restarts `roadmap-service`.
+11. Run one service per set of repos. While it runs, use `devops roadmap run --dry-run` (#981).
 
 ## Teardown
 
@@ -445,7 +460,14 @@ k8s/
 │   ├── serviceaccount.yaml   # devops-cli service account without an API token
 │   ├── configmap.yaml        # devops-cli config: the in-cluster gateway, no credential
 │   ├── cronjob.yaml          # Suspended CronJob devops-cli, the template of every cluster job
-│   └── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out
+│   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out
+│   └── roadmap-service/      # Continuous roadmap service Deployment, Service, Ingress, NetworkPolicy, PVC
+│       ├── kustomization.yaml
+│       ├── deployment.yaml
+│       ├── ingress.yaml
+│       ├── networkpolicy.yaml
+│       ├── pvc.yaml
+│       └── service.yaml
 ├── ingress/
 │   ├── kustomization.yaml    # Kustomize overlay for cluster ingress routes
 │   ├── traefik-values.yaml   # Traefik Helm values with ClusterIP service type
