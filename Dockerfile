@@ -21,10 +21,11 @@ RUN tar -xzf /tmp/gh.tar.gz -C /tmp && \
 
 FROM python:3.14-slim-trixie@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     git \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/local/lib/python3.14/site-packages/pip* /usr/local/bin/pip*
 
 COPY --from=builder /usr/local/bin/gh /usr/local/bin/gh
 COPY --from=builder /app/.venv /app/.venv
