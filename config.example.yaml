@@ -92,8 +92,8 @@ ai:
   # reasoning_effort: low  # Reasoning effort level: low | medium | high
 
   # Reference model used for counterfactual cloud spend calculations and hardware payoff.
-  # Defaults to gpt-4o.
-  reference_model: gpt-4o
+  # Defaults to gpt-4o-mini.
+  reference_model: gpt-4o-mini
 
   # Total hardware investment cost in USD (e.g. GPU workstation or cluster node purchases).
   # Used by `devops ai cost` to calculate payback progress and amortization against local LLM usage.

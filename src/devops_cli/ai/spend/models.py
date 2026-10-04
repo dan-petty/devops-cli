@@ -143,7 +143,7 @@ class LifetimeSpendReport(BaseModel):
     providers: list[ProviderSpendSummary] = Field(default_factory=list)
     backends: list[BackendSpendSummary] = Field(default_factory=list)
     stages: list[StageSpendSummary] = Field(default_factory=list)
-    reference_model: str = "gpt-4o"
+    reference_model: str = "gpt-4o-mini"
     local_requests: int = 0
     local_prompt_tokens: int = 0
     local_completion_tokens: int = 0
@@ -168,4 +168,4 @@ class HardwarePayoffSummary(BaseModel):
     remaining_usd: float = 0.0
     daily_savings_usd: float = 0.0
     estimated_days_to_payoff: float | None = None
-    reference_model: str = "gpt-4o"
+    reference_model: str = "gpt-4o-mini"

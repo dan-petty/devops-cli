@@ -26,6 +26,8 @@ api:
 metrics:
   prometheus:
     entryPoint: metrics
+    addRoutersLabels: true
+    addServicesLabels: true
 
 securityContext:
   runAsNonRoot: true

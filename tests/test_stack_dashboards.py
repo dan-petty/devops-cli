@@ -334,7 +334,7 @@ def test_a_series_or_label_a_classic_histogram_or_summary_never_serves_fails(
 
 # The panels that draw a limit as a threshold line, by dashboard.
 LIMIT_LINES = {
-    "llm-stack.json": [],
+    "llm-stack.json": ["GPU Memory Utilization (%)"],
     "otel-collector.json": [
         "Exporter Queue Fill",
         "Process Memory against the memory_limiter Limit",

@@ -69,7 +69,7 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 |---|---|---|---|---|
 | `provider` | `str` | `ollama` | `DEVOPS_CLI_AI_PROVIDER` | - |
 | `model` | `str` | `gemma4:26b` | `DEVOPS_CLI_AI_MODEL` | - |
-| `reference_model` | `str` | `gpt-4o` | - | - |
+| `reference_model` | `str` | `gpt-4o-mini` | - | - |
 | `hardware_cost_usd` | `float` | `0.0` | - | - |
 | `reasoning_effort` | `Union` | - | `DEVOPS_CLI_AI_REASONING_EFFORT` | - |
 | `temperature` | `float` | `0.1` | - | - |
