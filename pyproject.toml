@@ -15,7 +15,7 @@ dependencies = [
     "pydantic==2.13.5",
     "PyGithub==2.10.0",
     "gitpython==3.1.62",
-    "cryptography==50.0.1",
+    "cryptography==50.0.2",
     "httpx2==2.13.0",
     "keyring==25.7.0",
     "PyYAML==6.0.3",
@@ -74,7 +74,7 @@ dev = [
     "pytest-cov==7.1.0",
     "pytest-xdist==3.8.0",
     "bandit==1.9.4",
-    "actionlint-py==1.7.12.24",
+    "actionlint-py==1.7.12.25",
     "pre-commit==4.6.2",
     "hypothesis==6.168.3",
 ]
