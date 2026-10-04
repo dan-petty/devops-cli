@@ -52,7 +52,6 @@ _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
     },
     "logging": {
         "grafana": "https://grafana.github.io/helm-charts",
-        "fluent": "https://fluent.github.io/helm-charts",
     },
 }
 
@@ -136,12 +135,6 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "chart": "grafana/loki",
             "namespace": "logging",
             "values": str(DEFAULT_K8S_DIR / "logging" / "loki-values.yaml"),
-        },
-        {
-            "name": "fluent-bit",
-            "chart": "fluent/fluent-bit",
-            "namespace": "logging",
-            "values": str(DEFAULT_K8S_DIR / "logging" / "fluent-bit-values.yaml"),
         },
     ],
 }

@@ -1226,13 +1226,6 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert loki_values["singleBinary"]["resources"]["limits"]["cpu"] == "1000m"
     assert loki_values["singleBinary"]["resources"]["limits"]["memory"] == "2048Mi"
 
-    # 9. Fluent Bit values: elevated daemonset limits
-    fb_values = yaml.safe_load(
-        (repo_root / "k8s" / "logging" / "fluent-bit-values.yaml").read_text(encoding="utf-8")
-    )
-    assert fb_values["resources"]["limits"]["cpu"] == "500m"
-    assert fb_values["resources"]["limits"]["memory"] == "1024Mi"
-
     # 10. K8s monitoring stack values: elevated requests and limits to eliminate OOM kills
     k8s_mon_values = yaml.safe_load(
         (repo_root / "k8s" / "monitoring" / "k8s-monitoring-values.yaml").read_text(
@@ -1379,35 +1372,28 @@ def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:
     """Verify deploy-stack enforces --force-conflicts and k8s manifests meet security & chart contracts."""
     repo_root = Path(__file__).resolve().parent.parent
 
-    # 1. Namespaces: logging has privileged pod-security standard for hostPath daemonset
+    # 1. Namespaces: logging has baseline pod-security standard
     ns_docs = list(
         yaml.safe_load_all((repo_root / "k8s" / "namespaces.yaml").read_text(encoding="utf-8"))
     )
     logging_ns = next(d for d in ns_docs if d and d.get("metadata", {}).get("name") == "logging")
-    assert logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/enforce"] == "privileged"
-    assert logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/warn"] == "baseline"
-    assert logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/audit"] == "baseline"
+    assert (
+        logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/enforce"],
+        logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/warn"],
+        logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/audit"],
+    ) == ("baseline", "baseline", "baseline")
 
     # 2. Loki values: zeroed scalable target replicas for SingleBinary mode
     loki_values = yaml.safe_load(
         (repo_root / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
     )
-    assert loki_values["read"]["replicas"] == 0
-    assert loki_values["write"]["replicas"] == 0
-    assert loki_values["backend"]["replicas"] == 0
+    assert (
+        loki_values["read"]["replicas"],
+        loki_values["write"]["replicas"],
+        loki_values["backend"]["replicas"],
+    ) == (0, 0, 0)
 
-    # 3. Fluent-bit values: official loki output plugin
-    fb_values = yaml.safe_load(
-        (repo_root / "k8s" / "logging" / "fluent-bit-values.yaml").read_text(encoding="utf-8")
-    )
-    assert "Name loki" in fb_values["config"]["outputs"]
-    assert "grafana-loki" not in fb_values["config"]["outputs"]
-    assert "labels job=fluent-bit" in fb_values["config"]["outputs"]
-    assert "namespace=$kubernetes['namespace_name']" in fb_values["config"]["outputs"]
-    assert "pod=$kubernetes['pod_name']" in fb_values["config"]["outputs"]
-    assert "container=$kubernetes['container_name']" in fb_values["config"]["outputs"]
-
-    # 4. Qdrant values: disabled unprivileged volume chown initContainer
+    # 3. Qdrant values: disabled unprivileged volume chown initContainer
     qdrant_values = yaml.safe_load(
         (repo_root / "k8s" / "llm" / "values-qdrant.yaml").read_text(encoding="utf-8")
     )

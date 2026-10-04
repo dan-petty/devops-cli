@@ -34,10 +34,8 @@ def _is_manifest_document(document: Any) -> bool:
     """Report whether a YAML document is a Kubernetes manifest.
 
     `apiVersion` is the discriminator, not `kind`. Helm charts legitimately expose `kind` as
-    a values key -- fluent-bit uses it to choose between a DaemonSet and a Deployment -- so
-    keying on it reports correct values files as broken manifests. Across this repository
-    every real manifest declares both fields and exactly one values file declares `kind`
-    alone.
+    a values key, so keying on it reports correct values files as broken manifests. Across
+    this repository every real manifest declares both fields.
 
     A document omitting `apiVersion` is therefore skipped. That trades away detection of a
     manifest missing it entirely, which `kubectl apply` rejects immediately with a clearer

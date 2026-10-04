@@ -2058,7 +2058,7 @@ CONST_KNOWN_EMBEDDING_DIMENSIONS: Final[dict[str, int]] = {
 
 # Helm releases that deploy DaemonSets across all cluster nodes
 CONST_HELM_DAEMONSET_RELEASES: Final[frozenset[str]] = frozenset(
-    {"k8s-monitoring", "dcgm-exporter", "fluent-bit"}
+    {"k8s-monitoring", "dcgm-exporter"}
 )
 
 # Helm releases teardown-stack leaves installed: deleting a CRD deletes every object of its kind
