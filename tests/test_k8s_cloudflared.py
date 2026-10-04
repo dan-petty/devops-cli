@@ -17,10 +17,11 @@ def test_cloudflared_manifest_files_exist() -> None:
         CLOUDFLARED_DIR / "deployment.yaml",
         CLOUDFLARED_DIR / "networkpolicy.yaml",
         CLOUDFLARED_DIR / "kustomization.yaml",
-        CLOUDFLARED_DIR / "secret.example.yaml",
     ]
     for file_path in expected_files:
         assert file_path.is_file(), f"Expected file does not exist: {file_path}"
+    # The token comes from the keyring (`devops k8s push-secrets`), not a template to fill in.
+    assert not (CLOUDFLARED_DIR / "secret.example.yaml").exists()
 
 
 def test_cloudflared_kustomization_and_namespace_registration() -> None:

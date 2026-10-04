@@ -87,6 +87,26 @@ def test_config_set_command(tmp_path: Path) -> None:
         assert res_inv.exit_code == 1
 
 
+def test_config_set_prompts_hidden_for_a_credential_without_a_value() -> None:
+    """A credential typed at the hidden prompt goes to the keyring and is never echoed."""
+    with (
+        patch("devops_cli.commands.config.save_settings"),
+        patch("devops_cli.config.settings._keyring_set") as keyring_set,
+    ):
+        result = runner.invoke(config_app, ["set", "ai.api_key"], input="x\n")
+    assert (result.exit_code, keyring_set.call_args.args, "x" in result.output) == (
+        0,
+        ("ai_api_key", "x"),
+        False,
+    )
+
+
+def test_config_set_requires_a_value_for_a_non_credential_key() -> None:
+    with patch("devops_cli.commands.config.save_settings") as save:
+        result = runner.invoke(config_app, ["set", "ai.model"])
+    assert (result.exit_code, save.called) == (2, False)
+
+
 def test_config_init_wizard_flow(tmp_path: Path) -> None:
     """Verify devops config init interactive setup wizard."""
     settings = Settings()

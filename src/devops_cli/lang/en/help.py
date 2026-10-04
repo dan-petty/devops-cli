@@ -276,6 +276,53 @@ class K8sCommandHelp:
     logs: str = "Fetch container logs for a pod."
     bootstrap: str = "Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress."
     deploy_stack: str = "Deploy application stacks (infra, llm, all) via Helm/Kustomize."
+    push_secrets: str = (
+        "Write the cluster's Secrets from the OS keyring (workstation keyring → cluster, the "
+        "reverse of sync-secrets). Adopts live values the keyring lacks, generates the ones "
+        "nobody types, and never replaces a live value without --rotate."
+    )
+    push_stack: str = (
+        "Push the Secrets of one stack: base, infra, llm, logging, devops, or all (default)."
+    )
+    push_only: str = "Push only this Secret, as NAMESPACE/NAME. Repeatable; replaces --stack."
+    push_github_account: str = (
+        "Machine account whose gh token becomes GH_TOKEN (default: k8s.github_account)."
+    )
+    push_rotate: str = "Replace live values that differ from the keyring's."
+    push_restart: str = (
+        "Restart the workloads of each existing Secret whose data changed; "
+        "--no-restart prints the commands instead."
+    )
+    push_dry_run: str = (
+        "Make no request, reads included: print the requests a push would make, in order, "
+        "with placeholders for every value. Wins over --plan."
+    )
+    push_plan: str = (
+        "Read the keyring, the live Secrets and, for the machine account's token, gh's own "
+        "record of the account (read-only; gh checks the token on github.com); print each "
+        "key's state and the workloads a change would restart, and write nothing."
+    )
+    deploy_dry_run: str = (
+        "Print the releases, manifests and Secrets (key names only) a deploy would apply, and "
+        "run nothing."
+    )
+    push_secrets_flag: str = (
+        "Push the stacks' Secrets from the OS keyring before applying anything "
+        "(--no-push-secrets for a cluster without a keyring)."
+    )
+    run_job: str = (
+        "Run a devops command as a Job in namespace devops, from CronJob devops-cli's "
+        "template with only its arguments changed, follow its log and exit with its exit code."
+    )
+    run_job_args: str = "The devops arguments the Job runs, after `--`."
+    run_job_wait: str = (
+        "Follow the Job's log and exit with its exit code; --no-wait prints the Job's name."
+    )
+    run_job_start_timeout: str = "Seconds to wait for the Job's pod to leave Pending."
+    run_job_dry_run: str = (
+        "Make no request, not even the CronJob read: print the kubectl requests a run would "
+        "make, in order, with the Job's template parts as placeholders."
+    )
     teardown_stack: str = "Teardown deployed application stacks."
     urls: str = "Display ingress and service URLs for deployed stacks."
     lint: str = "Run KubeLinter static analysis on Kubernetes manifests."
@@ -1202,7 +1249,10 @@ class ConfigCommandHelp:
         "Audit OS Keyring token health, backend status, and zero-plaintext secret compliance."
     )
     key: str = "Dotted config key, e.g. github.default_org."
-    value: str = "Value to set."
+    value: str = (
+        "Value to set. Omit it for a credential to type it at a hidden prompt, "
+        "keeping it out of the shell history and the process list."
+    )
     export_env: str = "Print environment variables as shell export statements."
     json_env: str = "Print environment variables as JSON."
     secret_key: str = "Dotted secret key, e.g. grafana.token."

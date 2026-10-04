@@ -28,6 +28,8 @@ from devops_cli.config.constants import (
     CONST_INIT_PY_PATH,
     CONST_PYPROJECT_FILENAME,
     CONST_README_FILENAME,
+    CONST_SERVICE_IMAGE,
+    CONST_SERVICE_IMAGE_KUSTOMIZATION,
 )
 from devops_cli.config.defaults import (
     DEFAULT_RELEASE_LABEL,
@@ -126,6 +128,49 @@ def _get_init_version(root: Path) -> str | None:
     if "__version__" in content:
         return _get_pyproject_version(root)
     return None
+
+
+def _service_image_entries(document: Any) -> list[dict[str, Any]]:
+    """The kustomization's `images:` entries for the service image."""
+    images = document.get("images") if isinstance(document, dict) else None
+    return [
+        image
+        for image in images or []
+        if isinstance(image, dict) and image.get("name") == CONST_SERVICE_IMAGE
+    ]
+
+
+def _load_service_image_kustomization(root: Path) -> tuple[Path, Any] | None:
+    """The runtime kustomization's path and parsed document, or None where there is none."""
+    import yaml
+
+    path = _resolve_safe_project_path(root, CONST_SERVICE_IMAGE_KUSTOMIZATION)
+    if not path.exists():
+        return None
+    return path, yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _get_service_image_tag(root: Path) -> str | None:
+    """The tag the runtime kustomization pins the service image to, or None where it has none."""
+    loaded = _load_service_image_kustomization(root)
+    entries = _service_image_entries(loaded[1]) if loaded else []
+    return str(entries[0].get("newTag")) if entries else None
+
+
+def _update_service_image_tag(root: Path, new_version: str) -> bool:
+    """Pin the runtime kustomization's service image to `v<version>`; False where it has none."""
+    import yaml
+
+    from devops_cli.output import write_text_file
+
+    loaded = _load_service_image_kustomization(root)
+    entries = _service_image_entries(loaded[1]) if loaded else []
+    if not loaded or not entries:
+        return False
+    for entry in entries:
+        entry["newTag"] = f"v{new_version}"
+    write_text_file(loaded[0], yaml.safe_dump(loaded[1], sort_keys=False))
+    return True
 
 
 def _get_latest_git_tag(root: Path) -> str | None:
@@ -570,7 +615,8 @@ def _release_paths(root: Path) -> list[str]:
     """The paths a release commit stages.
 
     `changelog.d/` is among them where it exists, so the commit records the fragments the cut
-    deleted; naming a path that does not exist would fail the whole `git add`.
+    deleted, and so is the runtime kustomization whose image tag the bump sets; naming a path
+    that does not exist would fail the whole `git add`.
     """
     paths = [
         CONST_PYPROJECT_FILENAME,
@@ -581,6 +627,8 @@ def _release_paths(root: Path) -> list[str]:
     ]
     if (root / CONST_CHANGELOG_FRAGMENTS_DIR).is_dir():
         paths.append(f"{CONST_CHANGELOG_FRAGMENTS_DIR}/")
+    if (root / CONST_SERVICE_IMAGE_KUSTOMIZATION).is_file():
+        paths.append(str(CONST_SERVICE_IMAGE_KUSTOMIZATION))
     return paths
 
 
@@ -803,14 +851,21 @@ def release_prepare(
             MESSAGES.release.updated_init.format(version=clean_version), prefix=False
         )
 
-    # 3. Update CHANGELOG.md, collecting changelog.d/ when it holds fragments
+    # 3. Pin the in-cluster runtime's service image to the release's tag
+    if _update_service_image_tag(repo_root, clean_version):
+        _get("print_info")(
+            MESSAGES.release.updated_service_image_tag.format(version=clean_version),
+            prefix=False,
+        )
+
+    # 4. Update CHANGELOG.md, collecting changelog.d/ when it holds fragments
     if update_changelog and _write_version_changelog(repo_root, clean_version, today, collection):
         _get("print_info")(
             MESSAGES.release.updated_changelog.format(version=clean_version, date=today),
             prefix=False,
         )
 
-    # 4. Regenerate documentation & sync README Command Matrix
+    # 5. Regenerate documentation & sync README Command Matrix
     if sync_docs:
         generator = _get("DocGenerator")(root_dir=repo_root)
         generator.write_all_docs(output_dir=repo_root / "docs", sync_readme_table=True)
@@ -1263,7 +1318,8 @@ def release_pr(
 
 
 def _verify_release_versions(repo_root: Path) -> str:
-    """Verify version consistency across pyproject.toml, __init__.py, and CHANGELOG.md."""
+    """Verify version consistency across pyproject.toml, __init__.py, the service image tag and
+    CHANGELOG.md."""
     pyproject_ver = _get_pyproject_version(repo_root)
     init_ver = _get_init_version(repo_root)
     changelog_ver = _get_latest_changelog_version(repo_root)
@@ -1272,6 +1328,15 @@ def _verify_release_versions(repo_root: Path) -> str:
         _get("print_error")(
             f"Version mismatch: pyproject.toml ({pyproject_ver}) != "
             f"src/devops_cli/__init__.py ({init_ver})",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    image_tag = _get_service_image_tag(repo_root)
+    if image_tag is not None and image_tag != f"v{pyproject_ver}":
+        _get("print_error")(
+            f"Version mismatch: {CONST_SERVICE_IMAGE_KUSTOMIZATION} pins {CONST_SERVICE_IMAGE} "
+            f"to {image_tag}, not v{pyproject_ver}. Run `devops release prepare {pyproject_ver}`.",
             prefix=False,
         )
         raise typer.Exit(1)

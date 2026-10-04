@@ -28,6 +28,7 @@ from devops_cli.commands.k8s.cluster_context import (
     status,
     switch_context,
 )
+from devops_cli.commands.k8s.cluster_jobs import run_job
 from devops_cli.commands.k8s.cluster_runtime import (
     _cluster_reachable,
     _get_unready_nodes,
@@ -38,6 +39,7 @@ from devops_cli.commands.k8s.cluster_runtime import (
     _validate_k8s_identifier,
     should_autostart_minikube,
 )
+from devops_cli.commands.k8s.cluster_secret_push import push_secrets
 from devops_cli.commands.k8s.diagnostics import (
     chaos_cmd,
     diff_helm_cmd,
@@ -77,7 +79,6 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     VALID_STACKS,
     _adopt_helm_resource_if_conflict,
     _bootstrap_openwebui_account,
-    _ensure_qdrant_api_key_secret,
     _recover_stuck_helm_release_if_pending,
     bootstrap_openwebui,
     deploy_stack,
@@ -105,6 +106,8 @@ app.command("bootstrap")(bootstrap)
 app.command("bootstrap-openwebui")(bootstrap_openwebui)
 app.command("deploy-stack")(deploy_stack)
 app.command("sync-secrets")(sync_secrets)
+app.command("push-secrets", help=HELP.k8s.push_secrets)(push_secrets)
+app.command("run-job", help=HELP.k8s.run_job)(run_job)
 app.command("configure-urls")(configure_urls)
 app.command("service-url")(service_url)
 app.command("port-forward")(port_forward)
@@ -137,7 +140,6 @@ __all__ = [
     "_bootstrap_openwebui_account",
     "_cluster_reachable",
     "_detect_service_url",
-    "_ensure_qdrant_api_key_secret",
     "_extract_first_node_ip",
     "_get_unready_nodes",
     "_k8s_clients",
@@ -170,8 +172,10 @@ __all__ = [
     "logs",
     "pods_cmd",
     "port_forward",
+    "push_secrets",
     "rbac_audit",
     "render",
+    "run_job",
     "run_subprocess",
     "security_stream_cmd",
     "should_autostart_minikube",

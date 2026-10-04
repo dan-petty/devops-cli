@@ -119,11 +119,13 @@ def show() -> None:
     _secret_row(opt.AI_API_KEY, _is_secret_configured(opt.AI_API_KEY))
     _row(opt.K8S_CONTEXT, settings.k8s.context)
     _row(opt.K8S_DOMAIN, settings.k8s.domain)
+    _row(opt.K8S_GITHUB_ACCOUNT, settings.k8s.github_account)
     _row(opt.CLOUDFLARE_DOMAIN, settings.cloudflare.domain)
     _row(opt.CLOUDFLARE_TUNNEL, settings.cloudflare.tunnel)
     _row(opt.CLOUDFLARE_ACCOUNT_ID, settings.cloudflare.account_id)
     _row(opt.CLOUDFLARE_ZONE_ID, settings.cloudflare.zone_id)
     _secret_row(opt.CLOUDFLARE_API_TOKEN, _is_secret_configured(opt.CLOUDFLARE_API_TOKEN))
+    _secret_row(opt.CLOUDFLARE_TUNNEL_TOKEN, _is_secret_configured(opt.CLOUDFLARE_TUNNEL_TOKEN))
 
     print_table(
         title=MESSAGES.config.header,
@@ -162,12 +164,26 @@ def get_value(
 # =============================================================================
 
 
+def _value_or_prompt(key: str, value: str | None) -> str:
+    """The given value, or a credential typed at a hidden prompt, keeping it out of argv.
+
+    A non-credential key without a value exits 2.
+    """
+    if value is not None:
+        return value
+    if key not in _SECRET_FIELDS:
+        print_error(MESSAGES.config.value_required.format(key=key), prefix=False, safe=True)
+        raise typer.Exit(2)
+    return str(typer.prompt(MESSAGES.config.secret_prompt.format(key=key), hide_input=True))
+
+
 @app.command("set")
 def set_value(
     key: Annotated[str, typer.Argument(help=HELP.config.key)],
-    value: Annotated[str, typer.Argument(help=HELP.config.value)],
+    value: Annotated[str | None, typer.Argument(help=HELP.config.value)] = None,
 ) -> None:
-    """Set a configuration value. Tokens are stored in the OS keyring."""
+    """Set a configuration value. Credentials go to the OS keyring; omit VALUE to type one hidden."""
+    value = _value_or_prompt(key, value)
     settings = load_settings()
     try:
         dotted_set(settings, key, value)

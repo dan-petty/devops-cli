@@ -164,6 +164,8 @@ class ConfigMessages:
     not_set: str = "not set"
     set_success: str = "✓ Set {key} = {value}"
     set_secret_success: str = "✓ Set {key} in OS keyring"
+    value_required: str = "{key} needs a VALUE; only a credential may be typed at a hidden prompt."
+    secret_prompt: str = "{key} (typing hidden)"
 
 
 @dataclass(frozen=True)
@@ -291,6 +293,48 @@ class K8sMessages:
     table_title_tls_secrets: str = "Kubernetes TLS Secret Deployment"
     table_title_pods: str = "Kubernetes Pods"
     table_title_contexts: str = "Kubernetes Contexts"
+    push_unknown_secret: str = "Unknown Secret: {names}. The table holds: {known}."
+    push_unknown_stack: str = "Unknown stack '{stack}'. Choose one of: {known}."
+    push_namespace_missing: str = "Namespace {namespace} not found: skipped {secret}."
+    push_restart_command: str = "Restart skipped (--no-restart): {command}"
+    push_failed: str = "Cluster Secrets not pushed; nothing was written. {reason}"
+    push_write_failed: str = (
+        "Cluster Secret push stopped while writing. Already done: {completed}. {reason} "
+        "Fix the cause and rerun; stored keyring values are reused, so nothing is regenerated."
+    )
+    pushing_secrets: str = "[bold]Pushing cluster Secrets from the keyring...[/bold]"
+    push_plan_read: str = (
+        "Plan only: read {sources}{context}; wrote nothing. "
+        "--dry-run lists the requests without making any."
+    )
+    push_plan_sources: str = "the keyring and the cluster"
+    push_plan_sources_github: str = (
+        "the keyring, gh's record of its machine account (gh checks the token on github.com) "
+        "and the cluster"
+    )
+    push_dry_run_heading: str = (
+        "Dry run: no request was made. A push would make these requests, in order:"
+    )
+    push_dry_run_writes: str = (
+        "The writes, from the first keyring write on, run only when every key resolves: no "
+        "source missing or invalid, and no live value differing without --rotate. "
+        "--plan reads the keyring, gh and the cluster to show each key's state."
+    )
+    job_cronjob_missing: str = (
+        "CronJob devops/devops-cli not found. Apply it first: "
+        "devops k8s apply k8s/devops/ --template"
+    )
+    job_created: str = "Created Job {name}. Follow it with: kubectl -n devops logs -f job/{name}"
+    job_dry_run_heading: str = (
+        "Dry run: no request was made. run-job would make these requests, in order:"
+    )
+    job_not_started: str = (
+        "Job {name} did not start within {seconds:g} s. Inspect it: "
+        "kubectl -n devops describe job/{name}"
+    )
+    job_no_exit_code: str = (
+        "Job {name} reported no exit code. Inspect it: kubectl -n devops describe job/{name}"
+    )
     table_title_configured_services: str = "Configured Service Targets ({stack})"
     table_title_policy_violations: str = "Kubernetes Policy Violations ({engine})"
     table_title_rbac_audit: str = "Kubernetes RBAC Security Audit"
@@ -377,6 +421,9 @@ class ReleaseMessages:
     preparing_release: str = "Preparing release version [cyan]{version}[/cyan]..."
     updated_pyproject: str = "✓ Updated pyproject.toml to version [bold]{version}[/bold]"
     updated_init: str = "✓ Updated src/devops_cli/__init__.py to version [bold]{version}[/bold]"
+    updated_service_image_tag: str = (
+        "✓ Pinned the service image in k8s/devops/kustomization.yaml to [bold]v{version}[/bold]"
+    )
     updated_changelog: str = (
         "✓ Updated CHANGELOG.md with release header [bold][{version}] - {date}[/bold]"
     )
@@ -586,6 +633,10 @@ class DryRunMessages:
         "[yellow][dry-run][/yellow] Would run delegated command: [cyan]{command}[/cyan]"
     )
     skipped_pr_comment: str = "\n[dry-run] Skipped posting comment to PR #{number}"
+    placeholders_note: str = (
+        "Values in <angle brackets> are placeholders for what the run would read or make; "
+        "no value is shown."
+    )
 
 
 @dataclass(frozen=True)
@@ -818,6 +869,10 @@ class CIMessages:
 @dataclass(frozen=True)
 class DevcontainerMessages:
     already_exists: str = "devcontainer.json already exists: {path}"
+    auto_deploy_failed: str = (
+        "Failed to auto-deploy Kubernetes stack '{stack}'. If the keyring was still locked, run "
+        "`devops devcontainer unlock-keyring`, then `devops k8s deploy-stack --stack {stack}`."
+    )
     created_file: str = "Created: {path}"
     no_manifest_found: str = "No devcontainer.json found: {path}"
     manifest_valid: str = "✓ DevContainer manifest is valid: {path}"

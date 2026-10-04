@@ -13,7 +13,8 @@ config:
 # API Key Secret Protection
 # Enforce authentication for Qdrant vector database API and Web UI.
 # Setting apiKey: false prevents auto-generation of unmanaged credentials, while extraEnv
-# injects the API key from a pre-provisioned Kubernetes secret ('qdrant-api-key').
+# injects the API key from Secret 'qdrant-api-key', which `devops k8s push-secrets` writes from
+# the keyring before deploy-stack installs this release.
 apiKey: false
 readOnlyApiKey: false
 

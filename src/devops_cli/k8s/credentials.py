@@ -11,7 +11,6 @@ from typing import Any
 from devops_cli.config.defaults import (
     DEFAULT_ARGOCD_NAMESPACE,
     DEFAULT_BOOTSTRAP_STACK,
-    DEFAULT_LLM_NAMESPACE,
     DEFAULT_STACK_AUTH_TIMEOUT_SECONDS,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
@@ -181,27 +180,6 @@ def fetch_grafana_password(
             )
         return pw
     return None
-
-
-@trace_span("k8s.credentials.qdrant")
-def fetch_qdrant_api_key(
-    namespace: str = DEFAULT_LLM_NAMESPACE,
-    context: str | None = None,
-    save_to_keyring: bool = True,
-) -> str | None:
-    """Fetch Qdrant API key from Kubernetes Secret and store in keyring."""
-    key = fetch_secret_field(
-        secret_name="qdrant-api-key",
-        field="api-key",
-        namespace=namespace,
-        context=context,
-    )
-    if key and save_to_keyring:
-        _keyring_set("qdrant_api_key", key)
-        GLOBAL_METRICS.increment_counter(
-            "k8s_credentials_synced_total", labels={"service": "qdrant"}
-        )
-    return key
 
 
 def _post_argocd_session(client: Any, url: str, payload: dict[str, str]) -> str | None:
@@ -565,7 +543,11 @@ def sync_k8s_credentials(
     argocd_url: str | None = None,
     grafana_url: str | None = None,
 ) -> dict[str, bool]:
-    """Discover and synchronize Kubernetes stack credentials into OS Keyring."""
+    """Copy the chart-generated Argo CD and Grafana credentials into the OS keyring.
+
+    Only `infra` (or `all`) has such credentials. The Secrets `devops k8s push-secrets` writes
+    from the keyring are never copied back.
+    """
     results: dict[str, bool] = {}
     if stack in ("infra", "all"):
         _sync_argocd_credentials(
@@ -580,7 +562,4 @@ def sync_k8s_credentials(
             save_to_keyring=save_to_keyring,
             grafana_url=grafana_url,
         )
-    if stack in ("llm", "all"):
-        qdrant_key = fetch_qdrant_api_key(context=context, save_to_keyring=save_to_keyring)
-        results["qdrant"] = qdrant_key is not None
     return results

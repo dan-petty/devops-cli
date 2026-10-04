@@ -740,6 +740,12 @@ devops k8s bootstrap-openwebui [OPTIONS]
 
 **Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.**
 
+Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.
+
+Right after the namespaces, it pushes the Secrets of the base rows, its stacks and every
+detached stack whose namespace exists (`devops k8s push-secrets`), before anything that
+reads them. A locked or missing keyring stops it before it applies anything.
+
 ```bash
 devops k8s deploy-stack [OPTIONS]
 ```
@@ -755,10 +761,16 @@ devops k8s deploy-stack [OPTIONS]
 | `--timeout`, `-t` | `string` | `10m` | Timeout for Helm operations when waiting. |
 | `--port-forward` / `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
 | `--configure-urls` / `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
+| `--push-secrets` / `--no-push-secrets` | `boolean` | `True` | Push the stacks' Secrets from the OS keyring before applying anything (--no-push-secrets for a cluster without a keyring). |
+| `--dry-run` | `boolean` | - | Print the releases, manifests and Secrets (key names only) a deploy would apply, and run nothing. |
 
 ### `devops k8s sync-secrets`
 
-**Fetch stack admin credentials (ArgoCD, Grafana) from Kubernetes and store in OS Keyring.**
+**Copy chart-generated admin credentials (Argo CD, Grafana) from the cluster into the OS keyring.**
+
+Copy chart-generated admin credentials (Argo CD, Grafana) from the cluster into the OS keyring.
+
+The direction is cluster → workstation keyring, the reverse of `push-secrets`.
 
 ```bash
 devops k8s sync-secrets [OPTIONS]
@@ -771,6 +783,50 @@ devops k8s sync-secrets [OPTIONS]
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops k8s push-secrets`
+
+**Write the cluster's Secrets from the OS keyring (workstation keyring → cluster, the reverse of sync-secrets). Adopts live values the keyring lacks, generates the ones nobody types, and never replaces a live value without --rotate.**
+
+```bash
+devops k8s push-secrets [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--stack`, `-s` | `string` | `all` | Push the Secrets of one stack: base, infra, llm, logging, devops, or all (default). |
+| `--only` | `string` | - | Push only this Secret, as NAMESPACE/NAME. Repeatable; replaces --stack. |
+| `--github-account` | `string` | - | Machine account whose gh token becomes GH_TOKEN (default: k8s.github_account). |
+| `--rotate` | `boolean` | - | Replace live values that differ from the keyring's. |
+| `--restart` / `--no-restart` | `boolean` | `True` | Restart the workloads of each existing Secret whose data changed; --no-restart prints the commands instead. |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--plan` | `boolean` | - | Read the keyring, the live Secrets and, for the machine account's token, gh's own record of the account (read-only; gh checks the token on github.com); print each key's state and the workloads a change would restart, and write nothing. |
+| `--dry-run` | `boolean` | - | Make no request, reads included: print the requests a push would make, in order, with placeholders for every value. Wins over --plan. |
+
+### `devops k8s run-job`
+
+**Run a devops command as a Job in namespace devops, from CronJob devops-cli's template with only its arguments changed, follow its log and exit with its exit code.**
+
+```bash
+devops k8s run-job [OPTIONS] <args>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<args>` | `string` | Yes | The devops arguments the Job runs, after `--`. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--wait` / `--no-wait` | `boolean` | `True` | Follow the Job's log and exit with its exit code; --no-wait prints the Job's name. |
+| `--start-timeout` | `float` | `120.0` | Seconds to wait for the Job's pod to leave Pending. |
+| `--dry-run` | `boolean` | - | Make no request, not even the CronJob read: print the kubectl requests a run would make, in order, with the Job's template parts as placeholders. |
 
 ### `devops k8s configure-urls`
 
@@ -2179,7 +2235,7 @@ devops config get <key>
 
 ### `devops config set`
 
-**Set a configuration value. Tokens are stored in the OS keyring.**
+**Set a configuration value. Credentials go to the OS keyring; omit VALUE to type one hidden.**
 
 ```bash
 devops config set <key> <value>
@@ -2190,7 +2246,7 @@ devops config set <key> <value>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<key>` | `string` | Yes | Dotted config key, e.g. github.default_org. |
-| `<value>` | `string` | Yes | Value to set. |
+| `<value>` | `string` | No | Value to set. Omit it for a credential to type it at a hidden prompt, keeping it out of the shell history and the process list. |
 
 ### `devops config init`
 

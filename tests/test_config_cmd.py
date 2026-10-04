@@ -66,8 +66,13 @@ def test_github_token_is_not_a_config_option() -> None:
     assert (
         github_section(opt.CONFIG_OPTIONS),
         github_section(opt.SECRET_CONFIG_OPTIONS | opt.KEYRING_KEYS.keys()),
-        [spec.env_var for spec in get_all_env_var_specs() if "GITHUB" in spec.env_var],
-    ) == (["github.default_org"], [], ["DEVOPS_CLI_GITHUB_DEFAULT_ORG"])
+        [(s.env_var, s.is_secret) for s in get_all_env_var_specs() if "GITHUB" in s.env_var],
+    ) == (
+        ["github.default_org"],
+        [],
+        # k8s.github_account names the machine account's login for push-secrets (#741).
+        [("DEVOPS_CLI_GITHUB_DEFAULT_ORG", False), ("DEVOPS_CLI_K8S_GITHUB_ACCOUNT", False)],
+    )
 
 
 def test_config_env_aliases() -> None:
@@ -279,3 +284,48 @@ def test_reading_from_a_locked_keyring_names_the_unlock_command(
     )
     assert all("devops devcontainer unlock-keyring" in warning for warning in warnings)
     assert len(warnings) == 2
+
+
+def test_strict_keyring_access_raises_instead_of_reading_as_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A locked or failing keyring raises in the strict helpers; nothing falls back to memory."""
+    import keyring
+    from keyring.backend import KeyringBackend
+    from keyring.errors import KeyringError, KeyringLocked
+
+    from devops_cli.config.settings import (
+        KeyringLockedError,
+        SecretStorageError,
+        keyring_read,
+        keyring_write,
+    )
+
+    class Raising(KeyringBackend):
+        priority = 1  # type: ignore[assignment]
+        error: Exception = KeyringLocked("locked")
+
+        def get_password(self, service: str, username: str) -> str | None:
+            raise self.error
+
+        def set_password(self, service: str, username: str, password: str) -> None:
+            raise self.error
+
+        def delete_password(self, service: str, username: str) -> None:
+            raise self.error
+
+    backend = Raising()
+    monkeypatch.setattr(keyring, "get_keyring", lambda: backend)
+    raised: list[type[Exception]] = []
+    for error in (KeyringLocked("locked"), KeyringError("broken")):
+        backend.error = error
+        for call in (lambda: keyring_read("k"), lambda: keyring_write("k", "v")):
+            with pytest.raises(SecretStorageError) as caught:
+                call()
+            raised.append(type(caught.value))
+    assert raised == [
+        KeyringLockedError,
+        KeyringLockedError,
+        SecretStorageError,
+        SecretStorageError,
+    ]

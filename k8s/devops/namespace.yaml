@@ -1,0 +1,15 @@
+# The in-cluster devops-cli runtime (#741): cluster Jobs that run one devops command each, with
+# the credentials `devops k8s push-secrets` writes into Secret devops-cli. Applied with
+# `devops k8s apply k8s/devops/ --template`, not by the root kustomization or deploy-stack.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: devops
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+  annotations:
+    # The namespace holds Secrets that exist only in the cluster, never in git.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false

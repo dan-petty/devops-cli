@@ -100,7 +100,7 @@ def test_k8s_deploy_stack_shows_jaeger_connection_info(runner: CliRunner) -> Non
         mock_proc.stderr = ""
         mock_run.return_value = mock_proc
 
-        result = runner.invoke(k8s_app, ["deploy-stack", "--stack", "infra"])
+        result = runner.invoke(k8s_app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
         assert (
             result.exit_code,
             "Jaeger Query UI: http://localhost:16686 (namespace: otel)" in result.output,

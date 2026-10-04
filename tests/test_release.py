@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 import typer
+import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.release import (
@@ -21,6 +22,7 @@ from devops_cli.commands.release import (
     _get_latest_changelog_version,
     _get_project_root,
     _get_pyproject_version,
+    _release_paths,
     _resolve_safe_project_path,
     _update_changelog_header,
     _update_init_version,
@@ -236,6 +238,41 @@ def test_release_check_version_mismatch(sample_project_dir: Path) -> None:
     )
     assert result.exit_code == 1
     assert "Version mismatch" in result.output
+
+
+def _write_runtime_kustomization(root: Path, tag: str) -> Path:
+    path = root / "k8s" / "devops" / "kustomization.yaml"
+    path.parent.mkdir(parents=True)
+    document = {
+        "resources": ["cronjob.yaml"],
+        "images": [{"name": "ghcr.io/dan-petty/devops-cli/service", "newTag": tag}],
+    }
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def test_release_prepare_pins_the_service_image_to_the_new_version(
+    sample_project_dir: Path,
+) -> None:
+    path = _write_runtime_kustomization(sample_project_dir, "v0.1.7")
+    with patch("devops_cli.commands.release.DocGenerator.write_all_docs"):
+        result = runner.invoke(app, ["prepare", "0.1.8", "--root", str(sample_project_dir)])
+    images = yaml.safe_load(path.read_text(encoding="utf-8"))["images"]
+    assert (result.exit_code, images[0]["newTag"]) == (0, "v0.1.8")
+
+
+def test_release_paths_stage_the_runtime_kustomization(tmp_path: Path) -> None:
+    _write_runtime_kustomization(tmp_path, "v0.1.7")
+    assert "k8s/devops/kustomization.yaml" in _release_paths(tmp_path)
+
+
+def test_release_check_fails_when_the_service_image_tag_is_out_of_step(
+    sample_project_dir: Path,
+) -> None:
+    _write_runtime_kustomization(sample_project_dir, "v0.1.6")
+    result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--allow-dirty"])
+    output = " ".join(result.output.split())
+    assert (result.exit_code, "k8s/devops/kustomization.yaml pins" in output) == (1, True)
 
 
 def test_release_check_dirty_repo(sample_project_dir: Path) -> None:

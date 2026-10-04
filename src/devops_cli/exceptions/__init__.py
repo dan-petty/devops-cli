@@ -64,6 +64,9 @@ from devops_cli.exceptions.git import (
 )
 from devops_cli.exceptions.k8s import (
     ChaosExecutionError,
+    ClusterJobError,
+    ClusterSecretPushError,
+    ClusterSecretWriteError,
     GitOpsSyncError,
     KubernetesContextError,
     KubernetesDeployError,
@@ -127,6 +130,9 @@ __all__ = [
     "CloudflareAPIError",
     "CloudflareAuthError",
     "CloudflareError",
+    "ClusterJobError",
+    "ClusterSecretPushError",
+    "ClusterSecretWriteError",
     "ConcurrencyLimitExceeded",
     "ConfigurationError",
     "ConstellationFailoverError",

@@ -39,6 +39,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_CLOUDFLARE_API_TOKEN` | `cloudflare.api_token` | 🔒 Yes | Cloudflare API Token (stored in OS keyring) |
 | `DEVOPS_CLI_CLOUDFLARE_DOMAIN` | `cloudflare.domain` | No | Root or zone domain name managed in Cloudflare |
 | `DEVOPS_CLI_CLOUDFLARE_TUNNEL` | `cloudflare.tunnel` | No | Cloudflare tunnel name or identifier |
+| `DEVOPS_CLI_CLOUDFLARE_TUNNEL_TOKEN` | `cloudflare.tunnel_token` | 🔒 Yes | Cloudflare Tunnel token that `devops k8s push-secrets` writes to the cluster (stored in OS keyring) |
 | `DEVOPS_CLI_CLOUDFLARE_ZONE_ID` | `cloudflare.zone_id` | No | Cloudflare Zone ID |
 | `DEVOPS_CLI_CONFIG` | *None* | No | Absolute path to project configuration file; outside devops-cli's own repository, the only one a `devops review` command reads |
 | `DEVOPS_CLI_DATA_ANALYSIS_DIR` | `data.analysis_dir` | No | Storage directory for pre-analysis metadata JSON files |
@@ -59,6 +60,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_GRAFANA_URL` | `grafana.url` | No | Grafana service URL |
 | `DEVOPS_CLI_K8S_CONTEXT` | `k8s.context` | No | Active Kubernetes cluster context (e.g. minikube, kind, or remote cluster) |
 | `DEVOPS_CLI_K8S_DOMAIN` | `k8s.domain` | No | Base or root domain name for homelab ingress routes and tunnel services |
+| `DEVOPS_CLI_K8S_GITHUB_ACCOUNT` | `k8s.github_account` | No | Login of the machine account whose gh token `devops k8s push-secrets` writes to the cluster as GH_TOKEN |
 | `DEVOPS_CLI_PROMETHEUS_URL` | `prometheus.url` | No | Prometheus service URL |
 | `DEVOPS_CLI_QDRANT_API_KEY` | `qdrant.api_key` | 🔒 Yes | Qdrant API key (stored in OS keyring) |
 | `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX` | `qdrant.collection_prefix` | No | Prefix for Qdrant collection names |

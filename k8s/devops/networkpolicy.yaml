@@ -1,0 +1,45 @@
+# Cluster jobs accept no ingress. They reach DNS, the LLM gateway and public HTTPS (GitHub).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: devops-default-perimeter
+  namespace: devops
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    # 1. CoreDNS lookups
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 2. The LLM gateway. A namespace-selector-only peer with `ports:`, the shape the monitoring
+    #    policy relies on: kube-router refused a namespace+pod selector peer paired with `ports:`.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: llm
+      ports:
+        - protocol: TCP
+          port: 4000
+    # 3. Public HTTPS only: no private range and no cloud metadata endpoint.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 443

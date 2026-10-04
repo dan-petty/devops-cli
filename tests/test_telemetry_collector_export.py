@@ -174,3 +174,41 @@ def test_exports_in_flight_are_drained_at_shutdown(monkeypatch: pytest.MonkeyPat
     client.shutdown()
 
     assert delivered.is_set()
+
+
+def test_a_dry_run_exports_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A dry run makes no external request (#412's amendment), the collector export included."""
+    sent: list[str] = []
+
+    def record(self: OTelTelemetryClient, path: str, payload: dict[str, Any]) -> None:
+        sent.append(path)
+
+    monkeypatch.setattr(OTelTelemetryClient, "_send_payload_sync", record)
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
+    client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
+
+    client._send_payload("/v1/traces", {"resourceSpans": []})
+    client._send_payload("/v1/metrics", {"resourceMetrics": []})
+    client.shutdown()
+    monkeypatch.delenv("DEVOPS_CLI_DRY_RUN")
+    client._send_payload("/v1/traces", {"resourceSpans": []})
+    client.shutdown()
+
+    assert sent == ["/v1/traces"]
+
+
+def test_a_commands_own_dry_run_exports_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`devops k8s push-secrets --dry-run` leaves the dry-run state off, but the invocation
+    is a dry run, so its command span and metrics are not exported either."""
+    from devops_cli.dry_run.state import mark_dry_run_invocation
+
+    sent: list[str] = []
+    monkeypatch.setattr(
+        OTelTelemetryClient, "_send_payload_sync", lambda self, path, payload: sent.append(path)
+    )
+    client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
+    mark_dry_run_invocation(True)
+    client._send_payload("/v1/traces", {"resourceSpans": []})
+    client.shutdown()
+
+    assert sent == []

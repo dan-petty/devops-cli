@@ -58,8 +58,14 @@ def in_dry_run_invocation() -> bool:
 
 
 def is_dry_run_requested(args: list[str]) -> bool:
-    """Return True if --dry-run flag is present in argument list."""
-    return "--dry-run" in args
+    """Return True if --dry-run is among the CLI's own arguments.
+
+    Arguments after a `--` separator belong to the command being passed through, such as the
+    devops command `devops k8s run-job -- ...` runs in the cluster, so a `--dry-run` there is not
+    the CLI's.
+    """
+    own_args = args[: args.index("--")] if "--" in args else args
+    return "--dry-run" in own_args
 
 
 def format_command(command: list[str], *, cwd: str | None = None) -> str:
