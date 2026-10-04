@@ -40,3 +40,4 @@ configMapGenerator:
       - otel-collector.json
       - prometheus-server.json
       - pyroscope.json
+      - nvidia-dcgm.json

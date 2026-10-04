@@ -1675,8 +1675,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (router) (rate(traefik_router_requests_total[2m]))",
-          "legendFormat": "{{router}}",
+          "expr": "sum by (router) (rate(traefik_router_requests_total[2m])) or sum by (service) (rate(traefik_service_requests_total[2m]))",
+          "legendFormat": "{{router}}{{service}}",
           "refId": "A"
         }
       ],

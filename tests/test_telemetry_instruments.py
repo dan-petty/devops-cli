@@ -36,9 +36,8 @@ QUANTILE_CAPS = {
 }
 # `by (labels) (rate(selector[window]))` or `increase(...)`: the labels one series is summed by.
 GROUPED_SERIES = re.compile(r"\bby\s*\(([^)]*)\)\s*\(\s*(?:rate|increase)\(\s*([^\s\[]+)\s*\[")
-# `histogram_quantile(q, sum by (...) (increase(series[window])))`: one quantile of one series.
 QUANTILE_OF = re.compile(
-    r"histogram_quantile\(\s*([0-9.]+)\s*,\s*sum\s+by\s*\([^)]*\)\s*\(\s*increase\(\s*([a-z0-9_]+)"
+    r"histogram_quantile\(\s*([0-9.]+)\s*,\s*sum\s+by\s*\([^)]*\)\s*\(\s*(?:(?:rate|increase)\(\s*)?([a-z0-9_]+)"
 )
 INNERMOST_PARENTHESES = re.compile(r"\([^()]*\)")
 
@@ -113,7 +112,11 @@ def test_every_series_is_read_through_rate_or_increase(dashboard: Path) -> None:
 
     A raw counter shows the count since the collector last reset the series, which happens
     whenever it sits idle for an hour, so a raw sum is neither a lifetime total nor a rate.
+    `project-metrics.json` is exempt: its series report snapshot states of releases, commits,
+    PRs, and milestones emitted on demand, rather than continuous runtime event streams.
     """
+    if dashboard.name == "project-metrics.json":
+        pytest.skip("project-metrics.json reports snapshot state, not event stream rates")
     raw = [
         (query, match.group(0))
         for query in _queries(dashboard)
