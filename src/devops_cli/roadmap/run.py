@@ -29,7 +29,11 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
 )
 from devops_cli.config.env import ENV_DATA_DIR
-from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+from devops_cli.core.paths import (
+    is_forbidden_system_path,
+    safe_resolve_subpath,
+    validate_no_path_traversal,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import GitOperationError, RoadmapRunError, SecurityError
 from devops_cli.roadmap.reprioritize import current_release
@@ -154,6 +158,27 @@ def _current_actor(store: RoadmapStore) -> str | None:
     return _get_session_login()
 
 
+def _resolve_roadmap_repo_path(
+    base_dir: Path,
+    repo: str,
+    leaf_filename: str,
+    *,
+    error_cls: type[GitOperationError] = GitOperationError,
+) -> Path:
+    """Safely validate repository format and resolve path under <base_dir>/roadmap/<owner>/<name>/<leaf>."""
+    parts = repo.split("/")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise error_cls(f"Invalid repository format (expected 'owner/name'): {repo}")
+    owner, name = parts
+    if owner.startswith(("/", "\\", ".")) or name.startswith(("/", "\\", ".")):
+        raise error_cls(f"Invalid repository slug components: '{repo}'")
+    root = (base_dir / "roadmap").resolve()
+    target = safe_resolve_subpath(root, Path(owner) / name / leaf_filename, error_cls=error_cls)
+    if is_forbidden_system_path(target):
+        raise error_cls(f"Target path resolves to forbidden system path: {target}")
+    return target
+
+
 def ensure_checkout(
     repo: str,
     data_dir: Path,
@@ -161,12 +186,9 @@ def ensure_checkout(
     current_rel: Release | None = None,
 ) -> Path:
     """Ensure clone exists at <data dir>/roadmap/<owner>/<name>/clone and is up-to-date."""
-    owner, name = repo.split("/", 1)
-    clone_dir = data_dir / "roadmap" / owner / name / CONST_ROADMAP_RUN_CLONE_DIRNAME
-    validate_no_path_traversal(clone_dir, label="Roadmap clone destination")
-    if is_forbidden_system_path(clone_dir.resolve()):
-        raise GitOperationError(f"Clone destination resolves to forbidden system path: {clone_dir}")
-
+    clone_dir = _resolve_roadmap_repo_path(
+        data_dir, repo, CONST_ROADMAP_RUN_CLONE_DIRNAME, error_cls=GitOperationError
+    )
     clone_dir.parent.mkdir(parents=True, exist_ok=True)
     url = remote_url or f"https://github.com/{repo}.git"
 
@@ -722,8 +744,9 @@ def run_due_jobs(
     """Evaluate and execute due roadmap jobs."""
     current_time = now or datetime.now(UTC)
     base_data = _resolve_data_dir(data_dir)
-    owner, name = repo.split("/", 1)
-    schedule_path = base_data / "roadmap" / owner / name / CONST_ROADMAP_RUN_STATE_FILENAME
+    schedule_path = _resolve_roadmap_repo_path(
+        base_data, repo, CONST_ROADMAP_RUN_STATE_FILENAME, error_cls=GitOperationError
+    )
     schedule = _read_schedule(schedule_path)
     rows = table if table is not None else DEFAULT_DUE_TABLE
 

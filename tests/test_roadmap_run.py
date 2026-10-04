@@ -25,7 +25,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_CLOSURE_BATCH_KEYS,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
 )
-from devops_cli.exceptions import RoadmapRunError
+from devops_cli.exceptions import GitOperationError, RoadmapRunError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import (
     JobOutcome,
@@ -821,3 +821,26 @@ def test_mcp_mirror_roadmap_run(seeded_store: InMemoryRoadmapStore) -> None:
         True,
         True,
     )
+
+
+def test_ensure_checkout_rejects_path_escape_and_malformed_repo_slugs(tmp_path: Path) -> None:
+    """Test that ensure_checkout strictly validates repo slugs and prevents path traversal escapes."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    escapes = [
+        "owner//tmp",
+        "/tmp/repo",
+        "owner/../etc",
+        "owner/name/extra",
+        "single_slug",
+        "owner/",
+        "/name",
+    ]
+    results: list[bool] = []
+    for malformed in escapes:
+        with pytest.raises(GitOperationError):
+            ensure_checkout(malformed, data_dir)
+        results.append(True)
+
+    assert (len(results), all(results)) == (len(escapes), True)
