@@ -461,7 +461,7 @@ k8s/
 │   ├── kustomization.yaml    # Its resources, and the service image's tag (`devops release prepare` sets it)
 │   ├── namespace.yaml        # devops namespace, Pod Security restricted
 │   ├── serviceaccount.yaml   # devops-cli service account without an API token
-│   ├── configmap.yaml        # devops-cli config: the in-cluster gateway, no credential
+│   ├── configmap.example.yaml # devops-cli config template: in-cluster gateway, sanitized placeholders (gitignored configmap.yaml generated dynamically)
 │   ├── cronjob.yaml          # Suspended CronJob devops-cli, the template of every cluster job
 │   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out
 │   └── roadmap-service/      # Continuous roadmap service Deployment, Service, Ingress, NetworkPolicy, PVC

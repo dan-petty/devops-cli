@@ -90,6 +90,12 @@ def _render_kustomize_dir(
     extra_vars: dict[str, str] | None = None,
 ) -> str:
     """Run kustomize build on a directory and substitute domain variables."""
+    if (target_dir / "configmap.example.yaml").is_file() and not (
+        target_dir / "configmap.yaml"
+    ).is_file():
+        from devops_cli.k8s.configmap import ensure_devops_configmap
+
+        ensure_devops_configmap(k8s_dir=target_dir.parent)
     cmd = ["kubectl", "kustomize", str(target_dir)]
     proc = run_subprocess(
         cmd,

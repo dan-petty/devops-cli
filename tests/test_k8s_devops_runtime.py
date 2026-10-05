@@ -21,7 +21,10 @@ DEVOPS_DIR = K8S_DIR / "devops"
 
 @functools.cache
 def _doc(name: str) -> Any:
-    return yaml.load((DEVOPS_DIR / name).read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
+    target = DEVOPS_DIR / name
+    if not target.exists() and name == "configmap.yaml":
+        target = DEVOPS_DIR / "configmap.example.yaml"
+    return yaml.load(target.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
 
 
 def _pod_spec() -> dict[str, Any]:
@@ -218,7 +221,12 @@ def test_kustomization_lists_every_manifest_and_pins_the_image_and_stays_out_of_
     """
     kustomization = _doc("kustomization.yaml")
     manifests = sorted(
-        [p.name for p in DEVOPS_DIR.glob("*.yaml") if p.name != "kustomization.yaml"]
+        [
+            p.name
+            for p in DEVOPS_DIR.glob("*.yaml")
+            if p.name != "kustomization.yaml" and not p.name.endswith(".example.yaml")
+        ]
+        + (["configmap.yaml"] if not (DEVOPS_DIR / "configmap.yaml").exists() else [])
         + ["roadmap-service"]
     )
     root = yaml.safe_load((K8S_DIR / "kustomization.yaml").read_text(encoding="utf-8"))

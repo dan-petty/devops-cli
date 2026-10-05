@@ -1319,6 +1319,6 @@ def test_manifests_by_stack_files_exist() -> None:
         f"{stack_name}:{path}"
         for stack_name, paths in _MANIFESTS_BY_STACK.items()
         for path in paths
-        if not path.exists()
+        if not (path.exists() or (path.parent / f"{path.stem}.example{path.suffix}").exists())
     ]
     assert missing_manifests == []

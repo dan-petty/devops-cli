@@ -515,6 +515,10 @@ def _apply_single_manifest(
 ) -> None:
     """Apply an individual manifest file, rendering templates if a domain is available."""
     p = Path(manifest_path)
+    if p.name == "configmap.yaml" and p.parent.name == "devops" and not p.exists():
+        from devops_cli.k8s.configmap import ensure_devops_configmap
+
+        ensure_devops_configmap(k8s_dir=p.parent.parent)
     print_info(f"[bold]Applying manifest {p.name}...[/bold]", prefix=False)
     if domain and p.is_file():
         from devops_cli.k8s.template import render_manifest_template
@@ -713,6 +717,30 @@ def _dry_run_secrets(selected_stacks: Sequence[str], push_secrets: bool) -> list
     ]
 
 
+def _verify_cluster_ready(effective_context: str | None) -> None:
+    """Verify cluster reachability before deployment, exiting if unreachable."""
+    if not runtime._cluster_reachable(context=effective_context):
+        print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
+        if not effective_context or effective_context.strip().lower() == "minikube":
+            print_info(MESSAGES.k8s.start_minikube_tip, prefix=False)
+        raise typer.Exit(1)
+
+
+def _deploy_native_manifests(
+    selected_stacks: Sequence[str],
+    all_manifests: list[str],
+    k8s_dir: Path,
+    kubectl_ctx: list[str],
+    domain: str | None,
+) -> None:
+    """Synchronize dynamically generated manifests and apply native Kubernetes resources."""
+    if "devops" in selected_stacks:
+        from devops_cli.k8s.configmap import ensure_devops_configmap
+
+        ensure_devops_configmap(k8s_dir=k8s_dir, force=True)
+    _apply_manifest_files(all_manifests, kubectl_ctx, domain=domain)
+
+
 def deploy_stack(
     k8s_dir: Annotated[Path, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = DEFAULT_K8S_DIR,
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
@@ -798,11 +826,7 @@ def deploy_stack(
         require_keyring_for_push()
 
     # 2. Verify cluster reachability
-    if not runtime._cluster_reachable(context=effective_context):
-        print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
-        if not effective_context or effective_context.strip().lower() == "minikube":
-            print_info(MESSAGES.k8s.start_minikube_tip, prefix=False)
-        raise typer.Exit(1)
+    _verify_cluster_ready(effective_context)
 
     kubectl_ctx = ["--context", effective_context] if effective_context else []
     helm_ctx = ["--kube-context", effective_context] if effective_context else []
@@ -820,7 +844,7 @@ def deploy_stack(
     _deploy_helm_repos(selected_stacks)
 
     # 6. Install native manifests
-    _apply_manifest_files(all_manifests, kubectl_ctx, domain=domain)
+    _deploy_native_manifests(selected_stacks, all_manifests, k8s_dir, kubectl_ctx, domain)
 
     # 7. Check for unready cluster nodes to avoid DaemonSet wait timeouts
     unready_nodes = runtime._get_unready_nodes(context=effective_context)
