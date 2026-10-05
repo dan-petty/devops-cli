@@ -269,7 +269,7 @@ gitGraph
   - **No Internal References or Numeric IDs**: Never include internal review session timestamps (e.g. `164259`, `003105`), review IDs, subagent IDs, or arbitrary numbers.
   - Release PR titles strictly follow `feat(release): v<version>`.
 - **Declarative Code Ownership (`.github/CODEOWNERS`)**: Pull requests automatically assign reviews based on touched file paths (Core CLI, AI/MCP, K8s, Security, CI/CD).
-- **Automated Dependency Updates (`.github/dependabot.yml`)**: Dependabot monitors `github-actions`, `pip`, and `docker` dependencies weekly, targeting `main` with prefix `chore(deps)` and mandatory `type/chore` taxonomy labels.
+- **Automated Dependency Updates (`.github/renovate.json`)**: Renovate monitors `github-actions` and `docker` dependencies with prefix `chore(deps)` and mandatory `type/chore` taxonomy labels. Python and `uv` dependencies are updated deliberately as part of the project workflow with synchronized `uv.lock`.
 - **GitHub Project Governance, Views & Labeling Standards**:
   - **Declarative Taxonomy (`.github/labels.yml`)**: Every PR must possess mandatory `type/*` and `scope/*` classification labels, verified in CI and audited via `devops gh labels audit`.
   - **GitHub-Sourced Roadmap (ADR 0001)**: Issues are the roadmap's items, milestones its releases and the project board holds their Status and Priority. `docs/ROADMAP.md` is a view that `devops roadmap render` regenerates in the release PR at the cut.
