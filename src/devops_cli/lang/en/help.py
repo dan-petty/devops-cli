@@ -149,6 +149,10 @@ class AICommandHelp:
     goal: str = "Initial goal or prompt for the multi-agent pipeline."
     personas_seq: str = "Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa)."
     max_turns: str = "Maximum tool turns per agent stage."
+    pipeline_stage_context_tokens: str = (
+        "Maximum context tokens from previous stages to carry into each pipeline stage "
+        "(0 to disable budget)."
+    )
     token_target: str = "File path or text string to calculate tokens for."
     budget: str = "Max context token budget limit."
     cost_task: str = "Task name (e.g. review, scan)."

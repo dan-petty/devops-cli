@@ -540,7 +540,7 @@ def test_ai_token_count_route_pipeline_bundle(tmp_path: Path) -> None:
         res_pipe_dry = runner.invoke(
             ai_app, ["pipeline", "Audit architecture", "--personas", "architect,qa"]
         )
-        assert res_pipe_dry.exit_code == 0
+        assert (res_pipe_dry.exit_code, "stage_context_tokens" in res_pipe_dry.output) == (0, True)
 
     # 7. pipeline command execution
     mock_stage_step = MagicMock()

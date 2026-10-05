@@ -165,6 +165,7 @@ devops ai pipeline [OPTIONS] <prompt>
 | `--max-turns` | `integer` | `5` | Maximum tool turns per agent stage. |
 | `--rag` / `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
 | `--thinking` / `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
+| `--stage-context-tokens` | `integer` | `4096` | Maximum context tokens from previous stages to carry into each pipeline stage (0 to disable budget). |
 
 ---
 
