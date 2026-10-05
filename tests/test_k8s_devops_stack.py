@@ -38,6 +38,9 @@ def test_devops_stack_registration_and_resolution() -> None:
 
 def test_devops_stack_manifests_integrity() -> None:
     """Verify all manifests for the devops stack exist and cover core components."""
+    from devops_cli.k8s.configmap import ensure_devops_configmap
+
+    ensure_devops_configmap()
     manifests = _MANIFESTS_BY_STACK.get("devops", [])
     filenames = [p.name for p in manifests]
 

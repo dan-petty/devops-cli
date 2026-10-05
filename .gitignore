@@ -63,6 +63,9 @@ secrets/
 # Local project config override (copy config.example.yaml → config.yaml to activate)
 /config.yaml
 
+# Cluster devops-cli runtime config (generated dynamically from active config or configmap.example.yaml)
+/k8s/devops/configmap.yaml
+
 # Local data directory — reports, review output, computed artefacts
 .data/*
 !.data/.gitkeep
