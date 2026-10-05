@@ -217,15 +217,19 @@ def test_deploy_stack_dry_run_makes_no_request(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_k8s_deploy_stack_all_dry_run() -> None:
-    """k8s deploy-stack --stack all must include both infra and llm components."""
+    """k8s deploy-stack --stack all must include infra, llm, logging, and devops components."""
     set_dry_run(True)
     try:
         result = runner.invoke(app, ["deploy-stack", "--stack", "all"])
-        assert result.exit_code == 0
-        assert "argocd" in result.output
-        assert "k8s-monitoring" in result.output
-        assert "ollama" in result.output
-        assert "valkey.yaml" in result.output
+        assert (
+            result.exit_code,
+            "argocd" in result.output,
+            "k8s-monitoring" in result.output,
+            "ollama" in result.output,
+            "valkey.yaml" in result.output,
+            "configmap.yaml" in result.output,
+            "roadmap-service" in result.output,
+        ) == (0, True, True, True, True, True, True)
     finally:
         set_dry_run(False)
 
