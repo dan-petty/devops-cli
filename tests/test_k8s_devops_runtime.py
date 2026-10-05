@@ -128,8 +128,17 @@ def test_config_targets_the_in_cluster_gateway_and_holds_no_credential() -> None
         settings.ai.provider,
         settings.ai.gateway_url,
         settings.ai.allow_private_network,
+        settings.telemetry.enabled,
+        settings.telemetry.endpoint,
         leaked,
-    ) == ("gateway", "http://llm-gateway.llm.svc.cluster.local:4000/v1", True, [])
+    ) == (
+        "gateway",
+        "http://llm-gateway.llm.svc.cluster.local:4000/v1",
+        True,
+        True,
+        "http://otel-collector-opentelemetry-collector.otel.svc.cluster.local:4318",
+        [],
+    )
 
 
 def _dotted(document: Any, key: str) -> Any:
@@ -138,7 +147,7 @@ def _dotted(document: Any, key: str) -> Any:
     return document
 
 
-def test_perimeter_admits_no_ingress_and_exactly_three_egress_rules() -> None:
+def test_perimeter_admits_no_ingress_and_exactly_four_egress_rules() -> None:
     policy = _doc("networkpolicy.yaml")
     spec = policy["spec"]
     assert (
@@ -168,6 +177,12 @@ def test_perimeter_admits_no_ingress_and_exactly_three_egress_rules() -> None:
                     {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "llm"}}}
                 ],
                 "ports": [{"protocol": "TCP", "port": 4000}],
+            },
+            {
+                "to": [
+                    {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "otel"}}}
+                ],
+                "ports": [{"protocol": "TCP", "port": 4318}, {"protocol": "TCP", "port": 4317}],
             },
             {
                 "to": [

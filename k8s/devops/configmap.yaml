@@ -26,8 +26,8 @@ data:
         embedding:
           model: bge-m3:latest
     telemetry:
-      # The perimeter admits no collector.
-      enabled: false
+      enabled: true
+      endpoint: http://otel-collector-opentelemetry-collector.otel.svc.cluster.local:4318
     service:
       repos:
         - dan-petty/devops-cli

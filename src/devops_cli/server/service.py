@@ -12,16 +12,18 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict
 
+from devops_cli import __version__
 from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
     CONST_SERVICE_METRIC_JOBS,
     CONST_SERVICE_METRIC_QUEUE_DEPTH,
     CONST_SERVICE_METRIC_TRIGGERS,
+    CONST_SERVICE_PROBE_PATHS,
     CONST_SERVICE_SOURCE_POLL,
 )
 from devops_cli.config.settings import (
@@ -32,6 +34,7 @@ from devops_cli.config.settings import (
 )
 from devops_cli.server.routes.webhooks import DeliveryLRUCache, create_webhook_router
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
+from devops_cli.telemetry.tracer import get_tracer
 
 logger = logging.getLogger(__name__)
 
@@ -156,31 +159,45 @@ class RepoWorker:
             CONST_SERVICE_METRIC_JOB_START_TIMESTAMP, start_epoch, labels={"repo": self.repo}
         )
         result = "success"
-        try:
-            self.job_func(batch)
-        except Exception as exc:
-            result = "error"
-            logger.error(
-                "Service job execution failed for %s: %s",
-                self.repo,
-                exc,
-                extra={"repo": self.repo, "result": "error"},
-                exc_info=True,
-            )
-        finally:
-            duration = time.perf_counter() - start_time
-            GLOBAL_METRICS.increment_counter(
-                CONST_SERVICE_METRIC_JOBS,
-                labels={"repo": self.repo, "result": result},
-            )
-            GLOBAL_METRICS.increment_counter(
-                CONST_SERVICE_METRIC_JOB_SECONDS,
-                value=duration,
-                labels={"repo": self.repo},
-            )
-            with self._cond:
-                self._is_active = False
-                self._cond.notify_all()
+        tracer = get_tracer()
+        with tracer.span(
+            f"service.job {self.repo}",
+            kind="internal",
+            attributes={
+                "service.repo": self.repo,
+                "service.triggers": sum(batch.counts.values()),
+                "service.trigger_types": len(batch.counts),
+            },
+        ) as span:
+            try:
+                self.job_func(batch)
+            except Exception as exc:
+                result = "error"
+                span.set_status("ERROR", str(exc)[:256])
+                span.set_attribute("error", True)
+                span.set_attribute("error.message", str(exc)[:256])
+                logger.error(
+                    "Service job execution failed for %s: %s",
+                    self.repo,
+                    exc,
+                    extra={"repo": self.repo, "result": "error"},
+                    exc_info=True,
+                )
+            finally:
+                span.set_attribute("service.result", result)
+                duration = time.perf_counter() - start_time
+                GLOBAL_METRICS.increment_counter(
+                    CONST_SERVICE_METRIC_JOBS,
+                    labels={"repo": self.repo, "result": result},
+                )
+                GLOBAL_METRICS.increment_counter(
+                    CONST_SERVICE_METRIC_JOB_SECONDS,
+                    value=duration,
+                    labels={"repo": self.repo},
+                )
+                with self._cond:
+                    self._is_active = False
+                    self._cond.notify_all()
 
     def _run(self) -> None:
         """Main loop of daemon worker thread."""
@@ -323,6 +340,65 @@ def _resolve_service_secrets(
     return {}
 
 
+def _warn_missing_secrets(repos: list[str], secrets: dict[str, str]) -> None:
+    """Warn for managed repositories lacking configured webhook secrets."""
+    for repo in repos:
+        if repo not in secrets:
+            logger.warning(
+                "No webhook secret configured for managed repository: %s",
+                repo,
+                extra={"repo": repo},
+            )
+
+
+def _append_trace_headers(response: Response, tracer: Any, start_time: float) -> Response:
+    """Attach process timing and W3C distributed trace context headers to HTTP response."""
+    process_time = time.perf_counter() - start_time
+    response.headers["X-Process-Time"] = f"{process_time:.4f}s"
+    response.headers["X-DevOps-Version"] = __version__
+    curr_trace = tracer.current_trace_id
+    curr_span = tracer.current_span_id
+    if curr_trace:
+        response.headers["X-Trace-ID"] = curr_trace
+        if curr_span:
+            response.headers["traceparent"] = f"00-{curr_trace}-{curr_span}-01"
+    return response
+
+
+async def _service_trace_middleware(request: Request, call_next: Any) -> Any:
+    """HTTP tracing and timing middleware for service application."""
+    start_time = time.perf_counter()
+    if request.url.path in CONST_SERVICE_PROBE_PATHS:
+        response = await call_next(request)
+        response.headers["X-Process-Time"] = f"{time.perf_counter() - start_time:.4f}s"
+        response.headers["X-DevOps-Version"] = __version__
+        return response
+
+    tracer = get_tracer()
+    span_name = f"HTTP {request.method} {request.url.path}"
+    headers_dict = dict(request.headers)
+    safe_url = str(request.url.replace(query=""))
+    with tracer.span(
+        span_name,
+        kind="server",
+        attributes={
+            "http.request.method": request.method,
+            "url.full": safe_url,
+            "url.path": request.url.path,
+            "url.scheme": request.url.scheme,
+            "server.address": request.url.hostname or "localhost",
+            "server.port": request.url.port or 8000,
+            "user_agent.original": request.headers.get("user-agent", ""),
+        },
+        parent_context=headers_dict,
+    ) as handle:
+        response = await call_next(request)
+        _append_trace_headers(response, tracer, start_time)
+        handle.set_attribute("http.response.status_code", response.status_code)
+        handle.set_attribute("http.status_code", response.status_code)
+        return response
+
+
 def create_service_app(
     job: Callable[[TriggerBatch], None] | None = None,
     settings: Settings | None = None,
@@ -337,13 +413,7 @@ def create_service_app(
     service_sleep = sleep_func or asyncio.sleep
     job_handler = job or default_service_job
 
-    for repo in active_settings.service.repos:
-        if repo not in service_secrets:
-            logger.warning(
-                "No webhook secret configured for managed repository: %s",
-                repo,
-                extra={"repo": repo},
-            )
+    _warn_missing_secrets(active_settings.service.repos, service_secrets)
 
     manager = ServiceManager(
         config=active_settings.service,
@@ -370,6 +440,7 @@ def create_service_app(
     app.state.service_manager = manager
     app.state.job = job_handler
 
+    app.middleware("http")(_service_trace_middleware)
     app.include_router(create_webhook_router(manager))
 
     @app.get("/readyz")

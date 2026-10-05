@@ -63,6 +63,8 @@ spec:
               value: /config/devops-cli.yaml
             - name: DEVOPS_CLI_DATA_DIR
               value: /home/devops/.data
+            - name: OTEL_SERVICE_NAME
+              value: roadmap-service
           volumeMounts:
             - name: tmp
               mountPath: /tmp

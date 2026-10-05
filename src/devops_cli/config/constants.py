@@ -913,6 +913,13 @@ CONST_SERVICE_METRIC_JOB_START_TIMESTAMP: Final[str] = (
     "devops_cli_service_job_start_timestamp_seconds"
 )
 CONST_SERVICE_METRIC_QUEUE_DEPTH: Final[str] = "devops_cli_service_queue_depth"
+CONST_SERVICE_PROBE_PATHS: Final[frozenset[str]] = frozenset(
+    {
+        "/healthz",
+        "/readyz",
+        "/metrics",
+    }
+)
 CONST_GH_NON_API_COMMANDS: Final[frozenset[str]] = frozenset(
     {
         "auth",

@@ -116,11 +116,21 @@ def test_pvc_mounted_at_home_data_dir_under_home_and_sync_options() -> None:
         home_mount["mountPath"],
         env["DEVOPS_CLI_DATA_DIR"].startswith("/home/devops"),
         env["DEVOPS_CLI_CONFIG"],
+        env["OTEL_SERVICE_NAME"],
         "Prune=false" in sync_options,
         "Delete=false" in sync_options,
         pvc["spec"]["storageClassName"],
         pvc["spec"]["resources"]["requests"]["storage"],
-    ) == ("/home/devops", True, "/config/devops-cli.yaml", True, True, "local-path", "1Gi")
+    ) == (
+        "/home/devops",
+        True,
+        "/config/devops-cli.yaml",
+        "roadmap-service",
+        True,
+        True,
+        "local-path",
+        "1Gi",
+    )
 
 
 def test_pod_annotations_name_port_8000() -> None:
@@ -221,7 +231,16 @@ def test_configmap_validates_as_settings_with_repos_and_machine_account() -> Non
         bool(settings.service.machine_account),
         settings.service.repos,
         settings.service.machine_account,
-    ) == (True, True, ["dan-petty/devops-cli"], "devops-bot")
+        settings.telemetry.enabled,
+        settings.telemetry.endpoint,
+    ) == (
+        True,
+        True,
+        ["dan-petty/devops-cli"],
+        "devops-bot",
+        True,
+        "http://otel-collector-opentelemetry-collector.otel.svc.cluster.local:4318",
+    )
 
 
 def test_kustomizations_list_manifests_and_directory() -> None:

@@ -326,7 +326,7 @@ To rotate a generated value, store a new one at a hidden prompt with `uv run key
 
 ## devops-cli in the cluster
 
-`k8s/devops/` runs devops-cli as cluster Jobs, so agents drive it with kubectl and never handle keys. It is not part of the root kustomization: apply it with `devops k8s apply k8s/devops/ --template`, which renders the kustomization and its `images:` tag. Each Job reads its credentials from Secret `devops/devops-cli` through `envFrom`, its configuration from ConfigMap `devops-cli-config` (provider `gateway` at `http://llm-gateway.llm.svc.cluster.local:4000/v1`), holds no Kubernetes API token, accepts no ingress, and reaches only DNS, the gateway and public HTTPS. Commands that need Qdrant, Prometheus, Grafana, Argo CD or a repository checkout do not run there yet.
+`k8s/devops/` runs devops-cli as cluster Jobs, so agents drive it with kubectl and never handle keys. It is not part of the root kustomization: apply it with `devops k8s apply k8s/devops/ --template`, which renders the kustomization and its `images:` tag. Each Job reads its credentials from Secret `devops/devops-cli` through `envFrom`, its configuration from ConfigMap `devops-cli-config` (provider `gateway` at `http://llm-gateway.llm.svc.cluster.local:4000/v1`), holds no Kubernetes API token, accepts no ingress, and reaches only DNS, the gateway, the OpenTelemetry collector in namespace `otel` and public HTTPS. Commands that need Qdrant, Prometheus, Grafana, Argo CD or a repository checkout do not run there yet.
 
 ```bash
 devops k8s apply k8s/devops/ --template --context <context>
