@@ -27,7 +27,7 @@ The Python engineering quality suite in `devops-cli` comprises three modern, ind
 
 ### DevOps CLI Quality Subcommands
 ```bash
-# Execute full CI gate across all 10 checks
+# Execute full CI gate across all checks
 devops ci
 
 # Execute unit tests with optional verbosity and filtering

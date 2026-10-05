@@ -55,7 +55,8 @@ def test_ai_subcommands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         assert res_agents.exit_code == 0
 
         res_agents_file = runner.invoke(
-            ai_app, ["agents", "--template", "--file", "AGENTS.md", "--repo", str(tmp_path)]
+            ai_app,
+            ["agents", "--template", "--force", "--file", "AGENTS.md", "--repo", str(tmp_path)],
         )
         assert res_agents_file.exit_code == 0
 

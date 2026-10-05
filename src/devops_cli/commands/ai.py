@@ -309,20 +309,6 @@ def _agent_prompt(context: str, target_file: str) -> str:
     )
 
 
-def _pointer_stub(title: str, tool_name: str, filename: str, canonical_relpath: str) -> str:
-    """Thin stub for a tool-specific file that defers to the canonical AGENTS.md."""
-    return f"""\
-# {title}
-
-> **This file is a pointer, not the source.** {tool_name} looks specifically for
-> `{filename}`, so this stub exists to redirect it. All actual instructions — project
-> overview, build/test commands, code conventions, architecture, AI features,
-> environment & modernization policy, and security notes — live in
-> [AGENTS.md]({canonical_relpath}). Read that file. Regenerate both via
-> `devops ai agents`; do not duplicate content here.
-"""
-
-
 def _template_content(target_file: str, context_summary: dict[str, str] | Any) -> str:
     """Fallback template when no LLM is configured."""
     from devops_cli.ai.instruction_generator import (
@@ -850,6 +836,53 @@ def prewarm(
 # =============================================================================
 
 
+def _write_stubs(repo: Path, stubs: list[str]) -> list[Path]:
+    """Scaffold and render pointer stubs, printing section and path info."""
+    from devops_cli.ai.instruction_generator import scaffold_agent_instructions
+    from devops_cli.lang import MESSAGES
+
+    if not stubs:
+        return []
+    written = scaffold_agent_instructions(repo, force=True, template=True, files=stubs)
+    for path in written:
+        print_section(f" {path.relative_to(repo)} ", style="cyan")
+        print_info(MESSAGES.ai.written_file.format(path=path.relative_to(repo)), prefix=False)
+    return written
+
+
+def _generate_agents_content(repo: Path, template: bool) -> str:
+    """Generate AGENTS.md content via LLM or fallback template."""
+    from devops_cli.ai.client import LLMClient
+    from devops_cli.config.settings import get_ai_api_key, load_settings
+    from devops_cli.lang import MESSAGES
+
+    meta = _parse_pyproject(repo)
+    if template:
+        return _template_content(CONST_AGENTS_MD_FILENAME, meta)
+
+    settings = load_settings()
+    try:
+        client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
+        context = _collect_project_context(repo)
+    except Exception as exc:
+        print_warning(f"LLM unavailable ({exc}), falling back to template.", prefix=False)
+        return _template_content(CONST_AGENTS_MD_FILENAME, meta)
+
+    from devops_cli.ai.personas import PERSONAS, Persona
+
+    print_info(
+        MESSAGES.ai.generating_agents.format(target=f"[cyan]{CONST_AGENTS_MD_FILENAME}[/cyan]"),
+        prefix=False,
+    )
+    system = PERSONAS[Persona.ARCHITECT].system_prompt + _get_agents_task_addendum()
+    try:
+        return client.chat(system=system, user=_agent_prompt(context, CONST_AGENTS_MD_FILENAME))
+    except Exception as exc:
+        msg = MESSAGES.messages.llm_failed_template_fallback.format(exc=exc)
+        print_warning(msg, prefix=False)
+        return _template_content(CONST_AGENTS_MD_FILENAME, meta)
+
+
 @app.command()
 def agents(
     repo: Annotated[
@@ -859,6 +892,10 @@ def agents(
     template: Annotated[
         bool,
         typer.Option("--template", help=HELP.ai.template),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help=HELP.ai.force),
     ] = False,
     files: Annotated[
         list[str] | None,
@@ -871,63 +908,43 @@ def agents(
     ] = None,
 ) -> None:
     """Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md)."""
-    from devops_cli.ai.client import LLMClient
-    from devops_cli.config.settings import get_ai_api_key, load_settings
+    from devops_cli.lang import MESSAGES
 
     repo = repo.resolve()
-    meta = _parse_pyproject(repo)
-
-    use_llm = not template
-    client: LLMClient | None = None
-
-    if use_llm:
-        settings = load_settings()
-        try:
-            client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
-            context = _collect_project_context(repo)
-        except Exception as exc:
-            print_warning(f"LLM unavailable ({exc}), falling back to template.", prefix=False)
-            use_llm = False
-
     target_files = files if files is not None else list(_AGENT_FILES)
-    for target in target_files:
-        from devops_cli.lang import MESSAGES
 
+    valid_targets: list[str] = []
+    for target in target_files:
         dest = (repo / target).resolve()
-        repo_resolved = repo.resolve()
-        if not (dest == repo_resolved or dest.is_relative_to(repo_resolved)):
+        if not (dest == repo or dest.is_relative_to(repo)):
             msg = MESSAGES.messages.target_path_outside_repo.format(dest=dest)
             print_error(msg, prefix=False)
             continue
-        print_section(f" {target} ", style="cyan")
+        valid_targets.append(target)
 
-        # Only the canonical file is worth spending an LLM call on — the others
-        # are static pointers to it, so they always use the template.
-        if target != CONST_AGENTS_MD_FILENAME:
-            content = _template_content(target, meta)
-        elif use_llm and client is not None:
-            from devops_cli.ai.personas import PERSONAS, Persona
+    agents_dest = (repo / CONST_AGENTS_MD_FILENAME).resolve()
+    has_agents = CONST_AGENTS_MD_FILENAME in valid_targets
+    stub_targets = [t for t in valid_targets if t != CONST_AGENTS_MD_FILENAME]
 
-            print_info(
-                MESSAGES.ai.generating_agents.format(target=f"[cyan]{target}[/cyan]"), prefix=False
-            )
-            system = PERSONAS[Persona.ARCHITECT].system_prompt + _get_agents_task_addendum()
-            try:
-                content = client.chat(
-                    system=system,
-                    user=_agent_prompt(context, target),
-                )
-            except Exception as exc:
-                msg = MESSAGES.messages.llm_failed_template_fallback.format(exc=exc)
-                print_warning(msg, prefix=False)
-                content = _template_content(target, meta)
-        else:
-            content = _template_content(target, meta)
+    if has_agents and agents_dest.is_file() and not force:
+        print_error(
+            f"Refusing to overwrite existing {CONST_AGENTS_MD_FILENAME} without --force.",
+            prefix=False,
+        )
+        _write_stubs(repo, stub_targets)
+        raise typer.Exit(code=1)
 
+    _write_stubs(repo, stub_targets)
+
+    if has_agents:
+        print_section(f" {CONST_AGENTS_MD_FILENAME} ", style="cyan")
+        content = _generate_agents_content(repo, template)
         if not content.endswith("\n"):
             content += "\n"
-        write_text_file(dest, content)
-        print_info(MESSAGES.ai.written_file.format(path=dest.relative_to(repo)), prefix=False)
+        write_text_file(agents_dest, content)
+        print_info(
+            MESSAGES.ai.written_file.format(path=agents_dest.relative_to(repo)), prefix=False
+        )
 
 
 _PERSONA_NAMES = [p.value for p in Persona]

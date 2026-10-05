@@ -99,6 +99,7 @@ devops ai agents [OPTIONS]
 |---|---|---|---|
 | `--repo`, `-r` | `path` | `.` | Repository root directory (default: current directory). |
 | `--template` | `boolean` | - | Generate from built-in template without calling the LLM. |
+| `--force` | `boolean` | - | Overwrite existing instruction files (such as AGENTS.md). |
 | `--file`, `-f` | `string` | - | Files to generate (repeatable). |
 
 ---
