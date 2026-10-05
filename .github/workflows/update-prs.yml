@@ -39,6 +39,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request != null &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
        (startsWith(github.event.comment.body, '/update') || startsWith(github.event.comment.body, '/sync')))
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -70,29 +71,33 @@ jobs:
         if: github.event_name == 'issue_comment'
         env:
           GH_TOKEN: ${{ secrets.PROJECT_TOKEN || secrets.GH_PROJECT_TOKEN || secrets.GITHUB_TOKEN }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          REPO: ${{ github.repository }}
         run: |
-          COMMENT_ID="${{ github.event.comment.id }}"
-          REPO="${{ github.repository }}"
           gh api --silent -X POST "repos/${REPO}/issues/comments/${COMMENT_ID}/reactions" -f content="rocket" || true
 
       - name: Execute Pull Request Update
         env:
           GH_TOKEN: ${{ secrets.PROJECT_TOKEN || secrets.GH_PROJECT_TOKEN || secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          COMMENT_PR_NUMBER: ${{ github.event.issue.number }}
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+          INPUT_PR_NUMBER: ${{ github.event.inputs.pr_number }}
+          INPUT_BASE_BRANCH: ${{ github.event.inputs.base_branch }}
+          TARGET_BASE: ${{ github.ref_name }}
         run: |
-          EVENT_NAME="${{ github.event_name }}"
-          REPO="${{ github.repository }}"
-
           if [ "$EVENT_NAME" = "issue_comment" ]; then
-            PR_NUM="${{ github.event.issue.number }}"
+            PR_NUM="$COMMENT_PR_NUMBER"
             echo "Updating PR #${PR_NUM} triggered by comment..."
             uv run devops pr update "$PR_NUM" --repo "$REPO"
           elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             ARGS=()
-            if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            if [ "$INPUT_DRY_RUN" = "true" ]; then
               ARGS+=("--dry-run")
             fi
-            PR_INPUT="${{ github.event.inputs.pr_number }}"
-            BASE_INPUT="${{ github.event.inputs.base_branch }}"
+            PR_INPUT="$INPUT_PR_NUMBER"
+            BASE_INPUT="$INPUT_BASE_BRANCH"
             if [ -n "$PR_INPUT" ]; then
               echo "Updating specific PR #${PR_INPUT} via workflow dispatch..."
               uv run devops pr update "$PR_INPUT" --repo "$REPO" "${ARGS[@]}"
@@ -105,7 +110,6 @@ jobs:
             fi
           else
             # Push to base branch (main or release/**)
-            TARGET_BASE="${{ github.ref_name }}"
             echo "Push detected on base branch '${TARGET_BASE}'. Synchronizing open PRs..."
             uv run devops pr update --all --base "$TARGET_BASE" --repo "$REPO"
           fi
