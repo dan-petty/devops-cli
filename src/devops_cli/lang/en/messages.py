@@ -584,6 +584,22 @@ class PRMessages:
     update_branch_conflict: str = (
         "✗ Merge conflict detected on PR #{number} with base '{base}'. Manual resolution required."
     )
+    update_dispatch_ci_success: str = (
+        "✓ Dispatched {workflow} for PR #{number} on branch '{branch}'."
+    )
+    update_dispatch_ci_head_unchanged: str = (
+        "✗ Head SHA for PR #{number} did not change after update; skipped {workflow} dispatch."
+    )
+    update_dispatch_ci_fork: str = (
+        "PR #{number} head branch is in fork '{fork}'; skipped {workflow} dispatch."
+    )
+    update_dispatch_ci_failed: str = "✗ Failed to dispatch {workflow} for PR #{number}: {error}"
+    update_dry_run_heading: str = (
+        r"[yellow]\[dry-run][/yellow] Planned external requests to update PR #{number}:"
+    )
+    update_all_dry_run_heading: str = (
+        r"[yellow]\[dry-run][/yellow] Planned external requests to update all open PRs:"
+    )
     update_table_title: str = "Pull Request Branch Update Summary"
     grounding_closes_no_issue: str = (
         "PR #{number} is not grounded: its body closes no issue in {repo}. Name the one issue "

@@ -110,20 +110,34 @@ def test_update_prs_workflow_invariants_and_permissions() -> None:
     raw_text = UPDATE_PRS_PATH.read_text(encoding="utf-8")
     workflow = _load_workflow(UPDATE_PRS_PATH)
 
-    # Validate permissions block
     job = workflow["jobs"]["update-pull-requests"]
     perms = job.get("permissions", {})
     expected_perms = {
         "contents": "write",
         "pull-requests": "write",
         "issues": "write",
+        "actions": "write",
     }
-    assert perms == expected_perms
-    assert "actions" not in perms
-
-    # Validate 4 invocations of devops pr update
     update_count = raw_text.count("uv run devops pr update")
-    assert update_count == 4
+    update_lines = [
+        line
+        for step in job.get("steps", [])
+        if isinstance(step, dict) and isinstance(step.get("run"), str)
+        for line in step["run"].splitlines()
+        if "devops pr update" in line
+    ]
+
+    assert (
+        perms,
+        update_count,
+        raw_text.count("--dispatch-ci"),
+        all("--dispatch-ci" in line for line in update_lines),
+    ) == (
+        expected_perms,
+        4,
+        4,
+        True,
+    )
 
 
 def _extract_steps_with_action(

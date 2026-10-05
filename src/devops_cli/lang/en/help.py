@@ -791,6 +791,7 @@ class PRCommandHelp:
     update_expected_head_sha: str = (
         "Expected SHA of the pull request's HEAD ref for optimistic locking."
     )
+    update_dispatch_ci: str = "Dispatch the ci.yml workflow on the head branch after updating."
 
 
 @dataclass(frozen=True)

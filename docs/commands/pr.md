@@ -295,6 +295,7 @@ devops pr update [OPTIONS] <number>
 | `--base`, `-B` | `string` | - | Filter open pull requests by base branch (e.g. main, release/v0.2.20). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--expected-head-sha` | `string` | - | Expected SHA of the pull request's HEAD ref for optimistic locking. |
+| `--dispatch-ci` | `boolean` | - | Dispatch the ci.yml workflow on the head branch after updating. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

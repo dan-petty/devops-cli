@@ -47,6 +47,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      actions: write
 
     steps:
       - name: Check out repository
@@ -90,7 +91,7 @@ jobs:
           if [ "$EVENT_NAME" = "issue_comment" ]; then
             PR_NUM="$COMMENT_PR_NUMBER"
             echo "Updating PR #${PR_NUM} triggered by comment..."
-            uv run devops pr update "$PR_NUM" --repo "$REPO"
+            uv run devops pr update "$PR_NUM" --repo "$REPO" --dispatch-ci
           elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             ARGS=()
             if [ "$INPUT_DRY_RUN" = "true" ]; then
@@ -100,16 +101,16 @@ jobs:
             BASE_INPUT="$INPUT_BASE_BRANCH"
             if [ -n "$PR_INPUT" ]; then
               echo "Updating specific PR #${PR_INPUT} via workflow dispatch..."
-              uv run devops pr update "$PR_INPUT" --repo "$REPO" "${ARGS[@]}"
+              uv run devops pr update "$PR_INPUT" --repo "$REPO" "${ARGS[@]}" --dispatch-ci
             else
               if [ -n "$BASE_INPUT" ]; then
                 ARGS+=("--base" "$BASE_INPUT")
               fi
               echo "Updating all open PRs targeting base '${BASE_INPUT:-auto}'..."
-              uv run devops pr update --all --repo "$REPO" "${ARGS[@]}"
+              uv run devops pr update --all --repo "$REPO" "${ARGS[@]}" --dispatch-ci
             fi
           else
             # Push to base branch (main or release/**)
             echo "Push detected on base branch '${TARGET_BASE}'. Synchronizing open PRs..."
-            uv run devops pr update --all --base "$TARGET_BASE" --repo "$REPO"
+            uv run devops pr update --all --base "$TARGET_BASE" --repo "$REPO" --dispatch-ci
           fi

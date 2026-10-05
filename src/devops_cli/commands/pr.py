@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from collections.abc import Callable
 from http import HTTPStatus
 from typing import Annotated, Any, NamedTuple, cast
@@ -17,6 +18,7 @@ from devops_cli.config.constants import (
     CONST_AGENT_TASK_FILE_RE,
     CONST_AGENT_TASKS_DIR,
     CONST_CHANGELOG_FRAGMENTS_DIR,
+    CONST_CI_WORKFLOW_FILE,
     CONST_GH_API_HTTP_STATUS_RE,
     CONST_GH_CLI,
     CONST_MAX_ERROR_DETAIL_LENGTH,
@@ -29,10 +31,17 @@ from devops_cli.config.constants import (
     CONST_RELEASE_PROCESS_BRANCH_RE,
     CONST_RELEASE_SHARED_FILES,
 )
-from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE, DEFAULT_PR_LIMIT, DEFAULT_PR_STATE
+from devops_cli.config.defaults import (
+    DEFAULT_GH_REST_PER_PAGE,
+    DEFAULT_PR_LIMIT,
+    DEFAULT_PR_STATE,
+    DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS,
+    DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS,
+)
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
+from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.issue_closure import extract_linked_issues
@@ -1990,11 +1999,193 @@ def _execute_update_branch(cmd: list[str]) -> tuple[bool, str]:
     return False, error_msg
 
 
+def _build_dispatch_ci_cmd(
+    owner_repo: str,
+    head_ref: str,
+) -> list[str]:
+    """Build GitHub CLI API invocation for dispatching the CI workflow."""
+    endpoint = f"repos/{owner_repo}/actions/workflows/{CONST_CI_WORKFLOW_FILE}/dispatches"
+    return [CONST_GH_CLI, "api", "-X", "POST", endpoint, "-f", f"ref={head_ref}"]
+
+
+def _poll_head_sha_change(
+    target_repo: str,
+    number: int,
+    pre_sha: str,
+) -> tuple[dict[str, Any], bool]:
+    """Poll PR details until head SHA changes or attempt bound is reached."""
+    latest_pr: dict[str, Any] = {}
+    for _ in range(DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS):
+        time.sleep(DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS)
+        latest_pr = _fetch_pr_details(number, target_repo)
+        current_sha = latest_pr.get("head", {}).get("sha", "")
+        if current_sha and current_sha != pre_sha:
+            return latest_pr, True
+    return latest_pr, False
+
+
+def _dispatch_ci_for_head(
+    target_repo: str,
+    number: int,
+    pr: dict[str, Any],
+    pre_sha: str,
+) -> tuple[bool, str]:
+    """Poll PR head SHA and dispatch CI workflow once updated."""
+    head_repo = pr.get("head", {}).get("repo")
+    head_repo_name = head_repo.get("full_name") if isinstance(head_repo, dict) else None
+    if not head_repo_name or head_repo_name != target_repo:
+        fork_name = head_repo_name or "unknown fork"
+        print_info(
+            MESSAGES.pr.update_dispatch_ci_fork.format(
+                number=number, fork=fork_name, workflow=CONST_CI_WORKFLOW_FILE
+            )
+        )
+        return True, "fork"
+
+    latest_pr, sha_changed = _poll_head_sha_change(target_repo, number, pre_sha)
+    if not sha_changed:
+        print_error(
+            MESSAGES.pr.update_dispatch_ci_head_unchanged.format(
+                number=number, workflow=CONST_CI_WORKFLOW_FILE
+            ),
+            prefix=False,
+        )
+        return False, "head unchanged"
+
+    head_ref = str(latest_pr.get("head", {}).get("ref") or pr.get("head", {}).get("ref", ""))
+    dispatch_cmd = _build_dispatch_ci_cmd(target_repo, head_ref)
+    res = run_gh(dispatch_cmd, check=False, quiet=True)
+    if res.returncode == 0:
+        print_success(
+            MESSAGES.pr.update_dispatch_ci_success.format(
+                number=number, branch=head_ref, workflow=CONST_CI_WORKFLOW_FILE
+            )
+        )
+        return True, "dispatched"
+
+    error_msg = _parse_update_error(res.stderr or res.stdout)
+    print_error(
+        MESSAGES.pr.update_dispatch_ci_failed.format(
+            number=number, workflow=CONST_CI_WORKFLOW_FILE, error=error_msg
+        ),
+        prefix=False,
+    )
+    return False, error_msg
+
+
+def _plan_update_single_pr(
+    number: int,
+    target_repo: str,
+    expected_head_sha: str | None = None,
+    dispatch_ci: bool = False,
+) -> list[PlannedRequest]:
+    """Generate planned requests for single PR update dry-run."""
+    requests: list[PlannedRequest] = [
+        PlannedRequest(
+            method="GET",
+            target=f"repos/{target_repo}/pulls/{number}",
+            argv=(CONST_GH_CLI, "api", f"repos/{target_repo}/pulls/{number}"),
+        ),
+        PlannedRequest(
+            method="PUT",
+            target=f"repos/{target_repo}/pulls/{number}/update-branch",
+            argv=tuple(_build_update_branch_cmd(target_repo, number, expected_head_sha)),
+        ),
+    ]
+    if dispatch_ci:
+        requests.append(
+            PlannedRequest(
+                method="GET",
+                target=f"repos/{target_repo}/pulls/{number}",
+                argv=(CONST_GH_CLI, "api", f"repos/{target_repo}/pulls/{number}"),
+                repeat=f"up to {DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS}, {DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS:g}s apart",
+            )
+        )
+        requests.append(
+            PlannedRequest(
+                method="POST",
+                target=f"repos/{target_repo}/actions/workflows/{CONST_CI_WORKFLOW_FILE}/dispatches",
+                argv=tuple(_build_dispatch_ci_cmd(target_repo, "<branch>")),
+                condition="the head changed and lives in this repository",
+            )
+        )
+    return requests
+
+
+def _plan_update_all_prs(
+    target_repo: str | None,
+    target_base: str | None,
+    dispatch_ci: bool = False,
+) -> list[PlannedRequest]:
+    """Generate planned requests for all PRs update dry-run."""
+    list_argv = [
+        CONST_GH_CLI,
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "number,title,headRefName,baseRefName,isDraft",
+    ]
+    if target_repo:
+        list_argv.extend(["--repo", target_repo])
+    if target_base:
+        list_argv.extend(["--base", target_base])
+    repo_slug = target_repo or ":owner/:repo"
+    requests: list[PlannedRequest] = [
+        PlannedRequest(
+            method="GET",
+            target=f"repos/{repo_slug}/pulls",
+            argv=tuple(list_argv),
+        ),
+        PlannedRequest(
+            method="GET",
+            target=f"repos/{repo_slug}/pulls/<number>",
+            argv=(CONST_GH_CLI, "api", f"repos/{repo_slug}/pulls/<number>"),
+            repeat="each open non-draft PR",
+        ),
+        PlannedRequest(
+            method="PUT",
+            target=f"repos/{repo_slug}/pulls/<number>/update-branch",
+            argv=(
+                CONST_GH_CLI,
+                "api",
+                "-X",
+                "PUT",
+                f"repos/{repo_slug}/pulls/<number>/update-branch",
+            ),
+            repeat="each open non-draft PR",
+        ),
+    ]
+    if dispatch_ci:
+        requests.append(
+            PlannedRequest(
+                method="GET",
+                target=f"repos/{repo_slug}/pulls/<number>",
+                argv=(CONST_GH_CLI, "api", f"repos/{repo_slug}/pulls/<number>"),
+                repeat=f"each open non-draft PR; up to {DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS}, {DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS:g}s apart",
+            )
+        )
+        requests.append(
+            PlannedRequest(
+                method="POST",
+                target=f"repos/{repo_slug}/actions/workflows/{CONST_CI_WORKFLOW_FILE}/dispatches",
+                argv=tuple(_build_dispatch_ci_cmd(repo_slug, "<branch>")),
+                condition="the head changed and lives in this repository",
+                repeat="each open non-draft PR",
+            )
+        )
+    return requests
+
+
 def _update_single_pr(
     number: int,
     repo: str | None = None,
     expected_head_sha: str | None = None,
     dry_run: bool = False,
+    dispatch_ci: bool = False,
 ) -> tuple[bool, str]:
     """Update a specific pull request branch from its base branch."""
     _require_gh_cli()
@@ -2005,27 +2196,38 @@ def _update_single_pr(
         print_error("Target repository must be in OWNER/REPO format.", prefix=False)
         return False, "Target repository could not be determined."
 
-    pr = _fetch_pr_details(number, target_repo)
-    head_ref = pr.get("head", {}).get("ref", f"PR #{number}")
-    base_ref = pr.get("base", {}).get("ref", "base")
-
     if dry_run or is_dry_run():
-        msg = MESSAGES.pr.update_branch_dry_run.format(
-            number=number, branch=head_ref, base=base_ref
+        plan = _plan_update_single_pr(
+            number=number,
+            target_repo=target_repo,
+            expected_head_sha=expected_head_sha,
+            dispatch_ci=dispatch_ci,
         )
-        print_info(msg)
-        return True, msg
+        render_request_plan(
+            MESSAGES.pr.update_dry_run_heading.format(number=number),
+            plan,
+            (MESSAGES.dry_run.placeholders_note,),
+        )
+        return True, "dry-run"
+
+    pr = _fetch_pr_details(number, target_repo)
+    base_ref = pr.get("base", {}).get("ref", "base")
+    pre_sha = pr.get("head", {}).get("sha", "")
 
     cmd = _build_update_branch_cmd(target_repo, number, expected_head_sha)
     success, message = _execute_update_branch(cmd)
-    if success:
-        print_success(MESSAGES.pr.update_branch_success.format(number=number, base=base_ref))
-    else:
+    if not success:
         print_error(
             MESSAGES.pr.update_branch_failed.format(number=number, error=message),
             prefix=False,
         )
-    return success, message
+        return False, message
+
+    print_success(MESSAGES.pr.update_branch_success.format(number=number, base=base_ref))
+    if not dispatch_ci:
+        return True, message
+
+    return _dispatch_ci_for_head(target_repo, number, pr, pre_sha)
 
 
 def _fetch_open_prs(repo: str | None, base: str | None) -> list[dict[str, Any]]:
@@ -2061,6 +2263,7 @@ def _process_candidate_pr_row(
     pr: dict[str, Any],
     repo: str | None,
     dry_run: bool,
+    dispatch_ci: bool = False,
 ) -> list[str] | None:
     """Evaluate and update a single candidate PR, returning a summary table row."""
     num = pr.get("number")
@@ -2070,8 +2273,26 @@ def _process_candidate_pr_row(
     b_ref = str(pr.get("baseRefName", ""))
     if bool(pr.get("isDraft", False)):
         return [f"#{num}", head, b_ref, "[dim]draft (skipped)[/dim]"]
-    success, _ = _update_single_pr(int(num), repo=repo, dry_run=dry_run)
-    status_text = "[green]✓ updated[/green]" if success else "[red]✗ failed[/red]"
+    success, msg = _update_single_pr(
+        int(num),
+        repo=repo,
+        dry_run=dry_run,
+        dispatch_ci=dispatch_ci,
+    )
+    if not dispatch_ci:
+        status_text = "[green]✓ updated[/green]" if success else "[red]✗ failed[/red]"
+    elif success:
+        status_text = (
+            f"[green]✓ updated ({msg})[/green]"
+            if msg in ("dispatched", "fork")
+            else "[green]✓ updated[/green]"
+        )
+    else:
+        status_text = (
+            f"[yellow]✓ updated ({msg})[/yellow]"
+            if msg == "head unchanged"
+            else "[red]✗ failed[/red]"
+        )
     return [f"#{num}", head, b_ref, status_text]
 
 
@@ -2079,9 +2300,26 @@ def _update_all_prs(
     base: str | None = None,
     repo: str | None = None,
     dry_run: bool = False,
+    dispatch_ci: bool = False,
 ) -> None:
     """Update all open non-draft pull requests targeting base branch."""
+    from devops_cli.core.repo import get_repo_origin_name
+
+    target_repo = repo or get_repo_origin_name()
     target_base = base or _detect_active_release_branch()
+    if dry_run or is_dry_run():
+        plan = _plan_update_all_prs(
+            target_repo=target_repo,
+            target_base=target_base,
+            dispatch_ci=dispatch_ci,
+        )
+        render_request_plan(
+            MESSAGES.pr.update_all_dry_run_heading,
+            plan,
+            (MESSAGES.dry_run.placeholders_note,),
+        )
+        return
+
     prs = _fetch_open_prs(repo, target_base)
     if not prs:
         print_info(MESSAGES.pr.update_branch_no_prs)
@@ -2091,7 +2329,7 @@ def _update_all_prs(
 
     rows: list[list[str]] = []
     for pr in prs:
-        row = _process_candidate_pr_row(pr, repo=repo, dry_run=dry_run)
+        row = _process_candidate_pr_row(pr, repo=repo, dry_run=dry_run, dispatch_ci=dispatch_ci)
         if row:
             rows.append(row)
 
@@ -2124,6 +2362,10 @@ def update_pr(
         str | None,
         typer.Option("--expected-head-sha", help=HELP.pr.update_expected_head_sha),
     ] = None,
+    dispatch_ci: Annotated[
+        bool,
+        typer.Option("--dispatch-ci", help=HELP.pr.update_dispatch_ci),
+    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -2135,7 +2377,12 @@ def update_pr(
         set_dry_run(True)
 
     if all_prs:
-        _update_all_prs(base=base, repo=repo, dry_run=dry_run)
+        _update_all_prs(
+            base=base,
+            repo=repo,
+            dry_run=dry_run,
+            dispatch_ci=dispatch_ci,
+        )
         return
 
     if number is None:
@@ -2150,6 +2397,7 @@ def update_pr(
         repo=repo,
         expected_head_sha=expected_head_sha,
         dry_run=dry_run,
+        dispatch_ci=dispatch_ci,
     )
     if not success and not (dry_run or is_dry_run()):
         raise typer.Exit(1)
