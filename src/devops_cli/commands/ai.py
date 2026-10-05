@@ -946,6 +946,7 @@ def _stream_interactive_chat_turn(
         show_thinking=thinking,
         console=get_console(),
     )
+    agent.memory.add_interaction("user", effective_prompt)
     system_with_tools = agent._build_system_prompt_with_tools()
     messages = agent.memory.to_chat_messages()
     for chunk in client.chat_messages_stream(system_with_tools, messages, enable_thinking=thinking):
@@ -954,6 +955,8 @@ def _stream_interactive_chat_turn(
     reply = processor.clean_content
     if not reply.strip() and processor.thinking_content:
         # Model put all output in thinking tags; retrieve summary
+        if agent.memory.entries and agent.memory.entries[-1].role == "user":
+            agent.memory.entries.pop()
         agent_res = agent.run(effective_prompt, enable_thinking=thinking)
         reply = strip_think_blocks(agent_res.content)
         if reply.strip():
@@ -1113,9 +1116,11 @@ def chat(  # noqa: C901
 
             except KeyboardInterrupt:
                 print_info("\n[dim]Interrupted.[/dim]\n", prefix=False)
+                if agent.memory.entries and agent.memory.entries[-1].role == "user":
+                    agent.memory.entries.pop()
             except Exception as exc:
                 print_error(f"\nError: {exc}\n", prefix=False)
-                if agent.memory.entries:
+                if agent.memory.entries and agent.memory.entries[-1].role == "user":
                     agent.memory.entries.pop()  # don't add failed turn to history
                 continue
 
