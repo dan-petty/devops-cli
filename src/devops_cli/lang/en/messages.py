@@ -815,6 +815,9 @@ class ArgoMessages:
 
 @dataclass(frozen=True)
 class CIMessages:
+    ci_dry_run_heading: str = (
+        "Dry run: no request was made. CI would make these requests, in order:"
+    )
     python_version_check: str = "python version check (3.14+)"
     no_covering_tests: str = (
         "No covering tests found for: {files}. Changed code without a covering test "

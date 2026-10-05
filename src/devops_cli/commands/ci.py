@@ -32,6 +32,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
+from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success
 
@@ -150,6 +151,8 @@ class CheckResult(BaseModel):
     stderr: str = ""
     timed_out: bool = False
     timeout_seconds: float | None = None
+    dry_run: bool = False
+    requests: tuple[PlannedRequest, ...] = ()
 
 
 class CheckSpec(BaseModel):
@@ -186,6 +189,28 @@ def _verify_python_314_environment() -> bool:
     return True
 
 
+def _planned_request_for_cmd(
+    cmd: Sequence[str],
+    *,
+    env: dict[str, str] | None = None,
+    condition: str = "",
+    repeat: str = "",
+) -> PlannedRequest:
+    """Construct a PlannedRequest for a command, inserting uv preview flags when needed."""
+    full_cmd = list(cmd)
+    if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
+        full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
+    env_tuple = tuple((k, v) for k, v in sorted(env.items())) if env else ()
+    return PlannedRequest(
+        method="run",
+        target=full_cmd[0] if full_cmd else "",
+        argv=tuple(full_cmd),
+        env=env_tuple,
+        condition=condition,
+        repeat=repeat,
+    )
+
+
 def _run(
     cmd: list[str],
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -193,6 +218,10 @@ def _run(
     env: dict[str, str] | None = None,
 ) -> bool:
     """Run a CI check subprocess synchronously."""
+    if is_dry_run():
+        req = _planned_request_for_cmd(cmd, env=env)
+        render_request_plan(MESSAGES.ci.ci_dry_run_heading, [req])
+        return True
     root = _get_project_root()
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
@@ -239,6 +268,8 @@ def _unlink_coverage_path(path: Path, *, force: bool) -> None:
 
 def _clean_coverage_artifacts(*, force: bool = False) -> None:
     """Clean up residual temporary .coverage.* worker files from the checked tree and .data/."""
+    if is_dry_run():
+        return
     if not force and os.getenv("PYTEST_CURRENT_TEST"):
         return
 
@@ -295,6 +326,19 @@ async def _execute_check_async(
         )
     else:
         check_spec = spec
+
+    if is_dry_run():
+        req = _planned_request_for_cmd(check_spec.cmd)
+        return CheckResult(
+            name=check_spec.name,
+            display_title=check_spec.display_title,
+            passed=False,
+            dry_run=True,
+            duration_seconds=0.0,
+            stdout="",
+            stderr="",
+            requests=(req,),
+        )
 
     start_time = time.perf_counter()
     root = _get_project_root()
@@ -683,6 +727,8 @@ def _assemble_ci_results(
         duration_seconds=test_result.duration_seconds,
         stdout=test_result.stdout,
         stderr=test_result.stderr,
+        dry_run=test_result.dry_run,
+        requests=test_result.requests,
     )
     assembled: list[CheckResult] = [py_result]
     for i, res in enumerate(raw_results):
@@ -690,6 +736,64 @@ def _assemble_ci_results(
         if i == test_idx:
             assembled.append(coverage_result)
     return assembled
+
+
+def _collect_fix_requests(
+    selected_specs: Sequence[CheckSpec],
+    *,
+    format_fix: bool,
+    lint_fix: bool,
+    docs_fix: bool,
+) -> list[PlannedRequest]:
+    """Collect planned requests for pre-fix steps in execution order."""
+    fixes = [
+        ("format", format_fix),
+        ("lint", lint_fix),
+        ("docs", docs_fix),
+    ]
+    spec_map = {s.name: s for s in selected_specs}
+    requests: list[PlannedRequest] = []
+    for name, enabled in fixes:
+        if not enabled:
+            continue
+        spec = spec_map.get(name)
+        if spec and spec.fix_cmd:
+            requests.append(_planned_request_for_cmd(spec.fix_cmd))
+    return requests
+
+
+def _dry_run_all_checks(
+    selected_specs: Sequence[CheckSpec],
+    *,
+    format_fix: bool,
+    lint_fix: bool,
+    docs_fix: bool,
+) -> list[CheckResult]:
+    """Handle dry run for all checks: render request plan and return dry-run CheckResults."""
+    fix_requests = _collect_fix_requests(
+        selected_specs, format_fix=format_fix, lint_fix=lint_fix, docs_fix=docs_fix
+    )
+    check_requests = [_planned_request_for_cmd(s.cmd) for s in selected_specs]
+    render_request_plan(MESSAGES.ci.ci_dry_run_heading, [*fix_requests, *check_requests])
+    py_result = CheckResult(
+        name="python_version",
+        display_title=MESSAGES.ci.python_version_check,
+        passed=False,
+        dry_run=True,
+        duration_seconds=0.0,
+    )
+    raw_results = [
+        CheckResult(
+            name=spec.name,
+            display_title=spec.display_title,
+            passed=False,
+            dry_run=True,
+            duration_seconds=0.0,
+            requests=(_planned_request_for_cmd(spec.cmd),),
+        )
+        for spec in selected_specs
+    ]
+    return _assemble_ci_results(py_result, selected_specs, raw_results)
 
 
 async def _run_all_checks_async(
@@ -700,6 +804,15 @@ async def _run_all_checks_async(
     specs: Sequence[CheckSpec] | None = None,
 ) -> list[CheckResult]:
     """Execute CI verification gates concurrently using asyncio."""
+    if is_dry_run():
+        selected_specs = list(specs) if specs is not None else get_check_specs()
+        return _dry_run_all_checks(
+            selected_specs,
+            format_fix=format_fix,
+            lint_fix=lint_fix,
+            docs_fix=docs_fix,
+        )
+
     _clean_coverage_artifacts()
 
     py_ok, py_result = _run_python_version_step()
@@ -755,6 +868,8 @@ def _run_all_checks(
 
 def _print_failures(results: list[CheckResult]) -> None:
     """Print diagnostic failure outputs for failed CI checks."""
+    if is_dry_run() or any(res.dry_run for res in results):
+        return
     for res in results:
         if not res.passed and (res.stdout or res.stderr):
             _section(res.display_title)
@@ -768,6 +883,8 @@ def _print_summary(
     results: list[CheckResult], total_elapsed: float, *, cached: bool = False
 ) -> None:
     """Render the final formatted CI Summary table."""
+    if is_dry_run() or any(res.dry_run for res in results):
+        return
     from devops_cli.output import format_duration
 
     rows: list[list[str]] = []
@@ -893,6 +1010,8 @@ def _try_fast_cached_ci(
 
 def _warn_when_over_budget(results: list[CheckResult]) -> None:
     """Warn when the test step ran past its budget, naming the tests that took longest."""
+    if is_dry_run() or any(res.dry_run for res in results):
+        return
     test_result = next((res for res in results if res.name == "test"), None)
     if test_result is None or test_result.duration_seconds <= CONST_CI_TEST_BUDGET_SECONDS:
         return
@@ -926,8 +1045,11 @@ def _handle_ci_results(
     `--no-cache` run has done the full work and proved the tree, so discarding the proof
     made the next ordinary run repeat it for no reason.
     """
+    if is_dry_run() or any(res.dry_run for res in results):
+        return
+
     if all(res.passed for res in results):
-        if save_cache and not is_dry_run():
+        if save_cache:
             _try_save_ci_cache(root, results, all_files, ci_options)
         return
 
@@ -978,13 +1100,13 @@ def all_checks(
     ] = False,
 ) -> None:
     """Run all CI checks concurrently in parallel with non-blocking async execution."""
+    if dry_run:
+        set_dry_run(True)
     root = _get_project_root()
     if not ctx.meta.get(CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY):
         _announce_gate_root(root)
     if ctx.invoked_subcommand is not None:
         return
-    if dry_run:
-        set_dry_run(True)
 
     selected_specs = resolve_selected_specs(only=only, skip=skip)
     is_narrowed = bool(only or skip)
@@ -999,8 +1121,9 @@ def all_checks(
         return
 
     start_time = time.perf_counter()
-    _get("print_info")("Executing CI quality gates concurrently...")
-    sys.stdout.flush()
+    if not is_dry_run():
+        _get("print_info")("Executing CI quality gates concurrently...")
+        sys.stdout.flush()
     results = asyncio.run(
         _run_all_checks_async(
             lint_fix=effective_fix,
@@ -1290,16 +1413,20 @@ def test(
 
 def _handle_coverage_index_build(cmd: list[str]) -> None:
     """Execute full test suite with coverage contexts and persist coverage reverse index."""
+    root = _get_project_root()
+    index_cmd = list(cmd)
+    index_cmd.append("--cov-context=test")
+
+    if is_dry_run():
+        _run(index_cmd, env={"COVERAGE_CORE": "ctrace"})
+        return
+
     from devops_cli.ci.cache import compute_worktree_blob_hashes, resolve_coverage_index_path
     from devops_cli.core.coverage_index import (
         build_index_from_coverage,
         filter_coverage_source_hashes,
         save_index,
     )
-
-    root = _get_project_root()
-    index_cmd = list(cmd)
-    index_cmd.append("--cov-context=test")
 
     hashes_before = filter_coverage_source_hashes(compute_worktree_blob_hashes(root))
     env = {"COVERAGE_CORE": "ctrace"}
@@ -1629,5 +1756,6 @@ def run(
     results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix, docs_fix=fix))
     _print_failures(results)
     _print_summary(results, total_elapsed=time.perf_counter() - start_time)
-    if not all(res.passed for res in results):
-        raise typer.Exit(1)
+    if not is_dry_run() and not any(res.dry_run for res in results):
+        if not all(res.passed for res in results):
+            raise typer.Exit(1)
