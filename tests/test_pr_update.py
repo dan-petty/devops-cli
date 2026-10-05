@@ -110,6 +110,9 @@ def test_process_candidate_pr_row(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_update_single_pr_cli_success(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test CLI devops pr update for a single PR succeeding."""
     runner = CliRunner()
+    dispatch_calls: list[list[str]] = []
+    sleep_calls: list[float] = []
+
     monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
     monkeypatch.setattr(
         "devops_cli.commands.pr._fetch_pr_details",
@@ -122,25 +125,36 @@ def test_update_single_pr_cli_success(monkeypatch: pytest.MonkeyPatch) -> None:
         "devops_cli.commands.pr._execute_update_branch",
         lambda *args, **kwargs: (True, "Updated"),
     )
+    monkeypatch.setattr("devops_cli.commands.pr.time.sleep", lambda s: sleep_calls.append(s))
+    monkeypatch.setattr(
+        "devops_cli.commands.pr.run_gh",
+        lambda cmd, *args, **kwargs: dispatch_calls.append(cmd) or MagicMock(returncode=0),
+    )
 
     result = runner.invoke(app, ["update", "42", "--repo", "owner/repo"])
     assert (
         result.exit_code,
+        len(dispatch_calls),
+        len(sleep_calls),
         "Successfully updated branch for PR #42" in result.stdout,
-    ) == (0, True)
+    ) == (0, 0, 0, True)
 
 
 def test_update_single_pr_cli_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test CLI devops pr update with --dry-run bypassing remote API call."""
     runner = CliRunner()
     execute_called: list[bool] = []
+    fetch_called: list[bool] = []
     monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
     monkeypatch.setattr(
         "devops_cli.commands.pr._fetch_pr_details",
-        lambda *args, **kwargs: {
-            "head": {"ref": "feat/my-branch"},
-            "base": {"ref": "release/v0.2.20"},
-        },
+        lambda *args, **kwargs: (
+            fetch_called.append(True)
+            or {
+                "head": {"ref": "feat/my-branch"},
+                "base": {"ref": "release/v0.2.20"},
+            }
+        ),
     )
 
     def _mock_execute(*args: Any, **kwargs: Any) -> tuple[bool, str]:
@@ -153,8 +167,9 @@ def test_update_single_pr_cli_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (
         result.exit_code,
         len(execute_called),
+        len(fetch_called),
         "[dry-run]" in result.output,
-    ) == (0, 0, True)
+    ) == (0, 0, 0, True)
 
 
 def test_update_single_pr_cli_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -312,3 +327,245 @@ def test_fetch_open_prs_sorts_oldest_first() -> None:
         prs = _fetch_open_prs("owner/repo", "main")
         numbers = [p["number"] for p in prs]
         assert numbers == [100, 200, 300]
+
+
+def test_build_dispatch_ci_cmd() -> None:
+    """_build_dispatch_ci_cmd returns proper GitHub CLI API dispatch invocation."""
+    from devops_cli.commands.pr import _build_dispatch_ci_cmd
+
+    cmd = _build_dispatch_ci_cmd("owner/repo", "feat/x")
+    assert cmd == [
+        "gh",
+        "api",
+        "-X",
+        "POST",
+        "repos/owner/repo/actions/workflows/ci.yml/dispatches",
+        "-f",
+        "ref=feat/x",
+    ]
+
+
+def test_update_single_pr_cli_dispatch_ci_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI devops pr update --dispatch-ci dispatches CI on head SHA change."""
+    runner = CliRunner()
+    calls: list[dict[str, Any]] = []
+    fetch_count = [0]
+    sleep_calls: list[float] = []
+
+    def mock_fetch(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        fetch_count[0] += 1
+        sha = "old" if fetch_count[0] == 1 else "new"
+        return {
+            "head": {"ref": "feat/my-branch", "sha": sha, "repo": {"full_name": "owner/repo"}},
+            "base": {"ref": "release/v0.2.20"},
+        }
+
+    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
+    monkeypatch.setattr("devops_cli.commands.pr._fetch_pr_details", mock_fetch)
+    monkeypatch.setattr(
+        "devops_cli.commands.pr._execute_update_branch",
+        lambda *args, **kwargs: (True, "Updated"),
+    )
+    monkeypatch.setattr("devops_cli.commands.pr.time.sleep", lambda s: sleep_calls.append(s))
+    monkeypatch.setattr(
+        "devops_cli.commands.pr.run_gh",
+        lambda cmd, *args, **kwargs: calls.append({"cmd": cmd}) or MagicMock(returncode=0),
+    )
+
+    result = runner.invoke(app, ["update", "42", "--repo", "owner/repo", "--dispatch-ci"])
+    assert (
+        result.exit_code,
+        len(calls),
+        calls[0]["cmd"],
+        "Dispatched ci.yml" in result.stdout or "dispatched" in result.stdout.lower(),
+    ) == (
+        0,
+        1,
+        [
+            "gh",
+            "api",
+            "-X",
+            "POST",
+            "repos/owner/repo/actions/workflows/ci.yml/dispatches",
+            "-f",
+            "ref=feat/my-branch",
+        ],
+        True,
+    )
+
+
+def test_update_single_pr_cli_head_sha_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When head.sha never changes, sleep is called at most attempts times, no dispatch, exits 1."""
+    from devops_cli.config.defaults import (
+        DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS,
+        DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS,
+    )
+
+    runner = CliRunner()
+    calls: list[list[str]] = []
+    sleep_calls: list[float] = []
+
+    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        "devops_cli.commands.pr._fetch_pr_details",
+        lambda *args, **kwargs: {
+            "head": {
+                "ref": "feat/my-branch",
+                "sha": "unchanged_sha",
+                "repo": {"full_name": "owner/repo"},
+            },
+            "base": {"ref": "release/v0.2.20"},
+        },
+    )
+    monkeypatch.setattr(
+        "devops_cli.commands.pr._execute_update_branch",
+        lambda *args, **kwargs: (True, "Updated"),
+    )
+    monkeypatch.setattr("devops_cli.commands.pr.time.sleep", lambda s: sleep_calls.append(s))
+    monkeypatch.setattr(
+        "devops_cli.commands.pr.run_gh",
+        lambda cmd, *args, **kwargs: calls.append(cmd) or MagicMock(returncode=0),
+    )
+
+    result = runner.invoke(app, ["update", "42", "--repo", "owner/repo", "--dispatch-ci"])
+    assert (
+        result.exit_code,
+        len(calls),
+        len(sleep_calls) <= DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS,
+        all(s == DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS for s in sleep_calls),
+        "did not change" in result.output,
+    ) == (1, 0, True, True, True)
+
+
+def test_update_single_pr_cli_fork_head(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When head.repo is a fork, no poll, no dispatch, output names fork, exits 0."""
+    runner = CliRunner()
+    calls: list[list[str]] = []
+    sleep_calls: list[float] = []
+
+    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        "devops_cli.commands.pr._fetch_pr_details",
+        lambda *args, **kwargs: {
+            "head": {
+                "ref": "feat/my-branch",
+                "sha": "fork_sha",
+                "repo": {"full_name": "other/repo"},
+            },
+            "base": {"ref": "release/v0.2.20"},
+        },
+    )
+    monkeypatch.setattr(
+        "devops_cli.commands.pr._execute_update_branch",
+        lambda *args, **kwargs: (True, "Updated"),
+    )
+    monkeypatch.setattr("devops_cli.commands.pr.time.sleep", lambda s: sleep_calls.append(s))
+    monkeypatch.setattr(
+        "devops_cli.commands.pr.run_gh",
+        lambda cmd, *args, **kwargs: calls.append(cmd) or MagicMock(returncode=0),
+    )
+
+    result = runner.invoke(app, ["update", "42", "--repo", "owner/repo", "--dispatch-ci"])
+    assert (
+        result.exit_code,
+        len(calls),
+        len(sleep_calls),
+        "other/repo" in result.output,
+    ) == (0, 0, 0, True)
+
+
+def test_update_single_pr_cli_dispatch_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When dispatch run_gh returns non-zero, output carries parsed API error and exits 1."""
+    runner = CliRunner()
+    fetch_count = [0]
+
+    def mock_fetch(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        fetch_count[0] += 1
+        sha = "old" if fetch_count[0] == 1 else "new"
+        return {
+            "head": {"ref": "feat/my-branch", "sha": sha, "repo": {"full_name": "owner/repo"}},
+            "base": {"ref": "release/v0.2.20"},
+        }
+
+    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
+    monkeypatch.setattr("devops_cli.commands.pr._fetch_pr_details", mock_fetch)
+    monkeypatch.setattr(
+        "devops_cli.commands.pr._execute_update_branch",
+        lambda *args, **kwargs: (True, "Updated"),
+    )
+    monkeypatch.setattr("devops_cli.commands.pr.time.sleep", lambda s: None)
+    monkeypatch.setattr(
+        "devops_cli.commands.pr.run_gh",
+        lambda *args, **kwargs: MagicMock(
+            returncode=1,
+            stdout="",
+            stderr=json.dumps({"message": "Workflow not found"}),
+        ),
+    )
+
+    result = runner.invoke(app, ["update", "42", "--repo", "owner/repo", "--dispatch-ci"])
+    assert (
+        result.exit_code,
+        "Workflow not found" in result.output,
+    ) == (1, True)
+
+
+def test_update_single_pr_cli_dispatch_ci_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """update 42 --repo owner/repo --dispatch-ci --dry-run: no poll, no sleep, no dispatch."""
+    runner = CliRunner()
+    calls: list[list[str]] = []
+    sleep_calls: list[float] = []
+    fetch_calls: list[bool] = []
+
+    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        "devops_cli.commands.pr._fetch_pr_details",
+        lambda *args, **kwargs: fetch_calls.append(True) or {},
+    )
+    monkeypatch.setattr("devops_cli.commands.pr.time.sleep", lambda s: sleep_calls.append(s))
+    monkeypatch.setattr(
+        "devops_cli.commands.pr.run_gh",
+        lambda cmd, *args, **kwargs: calls.append(cmd) or MagicMock(returncode=0),
+    )
+
+    result = runner.invoke(
+        app, ["update", "42", "--repo", "owner/repo", "--dispatch-ci", "--dry-run"]
+    )
+    assert (
+        result.exit_code,
+        len(calls),
+        len(sleep_calls),
+        len(fetch_calls),
+        "[dry-run]" in result.output,
+    ) == (0, 0, 0, 0, True)
+
+
+def test_update_all_prs_cli_dispatch_ci(monkeypatch: pytest.MonkeyPatch) -> None:
+    """update --all --repo owner/repo --dispatch-ci calls _update_single_pr with dispatch_ci=True."""
+    runner = CliRunner()
+    candidate_prs = [
+        {"number": 201, "headRefName": "feat/a", "baseRefName": "main", "isDraft": False},
+        {"number": 202, "headRefName": "feat/b", "baseRefName": "main", "isDraft": True},
+    ]
+    dispatched_args: list[dict[str, Any]] = []
+
+    monkeypatch.setattr("devops_cli.commands.pr.check_binary", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        "devops_cli.commands.pr._fetch_open_prs",
+        lambda *args, **kwargs: candidate_prs,
+    )
+
+    def mock_update(num: int, **kwargs: Any) -> tuple[bool, str]:
+        dispatched_args.append({"num": num, "kwargs": kwargs})
+        return True, "dispatched"
+
+    monkeypatch.setattr("devops_cli.commands.pr._update_single_pr", mock_update)
+
+    result = runner.invoke(app, ["update", "--all", "--repo", "owner/repo", "--dispatch-ci"])
+    assert (
+        result.exit_code,
+        len(dispatched_args),
+        dispatched_args[0]["kwargs"].get("dispatch_ci"),
+        "dispatched" in result.stdout,
+        "draft (skipped)" in result.stdout,
+    ) == (0, 1, True, True, True)

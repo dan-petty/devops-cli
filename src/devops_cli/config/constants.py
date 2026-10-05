@@ -882,6 +882,7 @@ CONST_RECOMMENDATION_BLOCK = "BLOCK"
 
 # ── GitHub CLI & Pull Requests ────────────────────────────────────────────────
 CONST_GH_CLI = "gh"
+CONST_CI_WORKFLOW_FILE = "ci.yml"
 CONST_GIT_CLI = "git"
 CONST_GH_AUTH_SUBCOMMAND = "auth"
 # The token gh reads first; the session pins it on every gh and git child (#767).

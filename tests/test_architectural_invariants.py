@@ -525,6 +525,73 @@ def test_workflows_never_mutate_runner_and_devcontainer_installs_bubblewrap() ->
     assert (mutations, installs_bwrap) == ([], True)
 
 
+def _find_actions_write_permissions(workflow_path: Path) -> set[tuple[str, str]]:
+    """Find (workflow_file, job_id) pairs with actions: write permission."""
+    import yaml
+
+    data = yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        return set()
+    results: set[tuple[str, str]] = set()
+    top_perms = data.get("permissions")
+    top_actions_write = isinstance(top_perms, dict) and top_perms.get("actions") == "write"
+    jobs = data.get("jobs", {})
+    if isinstance(jobs, dict):
+        for job_id, job in jobs.items():
+            job_perms = job.get("permissions") if isinstance(job, dict) else None
+            job_actions_write = isinstance(job_perms, dict) and job_perms.get("actions") == "write"
+            if top_actions_write or job_actions_write:
+                results.add((workflow_path.name, str(job_id)))
+    elif top_actions_write:
+        results.add((workflow_path.name, "*"))
+    return results
+
+
+# Dispatching ci.yml is the only reason any workflow may create workflow runs,
+# and the token that may do it is the one #754 gated.
+ACTIONS_WRITE_ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
+    {("update-prs.yml", "update-pull-requests")}
+)
+
+
+def test_only_update_prs_holds_actions_write_permission_and_ci_dispatches() -> None:
+    """Only update-prs.yml may hold actions: write, and ci.yml must admit workflow_dispatch (#984)."""
+    import yaml
+
+    repo_root = Path(__file__).resolve().parents[1]
+    workflows_dir = repo_root / ".github" / "workflows"
+
+    actions_write_jobs = {
+        perm
+        for wf in sorted(workflows_dir.glob("*.yml"))
+        for perm in _find_actions_write_permissions(wf)
+    }
+
+    ci_path = workflows_dir / "ci.yml"
+    ci_data = yaml.safe_load(ci_path.read_text(encoding="utf-8")) or {}
+    assert isinstance(ci_data, dict), "ci.yml must parse as a mapping"
+    on_triggers = ci_data.get("on") or ci_data.get(True) or {}
+    ci_jobs = ci_data.get("jobs", {})
+
+    job_ifs = {
+        str(j.get("name")): j.get("if")
+        for j in ci_jobs.values()
+        if isinstance(j, dict) and j.get("name") in ("Static Analysis", "Tests & Coverage")
+    }
+
+    assert (
+        actions_write_jobs,
+        "workflow_dispatch" in on_triggers,
+        job_ifs.get("Static Analysis") in (None, "github.event_name != 'schedule'"),
+        job_ifs.get("Tests & Coverage") in (None, "github.event_name != 'schedule'"),
+    ) == (
+        ACTIONS_WRITE_ALLOWLIST,
+        True,
+        True,
+        True,
+    )
+
+
 def _check_copy_from_ref(tokens: list[str], stage_names: set[str]) -> bool:
     """Return True if any --from= reference in COPY is an unpinned non-stage image."""
     for tok in tokens[1:]:
