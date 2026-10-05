@@ -16,13 +16,13 @@ data:
       provider: gateway
       gateway_url: http://llm-gateway.llm.svc.cluster.local:4000/v1
       allow_private_network: true
-      model: devops-chat
+      model: devops-background
       tasks:
         analysis:
-          model: devops-review
+          model: devops-background
           context_window: 16384
         chat:
-          model: devops-coder
+          model: devops-background
         embedding:
           model: bge-m3:latest
     telemetry:

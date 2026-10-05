@@ -722,7 +722,7 @@ def get_gateway_routing_entries() -> list[dict[str, Any]]:
         {
             "model_name": "devops-background",
             "litellm_params": {
-                "model": "ollama_chat/qwen3-coder:30b",
+                "model": "ollama_chat/qwen3.8:27b",
                 "api_base": "http://ollama-48gib-slow.llm.svc.cluster.local:11434",
                 "timeout": 1100,
                 "num_retries": 0,

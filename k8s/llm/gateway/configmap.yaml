@@ -46,9 +46,9 @@ data:
 
       # ollama-48gib-slow is the background tier, in no interactive or review pool: it serves one
       # request at a time, so a background job there would queue in front of review calls. Its
-      # profile keeps two models loaded, the embedding model and qwen3-coder:30b, and this list
+      # profile keeps two models loaded, the embedding model and qwen3.8:27b, and this list
       # sends it no other. A third model would evict one of them, and Ollama predicts a dense
-      # ~30B model too large to fit beside the embedder, so it evicts the embedder (#1064).
+      # ~30B model too large to fit beside the embedder, so it evicts the embedder (#1064, #1221).
       # mode: embedding makes health checks embed rather than generate, which bge-m3 rejects.
       - model_name: bge-m3:latest
         litellm_params:
@@ -58,14 +58,14 @@ data:
         model_info:
           mode: embedding
 
-      # Background tier: ollama-48gib-slow's only generation model. Batch and --watch jobs reach
-      # it through environment overrides (k8s/README.md), and devops-review falls back to it.
+      # Background tier: ollama-48gib-slow's only generation model. Batch, cluster services and
+      # --watch jobs reach it through devops-background (k8s/README.md), and devops-review falls back to it.
       # No max_input_tokens: LiteLLM writes a deployment's model_info into the cost-map entry
-      # that every ollama_chat/qwen3-coder:30b deployment reads, so it would become the window
+      # that every ollama_chat/qwen3.8:27b deployment reads, so it would become the window
       # of the pinned and interactive groups too. The tier's context length caps it instead.
       - model_name: devops-background
         litellm_params:
-          model: ollama_chat/qwen3-coder:30b
+          model: ollama_chat/qwen3.8:27b
           api_base: http://ollama-48gib-slow.llm.svc.cluster.local:11434
           # Under the review client's 1,200 s read timeout, so a call the client abandoned frees
           # the tier's one slot, and no gateway retry re-queues the same work on that slot.

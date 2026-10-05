@@ -467,7 +467,7 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "128000"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"    # its embedding model and qwen3-coder:30b stay loaded together
+              value: "2"    # its embedding model and qwen3.8:27b stay loaded together
             - name: OLLAMA_NUM_PARALLEL
               value: "1"
             - name: OLLAMA_KEEP_ALIVE
