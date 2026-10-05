@@ -27,6 +27,7 @@ from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
     DEFAULT_ROADMAP_CLOSURE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
 )
 from devops_cli.config.env import ENV_DATA_DIR
 from devops_cli.core.paths import (
@@ -458,6 +459,27 @@ def _run_refine_adapter(
     return JobOutcome()
 
 
+def _run_metrics_adapter(
+    repo: str = "",
+    **_: Any,
+) -> JobOutcome:
+    """Run project metrics collection adapter and update in-memory registry and OTLP."""
+    from devops_cli.github.metrics import (
+        collect_project_metrics_report,
+        emit_project_metrics_telemetry,
+        record_project_metrics_in_registry,
+    )
+
+    try:
+        target_repo = repo or None
+        report = collect_project_metrics_report(repo=target_repo)
+        record_project_metrics_in_registry(report)
+        emit_project_metrics_telemetry(report)
+    except Exception as exc:
+        logger.warning("Project metrics collection failed for %s: %s", repo, exc)
+    return JobOutcome()
+
+
 DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (
     JobRow(
         name="intake",
@@ -486,6 +508,12 @@ DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (
         needs_clone=True,
         cross_job_predicate=_refine_cross_job,
     ),
+    JobRow(
+        name="metrics",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES),
+        runner=_run_metrics_adapter,
+        first_run_due=True,
+    ),
 )
 
 
@@ -494,10 +522,12 @@ def build_stub_table(
     *,
     needs_clone: bool = False,
     include_refine: bool | None = None,
+    include_metrics: bool | None = None,
 ) -> tuple[JobRow, ...]:
-    """Construct a stub table for testing (landed jobs, plus refine when requested)."""
+    """Construct a stub table for testing (landed jobs, plus refine/metrics when requested)."""
     r = runners or {}
     add_refine = include_refine if include_refine is not None else ("refine" in r)
+    add_metrics = include_metrics if include_metrics is not None else ("metrics" in r)
     rows: list[JobRow] = [
         JobRow(
             name="intake",
@@ -528,6 +558,15 @@ def build_stub_table(
                 runner=r.get("refine", lambda **_: JobOutcome()),
                 needs_clone=needs_clone,
                 cross_job_predicate=_refine_cross_job,
+            )
+        )
+    if add_metrics:
+        rows.append(
+            JobRow(
+                name="metrics",
+                interval=timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES),
+                runner=r.get("metrics", lambda **_: JobOutcome()),
+                first_run_due=True,
             )
         )
     return tuple(rows)

@@ -18,6 +18,9 @@ from devops_cli.github.metrics import (
     MilestoneMetric,
     ProjectMetricsReport,
     ReleaseCadenceMetric,
+    TrafficPathMetric,
+    TrafficReferrerMetric,
+    TrafficSummaryMetric,
     WorkflowRunMetric,
     _build_milestone_metric,
     _calculate_pass_rate,
@@ -32,7 +35,10 @@ from devops_cli.github.metrics import (
     get_label_taxonomy_metrics,
     get_milestone_metrics,
     get_release_cadence_metrics,
+    get_repository_traffic_metrics,
+    record_project_metrics_in_registry,
 )
+from devops_cli.telemetry.metrics import InMemoryMetricsRegistry
 
 runner = CliRunner()
 
@@ -321,17 +327,38 @@ def test_emit_project_metrics_telemetry(monkeypatch: pytest.MonkeyPatch) -> None
         taxonomy_labels=[
             LabelTaxonomyMetric(category="priority", label="priority/p1-high", count=2)
         ],
+        traffic=TrafficSummaryMetric(
+            views_count=100,
+            views_uniques=40,
+            clones_count=50,
+            clones_uniques=20,
+            stars=15,
+            forks=4,
+            referrers=[TrafficReferrerMetric(referrer="github.com", count=30, uniques=15)],
+            paths=[TrafficPathMetric(path="/docs", title="Docs", count=45, uniques=20)],
+        ),
     )
 
     emit_project_metrics_telemetry(report)
     instrument_names = [e[0] for e in emitted]
 
-    assert "devops_cli_project_releases_total" in instrument_names
-    assert "devops_cli_project_commits_total" in instrument_names
-    assert "devops_cli_project_prs_total" in instrument_names
-    assert "devops_cli_project_release_interval_days" in instrument_names
-    assert "devops_cli_project_ci_runs_total" in instrument_names
-    assert "devops_cli_project_items_total" in instrument_names
+    expected_instruments = {
+        "devops_cli_project_releases_total",
+        "devops_cli_project_commits_total",
+        "devops_cli_project_prs_total",
+        "devops_cli_project_release_interval_days",
+        "devops_cli_project_ci_runs_total",
+        "devops_cli_project_items_total",
+        "devops_cli_project_traffic_views_total",
+        "devops_cli_project_traffic_views_uniques_total",
+        "devops_cli_project_traffic_clones_total",
+        "devops_cli_project_traffic_clones_uniques_total",
+        "devops_cli_project_stars_total",
+        "devops_cli_project_forks_total",
+        "devops_cli_project_traffic_referrers_total",
+        "devops_cli_project_traffic_paths_total",
+    }
+    assert expected_instruments.issubset(set(instrument_names))
 
 
 def test_cli_gh_metrics_command(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -373,6 +400,16 @@ def test_cli_gh_metrics_command(monkeypatch: pytest.MonkeyPatch) -> None:
         taxonomy_labels=[
             LabelTaxonomyMetric(category="priority", label="priority/p1-high", count=5)
         ],
+        traffic=TrafficSummaryMetric(
+            views_count=100,
+            views_uniques=40,
+            clones_count=50,
+            clones_uniques=20,
+            stars=15,
+            forks=4,
+            referrers=[TrafficReferrerMetric(referrer="github.com", count=30, uniques=15)],
+            paths=[TrafficPathMetric(path="/docs", title="Docs", count=45, uniques=20)],
+        ),
     )
 
     monkeypatch.setattr("devops_cli.commands.gh.collect_project_metrics_report", lambda **_: report)
@@ -384,7 +421,15 @@ def test_cli_gh_metrics_command(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (
         "Engineering Velocity & Project Metrics" in result_tables.stdout,
         "v0.2.25" in result_tables.stdout,
+        "Top Referral Sources" in result_tables.stdout,
+        "Popular Content Paths" in result_tables.stdout,
+        "GitHub Stars:" in result_tables.stdout,
+        "14-Day Traffic:" in result_tables.stdout,
     ) == (
+        True,
+        True,
+        True,
+        True,
         True,
         True,
     )
@@ -397,4 +442,175 @@ def test_cli_gh_metrics_command(monkeypatch: pytest.MonkeyPatch) -> None:
         "example/repo",
         1,
         2.5,
+    )
+
+
+def test_get_repository_traffic_metrics_success_and_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify repository traffic queries and resilient fallback on API error."""
+    from devops_cli.github.client import GhCliClient
+
+    def mock_api_success(self: GhCliClient, endpoint: str) -> str:
+        if endpoint == "repos/example/repo/traffic/views":
+            return json.dumps({"count": 150, "uniques": 45, "views": []})
+        if endpoint == "repos/example/repo/traffic/clones":
+            return json.dumps({"count": 80, "uniques": 20, "clones": []})
+        if endpoint == "repos/example/repo/traffic/popular/referrers":
+            return json.dumps([{"referrer": "github.com", "count": 60, "uniques": 30}])
+        if endpoint == "repos/example/repo/traffic/popular/paths":
+            return json.dumps([{"path": "/repo", "title": "Repo", "count": 100, "uniques": 40}])
+        if endpoint == "repos/example/repo":
+            return json.dumps({"stargazers_count": 25, "forks_count": 5, "open_issues_count": 12})
+        return "{}"
+
+    monkeypatch.setattr(GhCliClient, "api", mock_api_success)
+    traffic = get_repository_traffic_metrics("example/repo")
+    assert (
+        traffic.views_count,
+        traffic.views_uniques,
+        traffic.clones_count,
+        traffic.clones_uniques,
+        traffic.stars,
+        traffic.forks,
+        traffic.open_issues,
+        len(traffic.referrers),
+        len(traffic.paths),
+    ) == (
+        150,
+        45,
+        80,
+        20,
+        25,
+        5,
+        12,
+        1,
+        1,
+    )
+
+    # Test fallback on API error
+    def mock_api_fail(self: GhCliClient, endpoint: str) -> str:
+        raise RuntimeError("API rate limited")
+
+    monkeypatch.setattr(GhCliClient, "api", mock_api_fail)
+    fallback = get_repository_traffic_metrics("example/repo")
+    assert (
+        fallback.views_count,
+        fallback.views_uniques,
+        fallback.clones_count,
+        fallback.clones_uniques,
+        fallback.stars,
+        fallback.forks,
+        fallback.referrers,
+        fallback.paths,
+    ) == (
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        [],
+        [],
+    )
+
+
+def test_record_project_metrics_in_registry() -> None:
+    """Verify in-memory metrics registry is populated with gauges and exports Prometheus text."""
+    reg = InMemoryMetricsRegistry()
+    report = ProjectMetricsReport(
+        repo="example/repo",
+        generated_at="2026-10-02 00:00:00 UTC",
+        total_releases=2,
+        average_cadence_days=3.0,
+        releases=[
+            ReleaseCadenceMetric(
+                tag="v0.2.25",
+                published_at="2026-10-01",
+                days_since_prev=3.0,
+                commit_count=12,
+                pr_count=8,
+            )
+        ],
+        workflow_runs=[
+            WorkflowRunMetric(
+                workflow="CI Quality Gate",
+                total_runs=2,
+                passed=2,
+                failed=0,
+                other=0,
+                pass_rate=100.0,
+            )
+        ],
+        milestones=[
+            MilestoneMetric(
+                milestone="v0.2.25",
+                state="open",
+                open_items=3,
+                closed_items=7,
+                total_items=10,
+                completion_rate=70.0,
+            )
+        ],
+        taxonomy_labels=[
+            LabelTaxonomyMetric(category="priority", label="priority/p1-high", count=2)
+        ],
+        traffic=TrafficSummaryMetric(
+            views_count=150,
+            views_uniques=45,
+            clones_count=80,
+            clones_uniques=20,
+            stars=25,
+            forks=5,
+            open_issues=12,
+            referrers=[TrafficReferrerMetric(referrer="github.com", count=60, uniques=30)],
+            paths=[TrafficPathMetric(path="/repo", title="Repo", count=100, uniques=40)],
+        ),
+    )
+
+    record_project_metrics_in_registry(report, registry=reg)
+
+    assert (
+        reg.get_gauge("devops_cli_project_releases_total"),
+        reg.get_gauge("devops_cli_project_traffic_views_total"),
+        reg.get_gauge("devops_cli_project_traffic_views_uniques_total"),
+        reg.get_gauge("devops_cli_project_traffic_clones_total"),
+        reg.get_gauge("devops_cli_project_traffic_clones_uniques_total"),
+        reg.get_gauge("devops_cli_project_stars_total"),
+        reg.get_gauge("devops_cli_project_forks_total"),
+        reg.get_gauge("devops_cli_project_traffic_referrers_total", {"referrer": "github.com"}),
+        reg.get_gauge("devops_cli_project_traffic_paths_total", {"path": "/repo"}),
+        reg.get_gauge("devops_cli_project_commits_total", {"release": "v0.2.25"}),
+        reg.get_gauge("devops_cli_project_prs_total", {"release": "v0.2.25"}),
+        reg.get_gauge("devops_cli_project_items_total", {"milestone": "v0.2.25", "state": "open"}),
+        reg.get_gauge(
+            "devops_cli_project_items_total", {"milestone": "v0.2.25", "state": "closed"}
+        ),
+    ) == (
+        2.0,
+        150.0,
+        45.0,
+        80.0,
+        20.0,
+        25.0,
+        5.0,
+        60.0,
+        100.0,
+        12.0,
+        8.0,
+        3.0,
+        7.0,
+    )
+
+    prom_text = reg.export_prometheus_text()
+    assert (
+        "devops_cli_project_releases_total 2.0" in prom_text,
+        "devops_cli_project_traffic_views_total 150.0" in prom_text,
+        'devops_cli_project_traffic_referrers_total{referrer="github.com"} 60.0' in prom_text,
+        'devops_cli_project_traffic_paths_total{path="/repo"} 100.0' in prom_text,
+    ) == (
+        True,
+        True,
+        True,
+        True,
     )

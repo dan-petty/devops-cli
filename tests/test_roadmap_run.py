@@ -13,7 +13,7 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -679,7 +679,8 @@ def test_idle_records_zero_or_one_store_calls(
 ) -> None:
     """Empty batch records 0 store calls; empty poll records exactly 1 changes_since call."""
     t30 = (NOW - timedelta(minutes=30)).isoformat()
-    sched = {"intake": t30, "close": t30}
+    t5 = (NOW - timedelta(minutes=5)).isoformat()
+    sched = {"intake": t30, "close": t30, "metrics": t5}
     sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
     sched_file.parent.mkdir(parents=True, exist_ok=True)
     sched_file.write_text(json.dumps(sched), encoding="utf-8")
@@ -844,3 +845,51 @@ def test_ensure_checkout_rejects_path_escape_and_malformed_repo_slugs(tmp_path: 
         results.append(True)
 
     assert (len(results), all(results)) == (len(escapes), True)
+
+
+def test_metrics_job_registered_in_default_due_table_and_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify metrics job is present in DEFAULT_DUE_TABLE and _run_metrics_adapter executes."""
+    from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
+    from devops_cli.roadmap.run import DEFAULT_DUE_TABLE, _run_metrics_adapter
+
+    metrics_row = next((r for r in DEFAULT_DUE_TABLE if r.name == "metrics"), None)
+    assert (
+        metrics_row is not None,
+        metrics_row.first_run_due if metrics_row else False,
+        metrics_row.interval.total_seconds() if metrics_row and metrics_row.interval else 0,
+    ) == (
+        True,
+        True,
+        float(DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES * 60),
+    )
+
+    called: list[str] = []
+    fake_report = MagicMock()
+    monkeypatch.setattr(
+        "devops_cli.github.metrics.collect_project_metrics_report",
+        lambda **_: called.append("collect") or fake_report,
+    )
+    monkeypatch.setattr(
+        "devops_cli.github.metrics.record_project_metrics_in_registry",
+        lambda _: called.append("record"),
+    )
+    monkeypatch.setattr(
+        "devops_cli.github.metrics.emit_project_metrics_telemetry",
+        lambda _: called.append("emit"),
+    )
+
+    outcome = _run_metrics_adapter(repo="example/repo")
+    assert (isinstance(outcome, JobOutcome), called) == (
+        True,
+        ["collect", "record", "emit"],
+    )
+
+    # Verify graceful degradation on exception
+    monkeypatch.setattr(
+        "devops_cli.github.metrics.collect_project_metrics_report",
+        MagicMock(side_effect=RuntimeError("GitHub API timeout")),
+    )
+    fail_outcome = _run_metrics_adapter(repo="example/repo")
+    assert isinstance(fail_outcome, JobOutcome) is True
