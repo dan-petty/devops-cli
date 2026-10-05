@@ -20,6 +20,23 @@ devops cloudflare status [OPTIONS]
 
 ---
 
+## `devops cloudflare service-status`
+
+**Display Cloudflare published operational status, key components, and active incidents.**
+
+```bash
+devops cloudflare service-status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json`, `-j` | `boolean` | - | Output status details in JSON format |
+| `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
+
+---
+
 ## `devops cloudflare dns`
 
 ```bash

@@ -87,6 +87,7 @@ from devops_cli.exceptions.security import (
 )
 from devops_cli.exceptions.telemetry import (
     LogfireConfigurationError,
+    ServiceStatusError,
     TelemetryError,
 )
 from devops_cli.exceptions.tools import (
@@ -188,6 +189,7 @@ __all__ = [
     "SandboxValidationError",
     "SecretExposureError",
     "SecurityError",
+    "ServiceStatusError",
     "SubprocessError",
     "SuspendedResponseExpired",
     "TelemetryError",

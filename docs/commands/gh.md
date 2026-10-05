@@ -47,6 +47,23 @@ devops gh rate-limit [OPTIONS]
 
 ---
 
+## `devops gh status`
+
+**Display GitHub published operational status, key components, and active incidents.**
+
+```bash
+devops gh status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Emit structured JSON service status summary |
+| `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
+
+---
+
 ## `devops gh metrics`
 
 **Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, and milestones.**

@@ -59,12 +59,17 @@ def _queries(dashboard: Path) -> list[str]:
     return found
 
 
+_PURE_DEVOPS_CLI_DASHBOARDS: frozenset[str] = frozenset(
+    {"ai-spend.json", "devops-cli.json", "project-metrics.json"}
+)
+
+
 def _devops_cli_dashboards() -> list[Path]:
-    """The shipped dashboards with a query on a devops-cli metric."""
+    """The shipped dashboards dedicated to devops-cli metrics."""
     return [
         dashboard
         for dashboard in sorted(DASHBOARDS.glob("*.json"))
-        if any(SERIES_NAME.search(query) for query in _queries(dashboard))
+        if dashboard.name in _PURE_DEVOPS_CLI_DASHBOARDS
     ]
 
 
@@ -92,7 +97,7 @@ def _outermost(query: str) -> str:
 def test_the_devops_cli_dashboards_are_found_by_their_queries() -> None:
     """Verify the glob the query checks run over finds both devops-cli dashboards."""
     names = {dashboard.name for dashboard in _devops_cli_dashboards()}
-    assert {"devops-cli.json", "ai-spend.json"} <= names
+    assert {"devops-cli.json", "ai-spend.json", "project-metrics.json"} <= names
 
 
 @pytest.mark.parametrize("dashboard", _devops_cli_dashboards(), ids=lambda path: path.name)
@@ -124,6 +129,14 @@ def test_every_series_is_read_through_rate_or_increase(dashboard: Path) -> None:
         if not re.search(r"\b(?:rate|increase)\(\s*$", query[: match.start()])
     ]
     assert raw == []
+
+
+def test_all_dashboards_referencing_devops_cli_metrics_name_sent_series() -> None:
+    """Verify any dashboard in the repo that queries a devops_cli_* metric names a valid sent series."""
+    for dashboard in sorted(DASHBOARDS.glob("*.json")):
+        queries = _queries(dashboard)
+        unsent = {name for query in queries for name in SERIES_NAME.findall(query)} - SENT_SERIES
+        assert unsent == set(), f"{dashboard.name} queries unsent devops-cli metrics: {unsent}"
 
 
 def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sends() -> None:

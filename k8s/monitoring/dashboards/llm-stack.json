@@ -64,7 +64,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (api_base) (rate(litellm_llm_api_latency_metric_sum[2m]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total))",
+          "expr": "sum by (api_base) (rate(litellm_llm_api_latency_metric_sum[2m]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total{api_base!=\"\"}))",
           "legendFormat": "{{api_base}}",
           "refId": "A"
         }
@@ -113,7 +113,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (api_base) (rate(litellm_deployment_total_requests_total[5m]))",
+          "expr": "sum by (api_base) (rate(litellm_deployment_total_requests_total{api_base!=\"\"}[5m]))",
           "legendFormat": "{{api_base}}",
           "refId": "A"
         },
@@ -188,7 +188,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (api_base) (rate(litellm_deployment_failure_responses_total[5m]))",
+          "expr": "sum by (api_base) (rate(litellm_deployment_failure_responses_total{api_base!=\"\"}[5m]))",
           "legendFormat": "{{api_base}}",
           "refId": "A"
         }
@@ -249,7 +249,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, api_base) (rate(litellm_llm_api_latency_metric_bucket[5m]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total)))",
+          "expr": "histogram_quantile(0.95, sum by (le, api_base) (rate(litellm_llm_api_latency_metric_bucket[5m]) * on (model_id) group_left (api_base) group by (model_id, api_base) (litellm_deployment_total_requests_total{api_base!=\"\"})))",
           "legendFormat": "{{api_base}}",
           "refId": "A"
         }

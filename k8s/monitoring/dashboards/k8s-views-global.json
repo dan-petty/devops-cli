@@ -1458,7 +1458,7 @@
           "exemplar": true,
           "expr": "avg(sum by (instance, cpu) (rate(node_cpu_seconds_total{mode!~\"idle|iowait|steal\", cluster=~\"$cluster\"}[$__rate_interval]))) by (instance)",
           "interval": "$resolution",
-          "legendFormat": "{{ node }}",
+          "legendFormat": "{{ instance }}",
           "refId": "A"
         }
       ],
@@ -1558,7 +1558,7 @@
           "exemplar": true,
           "expr": "sum(node_memory_MemTotal_bytes{cluster=~\"$cluster\"} - node_memory_MemAvailable_bytes{cluster=~\"$cluster\"}) by (instance)",
           "interval": "$resolution",
-          "legendFormat": "{{ node}}",
+          "legendFormat": "{{ instance }}",
           "range": true,
           "refId": "A"
         }

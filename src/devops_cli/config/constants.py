@@ -565,6 +565,58 @@ CONST_CLOUDFLARE_RECORD_COMMENT: Final[str] = "Managed by devops-cli"
 CONST_CLOUDFLARE_BYPASS_POLICY_NAME: Final[str] = "homelab-public-ip-bypass"
 CONST_CLOUDFLARE_ALLOW_POLICY_NAME: Final[str] = "Allow homelab authorized emails"
 CONST_CLOUDFLARE_DEFAULT_SESSION_DURATION: Final[str] = "24h"
+CONST_URL_GITHUB_STATUS_SUMMARY: Final[str] = "https://www.githubstatus.com/api/v2/summary.json"
+CONST_URL_CLOUDFLARE_STATUS_SUMMARY: Final[str] = (
+    "https://www.cloudflarestatus.com/api/v2/summary.json"
+)
+CONST_STATUSPAGE_HTTP_TIMEOUT_SECONDS: Final[float] = 5.0
+CONST_STATUSPAGE_INDICATORS: Final[tuple[str, ...]] = (
+    "none",
+    "minor",
+    "major",
+    "critical",
+)
+CONST_STATUSPAGE_COMPONENT_STATUSES: Final[tuple[str, ...]] = (
+    "operational",
+    "degraded_performance",
+    "partial_outage",
+    "major_outage",
+    "under_maintenance",
+)
+CONST_STATUSPAGE_INDICATOR_VALUES: Final[dict[str, int]] = {
+    "none": 0,
+    "minor": 1,
+    "major": 2,
+    "critical": 3,
+}
+CONST_STATUSPAGE_COMPONENT_STATUS_VALUES: Final[dict[str, int]] = {
+    "operational": 0,
+    "degraded_performance": 1,
+    "partial_outage": 2,
+    "major_outage": 3,
+    "under_maintenance": 1,
+}
+CONST_GITHUB_STATUS_KEY_COMPONENTS: Final[tuple[str, ...]] = (
+    "Git Operations",
+    "API Requests",
+    "Actions",
+    "Pull Requests",
+    "Issues",
+    "Copilot",
+    "Pages",
+    "Packages",
+)
+CONST_CLOUDFLARE_STATUS_KEY_COMPONENTS: Final[tuple[str, ...]] = (
+    "Tunnel",
+    "Authoritative DNS",
+    "Access",
+    "Zero Trust",
+    "Dashboard",
+    "API",
+    "CDN/Cache",
+    "Workers",
+)
+CONST_STATUS_COMMAND_SERVICES: Final[tuple[str, ...]] = ("all", "github", "cloudflare")
 
 
 CONST_URL_K8S_DOWNLOAD_BASE = "https://dl.k8s.io"
@@ -993,6 +1045,7 @@ CONST_ERROR_CODE_CONSTELLATION_RESUME = "CONSTELLATION_RESUME_ERROR"
 CONST_ERROR_CODE_REVIEW_POOL = "REVIEW_POOL_ERROR"
 CONST_ERROR_CODE_TELEMETRY = "TELEMETRY_ERROR"
 CONST_ERROR_CODE_LOGFIRE = "LOGFIRE_CONFIG_ERROR"
+CONST_ERROR_CODE_SERVICE_STATUS = "SERVICE_STATUS_ERROR"
 CONST_ERROR_CODE_LIBRARY_INGESTION = "LIBRARY_INGESTION_ERROR"
 CONST_ERROR_CODE_LIBRARY_NOT_FOUND = "LIBRARY_NOT_FOUND_ERROR"
 CONST_ERROR_CODE_DOCS_INGESTION = "DOCS_INGESTION_ERROR"
