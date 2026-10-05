@@ -159,7 +159,7 @@ def test_apply_single_manifest_renders_domain_template(tmp_path: Path) -> None:
     from devops_cli.commands.k8s.stack_lifecycle import _apply_single_manifest
 
     manifest = tmp_path / "test-ingress.yaml"
-    manifest.write_text("host: hooks.example.com\npath: /test\n", encoding="utf-8")
+    manifest.write_text("host: hooks.${DOMAIN}\npath: /test\n", encoding="utf-8")
 
     mock_run = MagicMock()
     with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd", mock_run):

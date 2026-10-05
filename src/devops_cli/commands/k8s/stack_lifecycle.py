@@ -520,8 +520,8 @@ def _apply_single_manifest(
         from devops_cli.k8s.template import render_manifest_template
 
         raw_text = p.read_text(encoding="utf-8")
-        if "example.com" in raw_text or "${DOMAIN" in raw_text or "$DOMAIN" in raw_text:
-            rendered = render_manifest_template(raw_text, domain=domain)
+        rendered = render_manifest_template(raw_text, domain=domain)
+        if rendered != raw_text:
             runtime._run_cmd(
                 ["kubectl", "apply", "-f", "-"] + kubectl_ctx,
                 input=rendered,
