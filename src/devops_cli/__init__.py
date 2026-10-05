@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
-from devops_cli.config.metadata import (
+_existing_plugins = os.environ.get("PYDANTIC_DISABLE_PLUGINS")
+os.environ["PYDANTIC_DISABLE_PLUGINS"] = (
+    f"{_existing_plugins},logfire-plugin"
+    if _existing_plugins and "logfire-plugin" not in _existing_plugins.split(",")
+    else (_existing_plugins or "logfire-plugin")
+)
+
+from devops_cli.config.metadata import (  # noqa: E402
     get_project_description,
     get_project_name,
     get_project_python_version,

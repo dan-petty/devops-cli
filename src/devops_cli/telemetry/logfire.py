@@ -212,8 +212,6 @@ class LogfireBridge:
             )
 
             with contextlib.suppress(Exception):
-                logfire.instrument_pydantic()
-            with contextlib.suppress(Exception):
                 logfire.instrument_pydantic_ai()
 
             self._enabled = True

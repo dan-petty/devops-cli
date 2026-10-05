@@ -25,7 +25,6 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
-    DEFAULT_PYTEST_NUMPROCESSES,
     DEFAULT_PYTHON_VERSION,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
@@ -383,21 +382,12 @@ async def _execute_check_async(
 # =============================================================================
 
 
-def _resolve_pytest_worker_count() -> int:
-    """Dynamically determine optimal Pytest xdist worker count based on available CPU cores."""
-    cpu_count = os.cpu_count() or 4
-    return max(1, min(cpu_count, 8))
-
-
 def _resolve_pytest_cmd() -> list[str]:
     """Construct check command line arguments for the pytest and coverage row."""
     return [
         "uv",
         "run",
         "pytest",
-        "-n",
-        "auto",
-        f"--maxprocesses={_resolve_pytest_worker_count()}",
         f"--durations={CONST_CI_SLOWEST_TESTS_SHOWN}",
         "--cov=src",
         "--cov-report=term-missing",
@@ -705,7 +695,7 @@ def _assemble_ci_results(
         name="coverage",
         display_title=MESSAGES.ci.pytest_coverage,
         passed=test_result.passed,
-        duration_seconds=test_result.duration_seconds,
+        duration_seconds=0.0,
         stdout=test_result.stdout,
         stderr=test_result.stderr,
         dry_run=test_result.dry_run,
@@ -879,7 +869,11 @@ def _print_summary(
             status_text = "[green]✓ pass[/green]"
         else:
             status_text = "[red]✗ fail[/red]"
-        dur_text = format_duration(res.duration_seconds) if res.duration_seconds > 0 else "<0.01s"
+        dur_text = (
+            "-"
+            if res.name == "coverage"
+            else (format_duration(res.duration_seconds) if res.duration_seconds > 0 else "<0.01s")
+        )
         rows.append([res.name, status_text, dur_text])
 
     _get("print_table")(
@@ -1341,14 +1335,16 @@ def _resolve_test_targets(paths: list[Path], fallback: bool) -> list[str] | None
 
 
 def _build_test_cmd(
-    numprocesses: str,
+    numprocesses: str | None,
     verbose: bool,
     k: str | None,
     x: bool,
     targets: list[str] | None,
 ) -> list[str]:
     """Build the pytest command line arguments."""
-    cmd = ["uv", "run", "pytest", "-n", numprocesses]
+    cmd = ["uv", "run", "pytest"]
+    if numprocesses is not None:
+        cmd.extend(["-n", numprocesses])
     if verbose:
         cmd.append("-v")
     if k:
@@ -1367,8 +1363,8 @@ def test(
     k: Annotated[str | None, typer.Option("-k", help=HELP.ci.filter_keyword)] = None,
     x: Annotated[bool, typer.Option("-x", help=HELP.ci.stop_fail)] = False,
     numprocesses: Annotated[
-        str, typer.Option("-n", "--numprocesses", help=HELP.ci.num_workers)
-    ] = DEFAULT_PYTEST_NUMPROCESSES,
+        str | None, typer.Option("-n", "--numprocesses", help=HELP.ci.num_workers)
+    ] = None,
     fallback: Annotated[
         bool, typer.Option("--fallback/--no-fallback", help=HELP.ci.selection_fallback)
     ] = True,

@@ -74,7 +74,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AGENT_NAME,
     DEFAULT_AGENT_SYSTEM_PROMPT,
 )
-from devops_cli.exceptions import UnexpectedModelBehavior
+from devops_cli.exceptions.ai import UnexpectedModelBehavior
 from devops_cli.models.ai import ChatMessage
 
 AgentToolset = AbstractToolset | PyAIAbstractToolset[Any]

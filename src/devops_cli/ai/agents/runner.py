@@ -33,7 +33,7 @@ from devops_cli.ai.agents.context import (
 from devops_cli.ai.agents.models import AgentResponse
 from devops_cli.ai.agents.tools import AgentTool, Tool, ToolCall
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.exceptions import ModelRetry
+from devops_cli.exceptions.ai import ModelRetry
 from devops_cli.models.ai import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -527,7 +527,7 @@ def _handle_schema_validation_retry(
     if output_retries + 1 > output_budget:
         schema_err = getattr(fixed, "validation_error", None) or "Schema validation failed"
         err_text = f"Output validation exceeded retry budget of {output_budget}: {schema_err}"
-        from devops_cli.exceptions import UnexpectedModelBehavior
+        from devops_cli.exceptions.ai import UnexpectedModelBehavior
 
         raise UnexpectedModelBehavior(err_text)
     if turn < max_turns:

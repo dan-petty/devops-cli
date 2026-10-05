@@ -47,7 +47,7 @@ from devops_cli.config.defaults import (
     DEFAULT_HTTP_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import AIConfig
-from devops_cli.exceptions import LLMInferenceError
+from devops_cli.exceptions.ai import LLMInferenceError
 from devops_cli.http.client import request_timeout
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import record_metric, trace_span
