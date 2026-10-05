@@ -124,6 +124,7 @@ async def test_http_broker_async_per_request_allow_private_network_override(
 
 _START = "https://example.com/start"
 _LINK_LOCAL = "http://169.254.169.254/latest/meta-data/"
+_NAT64_METADATA = "http://[64:ff9b::a9fe:a9fe]/latest/meta-data/"
 _LOOPBACK = "http://127.0.0.1:8200/v1/sys/health"
 _FINAL = "https://example.com/final"
 
@@ -168,12 +169,13 @@ def test_http_broker_holds_every_hop_to_the_request_egress_policy(
     assert (vetted, stub_web.requested) == ([_START, _LOOPBACK], [_START])
 
 
+@pytest.mark.parametrize("hop", [_LINK_LOCAL, _NAT64_METADATA])
 def test_http_broker_keeps_its_own_veto_under_a_request_egress_policy(
-    stub_web: StubWeb, monkeypatch: pytest.MonkeyPatch
+    stub_web: StubWeb, monkeypatch: pytest.MonkeyPatch, hop: str
 ) -> None:
     """A request's egress policy adds to the broker's check: a no-op one cannot reach metadata."""
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
-    _serve_chain(stub_web, _LINK_LOCAL)
+    _serve_chain(stub_web, hop)
     vetted: list[str] = []
 
     with HttpClientBroker(allow_private_networks=True) as broker:
@@ -184,7 +186,7 @@ def test_http_broker_keeps_its_own_veto_under_a_request_egress_policy(
         with pytest.raises(SSRFBlockedError):
             client.send(request)
 
-    assert (vetted, stub_web.requested) == ([_START, _LINK_LOCAL], [_START])
+    assert (vetted, stub_web.requested) == ([_START, hop], [_START])
 
 
 @pytest.mark.asyncio

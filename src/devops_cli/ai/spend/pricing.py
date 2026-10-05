@@ -12,7 +12,6 @@ from urllib.parse import urlsplit
 from devops_cli.ai.spend.models import ModelPricing
 from devops_cli.config.constants import (
     CONST_LOCAL_DOMAIN_SUFFIXES,
-    CONST_LOCAL_HOSTNAMES,
     CONST_LOCAL_PROVIDER_NAMES,
     CONST_LOCAL_TRANSPORT_LABELS,
 )
@@ -21,6 +20,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.repo import resolve_review_data_path
+from devops_cli.core.validation import is_loopback_host
 
 
 def _normalize_model_name(model: str) -> str:
@@ -88,7 +88,7 @@ def _is_configured_ai_server_host(host: str) -> bool:
 
 
 def _is_local_host(host: str) -> bool:
-    if host in CONST_LOCAL_HOSTNAMES:
+    if is_loopback_host(host):
         return True
     if any(host.endswith(suffix) for suffix in CONST_LOCAL_DOMAIN_SUFFIXES):
         return True

@@ -122,8 +122,13 @@ def test_tavily_search_raises_on_missing_results(mock_get_client: MagicMock) -> 
 
 @pytest.mark.parametrize(
     "hop",
-    ["http://169.254.169.254/latest/meta-data/", "http://127.0.0.1:8200/v1/sys/health"],
-    ids=["link-local", "loopback"],
+    [
+        "http://169.254.169.254/latest/meta-data/",
+        "http://127.0.0.1:8200/v1/sys/health",
+        "http://[64:ff9b::a9fe:a9fe]/latest/meta-data/",
+        "http://168.63.129.16/machine?comp=goalstate",
+    ],
+    ids=["link-local", "loopback", "nat64-metadata", "wireserver"],
 )
 def test_web_fetch_tool_never_requests_a_private_redirect_hop(
     stub_web: StubWeb, monkeypatch: pytest.MonkeyPatch, hop: str

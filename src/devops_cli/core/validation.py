@@ -10,14 +10,20 @@ import re
 import socket
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlparse
 
+import dns.exception
+import dns.name
+import httpx2
 import typer
+from pydantic_ai._ssrf import (
+    _PRIVATE_NETWORKS,
+    is_cloud_metadata_ip,
+    is_private_ip,
+)
 
 from devops_cli.config.constants import (
     CONST_AI_ALLOW_PRIVATE_NETWORK_ENV,
-    CONST_CLOUD_METADATA_HOSTS,
-    CONST_CLOUD_METADATA_IPS,
+    CONST_CLOUD_METADATA_DNS_HOSTNAMES,
     CONST_K8S_LABEL_RE,
     CONST_K8S_SUBDOMAIN_RE,
     CONST_LOOPBACK_HOSTNAME,
@@ -36,12 +42,86 @@ logger = logging.getLogger(__name__)
 
 _ALLOW_PRIVATE_NETWORK_ENV = CONST_AI_ALLOW_PRIVATE_NETWORK_ENV
 
-
 PathKind = Literal["any", "dir", "file", "key"]
 
-_LOOPBACK_AND_LOCAL_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1"}).union(
-    CONST_CLOUD_METADATA_HOSTS
+_LINK_LOCAL_IPV4_NETWORKS: tuple[ipaddress.IPv4Network, ...] = tuple(
+    net for net in _PRIVATE_NETWORKS if isinstance(net, ipaddress.IPv4Network) and net.is_link_local
 )
+_LINK_LOCAL_IPV6_NETWORKS: tuple[ipaddress.IPv6Network, ...] = tuple(
+    net for net in _PRIVATE_NETWORKS if isinstance(net, ipaddress.IPv6Network) and net.is_link_local
+)
+_LINK_LOCAL_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
+    _LINK_LOCAL_IPV4_NETWORKS + _LINK_LOCAL_IPV6_NETWORKS
+)
+_CLOUD_METADATA_DNS_NAMES: frozenset[dns.name.Name] = frozenset(
+    dns.name.from_text(n) for n in CONST_CLOUD_METADATA_DNS_HOSTNAMES
+)
+
+
+def is_loopback_host(host: str) -> bool:
+    """Whether a host is `localhost` or a loopback address, decided without a DNS query."""
+    clean = str(host).strip().lower().removeprefix("[").removesuffix("]").rstrip(".")
+    if clean == CONST_LOOPBACK_HOSTNAME:
+        return True
+    try:
+        return ipaddress.ip_address(clean).is_loopback
+    except ValueError:
+        pass
+    try:
+        infos = socket.getaddrinfo(clean, 0, flags=socket.AI_NUMERICHOST)
+        return any(ipaddress.ip_address(info[4][0]).is_loopback for info in infos)
+    except socket.gaierror, ValueError, OSError:
+        return False
+
+
+_is_loopback_host = is_loopback_host
+
+
+def _is_cloud_metadata_addr(
+    addr: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    return addr.is_link_local or is_cloud_metadata_ip(str(addr))
+
+
+def _is_cloud_metadata_net(
+    net: ipaddress.IPv4Network | ipaddress.IPv6Network,
+) -> bool:
+    if net.is_link_local:
+        return True
+    if net.num_addresses == 1:
+        return _is_cloud_metadata_addr(net.network_address)
+    if isinstance(net, ipaddress.IPv4Network):
+        return any(net.subnet_of(ll) for ll in _LINK_LOCAL_IPV4_NETWORKS)
+    try:
+        nat64_net = ipaddress.IPv6Network("64:ff9b::a9fe:0/112")
+        if net.subnet_of(nat64_net):
+            return True
+    except ValueError:
+        pass
+    return any(net.subnet_of(ll) for ll in _LINK_LOCAL_IPV6_NETWORKS)
+
+
+def _check_numeric_metadata(host: str) -> bool | None:
+    """Check if host is an IP literal or numeric representation, returning metadata status or None."""
+    try:
+        return _is_cloud_metadata_addr(ipaddress.ip_address(host))
+    except ValueError:
+        pass
+    try:
+        h_parsed = httpx2.URL(scheme="http", host=host).host
+        try:
+            return _is_cloud_metadata_addr(ipaddress.ip_address(h_parsed))
+        except ValueError:
+            pass
+        infos = socket.getaddrinfo(h_parsed, 0, flags=socket.AI_NUMERICHOST)
+        return any(_is_cloud_metadata_addr(ipaddress.ip_address(info[4][0])) for info in infos)
+    except Exception:
+        pass
+    try:
+        infos = socket.getaddrinfo(host, 0, flags=socket.AI_NUMERICHOST)
+        return any(_is_cloud_metadata_addr(ipaddress.ip_address(info[4][0])) for info in infos)
+    except socket.gaierror, ValueError, OSError:
+        return None
 
 
 def is_cloud_metadata_host(
@@ -55,54 +135,40 @@ def is_cloud_metadata_host(
     *,
     resolve_dns: bool = True,
 ) -> bool:
-    """Return True if host, IP, or network matches cloud metadata or link-local endpoints.
+    """Return True if host, IP, or network matches cloud metadata or link-local endpoints."""
+    if isinstance(host_or_ip, (ipaddress.IPv4Address, ipaddress.IPv6Address)):
+        return _is_cloud_metadata_addr(host_or_ip)
+    if isinstance(host_or_ip, (ipaddress.IPv4Network, ipaddress.IPv6Network)):
+        return _is_cloud_metadata_net(host_or_ip)
 
-    Evaluates against the superset of cloud metadata endpoints (169.254.169.254, fd00:ec2::254,
-    metadata.google.internal, bare metadata, trailing dot variants) and link-local ranges.
-    """
-    if isinstance(
-        host_or_ip,
-        (
-            ipaddress.IPv4Address,
-            ipaddress.IPv6Address,
-            ipaddress.IPv4Network,
-            ipaddress.IPv6Network,
-        ),
-    ):
-        ip_str = str(
-            host_or_ip.network_address
-            if isinstance(host_or_ip, (ipaddress.IPv4Network, ipaddress.IPv6Network))
-            else host_or_ip
-        )
-        return (
-            host_or_ip.is_link_local
-            or ip_str in CONST_CLOUD_METADATA_IPS
-            or ip_str.startswith("169.254.")
-        )
-
-    clean = str(host_or_ip).strip().lower().strip("[]").rstrip(".")
-    if not clean:
+    clean = str(host_or_ip).strip().removeprefix("[").removesuffix("]")
+    clean_nodot = clean.rstrip(".")
+    if not clean_nodot:
         return False
-    if clean in CONST_CLOUD_METADATA_HOSTS or clean.startswith("169.254."):
-        return True
+
+    if "/" in clean_nodot:
+        try:
+            return _is_cloud_metadata_net(ipaddress.ip_network(clean_nodot, strict=False))
+        except ValueError:
+            pass
+
+    numeric_res = _check_numeric_metadata(clean_nodot)
+    if numeric_res is not None:
+        return numeric_res
+
     try:
-        ip_net = ipaddress.ip_network(clean, strict=False)
-        return (
-            ip_net.is_link_local
-            or str(ip_net.network_address) in CONST_CLOUD_METADATA_IPS
-            or str(ip_net.network_address).startswith("169.254.")
-        )
-    except ValueError:
-        pass
+        dns_name = dns.name.from_text(clean)
+    except dns.exception.DNSException:
+        return True
+
+    if dns_name in _CLOUD_METADATA_DNS_NAMES:
+        return True
 
     if not resolve_dns:
         return False
 
-    resolved_ips = _resolve_host_ips(clean)
-    return any(
-        ip.is_link_local or str(ip) in CONST_CLOUD_METADATA_IPS or str(ip).startswith("169.254.")
-        for ip in resolved_ips
-    )
+    resolved_ips = _resolve_host_ips(clean_nodot)
+    return any(_is_cloud_metadata_addr(ip) for ip in resolved_ips)
 
 
 def is_non_public_ip(
@@ -114,7 +180,13 @@ def is_non_public_ip(
     ),
 ) -> bool:
     """Return True if the IP address or network is private, loopback, link-local, or non-global."""
-    return not addr.is_global
+    if isinstance(addr, (ipaddress.IPv4Network, ipaddress.IPv6Network)):
+        return (
+            not addr.is_global
+            or is_non_public_ip(addr.network_address)
+            or is_non_public_ip(addr.broadcast_address)
+        )
+    return not addr.is_global or is_private_ip(str(addr))
 
 
 def _resolve_host_ips(
@@ -151,10 +223,10 @@ def _resolve_host_ips(
 
 def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) -> bool:
     """Return True if host or IP string resolves to loopback, link-local, private, or non-global space."""
-    clean = host_or_ip.strip().lower().strip("[]").rstrip(".")
+    clean = str(host_or_ip).strip().lower().removeprefix("[").removesuffix("]").rstrip(".")
     if not clean:
         return True
-    if clean in _LOOPBACK_AND_LOCAL_HOSTS or clean.endswith(".local"):
+    if is_loopback_host(clean) or clean.endswith(".local"):
         return True
     if is_cloud_metadata_host(clean, resolve_dns=False):
         return True
@@ -174,6 +246,99 @@ def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) ->
             is_non_public_ip(ip) or is_cloud_metadata_host(ip, resolve_dns=False) for ip in resolved
         )
     )
+
+
+def _is_numeric_host(host: str) -> bool:
+    """Check whether host is a numeric IP representation."""
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    try:
+        infos = socket.getaddrinfo(host, 0, flags=socket.AI_NUMERICHOST)
+        return bool(infos)
+    except socket.gaierror, ValueError, OSError:
+        return False
+
+
+def _validate_dns_name_syntax(
+    host: str,
+    url: str,
+    purpose: str,
+    error_cls: type[Exception],
+) -> None:
+    """Validate host DNS name syntax, raising on invalid RFC label structures."""
+    clean = host.rstrip(".")
+    if _is_numeric_host(clean):
+        return
+    try:
+        dns.name.from_text(host)
+    except dns.exception.DNSException as exc:
+        msg = f"{purpose.capitalize()} URL '{url}' has invalid hostname '{host}'"
+        if issubclass(error_cls, InvalidURLError):
+            raise error_cls(url, reason=msg) from exc
+        raise error_cls(msg) from exc
+
+
+def _parse_and_validate_scheme(
+    url: str,
+    purpose: str,
+    schemes: tuple[str, ...] | set[str],
+    error_cls: type[Exception],
+) -> tuple[str, str]:
+    """Parse URL and validate its scheme and host presence."""
+    clean_url = str(url).strip()
+    try:
+        parsed = httpx2.URL(clean_url)
+    except Exception as exc:
+        raise error_cls(f"Invalid {purpose} URL: {exc}") from exc
+
+    if parsed.scheme not in schemes:
+        schemes_str = " or ".join(sorted(schemes))
+        raise error_cls(f"Invalid {purpose} URL scheme '{parsed.scheme}': must be {schemes_str}")
+    host = parsed.host
+    if not host:
+        raise error_cls(f"Invalid {purpose} URL: missing valid hostname in '{url}'")
+    return clean_url, host
+
+
+def _enforce_ip_egress_safety(
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
+    host: str,
+    purpose: str,
+    allow_private: bool,
+    error_cls: type[Exception],
+) -> None:
+    """Enforce cloud metadata and private IP egress restrictions for an IP address."""
+    if is_cloud_metadata_host(ip, resolve_dns=False):
+        raise error_cls(f"Access to link-local or cloud metadata services ({host}) is prohibited.")
+    if not allow_private and is_non_public_ip(ip):
+        raise error_cls(f"{purpose.capitalize()} URL resolves to private or reserved IP: {host}")
+
+
+def _validate_hostname_egress(
+    host: str,
+    purpose: str,
+    allow_private: bool,
+    error_cls: type[Exception],
+) -> None:
+    """Resolve and enforce egress safety for a non-IP hostname."""
+    if is_loopback_host(host) or host.endswith(".local"):
+        if not allow_private:
+            raise error_cls(
+                f"{purpose.capitalize()} URL resolves to private or reserved IP: {host}"
+            )
+        return
+
+    resolved_ips = _resolve_host_ips(host)
+    if not resolved_ips:
+        if not allow_private:
+            raise error_cls(f"DNS resolution failed or timed out for {purpose} URL: {host}")
+        return
+
+    for ip in resolved_ips:
+        _enforce_ip_egress_safety(ip, host, purpose, allow_private, error_cls)
 
 
 def validate_url_egress(
@@ -196,36 +361,22 @@ def validate_url_egress(
     Returns:
         The validated clean URL string.
     """
-    clean_url = str(url).strip()
-    parsed = urlparse(clean_url)
-    if parsed.scheme not in schemes:
-        schemes_str = " or ".join(sorted(schemes))
-        raise error_cls(f"Invalid {purpose} URL scheme '{parsed.scheme}': must be {schemes_str}")
-    host = parsed.hostname or ""
-    if not host:
-        raise error_cls(f"Invalid {purpose} URL: missing valid hostname in '{url}'")
+    clean_url, host = _parse_and_validate_scheme(url, purpose, schemes, error_cls)
+    _validate_dns_name_syntax(host, clean_url, purpose, error_cls)
 
-    if not allow_private:
-        try:
-            addr = ipaddress.ip_address(host)
-            if is_non_public_ip(addr):
-                raise error_cls(
-                    f"{purpose.capitalize()} URL resolves to private or reserved IP: {host}"
-                )
-        except ValueError:
-            if host in _LOOPBACK_AND_LOCAL_HOSTS or host.endswith(".local"):
-                raise error_cls(
-                    f"{purpose.capitalize()} URL resolves to private or reserved IP: {host}"
-                ) from None
-            resolved_ips = _resolve_host_ips(host)
-            if not resolved_ips:
-                raise error_cls(
-                    f"DNS resolution failed or timed out for {purpose} URL: {host}"
-                ) from None
-            if any(is_non_public_ip(ip) for ip in resolved_ips):
-                raise error_cls(
-                    f"{purpose.capitalize()} URL resolves to private or reserved IP: {host}"
-                ) from None
+    if is_cloud_metadata_host(host, resolve_dns=False):
+        raise error_cls(f"Access to link-local or cloud metadata services ({host}) is prohibited.")
+
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        addr = None
+
+    if addr is not None:
+        _enforce_ip_egress_safety(addr, host, purpose, allow_private, error_cls)
+    else:
+        _validate_hostname_egress(host, purpose, allow_private, error_cls)
+
     return clean_url
 
 
@@ -243,6 +394,11 @@ def _enforce_non_private_ssrf(
         literal_ip = None
 
     if literal_ip is not None:
+        if is_cloud_metadata_host(literal_ip, resolve_dns=False):
+            raise SSRFBlockedError(
+                url,
+                reason=f"Access to link-local or cloud metadata services ({host}) is prohibited.",
+            )
         if is_non_public_ip(literal_ip):
             raise SSRFBlockedError(
                 url, reason=MESSAGES.messages.refusing_non_public_url.format(purpose=purpose)
@@ -257,10 +413,16 @@ def _enforce_non_private_ssrf(
             reason=f"DNS resolution failed or timed out for {purpose} URL",
         )
 
-    if any(is_non_public_ip(ip) for ip in resolved_ips):
-        raise SSRFBlockedError(
-            url, reason=MESSAGES.messages.refusing_non_public_url.format(purpose=purpose)
-        )
+    for ip in resolved_ips:
+        if is_cloud_metadata_host(ip, resolve_dns=False):
+            raise SSRFBlockedError(
+                url,
+                reason=f"Access to link-local or cloud metadata services ({host}) is prohibited.",
+            )
+        if is_non_public_ip(ip):
+            raise SSRFBlockedError(
+                url, reason=MESSAGES.messages.refusing_non_public_url.format(purpose=purpose)
+            )
 
 
 def validate_url(
@@ -284,14 +446,18 @@ def validate_url(
         The validated clean URL string.
     """
     clean_url = str(url).strip()
-    parsed = urlparse(clean_url)
+    try:
+        parsed = httpx2.URL(clean_url)
+    except Exception as exc:
+        raise InvalidURLError(clean_url, reason=f"Invalid {purpose} URL: {exc}") from exc
+
     if parsed.scheme not in schemes:
         schemes_str = " or ".join(sorted(schemes))
         raise InvalidURLError(
             clean_url,
             reason=f"Invalid {purpose} URL scheme '{parsed.scheme}': must be {schemes_str}",
         )
-    if require_hostname and not parsed.hostname:
+    if require_hostname and not parsed.host:
         raise InvalidURLError(
             clean_url, reason=f"{purpose.capitalize()} URL '{url}' missing valid hostname"
         )
@@ -304,16 +470,17 @@ def validate_url(
     }
     permitted_private = allow_private or allow_env
 
-    if parsed.hostname:
-        if is_cloud_metadata_host(parsed.hostname, resolve_dns=False):
+    if parsed.host:
+        host = parsed.host
+        _validate_dns_name_syntax(host, clean_url, purpose, InvalidURLError)
+
+        if is_cloud_metadata_host(host, resolve_dns=False):
             raise SSRFBlockedError(
                 clean_url,
-                reason=f"Access to link-local or cloud metadata services ({parsed.hostname}) is prohibited.",
+                reason=f"Access to link-local or cloud metadata services ({host}) is prohibited.",
             )
         if not permitted_private:
-            _enforce_non_private_ssrf(
-                clean_url, parsed.hostname, parsed.scheme, parsed.port, purpose
-            )
+            _enforce_non_private_ssrf(clean_url, host, parsed.scheme, parsed.port, purpose)
 
     return clean_url
 
@@ -325,17 +492,6 @@ def validate_service_url(url: str, purpose: str = "service", *, allow: bool = Fa
     DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true is set in the environment.
     """
     validate_url(url, purpose=purpose, allow_private=allow)
-
-
-def _is_loopback_host(host: str) -> bool:
-    """Whether a host is `localhost` or a loopback address, decided without a DNS query."""
-    clean = host.strip().lower().strip("[]").rstrip(".")
-    if clean == CONST_LOOPBACK_HOSTNAME:
-        return True
-    try:
-        return ipaddress.ip_address(clean).is_loopback
-    except ValueError:
-        return False
 
 
 def validate_configured_service_url(
@@ -351,8 +507,12 @@ def validate_configured_service_url(
     that do not come from configuration, as the HTTP broker's and tool downloads', keep
     `validate_service_url`.
     """
-    host = urlparse(str(url).strip()).hostname or ""
-    validate_url(url, purpose=purpose, allow_private=allow_private or _is_loopback_host(host))
+    clean_url = str(url).strip()
+    try:
+        host = httpx2.URL(clean_url).host
+    except Exception:
+        host = ""
+    validate_url(url, purpose=purpose, allow_private=allow_private or is_loopback_host(host))
 
 
 def validate_path(  # noqa: C901

@@ -3030,8 +3030,9 @@ def run_mcp_server(
 ) -> None:
     """Launch FastMCP server using stdio or sse transport."""
     if transport == "sse":
-        allowed_hosts = {"127.0.0.1", "::1", "localhost"}
-        if not allow_remote and host not in allowed_hosts:
+        from devops_cli.core.validation import is_loopback_host
+
+        if not allow_remote and not is_loopback_host(host):
             raise SecurityError(ERRORS.mcp.security_sse_non_loopback.format(host=host))
         mcp.run(transport="sse", host=host, port=port)
     else:

@@ -124,7 +124,13 @@ def prevent_external_network_calls() -> None:
     # names the way an unresolvable one does, so callers take their existing gaierror path at once.
     def guarded_getaddrinfo(host, *args, **kwargs):
         name = host.decode() if isinstance(host, bytes) else str(host)
-        if host is None or _is_loopback(name) or _is_ip_literal(name):
+        flags = kwargs.get("flags", args[4] if len(args) >= 5 else 0) or 0
+        if (
+            host is None
+            or bool(flags & socket.AI_NUMERICHOST)
+            or _is_loopback(name)
+            or _is_ip_literal(name)
+        ):
             return orig_getaddrinfo(host, *args, **kwargs)
         raise socket.gaierror(
             socket.EAI_NONAME,

@@ -2273,10 +2273,9 @@ CONST_AI_ALLOW_PRIVATE_NETWORK_ENV: Final[str] = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NE
 # it names the workstation itself, so a configured service URL may use it without
 # `ai.allow_private_network` (`validate_configured_service_url`).
 CONST_LOOPBACK_HOSTNAME: Final[str] = "localhost"
-CONST_CLOUD_METADATA_HOSTS: Final[frozenset[str]] = frozenset(
-    {"169.254.169.254", "fd00:ec2::254", "metadata.google.internal", "metadata"}
+CONST_CLOUD_METADATA_DNS_HOSTNAMES: Final[frozenset[str]] = frozenset(
+    {"metadata", "metadata.google.internal", "metadata.goog"}
 )
-CONST_CLOUD_METADATA_IPS: Final[frozenset[str]] = frozenset({"169.254.169.254", "fd00:ec2::254"})
 
 # ── AI Model Capability Tier Gates & AIMD Constants ───────────────────────────
 CONST_MIN_REASONING_MODEL_TIER_B: Final[int] = 30
@@ -2568,7 +2567,6 @@ CONST_CODE_EXTENSIONS: Final[frozenset[str]] = frozenset(
 )
 
 CONST_AI_SPEND_TABLE_NAME: Final[str] = "ai_spend_records"
-CONST_LOCAL_HOSTNAMES: Final[frozenset[str]] = frozenset({"localhost", "127.0.0.1", "::1"})
 CONST_LOCAL_PROVIDER_NAMES: Final[frozenset[str]] = frozenset(
     {"ollama", "local", "in-process", "internal"}
 )
