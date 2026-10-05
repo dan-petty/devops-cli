@@ -127,6 +127,7 @@ This document provides foundational context, architectural principles, and opera
       - File each candidate with `devops roadmap intake --title "<conventional title>" --body-file <file> --confirm` (or FastMCP `roadmap_intake` with `mode="confirm"`); without `--confirm` intake only previews (`--plan`), and `--dry-run` makes no request. The body states the root friction or finding, its evidence, and the proposed remedy or guardrail. Intake checks it for a duplicate, files it only when it is new, labels it `source/agent`, and gives it a type, Priority, Value, Effort and place: the backlog, or for a verified critical fix the release #740's admission rule allows.
       - A duplicate is not filed: intake prints the original's number, and the finding goes into that item as an amendment or a comment.
       - Agents never set a milestone or a priority on a new issue, and never edit `docs/ROADMAP.md`: `devops roadmap render` writes it from GitHub at the cut ([ADR 0001](docs/adr/0001-github-is-the-roadmap-source.md)).
+      - **In-Cluster Autonomous Processing & Overlap Prevention**: The in-cluster `roadmap-service` periodically checks for and intakes candidates autonomously. AI agents must not run concurrent or overlapping manual roadmap mutations while `roadmap-service` is active.
     - **Agent Filing Quota, Borrowing & Consolidation Guardrails ([#1153](https://github.com/dan-petty/devops-cli/issues/1153))**:
       - Whenever filing candidate issues, AI agents must actively respect the repository's agent filing quota, which intake enforces and reports on every run:
         - **Fold First**: Fold a finding into an existing item first (as an amendment or comment) or join an open consolidation group before opening a new issue.
@@ -226,7 +227,56 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
 - **Branch Hierarchy & Isolation**:
   - **Zero Direct Commits to `main` and `release/*` Branches (Pull Requests Required)**: Direct commits and direct pushes to `main` or any `release/*` branch (e.g. `release/v<version>`) are strictly prohibited. AI agents are permitted and expected to create release branches when bootstrapping a new release cycle (e.g. `git checkout -b release/v<version>`), cutting release branches, or preparing release choreography (`devops release prepare`). However, all code changes, changelog additions, and fixes destined for `main` or `release/*` MUST be authored on dedicated topic branches (`feat/<description>`, `fix/<description>`, `docs/<description>`, `refactor/<description>`) and merged exclusively via Pull Requests. Direct commits on `main` and `release/*` are intercepted and blocked by the pre-commit hook `no-commit-to-branch`.
   - **PR Base Branch Targeting**: Feature, fix, and refactoring PRs must target the active release branch (`--base release/v<version>`). Release branches target `main` when cutting an official release.
-  - **Mandatory Issue Closure & Release Cut via `devops roadmap close`**: GitHub honours closing keywords (`Closes #NNN`, `Fixes #NNN`, `Resolves #NNN`) **only when a pull request merges into the repository's default branch**. Because feature and fix PRs target `release/v<version>`, every `Closes #NNN` in their bodies is silently inert, and the reference is not recovered when the release merges to `main` either (merge commits carry `(#NNN)` as a plain reference, which is not a closing keyword). Linked issues therefore remain open indefinitely unless closed explicitly. All issues delivered by merged PRs are evaluated, summarized, and closed via `devops roadmap close` (or scheduled via `devops roadmap run`). AI agents run `devops roadmap close --confirm` after pull requests merge, and preview with `--plan` or `--dry-run`. Once all issues in the active release are closed, `devops roadmap close` automatically cuts the release PR (`chore/cut-v<version>` into `main`). This mutates GitHub issue state and opens the release PR without manual tracking PRs.
+  - **Mandatory Issue Closure & Release Cut via `devops roadmap close` & Autonomous In-Cluster `roadmap-service`**:
+    - GitHub honours closing keywords (`Closes #NNN`, `Fixes #NNN`, `Resolves #NNN`) **only when a pull request merges into the repository's default branch**. Because feature and fix PRs target `release/v<version>`, every `Closes #NNN` in their bodies is silently inert, and the reference is not recovered when the release merges to `main` either (merge commits carry `(#NNN)` as a plain reference, which is not a closing keyword). Linked issues therefore remain open indefinitely unless closed explicitly.
+    - All issues delivered by merged PRs are evaluated, summarized, and closed autonomously by the in-cluster `roadmap-service` (or scheduled via `devops roadmap run`). When `roadmap-service` is active, it detects merged PRs via webhooks or polling, evaluates deliverables, adds structured summaries, closes linked issues, and automatically cuts the release PR (`chore/cut-v<version>` into `main`) once all active milestone issues are closed.
+    - If `roadmap-service` is confirmed offline or in environments without cluster connectivity, AI agents manually run `devops roadmap close --confirm` after pull requests merge, previewing first with `--plan` or `--dry-run`.
+  - **Continuous In-Cluster Roadmap Service (`roadmap-service`), Concurrency Avoidance & Health Diagnostics**:
+    - **In-Cluster Architecture & Autonomous Operations**:
+      - The roadmap lifecycle is continuously and autonomously managed by `roadmap-service` running in the Kubernetes cluster namespace `devops` (`deployment/roadmap-service`, single-replica `Recreate` deployment with a dedicated PVC `roadmap-service-home` mounted at `/home/devops` for clone checkouts and schedule state).
+      - It executes continuous service mode: `devops serve --service --host 0.0.0.0 --port 8000 --workers 1`.
+      - **Reactive Webhooks & Scheduled Jobs**: It listens on `POST /webhooks/github` (routed via Traefik ingress at `/webhooks/github`) for GitHub events (`pull_request`, `issues`, `push`, etc.) and runs a dedicated `RepoWorker` per registered repository (`service.repos` in `config.yaml` / ConfigMap `devops-cli-config`) to execute `service_job` (`src/devops_cli/roadmap/run.py`):
+        - `intake`: Autonomously reconciles candidate issues filed into the board/backlog.
+        - `close`: Autonomously evaluates delivered issues from merged PRs, generates concise closure summaries, closes them on GitHub with closing notes, and cuts the release PR (`chore/cut-v<version>` into `main`) when all active milestone issues are complete.
+        - `reprioritize`: Re-evaluates priority, value, and effort across releases and backlog.
+        - `refine`: Refines candidate items into implementation-ready specifications.
+        - `metrics`: Scheduled every 15 minutes to refresh repository traffic velocity, release cadence, milestone progress, and exposes Prometheus gauges on `:8000/metrics`.
+        - Utilizes the background generation LLM tier (`devops-background` on `ollama-48gib-slow` serving `qwen3.8:27b`) so roadmap synthesis never contends with interactive developer review slots.
+    - **Strict Prohibition of Overlapping Commands & Concurrent Mutations**:
+      - When `roadmap-service` is active, AI agents, automated workflows, and developers **MUST AVOID running overlapping roadmap mutations or duplicate state changes** (such as concurrent manual `devops roadmap close --confirm`, `devops roadmap intake --confirm`, `devops roadmap reprioritize`, manual release PR cuts, or manual issue closure).
+      - **Hazards of Concurrent Execution**:
+        - *GitHub API Rate Limit Depletion*: Concurrent invocations from both the in-cluster service (using `GH_TOKEN`) and workstation agents cause severe token-bucket exhaustion and trigger secondary rate limit (HTTP 429/403) cooldown delays.
+        - *Git Worktree & Clone Contention*: Both environments operate on git checkouts; concurrent operations create lock collisions, out-of-sync branches, and failed pushes in `~/.data/roadmap/<owner>/<repo>/clone`.
+        - *Conflicting State Transitions & Duplicate PRs*: Concurrent execution produces conflicting board card status updates, duplicate release cut PRs, or multiple closure comments on issues.
+      - **Permitted Read-Only & Preview Operations**: AI agents may inspect or preview roadmap state at any time using read-only or plan modes (`devops roadmap close --plan`, `devops roadmap intake --plan`, `devops roadmap run --plan`, or `--dry-run`), which make no mutating API calls.
+    - **How to Check if `roadmap-service` Is Running (Liveness, Health & Diagnostics)**:
+      - AI agents and developers must proactively verify whether `roadmap-service` is active so that development is never stalled or blocked if the service goes offline:
+        - **1. Kubernetes Deployment & Pod Status**:
+          - Inspect deployment replicas: `kubectl -n devops get deployment roadmap-service` (verify desired vs ready replicas: `1/1`).
+          - Inspect pod health and restart counts: `kubectl -n devops get pods -n devops -l app.kubernetes.io/name=roadmap-service` (verify phase is `Running`, status is `1/1 Ready`, and `RESTARTS` is stable without crash loops).
+          - Check rollout progression: `kubectl -n devops rollout status deploy/roadmap-service --timeout=15s`.
+        - **2. HTTP Liveness & Readiness Probes**:
+          - Liveness probe endpoint: `GET /healthz` on port 8000 (HTTP 200 OK).
+          - Readiness probe endpoint: `GET /readyz` on port 8000 (HTTP 200 OK).
+          - In-cluster execution check: `kubectl -n devops exec deploy/roadmap-service -- curl -s -f http://localhost:8000/readyz`
+          - Or via local port-forward: `kubectl -n devops port-forward svc/roadmap-service 8000:8000` followed by `curl -s -f http://localhost:8000/readyz`.
+        - **3. Service Logs & Prometheus Telemetry**:
+          - Live service logs: `kubectl -n devops logs -n devops deploy/roadmap-service --tail=50` (verify active event processing, incoming webhook delivery logs, and lack of unhandled exceptions).
+          - Prometheus metrics: `kubectl -n devops exec deploy/roadmap-service -- curl -s http://localhost:8000/metrics | grep -E "service_queue_depth|service_jobs_total|service_job_seconds"` or query Prometheus `up{namespace="devops",pod=~"roadmap-service.*"}`.
+    - **Troubleshooting, Recovery & Safe Manual Fallback**:
+      - **Recovery If Offline or Unhealthy**:
+        - *Missing or Stale Secrets*: If the pod fails to start due to missing secrets (e.g. `service.webhook_secrets` or `GH_TOKEN`), run:
+          `uv run devops k8s push-secrets --only devops/devops-cli --rotate`
+          This synchronizes OS keyring secrets into Kubernetes secret `devops-cli` in namespace `devops` and restarts `roadmap-service`.
+        - *Stuck or Failed Pod*: If the pod is stuck, restarting, or unresponsive, execute:
+          `kubectl -n devops rollout restart deploy/roadmap-service`
+          Wait for readiness with `kubectl -n devops rollout status deploy/roadmap-service --timeout=180s`.
+        - *ConfigMap Drift*: If `k8s/devops/configmap.yaml` was changed, re-apply via `uv run devops k8s deploy-stack --stack devops` (or `--stack all`).
+      - **Safe Manual Fallback Protocol**:
+        - Only if `roadmap-service` is confirmed offline, down, unreachable, or in a disconnected local dev environment without a Kubernetes cluster:
+          - Agents MUST first verify that no in-cluster pod is actively executing (`kubectl get deployment roadmap-service -n devops` fails or shows 0 ready replicas).
+          - Only then may agents execute manual rate-managed commands (`devops roadmap close --confirm`, `devops roadmap intake --confirm`) to advance the milestone and cut releases.
+          - Once the cluster service is restored, cease manual mutating invocations immediately.
   - **Branch Freshness**: Always branch off fresh upstream tracking branches (`git fetch origin`).
   - **Strict Remote Branch Lifecycle & PR Governance (Zero Orphan Remote Branches)**:
     - Every remote topic or feature branch on `origin` MUST have an associated, open Pull Request targeting the active release branch (`release/v<version>`) or `main` (for official release PRs). If work on the branch is actively in progress or not yet fully implemented and ready for review, the pull request MUST be opened as a **Draft Pull Request** (`devops pr create --draft` or passing `draft: true` via API).
@@ -333,6 +383,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
   - **Roadmap-Driven Milestone Linking & Automated Closure**:
     - Every issue and PR targeting a release branch MUST link to the active release milestone. GitHub is the roadmap's source of truth (ADR 0001): `devops roadmap render` regenerates [`docs/ROADMAP.md`](docs/ROADMAP.md) from the milestones, issues and board at the cut. Inspect progress via `devops gh milestones status <version>`.
     - **Automated Milestone Closure**: When preparing release tags or when a release PR is merged into `main`, AI agents and CI workflows MUST close the release milestone via `devops gh milestones close <version>` (or FastMCP `gh_milestone_close`) to prevent stale open milestones.
+    - **In-Cluster Autonomous Lifecycle & Concurrency Guard**: The in-cluster `roadmap-service` continuously evaluates delivered milestone issues, syncs project statuses, and triggers the release cut. Ensure no overlapping manual mutations run concurrently when `roadmap-service` is healthy.
   - **Mandatory Historical Documentation Compaction on Major & Minor Releases**:
     - When cutting, preparing, or finalizing a new major (`vX.0.0`) or minor (`v0.X.0`) release, AI agents and automated release workflows **MUST AUTOMATICALLY COMPACT HISTORICAL DOCUMENTATION** across the repository:
       - **`docs/ROADMAP.md`**: Consolidate completed milestone subsections of older major/minor release series (e.g., condensing individual `v0.1.0` through `v0.1.9` subsections into a single `### Workstation Foundation, SecOps, Multi-Cloud IaC & Core Architecture (v0.0.1 – v0.1.9 - Completed)` milestone block). In Section 3 (*Value vs. Effort Prioritization Matrix*), completed items are strictly omitted to keep the matrix tightly focused on in-flight, scheduled, and future roadmap deliverables.
