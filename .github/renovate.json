@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "labels": ["type/chore", "scope/ci"],
+  "commitMessagePrefix": "chore(deps):",
+  "packageRules": [
+    {
+      "matchManagers": ["pep621", "pip_requirements", "pip-compile", "setup-cfg"],
+      "enabled": false
+    },
+    {
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "labels": ["type/chore", "scope/infra"]
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "labels": ["type/chore", "scope/ci"]
+    }
+  ]
+}
