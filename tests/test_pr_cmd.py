@@ -628,6 +628,45 @@ class TestPrCommands:
             assert parsed["success"] is True
             assert parsed["exit_code"] == 0
 
+    def test_pr_monitor_json_format_copilot_unread(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_monitor import (
+            CopilotReviewStatus,
+            PRCheckRun,
+            PRMonitorResult,
+            PRMonitorStatus,
+        )
+
+        mock_status = PRMonitorStatus(
+            number=168,
+            title="fix: unread",
+            checks=[PRCheckRun(name="CI", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(
+                is_active=False,
+                state="unread",
+                unread_reason="HTTP 403: rate limit",
+                message="Copilot review state could not be read: HTTP 403: rate limit",
+            ),
+            unresolved_threads=[],
+        )
+        mock_result = PRMonitorResult(
+            success=False,
+            exit_code=3,
+            message="PR #168 monitoring timed out after 300s: 0 check(s) pending (Copilot review state could not be read: HTTP 403: rate limit).",
+            status=mock_status,
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch("devops_cli.github.pr_monitor.monitor_pr", return_value=mock_result),
+        ):
+            res = runner.invoke(app, ["monitor", "168", "--format", "json"])
+            assert res.exit_code == 3
+            parsed = json.loads(res.output.strip())
+            assert (
+                parsed["status"]["copilot_status"]["state"],
+                parsed["status"]["copilot_status"]["unread_reason"],
+            ) == ("unread", "HTTP 403: rate limit")
+
     def test_pr_monitor_invalid_bounds_and_format(self, runner: CliRunner) -> None:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
