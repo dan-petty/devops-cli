@@ -34,7 +34,10 @@ def test_k8s_apply_manifest_ssrf_rejects_hostname_resolving_to_private_ip(
                 (socket.AF_INET, socket.SOCK_STREAM, 6, "", (fake_ip, 80))
             ],
         )
-        with pytest.raises(ValueError, match="Manifest URL resolves to private or reserved IP"):
+        with pytest.raises(
+            ValueError,
+            match=r"(Manifest URL resolves to private or reserved IP|Access to link-local or cloud metadata services)",
+        ):
             k8s_apply("http://example.com/manifest.yaml")
 
 

@@ -263,6 +263,12 @@ _METADATA_ORACLE_TARGETS = (
     "metadata.",
     "fe80::1",
     "[fe80::1]",
+    "2852039166",
+    "0xa9fea9fe",
+    "64:ff9b::a9fe:a9fe",
+    "168.63.129.16",
+    "fd20:ce::254",
+    "metadata.goog",
 )
 
 

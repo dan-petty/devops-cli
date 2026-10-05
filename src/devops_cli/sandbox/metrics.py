@@ -13,7 +13,7 @@ import httpx2
 
 from devops_cli.config.constants import CONST_PROMETHEUS_EXPOSITION_METRIC_TYPES
 from devops_cli.core.paths import validate_no_path_traversal
-from devops_cli.core.validation import validate_url_egress
+from devops_cli.core.validation import is_loopback_host, validate_url_egress
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.models.docker import ContainerStatEntry
 from devops_cli.sandbox.models import (
@@ -395,9 +395,6 @@ class PrometheusScrapeResult(list[PrometheusMetric]):
         self.error = error
 
 
-_ALLOWED_LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
-
-
 def _validate_scrape_url(metrics_url: str) -> str:
     """Validate scrape URL ensuring scheme is http/https and blocking SSRF targets."""
     parsed = urlparse(metrics_url)
@@ -407,7 +404,7 @@ def _validate_scrape_url(metrics_url: str) -> str:
     if not host:
         raise ValueError(f"Invalid scrape URL: missing valid hostname in '{metrics_url}'")
 
-    if host.lower() in _ALLOWED_LOCAL_HOSTS:
+    if is_loopback_host(host):
         return metrics_url
 
     return validate_url_egress(

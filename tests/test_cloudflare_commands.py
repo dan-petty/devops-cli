@@ -644,13 +644,17 @@ def test_normalize_ip_cidr_variants() -> None:
         _normalize_ip_cidr("198.51.100.1"),
         _normalize_ip_cidr("198.51.100.0/24"),
         _normalize_ip_cidr("2001:db8::1"),
+        _normalize_ip_cidr("2001:DB8::1"),
     ) == (
         "198.51.100.1/32",
         "198.51.100.0/24",
         "2001:db8::1/128",
+        "2001:db8::1/128",
     )
     with pytest.raises(CloudflareAPIError):
         _normalize_ip_cidr("not-an-ip")
+    with pytest.raises(CloudflareAPIError):
+        _normalize_ip_cidr("fe80::1%eth0/128")
 
 
 def test_cloudflare_client_sync_access_with_bypass_ips() -> None:

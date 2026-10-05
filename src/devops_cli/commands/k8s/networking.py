@@ -19,7 +19,6 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_K8S_URL_SCHEME,
     CONST_LOCAL_DOMAIN_SUFFIXES,
-    CONST_LOCAL_HOSTNAMES,
     CONST_PLACEHOLDER_NODE,
     CONST_PLACEHOLDER_PORT,
 )
@@ -41,6 +40,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_PORT,
 )
 from devops_cli.config.settings import load_settings, save_settings
+from devops_cli.core.validation import is_loopback_host
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -264,7 +264,7 @@ def _is_fqdn_url(url: str | None) -> bool:
         if not host or "." not in host:
             return False
         host_lower = host.lower()
-        if host_lower in CONST_LOCAL_HOSTNAMES or any(
+        if is_loopback_host(host_lower) or any(
             host_lower.endswith(suffix) for suffix in CONST_LOCAL_DOMAIN_SUFFIXES
         ):
             return False
@@ -293,7 +293,7 @@ def _should_update_url(
         return False
     existing_host = urlparse(existing_url).hostname or ""
     new_host = urlparse(new_url).hostname or ""
-    return not (existing_host not in CONST_LOCAL_HOSTNAMES and new_host in CONST_LOCAL_HOSTNAMES)
+    return not (not is_loopback_host(existing_host) and is_loopback_host(new_host))
 
 
 def _apply_service_url(
@@ -325,7 +325,7 @@ def _update_ollama_urls(
     if not ollama_url:
         return
     existing = list(settings.ai.ollama_urls or [])
-    is_loopback = (urlparse(ollama_url).hostname or "") in ("localhost", "127.0.0.1", "::1")
+    is_loopback = is_loopback_host(urlparse(ollama_url).hostname or "")
     if not existing or existing == list(DEFAULT_OLLAMA_URLS):
         settings.ai.ollama_urls = [ollama_url]
         configured["ai.ollama_urls"] = ollama_url
@@ -420,8 +420,6 @@ def _should_update_valkey(settings: Any, valkey_url: str | None) -> bool:
     """Determine whether detected valkey_url should update valkey host/port configuration."""
     from urllib.parse import urlparse
 
-    from devops_cli.config.constants import CONST_LOCAL_HOSTNAMES
-
     if not valkey_url:
         return False
     valkey_cfg = getattr(settings, "valkey", None)
@@ -435,11 +433,7 @@ def _should_update_valkey(settings: Any, valkey_url: str | None) -> bool:
     existing_host_raw = getattr(valkey_cfg, "host", "") or ""
     existing_host = existing_host_raw.split(":")[0].strip().lower()
     new_host = (urlparse(valkey_url).hostname or "").strip().lower()
-    if (
-        existing_host
-        and existing_host not in CONST_LOCAL_HOSTNAMES
-        and new_host in CONST_LOCAL_HOSTNAMES
-    ):
+    if existing_host and not is_loopback_host(existing_host) and is_loopback_host(new_host):
         return False
     return True
 

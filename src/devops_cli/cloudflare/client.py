@@ -165,11 +165,10 @@ def _normalize_ip_cidr(raw_ip: str) -> str:
     """Normalize an IP address or CIDR string into canonical CIDR notation."""
     clean = raw_ip.strip()
     try:
-        if "/" not in clean:
-            ip_obj = ipaddress.ip_address(clean)
-            return f"{clean}/32" if ip_obj.version == 4 else f"{clean}/128"
         net = ipaddress.ip_network(clean, strict=False)
-        return str(net)
+        if getattr(net.network_address, "scope_id", None) is not None or "%" in clean:
+            raise ValueError("IPv6 zone index is not permitted")
+        return net.with_prefixlen
     except ValueError as exc:
         raise CloudflareAPIError(f"Invalid IP address or CIDR block '{clean}': {exc}") from exc
 
