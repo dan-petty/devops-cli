@@ -86,3 +86,93 @@ def test_deploy_stack_devops_dry_run() -> None:
         ) == (0, True, True, True)
     finally:
         set_dry_run(False)
+
+
+def test_roadmap_service_ingress_uses_prefix_pathtype() -> None:
+    """Verify roadmap-service ingress uses Prefix pathType for robust routing."""
+    repo_root = Path(__file__).resolve().parent.parent
+    ingress_file = repo_root / "k8s" / "devops" / "roadmap-service" / "ingress.yaml"
+    data = yaml.safe_load(ingress_file.read_text(encoding="utf-8"))
+    rule = data["spec"]["rules"][0]
+    path_entry = rule["http"]["paths"][0]
+
+    assert (
+        rule["host"],
+        path_entry["path"],
+        path_entry["pathType"],
+        path_entry["backend"]["service"]["name"],
+        path_entry["backend"]["service"]["port"]["number"],
+    ) == (
+        "hooks.example.com",
+        "/webhooks/github",
+        "Prefix",
+        "roadmap-service",
+        8000,
+    )
+
+
+def test_roadmap_service_ingress_in_ingress_routes() -> None:
+    """Verify roadmap-service ingress is registered in k8s/ingress/ingress-routes.yaml."""
+    repo_root = Path(__file__).resolve().parent.parent
+    routes_file = repo_root / "k8s" / "ingress" / "ingress-routes.yaml"
+    docs = list(yaml.safe_load_all(routes_file.read_text(encoding="utf-8")))
+    roadmap_docs = [
+        d
+        for d in docs
+        if d
+        and d.get("kind") == "Ingress"
+        and d.get("metadata", {}).get("name") == "roadmap-service"
+    ]
+
+    assert len(roadmap_docs) == 1
+    spec = roadmap_docs[0]["spec"]
+    assert (
+        roadmap_docs[0]["metadata"]["namespace"],
+        spec["rules"][0]["host"],
+        spec["rules"][0]["http"]["paths"][0]["pathType"],
+    ) == (
+        "devops",
+        "hooks.example.com",
+        "Prefix",
+    )
+
+
+def test_deploy_stack_domain_option_in_dry_run() -> None:
+    """Verify deploy-stack propagates domain option in dry-run output."""
+    set_dry_run(True)
+    try:
+        result = runner.invoke(
+            app, ["deploy-stack", "--stack", "devops", "--domain", "example.com"]
+        )
+        assert (
+            result.exit_code,
+            "example.com" in result.output,
+        ) == (0, True)
+    finally:
+        set_dry_run(False)
+
+
+def test_apply_single_manifest_renders_domain_template(tmp_path: Path) -> None:
+    """Verify _apply_single_manifest renders domain placeholders via stdin."""
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.commands.k8s.stack_lifecycle import _apply_single_manifest
+
+    manifest = tmp_path / "test-ingress.yaml"
+    manifest.write_text("host: hooks.${DOMAIN}\npath: /test\n", encoding="utf-8")
+
+    mock_run = MagicMock()
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd", mock_run):
+        _apply_single_manifest(str(manifest), ["--context", "test-ctx"], domain="example.com")
+
+    assert mock_run.call_count == 1
+    args, kwargs = mock_run.call_args
+    assert (
+        args[0],
+        kwargs.get("input"),
+        kwargs.get("check"),
+    ) == (
+        ["kubectl", "apply", "-f", "-", "--context", "test-ctx"],
+        "host: hooks.example.com\npath: /test\n",
+        False,
+    )

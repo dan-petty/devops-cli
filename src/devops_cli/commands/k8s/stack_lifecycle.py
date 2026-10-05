@@ -508,11 +508,46 @@ def _deploy_helm_repos(selected_stacks: Sequence[str]) -> None:
     runtime._run_cmd(["helm", "repo", "update"])
 
 
-def _apply_manifest_files(manifests: Sequence[str], kubectl_ctx: list[str]) -> None:
-    """Apply Kubernetes native manifest files."""
+def _apply_single_manifest(
+    manifest_path: str,
+    kubectl_ctx: list[str],
+    domain: str | None,
+) -> None:
+    """Apply an individual manifest file, rendering templates if a domain is available."""
+    p = Path(manifest_path)
+    print_info(f"[bold]Applying manifest {p.name}...[/bold]", prefix=False)
+    if domain and p.is_file():
+        from devops_cli.k8s.template import render_manifest_template
+
+        raw_text = p.read_text(encoding="utf-8")
+        rendered = render_manifest_template(raw_text, domain=domain)
+        if rendered != raw_text:
+            runtime._run_cmd(
+                ["kubectl", "apply", "-f", "-"] + kubectl_ctx,
+                input=rendered,
+                check=False,
+            )
+            return
+    runtime._run_cmd(["kubectl", "apply", "-f", manifest_path] + kubectl_ctx, check=False)
+
+
+def _apply_manifest_files(
+    manifests: Sequence[str],
+    kubectl_ctx: list[str],
+    domain: str | None = None,
+) -> None:
+    """Apply Kubernetes native manifest files, rendering templates if a domain is resolved."""
+    effective_domain = domain
+    if not effective_domain:
+        try:
+            from devops_cli.k8s.template import resolve_template_domain
+
+            effective_domain = resolve_template_domain()
+        except Exception:
+            effective_domain = None
+
     for manifest_path in manifests:
-        print_info(f"[bold]Applying manifest {Path(manifest_path).name}...[/bold]", prefix=False)
-        runtime._run_cmd(["kubectl", "apply", "-f", manifest_path] + kubectl_ctx, check=False)
+        _apply_single_manifest(manifest_path, kubectl_ctx, effective_domain)
 
 
 def _run_helm_with_adoption_retries(
@@ -684,6 +719,9 @@ def deploy_stack(
     context: Annotated[
         str | None, typer.Option("--context", "-c", help=HELP.options.context)
     ] = None,
+    domain: Annotated[
+        str | None, typer.Option("--domain", "-d", help=HELP.k8s.template_domain)
+    ] = None,
     wait: Annotated[
         bool,
         typer.Option(
@@ -741,6 +779,7 @@ def deploy_stack(
             details={
                 "kustomize_dir": str(k8s_dir),
                 "stack": stack,
+                "domain": domain,
                 "stacks": selected_stacks,
                 "context": effective_context,
                 "wait": wait,
@@ -781,7 +820,7 @@ def deploy_stack(
     _deploy_helm_repos(selected_stacks)
 
     # 6. Install native manifests
-    _apply_manifest_files(all_manifests, kubectl_ctx)
+    _apply_manifest_files(all_manifests, kubectl_ctx, domain=domain)
 
     # 7. Check for unready cluster nodes to avoid DaemonSet wait timeouts
     unready_nodes = runtime._get_unready_nodes(context=effective_context)

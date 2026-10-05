@@ -141,7 +141,7 @@ def test_pod_annotations_name_port_8000() -> None:
     )
 
 
-def test_ingress_has_class_traefik_one_host_and_exact_path() -> None:
+def test_ingress_has_class_traefik_one_host_and_prefix_path() -> None:
     ingress = _doc("ingress.yaml")
     rules = ingress["spec"]["rules"]
     assert (len(rules), ingress["spec"]["ingressClassName"]) == (1, "traefik")
@@ -155,7 +155,7 @@ def test_ingress_has_class_traefik_one_host_and_exact_path() -> None:
         paths[0]["pathType"],
         paths[0]["backend"]["service"]["name"],
         paths[0]["backend"]["service"]["port"]["number"],
-    ) == ("hooks.example.com", 1, "/webhooks/github", "Exact", "roadmap-service", 8000)
+    ) == ("hooks.example.com", 1, "/webhooks/github", "Prefix", "roadmap-service", 8000)
 
 
 def test_networkpolicy_admits_only_traefik_and_monitoring_on_8000() -> None:

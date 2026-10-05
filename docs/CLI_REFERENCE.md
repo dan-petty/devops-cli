@@ -757,6 +757,7 @@ devops k8s deploy-stack [OPTIONS]
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
 | `--wait` / `--no-wait` | `boolean` | `True` | Wait for Helm releases and workloads to become ready before returning. |
 | `--timeout`, `-t` | `string` | `10m` | Timeout for Helm operations when waiting. |
 | `--port-forward` / `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
