@@ -216,6 +216,10 @@ devops --help                        # Access global DevOps automation CLI
         "        - **Agent Attribution**: Every agent-filed issue carries `source/agent`; intake adds it. Issues a person files never count toward the quota and are never refused.\n"
         "        - **Quota & Allowance Formula**: Beyond the release credit (`credit = min(release_credit_base + release_credit_per_delivered_item * delivered, release_item_target)`), each opening costs `r(n)` closures, using the values in `.github/roadmap.toml` (`open_issue_limit`, `throttle_start_fraction`, `overage_step_fraction`). An agent may check allowance via REST search queries (`q=repo:R is:issue is:open`, `q=repo:R is:issue label:source/agent created:>=<start>`, `q=repo:R is:issue is:closed closed:>=<start>`).\n"
         "        - **Borrowing Only for Work in Flight**: An opening beyond the allowance proceeds only as a borrow (split, required follow-up, P0/P1 bug or security), labelled `budget/borrowed`, and anything else is folded with a line saying why. Pass `--borrow-reason split` or `--borrow-reason follow-up` to intake for the first two, with `--source <link>` to the item it splits or the review that requires it.\n"
+        "    - **In-Cluster `roadmap-service` & Concurrency Guardrails**:\n"
+        "      - Continuous daemon running in namespace `devops` (`deployment/roadmap-service`) executing `devops serve --service --workers 1` to process webhooks and batch jobs (`intake`, `close`, `reprioritize`, `refine`, `metrics`).\n"
+        "      - When active, agents must avoid running overlapping mutating commands (`devops roadmap close --confirm`, `devops roadmap intake --confirm`) to prevent rate limit depletion and git lock contention. Preview with `--plan` or `--dry-run`.\n"
+        "      - Inspect liveness via `kubectl -n devops get deployment roadmap-service` or HTTP probe `GET /readyz` on port 8000; fall back to manual execution only if confirmed offline.\n"
         if meta.is_devops_cli
         else ""
     )
