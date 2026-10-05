@@ -1217,7 +1217,7 @@ devops k8s gpu-matrix [OPTIONS]
 |---|---|---|---|
 | `--gpus`, `-g` | `integer` | - | Filter by GPU count (1, 2, 3, 4). |
 | `--vram`, `-v` | `integer` | - | Filter by VRAM per GPU in GiB (16, 24, 32). |
-| `--backend`, `-b` | `string` | - | Filter by inference backend: ollama or vllm. |
+| `--backend`, `-b` | `string` | - | Filter by inference backend (e.g. ollama). |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
 | `--aliases`, `-a` | `boolean` | - | Include Kubernetes model service aliases mapping. |
 
