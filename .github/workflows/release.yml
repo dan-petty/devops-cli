@@ -238,5 +238,6 @@ jobs:
       - name: Attest Build Provenance
         uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad # v2
         with:
+          subject-name: ghcr.io/${{ github.repository }}/service
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
