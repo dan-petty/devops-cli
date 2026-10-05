@@ -1,6 +1,6 @@
 # The in-cluster devops-cli runtime (#741): cluster Jobs that run one devops command each, with
-# the credentials `devops k8s push-secrets` writes into Secret devops-cli. Applied with
-# `devops k8s apply k8s/devops/ --template`, not by the root kustomization or deploy-stack.
+# the credentials `devops k8s push-secrets` writes into Secret devops-cli. Managed by
+# `devops k8s deploy-stack --stack devops` (and `--stack all`) as well as `devops k8s apply k8s/devops/ --template`.
 apiVersion: v1
 kind: Namespace
 metadata:

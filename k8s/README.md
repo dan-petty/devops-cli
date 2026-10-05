@@ -326,9 +326,11 @@ To rotate a generated value, store a new one at a hidden prompt with `uv run key
 
 ## devops-cli in the cluster
 
-`k8s/devops/` runs devops-cli as cluster Jobs, so agents drive it with kubectl and never handle keys. It is not part of the root kustomization: apply it with `devops k8s apply k8s/devops/ --template`, which renders the kustomization and its `images:` tag. Each Job reads its credentials from Secret `devops/devops-cli` through `envFrom`, its configuration from ConfigMap `devops-cli-config` (provider `gateway` at `http://llm-gateway.llm.svc.cluster.local:4000/v1`), holds no Kubernetes API token, accepts no ingress, and reaches only DNS, the gateway, the OpenTelemetry collector in namespace `otel` and public HTTPS. Commands that need Qdrant, Prometheus, Grafana, Argo CD or a repository checkout do not run there yet.
+`k8s/devops/` runs devops-cli as cluster Jobs, so agents drive it with kubectl and never handle keys. It is managed by `devops k8s deploy-stack --stack devops` (and `--stack all`), and can also be rendered directly with `devops k8s apply k8s/devops/ --template`. Each Job reads its credentials from Secret `devops/devops-cli` through `envFrom`, its configuration from ConfigMap `devops-cli-config` (provider `gateway` at `http://llm-gateway.llm.svc.cluster.local:4000/v1`), holds no Kubernetes API token, accepts no ingress, and reaches only DNS, the gateway, the OpenTelemetry collector in namespace `otel` and public HTTPS. Commands that need Qdrant, Prometheus, Grafana, Argo CD or a repository checkout do not run there yet.
 
 ```bash
+devops k8s deploy-stack --stack devops --context <context>
+# or directly:
 devops k8s apply k8s/devops/ --template --context <context>
 devops config set k8s.github_account <machine-login>
 devops k8s push-secrets --context <context> --plan       # reads the keyring, gh and the cluster: key names and states, never a value
@@ -352,7 +354,7 @@ kubectl -n devops logs -f job/<name>
 5. `devops cloudflare tunnel routes`. If no route covers the webhook host, add one in the dashboard, not with `tunnel sync` (#794).
 6. `devops cloudflare access status`, then add a Bypass application for `hooks.<domain>/webhooks/github`.
 7. `devops k8s apply k8s/monitoring/networkpolicy.yaml`, until #755 or #913 deploys it.
-8. `devops k8s apply k8s/devops/ --template`, until #755.
+8. `devops k8s deploy-stack --stack devops` (or `--stack all`), or `devops k8s apply k8s/devops/ --template`.
 9. Add each repo's webhook: `https://hooks.<domain>/webhooks/github`, `application/json`, that repo's secret, and the Issues, Pull requests and Milestones events.
 10. To rotate a credential, update it in the keyring (`uv run devops config set service.webhook_secrets`, or `gh auth login` for the machine account), then run `uv run devops k8s push-secrets --only devops/devops-cli --rotate`. It restarts `roadmap-service`.
 11. Run one service per set of repos. While it runs, use `devops roadmap run --dry-run` (#981).

@@ -157,9 +157,20 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "logging": [
         DEFAULT_K8S_DIR / "logging" / "networkpolicy.yaml",
     ],
+    "devops": [
+        DEFAULT_K8S_DIR / "devops" / "networkpolicy.yaml",
+        DEFAULT_K8S_DIR / "devops" / "serviceaccount.yaml",
+        DEFAULT_K8S_DIR / "devops" / "configmap.yaml",
+        DEFAULT_K8S_DIR / "devops" / "cronjob.yaml",
+        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "pvc.yaml",
+        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "service.yaml",
+        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "deployment.yaml",
+        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "ingress.yaml",
+        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "networkpolicy.yaml",
+    ],
 }
 
-VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "all")
+VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "devops", "all")
 
 
 def _recover_stuck_helm_release_if_pending(
@@ -622,16 +633,29 @@ def _post_deploy_credentials(
             prefix=False,
         )
         print_info("[dim]Valkey Cache: localhost:6379 (namespace: llm)[/dim]", prefix=False)
+    if "devops" in selected_stacks:
+        k_ctx = ["--context", effective_context] if effective_context else []
+        runtime._run_cmd(
+            ["kubectl", "rollout", "restart", "deploy/roadmap-service", "-n", "devops"] + k_ctx,
+            check=False,
+        )
+        print_info(
+            "[dim]Roadmap Service: http://localhost:8000 (namespace: devops)[/dim]",
+            prefix=False,
+        )
 
 
 def _push_stacks_for(selected_stacks: Sequence[str], context: str | None) -> list[str]:
     """The base rows, the deployed stacks' and each detached stack whose namespace exists.
 
-    Detached stacks such as `devops` are never deployed here, so their namespace existing is
-    the sign that the cluster runs them.
+    Detached stacks are pushed only where their namespace exists and they were not explicitly selected.
     """
     try:
-        detached = [name for name in DETACHED_STACKS if namespace_exists(name, context)]
+        detached = [
+            name
+            for name in DETACHED_STACKS
+            if name not in selected_stacks and namespace_exists(name, context)
+        ]
     except ClusterSecretPushError as exc:
         print_error(MESSAGES.k8s.push_failed.format(reason=str(exc)), prefix=False, safe=True)
         raise typer.Exit(1) from exc
@@ -646,11 +670,11 @@ def _dry_run_secrets(selected_stacks: Sequence[str], push_secrets: bool) -> list
     """
     if not push_secrets:
         return []
-    detached = set(DETACHED_STACKS)
+    detached = set(DETACHED_STACKS) - set(selected_stacks)
     return [
         f"{secret.ref}: {', '.join(entry.key for entry in secret.entries)}"
         + (f" (if namespace {secret.namespace} exists)" if secret.stack in detached else "")
-        for secret in secrets_for_stacks([BASE_STACK, *selected_stacks, *DETACHED_STACKS])
+        for secret in secrets_for_stacks([BASE_STACK, *selected_stacks, *detached])
     ]
 
 
