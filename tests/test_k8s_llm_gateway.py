@@ -264,7 +264,7 @@ class TestK8sLLMGatewayManifests:
     def test_the_slow_tier_serves_embeddings_and_devops_background_alone(self) -> None:
         """Verify ollama-48gib-slow is in no interactive or review pool: every generation
         deployment on it belongs to devops-background, which has that one deployment alone, so
-        the tier never loads a third model beside its embedder and qwen3-coder:30b (#1064)."""
+        the tier never loads a third model beside its embedder and qwen3.8:27b (#1064, #1221)."""
         slow = "http://ollama-48gib-slow.llm.svc.cluster.local:11434"
         slow_generation_groups = [
             m["model_name"]
@@ -278,7 +278,7 @@ class TestK8sLLMGatewayManifests:
             _routes(_deployments("devops-background")),
         ) == (
             ["devops-background"],
-            [("ollama_chat/qwen3-coder:30b", slow, None)],
+            [("ollama_chat/qwen3.8:27b", slow, None)],
         )
 
     def test_devops_background_frees_its_slot_before_the_review_client_gives_up(self) -> None:
