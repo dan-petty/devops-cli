@@ -547,15 +547,12 @@ def _find_actions_write_permissions(workflow_path: Path) -> set[tuple[str, str]]
     return results
 
 
-# Dispatching ci.yml is the only reason any workflow may create workflow runs,
-# and the token that may do it is the one #754 gated.
-ACTIONS_WRITE_ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
-    {("update-prs.yml", "update-pull-requests")}
-)
+# No workflow may hold actions: write permission, and ci.yml must admit workflow_dispatch (#984, #1217).
+ACTIONS_WRITE_ALLOWLIST: frozenset[tuple[str, str]] = frozenset()
 
 
 def test_only_update_prs_holds_actions_write_permission_and_ci_dispatches() -> None:
-    """Only update-prs.yml may hold actions: write, and ci.yml must admit workflow_dispatch (#984)."""
+    """No workflow may hold actions: write, and ci.yml must admit workflow_dispatch (#984, #1217)."""
     import yaml
 
     repo_root = Path(__file__).resolve().parents[1]
