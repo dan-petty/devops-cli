@@ -40,6 +40,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops sandbox`](#devops-sandbox) — Isolated workload sandbox container lifecycle engine.
 - [`devops dashboard`](#devops-dashboard) — Interactive terminal UI dashboard for workstation situational awareness.
 - [`devops tui`](#devops-tui) — Interactive terminal UI dashboard (alias)
+- [`devops status`](#devops-status) — Inspect published operational status of upstream platforms (GitHub, Cloudflare)
 - [`devops format`](#devops-format) — Automatically apply code formatting in-place (ruff format).
 - [`devops lint`](#devops-lint) — Run static analysis checks and automatically apply fixes (ruff check --fix).
 
@@ -6253,6 +6254,21 @@ devops gh rate-limit [OPTIONS]
 |---|---|---|---|
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 
+### `devops gh status`
+
+**Display GitHub published operational status, key components, and active incidents.**
+
+```bash
+devops gh status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Emit structured JSON service status summary |
+| `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
+
 ### `devops gh metrics`
 
 **Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, and milestones.**
@@ -7835,6 +7851,21 @@ devops cloudflare status [OPTIONS]
 |---|---|---|---|
 | `--json`, `-j` | `boolean` | - | Output status details in JSON format |
 
+### `devops cloudflare service-status`
+
+**Display Cloudflare published operational status, key components, and active incidents.**
+
+```bash
+devops cloudflare service-status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json`, `-j` | `boolean` | - | Output status details in JSON format |
+| `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
+
 ### `devops cloudflare dns`
 
 ```bash
@@ -8755,6 +8786,30 @@ devops tui [OPTIONS]
 | `--refresh-interval`, `-r` | `integer` | `5` | Auto-refresh interval in seconds for live dashboard updates. |
 | `--tab`, `-t` | `string` | `k8s` | Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=ai, 5=valkey). |
 | `--dry-run` | `boolean` | - | Simulate dashboard launch and print static summary. |
+
+---
+
+## devops status
+
+Inspect published operational status of upstream platforms (GitHub, Cloudflare)
+
+Inspect published operational status of upstream cloud platforms (GitHub, Cloudflare)
+
+### `devops status`
+
+**Inspect published operational status of upstream cloud platforms (GitHub, Cloudflare)**
+
+```bash
+devops status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--service`, `-s` | `string` | `all` | Target service to inspect (all, github, cloudflare) |
+| `--json`, `-j` | `boolean` | - | Output status details in JSON format |
+| `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
 
 ---
 

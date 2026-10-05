@@ -38,6 +38,8 @@ points devops-cli at the cluster's collector.
 | `devops_cli_project_traffic_paths_total` | Counter | `1` | GitHub repository traffic page views by content path. |
 | `devops_cli_project_stars_total` | Counter | `1` | GitHub repository stargazers count. |
 | `devops_cli_project_forks_total` | Counter | `1` | GitHub repository forks count. |
+| `devops_cli_upstream_service_status` | Counter | `1` | Upstream cloud service operational status severity code (0=none/operational, 1=minor, 2=major, 3=critical) by service and indicator. |
+| `devops_cli_upstream_component_status` | Counter | `1` | Upstream cloud service component status code (0=operational, 1=degraded, 2=partial_outage, 3=major_outage) by service and component. |
 
 ---
 

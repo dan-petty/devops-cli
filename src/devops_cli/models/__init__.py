@@ -140,6 +140,13 @@ from devops_cli.models.security import (
     UvAuditResult,
 )
 from devops_cli.models.ssh import ManagedSSHKey, SSHKeyInfo
+from devops_cli.models.statuspage import (
+    StatuspageComponent,
+    StatuspageIncident,
+    StatuspagePage,
+    StatuspageStatus,
+    StatuspageSummary,
+)
 from devops_cli.models.tf import (
     TFApplyRequest,
     TFApplyResult,
@@ -287,6 +294,11 @@ __all__ = [
     "SecurityScanRequest",
     "SecurityScanResult",
     "StaticFindingEntry",
+    "StatuspageComponent",
+    "StatuspageIncident",
+    "StatuspagePage",
+    "StatuspageStatus",
+    "StatuspageSummary",
     "TFApplyRequest",
     "TFApplyResult",
     "TFLintIssue",

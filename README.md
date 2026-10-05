@@ -371,6 +371,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |
 | **gh** | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching. |
 |  | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
+|  | `devops gh status [OPTIONS]` | Display GitHub published operational status, key components, and active incidents. |
 |  | `devops gh metrics [OPTIONS]` | Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, and milestones. |
 |  | `devops gh labels COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh milestones COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
@@ -410,6 +411,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops telemetry open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
 |  | `devops telemetry semconv COMMAND [ARGS]...` | The GenAI semantic conventions that LLM span attributes are checked against. |
 | **cloudflare** | `devops cloudflare status [OPTIONS]` | Verify Cloudflare API token authentication and inspect zone status. |
+|  | `devops cloudflare service-status [OPTIONS]` | Display Cloudflare published operational status, key components, and active incidents. |
 |  | `devops cloudflare dns COMMAND [ARGS]...` | Cloudflare Zero Trust tunnels and DNS management. |
 |  | `devops cloudflare tunnel COMMAND [ARGS]...` | Cloudflare Zero Trust tunnels and DNS management. |
 |  | `devops cloudflare access COMMAND [ARGS]...` | Cloudflare Zero Trust tunnels and DNS management. |
@@ -446,6 +448,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops sandbox network-policy [OPTIONS]` | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
 | **dashboard** | `devops dashboard [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **tui** | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
+| **status** | `devops status [OPTIONS]` | Inspect published operational status of upstream cloud platforms (GitHub, Cloudflare) |
 | **format** | `devops format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
 | **lint** | `devops lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
 

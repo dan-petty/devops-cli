@@ -212,6 +212,18 @@ PROJECT_FORKS_TOTAL = Instrument(
     "1",
     "GitHub repository forks count",
 )
+UPSTREAM_SERVICE_STATUS = Instrument(
+    "devops_cli_upstream_service_status",
+    InstrumentKind.COUNTER,
+    "1",
+    "Upstream cloud service operational status severity code (0=none/operational, 1=minor, 2=major, 3=critical) by service and indicator",
+)
+UPSTREAM_COMPONENT_STATUS = Instrument(
+    "devops_cli_upstream_component_status",
+    InstrumentKind.COUNTER,
+    "1",
+    "Upstream cloud service component status code (0=operational, 1=degraded, 2=partial_outage, 3=major_outage) by service and component",
+)
 
 INSTRUMENTS: tuple[Instrument, ...] = (
     COMMAND_TOTAL,
@@ -238,6 +250,8 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     PROJECT_TRAFFIC_PATHS_TOTAL,
     PROJECT_STARS_TOTAL,
     PROJECT_FORKS_TOTAL,
+    UPSTREAM_SERVICE_STATUS,
+    UPSTREAM_COMPONENT_STATUS,
 )
 
 
@@ -294,6 +308,8 @@ __all__ = [
     "QDRANT_RETRIES_TOTAL",
     "RAG_QUERY_DURATION",
     "REVIEW_DURATION",
+    "UPSTREAM_COMPONENT_STATUS",
+    "UPSTREAM_SERVICE_STATUS",
     "Instrument",
     "InstrumentKind",
     "backend_name",

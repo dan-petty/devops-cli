@@ -469,6 +469,12 @@ def _run_metrics_adapter(
         emit_project_metrics_telemetry,
         record_project_metrics_in_registry,
     )
+    from devops_cli.telemetry.service_status import (
+        emit_service_status_telemetry,
+        fetch_cloudflare_status,
+        fetch_github_status,
+        record_service_status_in_registry,
+    )
 
     try:
         target_repo = repo or None
@@ -477,6 +483,21 @@ def _run_metrics_adapter(
         emit_project_metrics_telemetry(report)
     except Exception as exc:
         logger.warning("Project metrics collection failed for %s: %s", repo, exc)
+
+    try:
+        gh_status = fetch_github_status()
+        record_service_status_in_registry(gh_status, "github")
+        emit_service_status_telemetry(gh_status, "github")
+    except Exception as exc:
+        logger.warning("GitHub service status collection failed: %s", exc)
+
+    try:
+        cf_status = fetch_cloudflare_status()
+        record_service_status_in_registry(cf_status, "cloudflare")
+        emit_service_status_telemetry(cf_status, "cloudflare")
+    except Exception as exc:
+        logger.warning("Cloudflare service status collection failed: %s", exc)
+
     return JobOutcome()
 
 

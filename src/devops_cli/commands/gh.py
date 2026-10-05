@@ -1423,6 +1423,49 @@ def rate_limit_cmd(
     )
 
 
+@app.command("status")
+def gh_status_cmd(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit structured JSON service status summary"),
+    ] = False,
+    emit_telemetry: Annotated[
+        bool,
+        typer.Option(
+            "--emit-telemetry",
+            help="Emit operational service status metrics over OpenTelemetry to Prometheus",
+        ),
+    ] = False,
+) -> None:
+    """Display GitHub published operational status, key components, and active incidents."""
+    from devops_cli.exceptions.telemetry import ServiceStatusError
+    from devops_cli.telemetry.service_status import (
+        emit_service_status_telemetry,
+        fetch_github_status,
+        record_service_status_in_registry,
+        render_statuspage_summary,
+    )
+
+    try:
+        summary = fetch_github_status()
+    except ServiceStatusError as exc:
+        print_error(f"Failed to fetch GitHub status: {exc.message}")
+        raise typer.Exit(1) from exc
+
+    if emit_telemetry:
+        emit_service_status_telemetry(summary, "github")
+        record_service_status_in_registry(summary, "github")
+
+    if json_output:
+        write_stdout(format_json(summary.model_dump()))
+        return
+
+    render_statuspage_summary(summary, "GitHub")
+
+    if emit_telemetry:
+        print_success("Emitted GitHub service status metrics to Prometheus.")
+
+
 # =============================================================================
 # Command Group: devops gh runs
 # =============================================================================
