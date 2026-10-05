@@ -2544,6 +2544,20 @@ devops ci outdated [OPTIONS]
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops ci devcontainer`
+
+**Validate devcontainer manifest configuration syntax.**
+
+```bash
+devops ci devcontainer [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops ci maintain`
 
 **Run automated toolchain, dependency freshness, and lockfile maintenance checks.**

@@ -850,6 +850,9 @@ class CIMessages:
     cache_hit: str = (
         "Codebase unchanged since last verification. Utilizing CI cache (all checks passed)."
     )
+    cache_tree_changed: str = (
+        "Working tree changed while the gate ran; result not recorded in CI cache."
+    )
     gate_root: str = "Quality gate root: {root}"
     gate_root_stale: str = (
         "{root} is a linked git worktree whose git directory is missing, so git-based checks "

@@ -588,9 +588,6 @@ class CICommandHelp:
         "Reuse a cached verdict when the codebase is unchanged. Results are recorded either way."
     )
     force: str = "Bypass CI execution cache and force re-execution of all quality gates."
-    files: str = (
-        "Explicit list of file paths to verify (e.g. from pre-commit file change tracking)."
-    )
 
 
 @dataclass(frozen=True)

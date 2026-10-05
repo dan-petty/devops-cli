@@ -14,7 +14,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Any
 
-import click
 import typer
 from pydantic import BaseModel, ConfigDict
 from typer.core import TyperGroup
@@ -47,29 +46,11 @@ def _asks_for_help(ctx: Any, args: list[str]) -> bool:
 
 
 class FileOrSubcommandGroup(TyperGroup):
-    """Custom TyperGroup routing non-subcommand arguments to group callback as files."""
-
-    def resolve_command(self, ctx: Any, args: list[str]) -> tuple[str | None, Any, list[str]]:
-        try:
-            return super().resolve_command(ctx, args)
-        except click.UsageError:
-            if self.invoke_without_command:
-                return None, None, args
-            raise
+    """Custom TyperGroup tracking help requests on subcommands."""
 
     def invoke(self, ctx: Any) -> Any:
-        if not ctx._protected_args:
-            return super().invoke(ctx)
-        cmd_name = ctx._protected_args[0]
-        cmd = self.get_command(ctx, cmd_name)
-        if cmd is None:
-            ctx.args = [*ctx._protected_args, *ctx.args]
-            ctx._protected_args = []
-            with ctx:
-                if self.callback is not None:
-                    return ctx.invoke(self.callback, **ctx.params)
-                return None
-        ctx.meta[CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY] = _asks_for_help(ctx, ctx.args)
+        if ctx._protected_args:
+            ctx.meta[CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY] = _asks_for_help(ctx, ctx.args)
         return super().invoke(ctx)
 
 
@@ -910,31 +891,36 @@ def _print_summary(
     _get("print_muted")(f"Total Elapsed: {format_duration(total_elapsed)} ({mode_text})\n")
 
 
-def _collect_ci_target_files(
-    opt_files: list[str] | None,
-    extra_args: list[str] | None,
-) -> list[str] | None:
-    """Combine explicit --files options and positional arguments into a clean sorted list."""
-    combined = list(opt_files or [])
-    if extra_args:
-        combined.extend(a for a in extra_args if not a.startswith("-"))
-    clean = sorted({f.strip() for f in combined if f.strip()})
-    return clean if clean else None
+def _compute_before_fingerprint(
+    root: Path,
+    ci_options: dict[str, Any],
+    *,
+    is_narrowed: bool,
+) -> str | None:
+    """Compute the workspace fingerprint before checks execute, for full non-dry runs."""
+    if is_narrowed or is_dry_run():
+        return None
+    from devops_cli.ci.cache import compute_workspace_fingerprint
+
+    fp_info = compute_workspace_fingerprint(root=root, options=ci_options)
+    return fp_info[0] if fp_info else None
 
 
 def _try_get_ci_cache(
     root: Path,
-    files: list[str] | None,
     ci_options: dict[str, Any],
+    *,
+    fingerprint: str | None = None,
 ) -> list[CheckResult] | None:
     """Attempt fast retrieval of passing CI cache entry."""
     from devops_cli.ci.cache import compute_workspace_fingerprint, get_ci_cache
 
-    fp_info = compute_workspace_fingerprint(root=root, options=ci_options)
-    if not fp_info:
-        return None
-    fingerprint, _, _ = fp_info
-    entry = get_ci_cache(fingerprint=fingerprint, files=files, options=ci_options, root=root)
+    if fingerprint is None:
+        fp_info = compute_workspace_fingerprint(root=root, options=ci_options)
+        if not fp_info:
+            return None
+        fingerprint = fp_info[0]
+    entry = get_ci_cache(fingerprint=fingerprint, options=ci_options, root=root)
     if entry is None:
         return None
     return [
@@ -953,10 +939,11 @@ def _try_get_ci_cache(
 def _try_save_ci_cache(
     root: Path,
     results: list[CheckResult],
-    files: list[str] | None,
     ci_options: dict[str, Any],
+    *,
+    before_fingerprint: str | None = None,
 ) -> None:
-    """Persist successful CI run into cache."""
+    """Persist successful CI run into cache if working tree did not change during the run."""
     from devops_cli.ci.cache import (
         CICachedCheck,
         compute_workspace_fingerprint,
@@ -966,7 +953,10 @@ def _try_save_ci_cache(
     fp_info = compute_workspace_fingerprint(root=root, options=ci_options)
     if not fp_info:
         return
-    fingerprint, head_sha, file_hashes = fp_info
+    fingerprint, head_sha = fp_info
+    if before_fingerprint is not None and fingerprint != before_fingerprint:
+        _get("print_warning")(MESSAGES.ci.cache_tree_changed, safe=True)
+        return
     cached_checks = [
         CICachedCheck(
             name=res.name,
@@ -982,7 +972,6 @@ def _try_save_ci_cache(
         fingerprint=fingerprint,
         head_sha=head_sha,
         checks=cached_checks,
-        file_hashes=file_hashes,
         options=ci_options,
         passed=True,
         root=root,
@@ -991,16 +980,16 @@ def _try_save_ci_cache(
 
 def _try_fast_cached_ci(
     root: Path,
-    files: list[str] | None,
     ci_options: dict[str, Any],
     *,
+    fingerprint: str | None = None,
     cache: bool,
     force: bool,
 ) -> bool:
     """Attempt fast cached CI execution, rendering summary and returning True on hit."""
     if not cache or force or is_dry_run():
         return False
-    cached_results = _try_get_ci_cache(root, files, ci_options)
+    cached_results = _try_get_ci_cache(root, ci_options, fingerprint=fingerprint)
     if cached_results is None:
         return False
     _get("print_info")(MESSAGES.ci.cache_hit)
@@ -1033,9 +1022,9 @@ def _warn_when_over_budget(results: list[CheckResult]) -> None:
 def _handle_ci_results(
     results: list[CheckResult],
     root: Path,
-    all_files: list[str] | None,
     ci_options: dict[str, Any],
     *,
+    before_fingerprint: str | None = None,
     save_cache: bool = True,
 ) -> None:
     """Handle post-execution caching or failure exit.
@@ -1050,7 +1039,7 @@ def _handle_ci_results(
 
     if all(res.passed for res in results):
         if save_cache:
-            _try_save_ci_cache(root, results, all_files, ci_options)
+            _try_save_ci_cache(root, results, ci_options, before_fingerprint=before_fingerprint)
         return
 
     from devops_cli.ci.cache import clear_ci_cache
@@ -1090,10 +1079,6 @@ def all_checks(
             "--skip", help="Skip the specified check names (comma-separated or repeated)."
         ),
     ] = None,
-    files: Annotated[
-        list[str] | None,
-        typer.Option("--files", help=HELP.ci.files),
-    ] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -1113,10 +1098,10 @@ def all_checks(
 
     effective_fix = fix and not check
     ci_options = {"fix": effective_fix, "check": check}
-    all_files = _collect_ci_target_files(files, getattr(ctx, "args", []))
+    before_fingerprint = _compute_before_fingerprint(root, ci_options, is_narrowed=is_narrowed)
 
     if not is_narrowed and _try_fast_cached_ci(
-        root, all_files, ci_options, cache=cache, force=force
+        root, ci_options, fingerprint=before_fingerprint, cache=cache, force=force
     ):
         return
 
@@ -1135,7 +1120,13 @@ def all_checks(
     _print_failures(results)
     _print_summary(results, total_elapsed=time.perf_counter() - start_time)
     _warn_when_over_budget(results)
-    _handle_ci_results(results, root, all_files, ci_options, save_cache=(not is_narrowed))
+    _handle_ci_results(
+        results,
+        root,
+        ci_options,
+        before_fingerprint=before_fingerprint,
+        save_cache=(not is_narrowed),
+    )
 
 
 # =============================================================================
@@ -1684,6 +1675,23 @@ def outdated(
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     spec = get_check_spec("outdated")
+    if not _run(spec.cmd):
+        raise typer.Exit(1)
+
+
+@app.command()
+def devcontainer(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Validate devcontainer manifest configuration syntax."""
+    if dry_run:
+        set_dry_run(True)
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    spec = get_check_spec("devcontainer")
     if not _run(spec.cmd):
         raise typer.Exit(1)
 
