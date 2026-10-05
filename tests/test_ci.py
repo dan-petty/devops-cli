@@ -846,17 +846,17 @@ def test_try_save_ci_cache_and_handle_results(tmp_path: Path) -> None:
 
     results = [CheckResult(name="t", display_title="T", passed=True, duration_seconds=1.0)]
     with (
-        patch("devops_cli.ci.cache.compute_workspace_fingerprint", return_value=("fp", "sha", {})),
+        patch("devops_cli.ci.cache.compute_workspace_fingerprint", return_value=("fp", "sha")),
         patch("devops_cli.ci.cache.save_ci_cache") as mock_save,
     ):
-        _try_save_ci_cache(tmp_path, results, None, {"fix": True})
+        _try_save_ci_cache(tmp_path, results, {"fix": True})
         assert mock_save.called
 
     with (
         patch("devops_cli.commands.ci._try_save_ci_cache") as mock_try_save,
         patch("devops_cli.commands.ci.is_dry_run", return_value=False),
     ):
-        _handle_ci_results(results, root=tmp_path, all_files=None, ci_options={})
+        _handle_ci_results(results, root=tmp_path, ci_options={})
         assert mock_try_save.called
 
     fail_results = [CheckResult(name="t", display_title="T", passed=False, duration_seconds=1.0)]
@@ -864,7 +864,7 @@ def test_try_save_ci_cache_and_handle_results(tmp_path: Path) -> None:
         patch("devops_cli.ci.cache.clear_ci_cache") as mock_clear,
         pytest.raises(typer.Exit),
     ):
-        _handle_ci_results(fail_results, root=tmp_path, all_files=None, ci_options={})
+        _handle_ci_results(fail_results, root=tmp_path, ci_options={})
         assert mock_clear.called
 
 
@@ -882,7 +882,7 @@ def test_a_no_cache_run_still_records_its_result(tmp_path: Path) -> None:
         patch("devops_cli.commands.ci._try_save_ci_cache") as mock_save,
         patch("devops_cli.commands.ci.is_dry_run", return_value=False),
     ):
-        _handle_ci_results(results, root=tmp_path, all_files=None, ci_options={})
+        _handle_ci_results(results, root=tmp_path, ci_options={})
     assert mock_save.called
 
 
@@ -891,7 +891,7 @@ def test_a_no_cache_run_does_not_read_an_existing_entry(tmp_path: Path) -> None:
     from devops_cli.commands.ci import _try_fast_cached_ci
 
     with patch("devops_cli.commands.ci._try_get_ci_cache") as mock_get:
-        hit = _try_fast_cached_ci(tmp_path, None, {}, cache=False, force=False)
+        hit = _try_fast_cached_ci(tmp_path, {}, cache=False, force=False)
     assert (hit, mock_get.called) == (False, False)
 
 
@@ -904,7 +904,7 @@ def test_a_dry_run_records_nothing(tmp_path: Path) -> None:
         patch("devops_cli.commands.ci._try_save_ci_cache") as mock_save,
         patch("devops_cli.commands.ci.is_dry_run", return_value=True),
     ):
-        _handle_ci_results(results, root=tmp_path, all_files=None, ci_options={})
+        _handle_ci_results(results, root=tmp_path, ci_options={})
     assert not mock_save.called
 
 
@@ -1104,7 +1104,7 @@ def test_gate_checks_nested_worktree_not_main_checkout(
 
     saved_roots: list[Path] = []
 
-    def record_saved_root(root: Path, *_args: object) -> None:
+    def record_saved_root(root: Path, *_args: object, **_kwargs: object) -> None:
         saved_roots.append(root)
 
     monkeypatch.setattr("devops_cli.core.process.run_subprocess_async", mock_run_async)
