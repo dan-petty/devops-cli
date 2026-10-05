@@ -497,3 +497,27 @@ spec:
       services:
         - name: api@internal
           kind: TraefikService
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: roadmap-service
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: roadmap-service
+    app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: hooks.example.com
+      http:
+        paths:
+          - path: /webhooks/github
+            pathType: Prefix
+            backend:
+              service:
+                name: roadmap-service
+                port:
+                  number: 8000
