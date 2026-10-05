@@ -18,7 +18,7 @@ class CIRunRequest(BaseModel):
     """Request parameters for executing the devops ci quality gate."""
 
     checks: list[str] = Field(
-        default_factory=list, description="Specific checks to run (empty for all 10 checks)"
+        default_factory=list, description="Specific checks to run (empty for every check)"
     )
     fail_fast: bool = Field(default=False, description="Terminate execution on first failing check")
 

@@ -128,6 +128,7 @@ class AICommandHelp:
     prompt: str = "Test prompt to send to the provider."
     url: str = "Specific Ollama server URL to test."
     template: str = "Generate from built-in template without calling the LLM."
+    force: str = "Overwrite existing instruction files (such as AGENTS.md)."
     generate_file: str = "Files to generate (repeatable)."
     context_file: str = "Optional file to inject as background context (e.g. AGENTS.md)."
     rag_context: str = "Retrieve relevant semantic RAG context."
