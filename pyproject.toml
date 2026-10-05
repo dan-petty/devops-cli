@@ -31,7 +31,7 @@ dependencies = [
     "pathspec==1.1.1",
     "python-hcl2==8.1.4",
     "packaging==26.3",
-    "fastapi==0.141.1",
+    "fastapi==0.142.2",
     "uvicorn==0.53.0",
     "tiktoken==0.14.0",
     "pydantic-ai==2.35.0",
