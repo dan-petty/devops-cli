@@ -30,6 +30,14 @@ points devops-cli at the cluster's collector.
 | `devops_cli_project_ci_runs_total` | Counter | `1` | CI workflow runs by name, status and conclusion. |
 | `devops_cli_project_items_total` | Counter | `1` | Project items by milestone, type, priority and state. |
 | `devops_cli_project_release_interval_days` | Histogram | `d` | Days elapsed between consecutive project releases. |
+| `devops_cli_project_traffic_views_total` | Counter | `1` | GitHub repository total page views count. |
+| `devops_cli_project_traffic_views_uniques_total` | Counter | `1` | GitHub repository unique visitors count. |
+| `devops_cli_project_traffic_clones_total` | Counter | `1` | GitHub repository total git clones count. |
+| `devops_cli_project_traffic_clones_uniques_total` | Counter | `1` | GitHub repository unique cloners count. |
+| `devops_cli_project_traffic_referrers_total` | Counter | `1` | GitHub repository traffic referrals count by referrer source. |
+| `devops_cli_project_traffic_paths_total` | Counter | `1` | GitHub repository traffic page views by content path. |
+| `devops_cli_project_stars_total` | Counter | `1` | GitHub repository stargazers count. |
+| `devops_cli_project_forks_total` | Counter | `1` | GitHub repository forks count. |
 
 ---
 

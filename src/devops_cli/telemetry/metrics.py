@@ -140,12 +140,22 @@ class InMemoryMetricsRegistry:
         with self._lock:
             return list(self._histograms.get(name, {}).get(key, []))
 
+    def clear_metric(self, name: str) -> None:
+        """Clear all stored values for a metric across counters, gauges, and histograms."""
+        with self._lock:
+            self._counters.pop(name, None)
+            self._gauges.pop(name, None)
+            self._histograms.pop(name, None)
+
     def reset(self) -> None:
         """Reset all in-memory metric collections."""
         with self._lock:
             self._counters.clear()
             self._gauges.clear()
             self._histograms.clear()
+
+    record_counter = increment_counter
+    record_gauge = set_gauge
 
     def get_metrics_snapshot(self) -> dict[str, Any]:
         """Retrieve aggregated snapshot of recorded metrics (counters, gauges, histogram counts)."""
@@ -189,3 +199,9 @@ class InMemoryMetricsRegistry:
 
 # Global singleton registry
 GLOBAL_METRICS = InMemoryMetricsRegistry()
+
+__all__ = [
+    "GLOBAL_METRICS",
+    "InMemoryMetricsRegistry",
+    "MetricSample",
+]

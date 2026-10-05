@@ -45,9 +45,11 @@ from devops_cli.github.metrics import (
     LabelTaxonomyMetric,
     MilestoneMetric,
     ReleaseCadenceMetric,
+    TrafficSummaryMetric,
     WorkflowRunMetric,
     collect_project_metrics_report,
     emit_project_metrics_telemetry,
+    record_project_metrics_in_registry,
 )
 from devops_cli.github.milestones import (
     MilestoneProgress,
@@ -1787,6 +1789,18 @@ def _render_labels_table(labels: list[LabelTaxonomyMetric], repo: str) -> None:
     print_table(f"Taxonomy Labels Breakdown ({repo})", columns, rows)
 
 
+def _render_traffic_tables(traffic: TrafficSummaryMetric, repo: str) -> None:
+    """Render top referral sources and popular paths traffic tables."""
+    if traffic.referrers:
+        columns = ["Referrer Source", "Views", "Unique Visitors"]
+        rows = [[r.referrer, str(r.count), str(r.uniques)] for r in traffic.referrers[:10]]
+        print_table(f"Top Referral Sources - 14 Days ({repo})", columns, rows)
+    if traffic.paths:
+        columns = ["Path", "Title", "Views", "Unique Visitors"]
+        rows = [[p.path, p.title[:40], str(p.count), str(p.uniques)] for p in traffic.paths[:10]]
+        print_table(f"Popular Content Paths - 14 Days ({repo})", columns, rows)
+
+
 @app.command("metrics")
 def project_metrics_cmd(
     limit: Annotated[
@@ -1825,6 +1839,7 @@ def project_metrics_cmd(
 
     if emit_telemetry:
         emit_project_metrics_telemetry(report)
+        record_project_metrics_in_registry(report)
 
     if json_output:
         write_stdout(format_json(report.model_dump()))
@@ -1834,7 +1849,10 @@ def project_metrics_cmd(
         f"Repository: [bold]{report.repo}[/bold]\n"
         f"Generated: [cyan]{report.generated_at}[/cyan]\n"
         f"Total Releases Tracked: [bold]{report.total_releases}[/bold]\n"
-        f"Average Release Cadence: [bold]{report.average_cadence_days} days[/bold]"
+        f"Average Release Cadence: [bold]{report.average_cadence_days} days[/bold]\n"
+        f"GitHub Stars: [bold]{report.traffic.stars}[/bold] | Forks: [bold]{report.traffic.forks}[/bold] | Open Issues: [bold]{report.traffic.open_issues}[/bold]\n"
+        f"14-Day Traffic: [bold]{report.traffic.views_count}[/bold] views ({report.traffic.views_uniques} unique) | "
+        f"[bold]{report.traffic.clones_count}[/bold] clones ({report.traffic.clones_uniques} unique)"
     )
     print_panel(summary_text, title="Engineering Velocity & Project Metrics")
 
@@ -1846,6 +1864,8 @@ def project_metrics_cmd(
         _render_milestones_table(report.milestones, target_repo)
     if report.taxonomy_labels:
         _render_labels_table(report.taxonomy_labels, target_repo)
+    if report.traffic.referrers or report.traffic.paths:
+        _render_traffic_tables(report.traffic, target_repo)
 
     if emit_telemetry:
         print_success("✓ Emitted project velocity metrics over OpenTelemetry to Prometheus.")
