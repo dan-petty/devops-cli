@@ -2258,6 +2258,9 @@ CONST_AI_GATEWAY_URL_SETTINGS: Final[dict[str, str]] = {
     "portkey": "portkey_url",
 }
 CONST_AI_DEFAULT_CACHE_MARKER_KIND: Final[str] = "cache-point"
+CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX: Final[str] = (
+    "\n...[stage output truncated to the stage context budget]"
+)
 CONST_AI_ALLOW_PRIVATE_NETWORK_ENV: Final[str] = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
 # The loopback host name (RFC 6761). With the loopback addresses, which `ipaddress` recognises,
 # it names the workstation itself, so a configured service URL may use it without

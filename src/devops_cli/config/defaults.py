@@ -376,6 +376,7 @@ DEFAULT_AI_PIPELINE_PROMPT: str = (
 )
 DEFAULT_AI_PIPELINE_PERSONAS: str = "devsecops,architect,qa"
 DEFAULT_AI_PIPELINE_MAX_TURNS: int = 5
+DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS: int = 4096
 DEFAULT_AI_SYSTEM_PROMPT: str = "You are a helpful DevOps assistant."
 DEFAULT_AI_AGENT_NAME: str = "Assistant"
 DEFAULT_AI_PIPELINE_SESSION_ID: str = "pipeline-session"

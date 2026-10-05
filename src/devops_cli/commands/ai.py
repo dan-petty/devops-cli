@@ -44,6 +44,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_PREWARM_KEEP_ALIVE,
     DEFAULT_AI_TEST_PROMPT,
     DEFAULT_DIFF_CHUNK_BUDGET,
+    DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS,
     DEFAULT_RAG_TOP_K,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     DEFAULT_TIKTOKEN_MODEL,
@@ -1176,6 +1177,13 @@ def pipeline(
         bool,
         typer.Option("--thinking/--no-thinking", help=HELP.ai.thinking),
     ] = True,
+    stage_context_tokens: Annotated[
+        int,
+        typer.Option(
+            "--stage-context-tokens",
+            help=HELP.ai.pipeline_stage_context_tokens,
+        ),
+    ] = DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS,
 ) -> None:
     """Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context."""
     from devops_cli.ai.agents import PydanticAgent
@@ -1207,6 +1215,7 @@ def pipeline(
                 "prompt": prompt,
                 "max_turns": max_turns,
                 "rag": rag,
+                "stage_context_tokens": stage_context_tokens,
             },
         )
         return
@@ -1217,6 +1226,7 @@ def pipeline(
 
     pipeline_engine: MultiAgentPipeline[Any] = MultiAgentPipeline(
         shared_tools=agent_tools,
+        stage_context_tokens=stage_context_tokens,
     )
 
     for p in valid_personas:
@@ -1247,6 +1257,7 @@ def pipeline(
         effective_prompt,
         max_turns_per_agent=max_turns,
         enable_thinking=thinking,
+        skip_rag=not rag,
     )
 
     for idx, step in enumerate(result.steps, 1):
