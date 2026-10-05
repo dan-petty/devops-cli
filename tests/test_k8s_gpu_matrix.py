@@ -27,7 +27,7 @@ GATEWAY_DIR = Path("k8s/llm/gateway")
 
 
 def test_gpu_matrix_entries_completeness() -> None:
-    """Verify matrix contains exactly 24 valid and unique hardware profiles."""
+    """Verify matrix contains exactly 12 valid and unique hardware profiles."""
     profiles = list_gpu_profiles()
     combos = {(p.gpu_count, p.vram_per_gpu_gib, p.backend) for p in profiles}
     vram_checks = [p.total_vram_gib == p.gpu_count * p.vram_per_gpu_gib for p in profiles]
@@ -40,8 +40,8 @@ def test_gpu_matrix_entries_completeness() -> None:
         sorted(dict.fromkeys(p.vram_per_gpu_gib for p in profiles)),
         sorted(dict.fromkeys(p.backend for p in profiles)),
     ) == (
-        24,
-        24,
+        12,
+        12,
         True,
         list(VALID_GPU_COUNTS),
         list(VALID_VRAM_SIZES),
@@ -51,30 +51,27 @@ def test_gpu_matrix_entries_completeness() -> None:
 
 def test_gpu_profile_model_allocation_boundaries() -> None:
     """Verify sizing thresholds allocate appropriate model classes."""
-    p_1_16_ollama = get_gpu_profile(1, 16, "ollama")
-    p_1_16_vllm = get_gpu_profile(1, 16, "vllm")
-    p_1_24_ollama = get_gpu_profile(1, 24, "ollama")
-    p_1_24_vllm = get_gpu_profile(1, 24, "vllm")
-    p_2_16_vllm = get_gpu_profile(2, 16, "vllm")
-    p_2_24_vllm = get_gpu_profile(2, 24, "vllm")
-    p_4_32_vllm = get_gpu_profile(4, 32, "vllm")
+    p_1_16 = get_gpu_profile(1, 16, "ollama")
+    p_1_24 = get_gpu_profile(1, 24, "ollama")
+    p_1_32 = get_gpu_profile(1, 32, "ollama")
+    p_2_16 = get_gpu_profile(2, 16, "ollama")
+    p_2_24 = get_gpu_profile(2, 24, "ollama")
+    p_4_32 = get_gpu_profile(4, 32, "ollama")
 
     assert (
-        (p_1_16_ollama.model_id, p_1_16_ollama.quantization),
-        (p_1_16_vllm.model_id, p_1_16_vllm.quantization),
-        (p_1_24_ollama.model_id, p_1_24_ollama.quantization),
-        (p_1_24_vllm.model_id, p_1_24_vllm.quantization),
-        (p_2_16_vllm.model_id, p_2_16_vllm.tensor_parallel_size),
-        (p_2_24_vllm.model_id, p_2_24_vllm.max_model_len),
-        (p_4_32_vllm.model_id, p_4_32_vllm.tensor_parallel_size),
+        (p_1_16.model_id, p_1_16.quantization, p_1_16.tensor_parallel_size),
+        (p_1_24.model_id, p_1_24.quantization, p_1_24.tensor_parallel_size),
+        (p_1_32.model_id, p_1_32.quantization, p_1_32.tensor_parallel_size),
+        (p_2_16.model_id, p_2_16.quantization, p_2_16.tensor_parallel_size),
+        (p_2_24.model_id, p_2_24.quantization, p_2_24.tensor_parallel_size),
+        (p_4_32.model_id, p_4_32.quantization, p_4_32.tensor_parallel_size),
     ) == (
-        ("qwen2.5-coder:7b", "Q4_K_M"),
-        ("qwen2.5-coder-14b-instruct", "AWQ"),
-        ("qwen2.5-coder:14b", "Q8_0"),
-        ("qwen2.5-coder-14b-instruct", "AWQ"),
-        ("qwen3-coder:30b", 2),
-        ("qwen3-coder:30b", 65536),
-        ("deepseek-r1:70b", 4),
+        ("qwen2.5-coder:7b", "Q4_K_M", 1),
+        ("qwen2.5-coder:14b", "Q8_0", 1),
+        ("qwen3-coder:30b", "Q4_K_M", 1),
+        ("qwen3-coder:30b", "Q4_K_M", 2),
+        ("deepseek-r1:70b", "Q4_K_M", 2),
+        ("deepseek-r1:70b", "Q8_0", 4),
     )
 
 
@@ -82,18 +79,18 @@ def test_gpu_profile_query_filtering() -> None:
     """Verify list_gpu_profiles correctly applies count, vram, and backend filters."""
     two_gpu = list_gpu_profiles(gpu_count=2)
     vram_24 = list_gpu_profiles(vram_per_gpu_gib=24)
-    vllm_only = list_gpu_profiles(backend="vllm")
+    ollama_only = list_gpu_profiles(backend="ollama")
     exact = list_gpu_profiles(gpu_count=1, vram_per_gpu_gib=16, backend="ollama")
 
     assert (
         len(two_gpu),
         len(vram_24),
-        len(vllm_only),
+        len(ollama_only),
         len(exact),
         exact[0].model_id,
     ) == (
-        6,
-        8,
+        3,
+        4,
         12,
         1,
         "qwen2.5-coder:7b",
@@ -103,7 +100,7 @@ def test_gpu_profile_query_filtering() -> None:
 def test_gpu_profile_invalid_combination_raises() -> None:
     """Verify get_gpu_profile raises ValueError for unsupported configuration."""
     with pytest.raises(ValueError, match="Unsupported GPU configuration: 8x64GiB"):
-        get_gpu_profile(8, 64, "vllm")  # type: ignore[arg-type]
+        get_gpu_profile(8, 64, "ollama")
 
 
 def test_service_aliases_definition_and_ports() -> None:
@@ -114,15 +111,15 @@ def test_service_aliases_definition_and_ports() -> None:
     assert (
         len(keys),
         "ollama-16gib" in aliases,
-        "vllm-48gib" in aliases,
+        "ollama-48gib" in aliases,
         aliases["ollama-16gib"]["ports"]["ollama"],
-        aliases["vllm-48gib"]["ports"]["vllm"],
+        aliases["ollama-48gib"]["ports"]["ollama"],
     ) == (
-        16,
+        8,
         True,
         True,
         11434,
-        8000,
+        11434,
     )
 
 
@@ -237,7 +234,7 @@ def test_cli_gpu_matrix_json_filter() -> None:
     """Verify CLI devops k8s gpu-matrix --format json with hardware filters."""
     result = runner.invoke(
         k8s_app,
-        ["gpu-matrix", "--gpus", "2", "--vram", "24", "--backend", "vllm", "--format", "json"],
+        ["gpu-matrix", "--gpus", "2", "--vram", "24", "--backend", "ollama", "--format", "json"],
     )
 
     data = json.loads(result.output)
@@ -256,8 +253,8 @@ def test_cli_gpu_matrix_json_filter() -> None:
         1,
         2,
         24,
-        "vllm",
-        "qwen3-coder:30b",
+        "ollama",
+        "deepseek-r1:70b",
         2,
     )
 
@@ -278,7 +275,7 @@ def test_cli_gpu_matrix_yaml_and_aliases() -> None:
         0,
         True,
         True,
-        6,
+        3,
         True,
     )
 
