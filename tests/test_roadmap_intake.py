@@ -18,6 +18,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from fastmcp.exceptions import ToolError
 from typer.testing import CliRunner
 
 from devops_cli import entry
@@ -1147,7 +1148,8 @@ def test_the_mcp_mirror_dry_run_dispatched_in_process_exports_no_telemetry(
     output = mcp_server.roadmap_intake(repo=REPO, mode="dry-run", issues=[3])
     get_tracer().shutdown()
     after_dry_run = list(exports)
-    mcp_server.roadmap_intake(repo=REPO, mode="plan")
+    with pytest.raises(ToolError):
+        mcp_server.roadmap_intake(repo=REPO, mode="plan")
     get_tracer().shutdown()
     assert (
         "Dry run: no request was made" in output,

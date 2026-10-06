@@ -36,7 +36,11 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`argo_status`](#argo-status) | Check ArgoCD application health and sync status. |
 | [`benchmark_embeddings`](#benchmark-embeddings) | Benchmark embedding latency, dimensions, and retrieval accuracy on the configured servers. |
 | [`branches_list`](#branches-list) | List git branches across repositories with tracking status and stale detection. |
-| [`ci_run`](#ci-run) | Run devops-cli complete quality gate (pytest, ruff check, ruff format, mypy). |
+| [`ci_run`](#ci-run) | Run devops-cli complete quality gate or an individual check in check-only mode without modifying files.
+
+The complete gate runs: python version check (3.14+), pytest & coverage, ruff lint,
+ruff format, mypy typecheck, uv audit, bandit security scan, actionlint, docs validation,
+uv check, uv lockfile freshness, outdated package tree, and devcontainer validation. |
 | [`config_audit_keys`](#config-audit-keys) | Audit OS Keyring health, token state, and zero-plaintext secret compliance. |
 | [`config_output`](#config-output) | Output environment variables available for configuration (text or json). |
 | [`config_show`](#config-show) | Display configuration settings with masked secret tokens. |
@@ -537,7 +541,11 @@ List git branches across repositories with tracking status and stale detection.
 
 ### `ci_run`
 
-Run devops-cli complete quality gate (pytest, ruff check, ruff format, mypy).
+Run devops-cli complete quality gate or an individual check in check-only mode without modifying files.
+
+The complete gate runs: python version check (3.14+), pytest & coverage, ruff lint,
+ruff format, mypy typecheck, uv audit, bandit security scan, actionlint, docs validation,
+uv check, uv lockfile freshness, outdated package tree, and devcontainer validation.
 
 **Parameters:**
 

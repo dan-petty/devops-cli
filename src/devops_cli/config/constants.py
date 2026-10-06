@@ -133,6 +133,8 @@ CONST_MCP_SERVER_MODULE = "devops_cli.ai.mcp.server"
 CONST_DEVOPS_ARGV_PREFIX: Final[tuple[str, ...]] = ("uv", "run", "devops")
 # The list methods that add tokens to an argv the MCP server builds up in a variable.
 CONST_ARGV_EXTENDING_METHODS: Final[frozenset[str]] = frozenset({"append", "extend"})
+# Bound on the length of command output returned to an MCP client.
+CONST_MCP_MAX_COMMAND_OUTPUT_CHARS: Final[int] = 4000
 # The class of mistake a refused MCP tool argument is reported as, so a model can correct the
 # call in one turn (#862).
 CONST_ARGUMENT_HALLUCINATED: Final[str] = "HALLUCINATED_PARAM"
@@ -278,6 +280,8 @@ CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_
 # The gate runs before every push, so its test step must stay inside this budget; past it, the
 # gate names the slowest tests from a pytest durations report of this many entries.
 CONST_CI_TEST_BUDGET_SECONDS: Final[float] = 300.0
+# Margin added to the CI test budget when computing MCP tool timeouts for `ci_run`.
+CONST_CI_TEST_BUDGET_MARGIN_SECONDS: Final[float] = 60.0
 CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
 # Host-folder shares (WSL's drvfs over 9p) answer each file check hundreds of times slower than
 # a Linux filesystem, which multiplies the gate's time for a workspace checked out on them.

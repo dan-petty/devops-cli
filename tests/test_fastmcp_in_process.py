@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import time
 from unittest.mock import MagicMock, patch
+
+import pytest
+from fastmcp import Client
 
 from devops_cli.ai.mcp.dispatcher import (
     DomainSchemaHydrator,
@@ -13,7 +17,9 @@ from devops_cli.ai.mcp.dispatcher import (
     get_mcp_dispatcher,
     resolve_tool_domain,
 )
-from devops_cli.ai.mcp.server import _run_mcp_cmd, _run_mcp_resource
+from devops_cli.ai.mcp.server import _run_mcp_cmd, _run_mcp_resource, ci_run, mcp
+from devops_cli.config.constants import CONST_CI_TEST_BUDGET_SECONDS
+from devops_cli.main import app
 
 
 def test_extract_devops_sub_args() -> None:
@@ -182,3 +188,85 @@ def test_run_mcp_resource_notifications() -> None:
         assert received_updates[0] == "system ready"
 
     dispatcher.subscriptions.unsubscribe(test_uri, subscriber)
+
+
+def test_in_process_dispatch_never_writes_child_output_to_protocol_stream(
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """A capfd test asserts that nothing reaches the real stdout while a tool dispatches a command whose child prints."""
+    cmd_name = "_test_child_stream_839"
+
+    @app.command(name=cmd_name, hidden=True)
+    def _test_cmd() -> None:
+        os.write(1, b"child direct stdout diagnostic\n")
+        os.write(2, b"child direct stderr diagnostic\n")
+
+    try:
+        dispatcher = InProcessDispatcher()
+        code, out = dispatcher.dispatch(["devops", cmd_name])
+        captured = capfd.readouterr()
+        assert (
+            captured.out,
+            code,
+            "child direct stdout diagnostic" in out,
+            "child direct stderr diagnostic" in out,
+        ) == ("", 0, True, True)
+    finally:
+        app.registered_commands = [c for c in app.registered_commands if c.name != cmd_name]
+
+
+@pytest.mark.asyncio
+async def test_tool_failure_yields_is_error_with_status_and_diagnostic() -> None:
+    """A check that exits 1 after printing a diagnostic yields an isError result containing status and diagnostic."""
+    async with Client(mcp) as client:
+        with patch.object(
+            get_mcp_dispatcher(),
+            "dispatch",
+            return_value=(1, "FAILED tests/test_ci.py::test_gate - Diagnostic details"),
+        ):
+            res = await client.call_tool("ci_run", {"check": "test"}, raise_on_error=False)
+            text = "\n".join(getattr(b, "text", "") for b in res.content)
+            assert (
+                res.is_error,
+                "Command exited with status 1:" in text,
+                "FAILED tests/test_ci.py::test_gate - Diagnostic details" in text,
+            ) == (True, True, True)
+
+
+def test_dispatcher_empty_output_fallback_for_success_and_failure() -> None:
+    """Exit 0 with empty output returns Success, and non-zero with empty output returns no output captured."""
+    dispatcher = InProcessDispatcher()
+    with patch.object(dispatcher, "_dispatch_typer", return_value=(0, "")):
+        assert dispatcher.dispatch(["devops", "workspace", "list"]) == (0, "Success")
+
+    with patch.object(dispatcher, "_dispatch_typer", return_value=(1, "")):
+        assert dispatcher.dispatch(["devops", "workspace", "list"]) == (1, "no output captured")
+
+
+def test_ci_run_argv_contains_check_and_timeout_exceeds_budget() -> None:
+    """The argv ci_run builds contains --check, and its timeout is at least CONST_CI_TEST_BUDGET_SECONDS."""
+    all_check_choices = [
+        "all",
+        "test",
+        "lint",
+        "format",
+        "typecheck",
+        "audit",
+        "security",
+        "actionlint",
+        "docs",
+        "uv-check",
+        "lockfile",
+        "outdated",
+        "devcontainer",
+    ]
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_run:
+        mock_run.return_value = "Success"
+        for choice in all_check_choices:
+            ci_run(check=choice)  # type: ignore[arg-type]
+            call_args, call_kwargs = mock_run.call_args
+            cmd = call_args[0]
+            assert (
+                "--check" in cmd,
+                call_kwargs["timeout"] >= CONST_CI_TEST_BUDGET_SECONDS,
+            ) == (True, True)
