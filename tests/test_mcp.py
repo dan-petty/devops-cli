@@ -64,6 +64,7 @@ class TestMcpServer:
             "ssh_audit",
             "k8s_pods",
             "k8s_status",
+            "k8s_doctor",
             "k8s_bootstrap",
             "k8s_deploy_stack",
             "k8s_teardown_stack",
@@ -273,6 +274,7 @@ class TestAllMcpToolsDirectly:
             k8s_bootstrap,
             k8s_create_tls_secret,
             k8s_deploy_stack,
+            k8s_doctor,
             k8s_enable_tls,
             k8s_jaeger_info,
             k8s_pods,
@@ -314,6 +316,7 @@ class TestAllMcpToolsDirectly:
             assert ssh_audit() == "mock_output"
             assert k8s_pods(namespace="default") == "mock_output"
             assert k8s_status() == "mock_output"
+            assert k8s_doctor() == "mock_output"
             assert k8s_bootstrap(auto_start=True) == "mock_output"
             assert k8s_deploy_stack(stack="monitoring") == "mock_output"
             assert k8s_teardown_stack(stack="monitoring") == "mock_output"

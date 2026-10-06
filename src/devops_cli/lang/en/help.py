@@ -270,6 +270,14 @@ class K8sCommandHelp:
     watch: str = "Continuously refresh pod list in real-time terminal display."
     interval: str = "Auto-refresh polling interval in seconds."
     status: str = "Cluster health and resource utilization summary."
+    doctor: str = (
+        "Diagnose cluster deployment health, correlate failures, and recommend remediations."
+    )
+    doctor_namespace: str = "Target specific Kubernetes namespace (default: all namespaces)."
+    doctor_context: str = "Target Kubernetes cluster context (default: resolved context)."
+    doctor_tail: str = "Number of container log lines to tail per flagged container."
+    doctor_format: str = "Output format: table, json, or yaml."
+
     port_forward: str = "Forward local port to a remote Kubernetes service."
     port_forward_flag: str = "Start background port-forwarding daemons for deployed services."
     configure_urls_flag: str = (

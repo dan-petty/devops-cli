@@ -869,6 +869,13 @@ DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES: int = 10000
 DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS: float = 5.0
 DEFAULT_K8S_STREAM_TIMEOUT_SECONDS: float = 300.0
 
+# ── Kubernetes Doctor Diagnostic Defaults ─────────────────────────────────────
+DEFAULT_K8S_DOCTOR_LOG_TAIL_LINES: int = 20
+DEFAULT_K8S_DOCTOR_STUCK_SECONDS: int = 300
+DEFAULT_K8S_DOCTOR_RESTART_THRESHOLD: int = 3
+DEFAULT_K8S_DOCTOR_EVENT_COUNT_THRESHOLD: int = 5
+
+
 # ── Dashboard TUI Defaults ──────────────────────────────────────────────────
 # Retention ceiling for a streamed log view. A tail can emit hundreds of thousands
 # of lines; memory is bounded by this rather than by how long the stream runs.

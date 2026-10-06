@@ -74,6 +74,10 @@ def pod(
     conditions: dict[str, str] | None = None,
     annotations: dict[str, str] | None = None,
     deleted: bool = False,
+    node_name: str | None = None,
+    finalizers: list[str] | None = None,
+    creation_timestamp: datetime.datetime | None = None,
+    deletion_timestamp: datetime.datetime | None = None,
 ) -> Any:
     """A pod. `sidecars` names the init containers whose restart policy is Always."""
     spec_inits = [
@@ -84,16 +88,19 @@ def pod(
         )
         for init in init_containers
     ]
+    del_ts = deletion_timestamp or (NOW if deleted else None)
     return client.V1Pod(
         metadata=client.V1ObjectMeta(
             name=name,
             namespace=namespace,
             uid=f"uid-{namespace}-{name}",
             annotations=annotations,
-            creation_timestamp=NOW,
-            deletion_timestamp=NOW if deleted else None,
+            creation_timestamp=creation_timestamp or NOW,
+            deletion_timestamp=del_ts,
+            finalizers=finalizers,
         ),
         spec=client.V1PodSpec(
+            node_name=node_name,
             containers=[
                 client.V1Container(name=container, image=f"example.com/{container}:1")
                 for container in containers
@@ -114,21 +121,30 @@ def pod(
     )
 
 
-def healthy_pod(name: str, namespace: str = "default") -> Any:
+def healthy_pod(name: str, namespace: str = "default", *, node_name: str | None = None) -> Any:
     """A running pod whose one container is ready."""
-    return pod(name, namespace, statuses=[ready_app()], conditions={"Ready": "True"})
+    return pod(
+        name, namespace, node_name=node_name, statuses=[ready_app()], conditions={"Ready": "True"}
+    )
 
 
-def crashlooping_pod(name: str, namespace: str = "default") -> Any:
+def crashlooping_pod(
+    name: str,
+    namespace: str = "default",
+    *,
+    node_name: str | None = None,
+    restarts: int = 86,
+) -> Any:
     """A pod in phase Running whose container waits in CrashLoopBackOff."""
     return pod(
         name,
         namespace,
+        node_name=node_name,
         statuses=[
             status(
                 "app",
                 waiting("CrashLoopBackOff"),
-                restarts=86,
+                restarts=restarts,
                 last=terminated(1, "Error"),
             )
         ],
@@ -136,10 +152,11 @@ def crashlooping_pod(name: str, namespace: str = "default") -> Any:
     )
 
 
-def node(name: str, ready: str = "True") -> Any:
+def node(name: str, ready: str = "True", unschedulable: bool = False) -> Any:
     """A node whose Ready condition holds the given status."""
     return client.V1Node(
         metadata=client.V1ObjectMeta(name=name),
+        spec=client.V1NodeSpec(unschedulable=unschedulable),
         status=client.V1NodeStatus(conditions=[client.V1NodeCondition(type="Ready", status=ready)]),
     )
 
@@ -155,11 +172,16 @@ def event(
     series_count: int | None = None,
     kind: str = "Normal",
     message: str = "",
+    involved_kind: str = "Pod",
+    involved_name: str = "web-0",
+    involved_namespace: str | None = None,
 ) -> Any:
     """A core/v1 event. One written through events.k8s.io/v1 has only event_time and series."""
     return client.CoreV1Event(
         metadata=client.V1ObjectMeta(name=f"evt-{reason}", creation_timestamp=created),
-        involved_object=client.V1ObjectReference(kind="Pod", name="web-0"),
+        involved_object=client.V1ObjectReference(
+            kind=involved_kind, name=involved_name, namespace=involved_namespace
+        ),
         reason=reason,
         message=message or f"{reason} happened",
         type=kind,
@@ -182,11 +204,15 @@ class FakeCoreV1:
         pods: list[Any] | Exception | None = None,
         nodes: list[Any] | Exception | None = None,
         events: list[Any] | Exception | None = None,
+        logs: dict[tuple[str, str], str] | str | Exception | None = None,
     ) -> None:
         self.answers = {
             "list_pod_for_all_namespaces": pods if pods is not None else [],
+            "list_namespaced_pod": pods if pods is not None else [],
             "list_node": nodes if nodes is not None else [],
             "list_namespaced_event": events if events is not None else [],
+            "list_event_for_all_namespaces": events if events is not None else [],
+            "read_namespaced_pod_log": logs if logs is not None else "",
         }
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
@@ -195,16 +221,31 @@ class FakeCoreV1:
         answer = self.answers[method]
         if isinstance(answer, Exception):
             raise answer
+        if method == "read_namespaced_pod_log":
+            if isinstance(answer, dict):
+                return answer.get((kwargs.get("namespace", ""), kwargs.get("name", "")), "")
+            return str(answer)
         return _Items(answer)
 
     def list_pod_for_all_namespaces(self, **kwargs: Any) -> Any:
         return self._answer("list_pod_for_all_namespaces", kwargs)
+
+    def list_namespaced_pod(self, namespace: str, **kwargs: Any) -> Any:
+        return self._answer("list_namespaced_pod", {"namespace": namespace, **kwargs})
 
     def list_node(self, **kwargs: Any) -> Any:
         return self._answer("list_node", kwargs)
 
     def list_namespaced_event(self, namespace: str, **kwargs: Any) -> Any:
         return self._answer("list_namespaced_event", {"namespace": namespace, **kwargs})
+
+    def list_event_for_all_namespaces(self, **kwargs: Any) -> Any:
+        return self._answer("list_event_for_all_namespaces", kwargs)
+
+    def read_namespaced_pod_log(self, name: str, namespace: str, **kwargs: Any) -> Any:
+        return self._answer(
+            "read_namespaced_pod_log", {"name": name, "namespace": namespace, **kwargs}
+        )
 
 
 class _Items:

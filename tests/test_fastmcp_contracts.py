@@ -39,6 +39,7 @@ def test_fastmcp_tools_registration() -> None:
         # Kubernetes & GitOps
         "k8s_pods",
         "k8s_status",
+        "k8s_doctor",
         "k8s_bootstrap",
         "k8s_deploy_stack",
         "k8s_teardown_stack",

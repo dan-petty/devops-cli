@@ -220,6 +220,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops k8s pods [OPTIONS]` | List running pods with health status, restart counts, and age. |
 |  | `devops k8s security-stream [OPTIONS]` | Stream runtime security anomaly events from Kubernetes Falco eBPF probes. |
 |  | `devops k8s gpu-matrix [OPTIONS]` | Query traditional homelab GPU matrix and model service alias mappings. |
+|  | `devops k8s doctor [OPTIONS]` | Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations. |
 | **kustomize** | `devops kustomize build [OPTIONS] <path>` | Build kustomize overlays (delegates to kustomize build). |
 |  | `devops kustomize diff <path>` | Show a diff of pending changes (delegates to kubectl diff -k). |
 |  | `devops kustomize apply [OPTIONS] <path>` | Apply a kustomization (delegates to kubectl apply -k). |
