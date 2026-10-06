@@ -15,7 +15,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.env import ENV_AI_API_KEY
 from devops_cli.config.options import AI_API_KEY
-from devops_cli.exceptions import LLMInferenceError
+from devops_cli.exceptions.ai import LLMInferenceError
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason

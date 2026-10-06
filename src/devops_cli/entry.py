@@ -5,7 +5,14 @@ from __future__ import annotations
 import os
 import sys
 
-from devops_cli.dry_run.state import (
+_existing_plugins = os.environ.get("PYDANTIC_DISABLE_PLUGINS")
+os.environ["PYDANTIC_DISABLE_PLUGINS"] = (
+    f"{_existing_plugins},logfire-plugin"
+    if _existing_plugins and "logfire-plugin" not in _existing_plugins.split(",")
+    else (_existing_plugins or "logfire-plugin")
+)
+
+from devops_cli.dry_run.state import (  # noqa: E402
     is_dry_run_requested,
     mark_dry_run_invocation,
     set_dry_run,

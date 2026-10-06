@@ -73,13 +73,11 @@ def test_logfire_bridge_configuration_with_token() -> None:
     bridge = LogfireBridge()
     with (
         patch("logfire.configure") as mock_configure,
-        patch("logfire.instrument_pydantic") as mock_pydantic,
         patch("logfire.instrument_pydantic_ai") as mock_pydantic_ai,
     ):
         bridge.configure(token="test-secret-token", send_to_logfire=True)
         assert bridge.is_active() is True
         mock_configure.assert_called_once()
-        mock_pydantic.assert_called_once()
         mock_pydantic_ai.assert_called_once()
 
         status = bridge.get_status()

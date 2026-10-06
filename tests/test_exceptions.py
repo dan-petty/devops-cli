@@ -6,20 +6,22 @@ from devops_cli.exceptions import (
     BranchAlreadyExistsError,
     ChecksumMismatchError,
     ConfigurationError,
-    ContextBudgetExceededError,
     DevOpsCLIError,
     GitOperationError,
     InvalidBranchNameError,
     InvalidURLError,
     InvalidVersionError,
     KeyringUnavailableError,
-    ModelUnavailableError,
-    PersonaExecutionError,
     SecretExposureError,
     SSRFBlockedError,
     ToolDownloadError,
     ToolExecutionError,
     ValidationError,
+)
+from devops_cli.exceptions.ai import (
+    ContextBudgetExceededError,
+    ModelUnavailableError,
+    PersonaExecutionError,
 )
 
 

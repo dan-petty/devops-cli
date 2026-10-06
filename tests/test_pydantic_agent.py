@@ -19,7 +19,8 @@ from devops_cli.ai.pydantic_ai_bridge import (
     is_pydantic_ai_available,
 )
 from devops_cli.ai.review_schema import ReviewResult
-from devops_cli.exceptions import ModelRetry, SecurityError
+from devops_cli.exceptions import SecurityError
+from devops_cli.exceptions.ai import ModelRetry
 
 
 def test_is_pydantic_ai_available() -> None:
@@ -478,7 +479,7 @@ def test_pydantic_agent_message_history() -> None:
 def test_pydantic_agent_retries_and_budget_exhaustion() -> None:
     """Verify AgentRetries limits and UnexpectedModelBehavior on budget exhaustion."""
     from devops_cli.ai.agents import AgentRetries
-    from devops_cli.exceptions import ModelRetry, UnexpectedModelBehavior
+    from devops_cli.exceptions.ai import ModelRetry, UnexpectedModelBehavior
 
     mock_client = MagicMock()
     mock_client.model = "test-model"
