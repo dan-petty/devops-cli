@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from devops_cli.core.process import run_subprocess, run_subprocess_async
@@ -105,3 +107,92 @@ async def test_run_subprocess_async_cwd_security() -> None:
 
     with pytest.raises(SecurityError):
         await run_subprocess_async(["echo", "hi"], cwd=Path("/etc"))
+
+
+@pytest.mark.anyio
+async def test_run_subprocess_async_telemetry_sanitizes_secrets() -> None:
+    """Verify run_subprocess_async redacts secrets in telemetry command attributes."""
+    from typing import Any
+    from unittest.mock import MagicMock, patch
+
+    captured_attrs: dict[str, Any] = {}
+
+    def fake_trace_span(name: str, attributes: dict[str, Any] | None = None):
+        if attributes:
+            captured_attrs.update(attributes)
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__.return_value = MagicMock()
+        mock_ctx.__exit__.return_value = None
+        return mock_ctx
+
+    token = "ghp_1234567890abcdef1234567890abcdef1234"
+    cmd = [
+        "python3",
+        "-c",
+        "pass",
+        "--token",
+        token,
+        "--body",
+        "super_secret_body",
+        "title=super_secret_title",
+    ]
+    with patch("devops_cli.core.process.trace_span", side_effect=fake_trace_span):
+        await run_subprocess_async(cmd)
+
+    cmd_summary = captured_attrs.get("subprocess.cmd", "")
+    proc_cmd = captured_attrs.get("process.command_line", "")
+    assert (
+        token in cmd_summary,
+        "super_secret_body" in cmd_summary,
+        "super_secret_title" in cmd_summary,
+        cmd_summary == proc_cmd,
+    ) == (False, False, False, True)
+
+
+@pytest.mark.anyio
+async def test_run_subprocess_async_timeout_kills_process_group(tmp_path: Path) -> None:
+    """Verify run_subprocess_async timeout kills entire process group including grandchildren."""
+    import os
+    import subprocess
+    import sys
+
+    pid_file = tmp_path / "grandchild.pid"
+    script = (
+        "import sys, time, subprocess\n"
+        f"child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+        f"with open({str(pid_file)!r}, 'w') as f:\n"
+        "    f.write(str(child.pid))\n"
+        "time.sleep(30)\n"
+    )
+    cmd = [sys.executable, "-c", script]
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        await run_subprocess_async(cmd, timeout=0.6)
+
+    assert pid_file.exists()
+    grandchild_pid = int(pid_file.read_text().strip())
+
+    is_alive = True
+    try:
+        os.kill(grandchild_pid, 0)
+    except ProcessLookupError:
+        is_alive = False
+
+    assert is_alive is False
+
+
+def test_process_group_guard_helpers() -> None:
+    """Verify process group validation guards against PID 1, 0, negative PIDs, and self."""
+    import os
+
+    from devops_cli.core.process import _is_invalid_pgid
+
+    self_pgrp = os.getpgrp() if hasattr(os, "getpgrp") else -1
+    assert (
+        _is_invalid_pgid(1),
+        _is_invalid_pgid(0),
+        _is_invalid_pgid(-1),
+        _is_invalid_pgid(None),  # type: ignore[arg-type]
+        _is_invalid_pgid(self_pgrp) if self_pgrp > 1 else True,
+        _is_invalid_pgid(999999),
+    ) == (True, True, True, True, True, False)
