@@ -6,8 +6,8 @@
 | :--- | :--- |
 | **Official Documentation** | [cryptography.io](https://cryptography.io/) |
 | **Public Git Repository** | [github.com/pyca/cryptography](https://github.com/pyca/cryptography) |
-| **Official PyPI Package** | [pypi.org/project/cryptography](https://pypi.org/project/cryptography/) (`50.0.1`) |
-| **DevOps CLI Integration** | [`src/devops_cli/crypto/tls_certificates.py`](../../../../../src/devops_cli/crypto/tls_certificates.py) • [`src/devops_cli/commands/ssh.py`](../../../../../src/devops_cli/commands/ssh.py) |
+| **Official PyPI Package** | [pypi.org/project/cryptography](https://pypi.org/project/cryptography/) (`50.0.2`) |
+| **DevOps CLI Integration** | [`src/devops_cli/crypto/tls_certificates.py`](../../../../../../src/devops_cli/crypto/tls_certificates.py) • [`src/devops_cli/commands/ssh.py`](../../../../../../src/devops_cli/commands/ssh.py) |
 
 ---
 
@@ -16,7 +16,7 @@
 **Cryptography** is the Python standard package for cryptographic recipes and primitives. Built in Rust and C with OpenSSL backends, it provides secure, high-speed implementations of symmetric ciphers, message digests, public-key algorithms (RSA, Ed25519, ECDSA), and X.509 certificate generation.
 
 In `devops-cli`:
-- **Homelab TLS Engine**: Powers `devops tls generate-ca`, `devops tls generate-cert`, and `devops tls bundle` to create self-signed Root CAs and SAN-enabled leaf certificates for local Kubernetes clusters.
+- **Homelab TLS Engine**: Powers `devops tls ca`, `devops tls cert`, and `devops tls homelab` to create self-signed Root CAs and SAN-enabled leaf certificates for local Kubernetes clusters.
 - **SSH Key Management**: Powers `devops ssh generate` to create modern Ed25519 keypairs with automated 90-day expiry naming.
 - **Certificate Inspection**: Extracts SANs, validity windows, issuers, and key sizes for auditing.
 

@@ -7,7 +7,7 @@
 | **Official Documentation** | [keyring.readthedocs.io](https://keyring.readthedocs.io/) |
 | **Public Git Repository** | [github.com/jaraco/keyring](https://github.com/jaraco/keyring) |
 | **Official PyPI Package** | [pypi.org/project/keyring](https://pypi.org/project/keyring/) (`25.7.0`) |
-| **DevOps CLI Integration** | [`src/devops_cli/security/vault_broker.py`](../../../../../src/devops_cli/security/vault_broker.py) • [`src/devops_cli/config/settings.py`](../../../../../src/devops_cli/config/settings.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/security/vault_broker.py`](../../../../../../src/devops_cli/security/vault_broker.py) • [`src/devops_cli/config/settings.py`](../../../../../../src/devops_cli/config/settings.py) |
 
 ---
 
@@ -18,7 +18,7 @@
 In `devops-cli`:
 - **Zero-Trust Security**: Plaintext secrets (Grafana tokens, OpenAI API keys, Kubernetes credentials) are never written to disk files (`config.yaml`) or logged.
 - **Service Namespace**: All stored credentials reside under the isolated `CONST_KEYRING_SERVICE = "devops-cli"` namespace.
-- **Resolution Priority**: Env Vars $\rightarrow$ OS Keyring $\rightarrow$ Config File.
+- **Resolution Priority**: OS Keyring $\rightarrow$ Vault $\rightarrow$ Env Vars $\rightarrow$ Config File.
 
 ---
 

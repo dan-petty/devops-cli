@@ -7,7 +7,7 @@
 | **Official Documentation** | [pyyaml.org](https://pyyaml.org/) • [jinja.palletsprojects.com](https://jinja.palletsprojects.com/) |
 | **Public Git Repository** | [github.com/yaml/pyyaml](https://github.com/yaml/pyyaml) • [github.com/pallets/jinja](https://github.com/pallets/jinja) |
 | **Official PyPI Package** | [pypi.org/project/PyYAML](https://pypi.org/project/PyYAML/) (`6.0.3`) • [pypi.org/project/jinja2](https://pypi.org/project/jinja2/) (`3.1.6`) |
-| **DevOps CLI Integration** | [`src/devops_cli/commands/devcontainer.py`](../../../../../src/devops_cli/commands/devcontainer.py) • [`src/devops_cli/k8s/`](../../../../../src/devops_cli/k8s/) |
+| **DevOps CLI Integration** | [`src/devops_cli/commands/devcontainer.py`](../../../../../../src/devops_cli/commands/devcontainer.py) • [`src/devops_cli/k8s/`](../../../../../../src/devops_cli/k8s/) |
 
 ---
 
@@ -17,7 +17,7 @@
 
 In `devops-cli`:
 - **Kubernetes & GitOps YAML**: Parses and serializes Kubernetes manifests, ArgoCD Application specifications, Helm values overrides, and Kustomize patches.
-- **DevContainer & Agent Scaffolding**: Uses Jinja2 templates (`src/devops_cli/templates/`) to dynamically scaffold `.devcontainer/devcontainer.json`, `AGENTS.md`, and MCP configuration files.
+- **DevContainer & Agent Scaffolding**: Uses Jinja2 templates (`src/devops_cli/templates/`) to dynamically scaffold `.devcontainer/devcontainer.json` and MCP configuration files (`AGENTS.md` is generated in Python).
 
 ---
 
@@ -35,7 +35,7 @@ In `devops-cli`:
 ## 4. Key Concepts & Core Patterns
 
 1. **`yaml.safe_load(text)`**: Always use `safe_load` instead of `yaml.load` to prevent arbitrary code execution vulnerabilities.
-2. **`jinja2.Environment`**: Configured with `FileSystemLoader` and strict auto-escaping options.
+2. **`jinja2.Environment`**: `core/templating.py` uses a cached `SandboxedEnvironment(FileSystemLoader, undefined=StrictUndefined)`; values are encoded with `| tojson` and output is re-parsed as JSON. Templates scaffold devcontainer.json and MCP configs; AGENTS.md is generated in Python.
 3. **Template Inheritance**: Reuses base template headers across DevContainer configurations.
 
 ---

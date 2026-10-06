@@ -27,8 +27,8 @@ devops k8s bootstrap
 # Check status of local Minikube cluster and nodes
 devops k8s status
 
-# Delete local Minikube cluster and clean up volumes
-devops k8s delete
+# Teardown local cluster stacks
+devops k8s teardown-stack --stack all
 ```
 
 ### Standard & Advanced `minikube` Commands

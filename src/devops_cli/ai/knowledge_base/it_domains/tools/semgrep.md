@@ -11,7 +11,7 @@
 - **Semantic AST Matching**: Matches code patterns syntactically rather than through fragile text or regex matching.
 - **Multilingual Support**: Supports 30+ languages and frameworks with official curated rule registries (`p/default`, `p/security-audit`, `p/owasp-top-ten`, `p/python`, `p/golang`).
 - **DevOps Review Pipeline Integration**: Pre-filters static bugs and injects findings into Stage 2 review sessions (`_run_static_scanners`).
-- **CLI Subcommand**: `devops scan semgrep` / `devops scan sast`.
+- **CLI Subcommand**: `devops scan sast`.
 
 ---
 
@@ -20,13 +20,13 @@
 ### DevOps CLI Semgrep Invocations
 ```bash
 # Run Semgrep AST scan on current workspace with default rules
-devops scan semgrep
+devops scan sast
 
 # Scan with custom security ruleset and JSON output
 devops scan sast src/ --config p/security-audit --json
 
 # Run dry-run simulated AST scan
-devops scan semgrep --dry-run
+devops scan sast --dry-run
 ```
 
 ### Standard Semgrep CLI Commands

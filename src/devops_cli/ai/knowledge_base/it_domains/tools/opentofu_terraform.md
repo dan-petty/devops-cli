@@ -2,7 +2,7 @@
 
 ## 1. Overview & Purpose
 
-OpenTofu is an open-source, community-driven Infrastructure as Code (IaC) tool forked from Terraform under the Linux Foundation. In the `devops-cli` ecosystem, OpenTofu and Terraform provide declarative cloud infrastructure provisioning across AWS, GCP, Azure, and Kubernetes. The CLI provides unified subcommands (`devops tofu` and `devops tf`) with automated binary resolution, plan inspection, drift detection, and state auditing.
+OpenTofu is an open-source, community-driven Infrastructure as Code (IaC) tool forked from Terraform under the Linux Foundation. In the `devops-cli` ecosystem, OpenTofu and Terraform provide declarative cloud infrastructure provisioning across AWS, GCP, Azure, and Kubernetes. The CLI provides unified subcommands (`devops tf`) with automated binary resolution, plan inspection, drift detection, and state auditing.
 
 ---
 
@@ -32,19 +32,19 @@ OpenTofu is an open-source, community-driven Infrastructure as Code (IaC) tool f
 ### DevOps CLI OpenTofu Subcommands
 ```bash
 # Initialize OpenTofu directory
-devops tofu init --path tf/aws
+devops tf init tf/aws
 
 # Generate execution plan with variable file
-devops tofu plan --path tf/aws -v tf/environments/dev.tfvars -o dev.tfplan
+devops tf plan tf/aws -v tf/environments/dev.tfvars -o dev.tfplan
 
 # Apply generated plan
-devops tofu apply --path tf/aws --plan dev.tfplan
+devops tf apply tf/aws --plan-file dev.tfplan
 
 # Show structured output values as JSON
-devops tofu output --path tf/aws --json
+devops tf output tf/aws --json
 
 # Inspect initialization and state status
-devops tofu status --path tf/aws
+devops tf status tf/aws
 ```
 
 ### Standard OpenTofu / Terraform CLI Commands

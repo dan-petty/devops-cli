@@ -23,7 +23,7 @@
 devops scan secrets .
 
 # Scan specific directory with JSON output
-devops scan gitleaks src/ --json
+devops scan secrets src/ --json
 
 # Run dry-run simulated secret scan
 devops scan secrets --dry-run

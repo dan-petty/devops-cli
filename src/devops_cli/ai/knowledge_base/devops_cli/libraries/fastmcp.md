@@ -6,8 +6,8 @@
 | :--- | :--- |
 | **Official Documentation** | [github.com/jlowin/fastmcp](https://github.com/jlowin/fastmcp) • [modelcontextprotocol.io](https://modelcontextprotocol.io/) |
 | **Public Git Repository** | [github.com/jlowin/fastmcp](https://github.com/jlowin/fastmcp) |
-| **Official PyPI Package** | [pypi.org/project/fastmcp](https://pypi.org/project/fastmcp/) (`3.4.7`) |
-| **DevOps CLI Integration** | [`src/devops_cli/ai/mcp/`](../../../../../src/devops_cli/ai/mcp/) • [`src/devops_cli/commands/mcp.py`](../../../../../src/devops_cli/commands/mcp.py) |
+| **Official PyPI Package** | [pypi.org/project/fastmcp](https://pypi.org/project/fastmcp/) (`4.0.11`) |
+| **DevOps CLI Integration** | [`src/devops_cli/ai/mcp/`](../../../../../../src/devops_cli/ai/mcp/) • [`src/devops_cli/commands/mcp.py`](../../../../../../src/devops_cli/commands/mcp.py) |
 
 ---
 
@@ -16,7 +16,7 @@
 **FastMCP** is a high-level Python framework for building Model Context Protocol (MCP) servers. The Model Context Protocol is an open standard created by Anthropic that allows AI assistants (Claude Desktop, Cursor, GitHub Copilot, Antigravity IDE) to securely inspect local resources, query developer tools, and invoke automation commands.
 
 In `devops-cli`:
-- **Tool Exporter**: Exposes 45+ CLI operations (`review_path`, `k8s_pods`, `tf_plan`, `scan_uv_audit`, `security_intel_package`) as native MCP tools.
+- **Tool Exporter**: Exposes CLI operations (`review_path`, `k8s_pods`, `tf_plan`, `scan_uv_audit`, `security_intel_package`) as native MCP tools.
 - **Dual Transport Engine**: Supports both standard input/output (`stdio`) for local IDE processes and Server-Sent Events (`sse`) for remote container networking.
 - **Dynamic Introspection**: Implements `devops mcp tools` to list all registered tools, arguments, and return types.
 

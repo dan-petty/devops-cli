@@ -29,10 +29,10 @@ graph TD
 
 ### Scaffolding Commands
 ```bash
-# Scaffold or synchronize agent instructions in a target repository
+# Regenerate instruction files from the template without the LLM
 devops ai agents --repo repos/my-org/my-project --template
 
-# Overwrite existing instruction files with force flag
+# Overwrite an existing AGENTS.md (refused without --force)
 devops ai agents --repo repos/my-org/my-project --force
 
 # Automatically scaffolded during devcontainer initialization

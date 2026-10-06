@@ -22,8 +22,8 @@ Bandit is an open-source static code analysis tool designed to find common secur
 # Run full CI quality gate including Bandit security scan
 devops ci
 
-# Run Bandit programmatically against target directory
-devops scan security src/
+# Run scanner report against target directory
+devops scan report src/
 ```
 
 ### Standard & Advanced `bandit` Commands

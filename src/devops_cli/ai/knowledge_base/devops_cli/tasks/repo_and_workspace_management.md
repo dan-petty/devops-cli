@@ -20,8 +20,8 @@ Repository and multi-root workspace management in `devops-cli` provides automate
 ```
 
 - **Dynamic Org Cloning**: `devops repos clone-org <org>` fetches repository lists from GitHub API and clones them concurrently under `repos/<org>/`.
-- **Workspace Synchronization**: `devops workspace sync` walks `repos/` (bounded 2 levels) and updates the root `.code-workspace` JSON file, registering all child projects automatically.
-- **Git Status Matrix**: `devops repos status` scans all repositories and presents a rich terminal table showing active branches, uncommitted changes, and ahead/behind commit counts.
+- **Workspace Generation**: `devops workspace generate` walks `repos/` (bounded 2 levels) and updates the root `.code-workspace` JSON file, registering all child projects automatically.
+- **Repository & Branch Lists**: `devops repos list` and `devops branches list` scan all repositories and present rich terminal tables showing active repositories and branches across all repos.
 
 ---
 
@@ -32,17 +32,17 @@ Repository and multi-root workspace management in `devops-cli` provides automate
 # Clone all repositories from a GitHub organization into repos/<org>/
 devops repos clone-org dan-petty
 
-# Display status of all cloned repositories (branch, modified files, unpushed commits)
-devops repos status
+# Display all cloned repositories
+devops repos list
 
 # Synchronize all repositories with remote upstream (fetch & pull)
 devops repos sync
 
 # Synchronize VS Code multi-root workspace configuration (.code-workspace)
-devops workspace sync
+devops workspace generate
 
-# List all discovered workspaces and their metadata
-devops workspace list
+# List branches across all cloned repositories
+devops branches list
 ```
 
 ---
@@ -51,7 +51,7 @@ devops workspace list
 
 1. **Keep Child Repos Isolated**: Child projects must remain independent Git repositories with their own `pyproject.toml`, `uv.lock`, and `AGENTS.md`.
 2. **Use Bounded Directory Traversal**: When discovering projects, avoid scanning through `.venv/`, `.git/`, or `node_modules/`.
-3. **Commit Cleanliness**: Run `devops repos status` before switching tasks to ensure no uncommitted files or unpushed branches are forgotten.
+3. **Commit Cleanliness**: Run `devops repos list` before switching tasks to ensure no uncommitted files or unpushed branches are forgotten.
 4. **Target Path Resolution**: All AI review, linting, and scanning operations must resolve paths relative to the specific target project root.
 
 ---

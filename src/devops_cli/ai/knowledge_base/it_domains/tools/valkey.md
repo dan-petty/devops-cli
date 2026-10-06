@@ -45,14 +45,14 @@ devops valkey info
 devops valkey stats
 
 # Search active cache keys matching a pattern
-devops valkey keys --pattern "ai:cache:*"
+devops valkey keys "ai:cache:*"
 
 # Read or write key values with TTL
 devops valkey get "ai:cache:embedding:a1b2c3d4"
-devops valkey set "config:override" "true" --ttl 3600
+devops valkey set "config:override" "true" --ex 3600
 
-# Flush cache namespace safely
-devops valkey flush --namespace "ai:cache"
+# Flush cache databases safely
+devops valkey flush
 
 # Drop into interactive valkey-cli session
 devops valkey cli
@@ -127,7 +127,7 @@ class ValkeyCacheProvider:
    - Validate destination endpoints with `is_safe_endpoint()` to prevent SSRF vulnerabilities.
 2. **Authentication & ACLs**:
    - When exposed outside container namespaces, enforce strong password authentication (`requirepass`) or Valkey ACL rules (`auth <user> <pass>`).
-   - Never commit plaintext Valkey passwords into Git repositories; store credentials in OS Keyring (`devops config keyring set valkey.password <token>`).
+   - Never commit plaintext Valkey passwords into Git repositories; store credentials in OS Keyring (`devops config set valkey.password <token>`).
 3. **Resource Bounding & Eviction Policies**:
    - Always configure explicit memory limits (`maxmemory 512mb`) and cache eviction policies (`maxmemory-policy allkeys-lru` or `volatile-lru`) to prevent OOM termination of workstation nodes.
 4. **Command Renaming & Disabling**:

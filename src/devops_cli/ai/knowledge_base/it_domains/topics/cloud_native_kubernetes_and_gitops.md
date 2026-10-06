@@ -39,9 +39,9 @@ graph TD
 ### One-Command Stack Deployments
 `devops-cli` provides automated Helm stack orchestration:
 - `devops k8s bootstrap`: Provisions a Docker-driven Minikube cluster with GPU passthrough (`--gpus all`).
-- `devops k8s deploy-stack monitoring`: Deploys Prometheus and Grafana.
-- `devops k8s deploy-stack gitops`: Deploys ArgoCD.
-- `devops k8s deploy-stack tracing`: Deploys Jaeger and OpenTelemetry collectors.
+- `devops k8s deploy-stack --stack infra`: Deploys Prometheus, Grafana, Jaeger, OpenTelemetry collectors, and cluster infrastructure.
+- `devops k8s deploy-stack --stack llm`: Deploys Ollama, Open-WebUI, Qdrant, and Valkey.
+- `devops k8s deploy-stack --stack all`: Deploys all infrastructure and LLM workloads.
 
 ### Common Commands
 ```bash
@@ -60,16 +60,16 @@ devops k8s status
 devops k8s bootstrap
 
 # Deploy all observability and GitOps stacks to active context
-devops k8s deploy-stack all
+devops k8s deploy-stack --stack all
 
 # Real-time pod monitoring across namespaces
 devops k8s pods --all-namespaces
 
 # Sanitize cluster health with Popeye
-devops scan popeye --namespace monitoring
+devops k8s audit
 
 # Check deprecated API versions with Pluto
-devops scan pluto k8s/
+devops k8s check-deprecated k8s/
 ```
 
 ---
