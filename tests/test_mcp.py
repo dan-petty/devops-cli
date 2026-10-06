@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import PropertyMock, patch
 
 import pytest
+from fastmcp.exceptions import ToolError
 from typer.testing import CliRunner
 
 from devops_cli.ai.mcp import list_mcp_tools, mcp, run_mcp_server
@@ -562,9 +563,10 @@ def test_mcp_helpers_and_error_branches() -> None:
         args=["uv"], returncode=2, stdout="bad input", stderr="error details"
     )
     with patch("devops_cli.ai.mcp.server.run_subprocess", return_value=mock_fail):
-        res_fail = _run_mcp_cmd(["uv"])
-        assert "Command exited with status 2" in res_fail
-        assert "error details" in res_fail
+        with pytest.raises(ToolError) as exc_info:
+            _run_mcp_cmd(["uv"])
+        assert "Command exited with status 2" in str(exc_info.value)
+        assert "error details" in str(exc_info.value)
 
     # 5. Review tools
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Review Output"):
