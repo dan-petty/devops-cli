@@ -15,7 +15,7 @@ spec:
       valueFiles:
       - $values/k8s/logging/loki-values.yaml
   - repoURL: https://github.com/dan-petty/devops-cli
-    targetRevision: release/v0.2.28
+    targetRevision: release/v0.2.27
     ref: values
   destination:
     server: https://kubernetes.default.svc
