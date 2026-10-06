@@ -294,7 +294,7 @@ def test_release_check_fails_when_the_service_image_tag_is_out_of_step(
 def _write_argocd_application(
     root: Path,
     name: str = "test-app",
-    git_revision: str = "release/v0.1.8",
+    git_revision: str = "main",
     chart_revision: str = "1.2.3",
 ) -> Path:
     path = root / "k8s" / "argocd" / "apps" / f"{name}.yaml"
@@ -343,14 +343,14 @@ def test_release_prepare_rewrites_argocd_target_revisions(
     sources = doc["spec"]["sources"]
     assert (sources[0]["targetRevision"], sources[1]["targetRevision"]) == (
         "1.2.3",
-        "release/v0.1.8",
+        "main",
     )
 
 
 def test_release_check_fails_on_mismatched_argocd_target_revisions(
     sample_project_dir: Path,
 ) -> None:
-    _write_argocd_application(sample_project_dir, name="app1", git_revision="release/v0.1.7")
+    _write_argocd_application(sample_project_dir, name="app1", git_revision="main")
     _write_argocd_application(sample_project_dir, name="app2", git_revision="release/v0.1.8")
     result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--allow-dirty"])
     assert (result.exit_code, "Argo CD git-source targetRevisions mismatch" in result.output) == (
@@ -359,21 +359,21 @@ def test_release_check_fails_on_mismatched_argocd_target_revisions(
     )
 
 
-def test_release_check_fails_on_argocd_target_revision_not_matching_pyproject(
+def test_release_check_fails_on_argocd_target_revision_not_matching_main(
     sample_project_dir: Path,
 ) -> None:
     _write_argocd_application(sample_project_dir, git_revision="release/v0.1.6")
     result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--allow-dirty"])
     assert (
         result.exit_code,
-        "does not match pyproject.toml" in result.output,
+        "does not match expected 'main'" in result.output,
     ) == (1, True)
 
 
 def test_release_check_succeeds_with_matching_argocd_target_revisions(
     sample_project_dir: Path,
 ) -> None:
-    _write_argocd_application(sample_project_dir, git_revision="release/v0.1.7")
+    _write_argocd_application(sample_project_dir, git_revision="main")
     with (
         patch(
             "devops_cli.commands.release.DocGenerator.check_docs",
