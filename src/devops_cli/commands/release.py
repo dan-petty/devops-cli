@@ -229,21 +229,50 @@ def _resolve_argocd_next_revision(root: Path, current_version: str) -> str | Non
     return "main"
 
 
+def _apply_git_revision_to_doc(doc: Any, next_revision: str) -> bool:
+    """Update git-source targetRevisions in an Application doc to next_revision."""
+    if not isinstance(doc, dict) or doc.get("kind") != "Application":
+        return False
+    spec = doc.get("spec", {})
+    changed = False
+    source = spec.get("source")
+    if isinstance(source, dict) and "chart" not in source and "targetRevision" in source:
+        if source["targetRevision"] != next_revision:
+            source["targetRevision"] = next_revision
+            changed = True
+    for s in spec.get("sources", []):
+        if isinstance(s, dict) and "chart" not in s and "targetRevision" in s:
+            if s["targetRevision"] != next_revision:
+                s["targetRevision"] = next_revision
+                changed = True
+    return changed
+
+
 def _apply_argocd_target_revisions(root: Path, next_revision: str) -> bool:
     """Rewrite git-source targetRevisions under k8s/argocd/ to next_revision."""
+    import yaml
+
+    from devops_cli.output import write_text_file
+
     argocd_dir = root / "k8s" / "argocd"
     if not argocd_dir.is_dir():
         return False
 
-    from devops_cli.output import write_text_file
-
-    pattern = re.compile(r"""(targetRevision:\s*["']?)(?:release/v[^"'\s]+|main)(["']?)""")
     updated = False
     for path in sorted(argocd_dir.rglob("*.yaml")):
-        content = path.read_text(encoding="utf-8")
-        new_content, count = pattern.subn(rf"\g<1>{next_revision}\g<2>", content)
-        if count > 0 and new_content != content:
-            write_text_file(path, new_content)
+        try:
+            docs = list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
+        except Exception:
+            continue
+
+        file_changed = any(_apply_git_revision_to_doc(d, next_revision) for d in docs)
+        if file_changed:
+            content = (
+                yaml.safe_dump_all(docs, sort_keys=False)
+                if len(docs) > 1
+                else yaml.safe_dump(docs[0], sort_keys=False)
+            )
+            write_text_file(path, content)
             updated = True
     return updated
 
