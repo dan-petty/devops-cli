@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -142,9 +143,10 @@ def test_web_fetch_tool_never_requests_a_private_redirect_hop(
     stub_web.redirect(hop, "https://example.com/final")
     stub_web.page("https://example.com/final", "<h1>Final</h1>")
 
-    res = web_fetch_tool().execute(url="https://example.com/start")
+    with pytest.raises(SSRFBlockedError):
+        web_fetch_tool().execute(url="https://example.com/start")
 
-    assert (stub_web.requested, "# Final" in res) == (["https://example.com/start"], False)
+    assert stub_web.requested == ["https://example.com/start"]
 
 
 @pytest.mark.parametrize(
@@ -162,9 +164,10 @@ def test_web_fetch_tool_never_requests_a_redirect_to_a_blocked_domain(
     stub_web.redirect("https://example.com/start", hop)
     stub_web.page(hop, "<h1>Final</h1>")
 
-    res = web_fetch_tool(blocked_domains=["blocked.com"]).execute(url="https://example.com/start")
+    with pytest.raises(ValueError, match="blocked_domains"):
+        web_fetch_tool(blocked_domains=["blocked.com"]).execute(url="https://example.com/start")
 
-    assert (stub_web.requested, "# Final" in res) == (["https://example.com/start"], False)
+    assert stub_web.requested == ["https://example.com/start"]
 
 
 @pytest.mark.parametrize(
@@ -212,3 +215,59 @@ def test_web_fetch_tool_blocks_dns_rebinding() -> None:
     with patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", ("10.0.0.1", 443))]):
         with pytest.raises(SSRFBlockedError):
             tool.execute(url="https://example.com/sensitive")
+
+
+def test_web_fetch_tool_non_2xx_raises_tool_failed(stub_web: StubWeb) -> None:
+    """Non-2xx HTTP status raises ToolFailed and is never returned as page text."""
+    from devops_cli.exceptions.ai import ToolFailed
+
+    tool = web_fetch_tool()
+    with pytest.raises(ToolFailed) as exc_info:
+        tool.execute(url="https://example.com/missing")
+
+    assert "404" in str(exc_info.value)
+
+
+def test_web_fetch_tool_connection_failure_raises_tool_failed(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str
+) -> None:
+    """Connection errors raise ToolFailed and are never returned as page text."""
+    import httpx2
+
+    from devops_cli.exceptions.ai import ToolFailed
+
+    def fail_handler(_request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("Connection refused by target host")
+
+    transport = httpx2.MockTransport(fail_handler)
+
+    class FailingClient(httpx2.Client):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**{**kwargs, "transport": transport})
+
+    monkeypatch.setattr(httpx2, "Client", FailingClient)
+
+    tool = web_fetch_tool()
+    with pytest.raises(ToolFailed) as exc_info:
+        tool.execute(url="https://example.com/unreachable")
+
+    assert "Connection refused" in str(exc_info.value)
+
+
+def test_web_fetch_tool_runner_dispatches_tool_failed_and_error(stub_web: StubWeb) -> None:
+    """Runner maps ToolFailed to tool_failed status and SSRFBlockedError to error status."""
+    from devops_cli.ai.agents.runner import _execute_single_tool
+
+    tool = web_fetch_tool()
+
+    # 1. Non-2xx response -> tool_failed
+    status_404, _, res_404 = _execute_single_tool(
+        tool, "web_fetch", {"url": "https://example.com/not_found"}, []
+    )
+    assert (status_404, "404" in str(res_404)) == ("tool_failed", True)
+
+    # 2. SSRF block -> error
+    status_ssrf, _, res_ssrf = _execute_single_tool(
+        tool, "web_fetch", {"url": "http://127.0.0.1:8080/admin"}, []
+    )
+    assert (status_ssrf, "SSRF blocked" in str(res_ssrf)) == ("error", True)

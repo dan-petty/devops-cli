@@ -12,6 +12,8 @@ import urllib.parse
 from functools import partial
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
+import httpx2
+
 if TYPE_CHECKING:
     from devops_cli.ai.agents.tools import Tool
 
@@ -395,8 +397,10 @@ def web_fetch_tool(
             if max_content_length is not None and len(md_text) > max_content_length:
                 return md_text[:max_content_length] + "... (truncated)"
             return md_text
-        except Exception as exc:
-            return f"Error fetching web page {url[:256]}: {str(exc)[:256]}"
+        except httpx2.HTTPError as exc:
+            from devops_cli.exceptions.ai import ToolFailed
+
+            raise ToolFailed(f"Failed to fetch {url[:256]}: {str(exc)[:256]}") from exc
 
     from devops_cli.ai.agents.tools import Tool
 
