@@ -156,6 +156,7 @@ from devops_cli.config.constants import (
     CONST_VSCODE_CLI,
     CONST_VSCODE_DIR_NAME,
     CONST_VSCODE_WORKSPACE_FILE,
+    CONST_WEB_FETCH_CHROME_TAGS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AGENT_NAME,
@@ -599,6 +600,7 @@ __all__ = [
     "CONST_VSCODE_CLI",
     "CONST_VSCODE_DIR_NAME",
     "CONST_VSCODE_WORKSPACE_FILE",
+    "CONST_WEB_FETCH_CHROME_TAGS",
     "DATA_ANALYSIS_DIR",
     "DATA_AUDIT_LOG_PATH",
     "DATA_BENCHMARKS_DIR",

@@ -385,6 +385,7 @@ _PROMPT_BOUNDARY_TAGS: tuple[str, ...] = (
     "instructions",
     "system",
     "prompt",
+    "untrusted_web_page",
 )
 
 
