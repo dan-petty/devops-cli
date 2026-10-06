@@ -224,31 +224,11 @@ def _get_argocd_git_target_revisions(root: Path) -> list[tuple[Path, str]]:
 
 
 def _resolve_argocd_next_revision(root: Path, current_version: str) -> str | None:
-    """Find the next open release branch for Argo CD targetRevisions, raising if none exists."""
+    """Resolve targetRevision for Argo CD manifests to match current_version."""
     git_revisions = _get_argocd_git_target_revisions(root)
     if not git_revisions:
         return None
-
-    from devops_cli.commands.gh import _resolve_repo
-    from devops_cli.core.repo import get_repo_origin_name
-    from devops_cli.roadmap import store as roadmap_store
-    from devops_cli.roadmap.store import GitHubState, parse_release_version
-
-    parsed_cur = parse_release_version(current_version)
-    target_repo = _resolve_repo(get_repo_origin_name(root))
-    store = roadmap_store.get_roadmap_store(target_repo)
-    open_releases = [
-        r for r in store.releases() if r.state == GitHubState.OPEN and r.version > parsed_cur
-    ]
-    if not open_releases:
-        _get("print_error")(
-            f"No open release found above v{current_version} in roadmap store.",
-            prefix=False,
-        )
-        raise typer.Exit(1)
-
-    next_ver = min(open_releases, key=lambda r: r.version).version
-    return f"release/v{next_ver}"
+    return f"release/v{current_version}"
 
 
 def _apply_argocd_target_revisions(root: Path, next_revision: str) -> bool:
@@ -273,7 +253,7 @@ def _apply_argocd_target_revisions(root: Path, next_revision: str) -> bool:
 
 
 def _verify_argocd_target_revisions(repo_root: Path, pyproject_ver: str) -> None:
-    """Verify git targetRevisions under k8s/argocd/ are uniform and point to a version above pyproject.toml."""
+    """Verify git targetRevisions under k8s/argocd/ are uniform and match release/v<pyproject_ver>."""
     revisions = _get_argocd_git_target_revisions(repo_root)
     if not revisions:
         return
@@ -288,28 +268,11 @@ def _verify_argocd_target_revisions(repo_root: Path, pyproject_ver: str) -> None
         raise typer.Exit(1)
 
     rev = next(iter(rev_set))
-    if not rev.startswith("release/v"):
+    expected = f"release/v{pyproject_ver}"
+    if rev != expected:
         _get("print_error")(
-            f"Argo CD git-source targetRevision '{rev}' does not match expected format 'release/v<version>'.",
-            prefix=False,
-        )
-        raise typer.Exit(1)
-
-    from devops_cli.roadmap.store import parse_release_version
-
-    try:
-        rev_ver = parse_release_version(rev.removeprefix("release/v"))
-        cur_ver = parse_release_version(pyproject_ver)
-    except Exception as exc:
-        _get("print_error")(
-            f"Invalid version in Argo CD git-source targetRevision '{rev}': {exc}",
-            prefix=False,
-        )
-        raise typer.Exit(1) from exc
-
-    if rev_ver <= cur_ver:
-        _get("print_error")(
-            f"Argo CD git-source targetRevision '{rev}' (v{rev_ver}) must name a release above pyproject.toml (v{cur_ver}).",
+            f"Version mismatch: Argo CD git-source targetRevision '{rev}' does not match pyproject.toml ({expected}). "
+            f"Run `devops release prepare {pyproject_ver}`.",
             prefix=False,
         )
         raise typer.Exit(1)
@@ -688,7 +651,7 @@ def _update_changelog_header(root: Path, new_version: str, release_date: str | N
         current_notes = _extract_changelog_notes(root, new_version)
         section = _build_changelog_section(root, new_version, today, existing_notes=current_notes)
         pattern = rf"##\s+\[{re.escape(new_version)}\][^\n]*\n(?:(?!^##\s+\[).*\n)*"
-        new_content = re.sub(pattern, section, content, count=1, flags=re.MULTILINE)
+        new_content = re.sub(pattern, lambda _: section, content, count=1, flags=re.MULTILINE)
         write_text_file(changelog_file, new_content)
         return True
 

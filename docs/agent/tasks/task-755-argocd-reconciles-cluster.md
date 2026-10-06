@@ -26,8 +26,8 @@ This deliverable establishes full GitOps reconciliation for the homelab cluster 
   - Added `monitoring/grafana-admin` to the keyring push table with live password adoption, removing hardcoded auto-generated admin passwords from Helm values.
 - **Lifecycle & Release Automation**:
   - `devops k8s deploy-stack` detects when Argo CD manages the cluster, executes secret push, and delegates manifest/Helm reconciliation to Argo CD; `teardown-stack` refuses execution.
-  - `release prepare` and `release cut` automatically rewrite git-source `targetRevision` fields across `k8s/argocd/` to the next open roadmap release, failing safely if no open release exists.
-  - `release check` validates that git targetRevisions under `k8s/argocd/` are uniform and point to a version above `pyproject.toml`.
+  - `release prepare` and `release cut` automatically rewrite git-source `targetRevision` fields across `k8s/argocd/` to match the prepared release version (`release/vX.Y.Z`).
+  - `release check` validates that git targetRevisions under `k8s/argocd/` are uniform and match `release/v<pyproject_ver>`.
 
 ---
 
@@ -55,9 +55,8 @@ This deliverable establishes full GitOps reconciliation for the homelab cluster 
   - Helm upgrade commands carry pinned `--version`.
 - [x] **Release Automation (`tests/test_release.py`)**:
   - `_release_paths(root)` stages `k8s/argocd/`.
-  - `release prepare` rewrites git targetRevisions under `k8s/argocd/` to the next open release branch while preserving chart versions.
-  - `release prepare` exits 1 leaving files untouched when no open release exists above the prepared version.
-  - `release check` validates uniform git targetRevisions advancing past `pyproject.toml`.
+  - `release prepare` rewrites git targetRevisions under `k8s/argocd/` to match the prepared release branch (`release/vX.Y.Z`) while preserving chart versions.
+  - `release check` validates uniform git targetRevisions matching `release/v<pyproject_ver>`.
 - [x] **Documentation & Fragment**:
   - `k8s/README.md` updated with "GitOps" section (bootstrap, recovery, drift commands, replaced hand steps table) and directory structure.
   - Docs regenerated and verified via `devops docs check`.
@@ -83,7 +82,7 @@ This deliverable establishes full GitOps reconciliation for the homelab cluster 
 - [x] `src/devops_cli/k8s/cluster_secrets.py`: Added `monitoring/grafana-admin` to push table.
 - [x] `src/devops_cli/k8s/credentials.py`: Updated Grafana credential sync to use keyring credentials.
 - [x] `src/devops_cli/commands/k8s/stack_lifecycle.py`: Pinned Helm versions, added Argo CD cluster probe, and gated deploy/teardown.
-- [x] `src/devops_cli/commands/release.py`: Added `k8s/argocd/` to release paths, automated targetRevision rewriting to next open release, and enforced checks.
+- [x] `src/devops_cli/commands/release.py`: Added `k8s/argocd/` to release paths, automated targetRevision rewriting to match prepared release, and enforced checks.
 - [x] `k8s/README.md`: Added GitOps section and updated directory tree.
 - [x] `tests/test_k8s_argocd_apps.py`: Added comprehensive Argo CD application test suite.
 - [x] `tests/test_k8s.py`: Added lifecycle probe and version pinning tests.

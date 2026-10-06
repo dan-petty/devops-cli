@@ -7,6 +7,168 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.27] - 2026-10-06
+
+### Added
+- **Kubernetes deployment health diagnosis (`devops k8s doctor`)**:
+  - Add `devops k8s doctor` command and `k8s_doctor` FastMCP tool to diagnose cluster deployment health and correlate symptoms across nodes, pods, and warning events (#408).
+  - Attribute workload symptoms to cluster-level root causes, absorbing resident pods into node findings and identifying stuck PersistentVolume reclaims (#408).
+  - Support `--namespace`, `--context`, `--tail`, `--format table|json|yaml`, and `--dry-run` execution with deterministic ranking and secret masking (#408).
+- **Argo CD GitOps cluster state reconciliation**:
+  - Introduce a two-level root Application topology (`bootstrap` tracking `main` and `cluster` tracking the active release branch) managing 20 leaf Applications (8 raw manifests and 12 multi-source Helm charts) (#755).
+  - Establish `homelab` and `homelab-system` AppProjects with cluster-scoped kind whitelisting and orphaned resource tracking (#755).
+  - Add declarative domain overlays under `k8s/overlays/homelab/` replacing templated overlays and standardizing ingress patching (#755).
+  - Add `monitoring/grafana-admin` secret to keyring push table with live credential adoption (#755).
+- **Sequential pipeline stage context budgeting**:
+  - `MultiAgentPipeline` allocates carried outputs from prior stages newest-first up to `DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS` (4,096 tokens, overridable via `--stage-context-tokens` or constructor), listing older stages that get no budget by name only and appending `ScratchpadBuffer.render_context_summary()` once after carried outputs outside the budget (#859).
+  - `PipelineStepResult` records `context_tokens` (exact token count of carried context sent to the stage) and `context_truncated` (#859).
+- **`devops pr update --dispatch-ci` flag**:
+  - Add `--dispatch-ci` to `devops pr update` to poll the head branch SHA and trigger `ci.yml` via GitHub Actions workflow dispatch after updating branches (#984).
+  - Grant `actions: write` permission exclusively to `update-pull-requests` in `.github/workflows/update-prs.yml` and add architectural invariants gating Actions write permissions across all workflows (#984).
+- **Pinned invariants survive memory summarization, lead every system prompt and recur on a cadence**:
+  - Partition `AgentMemory` with an `invariants` store that survives extractive and LLM summarization as well as `clear()` operations (#985).
+  - Prepend non-negotiable operational rules verbatim at the head of every system prompt, recur compressed reminders on a 3-turn cadence using stdlib `textwrap.shorten`, and seed `devops ai chat` sessions with `DEFAULT_CHAT_INVARIANTS` (#985).
+- **OpenTelemetry tracing for background service and Kubernetes workloads**:
+  - Enable OpenTelemetry export in `k8s/devops/configmap.yaml` targeting the in-cluster collector at `http://otel-collector-opentelemetry-collector.otel.svc.cluster.local:4318` (#1197).
+  - Add egress rule to `k8s/devops/networkpolicy.yaml` (`devops-default-perimeter`) permitting TCP ports 4318 and 4317 to namespace `otel` for all current and future workloads in namespace `devops` (#1197).
+  - Configure `OTEL_SERVICE_NAME: roadmap-service` in `k8s/devops/roadmap-service/deployment.yaml` (#1197).
+  - Instrument `create_service_app` with HTTP request tracing and timing middleware (skipping trace spans on `/healthz`, `/readyz`, `/metrics` probes) and trace batch job executions in `RepoWorker._execute_batch` (#1197).
+- **DevOps Stack in `deploy-stack` & `stack all`**:
+  - Add `"devops"` stack to `devops k8s deploy-stack` and automatically include it in `devops k8s deploy-stack --stack all`, ensuring all in-cluster manifests (`networkpolicy.yaml`, `serviceaccount.yaml`, `configmap.yaml`, `cronjob.yaml`, and `roadmap-service`) and secrets are deployed and kept up to date (#1225).
+  - Pre-register namespace `devops` in `k8s/namespaces.yaml` with `restricted` pod-security standards and ArgoCD Prune=false annotations (#1225).
+  - Add automated rollout restart of `deploy/roadmap-service` in namespace `devops` during stack deployment to apply updated ConfigMap values immediately (#1225).
+  - Update `AGENTS.md` instructions with the architectural requirement that all in-cluster Kubernetes resources must have a managed stack path in `deploy-stack --stack all` (#1225).
+- **GitHub Traffic Metrics & Automated Telemetry Ingestion in Roadmap Service**:
+  - Add GitHub repository traffic and engagement telemetry instruments (`devops_cli_project_traffic_views_total`, `devops_cli_project_traffic_views_uniques_total`, `devops_cli_project_traffic_clones_total`, `devops_cli_project_traffic_clones_uniques_total`, `devops_cli_project_traffic_referrers_total`, `devops_cli_project_traffic_paths_total`, `devops_cli_project_stars_total`, and `devops_cli_project_forks_total`) (#1227).
+  - Implement `record_project_metrics_in_registry` to populate in-memory metrics registry for direct Prometheus scraping via `roadmap-service:8000/metrics` (#1227).
+  - Add scheduled `metrics` job to `DEFAULT_DUE_TABLE` in `roadmap-service` running immediately on startup and every 15 minutes to continuously refresh repository velocity and traffic metrics (#1227).
+  - Add GitHub Traffic & Repository Engagement section with stat and bargauge panels to the `Project & Engineering Velocity` Grafana dashboard (`k8s/monitoring/dashboards/project-metrics.json`) (#1227).
+  - Add traffic and referral summaries to `devops gh metrics` CLI output (#1227).
+- **Dynamic DevOps ConfigMap Generation & Sanitized Template**:
+  - Add `k8s/devops/configmap.example.yaml` template with sanitized placeholder repositories and account name (#1231).
+  - Add `/k8s/devops/configmap.yaml` to `.gitignore` and untrack it from version control to prevent user repos and bot accounts from leaking (#1231).
+  - Add `devops_cli.k8s.configmap` module with `ensure_devops_configmap` and `render_devops_configmap_content` to dynamically materialize and synchronize the cluster ConfigMap from active configuration (`service.repos`, `service.machine_account`, or `k8s.github_account`) (#1231).
+  - Update `devops k8s deploy-stack` and `devops k8s render` to ensure `configmap.yaml` is generated from active settings before applying manifests (#1231).
+- **GitHub & Cloudflare Published Service Status Monitoring**:
+  - Add `devops gh status`, `devops cloudflare service-status`, and unified `devops status` commands to monitor published upstream platform operational status, active incidents, and component health (#1235).
+  - Add Statuspage domain models (`StatuspageSummary`, `StatuspageComponent`, `StatuspageStatus`, `StatuspageIncident`) and telemetry client in `devops_cli.telemetry.service_status` (#1235).
+  - Register `devops_cli_upstream_service_status` and `devops_cli_upstream_component_status` OpenTelemetry/Prometheus instruments, recorded continuously by the metrics adapter in `devops roadmap run` (#1235).
+  - Integrate published service status into Grafana dashboards: stat panel on `ingress-tunnel.json` (Cloudflare Service Status) and dedicated row with GitHub and Cloudflare status panels on `project-metrics.json` (#1235).
+- **Keep issues with open or merged pull requests in active releases**:
+  - Update roadmap store pull request queries (`open_pull_requests`) to index both `OPEN` and `MERGED` states via GitHub GraphQL and in-memory store (#1244).
+  - Add `Event.PR_JOINED` and `Reason.PULL_REQUEST` transitions so items with in-flight or merged pull requests joining a started or cut release are admitted and kept rather than demoted to the backlog (#1244).
+  - Guard release start and descoping rules so items with pull requests remain in the starting release even if `New` or `Blocked`, and are excluded from over-cap descoping victims (#1244).
+
+### Changed
+- **Stack lifecycle and release management delegation**:
+  - Update `devops k8s deploy-stack` to detect Argo CD-managed clusters, run secret push, and delegate manifest and Helm reconciliation to GitOps (#755).
+  - Guard `devops k8s teardown-stack` against manual execution when Argo CD manages the cluster (#755).
+  - Pin Helm release versions across all stack manifests and CLI upgrade commands (#755).
+  - Automate Argo CD git `targetRevision` rewriting to the next open roadmap release during `release prepare` and `release cut` (#755).
+  - Enforce `Prune=false,Delete=false` sync options across all namespaces and persistent volume claims (#755).
+- **Instruction surfaces and agent documentation**:
+  - Remove hardcoded gate counts across documentation surfaces, aligning with unified gated quality gate terminology (#840).
+  - Rescope automatic Copilot review statements to PRs into `main` only, noting monthly token budget rationale (#840).
+  - Update issue template references in `AGENTS.md` to supported templates (`bug_report.yml`, `feature_request.yml`) (#840).
+  - Add `--force` flag to `devops ai agents`, refusing to overwrite existing `AGENTS.md` without `--force` while writing pointer stubs and exiting non-zero (#840).
+  - Remove vestigial `_pointer_stub` helper from `devops_cli.commands.ai` (#840).
+  - Add offline test suite `tests/test_agents_md_claims.py` verifying issue template existence, persona enum consistency, and pointer stub byte equality (#840).
+- **Required CI checks bind merges into release and main**:
+  - Remove deprecated `.github/branch-protection.yml` and clarify help text across `devops gh branch-protection` commands to indicate management of classic branch protection rather than rulesets (#842).
+  - Author ADR 0004 recording the CI verification policy, required check names (`Static Analysis` and `Tests & Coverage`), strict mode, `update-prs.yml` dispatch route, and owner decisions on Copilot reviews (#842).
+  - Add glossary definitions for `Gate`, `Check`, and `Required check` to `CONTEXT.md` (#842).
+- **Dependency updates from closed Dependabot pull requests**:
+  - Bump `fastapi` from 0.141.1 to 0.142.2 (#1201).
+  - Bump `gitpython` from 3.1.62 to 3.2.0 (#1202).
+  - Bump `genai-prices` from 0.1.6 to 0.1.9 (#1200).
+- **Transition from Dependabot to Renovate (`.github/renovate.json`)**:
+  - Replaced `.github/dependabot.yml` with `.github/renovate.json` for GitHub Actions and Docker dependency tracking (#1219).
+  - Disabled automated Python package updates in Renovate to manage `uv` dependencies deliberately as part of project workflow with synchronized `uv.lock`.
+- **Devops Kubernetes services route to qwen3.8:27b on ollama-48gib-slow**:
+  - Update `devops-background` in `k8s/llm/gateway/configmap.yaml` to serve `ollama_chat/qwen3.8:27b` on `http://ollama-48gib-slow.llm.svc.cluster.local:11434` (#1221).
+  - Configure `k8s/devops/configmap.yaml` (`devops-cli-config`) to route default `model`, `tasks.analysis.model`, and `tasks.chat.model` to `devops-background` on the background tier (#1221).
+  - Synchronize gateway routing catalog in `src/devops_cli/k8s/gpu_matrix.py`, workload profiles comments in `k8s/llm/profiles/ollama-profiles.yaml`, documentation in `k8s/README.md`, and Ollama knowledge base (#1221).
+- **GPU Configuration Matrix & Service Aliases Asset Extraction**:
+  - Extract static dictionaries (`profiles`, `provider_service_aliases`, `speed_tier_service_aliases`, and `gateway_routes`) from `src/devops_cli/k8s/gpu_matrix.py` into structured JSON asset `src/devops_cli/k8s/gpu_matrix.json` (#1223).
+  - Eliminate obsolete and vestigial `vllm` references from hardware profiles, service aliases, and CLI filtering options (#1223).
+  - Streamline `src/devops_cli/k8s/gpu_matrix.py` from 845 lines to under 130 lines by loading the JSON asset via cached parser, eliminating iterative dynamic attribute loops (#1223).
+- **Agent instructions for continuous roadmap-service, concurrency guardrails, and health checks**:
+  - Documented in-cluster `roadmap-service` architecture, continuous daemon execution (`devops serve --service`), webhook handling, and autonomous batch jobs (#1236).
+  - Established strict concurrency guardrails prohibiting overlapping manual roadmap mutations (`devops roadmap close --confirm`, `devops roadmap intake --confirm`) while `roadmap-service` is active (#1236).
+  - Provided comprehensive verification and liveness diagnostic procedures (`kubectl` deployment/pod status, HTTP `/readyz` and `/healthz` probes, logs, metrics), credential rotation recovery, and safe offline manual fallback protocols (#1236).
+
+### Removed
+- **Automated PR synchronization workflow (`update-prs.yml`)**:
+  - Removed `.github/workflows/update-prs.yml`, eliminating automated base-branch merges into open pull requests on push events and associated Actions approvals and duplicate CI runs (#1217).
+
+### Fixed
+- **PR monitor fail-closed Copilot review state handling**:
+  - `devops pr monitor` reports Copilot review state as `unread` with `unread_reason` when timeline or review reads fail, rather than reporting `completed` or `idle` (#806).
+  - Treat `unread` Copilot state as not review-ready and keep polling until settle/timeout, reporting the unread reason upon timeout rather than certifying ready (#806).
+  - Include unread Copilot review diagnostics in `failure_reasons` and JSON/YAML structured output (#806).
+- **CI quality gate execution cache tree certification**:
+  - The CI execution cache verifies whole-tree state against deterministic Git and blob fingerprints, removing the legacy file-subset caching path and `--files` CLI parameter (#838).
+  - Compute workspace fingerprint before quality gates execute for full, non-dry runs, certifying after checks pass that the tree did not mutate during the run before saving cache (#838).
+  - Emit a warning and record nothing in the CI cache if the working tree changed during gate execution, preserving existing cache and exiting with the passing verdict (#838).
+  - Treat file arguments or `--files` flags passed to `devops ci` as Click usage errors with exit code 2 and 0 gate executions (#838).
+- **CLI startup imports no telemetry when disabled**:
+  - Set `PYDANTIC_DISABLE_PLUGINS=logfire-plugin` unconditionally at module level before importing `devops_cli` modules, ensuring the Logfire pydantic plugin is disabled across all CLI invocations (#858).
+  - Deleted `logfire.instrument_pydantic()` and decoupled `devops_cli.exceptions` from AI domain exceptions, preventing `pydantic_ai`, `logfire`, and `opentelemetry.sdk` from loading on top-level and subcommand `--help` invocations (#858).
+  - Re-derived timing ceiling test assertions in tree-sitter, context packer, inspection, and fastmcp suites as runaway bounds ($\ge 20\times$ baseline and $\ge 1\text{ s}$) (#858).
+  - Eliminated duplicated coverage step duration in CI pipeline gate summaries and consolidated pytest worker configurations into a single `pyproject.toml` setting (#858).
+- **`skip_rag` parameter propagation in multi-agent pipeline**:
+  - Forward `skip_rag` from `MultiAgentPipeline.run` to `agent.run(...)` and pass `skip_rag=not rag` in `devops ai pipeline` command (#859).
+- **Streamed interactive chat turn history and memory rollback**:
+  - `_stream_interactive_chat_turn` appends the user prompt to `agent.memory` before invoking `client.chat_messages_stream`, ensuring the model receives both prompt and prior conversation history (#874).
+  - Pop trailing user entries from `agent.memory` before falling back to `agent.run` during thinking-only stream turns, and when streamed turns fail or are interrupted with `KeyboardInterrupt`, leaving agent memory as it was (#874).
+- **CI quality gate and subcommand execution under dry-run**:
+  - `devops ci` checks, runners, and subcommands start zero subprocesses and mutate no external state when `--dry-run` is active (#885).
+  - Return dry-run `CheckResult`s carrying `dry_run=True` and render ordered `PlannedRequest` execution plans via `render_request_plan` for single checks and aggregate runs (#885).
+  - Bypass coverage artifact cleanup and prevent saving or clearing gate cache under dry run (#885).
+  - Add planned index run preview to `devops ci coverage --build-index --dry-run` without writing cache files or hashing source trees (#885).
+- **Egress guards refuse cloud metadata in every numeric, NAT64, and provider form**:
+  - Replaced ad-hoc string prefix checks (`startswith("169.254.")`) and partial lists with `pydantic_ai._ssrf` network classifiers and `dnspython` syntax parsing (#897).
+  - Enforced refusal of IPv4 link-local, IPv6 link-local (`fe80::/10`), NAT64 metadata (`64:ff9b::169.254.169.254`), 6to4, Teredo, dword/hex/octal representations, fullwidth dot encodings, and provider internal metadata hostnames (`metadata.google.internal`, `metadata.goog`, AWS/Azure/GCP metadata endpoints) across all egress paths (#897).
+  - Refactored `is_loopback_host` and `is_cloud_metadata_host` to deterministically parse and classify addresses without brittle subset heuristics (#897).
+- **Knowledge base commands, options, and component references accuracy**:
+  - Add static Markdown command argv collector and integrate into `devops docs check` to ensure all command lines and options in knowledge base articles resolve statically (#920).
+  - Synchronize all Python package versions with `pyproject.toml`, remove phantom settings and environment variables (`DEVOPS_CLI_CONFIG_PATH`, `DEVOPS_CLI_LOG_LEVEL`), update default embedding models, and replace legacy numbered gate terminology with unified Gated standards across all 80 bundled knowledge base articles (#920).
+- **Dependabot target branch and taxonomy labels (`.github/dependabot.yml`, `.github/labels.yml`)**:
+  - Target Dependabot to `main` across `github-actions`, `pip`, and `docker` ecosystems without hardcoding release version branches (#1189).
+  - Apply standard taxonomy labels (`type/chore` with `scope/ci`, `scope/cli`, and `scope/infra`) to Dependabot configurations and register missing scopes in `labels.yml` to satisfy `devops gh labels audit` (#1189).
+- **Service image build provenance subject name in `release.yml`**:
+  - Add explicit `subject-name: ghcr.io/${{ github.repository }}/service` to the `Attest Build Provenance` step in `.github/workflows/release.yml`, satisfying the requirement of `actions/attest-build-provenance@v2` when `subject-digest` is provided (#1192).
+- **Domain Templating in `deploy-stack` & Roadmap-Service Ingress**:
+  - Automatically substitute domain placeholders in Kubernetes manifests during `devops k8s deploy-stack` using `resolve_template_domain()`, preventing redeployments from reverting ingress hostnames to `example.com` (#1229).
+  - Add `--domain / -d` support to `devops k8s deploy-stack`, aligning it with `apply` and `render` (#1229).
+  - Update `k8s/devops/roadmap-service/ingress.yaml` to use `pathType: Prefix` on `/webhooks/github` for robust webhook routing (#1229).
+  - Register `roadmap-service` Ingress route in `k8s/ingress/ingress-routes.yaml` for complete coverage under Cloudflare Wildcard Tunnel integration (#1229).
+- **Grafana Dashboard "Value" Ghost Series**:
+  - Filter `{api_base!=""}` on Litellm gateway panels in `k8s/monitoring/dashboards/llm-stack.json` to prevent unrouted metric samples (`{}`) from displaying as `"Value"` in legends (#1235).
+  - Fix legend format placeholders from `{{ node }}` to `{{ instance }}` in CPU and Memory utilization panels in `k8s/monitoring/dashboards/k8s-views-global.json` (#1235).
+- **DevOps CLI Telemetry dashboard command variable covers all registered subcommands**:
+  - Update `$command` template variable in `k8s/monitoring/dashboards/devops-cli.json` (`devops-cli-telemetry`) to a custom variable pre-populated with all 39 registered devops subcommands (#1241).
+  - Prevent subcommands with zero recent Prometheus invocations from being missing from the dropdown filter and repeating subcommand latency breakdown panels (#1241).
+  - Add test coverage in `tests/test_grafana_dashboards.py` verifying that every registered CLI subcommand is covered by the dashboard's template variable options and query (#1241).
+- **Discriminate Kubernetes manifests for Kube-linter and Pluto review scans**:
+  - Filter candidate files in review static scanner pipeline via `_is_scannable_manifest` and `_scan_kubernetes_manifests`, preventing missing/deleted files from triggering scanner `lstat` failures (#1242).
+  - Implement `is_kubernetes_manifest` check verifying `apiVersion` header presence and schema document structure, ensuring generic non-manifest YAML files (workflows, label taxonomies, dependabot configs) are bypassed by Kube-linter and Pluto (#1242).
+- **Security audit fix**:
+  - Upgrade `multidict` from 6.8.0 to 6.9.1 in `uv.lock` resolving vulnerability GHSA-54p9-h82j-f925 (#1242).
+- **Scope roadmap reprioritization pull request queries to avoid full repository enumeration**:
+  - Update `_OPEN_PULL_REQUESTS_QUERY` and `_OpenPullRequestsPayload` to query `openPrs` (`states: [OPEN]`) and `recentPrs` (`states: [MERGED]`, newest first) within a single GraphQL query, preventing single-page `_require_whole` truncation exceptions against repository-wide historical pull requests (#1246).
+  - Retain backwards-compatible `AliasChoices` for `pullRequests` payload mapping in unit test doubles (#1246).
+- **Classify project metrics and upstream status snapshot instruments as gauges**:
+  - Add `InstrumentKind.GAUGE` to `src/devops_cli/telemetry/instruments.py` and route gauge emissions to `tracer.record_gauge(...)` (#1253).
+  - Reclassify point-in-time inventory instruments (`PROJECT_ITEMS_TOTAL`, `PROJECT_COMMITS_TOTAL`, `PROJECT_PRS_TOTAL`, `PROJECT_CI_RUNS_TOTAL`, `PROJECT_RELEASES_TOTAL`, `PROJECT_STARS_TOTAL`, `PROJECT_FORKS_TOTAL`, `PROJECT_TRAFFIC_*`, `UPSTREAM_SERVICE_STATUS`, `UPSTREAM_COMPONENT_STATUS`) from `COUNTER` to `GAUGE`, preventing the OpenTelemetry Collector's `deltatocumulative` processor from monotonically accumulating point-in-time snapshots into vastly inflated metrics on Grafana dashboard `project-metrics.json` (#1253).
+  - Update Panel 5 in `k8s/monitoring/dashboards/project-metrics.json` to compute interval per release by dividing release interval sum by count (#1253).
+  - Update `docs/TELEMETRY.md` and add test coverage in `tests/test_telemetry_instruments.py` for gauge metric recording (#1253).
+
+### Security
+- **Collaborator trigger guard and expression isolation in `update-prs.yml`**:
+  - Restrict the `issue_comment` trigger in `.github/workflows/update-prs.yml` to repository collaborators (`OWNER`, `MEMBER`, `COLLABORATOR`), ensuring unauthorized PR comments produce a skipped job without consuming Actions runner minutes (#754).
+  - Move GitHub Actions expressions (`${{ ... }}`) out of `run:` script bodies into step `env:` variables to eliminate shell injection attack surfaces (#754).
+
 ## [0.2.26] - 2026-10-04
 
 ### Added

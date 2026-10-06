@@ -334,10 +334,8 @@ def test_release_paths_stage_argocd(tmp_path: Path) -> None:
 
 def test_release_prepare_rewrites_argocd_target_revisions(
     sample_project_dir: Path,
-    roadmap_store: InMemoryRoadmapStore,
 ) -> None:
-    roadmap_store.create_release("0.1.9", state=GitHubState.OPEN)
-    app_path = _write_argocd_application(sample_project_dir, git_revision="release/v0.1.8")
+    app_path = _write_argocd_application(sample_project_dir, git_revision="release/v0.1.7")
     with patch("devops_cli.commands.release.DocGenerator.write_all_docs"):
         result = runner.invoke(app, ["prepare", "0.1.8", "--root", str(sample_project_dir)])
     assert result.exit_code == 0
@@ -345,32 +343,15 @@ def test_release_prepare_rewrites_argocd_target_revisions(
     sources = doc["spec"]["sources"]
     assert (sources[0]["targetRevision"], sources[1]["targetRevision"]) == (
         "1.2.3",
-        "release/v0.1.9",
+        "release/v0.1.8",
     )
-
-
-def test_release_prepare_fails_when_no_open_release_above(
-    sample_project_dir: Path,
-    roadmap_store: InMemoryRoadmapStore,
-) -> None:
-    app_path = _write_argocd_application(sample_project_dir, git_revision="release/v0.1.8")
-    original_pyproject = (sample_project_dir / "pyproject.toml").read_text(encoding="utf-8")
-    original_app = app_path.read_text(encoding="utf-8")
-
-    result = runner.invoke(app, ["prepare", "0.1.8", "--root", str(sample_project_dir)])
-    assert (
-        result.exit_code,
-        "No open release found above v0.1.8" in result.output,
-        (sample_project_dir / "pyproject.toml").read_text(encoding="utf-8"),
-        app_path.read_text(encoding="utf-8"),
-    ) == (1, True, original_pyproject, original_app)
 
 
 def test_release_check_fails_on_mismatched_argocd_target_revisions(
     sample_project_dir: Path,
 ) -> None:
-    _write_argocd_application(sample_project_dir, name="app1", git_revision="release/v0.1.8")
-    _write_argocd_application(sample_project_dir, name="app2", git_revision="release/v0.1.9")
+    _write_argocd_application(sample_project_dir, name="app1", git_revision="release/v0.1.7")
+    _write_argocd_application(sample_project_dir, name="app2", git_revision="release/v0.1.8")
     result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--allow-dirty"])
     assert (result.exit_code, "Argo CD git-source targetRevisions mismatch" in result.output) == (
         1,
@@ -378,21 +359,21 @@ def test_release_check_fails_on_mismatched_argocd_target_revisions(
     )
 
 
-def test_release_check_fails_on_argocd_target_revision_not_advancing(
+def test_release_check_fails_on_argocd_target_revision_not_matching_pyproject(
     sample_project_dir: Path,
 ) -> None:
-    _write_argocd_application(sample_project_dir, git_revision="release/v0.1.7")
+    _write_argocd_application(sample_project_dir, git_revision="release/v0.1.6")
     result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--allow-dirty"])
     assert (
         result.exit_code,
-        "must name a release above pyproject.toml" in result.output,
+        "does not match pyproject.toml" in result.output,
     ) == (1, True)
 
 
-def test_release_check_succeeds_with_advancing_argocd_target_revisions(
+def test_release_check_succeeds_with_matching_argocd_target_revisions(
     sample_project_dir: Path,
 ) -> None:
-    _write_argocd_application(sample_project_dir, git_revision="release/v0.1.8")
+    _write_argocd_application(sample_project_dir, git_revision="release/v0.1.7")
     with (
         patch(
             "devops_cli.commands.release.DocGenerator.check_docs",
