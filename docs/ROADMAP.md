@@ -2,52 +2,44 @@
 
 # Roadmap — dan-petty/devops-cli
 
-## Current release: v0.2.26 — Roadmap Closure, Refinement & Automatic Release Cut
+## Current release: v0.2.27 — Binding Quality Gates, Verdict Evidence, Context Budgets & Cluster Doctor
 
-- [x] #406 feat(cli): `devops ci test` selects tests from a coverage index built on demand by `devops ci coverage --build-index` — Status: Done · Priority: P1-High · Value: Medium · Effort: Medium
-- [x] #420 feat(cli): extend the ruff rule set to the correctness families — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #431 fix(security): network references come from url and ip syntax, not identifier-prefix and property-suffix lists — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #548 fix(k8s): pod logs reach loki once and labelled, with alloy as the only shipper (remove fluent-bit) — Status: Done · Priority: P1-High · Value: Medium · Effort: Low
-- [x] #741 feat(k8s): devops-cli runs in the homelab cluster as Jobs, and every cluster Secret is pushed from the keyring, also by deploy-stack (devops k8s push-secrets, devops k8s run-job) — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #742 feat(github): single-entry item intake with duplicate detection and placement (`devops roadmap intake`) — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #743 feat(release): item closure summaries, generated changelog and automatic release cut (`devops roadmap close`) — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #744 feat(ai): item refinement to ready with proposed decisions (`devops roadmap refine`) — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #752 feat(cli): service mode for `devops serve` with github webhooks, a polling tick and per-repo job queues — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #753 feat(release): production service image for scheduled jobs and webhook handlers — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #767 refactor(github): one github session per identity owning token, quota and transport — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #832 refactor(ci): ci installs nothing on the runner, and live bubblewrap tests skip where bwrap is missing — Status: Done · Priority: P1-High · Value: Medium · Effort: Low
-- [x] #843 refactor(ci): github ci runs the gate through `devops ci` from one check table — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #981 feat(roadmap): run the roadmap jobs when they are due (`devops roadmap run`) — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #982 fix(release): one fail-closed release path: cut branch from the remote release tip, `uv.lock` bump, draft flag, required label and milestone — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #1083 feat(k8s): the roadmap service runs in the cluster's devops namespace, reachable from outside only on /webhooks/github — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #1125 fix(github): GraphQL mutations and implicit-POST `gh api` writes get the rate limiter's mutation pacing, decided from the request gh sends — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #1175 fix(telemetry): grafana dashboard projections, rolling averages, and panel queries — Status: Done · Priority: P2-Medium · Value: — · Effort: —
-- [x] #906 Release Epic: v0.2.26 — Roadmap Closure, Refinement & Automatic Release Cut — Status: Done · Priority: — · Value: — · Effort: —
-- [x] #1158 feat(telemetry): enhance grafana dashboards for ai spend, cli telemetry, gpus, and sre services — Status: Done · Priority: — · Value: — · Effort: —
-
-## Planned release: v0.2.27 — Binding Quality Gates, Verdict Evidence, Context Budgets & Cluster Doctor
-
-- [ ] #859 feat(ai): sequential pipeline stages carry a budgeted context, with the scratchpad appended once — Status: Ready · Priority: P0-Critical · Value: Medium · Effort: High
-- [ ] #408 feat(k8s): cluster deployment health diagnosis (`devops k8s doctor`) — Status: Ready · Priority: P1-High · Value: Medium · Effort: High
-- [ ] #754 fix(ci): only collaborators can trigger pr updates with `/update` or `/sync` comments — Status: Ready · Priority: P1-High · Value: High · Effort: Low
-- [ ] #755 feat(k8s): argo cd keeps the homelab cluster at the current release branch, with automated sync, prune and self-heal that never delete data — Status: Ready · Priority: P1-High · Value: High · Effort: High
-- [ ] #806 fix(github): pr monitor reports copilot as idle or completed when its timeline or reviews read fails — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
-- [ ] #838 fix(ci): the gate cache certifies only the tree it checked — Status: Ready · Priority: P1-High · Value: High · Effort: Low
-- [ ] #840 docs(agents): instruction surfaces state only what is true, and `devops ai agents` never overwrites AGENTS.md — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #842 chore(github): required CI checks bind merges into release and main, and ADR 0004 records the verification policy — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #858 fix(cli): cli start-up imports no telemetry when the bridge is off, and timing tests stop asserting host speed — Status: Ready · Priority: P1-High · Value: Medium · Effort: Medium
-- [ ] #874 fix(ai): streamed `devops ai chat` turns send the user's message — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
-- [ ] #885 fix(ci): `devops ci` checks run for real under their own `--dry-run` — Status: Ready · Priority: P1-High · Value: Medium · Effort: Medium
-- [ ] #897 fix(security): egress guards refuse cloud metadata in every numeric, NAT64 and provider form, classified by ipaddress and one maintained library — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #920 fix(ai): the knowledge base names only commands, options and components that exist — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #984 feat(ci): `devops pr update --dispatch-ci` starts ci.yml on each branch it updates, and only update-prs.yml may hold `actions: write` — Status: Ready · Priority: P1-High · Value: — · Effort: —
-- [ ] #985 feat(ai): pinned invariants survive memory summarization, lead every system prompt and recur on a cadence — Status: Ready · Priority: P1-High · Value: — · Effort: —
+- [x] #859 feat(ai): sequential pipeline stages carry a budgeted context, with the scratchpad appended once — Status: Done · Priority: P0-Critical · Value: Medium · Effort: High
+- [x] #408 feat(k8s): cluster deployment health diagnosis (`devops k8s doctor`) — Status: Done · Priority: P1-High · Value: Medium · Effort: High
+- [x] #754 fix(ci): only collaborators can trigger pr updates with `/update` or `/sync` comments — Status: Done · Priority: P1-High · Value: High · Effort: Low
+- [x] #806 fix(github): pr monitor reports copilot as idle or completed when its timeline or reviews read fails — Status: Done · Priority: P1-High · Value: Medium · Effort: Low
+- [x] #838 fix(ci): the gate cache certifies only the tree it checked — Status: Done · Priority: P1-High · Value: High · Effort: Low
+- [x] #840 docs(agents): instruction surfaces state only what is true, and `devops ai agents` never overwrites AGENTS.md — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #842 chore(github): required CI checks bind merges into release and main, and ADR 0004 records the verification policy — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #858 fix(cli): cli start-up imports no telemetry when the bridge is off, and timing tests stop asserting host speed — Status: Done · Priority: P1-High · Value: Medium · Effort: Medium
+- [x] #874 fix(ai): streamed `devops ai chat` turns send the user's message — Status: Done · Priority: P1-High · Value: Medium · Effort: Low
+- [x] #885 fix(ci): `devops ci` checks run for real under their own `--dry-run` — Status: Done · Priority: P1-High · Value: Medium · Effort: Medium
+- [x] #897 fix(security): egress guards refuse cloud metadata in every numeric, NAT64 and provider form, classified by ipaddress and one maintained library — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #920 fix(ai): the knowledge base names only commands, options and components that exist — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #984 feat(ci): `devops pr update --dispatch-ci` starts ci.yml on each branch it updates, and only update-prs.yml may hold `actions: write` — Status: Done · Priority: P1-High · Value: — · Effort: —
+- [x] #985 feat(ai): pinned invariants survive memory summarization, lead every system prompt and recur on a cadence — Status: Done · Priority: P1-High · Value: — · Effort: —
+- [x] #1189 fix(ci): target dependabot updates to main and configure taxonomy labels — Status: Done · Priority: P1-High · Value: — · Effort: —
+- [x] #1192 fix(ci): provide subject-name for service image build provenance attestation in release.yml — Status: Done · Priority: P1-High · Value: — · Effort: —
+- [x] #1197 feat(k8s): enable telemetry for roadmap-service and k8s services — Status: Done · Priority: P2-Medium · Value: High · Effort: Medium
+- [x] #1235 feat(telemetry): monitor GitHub and Cloudflare published service status — Status: Done · Priority: P2-Medium · Value: — · Effort: —
+- [x] #1242 fix(review): discriminate kubernetes manifests for kube-linter and pluto static scans — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Low
 - [x] #907 Release Epic: v0.2.27 — Binding Quality Gates, Verdict Evidence, Context Budgets & Cluster Doctor — Status: Done · Priority: — · Value: — · Effort: —
+- [x] #1209 chore(deps): consolidate Dependabot package updates into release/v0.2.27 — Status: Done · Priority: — · Value: — · Effort: —
+- [x] #1217 chore(ci): remove update-prs workflow — Status: Done · Priority: — · Value: — · Effort: —
+- [x] #1219 chore(deps): switch from dependabot to renovate and manage uv packages in project workflow — Status: Done · Priority: — · Value: — · Effort: —
+- [x] #1221 feat(k8s): devops k8s services use qwen3.8:27b on ollama-48gib-slow — Status: Done · Priority: — · Value: — · Effort: —
+- [x] #1223 refactor(k8s): clean up gpu matrix, eliminate vllm references and extract static json asset — Status: Done · Priority: — · Value: — · Effort: —
+- [x] #1225 feat(k8s): add devops stack to deploy-stack and include in stack all — Status: Done · Priority: — · Value: — · Effort: —
+- [x] #1231 feat(k8s): dynamically generate devops configmap from active config and gitignore — Status: Done · Priority: — · Value: — · Effort: —
+- [x] #1236 docs(ai): update agent instructions with roadmap-service details, concurrency guardrails, and liveness diagnostics — Status: Done · Priority: — · Value: — · Effort: —
+- [x] #1244 feat(roadmap): do not move issues to backlog if they have an open or merged pull request — Status: Done · Priority: — · Value: — · Effort: —
+- [x] #1246 fix(roadmap): scope pull request queries for reprioritization to avoid full repository PR enumeration — Status: Done · Priority: — · Value: — · Effort: —
 
 ## Planned release: v0.2.28 — MCP Tool Safety, Web Fetch Hardening, Alerting & Supply-Chain Truth
 
 - [ ] #519 fix(ui): dashboard refresh races panel mounting and fails the worker — Status: Ready · Priority: P1-High · Value: High · Effort: Low
 - [x] #608 feat(review): order-independent review finding consolidation with a permutation test — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #755 feat(k8s): argo cd keeps the homelab cluster at the current release branch, with automated sync, prune and self-heal that never delete data — Status: Ready · Priority: P1-High · Value: High · Effort: High
 - [ ] #769 refactor(github): read a pull request's checks once, fail-closed, for wait, monitor and readiness — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
 - [ ] #780 fix(security): the async process runner redacts telemetry and kills the process group on timeout — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
 - [ ] #794 fix(k8s): tunnel sync and url setup still overwrite settings they should keep — Status: New · Priority: P1-High · Value: High · Effort: Medium
@@ -257,6 +249,7 @@
 - [ ] #1135 feat(telemetry): traces are stored in tempo on a volume, and grafana and devops-cli read them, linked to logs and profiles — Status: Ready · Priority: P2-Medium · Value: High · Effort: High
 - [ ] #1140 fix(review): a branch review leaves the files it deletes out of persona pages and scanners, and a file a scanner cannot read does not mark the scanner failed — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #1165 fix(config): service clients use only configured urls and never fall back to an unconfigured localhost default — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1241 fix(telemetry): devops-cli dashboard command variable covers all registered subcommands — Status: New · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #409 feat(telemetry): startup dependency ordering for the telemetry stack — Status: New · Priority: P3-Low · Value: Low · Effort: Low
 - [ ] #477 feat(ai): llm gateway tuning cost from real traffic and no-load capacity estimates — Status: New · Priority: P3-Low · Value: Low · Effort: Medium
 - [ ] #479 feat(ai): reasoning budget tuning for the review pool — Status: New · Priority: P3-Low · Value: Low · Effort: Medium
