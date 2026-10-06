@@ -10,6 +10,11 @@ service:
   spec:
     type: ClusterIP
 
+providers:
+  kubernetesIngress:
+    publishedService:
+      enabled: true
+
 ports:
   web:
     forwardedHeaders:

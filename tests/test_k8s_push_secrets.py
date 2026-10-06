@@ -184,6 +184,24 @@ def test_table_holds_this_items_seven_entries_in_five_secrets() -> None:
             None,
             ("deployment/roadmap-service",),
         ),
+        (
+            "monitoring/grafana-admin",
+            "admin-user",
+            "infra",
+            True,
+            None,
+            None,
+            ("deployment/grafana",),
+        ),
+        (
+            "monitoring/grafana-admin",
+            "admin-password",
+            "infra",
+            True,
+            SecretGenerator("urlsafe", 32),
+            "monitoring/grafana admin-password",
+            ("deployment/grafana",),
+        ),
     ]
 
 

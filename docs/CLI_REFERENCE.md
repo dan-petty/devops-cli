@@ -936,6 +936,7 @@ devops k8s teardown-stack [OPTIONS]
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s rbac-audit`
 
@@ -1820,7 +1821,7 @@ devops argo cd gitops watch [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to monitor |
-| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--app-name`, `-a` | `string` | `cluster` | Application name. |
 | `--debounce-ms` | `integer` | `500` | Debounce delay in milliseconds to aggregate rapid modifications |
 | `--interval`, `-i` | `float` | `1.0` | Watch polling interval in seconds |
 | `--max-events` | `integer` | - | Maximum change events to process before exiting |
@@ -1858,7 +1859,7 @@ devops argo cd gitops sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--app-name`, `-a` | `string` | `cluster` | Application name. |
 | `--mode`, `-m` | `string` | `api` | Synchronization trigger mode ('api' or 'webhook') |
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
@@ -1940,7 +1941,7 @@ devops argo cd apps bootstrap-gitops [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--root-app`, `-f` | `path` | `k8s/argocd/apps/root-app.yaml` | Path to root ArgoCD App-of-Apps manifest. |
+| `--root-app`, `-f` | `path` | `k8s/argocd/bootstrap/bootstrap.yaml` | Path to root ArgoCD App-of-Apps manifest. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 
 ### `devops argo workflows`
@@ -2180,7 +2181,7 @@ devops argo gitops watch [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to monitor |
-| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--app-name`, `-a` | `string` | `cluster` | Application name. |
 | `--debounce-ms` | `integer` | `500` | Debounce delay in milliseconds to aggregate rapid modifications |
 | `--interval`, `-i` | `float` | `1.0` | Watch polling interval in seconds |
 | `--max-events` | `integer` | - | Maximum change events to process before exiting |
@@ -2218,7 +2219,7 @@ devops argo gitops sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--app-name`, `-a` | `string` | `cluster` | Application name. |
 | `--mode`, `-m` | `string` | `api` | Synchronization trigger mode ('api' or 'webhook') |
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
@@ -5797,7 +5798,7 @@ devops roadmap intake [OPTIONS]
 
 ### `devops roadmap close`
 
-**Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on chore/cut-vX.Y.Z in the clone at --root, bumps the version, pushes, and opens the release pull request into the default branch. Lists completed items with no changelog fragment. Writes only with --confirm.**
+**Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, pushes, and opens the release pull request into the default branch. Lists completed items with no changelog fragment. Writes only with --confirm.**
 
 ```bash
 devops roadmap close [OPTIONS]
@@ -6077,7 +6078,7 @@ devops pr close [OPTIONS] <number>
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
 Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
-and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
+and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
 body closes exactly one issue, and it adds, modifies or renames that issue's
 docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves CHANGELOG.md and
 docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. Into release/vX.Y.Z,
@@ -7157,7 +7158,7 @@ devops gh pr close [OPTIONS] <number>
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
 Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
-and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
+and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
 body closes exactly one issue, and it adds, modifies or renames that issue's
 docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves CHANGELOG.md and
 docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. Into release/vX.Y.Z,

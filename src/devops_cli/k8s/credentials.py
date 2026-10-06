@@ -516,8 +516,10 @@ def _sync_grafana_credentials(
     save_to_keyring: bool,
     grafana_url: str | None,
 ) -> None:
-    graf_pw = fetch_grafana_password(context=context, save_to_keyring=save_to_keyring)
-    results["grafana"] = graf_pw is not None
+    from devops_cli.config.settings import _keyring_get
+
+    graf_pw = _keyring_get("grafana_password")
+    results["grafana"] = bool(graf_pw)
     effective_url = _resolve_service_url("grafana", grafana_url)
     if not effective_url:
         return

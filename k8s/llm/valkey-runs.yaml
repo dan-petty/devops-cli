@@ -17,6 +17,8 @@ metadata:
   labels:
     app.kubernetes.io/name: valkey-runs
     app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
   accessModes:
     - ReadWriteOnce

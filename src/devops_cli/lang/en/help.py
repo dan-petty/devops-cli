@@ -989,7 +989,7 @@ class RoadmapCommandHelp:
         "completed each open issue a body closes with a closing keyword, commenting what "
         "changed and how it was verified (check runs and the task file's Acceptance Criteria). "
         "Once the release has no open item, one item closed as completed and no release pull "
-        "request, writes docs/ROADMAP.md on chore/cut-vX.Y.Z in the clone at --root, bumps the "
+        "request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the "
         "version, pushes, and opens the release pull request into the default branch. Lists "
         "completed items with no changelog fragment. Writes only with --confirm."
     )

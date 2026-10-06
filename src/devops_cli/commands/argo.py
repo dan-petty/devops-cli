@@ -333,7 +333,7 @@ def cd_apps_bootstrap_gitops(
             "-f",
             help=HELP.argo.app_of_apps_manifest,
         ),
-    ] = Path("k8s/argocd/apps/root-app.yaml"),
+    ] = Path("k8s/argocd/bootstrap/bootstrap.yaml"),
     context: Annotated[
         str | None,
         typer.Option("--context", "-c", help=HELP.options.context),
@@ -861,7 +861,7 @@ def gitops_watch(
     app_name: Annotated[
         str,
         typer.Option("--app-name", "-a", help=HELP.argo.app_name),
-    ] = "root-app",
+    ] = "cluster",
     debounce_ms: Annotated[
         int,
         typer.Option(
@@ -974,7 +974,7 @@ def gitops_sync(
     app_name: Annotated[
         str,
         typer.Option("--app-name", "-a", help=HELP.argo.app_name),
-    ] = "root-app",
+    ] = "cluster",
     mode: Annotated[
         str,
         typer.Option("--mode", "-m", help="Synchronization trigger mode ('api' or 'webhook')"),

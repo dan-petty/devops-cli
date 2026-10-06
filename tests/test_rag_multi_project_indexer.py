@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
@@ -50,6 +51,16 @@ def test_multi_project_indexing(tmp_path: Path) -> None:
 
         def upsert_points(self, collection_name: str, points: list[dict]) -> bool:
             upserted.setdefault(collection_name, []).extend(points)
+            return True
+
+        def delete_points_by_files(
+            self,
+            collection_name: str,
+            file_paths: Sequence[str],
+            *,
+            project_name: str | None = None,
+            wait: bool = False,
+        ) -> bool:
             return True
 
         def delete_points_by_file(

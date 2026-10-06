@@ -1868,13 +1868,13 @@ def test_grounding_blocks_once_and_names_the_cause(body: str, files: object, cau
     assert [cause in blocker for blocker in blockers] == [True], blockers
 
 
-_RELEASE_HEAD = {"ref": "chore/cut-v0.2.25", "sha": "a" * 40, "repo": _REPO}
+_RELEASE_HEAD = {"ref": "release/v0.2.25", "sha": "a" * 40, "repo": _REPO}
 _MAIN_BASE = {"ref": "main", "sha": "b" * 40, "repo": _REPO}
 
 
 @pytest.mark.parametrize("files", [[], _SERVER_ERROR], ids=["files-read", "files-unreadable"])
 def test_grounding_exempts_only_the_release_pr(files: object) -> None:
-    """`chore/cut-vX.Y.Z` from this repository into the default branch delivers a release.
+    """`release/vX.Y.Z` from this repository into the default branch delivers a release.
 
     It is exempt before any lookup, so even a task directory that can't be read doesn't
     block it, and an unread file list is one warning.
@@ -1890,13 +1890,13 @@ def test_grounding_exempts_only_the_release_pr(files: object) -> None:
     [
         {"ref": "feat/x", "sha": "a" * 40, "repo": _REPO},
         {"ref": "release/foo", "sha": "a" * 40, "repo": _REPO},
-        {"ref": "release/v0.2.25", "sha": "a" * 40, "repo": _REPO},
-        {"ref": "chore/cut-v0.2.25", "sha": "a" * 40, "repo": {"full_name": "fork/devops-cli"}},
+        {"ref": "chore/cut-v0.2.25", "sha": "a" * 40, "repo": _REPO},
+        {"ref": "release/v0.2.25", "sha": "a" * 40, "repo": {"full_name": "fork/devops-cli"}},
     ],
-    ids=["topic-branch", "not-a-release-version", "release-branch-into-main", "cut-from-a-fork"],
+    ids=["topic-branch", "not-a-release-version", "chore-branch", "release-from-a-fork"],
 )
 def test_grounding_holds_other_prs_into_the_default_branch(head: dict) -> None:
-    """Only the release PR is exempt; a topic, malformed release, release branch or forked cut is not."""
+    """Only the release PR is exempt; a topic, malformed release, chore branch or forked release is not."""
     blockers = _blockers(_ready_pr(body="", head=head, base=_MAIN_BASE), gh=_grounding_gh([]))
     assert ["closes no issue" in blocker for blocker in blockers] == [True], blockers
 

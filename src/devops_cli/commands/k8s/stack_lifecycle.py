@@ -71,48 +71,56 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "chart": "prometheus-community/prometheus-operator-crds",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-operator-crds-values.yaml"),
+            "version": "32.0.1",
         },
         {
             "name": "argocd",
             "chart": "argo/argo-cd",
             "namespace": "argocd",
             "values": str(DEFAULT_K8S_DIR / "argocd" / "values.yaml"),
+            "version": "10.9.6",
         },
         {
             "name": "k8s-monitoring",
             "chart": "grafana/k8s-monitoring",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml"),
+            "version": "4.5.2",
         },
         {
             "name": "prometheus",
             "chart": "prometheus-community/prometheus",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
+            "version": "29.35.0",
         },
         {
             "name": "grafana",
             "chart": "grafana/grafana",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "grafana-values.yaml"),
+            "version": "10.5.15",
         },
         {
             "name": "dcgm-exporter",
             "chart": "nvidia-dcgm/dcgm-exporter",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "dcgm-exporter-values.yaml"),
+            "version": "4.8.4",
         },
         {
             "name": "otel-collector",
             "chart": "open-telemetry/opentelemetry-collector",
             "namespace": "otel",
             "values": str(DEFAULT_K8S_DIR / "otel" / "values.yaml"),
+            "version": "0.175.0",
         },
         {
             "name": "pyroscope",
             "chart": "grafana/pyroscope",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "pyroscope-values.yaml"),
+            "version": "2.3.1",
         },
     ],
     "llm": [
@@ -121,12 +129,14 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "chart": "open-webui/open-webui",
             "namespace": "llm",
             "values": str(DEFAULT_K8S_DIR / "llm" / "values-open-webui.yaml"),
+            "version": "16.6.0",
         },
         {
             "name": "qdrant",
             "chart": "qdrant/qdrant",
             "namespace": "llm",
             "values": str(DEFAULT_K8S_DIR / "llm" / "values-qdrant.yaml"),
+            "version": "1.19.1",
         },
     ],
     "logging": [
@@ -135,6 +145,7 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "chart": "grafana/loki",
             "namespace": "logging",
             "values": str(DEFAULT_K8S_DIR / "logging" / "loki-values.yaml"),
+            "version": "7.3.0",
         },
     ],
 }
@@ -483,6 +494,12 @@ def _build_helm_upgrade_cmd(
         [
             release["name"],
             release["chart"],
+        ]
+    )
+    if release.get("version"):
+        helm_cmd.extend(["--version", release["version"]])
+    helm_cmd.extend(
+        [
             "--namespace",
             release["namespace"],
             "--values",
@@ -493,6 +510,18 @@ def _build_helm_upgrade_cmd(
     if wait:
         helm_cmd.extend(["--wait", "--timeout", timeout])
     return helm_cmd
+
+
+def _is_cluster_argo_managed(effective_context: str | None = None) -> bool:
+    """Check if the cluster is managed by Argo CD (Application 'cluster' exists in namespace 'argocd')."""
+    cmd = ["kubectl", "-n", "argocd", "get", "application", "cluster"]
+    if effective_context:
+        cmd.extend(["--context", effective_context])
+    proc = runtime._run_cmd(cmd, check=False, capture=True)
+    if proc.returncode != 0:
+        return False
+    out = (proc.stdout or "").strip()
+    return "cluster" in out
 
 
 def _deploy_helm_repos(selected_stacks: Sequence[str]) -> None:
@@ -828,6 +857,17 @@ def deploy_stack(
     # 2. Verify cluster reachability
     _verify_cluster_ready(effective_context)
 
+    if _is_cluster_argo_managed(effective_context):
+        if push_secrets:
+            print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
+            push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
+        print_info(
+            "Argo CD manages the cluster (Application 'cluster' found in namespace 'argocd'). "
+            "Skipping manifest and Helm deployment; see GitOps in k8s/README.md.",
+            prefix=False,
+        )
+        return
+
     kubectl_ctx = ["--context", effective_context] if effective_context else []
     helm_ctx = ["--kube-context", effective_context] if effective_context else []
 
@@ -943,6 +983,7 @@ def teardown_stack(
     context: Annotated[
         str | None, typer.Option("--context", "-c", help=HELP.options.context)
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Uninstall the k8s infrastructure / LLM stack and delete namespaces."""
     effective_context = runtime.resolve_effective_context(context)
@@ -961,7 +1002,7 @@ def teardown_stack(
         )
         all_manifest_deletes.extend([str(p) for p in reversed(_MANIFESTS_BY_STACK.get(s_name, []))])
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s teardown-stack",
             target=str(k8s_dir),
@@ -979,6 +1020,14 @@ def teardown_stack(
 
     if not runtime._cluster_reachable(context=effective_context):
         print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
+        raise typer.Exit(1)
+
+    if _is_cluster_argo_managed(effective_context):
+        print_error(
+            "Argo CD manages the cluster (Application 'cluster' found in namespace 'argocd'). "
+            "Refusing teardown; see GitOps in k8s/README.md.",
+            prefix=False,
+        )
         raise typer.Exit(1)
 
     kubectl_ctx = ["--context", effective_context] if effective_context else []

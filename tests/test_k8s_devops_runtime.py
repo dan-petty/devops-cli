@@ -37,7 +37,17 @@ def _container() -> dict[str, Any]:
 
 
 def test_namespace_is_restricted_and_never_pruned() -> None:
-    namespace = _doc("namespace.yaml")["metadata"]
+    docs = list(
+        yaml.load_all(
+            (K8S_DIR / "namespaces.yaml").read_text(encoding="utf-8"), Loader=yaml.CSafeLoader
+        )
+    )
+    devops_doc = next(
+        d
+        for d in docs
+        if d and d.get("kind") == "Namespace" and d.get("metadata", {}).get("name") == "devops"
+    )
+    namespace = devops_doc["metadata"]
     labels = namespace["labels"]
     assert (
         namespace["name"],

@@ -246,6 +246,22 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         restarts=(Workload("deployment", "roadmap-service"),),
         labels={"app.kubernetes.io/name": "devops-cli"},
     ),
+    ClusterSecret(
+        namespace="monitoring",
+        name="grafana-admin",
+        stack="infra",
+        entries=(
+            SecretEntry("admin-user", LiteralSource("admin")),
+            SecretEntry(
+                "admin-password",
+                KeyringSource("grafana_password", opt.GRAFANA_PASSWORD),
+                generator=SecretGenerator("urlsafe", 32),
+                adopt_from=SecretKeyRef("monitoring", "grafana", "admin-password"),
+            ),
+        ),
+        restarts=(Workload("deployment", "grafana"),),
+        labels={"app.kubernetes.io/name": "grafana"},
+    ),
 )
 
 

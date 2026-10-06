@@ -291,6 +291,125 @@ def test_release_check_fails_when_the_service_image_tag_is_out_of_step(
     )
 
 
+def _write_argocd_application(
+    root: Path,
+    name: str = "test-app",
+    git_revision: str = "release/v0.1.8",
+    chart_revision: str = "1.2.3",
+) -> Path:
+    path = root / "k8s" / "argocd" / "apps" / f"{name}.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = {
+        "apiVersion": "argoproj.io/v1alpha1",
+        "kind": "Application",
+        "metadata": {"name": name, "namespace": "argocd"},
+        "spec": {
+            "project": "default",
+            "sources": [
+                {
+                    "repoURL": "https://charts.example.com",
+                    "chart": "test-chart",
+                    "targetRevision": chart_revision,
+                },
+                {
+                    "repoURL": "https://github.com/dan-petty/devops-cli",
+                    "targetRevision": git_revision,
+                    "path": "k8s/test",
+                },
+            ],
+            "destination": {
+                "server": "https://kubernetes.default.svc",
+                "namespace": "test",
+            },
+        },
+    }
+    path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def test_release_paths_stage_argocd(tmp_path: Path) -> None:
+    _write_argocd_application(tmp_path)
+    assert "k8s/argocd/" in _release_paths(tmp_path)
+
+
+def test_release_prepare_rewrites_argocd_target_revisions(
+    sample_project_dir: Path,
+    roadmap_store: InMemoryRoadmapStore,
+) -> None:
+    roadmap_store.create_release("0.1.9", state=GitHubState.OPEN)
+    app_path = _write_argocd_application(sample_project_dir, git_revision="release/v0.1.8")
+    with patch("devops_cli.commands.release.DocGenerator.write_all_docs"):
+        result = runner.invoke(app, ["prepare", "0.1.8", "--root", str(sample_project_dir)])
+    assert result.exit_code == 0
+    doc = yaml.safe_load(app_path.read_text(encoding="utf-8"))
+    sources = doc["spec"]["sources"]
+    assert (sources[0]["targetRevision"], sources[1]["targetRevision"]) == (
+        "1.2.3",
+        "release/v0.1.9",
+    )
+
+
+def test_release_prepare_fails_when_no_open_release_above(
+    sample_project_dir: Path,
+    roadmap_store: InMemoryRoadmapStore,
+) -> None:
+    app_path = _write_argocd_application(sample_project_dir, git_revision="release/v0.1.8")
+    original_pyproject = (sample_project_dir / "pyproject.toml").read_text(encoding="utf-8")
+    original_app = app_path.read_text(encoding="utf-8")
+
+    result = runner.invoke(app, ["prepare", "0.1.8", "--root", str(sample_project_dir)])
+    assert (
+        result.exit_code,
+        "No open release found above v0.1.8" in result.output,
+        (sample_project_dir / "pyproject.toml").read_text(encoding="utf-8"),
+        app_path.read_text(encoding="utf-8"),
+    ) == (1, True, original_pyproject, original_app)
+
+
+def test_release_check_fails_on_mismatched_argocd_target_revisions(
+    sample_project_dir: Path,
+) -> None:
+    _write_argocd_application(sample_project_dir, name="app1", git_revision="release/v0.1.8")
+    _write_argocd_application(sample_project_dir, name="app2", git_revision="release/v0.1.9")
+    result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--allow-dirty"])
+    assert (result.exit_code, "Argo CD git-source targetRevisions mismatch" in result.output) == (
+        1,
+        True,
+    )
+
+
+def test_release_check_fails_on_argocd_target_revision_not_advancing(
+    sample_project_dir: Path,
+) -> None:
+    _write_argocd_application(sample_project_dir, git_revision="release/v0.1.7")
+    result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--allow-dirty"])
+    assert (
+        result.exit_code,
+        "must name a release above pyproject.toml" in result.output,
+    ) == (1, True)
+
+
+def test_release_check_succeeds_with_advancing_argocd_target_revisions(
+    sample_project_dir: Path,
+) -> None:
+    _write_argocd_application(sample_project_dir, git_revision="release/v0.1.8")
+    with (
+        patch(
+            "devops_cli.commands.release.DocGenerator.check_docs",
+            return_value=(True, []),
+        ),
+        patch("devops_cli.commands.release.run_subprocess") as mock_sub,
+    ):
+        mock_sub.return_value = subprocess.CompletedProcess(
+            args=["uv", "run", "devops", "ci", "run"],
+            returncode=0,
+            stdout="All checks passed!",
+            stderr="",
+        )
+        result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--allow-dirty"])
+    assert result.exit_code == 0
+
+
 def test_release_check_dirty_repo(sample_project_dir: Path) -> None:
     with patch("devops_cli.commands.release._is_git_clean", return_value=False):
         result = runner.invoke(app, ["check", "--root", str(sample_project_dir)])
@@ -363,7 +482,7 @@ def test_release_pr_dry_run(sample_project_dir: Path) -> None:
         assert "create_release_pull_request" in result.output
         assert '"dry_run": true' in result.output
         assert '"draft": true' in result.output.lower()
-        assert "chore/cut-v0.1.8" in result.output
+        assert "release/v0.1.8" in result.output
     finally:
         set_dry_run(False)
 
@@ -1887,8 +2006,8 @@ def test_release_prepare_dirty_tree_rejection(
     status_after = subprocess.run(
         ["git", "status", "--porcelain"], cwd=clone, capture_output=True, text=True
     ).stdout
-    cut_branch = subprocess.run(
-        ["git", "branch", "--list", "chore/cut-v0.2.26"],
+    current_branch = subprocess.run(
+        ["git", "branch", "--show-current"],
         cwd=clone,
         capture_output=True,
         text=True,
@@ -1898,14 +2017,14 @@ def test_release_prepare_dirty_tree_rejection(
         res.exit_code,
         "uncommitted changes" in res.output.lower(),
         status_after == status_before,
-        cut_branch,
-    ) == (1, True, True, "")
+        current_branch,
+    ) == (1, True, True, "feature/my-work")
 
 
 def test_release_cut_pushes_from_remote_release_tip_and_leaves_main_untouched(
     git_release_repo: tuple[Path, Path],
 ) -> None:
-    """Release cut pushes chore/cut-v0.2.26 derived from remote tip without moving main."""
+    """Release cut pushes release/v0.2.26 derived from remote tip without moving main."""
     origin, clone = git_release_repo
     main_before = subprocess.run(
         ["git", "rev-parse", "refs/heads/main"],
@@ -1959,7 +2078,7 @@ def test_release_cut_pushes_from_remote_release_tip_and_leaves_main_untouched(
         text=True,
     ).stdout.strip()
     parent_commit = subprocess.run(
-        ["git", "rev-parse", "refs/heads/chore/cut-v0.2.26^"],
+        ["git", "rev-parse", "refs/heads/release/v0.2.26^"],
         cwd=origin,
         capture_output=True,
         text=True,
@@ -1972,7 +2091,7 @@ def test_release_cut_pushes_from_remote_release_tip_and_leaves_main_untouched(
                 "--no-commit-id",
                 "--name-only",
                 "-r",
-                "refs/heads/chore/cut-v0.2.26",
+                "refs/heads/release/v0.2.26",
             ],
             cwd=origin,
             capture_output=True,
@@ -1988,7 +2107,7 @@ def test_release_cut_pushes_from_remote_release_tip_and_leaves_main_untouched(
     assert (
         res.exit_code,
         main_after == main_before,
-        rel_after == rel_before,
+        rel_after != rel_before,
         parent_commit == rel_before,
         sorted(diff_files),
         len(create_calls),
@@ -2013,7 +2132,7 @@ def test_release_cut_pushes_from_remote_release_tip_and_leaves_main_untouched(
         "--draft" in pr_cmd,
     ) == (
         "main",
-        "chore/cut-v0.2.26",
+        "release/v0.2.26",
         "feat(release): v0.2.26",
         "release",
         "v0.2.26",
@@ -2085,7 +2204,7 @@ def test_release_cut_fails_when_origin_release_branch_absent(
         ["git", "status", "--porcelain"], cwd=clone, capture_output=True, text=True
     ).stdout.strip()
     cut_branch = subprocess.run(
-        ["git", "branch", "--list", "chore/cut-v0.9.99"],
+        ["git", "branch", "--list", "release/v0.9.99"],
         cwd=clone,
         capture_output=True,
         text=True,
@@ -2177,13 +2296,13 @@ def test_release_cut_rebuilds_on_new_remote_tip(
             ],
         )
 
-    parent_commit2 = subprocess.run(
-        ["git", "rev-parse", "refs/heads/chore/cut-v0.2.26^"],
+    current_tip = subprocess.run(
+        ["git", "rev-parse", "refs/heads/release/v0.2.26"],
         cwd=origin,
         capture_output=True,
         text=True,
     ).stdout.strip()
-    assert (res2.exit_code, parent_commit2 == new_tip) == (0, True)
+    assert (res2.exit_code, current_tip == new_tip) == (0, True)
 
 
 def test_release_cut_without_uv_lock(git_release_repo: tuple[Path, Path]) -> None:
@@ -2246,7 +2365,7 @@ def test_release_cut_without_uv_lock(git_release_repo: tuple[Path, Path]) -> Non
                 "--no-commit-id",
                 "--name-only",
                 "-r",
-                "refs/heads/chore/cut-v0.2.26",
+                "refs/heads/release/v0.2.26",
             ],
             cwd=origin,
             capture_output=True,
@@ -2357,7 +2476,7 @@ def test_release_pr_alone_pushes_remote_tip_and_resolves_tip_version(
         res = runner.invoke(app, ["pr", "--version", "0.2.26", "--root", str(clone)])
 
     cut_commit = subprocess.run(
-        ["git", "rev-parse", "refs/heads/chore/cut-v0.2.26"],
+        ["git", "rev-parse", "refs/heads/release/v0.2.26"],
         cwd=origin,
         capture_output=True,
         text=True,
@@ -2388,7 +2507,7 @@ def test_release_pr_help_has_no_push() -> None:
 
 
 def test_release_prepare_and_pr_dry_run_cut_branch(sample_project_dir: Path) -> None:
-    """Dry-run executions output chore/cut-v<version>, base main, and chdir/gh safety."""
+    """Dry-run executions output release/v<version>, base main, and chdir/gh safety."""
     from devops_cli.dry_run import set_dry_run
 
     set_dry_run(True)
@@ -2404,7 +2523,7 @@ def test_release_prepare_and_pr_dry_run_cut_branch(sample_project_dir: Path) -> 
 
     assert (
         res_prep.exit_code,
-        "chore/cut-v0.2.26" in res_prep.output,
+        "release/v0.2.26" in res_prep.output,
         "main" in res_prep.output,
         "feat(release): v0.2.26" in res_prep.output,
         "changelog_fragments" in res_prep.output,
@@ -2412,7 +2531,7 @@ def test_release_prepare_and_pr_dry_run_cut_branch(sample_project_dir: Path) -> 
 
     assert (
         res_pr.exit_code,
-        "chore/cut-v0.2.26" in res_pr.output,
+        "release/v0.2.26" in res_pr.output,
         "main" in res_pr.output,
         "feat(release): v0.2.26" in res_pr.output,
         "changelog_fragments" in res_pr.output,

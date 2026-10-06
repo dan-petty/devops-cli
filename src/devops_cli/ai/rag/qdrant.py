@@ -8,7 +8,7 @@ import threading
 import time
 import urllib.parse
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from qdrant_client import QdrantClient as NativeQdrantClient
@@ -490,40 +490,65 @@ class QdrantClient:
         _DIM_MISMATCH_WARNED_COLLECTIONS.add(name)
         self._dim_mismatch_warned.add(name)
 
+    def delete_points_by_files(
+        self,
+        name: str,
+        file_paths: Sequence[str],
+        *,
+        project_name: str | None = None,
+        wait: bool = False,
+    ) -> bool:
+        """Delete all indexed chunks for multiple file paths in batches, optionally scoped to a project."""
+        if not file_paths:
+            return True
+        success = True
+        batch_size = 100
+        for i in range(0, len(file_paths), batch_size):
+            batch = list(file_paths[i : i + batch_size])
+            match_cond = (
+                qmodels.MatchValue(value=batch[0])
+                if len(batch) == 1
+                else qmodels.MatchAny(any=batch)
+            )
+            must_conditions: list[qmodels.Condition] = [
+                qmodels.FieldCondition(key="file_path", match=match_cond)
+            ]
+            if project_name:
+                must_conditions.append(
+                    qmodels.FieldCondition(
+                        key="project_name",
+                        match=qmodels.MatchValue(value=project_name),
+                    )
+                )
+            file_filter = qmodels.Filter(must=must_conditions)
+
+            def _delete_batch(
+                client: NativeQdrantClient, current_filter: qmodels.Filter = file_filter
+            ) -> Any:
+                return client.delete(
+                    collection_name=name,
+                    points_selector=qmodels.FilterSelector(filter=current_filter),
+                    wait=wait,
+                )
+
+            try:
+                self._execute_with_retry(
+                    _delete_batch,
+                    "delete_points_by_files",
+                    f"{name}, {len(batch)} files, project={project_name}",
+                )
+            except Exception as exc:
+                logger.debug(
+                    "Failed to delete points by files in %s (project: %s): %s",
+                    name,
+                    project_name,
+                    exc,
+                )
+                success = False
+        return success
+
     def delete_points_by_file(
         self, name: str, file_path: str, *, project_name: str | None = None
     ) -> bool:
         """Delete all indexed chunks for a file path, optionally scoped to a project."""
-        must_conditions: list[qmodels.Condition] = [
-            qmodels.FieldCondition(
-                key="file_path",
-                match=qmodels.MatchValue(value=file_path),
-            )
-        ]
-        if project_name:
-            must_conditions.append(
-                qmodels.FieldCondition(
-                    key="project_name",
-                    match=qmodels.MatchValue(value=project_name),
-                )
-            )
-        file_filter = qmodels.Filter(must=must_conditions)
-        try:
-            self._execute_with_retry(
-                lambda c: c.delete(
-                    collection_name=name,
-                    points_selector=qmodels.FilterSelector(filter=file_filter),
-                    wait=True,
-                ),
-                "delete_points_by_file",
-                f"{name}, {file_path}, project={project_name}",
-            )
-            return True
-        except Exception as exc:
-            logger.debug(
-                "Failed to delete points by file for %s (project: %s): %s",
-                file_path,
-                project_name,
-                exc,
-            )
-            return False
+        return self.delete_points_by_files(name, [file_path], project_name=project_name, wait=False)

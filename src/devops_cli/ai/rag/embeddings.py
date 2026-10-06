@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
+    CONST_AI_GATEWAY_PROVIDERS,
     CONST_AIMD_ADDITIVE_INCREASE_STEP,
     CONST_AIMD_MULTIPLICATIVE_DECREASE_FACTOR,
     CONST_AIMD_SUCCESS_THRESHOLD,
@@ -43,6 +44,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_URL,
     DEFAULT_DRY_RUN_EMBEDDING_DIMENSION,
+    DEFAULT_MAX_RETRIES,
     DEFAULT_RAG_EMBEDDING_BACKOFF_BASE_SECONDS,
     DEFAULT_RAG_EMBEDDING_BATCH_SIZE,
     DEFAULT_RAG_EMBEDDING_CACHE_SIZE,
@@ -229,6 +231,42 @@ def _endpoint_failure(endpoint: str, exc: Exception) -> str:
     return ERRORS.rag.embedding_endpoint_error.format(endpoint=endpoint, error=error)
 
 
+def _is_transient_embedding_error(exc: Exception) -> bool:
+    """Check if an exception is a transient network, timeout, or connection reset error."""
+    if isinstance(exc, (httpx2.NetworkError, httpx2.TimeoutException)):
+        return True
+    if isinstance(
+        exc, (ConnectionResetError, ConnectionRefusedError, BrokenPipeError, TimeoutError, OSError)
+    ):
+        return True
+    err_str = str(exc).lower()
+    return any(
+        kw in err_str
+        for kw in (
+            "connection reset",
+            "remote protocol error",
+            "server disconnected",
+            "broken pipe",
+            "connection refused",
+            "timed out",
+            "timeout",
+            "readerror",
+            "connecterror",
+            "errno 104",
+        )
+    )
+
+
+def _compute_retry_delay(attempt: int, res: httpx2.Response | None = None) -> float:
+    """Calculate exponential backoff delay with jitter, respecting Retry-After headers."""
+    if res is not None and res.status_code == 429:
+        retry_after = res.headers.get("retry-after")
+        if retry_after and retry_after.isdigit():
+            return min(30.0, float(retry_after))
+    base = min(10.0, 0.5 * (2 ** (attempt - 1)))
+    return float(base + random.uniform(0.1, 0.5))
+
+
 def _probe_ollama_embed_dimension(client: httpx2.Client, base_url: str, model: str) -> int | None:
     res = client.post(
         f"{base_url}/api/embed",
@@ -302,6 +340,45 @@ class EmbeddingsEngine:
         self._current_batch_size = self._configured_batch_size
         self._consecutive_successes: int = 0
         self._batch_lock = threading.Lock()
+        self._http_client: httpx2.Client | None = None
+        self._http_lock = threading.Lock()
+
+    def _get_http_client(self) -> httpx2.Client:
+        """Return or create a thread-safe persistent HTTP client with connection pooling."""
+        with self._http_lock:
+            if self._http_client is None or self._http_client.is_closed:
+                client_timeout = httpx2.Timeout(max(self.timeout, 30.0), connect=2.0)
+                self._http_client = httpx2.Client(timeout=client_timeout)
+            return self._http_client
+
+    def _reset_http_client(self) -> None:
+        """Reset HTTP client so stale sockets are discarded on connection failures."""
+        with self._http_lock:
+            if self._http_client is not None:
+                try:
+                    self._http_client.close()
+                except Exception:
+                    pass
+                self._http_client = None
+
+    def close(self) -> None:
+        """Close persistent HTTP client connection pool."""
+        self._reset_http_client()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def _is_gateway_provider(self) -> bool:
+        """Check if active AI provider or task is routed via LLM gateway."""
+        provider = self.ai_config.provider.lower()
+        return (
+            provider == CONST_AI_GATEWAY_PROVIDER
+            or provider in CONST_AI_GATEWAY_PROVIDERS
+            or getattr(self.ai_config, "gateway_enabled", False)
+        )
 
     def _init_valkey(self, valkey_client: Any) -> Any:
         """Initialize or assign Valkey client with fast connectivity probe."""
@@ -494,7 +571,7 @@ class EmbeddingsEngine:
         """Dynamically probe active provider to determine the model's actual embedding dimension."""
         provider = self.ai_config.provider.lower()
         api_base = self.ai_config.api_base_url or ""
-        if provider in ("openai", "copilot", CONST_AI_GATEWAY_PROVIDER):
+        if provider in ("openai", "copilot") or self._is_gateway_provider():
             return self._probe_openai_dimension()
         if (
             provider == "ollama"
@@ -534,7 +611,7 @@ class EmbeddingsEngine:
     def _probe_openai_dimension(self) -> int | None:
         """Probe OpenAI-compatible endpoint for actual embedding vector dimension."""
         base_url = self._openai_compatible_base_url().rstrip("/")
-        is_gateway = self.ai_config.provider.lower() == CONST_AI_GATEWAY_PROVIDER
+        is_gateway = self._is_gateway_provider()
         try:
             validate_configured_service_url(
                 base_url,
@@ -584,7 +661,7 @@ class EmbeddingsEngine:
         """Embed with the configured provider; raise EmbeddingsError when none is configured."""
         provider = self.ai_config.provider.lower()
         api_base = self.ai_config.api_base_url or ""
-        if provider in ("openai", "copilot", CONST_AI_GATEWAY_PROVIDER):
+        if provider in ("openai", "copilot") or self._is_gateway_provider():
             return self._embed_openai(prefixed_miss)
         if provider == "ollama" or (not provider and ":11434" in api_base):
             return self._embed_ollama(prefixed_miss)
@@ -782,11 +859,104 @@ class EmbeddingsEngine:
         return [vec for idx in range(len(batches)) for vec in results[idx]]
 
     def _openai_compatible_base_url(self) -> str:
-        """Resolve the embeddings base URL: gateway_url for provider gateway (a gateway task's own
-        api_base_url is folded into it by ``for_task``), otherwise api_base_url or OpenAI."""
-        if self.ai_config.provider.lower() == CONST_AI_GATEWAY_PROVIDER:
-            return self.ai_config.gateway_url or DEFAULT_AI_GATEWAY_URL
+        """Resolve the embeddings base URL: gateway_url for gateway providers, otherwise api_base_url or OpenAI."""
+        if self._is_gateway_provider():
+            return (
+                self.ai_config.gateway_url or self.ai_config.api_base_url or DEFAULT_AI_GATEWAY_URL
+            )
         return self.ai_config.api_base_url or "https://api.openai.com/v1"
+
+    def _resolve_openai_endpoint_and_model(
+        self, base_url: str, is_gateway: bool
+    ) -> tuple[str, str]:
+        endpoint = (
+            f"{base_url}/embeddings" if base_url.endswith("/v1") else f"{base_url}/v1/embeddings"
+        )
+        model = self.model
+        if not is_gateway and model in ("all-minilm", "qwen3-embedding:0.6b"):
+            model = "text-embedding-3-small"
+        return endpoint, model
+
+    def _post_openai_batch_with_retry(
+        self, endpoint: str, headers: dict[str, str], model: str, batch: list[str]
+    ) -> httpx2.Response:
+        """Send one embedding batch request with exponential backoff on transient network errors."""
+        max_retries = max(
+            1, getattr(self.ai_config, "max_retries", DEFAULT_MAX_RETRIES) or DEFAULT_MAX_RETRIES
+        )
+        last_exc: Exception | None = None
+
+        for attempt in range(1, max_retries + 1):
+            client = self._get_http_client()
+            try:
+                res = client.post(endpoint, headers=headers, json={"model": model, "input": batch})
+                if res.status_code in (429, 502, 503, 504) and attempt < max_retries:
+                    delay = _compute_retry_delay(attempt, res)
+                    logger.warning(
+                        "Transient HTTP %d from %s (attempt %d/%d). Retrying in %.2fs...",
+                        res.status_code,
+                        endpoint,
+                        attempt,
+                        max_retries,
+                        delay,
+                    )
+                    time.sleep(delay)
+                    continue
+                return res
+            except Exception as exc:
+                last_exc = exc
+                if not _is_transient_embedding_error(exc) or attempt >= max_retries:
+                    raise
+                self._reset_http_client()
+                if isinstance(exc, (httpx2.TimeoutException, TimeoutError)):
+                    self._apply_aimd_decrease()
+                delay = _compute_retry_delay(attempt)
+                logger.warning(
+                    "Transient network error in embedding %s (attempt %d/%d): %s. Retrying in %.2fs...",
+                    endpoint,
+                    attempt,
+                    max_retries,
+                    exc,
+                    delay,
+                )
+                time.sleep(delay)
+
+        if last_exc:
+            raise last_exc
+        raise EmbeddingsError(f"Failed to post embedding request to {endpoint}")
+
+    def _embed_single_openai_batch(
+        self, endpoint: str, headers: dict[str, str], model: str, batch: list[str]
+    ) -> list[list[float]]:
+        res = self._post_openai_batch_with_retry(endpoint, headers, model, batch)
+        return _reply_vectors(res, endpoint, len(batch), _openai_reply_vectors)
+
+    def _embed_parallel_openai_batches(
+        self,
+        endpoint: str,
+        headers: dict[str, str],
+        model: str,
+        batches: list[list[str]],
+        is_gateway: bool,
+    ) -> list[list[float]]:
+        concurrency = 4
+        if is_gateway:
+            gw_conc = getattr(self.ai_config, "gateway_concurrency", {})
+            concurrency = int(gw_conc.get("embedding", 4) if isinstance(gw_conc, dict) else 4)
+        max_workers = min(len(batches), max(1, min(16, concurrency)))
+        results: dict[int, list[list[float]]] = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(self._embed_single_openai_batch, endpoint, headers, model, b): idx
+                for idx, b in enumerate(batches)
+            }
+            try:
+                for future in as_completed(futures):
+                    results[futures[future]] = future.result()
+            except Exception:
+                executor.shutdown(wait=False, cancel_futures=True)
+                raise
+        return [vec for idx in range(len(batches)) for vec in results[idx]]
 
     def _embed_openai(self, texts: list[str]) -> list[list[float]]:
         """Query the OpenAI-compatible /v1/embeddings API (OpenAI or the LLM gateway).
@@ -794,29 +964,26 @@ class EmbeddingsEngine:
         Raises EmbeddingsError naming the model, the endpoint and the HTTP status or error.
         """
         base_url = self._openai_compatible_base_url().rstrip("/")
-        is_gateway = self.ai_config.provider.lower() == CONST_AI_GATEWAY_PROVIDER
+        is_gateway = self._is_gateway_provider()
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
-        model = self.model
-        # Local Ollama defaults have no OpenAI equivalent; the gateway routes the name as given.
-        if not is_gateway and model in ("all-minilm", "qwen3-embedding:0.6b"):
-            model = "text-embedding-3-small"
-
-        endpoint = (
-            f"{base_url}/embeddings" if base_url.endswith("/v1") else f"{base_url}/v1/embeddings"
-        )
+        endpoint, model = self._resolve_openai_endpoint_and_model(base_url, is_gateway)
         try:
             validate_configured_service_url(
                 base_url,
                 "LLM gateway" if is_gateway else "OpenAI",
                 allow_private=self.ai_config.allow_private_network,
             )
-            client_timeout = httpx2.Timeout(max(self.timeout, 30.0), connect=2.0)
-            with httpx2.Client(timeout=client_timeout) as client:
-                res = client.post(endpoint, headers=headers, json={"model": model, "input": texts})
-            embs = _reply_vectors(res, endpoint, len(texts), _openai_reply_vectors)
+            batch_size = max(DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE, self._current_batch_size)
+            batches = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
+            if len(batches) <= 1:
+                embs = self._embed_single_openai_batch(endpoint, headers, model, texts)
+            else:
+                embs = self._embed_parallel_openai_batches(
+                    endpoint, headers, model, batches, is_gateway
+                )
         except (DevOpsCLIError, httpx2.HTTPError) as exc:
             raise self._embedding_error([_endpoint_failure(endpoint, exc)], model=model) from exc
         if embs:
