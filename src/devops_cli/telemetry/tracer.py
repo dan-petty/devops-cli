@@ -887,6 +887,17 @@ class OTelTelemetryClient:
         }
         self._send_metric(name, unit, "gauge", point)
 
+    def record_gauge(
+        self,
+        name: str,
+        value: float,
+        *,
+        unit: str = CONST_OTEL_METRIC_UNIT_ONE,
+        attributes: dict[str, Any] | None = None,
+    ) -> None:
+        """Emit a gauge data point to OTLP collector asynchronously."""
+        self.record_metric(name, value, unit=unit, attributes=attributes)
+
     @staticmethod
     def _delta_interval() -> dict[str, str]:
         """A delta's interval, ending now. Each is a nanosecond long, so points never overlap."""
@@ -1356,6 +1367,16 @@ def record_metric(
 ) -> None:
     """Convenience function to record a metric data point."""
     get_tracer().record_metric(name, value, unit=unit, attributes=attributes)
+
+
+def record_gauge(
+    name: str,
+    value: float,
+    unit: str = CONST_OTEL_METRIC_UNIT_ONE,
+    attributes: dict[str, Any] | None = None,
+) -> None:
+    """Convenience function to record a gauge metric data point."""
+    get_tracer().record_gauge(name, value, unit=unit, attributes=attributes)
 
 
 def inject_trace_context(headers: dict[str, str] | None = None) -> dict[str, str]:

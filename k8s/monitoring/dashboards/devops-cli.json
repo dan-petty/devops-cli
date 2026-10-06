@@ -814,25 +814,215 @@
           "text": "All",
           "value": "$__all"
         },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "definition": "label_values(devops_cli_command_total, command)",
         "hide": 0,
         "includeAll": true,
         "label": "Command",
         "multi": true,
         "name": "command",
-        "options": [],
-        "query": {
-          "query": "label_values(devops_cli_command_total, command)",
-          "refId": "StandardVariableQuery"
-        },
-        "refresh": 1,
-        "regex": "",
-        "sort": 1,
-        "type": "query"
+        "options": [
+          {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          },
+          {
+            "selected": false,
+            "text": "ai",
+            "value": "ai"
+          },
+          {
+            "selected": false,
+            "text": "argo",
+            "value": "argo"
+          },
+          {
+            "selected": false,
+            "text": "branches",
+            "value": "branches"
+          },
+          {
+            "selected": false,
+            "text": "ci",
+            "value": "ci"
+          },
+          {
+            "selected": false,
+            "text": "cloudflare",
+            "value": "cloudflare"
+          },
+          {
+            "selected": false,
+            "text": "config",
+            "value": "config"
+          },
+          {
+            "selected": false,
+            "text": "dashboard",
+            "value": "dashboard"
+          },
+          {
+            "selected": false,
+            "text": "devcontainer",
+            "value": "devcontainer"
+          },
+          {
+            "selected": false,
+            "text": "docker",
+            "value": "docker"
+          },
+          {
+            "selected": false,
+            "text": "docs",
+            "value": "docs"
+          },
+          {
+            "selected": false,
+            "text": "format",
+            "value": "format"
+          },
+          {
+            "selected": false,
+            "text": "gh",
+            "value": "gh"
+          },
+          {
+            "selected": false,
+            "text": "grafana",
+            "value": "grafana"
+          },
+          {
+            "selected": false,
+            "text": "install-tools",
+            "value": "install-tools"
+          },
+          {
+            "selected": false,
+            "text": "k8s",
+            "value": "k8s"
+          },
+          {
+            "selected": false,
+            "text": "kustomize",
+            "value": "kustomize"
+          },
+          {
+            "selected": false,
+            "text": "lint",
+            "value": "lint"
+          },
+          {
+            "selected": false,
+            "text": "mcp",
+            "value": "mcp"
+          },
+          {
+            "selected": false,
+            "text": "pipeline",
+            "value": "pipeline"
+          },
+          {
+            "selected": false,
+            "text": "pr",
+            "value": "pr"
+          },
+          {
+            "selected": false,
+            "text": "prometheus",
+            "value": "prometheus"
+          },
+          {
+            "selected": false,
+            "text": "release",
+            "value": "release"
+          },
+          {
+            "selected": false,
+            "text": "repos",
+            "value": "repos"
+          },
+          {
+            "selected": false,
+            "text": "review",
+            "value": "review"
+          },
+          {
+            "selected": false,
+            "text": "roadmap",
+            "value": "roadmap"
+          },
+          {
+            "selected": false,
+            "text": "sandbox",
+            "value": "sandbox"
+          },
+          {
+            "selected": false,
+            "text": "scan",
+            "value": "scan"
+          },
+          {
+            "selected": false,
+            "text": "serve",
+            "value": "serve"
+          },
+          {
+            "selected": false,
+            "text": "ssh",
+            "value": "ssh"
+          },
+          {
+            "selected": false,
+            "text": "status",
+            "value": "status"
+          },
+          {
+            "selected": false,
+            "text": "telemetry",
+            "value": "telemetry"
+          },
+          {
+            "selected": false,
+            "text": "test",
+            "value": "test"
+          },
+          {
+            "selected": false,
+            "text": "tf",
+            "value": "tf"
+          },
+          {
+            "selected": false,
+            "text": "tls",
+            "value": "tls"
+          },
+          {
+            "selected": false,
+            "text": "tui",
+            "value": "tui"
+          },
+          {
+            "selected": false,
+            "text": "uv",
+            "value": "uv"
+          },
+          {
+            "selected": false,
+            "text": "valkey",
+            "value": "valkey"
+          },
+          {
+            "selected": false,
+            "text": "vault",
+            "value": "vault"
+          },
+          {
+            "selected": false,
+            "text": "workspace",
+            "value": "workspace"
+          }
+        ],
+        "query": "ai, argo, branches, ci, cloudflare, config, dashboard, devcontainer, docker, docs, format, gh, grafana, install-tools, k8s, kustomize, lint, mcp, pipeline, pr, prometheus, release, repos, review, roadmap, sandbox, scan, serve, ssh, status, telemetry, test, tf, tls, tui, uv, valkey, vault, workspace",
+        "type": "custom"
       }
     ]
   }

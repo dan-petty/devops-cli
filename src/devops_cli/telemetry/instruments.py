@@ -18,6 +18,7 @@ class InstrumentKind(StrEnum):
     """How a metric accumulates."""
 
     COUNTER = "counter"
+    GAUGE = "gauge"
     HISTOGRAM = "histogram"
 
 
@@ -129,31 +130,31 @@ _DAYS = (1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 14.0, 21.0, 30.0, 60.0, 90.0)
 
 PROJECT_RELEASES_TOTAL = Instrument(
     "devops_cli_project_releases_total",
-    InstrumentKind.COUNTER,
+    InstrumentKind.GAUGE,
     "1",
     "Total project releases tracked",
 )
 PROJECT_COMMITS_TOTAL = Instrument(
     "devops_cli_project_commits_total",
-    InstrumentKind.COUNTER,
+    InstrumentKind.GAUGE,
     "1",
     "Project commits count by release",
 )
 PROJECT_PRS_TOTAL = Instrument(
     "devops_cli_project_prs_total",
-    InstrumentKind.COUNTER,
+    InstrumentKind.GAUGE,
     "1",
     "Project pull requests merged by release",
 )
 PROJECT_CI_RUNS_TOTAL = Instrument(
     "devops_cli_project_ci_runs_total",
-    InstrumentKind.COUNTER,
+    InstrumentKind.GAUGE,
     "1",
     "CI workflow runs by name, status and conclusion",
 )
 PROJECT_ITEMS_TOTAL = Instrument(
     "devops_cli_project_items_total",
-    InstrumentKind.COUNTER,
+    InstrumentKind.GAUGE,
     "1",
     "Project items by milestone, type, priority and state",
 )
@@ -166,61 +167,61 @@ PROJECT_RELEASE_INTERVAL_DAYS = Instrument(
 )
 PROJECT_TRAFFIC_VIEWS_TOTAL = Instrument(
     "devops_cli_project_traffic_views_total",
-    InstrumentKind.COUNTER,
+    InstrumentKind.GAUGE,
     "1",
     "GitHub repository total page views count",
 )
 PROJECT_TRAFFIC_VIEWS_UNIQUES_TOTAL = Instrument(
     "devops_cli_project_traffic_views_uniques_total",
-    InstrumentKind.COUNTER,
+    InstrumentKind.GAUGE,
     "1",
     "GitHub repository unique visitors count",
 )
 PROJECT_TRAFFIC_CLONES_TOTAL = Instrument(
     "devops_cli_project_traffic_clones_total",
-    InstrumentKind.COUNTER,
+    InstrumentKind.GAUGE,
     "1",
     "GitHub repository total git clones count",
 )
 PROJECT_TRAFFIC_CLONES_UNIQUES_TOTAL = Instrument(
     "devops_cli_project_traffic_clones_uniques_total",
-    InstrumentKind.COUNTER,
+    InstrumentKind.GAUGE,
     "1",
     "GitHub repository unique cloners count",
 )
 PROJECT_TRAFFIC_REFERRERS_TOTAL = Instrument(
     "devops_cli_project_traffic_referrers_total",
-    InstrumentKind.COUNTER,
+    InstrumentKind.GAUGE,
     "1",
     "GitHub repository traffic referrals count by referrer source",
 )
 PROJECT_TRAFFIC_PATHS_TOTAL = Instrument(
     "devops_cli_project_traffic_paths_total",
-    InstrumentKind.COUNTER,
+    InstrumentKind.GAUGE,
     "1",
     "GitHub repository traffic page views by content path",
 )
 PROJECT_STARS_TOTAL = Instrument(
     "devops_cli_project_stars_total",
-    InstrumentKind.COUNTER,
+    InstrumentKind.GAUGE,
     "1",
     "GitHub repository stargazers count",
 )
 PROJECT_FORKS_TOTAL = Instrument(
     "devops_cli_project_forks_total",
-    InstrumentKind.COUNTER,
+    InstrumentKind.GAUGE,
     "1",
     "GitHub repository forks count",
 )
 UPSTREAM_SERVICE_STATUS = Instrument(
     "devops_cli_upstream_service_status",
-    InstrumentKind.COUNTER,
+    InstrumentKind.GAUGE,
     "1",
     "Upstream cloud service operational status severity code (0=none/operational, 1=minor, 2=major, 3=critical) by service and indicator",
 )
 UPSTREAM_COMPONENT_STATUS = Instrument(
     "devops_cli_upstream_component_status",
-    InstrumentKind.COUNTER,
+    InstrumentKind.GAUGE,
     "1",
     "Upstream cloud service component status code (0=operational, 1=degraded, 2=partial_outage, 3=major_outage) by service and component",
 )
@@ -256,7 +257,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
 
 
 def emit(instrument: Instrument, value: float, attributes: dict[str, Any] | None = None) -> None:
-    """Add to a counter or observe a histogram value."""
+    """Add to a counter, record a gauge, or observe a histogram value."""
     from devops_cli.telemetry.tracer import get_tracer
 
     tracer = get_tracer()
@@ -264,6 +265,8 @@ def emit(instrument: Instrument, value: float, attributes: dict[str, Any] | None
         tracer.increment_counter(
             instrument.name, value, unit=instrument.unit, attributes=attributes
         )
+    elif instrument.kind is InstrumentKind.GAUGE:
+        tracer.record_gauge(instrument.name, value, unit=instrument.unit, attributes=attributes)
     else:
         tracer.record_histogram(
             instrument.name,
