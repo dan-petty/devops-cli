@@ -18,6 +18,7 @@ from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_FALCO_LABEL_SELECTOR,
     DEFAULT_FALCO_NAMESPACE,
+    DEFAULT_K8S_DOCTOR_LOG_TAIL_LINES,
     DEFAULT_K8S_NAMESPACE,
     DEFAULT_SECURITY_STREAM_DURATION_SECONDS,
     DEFAULT_SECURITY_STREAM_TAIL_LINES,
@@ -378,3 +379,120 @@ def security_stream_cmd(
 
     if not json_output and not output:
         render_security_alerts(result)
+
+
+def _render_doctor_table(report: Any) -> None:
+    """Render and print doctor findings in a formatted console table."""
+    from devops_cli.output import TablePayload, print_table
+
+    columns = ["Severity", "Class", "Rule", "Resource", "Cause", "Remediation"]
+    rows = []
+    for f in report.findings:
+        sev_color = "red" if f.severity == "critical" else "yellow"
+        sev_text = f"[{sev_color}]{f.severity}[/{sev_color}]"
+        rows.append(
+            [
+                sev_text,
+                f.class_,
+                f.rule,
+                f.resource,
+                f.cause,
+                f.remediation,
+            ]
+        )
+    payload = TablePayload(
+        title=f"Kubernetes Doctor Findings ({report.context or 'current'})",
+        columns=columns,
+        rows=rows,
+    )
+    print_table(payload)
+
+
+def _handle_doctor_dry_run(
+    namespace: str | None, tail: int, context: str | None, resolved_fmt: str
+) -> None:
+    """Handle dry run request plan output."""
+    from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
+    from devops_cli.dry_run.requests import render_request_plan
+    from devops_cli.k8s.doctor import plan_doctor_requests
+    from devops_cli.models.k8s import DoctorReport
+    from devops_cli.output.serialization import emit_serialized
+
+    requests = plan_doctor_requests(namespace=namespace, tail=tail)
+    report = DoctorReport(
+        context=context or "",
+        counts={},
+        findings=[],
+        errors=[],
+        requests=requests,
+    )
+    if resolved_fmt != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(), resolved_fmt)
+    else:
+        render_request_plan("Planned Kubernetes Doctor API Requests:", requests)
+
+
+def _handle_doctor_output(report: Any, resolved_fmt: str) -> None:
+    """Handle doctor report output formatting."""
+    from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
+    from devops_cli.output.serialization import emit_serialized
+
+    if resolved_fmt != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(), resolved_fmt)
+    elif not report.findings:
+        write_stdout("No problems were found.\n")
+    else:
+        _render_doctor_table(report)
+
+
+def doctor_cmd(
+    namespace: Annotated[
+        str | None,
+        typer.Option("--namespace", "-n", help=HELP.k8s.doctor_namespace),
+    ] = None,
+    context: Annotated[
+        str | None,
+        typer.Option("--context", help=HELP.k8s.doctor_context),
+    ] = None,
+    tail: Annotated[
+        int,
+        typer.Option("--tail", "-t", help=HELP.k8s.doctor_tail),
+    ] = DEFAULT_K8S_DOCTOR_LOG_TAIL_LINES,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.k8s.doctor_format),
+    ] = "table",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations."""
+    from devops_cli.k8s.doctor import get_k8s_client
+    from devops_cli.output.serialization import normalize_format
+
+    resolved_fmt = normalize_format(output_format)
+
+    if dry_run or is_dry_run():
+        _handle_doctor_dry_run(namespace, tail, context, resolved_fmt)
+        return
+
+    try:
+        from devops_cli.k8s.context import resolve_context
+        from devops_cli.k8s.doctor import collect, diagnose
+
+        target_context = resolve_context(context) or ""
+        core = get_k8s_client(context)
+        snapshot = collect(core, namespace=namespace, tail=tail, context=target_context)
+        report = diagnose(snapshot)
+    except Exception as exc:
+        from devops_cli.security.sanitizer import mask_secrets
+
+        safe_err = mask_secrets(str(exc))
+        print_error(safe_err)
+        raise typer.Exit(1) from exc
+
+    _handle_doctor_output(report, resolved_fmt)
+
+    if report.findings:
+        raise typer.Exit(2)

@@ -690,3 +690,23 @@ devops k8s gpu-matrix [OPTIONS]
 | `--aliases`, `-a` | `boolean` | - | Include Kubernetes model service aliases mapping. |
 
 ---
+
+## `devops k8s doctor`
+
+**Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations.**
+
+```bash
+devops k8s doctor [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | - | Target specific Kubernetes namespace (default: all namespaces). |
+| `--context` | `string` | - | Target Kubernetes cluster context (default: resolved context). |
+| `--tail`, `-t` | `integer` | `20` | Number of container log lines to tail per flagged container. |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, or yaml. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---

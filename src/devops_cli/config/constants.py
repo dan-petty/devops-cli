@@ -2698,6 +2698,43 @@ CONST_K8S_SERVICE_HOST_ENV: Final[str] = "KUBERNETES_SERVICE_HOST"
 # What the dashboard banner names when it connects with the pod's service account.
 CONST_K8S_IN_CLUSTER_CONTEXT: Final[str] = "in-cluster"
 
+# ── Kubernetes Doctor Diagnostic Constants ───────────────────────────────────
+CONST_K8S_DOCTOR_EVENT_FIELD_SELECTOR: Final[str] = "type=Warning"
+CONST_K8S_KIND_PERSISTENT_VOLUME: Final[str] = "PersistentVolume"
+CONST_K8S_KIND_NODE: Final[str] = "Node"
+CONST_K8S_KIND_POD: Final[str] = "Pod"
+CONST_K8S_REASON_VOLUME_FAILED_DELETE: Final[str] = "VolumeFailedDelete"
+CONST_K8S_REASON_FAILED_SCHEDULING: Final[str] = "FailedScheduling"
+CONST_K8S_REASON_UNHEALTHY: Final[str] = "Unhealthy"
+CONST_K8S_REASON_IMAGE_PULL_BACKOFF: Final[str] = "ImagePullBackOff"
+CONST_K8S_REASON_ERR_IMAGE_PULL: Final[str] = "ErrImagePull"
+CONST_K8S_REASON_CRASH_LOOP_BACKOFF: Final[str] = "CrashLoopBackOff"
+CONST_K8S_REASON_OOM_KILLED: Final[str] = "OOMKilled"
+CONST_K8S_REASON_ERROR: Final[str] = "Error"
+
+CONST_K8S_DOCTOR_RULE_NODE_NOT_READY: Final[str] = "node-not-ready"
+CONST_K8S_DOCTOR_RULE_NODE_CORDONED: Final[str] = "node-cordoned"
+CONST_K8S_DOCTOR_RULE_VOLUME_RECLAIM_STUCK: Final[str] = "volume-reclaim-stuck"
+CONST_K8S_DOCTOR_RULE_POD_STUCK_TERMINATING: Final[str] = "pod-stuck-terminating"
+CONST_K8S_DOCTOR_RULE_POD_CRASHLOOP: Final[str] = "pod-crashloop"
+CONST_K8S_DOCTOR_RULE_POD_IMAGE_PULL: Final[str] = "pod-image-pull"
+CONST_K8S_DOCTOR_RULE_POD_UNSCHEDULABLE: Final[str] = "pod-unschedulable"
+CONST_K8S_DOCTOR_RULE_POD_NOT_READY: Final[str] = "pod-not-ready"
+CONST_K8S_DOCTOR_RULE_WARNING_EVENTS: Final[str] = "warning-events"
+
+CONST_K8S_DOCTOR_RULES: Final[tuple[str, ...]] = (
+    CONST_K8S_DOCTOR_RULE_NODE_NOT_READY,
+    CONST_K8S_DOCTOR_RULE_NODE_CORDONED,
+    CONST_K8S_DOCTOR_RULE_VOLUME_RECLAIM_STUCK,
+    CONST_K8S_DOCTOR_RULE_POD_STUCK_TERMINATING,
+    CONST_K8S_DOCTOR_RULE_POD_CRASHLOOP,
+    CONST_K8S_DOCTOR_RULE_POD_IMAGE_PULL,
+    CONST_K8S_DOCTOR_RULE_POD_UNSCHEDULABLE,
+    CONST_K8S_DOCTOR_RULE_POD_NOT_READY,
+    CONST_K8S_DOCTOR_RULE_WARNING_EVENTS,
+)
+
+
 # ── Dashboard TUI Domains ────────────────────────────────────────────────────
 # Each domain is one tab of the workstation dashboard, refreshed by its own worker.
 CONST_DASHBOARD_DOMAIN_K8S: Final[str] = "k8s"

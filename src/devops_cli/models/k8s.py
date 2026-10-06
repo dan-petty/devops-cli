@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from devops_cli.config.constants import (
     CONST_FALCO_SEVERITY_LEVELS,
@@ -40,6 +40,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SECURITY_STREAM_DURATION_SECONDS,
     DEFAULT_SECURITY_STREAM_TAIL_LINES,
 )
+from devops_cli.dry_run.requests import PlannedRequest
 
 # =============================================================================
 # Pod Status
@@ -650,3 +651,117 @@ class K8sInformerState(BaseModel):
     last_event_time: str | None = Field(
         default=None, description="Timestamp of latest processed event"
     )
+
+
+class NodeInfo(BaseModel):
+    """Summarized status and metadata for a Kubernetes node."""
+
+    name: str = Field(description="Node name")
+    ready: bool = Field(default=False, description="Whether Ready condition is True")
+    unschedulable: bool = Field(
+        default=False, description="Whether node is cordoned (spec.unschedulable)"
+    )
+    reason: str = Field(default="", description="Reason string from Ready condition")
+    message: str = Field(default="", description="Message from Ready condition")
+    pod_count: int = Field(default=0, description="Count of pods scheduled on this node")
+
+    @classmethod
+    def from_node(cls, node: Any, pod_count: int = 0) -> NodeInfo:
+        """Construct a NodeInfo from a Kubernetes V1Node object."""
+        metadata = getattr(node, "metadata", None)
+        spec = getattr(node, "spec", None)
+        status = getattr(node, "status", None)
+        ready_cond = None
+        for cond in _items(getattr(status, "conditions", None)):
+            if getattr(cond, "type", None) == CONST_K8S_CONDITION_READY:
+                ready_cond = cond
+                break
+        return cls(
+            name=_text(metadata, "name"),
+            ready=node_is_ready(node),
+            unschedulable=bool(getattr(spec, "unschedulable", False)),
+            reason=_text(ready_cond, "reason"),
+            message=_text(ready_cond, "message"),
+            pod_count=pod_count,
+        )
+
+
+class ClusterEventInfo(BaseModel):
+    """A cluster-wide or namespaced Kubernetes event with involved object reference."""
+
+    type: str = Field(default="", description="Event type (Normal or Warning)")
+    reason: str = Field(default="", description="Machine-readable event reason")
+    message: str = Field(default="", description="Event description message")
+    count: int = Field(default=1, description="Event occurrence count")
+    last_seen: datetime | None = Field(default=None, description="When the event last occurred")
+    involved_kind: str = Field(
+        default="", description="Kind of the involved object (e.g. Pod, Node, PersistentVolume)"
+    )
+    involved_namespace: str | None = Field(default=None, description="Namespace of involved object")
+    involved_name: str = Field(default="", description="Name of involved object")
+    involved_uid: str | None = Field(default=None, description="UID of involved object")
+
+    @classmethod
+    def from_event(cls, event: Any) -> ClusterEventInfo:
+        """Construct a ClusterEventInfo from a Kubernetes CoreV1Event object."""
+        pod_evt = PodEventInfo.from_event(event)
+        inv = getattr(event, "involved_object", None)
+        return cls(
+            type=pod_evt.type,
+            reason=pod_evt.reason,
+            message=pod_evt.message,
+            count=pod_evt.count,
+            last_seen=pod_evt.last_seen,
+            involved_kind=_text(inv, "kind"),
+            involved_namespace=getattr(inv, "namespace", None) or None,
+            involved_name=_text(inv, "name"),
+            involved_uid=getattr(inv, "uid", None),
+        )
+
+
+class Finding(BaseModel):
+    """A diagnosed Kubernetes cluster or workload finding."""
+
+    rule: str = Field(description="Rule identifier, e.g. node-not-ready")
+    severity: Literal["critical", "warning"] = Field(description="Severity: critical or warning")
+    class_: Literal["cluster", "workload"] = Field(
+        alias="class", description="Finding class: cluster or workload"
+    )
+    resource: str = Field(
+        description="Target resource identifier, e.g. Node/node-1 or Pod/default/api-0"
+    )
+    cause: str = Field(description="Likely cause of the issue")
+    evidence: list[str] = Field(
+        default_factory=list, description="Evidence lines supporting the finding"
+    )
+    remediation: str = Field(description="Actionable steps to resolve the issue")
+    affected: list[str] = Field(
+        default_factory=list, description="Resources affected by or absorbed into this finding"
+    )
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    @property
+    def classification(self) -> Literal["cluster", "workload"]:
+        """Alias for class_."""
+        return self.class_
+
+
+class DoctorReport(BaseModel):
+    """Comprehensive diagnosis report produced by `devops k8s doctor`."""
+
+    context: str = Field(default="", description="Active Kubernetes context name")
+    counts: dict[str, int] = Field(
+        default_factory=dict, description="Summary counts of resources scanned"
+    )
+    findings: list[Finding] = Field(
+        default_factory=list, description="Ranked list of diagnosed findings"
+    )
+    errors: list[str] = Field(
+        default_factory=list, description="API errors encountered during diagnosis"
+    )
+    requests: list[PlannedRequest] = Field(
+        default_factory=list, description="Ordered dry-run request plan"
+    )
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
