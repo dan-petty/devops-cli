@@ -8,7 +8,7 @@ This technical reference manual provides a comprehensive, deep-dive architectura
 
 `devops-cli` implements a modern, high-performance, strictly typed Python 3.14+ runtime architecture. Dependencies are strictly categorized into:
 1. **Core Runtime Packages (`dependencies`)**: Production libraries powering the CLI framework, AI multi-agent engine, Kubernetes/Docker controllers, OpenTelemetry tracing, cryptographic engine, and REST services.
-2. **Development & Quality Tooling (`dependency-groups.dev`)**: High-speed testing, coverage validation, static typing, and AST security scanners enforcing the 10-point `devops ci` quality gate.
+2. **Development & Quality Tooling (`dependency-groups.dev`)**: High-speed testing, coverage validation, static typing, and AST security scanners enforcing the `devops ci` quality gate.
 3. **Build Backend (`build-system`)**: Standard PEP 517 build system for reproducible wheel generation via `hatchling`.
 
 ```mermaid
@@ -54,7 +54,7 @@ graph TD
 ### 1. CLI & Terminal Interface
 
 #### `typer` & `click` ([Dedicated Manual](libraries/typer.md))
-- **Pinned Versions**: `typer==0.27.1`, `click==8.4.2`
+- **Pinned Versions**: `typer==0.27.2`, `click==8.5.0`
 - **Ecosystem Role**: Provides declarative CLI application scaffolding, subcommand dispatching, argument/option parsing, shell autocompletion, and type inference.
 - **Codebase Integration**:
   - `devops_cli.core.cli.new_typer`: Factory creating standardized Typer apps with unified formatting, error handlers, and help text from `devops_cli.lang.HELP`.
@@ -71,7 +71,7 @@ app = new_typer(help=HELP.main.app)
 
 @app.command("run")
 def run_command(
-    target: Annotated[str, typer.Argument(help=HELP.options.target)],
+    target: Annotated[str, typer.Argument(help=HELP.options.target_dir)],
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None: ...
 ```
@@ -80,7 +80,7 @@ def run_command(
 - **Pinned Version**: `rich==15.0.0`
 - **Ecosystem Role**: Terminal rendering engine providing colorized output, syntax highlighting, formatted tables, animated spinners, status displays, and progress bars.
 - **Codebase Integration**:
-  - `devops_cli.output`: Centralized console abstractions (`print_table`, `print_banner`, `print_success`, `print_error`, `print_info`, `print_warning`, `print_muted`).
+  - `devops_cli.output`: Centralized console abstractions (`print_table`, `print_success`, `print_error`, `print_info`, `print_warning`, `print_muted`).
   - Diffs and finding locations are rendered in Rich tables using the canonical `filename.ext:n-n` syntax.
 
 ---
@@ -88,26 +88,15 @@ def run_command(
 ### 2. Data Validation, Settings & Secrets
 
 #### `pydantic` (v2) ([Dedicated Manual](libraries/pydantic.md))
-- **Pinned Version**: `pydantic==2.13.4`
+- **Pinned Version**: `pydantic==2.13.5`
 - **Ecosystem Role**: High-performance data validation, parsing, serialization, and JSON Schema generation using compiled Rust core (`pydantic-core`).
 - **Codebase Integration**:
-  - All domain models (`devops_cli.models`), review findings (`Finding`, `ReviewSession`), tool schemas, and AI agent output structures inherit from `BaseModel`.
+  - Domain models (`devops_cli.models`), review findings (`devops_cli.ai.review_schema.Finding`), tool schemas, and AI agent outputs inherit from `BaseModel`.
   - Enforces `Field(default_factory=...)`, strict validation, and seamless conversion to/from dict and JSON.
 
 ```python
 from pydantic import BaseModel, Field
-
-
-class Finding(BaseModel):
-    id: str
-    persona: str
-    severity: str
-    title: str
-    location: str
-    description: str
-    remediation: str | None = None
-    confidence: float | None = None
-    details: dict[str, str] = Field(default_factory=dict)
+from devops_cli.ai.review_schema import Finding
 ```
 
 #### `pydantic-settings` ([Dedicated Manual](libraries/pydantic.md))
@@ -120,7 +109,7 @@ class Finding(BaseModel):
 - **Pinned Version**: `keyring==25.7.0`
 - **Ecosystem Role**: Zero-trust credential security interface integrating with native OS vaults (Secret Service on Linux, Keychain on macOS, Credential Manager on Windows).
 - **Codebase Integration**:
-  - `devops_cli.config.keyring_vault`: Securely retrieves and stores GitHub Personal Access Tokens, LLM API keys, and sensitive credentials without storing plaintext in files or environment variables.
+  - `devops_cli.config.settings` (keyring helpers) and `devops_cli.security.secrets` (provider chain): Securely retrieves and stores GitHub Personal Access Tokens, LLM API keys, and sensitive credentials without storing plaintext in files or environment variables.
 
 ---
 
@@ -136,7 +125,7 @@ class Finding(BaseModel):
 ```python
 from devops_cli.ai.agents import PydanticAgent, AgentTool, MCPToolset
 
-async with MCPToolset(server_url="http://localhost:8000/sse") as mcp:
+async with MCPToolset(url="http://localhost:8000/sse") as mcp:
     agent = PydanticAgent(
         name="DevSecOps",
         model="claude-3-5-sonnet",
@@ -146,10 +135,10 @@ async with MCPToolset(server_url="http://localhost:8000/sse") as mcp:
 ```
 
 #### `httpx2` (Pydantic HTTP/2 Client) ([Dedicated Manual](libraries/httpx2.md))
-- **Pinned Version**: `httpx2==2.9.0`
+- **Pinned Version**: `httpx2==2.13.0`
 - **Ecosystem Role**: Advanced HTTP/2 and HTTP/1.1 client supporting connection pooling, asynchronous streaming, mTLS, and multiplexed requests.
 - **Codebase Integration**:
-  - `devops_cli.ai.llm.client.UnifiedLLMClient`: Executes high-throughput streaming requests to LLM inference endpoints (Ollama, Anthropic, OpenAI, Azure) with bounded timeouts and TLS verification.
+  - `devops_cli.ai.client.unified.LLMClient`: Executes high-throughput streaming requests to LLM inference endpoints (Ollama, Claude, OpenAI-compatible, Copilot, the LLM gateway) with bounded timeouts and TLS verification.
 
 #### `tiktoken` ([Dedicated Manual](libraries/tiktoken.md))
 - **Pinned Version**: `tiktoken==0.14.0`
@@ -161,20 +150,20 @@ async with MCPToolset(server_url="http://localhost:8000/sse") as mcp:
 - **Pinned Version**: `json-repair==0.63.4`
 - **Ecosystem Role**: Resilient JSON parser capable of repairing malformed, unclosed, or truncated JSON responses emitted by LLMs.
 - **Codebase Integration**:
-  - `devops_cli.ai.review.runner` & `devops_cli.ai.agents`: Automatically repairs and parses structured model outputs without crashing when tokens are abruptly truncated.
+  - `devops_cli.ai.response_repair` & `devops_cli.ai.client.structured`: Automatically repairs and parses structured model outputs without crashing when tokens are abruptly truncated.
 
 #### `qdrant-client` ([Dedicated Manual](libraries/qdrant_client.md))
-- **Pinned Version**: `qdrant-client==1.19.0`
+- **Pinned Version**: `qdrant-client==1.19.1`
 - **Ecosystem Role**: Vector database client supporting in-memory, local on-disk storage, and remote server connectivity for dense embeddings.
 - **Codebase Integration**:
-  - `devops_cli.ai.rag.engine`: Manages vector collections, cosine distance indexing, and semantic search retrieval to ground AI code reviews against knowledge base manuals.
+  - `devops_cli.ai.rag.qdrant`, `.indexer` and `.retriever`: Manages vector collections, cosine distance indexing, and semantic search retrieval to ground AI code reviews against knowledge base manuals.
 
 ---
 
 ### 4. Git, GitHub & DevSecOps Subsystems
 
 #### `gitpython` ([Dedicated Manual](libraries/gitpython.md))
-- **Pinned Version**: `gitpython==3.1.60`
+- **Pinned Version**: `gitpython==3.2.0`
 - **Ecosystem Role**: Python interface for interacting with Git repositories, inspecting commits, reading tree objects, and managing tracking branches.
 - **Codebase Integration**:
   - `devops_cli.git`: Retrieves current branch name, diffs (`git.diff`), unstaged files, and commit logs with defensive error handling.
@@ -183,10 +172,10 @@ async with MCPToolset(server_url="http://localhost:8000/sse") as mcp:
 - **Pinned Version**: `PyGithub==2.10.0`
 - **Ecosystem Role**: Full-featured client for the GitHub REST API v3 and GraphQL API.
 - **Codebase Integration**:
-  - `devops_cli.commands.pr`: Fetches PR details, posts review findings as collapsible markdown comments, checks remote CI status, and manages releases.
+  - `devops_cli.github.client`: Fetches PR details and posts review findings through the GitHub REST API.
 
 #### `cryptography` ([Dedicated Manual](libraries/cryptography.md))
-- **Pinned Version**: `cryptography==50.0.1`
+- **Pinned Version**: `cryptography==50.0.2`
 - **Ecosystem Role**: Industry-standard cryptographic library providing X.509 certificate generation, RSA/Ed25519 keypair creation, CSR signing, and TLS encryption.
 - **Codebase Integration**:
   - `devops_cli.crypto.tls_certificates`: Automatically generates root Certificate Authorities, server certificates with SAN (Subject Alternative Names), and exports PEM/CRT bundles.
@@ -196,19 +185,19 @@ async with MCPToolset(server_url="http://localhost:8000/sse") as mcp:
 - **Pinned Version**: `tldextract==5.3.2`
 - **Ecosystem Role**: Accurately separates domain subtotals using the Public Suffix List (PSL).
 - **Codebase Integration**:
-  - `devops_cli.security`: Validates outbound network destinations, preventing Server-Side Request Forgery (SSRF) and ensuring egress safety.
+  - `devops_cli.security.reference_extractor`: Parses hosts from URLs and IP literals referenced in code (never bare words) for threat-intel lookups.
 
 #### `pathspec` ([Dedicated Manual](libraries/pathspec.md))
 - **Pinned Version**: `pathspec==1.1.1`
 - **Ecosystem Role**: Fast pattern matching utility implementing `.gitignore` style globbing rules.
 - **Codebase Integration**:
-  - `devops_cli.ai.diff` & `devops_cli.commands.review`: Excludes build directories (`.venv`, `node_modules`, `dist`, `.data`) and secret files from code review passes.
+  - `devops_cli.core.gitignore` & `devops_cli.core.repo`: compile `.gitignore` patterns with `PathSpec.from_lines("gitignore", ...)` so ignored files are excluded from scans and review passes.
 
 #### `packaging` ([Dedicated Manual](libraries/packaging.md))
 - **Pinned Version**: `packaging==26.3`
 - **Ecosystem Role**: Core packaging utilities for parsing Semantic Versioning (SemVer 2.0.0) and PEP 440 specification rules.
 - **Codebase Integration**:
-  - `devops_cli.commands.release`: Validates version increments (`major`, `minor`, `patch`), ensuring clean bump sequences across `pyproject.toml` and changelogs.
+  - `devops_cli.core.validation`: Validates version strings and specifiers (PEP 440 / SemVer).
 
 ---
 
@@ -227,22 +216,22 @@ async with MCPToolset(server_url="http://localhost:8000/sse") as mcp:
   - `devops_cli.commands.docker`: Collects real-time container CPU/memory statistics, checks container health, and inspects image layers.
 
 #### `fastmcp` ([Dedicated Manual](libraries/fastmcp.md))
-- **Pinned Version**: `fastmcp==3.4.7`
+- **Pinned Version**: `fastmcp==4.0.11`
 - **Ecosystem Role**: High-level Model Context Protocol (MCP) server framework exposing Python functions as standardized tools and prompts.
 - **Codebase Integration**:
-  - `devops_cli.mcp`: Exposes `devops-cli` tools (`review_path`, `k8s_pods`, `tf_plan`, `scan_uv_audit`, `security_intel_package`) to AI assistants via stdio and SSE transports.
+  - `devops_cli.ai.mcp.server`: Exposes `devops-cli` tools (`review_path`, `k8s_pods`, `tf_plan`, `scan_uv_audit`, `security_intel_package`) to AI assistants via stdio and SSE transports.
 
 #### `fastapi` & `uvicorn` ([Dedicated Manual](libraries/fastapi_uvicorn.md))
-- **Pinned Versions**: `fastapi==0.141.1`, `uvicorn==0.52.4`
+- **Pinned Versions**: `fastapi==0.142.2`, `uvicorn==0.53.0`
 - **Ecosystem Role**: Asynchronous web framework and lightning-fast ASGI server for building high-performance REST APIs with auto-generated OpenAPI documentation.
 - **Codebase Integration**:
-  - `devops_cli.service`: Powers `devops serve`, providing REST endpoints for remote automation, health probes (`/healthz`), Prometheus metric scraping (`/metrics`), and tool execution.
+  - `devops_cli.server`: Powers `devops serve`, providing REST endpoints for health probes (`/health`, `/healthz`), Prometheus metrics (`/metrics`), status, workspaces, config and an SSE event stream.
 
 #### `opentelemetry-exporter-otlp-proto-grpc` ([Dedicated Manual](libraries/opentelemetry.md))
 - **Pinned Version**: `opentelemetry-exporter-otlp-proto-grpc==1.44.0`
 - **Ecosystem Role**: OpenTelemetry collector exporter transmitting distributed trace spans over gRPC.
 - **Codebase Integration**:
-  - `devops_cli.telemetry.tracer`: Emits span waterfalls for CLI subcommands, multi-agent review stages, and tool executions to Jaeger (`http://localhost:16686`).
+  - `devops_cli.telemetry.tracer`: Emits span waterfalls for CLI subcommands, multi-agent review stages, and tool executions to Jaeger.
 
 #### `PyYAML` & `jinja2` ([Dedicated Manual](libraries/pyyaml_jinja2.md))
 - **Pinned Versions**: `PyYAML==6.0.3`, `jinja2==3.1.6`
@@ -258,24 +247,24 @@ The development environment leverages modern Python engineering tools managed vi
 
 | Tool | Pinned Version | Quality Gate Role | Execution Command |
 | :--- | :--- | :--- | :--- |
-| **`ruff`** | `0.16.4` | Extreme-speed linter and code formatter checking py314 rules (`E`, `F`, `I`, `N`, `W`, `UP`). | `uv run ruff check .` / `uv run ruff format .` |
+| **`ruff`** | `0.16.8` | Extreme-speed linter and code formatter running the rule families selected in `pyproject.toml` `[tool.ruff.lint]`. | `uv run ruff check .` / `uv run ruff format .` |
 | **`mypy`** | `2.3.1` | Strict static type checker validating 100% type coverage with Pydantic v2 plugin. | `uv run mypy src` |
 | **`pytest`** | `9.1.1` | Comprehensive unit and integration test runner. | `uv run pytest` |
 | **`pytest-asyncio`** | `1.4.0` | Asyncio fixture and test execution plugin for asynchronous tool loops. | Included in pytest suite |
-| **`pytest-mock`** | `3.15.1` | Thin wrapper around standard library `unittest.mock` for clean fixture patching. | Included in pytest suite |
+| **`pytest-mock`** | `3.16.0` | Thin wrapper around standard library `unittest.mock` for clean fixture patching. | Included in pytest suite |
 | **`pytest-cov`** | `7.1.0` | Code coverage measurement enforcing strict $\ge 90\%$ minimum threshold project-wide. | `uv run pytest --cov=src` |
 | **`pytest-xdist`** | `3.8.0` | Multi-core parallel test execution distribution across worker subprocesses. | `uv run pytest -n auto` |
 | **`bandit`** | `1.9.4` | AST-based Python security analyzer detecting insecure patterns (CWE checks). | `uv run bandit -r src/` |
-| **`actionlint-py`** | `1.7.12.24` | GitHub Actions workflow syntax and expression validation engine. | `uv run actionlint` |
+| **`actionlint-py`** | `1.7.12.25` | GitHub Actions workflow syntax and expression validation engine. | `uv run actionlint` |
 | **`pre-commit`** | `4.6.2` | Multi-hook manager orchestrating git commit quality gates. | `uv run pre-commit run --all-files` |
-| **`hatchling`** | `>=1.26.0` | Build backend complying with PEP 517 / PEP 621 for wheel generation. | `uv build` |
+| **`hatchling`** | `>=1.32.4` | Build backend complying with PEP 517 / PEP 621 for wheel generation. | `uv build` |
 
 ---
 
 ## 🔒 Engineering Standards & Integration Principles
 
 1. **Deterministic Version Pinning**: All package versions are strictly pinned with exact versions (`==`) in `pyproject.toml` and verified in `uv.lock` to guarantee reproducible builds across workstations, CI runners, and DevContainers.
-2. **Automated Vulnerability Audits**: The `devops ci` quality gate automatically audits dependencies for known CVEs via `scan_uv_audit` and `pip-audit`.
-3. **Lazy Subsystem Loading**: High-overhead modules (e.g. `fastmcp`, `qdrant-client`, `docker`, `kubernetes`, `fastapi`, `cryptography`) are imported lazily within subcommand execution functions to ensure CLI cold-start latency remains under 80ms.
+2. **Automated Vulnerability Audits**: The `devops ci` quality gate automatically audits dependencies for known CVEs via `uv audit`.
+3. **Lazy Subsystem Loading**: High-overhead modules (e.g. `fastmcp`, `qdrant-client`, `docker`, `kubernetes`, `fastapi`, `cryptography`) are imported lazily within subcommand execution functions to ensure CLI cold-start latency remains low.
 4. **Standard Library Leverage First**: Ad-hoc helper loops or custom workarounds are avoided in favor of standard library modules (`functools`, `itertools`, `pathlib`, `ipaddress`, `urllib.parse`) and established libraries.
 5. **Strict Type Safety**: All external library integrations must provide complete type annotations compatible with `mypy --strict`.

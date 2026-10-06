@@ -775,20 +775,68 @@ def test_service_image_smoke_test_parity() -> None:
     ) == (True, True, True, True)
 
 
-def test_resolve_pytest_worker_count() -> None:
-    """Verify dynamic Pytest xdist worker auto-scaling and clamping."""
-    from devops_cli.commands.ci import _resolve_pytest_worker_count
+def test_pytest_worker_arguments_consistency() -> None:
+    """Verify bare pytest gate row and _build_test_cmd without explicit -n carry no worker args."""
+    from devops_cli.commands.ci import _build_test_cmd, _resolve_pytest_cmd
 
-    with patch("os.cpu_count", return_value=32):
-        w32 = _resolve_pytest_worker_count()
-    with patch("os.cpu_count", return_value=6):
-        w6 = _resolve_pytest_worker_count()
-    with patch("os.cpu_count", return_value=1):
-        w1 = _resolve_pytest_worker_count()
-    with patch("os.cpu_count", return_value=None):
-        wnone = _resolve_pytest_worker_count()
+    gate_cmd = _resolve_pytest_cmd()
+    cli_test_cmd = _build_test_cmd(
+        numprocesses=None,
+        verbose=False,
+        k=None,
+        x=False,
+        targets=None,
+    )
 
-    assert (w32, w6, w1, wnone) == (8, 6, 1, 4)
+    gate_worker_args = [
+        arg
+        for arg in gate_cmd
+        if arg in ("-n", "--numprocesses") or arg.startswith("--maxprocesses")
+    ]
+    cli_worker_args = [
+        arg
+        for arg in cli_test_cmd
+        if arg in ("-n", "--numprocesses") or arg.startswith("--maxprocesses")
+    ]
+
+    assert (gate_worker_args, cli_worker_args) == ([], [])
+
+
+def test_coverage_row_carries_no_duplicated_duration() -> None:
+    """Verify virtual coverage check carries 0.0s duration and does not duplicate test step duration."""
+    from devops_cli.commands.ci import (
+        CheckResult,
+        _assemble_ci_results,
+        get_check_spec,
+    )
+
+    py_res = CheckResult(
+        name="python",
+        display_title="Python Check",
+        passed=True,
+        duration_seconds=0.01,
+    )
+    test_res = CheckResult(
+        name="test",
+        display_title="Pytest Suite",
+        passed=True,
+        duration_seconds=12.5,
+    )
+    test_spec = get_check_spec("test")
+
+    assembled = _assemble_ci_results(
+        py_result=py_res,
+        selected_specs=[test_spec],
+        raw_results=[test_res],
+    )
+
+    cov_res = next(r for r in assembled if r.name == "coverage")
+    total_duration = sum(r.duration_seconds for r in assembled)
+
+    assert (cov_res.duration_seconds, total_duration) == (
+        0.0,
+        py_res.duration_seconds + test_res.duration_seconds,
+    )
 
 
 @pytest.mark.asyncio
@@ -846,17 +894,17 @@ def test_try_save_ci_cache_and_handle_results(tmp_path: Path) -> None:
 
     results = [CheckResult(name="t", display_title="T", passed=True, duration_seconds=1.0)]
     with (
-        patch("devops_cli.ci.cache.compute_workspace_fingerprint", return_value=("fp", "sha", {})),
+        patch("devops_cli.ci.cache.compute_workspace_fingerprint", return_value=("fp", "sha")),
         patch("devops_cli.ci.cache.save_ci_cache") as mock_save,
     ):
-        _try_save_ci_cache(tmp_path, results, None, {"fix": True})
+        _try_save_ci_cache(tmp_path, results, {"fix": True})
         assert mock_save.called
 
     with (
         patch("devops_cli.commands.ci._try_save_ci_cache") as mock_try_save,
         patch("devops_cli.commands.ci.is_dry_run", return_value=False),
     ):
-        _handle_ci_results(results, root=tmp_path, all_files=None, ci_options={})
+        _handle_ci_results(results, root=tmp_path, ci_options={})
         assert mock_try_save.called
 
     fail_results = [CheckResult(name="t", display_title="T", passed=False, duration_seconds=1.0)]
@@ -864,7 +912,7 @@ def test_try_save_ci_cache_and_handle_results(tmp_path: Path) -> None:
         patch("devops_cli.ci.cache.clear_ci_cache") as mock_clear,
         pytest.raises(typer.Exit),
     ):
-        _handle_ci_results(fail_results, root=tmp_path, all_files=None, ci_options={})
+        _handle_ci_results(fail_results, root=tmp_path, ci_options={})
         assert mock_clear.called
 
 
@@ -882,7 +930,7 @@ def test_a_no_cache_run_still_records_its_result(tmp_path: Path) -> None:
         patch("devops_cli.commands.ci._try_save_ci_cache") as mock_save,
         patch("devops_cli.commands.ci.is_dry_run", return_value=False),
     ):
-        _handle_ci_results(results, root=tmp_path, all_files=None, ci_options={})
+        _handle_ci_results(results, root=tmp_path, ci_options={})
     assert mock_save.called
 
 
@@ -891,7 +939,7 @@ def test_a_no_cache_run_does_not_read_an_existing_entry(tmp_path: Path) -> None:
     from devops_cli.commands.ci import _try_fast_cached_ci
 
     with patch("devops_cli.commands.ci._try_get_ci_cache") as mock_get:
-        hit = _try_fast_cached_ci(tmp_path, None, {}, cache=False, force=False)
+        hit = _try_fast_cached_ci(tmp_path, {}, cache=False, force=False)
     assert (hit, mock_get.called) == (False, False)
 
 
@@ -904,7 +952,7 @@ def test_a_dry_run_records_nothing(tmp_path: Path) -> None:
         patch("devops_cli.commands.ci._try_save_ci_cache") as mock_save,
         patch("devops_cli.commands.ci.is_dry_run", return_value=True),
     ):
-        _handle_ci_results(results, root=tmp_path, all_files=None, ci_options={})
+        _handle_ci_results(results, root=tmp_path, ci_options={})
     assert not mock_save.called
 
 
@@ -1104,7 +1152,7 @@ def test_gate_checks_nested_worktree_not_main_checkout(
 
     saved_roots: list[Path] = []
 
-    def record_saved_root(root: Path, *_args: object) -> None:
+    def record_saved_root(root: Path, *_args: object, **_kwargs: object) -> None:
         saved_roots.append(root)
 
     monkeypatch.setattr("devops_cli.core.process.run_subprocess_async", mock_run_async)

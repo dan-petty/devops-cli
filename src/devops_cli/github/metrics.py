@@ -26,10 +26,18 @@ from devops_cli.github.client import GhCliClient
 from devops_cli.telemetry.instruments import (
     PROJECT_CI_RUNS_TOTAL,
     PROJECT_COMMITS_TOTAL,
+    PROJECT_FORKS_TOTAL,
     PROJECT_ITEMS_TOTAL,
     PROJECT_PRS_TOTAL,
     PROJECT_RELEASE_INTERVAL_DAYS,
     PROJECT_RELEASES_TOTAL,
+    PROJECT_STARS_TOTAL,
+    PROJECT_TRAFFIC_CLONES_TOTAL,
+    PROJECT_TRAFFIC_CLONES_UNIQUES_TOTAL,
+    PROJECT_TRAFFIC_PATHS_TOTAL,
+    PROJECT_TRAFFIC_REFERRERS_TOTAL,
+    PROJECT_TRAFFIC_VIEWS_TOTAL,
+    PROJECT_TRAFFIC_VIEWS_UNIQUES_TOTAL,
     emit,
 )
 
@@ -78,6 +86,37 @@ class LabelTaxonomyMetric(BaseModel):
     count: int = 0
 
 
+class TrafficReferrerMetric(BaseModel):
+    """Metrics tracking traffic referral sources."""
+
+    referrer: str
+    count: int = 0
+    uniques: int = 0
+
+
+class TrafficPathMetric(BaseModel):
+    """Metrics tracking popular content paths."""
+
+    path: str
+    title: str = ""
+    count: int = 0
+    uniques: int = 0
+
+
+class TrafficSummaryMetric(BaseModel):
+    """Consolidated GitHub repository traffic and engagement analytics."""
+
+    views_count: int = 0
+    views_uniques: int = 0
+    clones_count: int = 0
+    clones_uniques: int = 0
+    stars: int = 0
+    forks: int = 0
+    open_issues: int = 0
+    referrers: list[TrafficReferrerMetric] = Field(default_factory=list)
+    paths: list[TrafficPathMetric] = Field(default_factory=list)
+
+
 class ProjectMetricsReport(BaseModel):
     """Consolidated project engineering metrics report."""
 
@@ -89,6 +128,7 @@ class ProjectMetricsReport(BaseModel):
     workflow_runs: list[WorkflowRunMetric] = Field(default_factory=list)
     milestones: list[MilestoneMetric] = Field(default_factory=list)
     taxonomy_labels: list[LabelTaxonomyMetric] = Field(default_factory=list)
+    traffic: TrafficSummaryMetric = Field(default_factory=TrafficSummaryMetric)
 
 
 def _parse_tag_datetime(date_str: str) -> datetime.datetime:
@@ -353,6 +393,104 @@ def get_label_taxonomy_metrics(repo: str) -> list[LabelTaxonomyMetric]:
     return metrics
 
 
+def _fetch_traffic_views(client: GhCliClient, repo: str) -> tuple[int, int]:
+    """Fetch total 14-day pageviews count and unique visitors from GitHub traffic API."""
+    try:
+        data = json.loads(client.api(f"repos/{repo}/traffic/views"))
+        if isinstance(data, dict):
+            return int(data.get("count", 0)), int(data.get("uniques", 0))
+    except Exception as err:
+        logger.warning("Failed to query traffic views for %s: %s", repo, err)
+    return 0, 0
+
+
+def _fetch_traffic_clones(client: GhCliClient, repo: str) -> tuple[int, int]:
+    """Fetch total 14-day git clones count and unique cloners from GitHub traffic API."""
+    try:
+        data = json.loads(client.api(f"repos/{repo}/traffic/clones"))
+        if isinstance(data, dict):
+            return int(data.get("count", 0)), int(data.get("uniques", 0))
+    except Exception as err:
+        logger.warning("Failed to query traffic clones for %s: %s", repo, err)
+    return 0, 0
+
+
+def _fetch_traffic_referrers(client: GhCliClient, repo: str) -> list[TrafficReferrerMetric]:
+    """Fetch top referral domains from GitHub traffic API."""
+    try:
+        data = json.loads(client.api(f"repos/{repo}/traffic/popular/referrers"))
+        if isinstance(data, list):
+            return [
+                TrafficReferrerMetric(
+                    referrer=str(item.get("referrer", "")),
+                    count=int(item.get("count", 0)),
+                    uniques=int(item.get("uniques", 0)),
+                )
+                for item in data
+                if isinstance(item, dict) and "referrer" in item
+            ]
+    except Exception as err:
+        logger.warning("Failed to query traffic referrers for %s: %s", repo, err)
+    return []
+
+
+def _fetch_traffic_paths(client: GhCliClient, repo: str) -> list[TrafficPathMetric]:
+    """Fetch top viewed paths from GitHub traffic API."""
+    try:
+        data = json.loads(client.api(f"repos/{repo}/traffic/popular/paths"))
+        if isinstance(data, list):
+            return [
+                TrafficPathMetric(
+                    path=str(item.get("path", "")),
+                    title=str(item.get("title", "")),
+                    count=int(item.get("count", 0)),
+                    uniques=int(item.get("uniques", 0)),
+                )
+                for item in data
+                if isinstance(item, dict) and "path" in item
+            ]
+    except Exception as err:
+        logger.warning("Failed to query popular paths for %s: %s", repo, err)
+    return []
+
+
+def _fetch_repo_metadata(client: GhCliClient, repo: str) -> tuple[int, int, int]:
+    """Fetch repository stars, forks, and open issues count."""
+    try:
+        data = json.loads(client.api(f"repos/{repo}"))
+        if isinstance(data, dict):
+            return (
+                int(data.get("stargazers_count", 0)),
+                int(data.get("forks_count", 0)),
+                int(data.get("open_issues_count", 0)),
+            )
+    except Exception as err:
+        logger.warning("Failed to query repo metadata for %s: %s", repo, err)
+    return 0, 0, 0
+
+
+def get_repository_traffic_metrics(repo: str) -> TrafficSummaryMetric:
+    """Aggregate traffic, engagement, and metadata analytics for a GitHub repository."""
+    client = GhCliClient()
+    views_count, views_uniques = _fetch_traffic_views(client, repo)
+    clones_count, clones_uniques = _fetch_traffic_clones(client, repo)
+    referrers = _fetch_traffic_referrers(client, repo)
+    paths = _fetch_traffic_paths(client, repo)
+    stars, forks, open_issues = _fetch_repo_metadata(client, repo)
+
+    return TrafficSummaryMetric(
+        views_count=views_count,
+        views_uniques=views_uniques,
+        clones_count=clones_count,
+        clones_uniques=clones_uniques,
+        stars=stars,
+        forks=forks,
+        open_issues=open_issues,
+        referrers=referrers,
+        paths=paths,
+    )
+
+
 def collect_project_metrics_report(
     root: Path | None = None,
     repo: str | None = None,
@@ -369,6 +507,7 @@ def collect_project_metrics_report(
     workflow_runs = get_ci_workflow_metrics(target_repo, limit=ci_limit)
     milestones = get_milestone_metrics(target_repo, milestone_filter=milestone_filter)
     taxonomy_labels = get_label_taxonomy_metrics(target_repo)
+    traffic = get_repository_traffic_metrics(target_repo)
 
     interval_sum = sum(r.days_since_prev for r in releases if r.days_since_prev > 0)
     interval_count = sum(1 for r in releases if r.days_since_prev > 0)
@@ -383,12 +522,25 @@ def collect_project_metrics_report(
         workflow_runs=workflow_runs,
         milestones=milestones,
         taxonomy_labels=taxonomy_labels,
+        traffic=traffic,
     )
 
 
 def emit_project_metrics_telemetry(report: ProjectMetricsReport) -> None:
     """Emit project and engineering velocity metrics over OpenTelemetry to Prometheus."""
     emit(PROJECT_RELEASES_TOTAL, float(report.total_releases))
+    emit(PROJECT_TRAFFIC_VIEWS_TOTAL, float(report.traffic.views_count))
+    emit(PROJECT_TRAFFIC_VIEWS_UNIQUES_TOTAL, float(report.traffic.views_uniques))
+    emit(PROJECT_TRAFFIC_CLONES_TOTAL, float(report.traffic.clones_count))
+    emit(PROJECT_TRAFFIC_CLONES_UNIQUES_TOTAL, float(report.traffic.clones_uniques))
+    emit(PROJECT_STARS_TOTAL, float(report.traffic.stars))
+    emit(PROJECT_FORKS_TOTAL, float(report.traffic.forks))
+
+    for ref in report.traffic.referrers:
+        emit(PROJECT_TRAFFIC_REFERRERS_TOTAL, float(ref.count), {"referrer": ref.referrer})
+
+    for p in report.traffic.paths:
+        emit(PROJECT_TRAFFIC_PATHS_TOTAL, float(p.count), {"path": p.path})
 
     for rel in report.releases:
         emit(PROJECT_COMMITS_TOTAL, float(rel.commit_count), {"release": rel.tag})
@@ -425,11 +577,101 @@ def emit_project_metrics_telemetry(report: ProjectMetricsReport) -> None:
         )
 
 
+def _record_releases_and_traffic(
+    reg: Any,
+    report: ProjectMetricsReport,
+) -> None:
+    """Record top-level release and traffic metrics in in-memory registry."""
+    reg.set_gauge(PROJECT_RELEASES_TOTAL.name, float(report.total_releases))
+    reg.set_gauge(PROJECT_TRAFFIC_VIEWS_TOTAL.name, float(report.traffic.views_count))
+    reg.set_gauge(PROJECT_TRAFFIC_VIEWS_UNIQUES_TOTAL.name, float(report.traffic.views_uniques))
+    reg.set_gauge(PROJECT_TRAFFIC_CLONES_TOTAL.name, float(report.traffic.clones_count))
+    reg.set_gauge(PROJECT_TRAFFIC_CLONES_UNIQUES_TOTAL.name, float(report.traffic.clones_uniques))
+    reg.set_gauge(PROJECT_STARS_TOTAL.name, float(report.traffic.stars))
+    reg.set_gauge(PROJECT_FORKS_TOTAL.name, float(report.traffic.forks))
+
+    reg.clear_metric(PROJECT_TRAFFIC_REFERRERS_TOTAL.name)
+    for ref in report.traffic.referrers:
+        reg.set_gauge(
+            PROJECT_TRAFFIC_REFERRERS_TOTAL.name,
+            float(ref.count),
+            {"referrer": ref.referrer},
+        )
+
+    reg.clear_metric(PROJECT_TRAFFIC_PATHS_TOTAL.name)
+    for p in report.traffic.paths:
+        reg.set_gauge(
+            PROJECT_TRAFFIC_PATHS_TOTAL.name,
+            float(p.count),
+            {"path": p.path},
+        )
+
+
+def _record_releases_breakdown(
+    reg: Any,
+    report: ProjectMetricsReport,
+) -> None:
+    """Record commits and PRs per release in in-memory registry."""
+    reg.clear_metric(PROJECT_COMMITS_TOTAL.name)
+    reg.clear_metric(PROJECT_PRS_TOTAL.name)
+    for rel in report.releases:
+        reg.set_gauge(PROJECT_COMMITS_TOTAL.name, float(rel.commit_count), {"release": rel.tag})
+        reg.set_gauge(PROJECT_PRS_TOTAL.name, float(rel.pr_count), {"release": rel.tag})
+
+
+def _record_workflow_and_milestone_metrics(
+    reg: Any,
+    report: ProjectMetricsReport,
+) -> None:
+    """Record CI workflow runs and milestone items in in-memory registry."""
+    reg.clear_metric(PROJECT_CI_RUNS_TOTAL.name)
+    for run in report.workflow_runs:
+        reg.set_gauge(
+            PROJECT_CI_RUNS_TOTAL.name,
+            float(run.passed),
+            {"workflow": run.workflow, "status": "completed", "conclusion": "success"},
+        )
+        reg.set_gauge(
+            PROJECT_CI_RUNS_TOTAL.name,
+            float(run.failed),
+            {"workflow": run.workflow, "status": "completed", "conclusion": "failure"},
+        )
+
+    reg.clear_metric(PROJECT_ITEMS_TOTAL.name)
+    for ms in report.milestones:
+        reg.set_gauge(
+            PROJECT_ITEMS_TOTAL.name,
+            float(ms.open_items),
+            {"milestone": ms.milestone, "state": "open"},
+        )
+        reg.set_gauge(
+            PROJECT_ITEMS_TOTAL.name,
+            float(ms.closed_items),
+            {"milestone": ms.milestone, "state": "closed"},
+        )
+
+
+def record_project_metrics_in_registry(
+    report: ProjectMetricsReport,
+    registry: Any = None,
+) -> None:
+    """Record project and engineering velocity metrics into InMemoryMetricsRegistry for Prometheus scraping."""
+    from devops_cli.telemetry.metrics import GLOBAL_METRICS
+
+    reg = registry if registry is not None else GLOBAL_METRICS
+    _record_releases_and_traffic(reg, report)
+    _record_releases_breakdown(reg, report)
+    _record_workflow_and_milestone_metrics(reg, report)
+
+
 __all__ = [
     "LabelTaxonomyMetric",
     "MilestoneMetric",
     "ProjectMetricsReport",
     "ReleaseCadenceMetric",
+    "TrafficPathMetric",
+    "TrafficReferrerMetric",
+    "TrafficSummaryMetric",
     "WorkflowRunMetric",
     "collect_project_metrics_report",
     "emit_project_metrics_telemetry",
@@ -437,4 +679,6 @@ __all__ = [
     "get_label_taxonomy_metrics",
     "get_milestone_metrics",
     "get_release_cadence_metrics",
+    "get_repository_traffic_metrics",
+    "record_project_metrics_in_registry",
 ]

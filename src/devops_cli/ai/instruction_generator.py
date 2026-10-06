@@ -154,8 +154,9 @@ def generate_pointer_stub(
 > `{filename}`, so this stub exists to redirect it. All actual instructions — project
 > overview, build/test commands, code conventions, architecture, AI features,
 > environment & modernization policy, and security notes — live in
-> [AGENTS.md]({canonical_relpath}). Read that file. Regenerate both via
-> `devops ai agents`; do not duplicate content here.{alpha_notice}
+> [AGENTS.md]({canonical_relpath}). Read that file. `devops ai agents` regenerates
+> this stub and leaves an existing AGENTS.md alone unless `--force` is given;
+> do not duplicate content here.{alpha_notice}
 """
 
 
@@ -215,6 +216,10 @@ devops --help                        # Access global DevOps automation CLI
         "        - **Agent Attribution**: Every agent-filed issue carries `source/agent`; intake adds it. Issues a person files never count toward the quota and are never refused.\n"
         "        - **Quota & Allowance Formula**: Beyond the release credit (`credit = min(release_credit_base + release_credit_per_delivered_item * delivered, release_item_target)`), each opening costs `r(n)` closures, using the values in `.github/roadmap.toml` (`open_issue_limit`, `throttle_start_fraction`, `overage_step_fraction`). An agent may check allowance via REST search queries (`q=repo:R is:issue is:open`, `q=repo:R is:issue label:source/agent created:>=<start>`, `q=repo:R is:issue is:closed closed:>=<start>`).\n"
         "        - **Borrowing Only for Work in Flight**: An opening beyond the allowance proceeds only as a borrow (split, required follow-up, P0/P1 bug or security), labelled `budget/borrowed`, and anything else is folded with a line saying why. Pass `--borrow-reason split` or `--borrow-reason follow-up` to intake for the first two, with `--source <link>` to the item it splits or the review that requires it.\n"
+        "    - **In-Cluster `roadmap-service` & Concurrency Guardrails**:\n"
+        "      - Continuous daemon running in namespace `devops` (`deployment/roadmap-service`) executing `devops serve --service --workers 1` to process webhooks and batch jobs (`intake`, `close`, `reprioritize`, `refine`, `metrics`).\n"
+        "      - When active, agents must avoid running overlapping mutating commands (`devops roadmap close --confirm`, `devops roadmap intake --confirm`) to prevent rate limit depletion and git lock contention. Preview with `--plan` or `--dry-run`.\n"
+        "      - Inspect liveness via `kubectl -n devops get deployment roadmap-service` or HTTP probe `GET /readyz` on port 8000; fall back to manual execution only if confirmed offline.\n"
         if meta.is_devops_cli
         else ""
     )
@@ -377,7 +382,7 @@ codebase or reviewing target repositories.
   - **Stage 2: Transition to Ready for Review & Post-Ready Review Remediation**:
     - **Marking Ready for Review**: Once all implementation logic, test-first coverage (>= 90%), documentation synchronization (`devops docs generate --sync-readme`), and all local/remote CI quality gates pass cleanly, and any initial review comments are addressed, AI agents MUST convert the pull request to ready for review (`devops pr ready <pr_number>`).
     - **Post-Ready Secondary Review & Copilot Monitoring Gate**:
-      - Marking a pull request as ready for review triggers automated GitHub Copilot review sessions, CodeQL scans, and reviewer notifications.
+      - Marking a pull request as ready for review transitions it to public review state and triggers CI workflows, CodeQL scans, and reviewer notifications. Automatic Copilot review runs on PRs into `main` only, because reviewing every PR used the monthly token budget halfway through the month, so each release PR into `main` is the reviewed gate. Marking a `release/*` PR ready triggers CI and CodeQL, not Copilot; agents never wait for a Copilot review on a `release/*` PR.
       - AI agents are STRICTLY PROHIBITED from concluding a task immediately after marking a PR ready.
       - **5-Minute Completion Allowance & 60-Second Polling Interval**:
         - Allow at least 5 minutes (300 seconds) for pull request checks or reviews to complete.
@@ -388,11 +393,11 @@ codebase or reviewing target repositories.
         2. Reply directly within each specific review thread on the exact comment addressed (`devops pr threads reply <thread_id> "<body>"`). Never rely solely on top-level PR summary comments.
         3. Programmatically resolve review threads (`devops pr threads resolve <thread_id>`).
       - Re-verify that all remote CI checks remain 100% green (`devops pr monitor <pr_number>`).
-    - **Task Completion Guarantee**: A task is ONLY complete when the PR is marked ready, all remote CI checks pass, Copilot post-ready review sessions have settled, and 0 unresolved review threads remain.
+    - **Task Completion Guarantee**: A task is ONLY complete when the PR is marked ready, all remote CI checks pass, Copilot post-ready review sessions have settled (on PRs into `main`), and 0 unresolved review threads remain.
   - **Mandatory PR Monitoring Gate (`devops pr monitor`) (Zero Premature Completions & Unmonitored PRs)**:
     - AI agents **MUST ALWAYS** actively monitor pull requests by running `devops pr monitor <pr_number>` (or FastMCP `pr_monitor`) immediately after opening a PR (`devops pr create`) or pushing commits to any branch with an active PR (`git push`).
-    - **Strict Prohibition of Premature Completion**: Never conclude a turn, declare a task done, switch branches, or ask the user to review or merge while CI checks are pending, failing, or while automated code review sessions (such as GitHub Copilot code review) are in progress or unresolved.
-    - **Wait for Copilot Review Sessions to Settle**: Automated code review bots submit reviews asynchronously. `devops pr monitor` automatically enforces settling windows and checks timeline activity. Agents must wait for this review session to complete.
+    - **Strict Prohibition of Premature Completion**: Never conclude a turn, declare a task done, switch branches, or ask the user to review or merge while CI checks are pending, failing, or while automated code review sessions (such as GitHub Copilot code review on PRs into `main`) are in progress or unresolved.
+    - **Wait for Copilot Review Sessions to Settle on PRs into `main`**: Automated code review bots submit reviews asynchronously. On PRs targeting `main`, `devops pr monitor` automatically enforces settling windows and checks timeline activity. Agents must wait for this review session to complete; on `release/*` PRs, agents never wait for Copilot.
     - **Remediate Check Failures Immediately**: If any CI check fails (exit code 1), immediately inspect failed logs (`devops gh runs view <run_id> --log-failed`), diagnose root causes, apply test-first fixes with concise effect-driven commit messages, push, and re-run `devops pr monitor <pr_number>`.
     - **Remediate Review Feedback In-Thread & Resolve**: If Copilot or reviewers leave review comments (exit code 2):
       1. Inspect all open threads: `devops pr threads list <pr_number> --unresolved-only`.
@@ -401,10 +406,10 @@ codebase or reviewing target repositories.
       4. Post direct in-thread replies: `devops pr threads reply <thread_id> "<body>"`. Never rely solely on top-level PR summary comments.
       5. Resolve threads: `devops pr threads resolve <thread_id>`.
       6. Re-run `devops pr monitor <pr_number>` until exit code 0 is achieved.
-    - **Merge Readiness Guarantee**: A PR is ONLY ready for merging when `devops pr monitor` exits with code 0: all CI checks are 100% green, Copilot review session is settled, and 0 unresolved review discussion threads remain.
+    - **Merge Readiness Guarantee**: A PR is ONLY ready for merging when `devops pr monitor` exits with code 0: all CI checks are 100% green, Copilot review session is settled (on PRs into `main`), and 0 unresolved review discussion threads remain.
 - **GitHub Projects, Issues & Views Governance**:
   - Proactively author and populate tracking issues for all scheduled roadmap deliverables upon milestone activation; the open issues queue (`issues?q=is:issue+state:open`), projects tab (`projects`), and issue views (`issues/views`) must never be left empty.
-  - Link project boards conforming to `.github/project-template.json` to the repository (`devops gh project link <number>`) and synchronize items and custom fields via `devops gh project sync`.
+  - Link project boards conforming to `.github/project-template.json` to the repository (`devops gh project link <number>`) and synchronize items and custom fields via `devops gh project sync` (sets Status only on a card that has none, from its `status/*` label or else `New`, sets `Done` when the issue closes, and forces `In Review` once any open PR, draft included, links the issue).
   - Enforce strict remote branch lifecycle: every remote topic branch on `origin` must have an associated open PR, and merged or superseded branches must be deleted immediately.
   - Respect GitHub API rate limits: monitor `devops gh rate-limit`, adaptively fall back to REST when GraphQL complexity limits are reached, avoid unthrottled polling, and honor `Retry-After` reset windows.
 """  # nosec B608  # Static Markdown template containing documentation prose, not executable SQL

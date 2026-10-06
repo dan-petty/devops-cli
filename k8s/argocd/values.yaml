@@ -6,6 +6,11 @@ global:
   logging:
     level: warn
 
+crds:
+  keep: true
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+
 # Single-replica, non-HA for local development
 controller:
   replicas: 1
@@ -81,3 +86,12 @@ notifications:
 
 applicationSet:
   enabled: false
+
+configs:
+  cm:
+    resource.customizations: |
+      networking.k8s.io/Ingress:
+        health.lua: |
+          hs = {}
+          hs.status = "Healthy"
+          return hs

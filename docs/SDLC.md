@@ -48,7 +48,7 @@ sequenceDiagram
     Dev->>Plan: Author RFC / implementation_plan.md & file candidates via devops roadmap intake
     Dev->>Test: Author unit/integration tests (tests/test_*.py)
     Dev->>Code: Implement domain logic meeting architectural invariants
-    Dev->>Gate: Execute devops ci (10/10 quality gates & >=90% coverage)
+    Dev->>Gate: Execute devops ci (Gated CI quality checks & >=90% coverage)
     Dev->>Review: Run multi-persona review & verify findings
     Dev->>Git: Push topic branch & open PR targeting release/vX.Y.Z
     Git->>CI: Trigger CI workflows (matrix build, linters, security)
@@ -269,7 +269,7 @@ gitGraph
   - **No Internal References or Numeric IDs**: Never include internal review session timestamps (e.g. `164259`, `003105`), review IDs, subagent IDs, or arbitrary numbers.
   - Release PR titles strictly follow `feat(release): v<version>`.
 - **Declarative Code Ownership (`.github/CODEOWNERS`)**: Pull requests automatically assign reviews based on touched file paths (Core CLI, AI/MCP, K8s, Security, CI/CD).
-- **Automated Dependency Updates (`.github/dependabot.yml`)**: Dependabot monitors `github-actions` and `pip` dependencies weekly, targeting active release branches with prefix `chore(deps)`.
+- **Automated Dependency Updates (`.github/renovate.json`)**: Renovate monitors `github-actions` and `docker` dependencies with prefix `chore(deps)` and mandatory `type/chore` taxonomy labels. Python and `uv` dependencies are updated deliberately as part of the project workflow with synchronized `uv.lock`.
 - **GitHub Project Governance, Views & Labeling Standards**:
   - **Declarative Taxonomy (`.github/labels.yml`)**: Every PR must possess mandatory `type/*` and `scope/*` classification labels, verified in CI and audited via `devops gh labels audit`.
   - **GitHub-Sourced Roadmap (ADR 0001)**: Issues are the roadmap's items, milestones its releases and the project board holds their Status and Priority. `docs/ROADMAP.md` is a view that `devops roadmap render` regenerates in the release PR at the cut.
@@ -281,15 +281,15 @@ gitGraph
 - **Two-Stage PR Review Lifecycle & Post-Ready Copilot Monitoring**:
   - **Stage 1 (In-Progress Draft)**: Pull requests for in-progress work are created as drafts (`devops pr create --draft`). CI checks are monitored on every push.
   - **Stage 2 (Transition to Ready for Review)**: Once all work is completed, CI checks pass, and comments are addressed, agents convert the draft pull request to ready for review (`devops pr ready <pr_number>`).
-  - **Post-Ready Secondary Review & Copilot Gate**: Marking a pull request ready triggers automated GitHub Copilot code reviews, CodeQL scans, and reviewer notifications. Agents MUST NOT consider tasks complete upon marking ready; agents must allow at least 5 minutes (300 seconds) for checks and reviews to complete, wait at least a full minute (60 seconds) between request cycles when monitoring PR status, inspect open threads (`devops pr threads list <pr_number> --unresolved-only`), apply test-first fixes, reply directly in-thread, resolve threads, and re-verify checks until 100% green.
+  - **Post-Ready Secondary Review & Copilot Gate**: Marking a pull request ready transitions it to public review state and triggers CI workflows, CodeQL scans, and reviewer notifications. Automatic Copilot review runs on PRs into `main` only, because reviewing every PR used the monthly token budget halfway through the month, so each release PR into `main` is the reviewed gate. Marking a `release/*` PR ready triggers CI and CodeQL, not Copilot; agents never wait for a Copilot review on a `release/*` PR. Agents MUST NOT consider tasks complete upon marking ready; agents must allow at least 5 minutes (300 seconds) for checks and reviews to complete, wait at least a full minute (60 seconds) between request cycles when monitoring PR status, inspect open threads (`devops pr threads list <pr_number> --unresolved-only`), apply test-first fixes, reply directly in-thread, resolve threads, and re-verify checks until 100% green.
 - **Mandatory PR Monitoring Gate (`devops pr monitor`) & Review Remediation Mandate**:
-  - AI agents and developers **MUST ALWAYS** monitor remote CI checks and Copilot reviews via `devops pr monitor <pr_number>` (or `devops pr wait <pr_number>`) immediately after opening or updating PRs.
+  - AI agents and developers **MUST ALWAYS** monitor remote CI checks and Copilot reviews (on PRs into `main`) via `devops pr monitor <pr_number>` (or `devops pr wait <pr_number>`) immediately after opening or updating PRs.
   - **Cadence & Timeout Standards**: Allow at least 5 minutes (300s) for remote CI checks and review bots to complete, and wait at least a full minute (60s) between request cycles when monitoring check status. Never poll in rapid or sub-minute intervals.
-  - **Zero Premature Completions**: Never conclude a turn or declare a task done while CI checks are pending/failing or Copilot review sessions are unresolved.
-  - **Wait for Copilot Reviews to Settle**: `devops pr monitor` enforces settling windows to ensure asynchronous Copilot review sessions complete.
+  - **Zero Premature Completions**: Never conclude a turn or declare a task done while CI checks are pending/failing or Copilot review sessions (on PRs into `main`) are unresolved.
+  - **Wait for Copilot Reviews to Settle on PRs into `main`**: On PRs targeting `main`, `devops pr monitor` enforces settling windows to ensure asynchronous Copilot review sessions complete; on `release/*` PRs, agents never wait for Copilot.
   - **Remediate Check Failures Immediately**: Inspect failed logs (`devops gh runs view <run_id> --log-failed`), apply concise test-first fixes, push, and re-monitor.
   - **Mandatory Direct In-Thread Replies & Resolution**: When review comments are submitted (exit code 2), inspect threads via `devops pr threads list <pr_number> --unresolved-only`, author test-first fixes, reply **directly within each specific review discussion thread** (`devops pr threads reply <thread_id> "<body>"`), and resolve the thread (`devops pr threads resolve <thread_id>`). Never post solely top-level summary comments.
-  - **Merge Readiness Guarantee**: A PR is ready for merging ONLY when `devops pr monitor` exits with code 0 (all checks green, Copilot review settled, 0 unresolved threads).
+  - **Merge Readiness Guarantee**: A PR is ready for merging ONLY when `devops pr monitor` exits with code 0 (all checks green, Copilot review settled on PRs into `main`, 0 unresolved threads).
 - **Automated & Peer Code Review Remediation Mandate**:
   - AI agents and developers must actively evaluate all review feedback (from GitHub Copilot, linters, or human reviewers) on open pull requests.
   - Review feedback must be addressed iteratively via Test-First Development (author/update tests first in `tests/`, implement clean fixes in `src/`, ensuring zero zombie code).
@@ -342,7 +342,7 @@ flowchart TD
 | **1. Inception** | RFC & Task Tracking | `docs/agent/tasks/`, `ROADMAP.md` | Clear backlog categorization (Pending, WIP, Done) |
 | **2. Specification** | Test-First Authoring | `pytest tests/test_<feature>.py` | Clean initial failure (asserting new behavior) |
 | **3. Implementation**| Invariant Enforcement | `tests/test_architectural_invariants.py` | Complexity $\le 10$, Nesting $\le 5$, zero bare exceptions |
-| **4. Verification**  | Full CI Suite | `devops ci` (or `uv run devops ci`) | 10/10 green quality gates, coverage $\ge 90\%$ |
+| **4. Verification**  | Full CI Suite | `devops ci` (or `uv run devops ci`) | All Gated quality checks green, coverage $\ge 90\%$ |
 | **4. Pre-Commit**    | Git Hook Interception | `uv run pre-commit run --all-files` | 12/12 hooks passing |
 | **5. AI Review**     | Multi-Persona Review | `devops review branch <branch> --dry-run` | Zero high/critical unmitigated findings |
 | **6. PR Lifecycle**  | Branch Governance | `devops pr create --base release/vX.Y.Z` | CODEOWNERS notified; remote CI checks green |

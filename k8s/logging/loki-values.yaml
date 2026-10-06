@@ -69,6 +69,7 @@ singleBinary:
   persistence:
     enabled: true
     size: 20Gi
+    enableStatefulSetAutoDeletePVC: false
 
 monitoring:
   selfMonitoring:

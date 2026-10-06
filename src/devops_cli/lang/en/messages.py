@@ -584,6 +584,22 @@ class PRMessages:
     update_branch_conflict: str = (
         "✗ Merge conflict detected on PR #{number} with base '{base}'. Manual resolution required."
     )
+    update_dispatch_ci_success: str = (
+        "✓ Dispatched {workflow} for PR #{number} on branch '{branch}'."
+    )
+    update_dispatch_ci_head_unchanged: str = (
+        "✗ Head SHA for PR #{number} did not change after update; skipped {workflow} dispatch."
+    )
+    update_dispatch_ci_fork: str = (
+        "PR #{number} head branch is in fork '{fork}'; skipped {workflow} dispatch."
+    )
+    update_dispatch_ci_failed: str = "✗ Failed to dispatch {workflow} for PR #{number}: {error}"
+    update_dry_run_heading: str = (
+        r"[yellow]\[dry-run][/yellow] Planned external requests to update PR #{number}:"
+    )
+    update_all_dry_run_heading: str = (
+        r"[yellow]\[dry-run][/yellow] Planned external requests to update all open PRs:"
+    )
     update_table_title: str = "Pull Request Branch Update Summary"
     grounding_closes_no_issue: str = (
         "PR #{number} is not grounded: its body closes no issue in {repo}. Name the one issue "
@@ -799,6 +815,9 @@ class ArgoMessages:
 
 @dataclass(frozen=True)
 class CIMessages:
+    ci_dry_run_heading: str = (
+        "Dry run: no request was made. CI would make these requests, in order:"
+    )
     python_version_check: str = "python version check (3.14+)"
     no_covering_tests: str = (
         "No covering tests found for: {files}. Changed code without a covering test "
@@ -830,6 +849,9 @@ class CIMessages:
     python_version_fail: str = "Strict Python {required}+ requirement failed. Current: {current}"
     cache_hit: str = (
         "Codebase unchanged since last verification. Utilizing CI cache (all checks passed)."
+    )
+    cache_tree_changed: str = (
+        "Working tree changed while the gate ran; result not recorded in CI cache."
     )
     gate_root: str = "Quality gate root: {root}"
     gate_root_stale: str = (
@@ -1110,6 +1132,7 @@ class RoadmapMessages:
     reasons: dict[str, str] = field(
         default_factory=lambda: {
             "critical_fix": "a critical fix can join {release} after it starts.",
+            "pull_request": "an open or merged pull request is in flight for it.",
             "admission": (
                 "after {release} started, only a critical fix can join it. A person can place "
                 "it in a planned release, and that placement stands."
@@ -1474,7 +1497,7 @@ class RoadmapMessages:
     )
     close_none: str = "none"
     close_dry_run_note: str = (
-        "A cut commits {files} on chore/cut-<release> and opens it ready for review. --plan "
+        "A cut commits {files} on release/<release> and opens it ready for review. --plan "
         "reads GitHub and lists each issue the run closes with its comment, the fragments on "
         "the release branch, left uncollected, and the completed items with none."
     )

@@ -14,4 +14,3 @@ Apply a structured chain-of-thought methodology when formulating responses:
 3. **Phase 3: Actionable Output & Verification**:
    - Structure responses with Markdown headings, tables, bullet points, and exact runnable CLI commands or code snippets.
    - Provide concrete, deterministic verification commands and validation steps to confirm success.
-   - **Zero Information Leakage**: Never echo plaintext secrets, tokens, private keys, or hidden `.gitignored` file contents.

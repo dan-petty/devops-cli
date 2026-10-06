@@ -43,6 +43,7 @@ from devops_cli.commands.k8s.cluster_secret_push import push_secrets
 from devops_cli.commands.k8s.diagnostics import (
     chaos_cmd,
     diff_helm_cmd,
+    doctor_cmd,
     pods_cmd,
     security_stream_cmd,
     stream_logs_cmd,
@@ -128,6 +129,7 @@ app.command(name="chaos")(chaos_cmd)
 app.command(name="pods")(pods_cmd)
 app.command(name="security-stream")(security_stream_cmd)
 app.command(name="gpu-matrix")(gpu_matrix_cmd)
+app.command(name="doctor")(doctor_cmd)
 
 __all__ = [
     "VALID_STACKS",
@@ -163,6 +165,7 @@ __all__ = [
     "create_tls_secret",
     "deploy_stack",
     "diff_helm_cmd",
+    "doctor_cmd",
     "enable_tls_stack",
     "gpu_matrix_cmd",
     "k8s_audit",

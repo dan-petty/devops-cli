@@ -2,7 +2,7 @@
 
 ## 1. Overview & Purpose
 
-Ollama is an open-source tool for running large language models (LLMs) locally on developer workstations and servers. In the `devops-cli` ecosystem, Ollama powers local offline AI code reviews (`devops review`), semantic text embedding generation (`nomic-embed-text`), RAG context retrieval, and local model bundling (`devops ai bundle-models`).
+Ollama is an open-source tool for running large language models (LLMs) locally on developer workstations and servers. In the `devops-cli` ecosystem, Ollama powers local offline AI code reviews (`devops review`), semantic text embedding generation (`qwen3-embedding:0.6b`), RAG context retrieval, and local model bundling (`devops ai bundle-models`).
 
 ---
 
@@ -12,7 +12,7 @@ Ollama is an open-source tool for running large language models (LLMs) locally o
 - **GPU Acceleration**: Utilizes CUDA/ROCm when NVIDIA or AMD GPUs are available, falling back automatically to high-performance CPU inference.
 - **Model Bundler**: `src/devops_cli/ai/model_bundler.py` provides automated verification and downloading of required models:
   - Default reasoning / review models: `qwen3.8:27b` / `qwen2.5-coder:14b` / `deepseek-r1:14b`.
-  - Default embedding model: `nomic-embed-text:latest` (768-dimensional vectors).
+  - Default embedding model: `qwen3-embedding:0.6b` (768-dimensional vectors).
 - **Concurrency & Parallelism Architecture**:
   - `OLLAMA_NUM_PARALLEL`: Controls the number of concurrent request slots Ollama allocates per model in VRAM (default: 1). Increasing this to `2` or `4` allows parallel multi-persona file reviews.
   - `OLLAMA_KV_CACHE_TYPE`: Sets KV cache precision (`f16`, `q8_0`, `q4_0`). Setting `OLLAMA_KV_CACHE_TYPE=q4_0` reduces per-slot VRAM consumption by ~50%, enabling higher parallel request slots without out-of-memory errors.
@@ -40,7 +40,7 @@ devops config set ai.tasks.embedding.ollama_urls http://192.0.2.10:11434
 devops ai bundle-models
 
 # Test local LLM inference with a prompt
-devops ai chat --prompt "Explain the Kubernetes Pod lifecycle."
+devops ai test --prompt "Explain the Kubernetes Pod lifecycle."
 
 # Execute local AI code review with static scan only (fast 2s pass)
 devops ai review path . --static-scan-only
@@ -53,7 +53,7 @@ DEVOPS_CLI_AI_TASK_ANALYSIS_PROVIDER=ollama DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL=qw
 ```bash
 # Pull a model from Ollama registry
 ollama pull qwen3.8:27b
-ollama pull nomic-embed-text
+ollama pull qwen3-embedding:0.6b
 
 # List installed local models
 ollama list
@@ -69,7 +69,7 @@ ollama ps
 
 # Generate an embedding vector via curl
 curl http://localhost:11434/api/embeddings -d '{
-  "model": "nomic-embed-text",
+  "model": "qwen3-embedding:0.6b",
   "prompt": "DevOps CLI workstation automation"
 }'
 ```
@@ -87,12 +87,12 @@ curl http://localhost:11434/api/embeddings -d '{
        - name: OLLAMA_NUM_PARALLEL
          value: "1"
      ```
-   - `ollama-48gib-slow`, the background tier, keeps two models loaded (`OLLAMA_MAX_LOADED_MODELS: "2"`, `OLLAMA_KEEP_ALIVE: "-1"`): its embedding model and `qwen3-coder:30b`, the one generation model the gateway sends it, so neither evicts the other. Ollama also evicts a resident model when it predicts that a new one needs more than 80% of the free VRAM: qwen3-coder:30b is predicted to fit beside the embedder, while a dense ~30B model evicted it.
+   - `ollama-48gib-slow`, the background tier, keeps two models loaded (`OLLAMA_MAX_LOADED_MODELS: "2"`, `OLLAMA_KEEP_ALIVE: "-1"`): its embedding model and `qwen3.8:27b`, the one generation model the gateway sends it, so neither evicts the other. Ollama also evicts a resident model when it predicts that a new one needs more than 80% of the free VRAM: qwen3.8:27b is predicted to fit beside the embedder, while a dense ~30B model evicted it.
 2. **Model Quantization & Sizing**: Use `q4_K_M` or `q8_0` quantized models to maximize inference throughput while staying within workstation VRAM / RAM limits.
 3. **Constrain Review Token Generation**: Set `max_tokens: 2048` and `reasoning_effort: low` for code reviews to prevent long generation delays during multi-file reviews.
 4. **Context Window Sizing**: Set `num_ctx` appropriately (e.g. `8192` or `16384`) in Ollama modelfiles when reviewing large multi-file diffs.
 5. **Structured Outputs & Response Repair**: The review engine automatically normalizes LLM outputs using `repair_json_string` and `ThinkingStreamProcessor` to extract clean JSON schemas.
-6. **Embedding Dimensionality**: Standardize on 768-dimensional embeddings (`nomic-embed-text`) across all local vector storage tables.
+6. **Embedding Dimensionality**: Standardize on 768-dimensional embeddings (`qwen3-embedding:0.6b`) across all local vector storage tables.
 
 ---
 

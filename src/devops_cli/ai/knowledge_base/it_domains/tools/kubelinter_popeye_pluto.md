@@ -22,13 +22,13 @@ Kubernetes cluster safety and manifest quality require multi-layered static and 
 ### DevOps CLI Kubernetes Security Commands
 ```bash
 # Lint Kubernetes manifests with KubeLinter
-devops scan kubelinter k8s/
+devops k8s lint k8s/
 
 # Sanitize live Kubernetes cluster resources with Popeye
-devops scan popeye --namespace monitoring
+devops k8s audit
 
 # Detect deprecated Kubernetes API versions with Pluto
-devops scan pluto k8s/
+devops k8s check-deprecated k8s/
 ```
 
 ### Standard Tool CLI Commands

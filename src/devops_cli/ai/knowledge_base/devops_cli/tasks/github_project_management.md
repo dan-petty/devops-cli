@@ -5,7 +5,7 @@
 GitHub project governance in `devops-cli` standardizes repository metadata across six foundational pillars:
 1. **GitHub Pages Publishing**: Inspection of deployment health, custom domain status, HTTPS enforcement, build history, manual build dispatching, and local Jekyll `docs/github-pages.config.yaml` / `docs/` readiness verification.
 2. **GitHub Issues Lifecycle & Triage**: Intake (`devops roadmap intake`), the one way new work becomes an item, taxonomy label enforcement (`type/*`, `scope/*`, `priority/*`), and proactive triage auditing to guarantee zero unclassified open issues; a backlog item has no milestone.
-3. **GitHub Projects v2 Lifecycle**: Board creation, multi-board listing, card lifecycle reconciliation against `docs/agent/tasks/` (and `docs/agent/task.md`), and automated drift auditing against standardized template schemas.
+3. **GitHub Projects v2 Lifecycle**: Board creation, multi-board listing, card lifecycle reconciliation against `docs/agent/tasks/`, and automated drift auditing against standardized template schemas.
 4. **Standardized Projects v2 Views**: Continuous auditing and synchronization of the 4 canonical views (`Sprint Kanban`, `Roadmap Timeline`, `Triage & Quality Table`, and `Value vs Effort Priority Matrix`) ensuring full alignment across `https://github.com/dan-petty/devops-cli/projects` and `https://github.com/dan-petty/devops-cli/issues/views`.
 5. **Roadmap Milestones**: GitHub is the roadmap's source of truth (ADR 0001): milestones are its releases, with issue completion ratios, health metrics and milestone closure on release. `devops roadmap render` writes `docs/ROADMAP.md` from them.
 6. **Declarative Label Taxonomy & PR Auditing**: Repository label synchronization driven by `.github/labels.yml`, enforcing strict categorization across `type/*`, `scope/*`, `priority/*`, `status/*`, and `review/*`.
@@ -156,7 +156,7 @@ devops gh milestones close v0.2.14
      - `Done`: PR squash-merged, remote CI checks green, and issue closed.
    - Run `devops gh project audit` and `devops gh views audit` to detect missing fields, invalid options, or misconfigured view filters.
 5. **Custom Field Reconciliation (`devops gh project sync`, `devops gh project reconcile`)**:
-   - The board owns Status: reconcile sets it only when it is unset (from an exact `status/*` label, otherwise Backlog) or when issue or pull request state forces Done, In Review or In Progress, so manual triage is never reverted.
+   - The board owns Status: reconcile sets it only when it is unset (from an exact `status/*` label, otherwise New) or when issue or pull request state forces Done, In Review or In Progress, so manual triage is never reverted.
    - Priority fills an unset field from its `priority/*` label, and Milestone mirrors the issue's milestone. Category, Value and Effort are never inferred; they stay as set by hand.
    - `devops gh project reconcile --dry-run` lists every change with its old and new value and the source that decided it.
    - Run `devops gh project sync` (or FastMCP `gh_project_sync`) after creating issues, pushing branches, or opening PRs to keep project views fully updated.
@@ -188,7 +188,7 @@ devops gh milestones close v0.2.14
 
 ## 6. FastMCP Tool & Dynamic Resource Integration
 
-AI coding agents have native access to GitHub project management through these FastMCP tools and 4 dynamic system resources:
+AI coding agents have native access to GitHub project management through the FastMCP `gh_*` tools (including those listed below) and the server's resources:
 
 ### Registered FastMCP Tools
 - **Pages**: `gh_pages_status`, `gh_pages_build`, `gh_pages_verify`

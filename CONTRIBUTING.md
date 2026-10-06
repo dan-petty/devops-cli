@@ -60,7 +60,7 @@ uv run pre-commit install
    ```bash
    uv run devops ci
    ```
-   Validates 10 gates concurrently: Python runtime, tests, 90% coverage, linting, formatting, strict typing, dependency audit, security scanning, workflow actionlint, and documentation freshness.
+   Validates every check `devops ci` runs concurrently: Python runtime, tests, 90% coverage, linting, formatting, strict typing, dependency audit, security scanning, workflow actionlint, and documentation freshness.
 
 ---
 

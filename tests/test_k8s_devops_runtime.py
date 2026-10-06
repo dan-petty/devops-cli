@@ -21,7 +21,10 @@ DEVOPS_DIR = K8S_DIR / "devops"
 
 @functools.cache
 def _doc(name: str) -> Any:
-    return yaml.load((DEVOPS_DIR / name).read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
+    target = DEVOPS_DIR / name
+    if not target.exists() and name == "configmap.yaml":
+        target = DEVOPS_DIR / "configmap.example.yaml"
+    return yaml.load(target.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
 
 
 def _pod_spec() -> dict[str, Any]:
@@ -34,7 +37,17 @@ def _container() -> dict[str, Any]:
 
 
 def test_namespace_is_restricted_and_never_pruned() -> None:
-    namespace = _doc("namespace.yaml")["metadata"]
+    docs = list(
+        yaml.load_all(
+            (K8S_DIR / "namespaces.yaml").read_text(encoding="utf-8"), Loader=yaml.CSafeLoader
+        )
+    )
+    devops_doc = next(
+        d
+        for d in docs
+        if d and d.get("kind") == "Namespace" and d.get("metadata", {}).get("name") == "devops"
+    )
+    namespace = devops_doc["metadata"]
     labels = namespace["labels"]
     assert (
         namespace["name"],
@@ -128,8 +141,23 @@ def test_config_targets_the_in_cluster_gateway_and_holds_no_credential() -> None
         settings.ai.provider,
         settings.ai.gateway_url,
         settings.ai.allow_private_network,
+        settings.ai.model,
+        settings.ai.tasks.analysis.model,
+        settings.ai.tasks.chat.model,
+        settings.telemetry.enabled,
+        settings.telemetry.endpoint,
         leaked,
-    ) == ("gateway", "http://llm-gateway.llm.svc.cluster.local:4000/v1", True, [])
+    ) == (
+        "gateway",
+        "http://llm-gateway.llm.svc.cluster.local:4000/v1",
+        True,
+        "devops-background",
+        "devops-background",
+        "devops-background",
+        True,
+        "http://otel-collector-opentelemetry-collector.otel.svc.cluster.local:4318",
+        [],
+    )
 
 
 def _dotted(document: Any, key: str) -> Any:
@@ -138,7 +166,7 @@ def _dotted(document: Any, key: str) -> Any:
     return document
 
 
-def test_perimeter_admits_no_ingress_and_exactly_three_egress_rules() -> None:
+def test_perimeter_admits_no_ingress_and_exactly_four_egress_rules() -> None:
     policy = _doc("networkpolicy.yaml")
     spec = policy["spec"]
     assert (
@@ -171,6 +199,12 @@ def test_perimeter_admits_no_ingress_and_exactly_three_egress_rules() -> None:
             },
             {
                 "to": [
+                    {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "otel"}}}
+                ],
+                "ports": [{"protocol": "TCP", "port": 4318}, {"protocol": "TCP", "port": 4317}],
+            },
+            {
+                "to": [
                     {
                         "ipBlock": {
                             "cidr": "0.0.0.0/0",
@@ -197,7 +231,12 @@ def test_kustomization_lists_every_manifest_and_pins_the_image_and_stays_out_of_
     """
     kustomization = _doc("kustomization.yaml")
     manifests = sorted(
-        [p.name for p in DEVOPS_DIR.glob("*.yaml") if p.name != "kustomization.yaml"]
+        [
+            p.name
+            for p in DEVOPS_DIR.glob("*.yaml")
+            if p.name != "kustomization.yaml" and not p.name.endswith(".example.yaml")
+        ]
+        + (["configmap.yaml"] if not (DEVOPS_DIR / "configmap.yaml").exists() else [])
         + ["roadmap-service"]
     )
     root = yaml.safe_load((K8S_DIR / "kustomization.yaml").read_text(encoding="utf-8"))

@@ -79,6 +79,14 @@
   color: "1D76DB"
   description: "Release coordination, changelog generation, and milestone epics"
 
+- name: "scope/ci"
+  color: "1D76DB"
+  description: "GitHub Actions workflows, pre-commit hooks, CI gates, and runners"
+
+- name: "scope/infra"
+  color: "5319E7"
+  description: "Docker container images, DevContainers, and infrastructure tooling"
+
 - name: "release"
   color: "1D76DB"
   description: "Pull request or issue associated with a release cut"

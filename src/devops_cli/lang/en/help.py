@@ -128,6 +128,7 @@ class AICommandHelp:
     prompt: str = "Test prompt to send to the provider."
     url: str = "Specific Ollama server URL to test."
     template: str = "Generate from built-in template without calling the LLM."
+    force: str = "Overwrite existing instruction files (such as AGENTS.md)."
     generate_file: str = "Files to generate (repeatable)."
     context_file: str = "Optional file to inject as background context (e.g. AGENTS.md)."
     rag_context: str = "Retrieve relevant semantic RAG context."
@@ -149,6 +150,10 @@ class AICommandHelp:
     goal: str = "Initial goal or prompt for the multi-agent pipeline."
     personas_seq: str = "Comma-separated persona pipeline sequence (e.g. devsecops,architect,qa)."
     max_turns: str = "Maximum tool turns per agent stage."
+    pipeline_stage_context_tokens: str = (
+        "Maximum context tokens from previous stages to carry into each pipeline stage "
+        "(0 to disable budget)."
+    )
     token_target: str = "File path or text string to calculate tokens for."
     budget: str = "Max context token budget limit."
     cost_task: str = "Task name (e.g. review, scan)."
@@ -265,6 +270,14 @@ class K8sCommandHelp:
     watch: str = "Continuously refresh pod list in real-time terminal display."
     interval: str = "Auto-refresh polling interval in seconds."
     status: str = "Cluster health and resource utilization summary."
+    doctor: str = (
+        "Diagnose cluster deployment health, correlate failures, and recommend remediations."
+    )
+    doctor_namespace: str = "Target specific Kubernetes namespace (default: all namespaces)."
+    doctor_context: str = "Target Kubernetes cluster context (default: resolved context)."
+    doctor_tail: str = "Number of container log lines to tail per flagged container."
+    doctor_format: str = "Output format: table, json, or yaml."
+
     port_forward: str = "Forward local port to a remote Kubernetes service."
     port_forward_flag: str = "Start background port-forwarding daemons for deployed services."
     configure_urls_flag: str = (
@@ -583,9 +596,6 @@ class CICommandHelp:
         "Reuse a cached verdict when the codebase is unchanged. Results are recorded either way."
     )
     force: str = "Bypass CI execution cache and force re-execution of all quality gates."
-    files: str = (
-        "Explicit list of file paths to verify (e.g. from pre-commit file change tracking)."
-    )
 
 
 @dataclass(frozen=True)
@@ -791,6 +801,7 @@ class PRCommandHelp:
     update_expected_head_sha: str = (
         "Expected SHA of the pull request's HEAD ref for optimistic locking."
     )
+    update_dispatch_ci: str = "Dispatch the ci.yml workflow on the head branch after updating."
 
 
 @dataclass(frozen=True)
@@ -864,11 +875,15 @@ class GHCommandHelp:
     )
     issues_status: str = "Display aggregated issue counts by priority, type, and milestone."
     issues_edit: str = "Edit an existing issue title, body, state, milestone, or taxonomy labels."
-    branch_protection_app: str = "Manage declarative branch protection rulesets and policies."
-    branch_protection_audit: str = (
-        "Audit repository branch protection rulesets against declarative policy specification."
+    branch_protection_app: str = (
+        "Manage classic branch protection policies; does not cover rulesets."
     )
-    branch_protection_sync: str = "Synchronize repository branch protection rulesets against declarative policy specification."
+    branch_protection_audit: str = (
+        "Audit repository classic branch protection against declarative policy specification."
+    )
+    branch_protection_sync: str = (
+        "Synchronize repository classic branch protection against declarative policy specification."
+    )
     branch_protection_branch: str = (
         "Target specific branch for protection audit or synchronization."
     )
@@ -974,7 +989,7 @@ class RoadmapCommandHelp:
         "completed each open issue a body closes with a closing keyword, commenting what "
         "changed and how it was verified (check runs and the task file's Acceptance Criteria). "
         "Once the release has no open item, one item closed as completed and no release pull "
-        "request, writes docs/ROADMAP.md on chore/cut-vX.Y.Z in the clone at --root, bumps the "
+        "request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the "
         "version, pushes, and opens the release pull request into the default branch. Lists "
         "completed items with no changelog fragment. Writes only with --confirm."
     )

@@ -27,6 +27,106 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "Published operational status reported by Cloudflare Statuspage (0=Operational, 1=Minor, 2=Major, 3=Critical).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "Operational"
+                },
+                "1": {
+                  "color": "yellow",
+                  "index": 1,
+                  "text": "Minor Incident"
+                },
+                "2": {
+                  "color": "orange",
+                  "index": 2,
+                  "text": "Major Outage"
+                },
+                "3": {
+                  "color": "red",
+                  "index": 3,
+                  "text": "Critical Outage"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "orange",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "id": 27,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(devops_cli_upstream_service_status{service=\"cloudflare\"}) or vector(0)",
+          "instant": true,
+          "legendFormat": "Cloudflare",
+          "refId": "A"
+        }
+      ],
+      "title": "Cloudflare Service Status",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Total number of active High-Availability connections established between cloudflared replicas and Cloudflare Edge.",
       "fieldConfig": {
         "defaults": {
@@ -57,8 +157,8 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 0,
+        "w": 5,
+        "x": 4,
         "y": 1
       },
       "id": 2,
@@ -125,8 +225,8 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 6,
+        "w": 5,
+        "x": 9,
         "y": 1
       },
       "id": 3,
@@ -185,8 +285,8 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 12,
+        "w": 5,
+        "x": 14,
         "y": 1
       },
       "id": 4,
@@ -249,8 +349,8 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 18,
+        "w": 5,
+        "x": 19,
         "y": 1
       },
       "id": 5,

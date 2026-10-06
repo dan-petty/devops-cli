@@ -37,23 +37,23 @@ graph TD
 
 ### Release Subcommands (`src/devops_cli/commands/release.py`)
 - `devops release status`: Displays active branch, tag status, and version consistency.
-- `devops release bump`: Updates `pyproject.toml`, `src/devops_cli/__init__.py`, and initializes changelog headers.
+- `devops release prepare`: Updates `pyproject.toml`, source version, and changelog headers.
 - `devops release check`: Executes comprehensive Gated quality check ensuring release readiness.
-- `devops release create-pr`: Opens a release PR targeting `main` with formatted release notes.
+- `devops release pr`: Opens a release PR targeting `main` with formatted release notes.
 
 ### Common Commands
 ```bash
 # Inspect release status and version alignment
 devops release status
 
-# Bump minor version for new feature release
-devops release bump minor
+# Prepare target version for new release
+devops release prepare 0.2.0
 
 # Run pre-release verification gates
 devops release check
 
 # Create official release PR targeting main
-devops release create-pr --version 0.2.0
+devops release pr --version 0.2.0
 ```
 
 ---

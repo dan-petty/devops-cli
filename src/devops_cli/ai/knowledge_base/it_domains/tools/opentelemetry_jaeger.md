@@ -12,7 +12,7 @@ OpenTelemetry (OTel) is an open-source observability framework providing vendor-
   - `trace_span(name, attributes)`: Context manager generating 16-hex span IDs and 32-hex trace IDs.
   - `OTelTelemetryClient`: High-performance non-blocking client with pooled HTTP transport and fallback buffering.
 - **W3C Trace Context**: Supports W3C `traceparent` headers (`00-<trace_id>-<span_id>-01`) for end-to-end trace correlation across subprocesses and HTTP services.
-- **CLI Subcommand**: `devops telemetry` (or `devops otel`) provides connection probes, trace health checks, and OTLP endpoint configuration.
+- **CLI Subcommand**: `devops telemetry` provides connection probes, trace health checks, and OTLP endpoint configuration.
 
 ---
 
@@ -26,8 +26,8 @@ devops telemetry test
 # Show telemetry configuration and active endpoint
 devops telemetry status
 
-# Emit a test trace span and verify collector reception
-devops telemetry probe
+# Show Jaeger UI endpoint for inspecting traces
+devops telemetry open-ui
 ```
 
 ### Standard & Advanced OTel & Jaeger Commands

@@ -2,7 +2,7 @@
 
 ## 1. Overview & Domain Architecture
 
-Continuous Integration (CI) and Progressive Verification ensure that software modifications maintain high code quality, strict static type safety, thorough test coverage, zero security regressions, and synchronized documentation. In `devops-cli`, continuous integration is governed by a progressive testing strategy paired with a local 10-point quality gate (`devops ci`) and remote GitHub Actions workflows.
+Continuous Integration (CI) and Progressive Verification ensure that software modifications maintain high code quality, strict static type safety, thorough test coverage, zero security regressions, and synchronized documentation. In `devops-cli`, continuous integration is governed by a progressive testing strategy paired with a local quality gate (`devops ci`) and remote GitHub Actions workflows.
 
 ```mermaid
 graph TD
@@ -21,8 +21,8 @@ graph TD
 - **Progressive Verification Philosophy**:
   - **Iterative Feedback Loop**: During active development, run isolated checks on modified files to keep developer feedback loops under 2 seconds.
   - **Comprehensive Quality Gate**: Execute the full local CI suite (`devops ci`) at pre-commit and pre-PR milestones to ensure 100% release readiness before pushing code.
-- **The 10-Point Local Quality Gate**:
-  1. Version Consistency (`pyproject.toml`, `__init__.py`, `RELEASE_NOTES.md`).
+- **The Gated CI Quality Gate**:
+  1. Version Consistency (`pyproject.toml`, `__init__.py`, `CHANGELOG.md`).
   2. Parallel Unit Tests (`pytest -n auto`).
   3. Branch Coverage Floor (`>=90%`).
   4. Fast Code Linting (`ruff check`).
@@ -39,7 +39,7 @@ graph TD
 
 ### Pre-Commit & Local CI Commands
 ```bash
-# Execute the complete 10-point local quality gate
+# Execute the complete local quality gate
 devops ci
 
 # Execute with automatic fixes for linting and formatting
@@ -67,7 +67,7 @@ gh run list --branch release/v0.2.0 -L 5
 
 ## 4. Best Practice Guidance
 
-1. **Never Commit Failing Code**: Ensure all 10 local CI gates pass before committing code to feature or release branches.
+1. **Never Commit Failing Code**: Ensure all local CI gates pass before committing code to feature or release branches.
 2. **Deterministic Test Isolation**: Unit tests must isolate external dependencies (network, LLM providers, subprocesses) using mocks (`unittest.mock`, `pytest-mock`).
 3. **Synchronize Docs Automatically**: If `devops ci docs` detects differences, run `devops docs generate --sync-readme` to regenerate markdown reference files.
 4. **Fix Errors Systematically**: Resolve formatting and linting first, then static typing, then unit tests, and finally documentation.
@@ -83,7 +83,7 @@ gh run list --branch release/v0.2.0 -L 5
 
 ## 6. General Standards & Engineering Guidelines
 
-- **Quality Threshold**: 100% pass on all 10 quality gates.
+- **Quality Threshold**: 100% pass on all quality gates.
 - **Test Execution**: Multi-core parallel execution via `pytest-xdist`.
 - **Workflow Path**: `.github/workflows/ci.yml`.
 

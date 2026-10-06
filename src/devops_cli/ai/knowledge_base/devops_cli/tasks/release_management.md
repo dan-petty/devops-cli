@@ -11,10 +11,10 @@ Release management in `devops-cli` standardizes semantic versioning (SemVer), re
 ```mermaid
 graph TD
     A[develop/topic branches] -->|PR merge| B[release/vX.Y.Z Branch]
-    B --> C[devops release bump --minor / --patch]
+    B --> C[devops release prepare 0.2.25]
     C --> D[devops docs generate --sync-readme]
     D --> E[devops release check - Gated]
-    E --> F[devops release create-pr]
+    E --> F[devops release pr]
     F -->|Maintainer Merge| G[main Branch]
     G --> H[GitHub Release Tag & GHCR Container Publish]
 ```
@@ -22,7 +22,7 @@ graph TD
 - **Branch Hierarchy**:
   - Topic branches (`feat/*`, `fix/*`, `refactor/*`, `docs/*`) target `release/v<version>`.
   - Release branches (`release/v<version>`) target `main` when cutting an official release.
-- **Verification Engine**: `devops release check` runs comprehensive quality gates, verifying version consistency across `pyproject.toml`, `src/devops_cli/__init__.py`, `docs/commands/release.md`, and unit tests.
+- **Verification Engine**: `devops release check` runs comprehensive quality gates, verifying version consistency across `pyproject.toml`, `src/devops_cli/__init__.py`, and `CHANGELOG.md`.
 
 ---
 
@@ -33,14 +33,14 @@ graph TD
 # Check current release version and git status
 devops release status
 
-# Bump release version (patch, minor, or major)
-devops release bump minor
+# Bump version, update CHANGELOG.md and sync docs
+devops release prepare 0.2.25
 
 # Run comprehensive pre-release quality gate verification
 devops release check
 
 # Create official release pull request targeting main
-devops release create-pr --version 0.2.0
+devops release pr --version 0.2.0
 ```
 
 ---
@@ -53,7 +53,7 @@ devops release create-pr --version 0.2.0
      - `MAJOR (`X.0.0`)`: Incompatible breaking API or CLI contract changes.
      - `MINOR (`X.Y.0`)`: Backwards-compatible new features, commands, or tools.
      - `PATCH (`X.Y.Z`)`: Backwards-compatible bug fixes and security patches.
-2. **Update Release Notes**: Document all notable additions, fixes, refactorings, and documentation updates under `docs/commands/release.md` under the corresponding version header.
+2. **Update Release Notes**: Document all notable changes in CHANGELOG.md under the version header; `devops release check` verifies pyproject.toml, src/devops_cli/__init__.py and CHANGELOG.md agree.
 3. **Always Run `release check`**: Never push a release branch or open a release PR without verifying `devops release check` completes with Gated checks green.
 4. **Synchronize CLI Docs**: Always run `devops docs generate --sync-readme` when adding new commands or options before cutting a release.
 
@@ -70,7 +70,7 @@ devops release create-pr --version 0.2.0
 
 - **Release Branch Naming**: `release/v<MAJOR>.<MINOR>.<PATCH>` (e.g. `release/v0.2.0`).
 - **Release Tag Naming**: `v<MAJOR>.<MINOR>.<PATCH>` (e.g. `v0.2.0`).
-- **Conventional Commits**: Format release commits as `chore(release): prepare v0.2.0 release`.
+- **Conventional Commits**: Format release commits/PRs as `feat(release): v0.2.0` (`fix(release)` via `--type fix`, `!` for breaking).
 
 ---
 
@@ -79,4 +79,4 @@ devops release create-pr --version 0.2.0
 - **DevOps CLI Releases**: [github.com/dan-petty/devops-cli/releases](https://github.com/dan-petty/devops-cli/releases)
 - **Release Verification Engine**: [src/devops_cli/commands/release.py](../../../../commands/release.py)
 - **Release Command Module**: [src/devops_cli/commands/release.py](../../../../commands/release.py)
-- **Release Notes Document**: [docs/commands/release.md](../../../../../../docs/commands/release.md)
+- **Release Notes Document**: [CHANGELOG.md](../../../../../../CHANGELOG.md)

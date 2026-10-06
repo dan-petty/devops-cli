@@ -64,6 +64,7 @@ class TestMcpServer:
             "ssh_audit",
             "k8s_pods",
             "k8s_status",
+            "k8s_doctor",
             "k8s_bootstrap",
             "k8s_deploy_stack",
             "k8s_teardown_stack",
@@ -137,10 +138,18 @@ class TestRunMcpServer:
 
     def test_run_sse_rejects_non_loopback_by_default(self) -> None:
         """run_mcp_server sse must reject non-loopback host unless allow_remote=True."""
-        import pytest
-
         with pytest.raises(ValueError, match="Refusing to bind SSE transport"):
             run_mcp_server(transport="sse", host="0.0.0.0", port=9000)
+
+    @pytest.mark.parametrize(
+        "loopback_host",
+        ["127.0.0.2", "::ffff:127.0.0.1", "LOCALHOST."],
+    )
+    def test_run_sse_permits_loopback_variants(self, loopback_host: str) -> None:
+        """run_mcp_server sse permits loopback addresses without allow_remote."""
+        with patch("devops_cli.ai.mcp.server.mcp") as mock_mcp:
+            run_mcp_server(transport="sse", host=loopback_host, port=9000)
+            mock_mcp.run.assert_called_once_with(transport="sse", host=loopback_host, port=9000)
 
 
 # ── commands/mcp.py CLI ──────────────────────────────────────────────────────
@@ -265,6 +274,7 @@ class TestAllMcpToolsDirectly:
             k8s_bootstrap,
             k8s_create_tls_secret,
             k8s_deploy_stack,
+            k8s_doctor,
             k8s_enable_tls,
             k8s_jaeger_info,
             k8s_pods,
@@ -306,6 +316,7 @@ class TestAllMcpToolsDirectly:
             assert ssh_audit() == "mock_output"
             assert k8s_pods(namespace="default") == "mock_output"
             assert k8s_status() == "mock_output"
+            assert k8s_doctor() == "mock_output"
             assert k8s_bootstrap(auto_start=True) == "mock_output"
             assert k8s_deploy_stack(stack="monitoring") == "mock_output"
             assert k8s_teardown_stack(stack="monitoring") == "mock_output"

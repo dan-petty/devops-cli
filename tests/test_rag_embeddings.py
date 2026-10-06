@@ -806,3 +806,87 @@ def test_gateway_embedding_task_ignores_global_openai_base_url(
     EmbeddingsEngine(ai_cfg, api_key="sk-gateway").embed_texts(["hello"])
 
     assert calls[-1][0] == "http://example.com:4000/v1/embeddings"
+
+
+def test_openai_embeddings_retries_transient_connection_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Transient ReadError/Connection reset errors are retried with a refreshed connection pool."""
+    attempts = 0
+
+    def mock_post(_client: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        nonlocal attempts
+        if "/embeddings" not in url:
+            return httpx2.Response(200, json={}, request=httpx2.Request("POST", url))
+        attempts += 1
+        if attempts == 1:
+            raise httpx2.ReadError("[Errno 104] Connection reset by peer")
+        return httpx2.Response(
+            200,
+            json={"data": [{"index": 0, "embedding": [0.25] * 8}]},
+            request=httpx2.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx2.Client, "post", mock_post)
+    ai_cfg = AIConfig(
+        provider="gateway", gateway_url="http://example.com:4000/v1", allow_private_network=True
+    )
+    ai_cfg.tasks.embedding.model = "bge-m3:latest"
+    engine = EmbeddingsEngine(ai_cfg, api_key="sk-test", valkey_client=None)
+
+    vecs = engine.embed_texts(["retry me"])
+
+    assert (attempts, len(vecs[0])) == (2, 8)
+
+
+def test_openai_embeddings_retries_http_429(monkeypatch: pytest.MonkeyPatch) -> None:
+    """HTTP 429 rate limit responses are retried with Retry-After backoff."""
+    attempts = 0
+
+    def mock_post(_client: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        nonlocal attempts
+        if "/embeddings" not in url:
+            return httpx2.Response(200, json={}, request=httpx2.Request("POST", url))
+        attempts += 1
+        if attempts == 1:
+            return httpx2.Response(429, headers={"retry-after": "0"}, text="rate limited")
+        return httpx2.Response(
+            200,
+            json={"data": [{"index": 0, "embedding": [0.75] * 8}]},
+            request=httpx2.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx2.Client, "post", mock_post)
+    ai_cfg = AIConfig(
+        provider="gateway", gateway_url="http://example.com:4000/v1", allow_private_network=True
+    )
+    ai_cfg.tasks.embedding.model = "bge-m3:latest"
+    engine = EmbeddingsEngine(ai_cfg, api_key="sk-test", valkey_client=None)
+
+    vecs = engine.embed_texts(["rate limit me"])
+
+    assert (attempts, len(vecs[0])) == (2, 8)
+
+
+def test_openai_embeddings_does_not_retry_http_400(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Non-transient HTTP 400 client errors fail immediately without retry loops."""
+    attempts = 0
+
+    def mock_post(_client: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        nonlocal attempts
+        if "/embeddings" not in url:
+            return httpx2.Response(200, json={}, request=httpx2.Request("POST", url))
+        attempts += 1
+        return httpx2.Response(400, text="Bad Request", request=httpx2.Request("POST", url))
+
+    monkeypatch.setattr(httpx2.Client, "post", mock_post)
+    ai_cfg = AIConfig(
+        provider="gateway", gateway_url="http://example.com:4000/v1", allow_private_network=True
+    )
+    ai_cfg.tasks.embedding.model = "bge-m3:latest"
+    engine = EmbeddingsEngine(ai_cfg, api_key="sk-test", valkey_client=None)
+
+    with pytest.raises(EmbeddingsError):
+        engine.embed_texts(["bad request"])
+
+    assert attempts == 1

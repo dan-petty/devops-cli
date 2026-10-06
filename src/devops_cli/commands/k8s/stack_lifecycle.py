@@ -71,48 +71,56 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "chart": "prometheus-community/prometheus-operator-crds",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-operator-crds-values.yaml"),
+            "version": "32.0.1",
         },
         {
             "name": "argocd",
             "chart": "argo/argo-cd",
             "namespace": "argocd",
             "values": str(DEFAULT_K8S_DIR / "argocd" / "values.yaml"),
+            "version": "10.9.6",
         },
         {
             "name": "k8s-monitoring",
             "chart": "grafana/k8s-monitoring",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml"),
+            "version": "4.5.2",
         },
         {
             "name": "prometheus",
             "chart": "prometheus-community/prometheus",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
+            "version": "29.35.0",
         },
         {
             "name": "grafana",
             "chart": "grafana/grafana",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "grafana-values.yaml"),
+            "version": "10.5.15",
         },
         {
             "name": "dcgm-exporter",
             "chart": "nvidia-dcgm/dcgm-exporter",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "dcgm-exporter-values.yaml"),
+            "version": "4.8.4",
         },
         {
             "name": "otel-collector",
             "chart": "open-telemetry/opentelemetry-collector",
             "namespace": "otel",
             "values": str(DEFAULT_K8S_DIR / "otel" / "values.yaml"),
+            "version": "0.175.0",
         },
         {
             "name": "pyroscope",
             "chart": "grafana/pyroscope",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "pyroscope-values.yaml"),
+            "version": "2.3.1",
         },
     ],
     "llm": [
@@ -121,12 +129,14 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "chart": "open-webui/open-webui",
             "namespace": "llm",
             "values": str(DEFAULT_K8S_DIR / "llm" / "values-open-webui.yaml"),
+            "version": "16.6.0",
         },
         {
             "name": "qdrant",
             "chart": "qdrant/qdrant",
             "namespace": "llm",
             "values": str(DEFAULT_K8S_DIR / "llm" / "values-qdrant.yaml"),
+            "version": "1.19.1",
         },
     ],
     "logging": [
@@ -135,6 +145,7 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "chart": "grafana/loki",
             "namespace": "logging",
             "values": str(DEFAULT_K8S_DIR / "logging" / "loki-values.yaml"),
+            "version": "7.3.0",
         },
     ],
 }
@@ -157,9 +168,20 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "logging": [
         DEFAULT_K8S_DIR / "logging" / "networkpolicy.yaml",
     ],
+    "devops": [
+        DEFAULT_K8S_DIR / "devops" / "networkpolicy.yaml",
+        DEFAULT_K8S_DIR / "devops" / "serviceaccount.yaml",
+        DEFAULT_K8S_DIR / "devops" / "configmap.yaml",
+        DEFAULT_K8S_DIR / "devops" / "cronjob.yaml",
+        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "pvc.yaml",
+        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "service.yaml",
+        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "deployment.yaml",
+        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "ingress.yaml",
+        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "networkpolicy.yaml",
+    ],
 }
 
-VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "all")
+VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "devops", "all")
 
 
 def _recover_stuck_helm_release_if_pending(
@@ -472,6 +494,12 @@ def _build_helm_upgrade_cmd(
         [
             release["name"],
             release["chart"],
+        ]
+    )
+    if release.get("version"):
+        helm_cmd.extend(["--version", release["version"]])
+    helm_cmd.extend(
+        [
             "--namespace",
             release["namespace"],
             "--values",
@@ -482,6 +510,18 @@ def _build_helm_upgrade_cmd(
     if wait:
         helm_cmd.extend(["--wait", "--timeout", timeout])
     return helm_cmd
+
+
+def _is_cluster_argo_managed(effective_context: str | None = None) -> bool:
+    """Check if the cluster is managed by Argo CD (Application 'cluster' exists in namespace 'argocd')."""
+    cmd = ["kubectl", "-n", "argocd", "get", "application", "cluster"]
+    if effective_context:
+        cmd.extend(["--context", effective_context])
+    proc = runtime._run_cmd(cmd, check=False, capture=True)
+    if proc.returncode != 0:
+        return False
+    out = (proc.stdout or "").strip()
+    return "cluster" in out
 
 
 def _deploy_helm_repos(selected_stacks: Sequence[str]) -> None:
@@ -497,11 +537,50 @@ def _deploy_helm_repos(selected_stacks: Sequence[str]) -> None:
     runtime._run_cmd(["helm", "repo", "update"])
 
 
-def _apply_manifest_files(manifests: Sequence[str], kubectl_ctx: list[str]) -> None:
-    """Apply Kubernetes native manifest files."""
+def _apply_single_manifest(
+    manifest_path: str,
+    kubectl_ctx: list[str],
+    domain: str | None,
+) -> None:
+    """Apply an individual manifest file, rendering templates if a domain is available."""
+    p = Path(manifest_path)
+    if p.name == "configmap.yaml" and p.parent.name == "devops" and not p.exists():
+        from devops_cli.k8s.configmap import ensure_devops_configmap
+
+        ensure_devops_configmap(k8s_dir=p.parent.parent)
+    print_info(f"[bold]Applying manifest {p.name}...[/bold]", prefix=False)
+    if domain and p.is_file():
+        from devops_cli.k8s.template import render_manifest_template
+
+        raw_text = p.read_text(encoding="utf-8")
+        rendered = render_manifest_template(raw_text, domain=domain)
+        if rendered != raw_text:
+            runtime._run_cmd(
+                ["kubectl", "apply", "-f", "-"] + kubectl_ctx,
+                input=rendered,
+                check=False,
+            )
+            return
+    runtime._run_cmd(["kubectl", "apply", "-f", manifest_path] + kubectl_ctx, check=False)
+
+
+def _apply_manifest_files(
+    manifests: Sequence[str],
+    kubectl_ctx: list[str],
+    domain: str | None = None,
+) -> None:
+    """Apply Kubernetes native manifest files, rendering templates if a domain is resolved."""
+    effective_domain = domain
+    if not effective_domain:
+        try:
+            from devops_cli.k8s.template import resolve_template_domain
+
+            effective_domain = resolve_template_domain()
+        except Exception:
+            effective_domain = None
+
     for manifest_path in manifests:
-        print_info(f"[bold]Applying manifest {Path(manifest_path).name}...[/bold]", prefix=False)
-        runtime._run_cmd(["kubectl", "apply", "-f", manifest_path] + kubectl_ctx, check=False)
+        _apply_single_manifest(manifest_path, kubectl_ctx, effective_domain)
 
 
 def _run_helm_with_adoption_retries(
@@ -622,16 +701,29 @@ def _post_deploy_credentials(
             prefix=False,
         )
         print_info("[dim]Valkey Cache: localhost:6379 (namespace: llm)[/dim]", prefix=False)
+    if "devops" in selected_stacks:
+        k_ctx = ["--context", effective_context] if effective_context else []
+        runtime._run_cmd(
+            ["kubectl", "rollout", "restart", "deploy/roadmap-service", "-n", "devops"] + k_ctx,
+            check=False,
+        )
+        print_info(
+            "[dim]Roadmap Service: http://localhost:8000 (namespace: devops)[/dim]",
+            prefix=False,
+        )
 
 
 def _push_stacks_for(selected_stacks: Sequence[str], context: str | None) -> list[str]:
     """The base rows, the deployed stacks' and each detached stack whose namespace exists.
 
-    Detached stacks such as `devops` are never deployed here, so their namespace existing is
-    the sign that the cluster runs them.
+    Detached stacks are pushed only where their namespace exists and they were not explicitly selected.
     """
     try:
-        detached = [name for name in DETACHED_STACKS if namespace_exists(name, context)]
+        detached = [
+            name
+            for name in DETACHED_STACKS
+            if name not in selected_stacks and namespace_exists(name, context)
+        ]
     except ClusterSecretPushError as exc:
         print_error(MESSAGES.k8s.push_failed.format(reason=str(exc)), prefix=False, safe=True)
         raise typer.Exit(1) from exc
@@ -646,12 +738,36 @@ def _dry_run_secrets(selected_stacks: Sequence[str], push_secrets: bool) -> list
     """
     if not push_secrets:
         return []
-    detached = set(DETACHED_STACKS)
+    detached = set(DETACHED_STACKS) - set(selected_stacks)
     return [
         f"{secret.ref}: {', '.join(entry.key for entry in secret.entries)}"
         + (f" (if namespace {secret.namespace} exists)" if secret.stack in detached else "")
-        for secret in secrets_for_stacks([BASE_STACK, *selected_stacks, *DETACHED_STACKS])
+        for secret in secrets_for_stacks([BASE_STACK, *selected_stacks, *detached])
     ]
+
+
+def _verify_cluster_ready(effective_context: str | None) -> None:
+    """Verify cluster reachability before deployment, exiting if unreachable."""
+    if not runtime._cluster_reachable(context=effective_context):
+        print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
+        if not effective_context or effective_context.strip().lower() == "minikube":
+            print_info(MESSAGES.k8s.start_minikube_tip, prefix=False)
+        raise typer.Exit(1)
+
+
+def _deploy_native_manifests(
+    selected_stacks: Sequence[str],
+    all_manifests: list[str],
+    k8s_dir: Path,
+    kubectl_ctx: list[str],
+    domain: str | None,
+) -> None:
+    """Synchronize dynamically generated manifests and apply native Kubernetes resources."""
+    if "devops" in selected_stacks:
+        from devops_cli.k8s.configmap import ensure_devops_configmap
+
+        ensure_devops_configmap(k8s_dir=k8s_dir, force=True)
+    _apply_manifest_files(all_manifests, kubectl_ctx, domain=domain)
 
 
 def deploy_stack(
@@ -659,6 +775,9 @@ def deploy_stack(
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help=HELP.options.context)
+    ] = None,
+    domain: Annotated[
+        str | None, typer.Option("--domain", "-d", help=HELP.k8s.template_domain)
     ] = None,
     wait: Annotated[
         bool,
@@ -717,6 +836,7 @@ def deploy_stack(
             details={
                 "kustomize_dir": str(k8s_dir),
                 "stack": stack,
+                "domain": domain,
                 "stacks": selected_stacks,
                 "context": effective_context,
                 "wait": wait,
@@ -735,11 +855,18 @@ def deploy_stack(
         require_keyring_for_push()
 
     # 2. Verify cluster reachability
-    if not runtime._cluster_reachable(context=effective_context):
-        print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
-        if not effective_context or effective_context.strip().lower() == "minikube":
-            print_info(MESSAGES.k8s.start_minikube_tip, prefix=False)
-        raise typer.Exit(1)
+    _verify_cluster_ready(effective_context)
+
+    if _is_cluster_argo_managed(effective_context):
+        if push_secrets:
+            print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
+            push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
+        print_info(
+            "Argo CD manages the cluster (Application 'cluster' found in namespace 'argocd'). "
+            "Skipping manifest and Helm deployment; see GitOps in k8s/README.md.",
+            prefix=False,
+        )
+        return
 
     kubectl_ctx = ["--context", effective_context] if effective_context else []
     helm_ctx = ["--kube-context", effective_context] if effective_context else []
@@ -757,7 +884,7 @@ def deploy_stack(
     _deploy_helm_repos(selected_stacks)
 
     # 6. Install native manifests
-    _apply_manifest_files(all_manifests, kubectl_ctx)
+    _deploy_native_manifests(selected_stacks, all_manifests, k8s_dir, kubectl_ctx, domain)
 
     # 7. Check for unready cluster nodes to avoid DaemonSet wait timeouts
     unready_nodes = runtime._get_unready_nodes(context=effective_context)
@@ -856,6 +983,7 @@ def teardown_stack(
     context: Annotated[
         str | None, typer.Option("--context", "-c", help=HELP.options.context)
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Uninstall the k8s infrastructure / LLM stack and delete namespaces."""
     effective_context = runtime.resolve_effective_context(context)
@@ -874,7 +1002,7 @@ def teardown_stack(
         )
         all_manifest_deletes.extend([str(p) for p in reversed(_MANIFESTS_BY_STACK.get(s_name, []))])
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s teardown-stack",
             target=str(k8s_dir),
@@ -892,6 +1020,14 @@ def teardown_stack(
 
     if not runtime._cluster_reachable(context=effective_context):
         print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
+        raise typer.Exit(1)
+
+    if _is_cluster_argo_managed(effective_context):
+        print_error(
+            "Argo CD manages the cluster (Application 'cluster' found in namespace 'argocd'). "
+            "Refusing teardown; see GitOps in k8s/README.md.",
+            prefix=False,
+        )
         raise typer.Exit(1)
 
     kubectl_ctx = ["--context", effective_context] if effective_context else []

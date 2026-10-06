@@ -7,7 +7,11 @@ from devops_cli.security.base import BaseSecurityScanner, ScanOutcome
 from devops_cli.security.checkov import CheckovScanner, run_checkov_scan
 from devops_cli.security.dive import DiveScanner, run_dive_analysis, run_dive_scan
 from devops_cli.security.gitleaks import GitleaksScanner, run_gitleaks_scan
-from devops_cli.security.kubeconform import KubeconformScanner, run_kubeconform_validation
+from devops_cli.security.kubeconform import (
+    KubeconformScanner,
+    is_kubernetes_manifest,
+    run_kubeconform_validation,
+)
 from devops_cli.security.kubelinter import KubelinterScanner, run_kubelinter_scan
 from devops_cli.security.pluto import PlutoScanner, run_pluto_scan
 from devops_cli.security.popeye import PopeyeScanner, run_popeye_scan
@@ -72,6 +76,7 @@ __all__ = [
     "is_example_or_invalid_network_target",
     "is_example_or_reserved_ip",
     "is_example_phone_number",
+    "is_kubernetes_manifest",
     "is_local_or_reserved_domain",
     "is_private_or_local_ip",
     "is_public_ip",

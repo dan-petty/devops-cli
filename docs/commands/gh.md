@@ -47,6 +47,23 @@ devops gh rate-limit [OPTIONS]
 
 ---
 
+## `devops gh status`
+
+**Display GitHub published operational status, key components, and active incidents.**
+
+```bash
+devops gh status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Emit structured JSON service status summary |
+| `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
+
+---
+
 ## `devops gh metrics`
 
 **Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, and milestones.**
@@ -629,13 +646,15 @@ devops gh runs view [OPTIONS] <run_id>
 
 ## `devops gh branch-protection`
 
+**Manage classic branch protection policies; does not cover rulesets.**
+
 ```bash
 devops gh branch-protection COMMAND [ARGS]...
 ```
 
 ### `devops gh branch-protection audit`
 
-**Audit repository branch protection rulesets against declarative policy specification.**
+**Audit repository classic branch protection against declarative policy specification.**
 
 ```bash
 devops gh branch-protection audit [OPTIONS]
@@ -652,7 +671,7 @@ devops gh branch-protection audit [OPTIONS]
 
 ### `devops gh branch-protection sync`
 
-**Synchronize repository branch protection rulesets against declarative policy specification.**
+**Synchronize repository classic branch protection against declarative policy specification.**
 
 ```bash
 devops gh branch-protection sync [OPTIONS]
@@ -935,7 +954,7 @@ devops gh pr close [OPTIONS] <number>
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
 Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
-and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
+and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
 body closes exactly one issue, and it adds, modifies or renames that issue's
 docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves CHANGELOG.md and
 docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. Into release/vX.Y.Z,
@@ -984,6 +1003,7 @@ devops gh pr update [OPTIONS] <number>
 | `--base`, `-B` | `string` | - | Filter open pull requests by base branch (e.g. main, release/v0.2.20). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--expected-head-sha` | `string` | - | Expected SHA of the pull request's HEAD ref for optimistic locking. |
+| `--dispatch-ci` | `boolean` | - | Dispatch the ci.yml workflow on the head branch after updating. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr threads`

@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import json
 import logging
+import textwrap
 from collections import defaultdict
 from collections.abc import AsyncGenerator, Callable, Generator, Iterator
 from contextlib import contextmanager
@@ -22,6 +23,7 @@ from devops_cli.ai.agents.capabilities import (
     BaseCapability,
     DeferredToolRequests,
     DeferredToolResults,
+    SystemReminders,
 )
 from devops_cli.ai.agents.context import (
     AgentHooks,
@@ -73,8 +75,11 @@ from devops_cli.config.defaults import (
     DEFAULT_AGENT_MAX_TURNS,
     DEFAULT_AGENT_NAME,
     DEFAULT_AGENT_SYSTEM_PROMPT,
+    DEFAULT_INVARIANT_REMINDER_CHARS,
+    DEFAULT_INVARIANT_REMINDER_ID,
+    DEFAULT_PLAN_REMINDER_CADENCE,
 )
-from devops_cli.exceptions import UnexpectedModelBehavior
+from devops_cli.exceptions.ai import UnexpectedModelBehavior
 from devops_cli.models.ai import ChatMessage
 
 AgentToolset = AbstractToolset | PyAIAbstractToolset[Any]
@@ -295,6 +300,10 @@ class PydanticAgent[T, DepsT = Any]:
         self._tools: dict[str, AgentTool | Tool] = {}
         self._dynamic_system_prompts: list[Callable[..., str]] = []
         self._output_validators: list[Callable[..., Any]] = []
+        self._invariant_reminders: SystemReminders = SystemReminders(
+            id=DEFAULT_INVARIANT_REMINDER_ID,
+            cadence=DEFAULT_PLAN_REMINDER_CADENCE,
+        )
 
         if tools:
             for tool in tools:
@@ -612,7 +621,12 @@ class PydanticAgent[T, DepsT = Any]:
         base_prompt: str = str(self.system_prompt)
         if "{{" in base_prompt and ctx and ctx.deps is not None:
             base_prompt = TemplateStr(base_prompt).render(ctx.deps)
-        prompt_parts: list[str] = [base_prompt.strip()]
+        prompt_parts: list[str] = []
+        if self.memory and self.memory.invariants:
+            inv_lines = [f"- {inv}" for inv in self.memory.invariants]
+            prompt_parts.append("## Invariants\n" + "\n".join(inv_lines))
+
+        prompt_parts.append(base_prompt.strip())
 
         for dyn_fn in self._dynamic_system_prompts:
             try:
@@ -673,6 +687,17 @@ class PydanticAgent[T, DepsT = Any]:
                     f"```json\n{schema_json}\n```"
                 )
                 prompt_parts.append(json_block)
+
+        if self.memory and self.memory.invariants:
+            self._invariant_reminders.reminders = [
+                textwrap.shorten(inv, width=DEFAULT_INVARIANT_REMINDER_CHARS, placeholder="...")
+                for inv in self.memory.invariants
+            ]
+            eff_ctx = ctx if ctx is not None else RunContext(session_id=self.name)
+            reminder_additions = self._invariant_reminders.get_system_prompt_additions(ctx=eff_ctx)
+            if reminder_additions:
+                reminder_lines = [f"- {rem}" for rem in reminder_additions]
+                prompt_parts.append("## Invariant reminder\n" + "\n".join(reminder_lines))
 
         return "\n\n".join(prompt_parts)
 

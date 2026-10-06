@@ -86,7 +86,7 @@ These groups route reviews, embeddings and background work:
 - `devops-review` spreads one model name over the interactive Ollama tiers: `qwen3-coder:30b` on `ollama-48gib-fast` and `ollama-64gib-standard`, and `gpt-oss:20b` on `ollama-16gib-fast`. Each deployment takes a share of requests weighted by its throughput, and pre-call checks keep a prompt off any deployment whose window it exceeds. No deployment is capped with `max_parallel_requests`: LiteLLM waits on the cap only after routing, so queued requests pile up behind it while larger servers idle, and the backends queue excess requests themselves.
 - `bge-m3:latest` is the embedding group. Its one deployment is on the background tier, `ollama-48gib-slow`, with `model_info.mode: embedding` so health checks embed rather than generate.
 - `qwen3-coder:30b` and `gpt-oss:20b` each pin one of `devops-review`'s models: the group copies that model's `devops-review` deployments and weights, with no `max_input_tokens` and no fallback, so a review measured on one model is routed as the pool routes it.
-- `devops-background` is the background tier's one generation model: `qwen3-coder:30b` on `ollama-48gib-slow`. That tier serves one request at a time, so it is in no interactive or review pool, where background work would queue in front of review calls. It keeps its embedding model and `qwen3-coder:30b` loaded together and is sent no other model. `devops-review` falls back to it once its own retries fail, timeouts included; the pinned groups have no fallback. The gateway's 1,500 s timeout outlasts the review client's 1,200 s, so a `devops-review` call that timed out at the gateway was already given up, and the fallback spends the tier's slot on a reply nobody reads. Use it for `devops review path --watch`, `devops ai pipeline`, `devops ai agents` and `devops ai analyze` through environment overrides, never in `config.yaml`, so no interactive run lands on it. Set `DEVOPS_CLI_AI_MAX_RETRIES=1`. The gateway abandons a call after 1,100 s and never retries it, but the client retries a failed or timed-out call in its HTTP transport and again in its dispatch loop, `ai.max_retries` times each, and every retry waits for the same single slot. With `1` a call is sent at most four times; `0` does not stop retries, because the transport then makes five attempts:
+- `devops-background` is the background tier's one generation model: `qwen3.8:27b` on `ollama-48gib-slow`. That tier serves one request at a time, so it is in no interactive or review pool, where background work would queue in front of review calls. It keeps its embedding model and `qwen3.8:27b` loaded together and is sent no other model. In-cluster services (`k8s/devops/` such as `roadmap-service` and cluster jobs) and `devops-review` fallback reach it; the pinned groups have no fallback. The gateway's 1,500 s timeout outlasts the review client's 1,200 s, so a `devops-review` call that timed out at the gateway was already given up, and the fallback spends the tier's slot on a reply nobody reads. Use it for `devops review path --watch`, `devops ai pipeline`, `devops ai agents` and `devops ai analyze` through environment overrides, never in workstation `config.yaml`, so no interactive run lands on it. Set `DEVOPS_CLI_AI_MAX_RETRIES=1`. The gateway abandons a call after 1,100 s and never retries it, but the client retries a failed or timed-out call in its HTTP transport and again in its dispatch loop, `ai.max_retries` times each, and every retry waits for the same single slot. With `1` a call is sent at most four times; `0` does not stop retries, because the transport then makes five attempts:
   ```bash
   DEVOPS_CLI_AI_MAX_RETRIES=1 DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL=devops-background \
     DEVOPS_CLI_AI_TASK_VERIFICATION_MODEL=devops-background \
@@ -306,6 +306,8 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `devops/devops-cli` | `DEVOPS_CLI_AI_API_KEY` | keyring `llm_gateway_master_key` | yes | adopt from `llm/llm-gateway-secrets master-key`; else fail | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS` | keyring `service_webhook_secrets` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_TAVILY_API_KEY` | keyring `tavily_api_key` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
+| `monitoring/grafana-admin` | `admin-user` | literal | yes | fail | infra | `deployment/grafana` |
+| `monitoring/grafana-admin` | `admin-password` | keyring `grafana_password` | yes | adopt from `monitoring/grafana admin-password`; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
 
 - The keyring must be unlocked (`devops devcontainer unlock-keyring`); a locked or missing keyring stops the push before anything is read or written, and stops deploy-stack before it applies anything.
 - A value the keyring lacks but the cluster holds is adopted into the keyring, so a first push changes nothing live. Only values nobody types are generated, and each is stored in the keyring before it is pushed.
@@ -326,9 +328,11 @@ To rotate a generated value, store a new one at a hidden prompt with `uv run key
 
 ## devops-cli in the cluster
 
-`k8s/devops/` runs devops-cli as cluster Jobs, so agents drive it with kubectl and never handle keys. It is not part of the root kustomization: apply it with `devops k8s apply k8s/devops/ --template`, which renders the kustomization and its `images:` tag. Each Job reads its credentials from Secret `devops/devops-cli` through `envFrom`, its configuration from ConfigMap `devops-cli-config` (provider `gateway` at `http://llm-gateway.llm.svc.cluster.local:4000/v1`), holds no Kubernetes API token, accepts no ingress, and reaches only DNS, the gateway and public HTTPS. Commands that need Qdrant, Prometheus, Grafana, Argo CD or a repository checkout do not run there yet.
+`k8s/devops/` runs devops-cli as cluster Jobs, so agents drive it with kubectl and never handle keys. It is managed by `devops k8s deploy-stack --stack devops` (and `--stack all`), and can also be rendered directly with `devops k8s apply k8s/devops/ --template`. Each Job reads its credentials from Secret `devops/devops-cli` through `envFrom`, its configuration from ConfigMap `devops-cli-config` (provider `gateway` at `http://llm-gateway.llm.svc.cluster.local:4000/v1`), holds no Kubernetes API token, accepts no ingress, and reaches only DNS, the gateway, the OpenTelemetry collector in namespace `otel` and public HTTPS. Commands that need Qdrant, Prometheus, Grafana, Argo CD or a repository checkout do not run there yet.
 
 ```bash
+devops k8s deploy-stack --stack devops --context <context>
+# or directly:
 devops k8s apply k8s/devops/ --template --context <context>
 devops config set k8s.github_account <machine-login>
 devops k8s push-secrets --context <context> --plan       # reads the keyring, gh and the cluster: key names and states, never a value
@@ -352,7 +356,7 @@ kubectl -n devops logs -f job/<name>
 5. `devops cloudflare tunnel routes`. If no route covers the webhook host, add one in the dashboard, not with `tunnel sync` (#794).
 6. `devops cloudflare access status`, then add a Bypass application for `hooks.<domain>/webhooks/github`.
 7. `devops k8s apply k8s/monitoring/networkpolicy.yaml`, until #755 or #913 deploys it.
-8. `devops k8s apply k8s/devops/ --template`, until #755.
+8. `devops k8s deploy-stack --stack devops` (or `--stack all`), or `devops k8s apply k8s/devops/ --template`.
 9. Add each repo's webhook: `https://hooks.<domain>/webhooks/github`, `application/json`, that repo's secret, and the Issues, Pull requests and Milestones events.
 10. To rotate a credential, update it in the keyring (`uv run devops config set service.webhook_secrets`, or `gh auth login` for the machine account), then run `uv run devops k8s push-secrets --only devops/devops-cli --rotate`. It restarts `roadmap-service`.
 11. Run one service per set of repos. While it runs, use `devops roadmap run --dry-run` (#981).
@@ -371,6 +375,68 @@ devops k8s teardown-stack --stack all
 ```
 
 Teardown leaves the `prometheus-operator-crds` release's CRDs in the cluster. Deleting a CRD deletes every object of its kind, such as every ServiceMonitor, so remove them by hand only when nothing in the cluster uses them.
+
+## GitOps
+
+Argo CD maintains the declared state of the homelab cluster directly from this repository. A two-level application topology decouples cluster bootstrap from release branch tracking:
+
+1. **`bootstrap` (`k8s/argocd/bootstrap/bootstrap.yaml`)**: Tracks `main`. Syncs the root `cluster` Application.
+2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks the active release branch (`release/vX.Y.Z`). Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 20 leaf Applications (8 raw leaf applications and 12 multi-source Helm applications).
+
+When the root `cluster` Application is present in the cluster, `devops k8s deploy-stack` delegates manifest and Helm reconciliation to Argo CD (running only keyring secret push), and `devops k8s teardown-stack` refuses execution to prevent configuration drift.
+
+> [!NOTE]
+> `k8s/coredns/` remains managed outside Argo CD to preserve cluster DNS resolution during bootstrap and recovery cycles.
+
+### Bootstrap & Adoption
+
+To bootstrap GitOps on a running cluster:
+
+```bash
+# Bootstrap the two-level root app topology (defaults to k8s/argocd/bootstrap/bootstrap.yaml)
+devops argo cd apps bootstrap-gitops
+```
+
+### Recovery
+
+If Argo CD itself becomes unavailable or needs to be recovered from scratch:
+
+```bash
+# 1. Recover Argo CD via Helm with pinned chart version and values
+helm upgrade --install argocd argo/argo-cd --version 10.9.6 -n argocd -f k8s/argocd/values.yaml
+
+# 2. Re-apply the bootstrap application to resume gitops reconciliation
+devops argo cd apps bootstrap-gitops
+```
+
+### Drift Detection & Sync Commands
+
+Inspect and manage GitOps state using native `devops argo` commands:
+
+```bash
+# List all managed Applications and their sync/health statuses
+devops argo cd apps list
+
+# Check detailed status of an Application
+devops argo cd apps get <app-name>
+
+# View differences between live cluster state and declared git state
+devops argo cd apps diff <app-name>
+
+# Manually trigger reconciliation / sync for an Application
+devops argo cd apps sync <app-name>
+```
+
+### Replaced Hand Steps
+
+| Previous Manual Step | Replaced By Argo CD GitOps |
+| :--- | :--- |
+| `devops k8s deploy-stack --stack <name>` | Automated reconciliation by Argo CD leaf applications. |
+| `devops k8s apply -k k8s/...` | Declarative raw leaf Applications (`apps/*.yaml`) with `selfHeal: true`. |
+| Manual Helm release upgrades (`helm upgrade ...`) | Multi-source Helm Applications with pinned chart versions and git value files. |
+| Ad-hoc ingress and domain patching | Declarative domain overlays (`k8s/overlays/homelab/ingress/` and `devops/`). |
+| Secret storage in Helm values | External secret synchronization (`devops k8s push-secrets`) decoupled from manifests. |
+| Manual drift reconciliation | Automated self-healing (`automated.prune: true`, `automated.selfHeal: true`). |
 
 ## Cloudflare Wildcard Tunnel & Ingress Routing
 
@@ -450,16 +516,15 @@ Expose homelab Kubernetes services securely to the internet without public ports
 ```
 k8s/
 ├── kustomization.yaml        # Root kustomize: applies namespaces, cloudflared, registry, Grafana dashboard ConfigMaps
-├── namespaces.yaml           # Namespace definitions (argocd, monitoring, otel, llm, cloudflared)
+├── namespaces.yaml           # Namespace definitions with Prune=false,Delete=false
 ├── cloudflared/
 │   ├── kustomization.yaml    # Kustomize overlay for Cloudflare Tunnel
 │   ├── deployment.yaml       # Multi-replica non-root cloudflared deployment
 │   └── networkpolicy.yaml    # Network isolation for tunnel ingress and egress
 ├── devops/                   # In-cluster devops-cli runtime; not in the root kustomization
 │   ├── kustomization.yaml    # Its resources, and the service image's tag (`devops release prepare` sets it)
-│   ├── namespace.yaml        # devops namespace, Pod Security restricted
 │   ├── serviceaccount.yaml   # devops-cli service account without an API token
-│   ├── configmap.yaml        # devops-cli config: the in-cluster gateway, no credential
+│   ├── configmap.example.yaml # devops-cli config template: in-cluster gateway, sanitized placeholders (gitignored configmap.yaml generated dynamically)
 │   ├── cronjob.yaml          # Suspended CronJob devops-cli, the template of every cluster job
 │   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out
 │   └── roadmap-service/      # Continuous roadmap service Deployment, Service, Ingress, NetworkPolicy, PVC
@@ -474,12 +539,19 @@ k8s/
 │   ├── traefik-values.yaml   # Traefik Helm values with ClusterIP service type
 │   └── ingress-routes.yaml   # Ingress rules for chat, ai, grafana, argocd, prometheus, qdrant
 ├── argocd/
-│   ├── kustomization.yaml    # Kustomize overlay for ArgoCD
-│   ├── namespace.yaml        # argocd namespace
-│   └── values.yaml           # Helm values for argo/argo-cd
+│   ├── kustomization.yaml    # Kustomize overlay for Argo CD
+│   ├── values.yaml           # Helm values for argo/argo-cd
+│   ├── bootstrap/            # Two-level bootstrap applications
+│   │   ├── bootstrap.yaml    # Root app tracking main, reconciles cluster app
+│   │   └── cluster.yaml      # Cluster app tracking release branch, reconciles projects & leaf apps
+│   └── apps/                 # AppProjects and 20 leaf Applications (8 raw + 12 Helm)
+│       └── projects.yaml     # AppProjects: homelab and homelab-system
+├── overlays/
+│   └── homelab/              # Homelab domain overlays patching example.com
+│       ├── ingress/          # Patches Ingress and IngressRoute resources
+│       └── devops/           # Patches roadmap-service Ingress
 ├── monitoring/
-│   ├── kustomization.yaml    # Kustomize overlay for monitoring: namespace, NetworkPolicy, Service aliases, dashboards
-│   ├── namespace.yaml        # monitoring namespace
+│   ├── kustomization.yaml    # Kustomize overlay for monitoring: NetworkPolicy, Service aliases, dashboards
 │   ├── networkpolicy.yaml    # Default perimeter for the monitoring namespace
 │   ├── service-aliases.yaml  # Alias Services for Prometheus and Grafana
 │   ├── dcgm-exporter-values.yaml # Helm values for nvidia/dcgm-exporter (GPU metrics)
@@ -499,11 +571,10 @@ k8s/
 │       └── prometheus-server.json # The Prometheus server; not provisioned, reaches Grafana through sync
 ├── otel/
 │   ├── kustomization.yaml    # Kustomize overlay for OpenTelemetry
-│   ├── namespace.yaml        # otel namespace
+│   ├── networkpolicy.yaml    # Perimeter NetworkPolicy for otel namespace
 │   └── values.yaml           # Helm values for opentelemetry-collector
 ├── llm/
 │   ├── kustomization.yaml    # Kustomize overlay for LLM stack base
-│   ├── namespace.yaml        # llm namespace
 │   ├── valkey.yaml           # Valkey Deployment + Service manifest
 │   ├── valkey-runs.yaml      # Run index Valkey: PVC, Deployment, NodePort Service, NetworkPolicy
 │   ├── values-open-webui.yaml# Helm values for open-webui/open-webui

@@ -10,15 +10,15 @@ Infrastructure provisioning in `devops-cli` standardizes declarative cloud infra
 
 ```mermaid
 graph LR
-    A[devops tofu init] --> B[devops tofu plan]
+    A[devops tf init] --> B[devops tf plan]
     B --> C[Plan Inspection & Review]
-    C --> D[devops tofu apply --plan]
-    D --> E[devops tofu output --json]
-    E --> F[devops tofu status]
+    C --> D[devops tf apply --plan-file]
+    D --> E[devops tf output --json]
+    E --> F[devops tf status]
 ```
 
-- **Execution Engine**: Supports `devops tofu` and `devops tf` with automatic binary detection.
-- **Path Resolution**: Enforces structured directories under `tf/<provider>/` (e.g. `tf/aws`, `tf/k8s`).
+- **Execution Engine**: `devops tf` detects the tofu or terraform binary automatically.
+- **Path Resolution**: Enforces structured directories under `tf/<provider>/` (e.g. `tf/aws`, `tf/gcp`).
 - **Telemetry Integration**: Emits OpenTelemetry trace spans with execution duration, resource changes count, and provider metadata.
 
 ---
@@ -28,28 +28,28 @@ graph LR
 ### Provisioning Pipeline Commands
 ```bash
 # 1. Initialize OpenTofu working directory and download providers
-devops tofu init --path tf/aws
+devops tf init tf/aws
 
 # 2. Generate and save execution plan
-devops tofu plan --path tf/aws -v tf/environments/dev.tfvars -o dev.tfplan
+devops tf plan tf/aws -v tf/environments/dev.tfvars -o dev.tfplan
 
 # 3. Apply the generated plan file
-devops tofu apply --path tf/aws --plan dev.tfplan
+devops tf apply tf/aws --plan-file dev.tfplan
 
 # 4. View structured JSON output attributes
-devops tofu output --path tf/aws --json
+devops tf output tf/aws --json
 
 # 5. Check state file status and provider initialization
-devops tofu status --path tf/aws
+devops tf status tf/aws
 ```
 
 ---
 
 ## 4. Best Practice Guidance
 
-1. **Always Use Plan Files**: Never run `devops tofu apply` without a pre-computed `.tfplan` file in production workflows.
+1. **Always Use Plan Files**: Never run `devops tf apply` without a pre-computed `.tfplan` file in production workflows.
 2. **Provider Caching**: Enable OpenTofu provider caching (`plugin_cache_dir = "$HOME/.terraform.d/plugin-cache"`) in developer workstations to avoid repeated downloads.
-3. **Format All HCL**: Run `tofu fmt -recursive` across all `.tf` files (enforced by `devops ci`).
+3. **Format All HCL**: Run `devops tf fmt tf/ --check` across all `.tf` files (not enforced by `devops ci`).
 4. **Environment Separation**: Maintain separate variable files (`dev.tfvars`, `staging.tfvars`, `prod.tfvars`) and separate state keys for each environment.
 
 ---
@@ -73,8 +73,8 @@ devops tofu status --path tf/aws
   │   ├── outputs.tf
   │   └── versions.tf
   └── environments/
-      ├── dev.tfvars
-      └── prod.tfvars
+      ├── dev.tfvars.example
+      └── prod.tfvars.example
   ```
 - **HCL Syntax**: Use HCL2 declarative syntax with explicit type constraints for all variables (`type = string`, `type = list(string)`).
 

@@ -1,8 +1,8 @@
-# Knowledge Base Task: DevContainer Lifecycle & Scaffolding
+# Knowledge Base Task: DevContainer Lifecycle & Configuration
 
 ## 1. Overview & Purpose
 
-DevContainer lifecycle automation in `devops-cli` standardizes the provisioning, configuration, and startup lifecycle of containerized development environments across single and multi-repo workspaces. It automates `.devcontainer/devcontainer.json` scaffolding, persistent shell histories, SSH commit signing configuration, Kubeconfig preparation, AI agent instruction synchronization (`AGENTS.md`), and FastMCP tool configuration.
+DevContainer lifecycle automation in `devops-cli` standardizes the provisioning, configuration, and startup lifecycle of containerized development environments across single and multi-repo workspaces. It automates `.devcontainer/devcontainer.json` generation, persistent shell histories, SSH commit signing configuration, Kubeconfig preparation, AI agent instruction synchronization (`AGENTS.md`), and FastMCP tool configuration.
 
 ---
 
@@ -10,11 +10,11 @@ DevContainer lifecycle automation in `devops-cli` standardizes the provisioning,
 
 ```mermaid
 graph TD
-    A[devops devcontainer init] --> B[Scaffold devcontainer.json & mcp.json]
+    A[devops devcontainer init] --> B[Generate devcontainer.json & mcp.json]
     B --> C[Scaffold AGENTS.md, CLAUDE.md, copilot-instructions.md]
     D[Container Start: postCreateCommand] --> E[devops devcontainer post-create]
     E --> F[Volume Mount Permissions & Ownership: /tmp, .venv, caches]
-    E --> G[Persistent Bash/Zsh History & Path Setup]
+    E --> G[Persistent Bash History & Path Setup]
     E --> H[Config Prep ~/.gemini/config]
     E --> I[Scaffold Missing Agent Instructions]
     J[Container Run: postStartCommand] --> K[devops devcontainer post-start]
@@ -25,8 +25,8 @@ graph TD
 ```
 
 - **Lifecycle Phases**:
-  1. `init`: Scaffolds `.devcontainer/devcontainer.json`, `.vscode/mcp.json`, and agent instruction files.
-  2. `post-create`: Pure Python setup of volume mount permissions (`/tmp` 1777, `.venv`/`.data`/caches user ownership), persistent bash/zsh history, environment paths, config directories, and agent instructions.
+  1. `init`: Generates `.devcontainer/devcontainer.json`, `.vscode/mcp.json`, and agent instruction files.
+  2. `post-create`: Pure Python setup of volume mount permissions (`/tmp` 1777, `.venv`/`.data`/caches user ownership), persistent bash history (zsh gets completion and the `dot` alias only), environment paths, config directories, and agent instructions.
   3. `post-start`: Pure Python verification of volume mount permissions, Git defaults, SSH key commit signing, MCP server JSON synchronization, and conditional Minikube auto-start (governed by `k8s.context` setting and `DEVOPS_MINIKUBE_AUTOSTART`).
 
 ---

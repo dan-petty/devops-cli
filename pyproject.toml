@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling>=1.26.0"]
+requires = ["hatchling>=1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.2.26"
+version = "0.2.27"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
@@ -14,15 +14,15 @@ dependencies = [
     "rich==15.0.0",
     "pydantic==2.13.5",
     "PyGithub==2.10.0",
-    "gitpython==3.1.62",
-    "cryptography==50.0.1",
+    "gitpython==3.2.0",
+    "cryptography==50.0.2",
     "httpx2==2.13.1",
     "keyring==25.7.0",
     "PyYAML==6.0.3",
     "jinja2==3.1.6",
     "kubernetes==36.0.3",
     "docker==7.2.0",
-    "fastmcp==3.4.7",
+    "fastmcp==4.0.11",
     "qdrant-client==1.19.1",
     "pydantic-settings==2.15.0",
     "json-repair==0.63.4",
@@ -31,10 +31,11 @@ dependencies = [
     "pathspec==1.1.1",
     "python-hcl2==8.1.4",
     "packaging==26.3",
-    "fastapi==0.141.1",
+    "fastapi==0.142.2",
     "uvicorn==0.53.0",
     "tiktoken==0.14.0",
     "pydantic-ai==2.35.0",
+    "dnspython==2.8.0",
     "genai-prices==0.1.9",
     "opentelemetry-exporter-otlp-proto-grpc==1.44.0",
     "pydantic-handlebars==0.2.1",
@@ -67,14 +68,14 @@ devops = "devops_cli.entry:main"
 dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
-    "pytest-mock==3.15.1",
+    "pytest-mock==3.16.0",
     "ruff==0.16.8",
     "mypy==2.3.1",
     "types-PyYAML==6.0.12.20260906",
     "pytest-cov==7.1.0",
     "pytest-xdist==3.8.0",
     "bandit==1.9.4",
-    "actionlint-py==1.7.12.24",
+    "actionlint-py==1.7.12.25",
     "pre-commit==4.6.2",
     "hypothesis==6.168.3",
 ]
@@ -119,6 +120,7 @@ enable_error_code = ["ignore-without-code"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
+# Pytest workers: logical cores (ext4 benchmark: 8 workers ~4.2s vs 4 workers ~6.8s)
 addopts = "-n logical"
 markers = [
     "bwrap: live sandbox tests requiring bubblewrap; skipped where bwrap is not installed",

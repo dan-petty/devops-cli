@@ -19,13 +19,13 @@ Trivy (by Aqua Security) is a comprehensive, open-source security scanner. It de
 ### DevOps CLI Scan Commands
 ```bash
 # Scan a container image for vulnerabilities
-devops scan image ghcr.io/dan-petty/devops-cli/devcontainer:latest
+devops scan trivy ghcr.io/dan-petty/devops-cli/devcontainer:latest --type image
 
 # Scan a local repository filesystem for CVEs and misconfigurations
-devops scan fs .
+devops scan trivy . --type fs
 
 # Scan Kubernetes manifests for security misconfigurations
-devops scan k8s k8s/
+devops scan trivy k8s/ --type iac
 ```
 
 ### Standard & Advanced `trivy` Commands

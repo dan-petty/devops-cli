@@ -6,8 +6,8 @@
 | :--- | :--- |
 | **Official Documentation** | [docs.pydantic.dev](https://docs.pydantic.dev/latest/) • [docs.pydantic.dev/latest/concepts/pydantic_settings/](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) |
 | **Public Git Repository** | [github.com/pydantic/pydantic](https://github.com/pydantic/pydantic) • [github.com/pydantic/pydantic-settings](https://github.com/pydantic/pydantic-settings) |
-| **Official PyPI Package** | [pypi.org/project/pydantic](https://pypi.org/project/pydantic/) (`2.13.4`) • [pypi.org/project/pydantic-settings](https://pypi.org/project/pydantic-settings/) (`2.15.0`) |
-| **DevOps CLI Integration** | [`src/devops_cli/models/`](../../../../../src/devops_cli/models/) • [`src/devops_cli/config/settings.py`](../../../../../src/devops_cli/config/settings.py) |
+| **Official PyPI Package** | [pypi.org/project/pydantic](https://pypi.org/project/pydantic/) (`2.13.5`) • [pypi.org/project/pydantic-settings](https://pypi.org/project/pydantic-settings/) (`2.15.0`) |
+| **DevOps CLI Integration** | [`src/devops_cli/models/`](../../../../../../src/devops_cli/models/) • [`src/devops_cli/config/settings.py`](../../../../../../src/devops_cli/config/settings.py) |
 
 ---
 
@@ -16,7 +16,7 @@
 **Pydantic v2** is the industry-standard data validation and settings management library for Python. Re-engineered in Rust via `pydantic-core`, Pydantic v2 delivers 5x–50x performance improvements over v1, comprehensive JSON Schema generation, recursive model validation, strict type coercion, and seamless serialization.
 
 In `devops-cli`:
-- **Domain Modeling**: All domain entities (`Finding`, `ReviewSession`, `AgentUsage`, `TLSBundle`, `K8sPodStatus`) inherit from `pydantic.BaseModel`.
+- **Domain Modeling**: Domain entities (`Finding`, `ReviewSessionPayload`, `AgentUsage`, ...) inherit from `pydantic.BaseModel`.
 - **Layered Settings**: `pydantic_settings.BaseSettings` coordinates resolution across CLI flags $\rightarrow$ Environment variables (`DEVOPS_CLI_*`) $\rightarrow$ Config files $\rightarrow$ Defaults.
 - **Zero Mutable Defaults**: All collection fields enforce `Field(default_factory=list)` or `Field(default_factory=dict)` to guarantee immutability across executions.
 

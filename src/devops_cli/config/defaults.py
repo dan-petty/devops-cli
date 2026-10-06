@@ -376,6 +376,7 @@ DEFAULT_AI_PIPELINE_PROMPT: str = (
 )
 DEFAULT_AI_PIPELINE_PERSONAS: str = "devsecops,architect,qa"
 DEFAULT_AI_PIPELINE_MAX_TURNS: int = 5
+DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS: int = 4096
 DEFAULT_AI_SYSTEM_PROMPT: str = "You are a helpful DevOps assistant."
 DEFAULT_AI_AGENT_NAME: str = "Assistant"
 DEFAULT_AI_PIPELINE_SESSION_ID: str = "pipeline-session"
@@ -448,7 +449,6 @@ DEFAULT_CHECK_ALL: str = "all"
 DEFAULT_AUDIT_STATUS_SUCCESS: str = "SUCCESS"
 DEFAULT_SRC_DIR: str = "src"
 DEFAULT_DOCS_FORMAT: str = "markdown"
-DEFAULT_PYTEST_NUMPROCESSES: str = "auto"
 DEFAULT_TABLE_FORMAT: str = "table"
 DEFAULT_MAX_RETRIES: int = 3
 DEFAULT_EMBEDDING_BATCH_SIZE: int = 64
@@ -578,6 +578,14 @@ DEFAULT_AGENT_NAME: str = "Assistant"
 DEFAULT_AGENT_SYSTEM_PROMPT: str = "You are a helpful DevOps assistant."
 DEFAULT_PLAN_REMINDER_CADENCE: int = 3
 DEFAULT_PLAN_REMINDER_ID: str = "system_reminders"
+DEFAULT_INVARIANT_REMINDER_ID: str = "invariants"
+DEFAULT_INVARIANT_REMINDER_CHARS: int = 120
+DEFAULT_CHAT_INVARIANTS: tuple[str, ...] = (
+    "Never echo plaintext secrets, tokens, private keys, or the contents of hidden or .gitignored files.",
+    "Never write concrete internal hostnames, private RFC 1918 addresses, private registries, or homelab topology into any artifact; examples use example.com, RFC 5737 blocks, or localhost.",
+    "Never lower, relax, bypass, or disable a security standard, quality threshold, or compliance check unless explicitly instructed by the user.",
+    "Never push before uv run devops ci passes locally, and never commit or push directly to main or any release/* branch.",
+)
 DEFAULT_THREAD_EXECUTOR_MAX_WORKERS: int = 16
 DEFAULT_THREAD_EXECUTOR_PREFIX: str = "agent-worker"
 DEFAULT_THREAD_EXECUTOR_ID: str = "use_thread_executor"
@@ -741,6 +749,8 @@ DEFAULT_GH_PAGES_LIMIT: int = 5
 DEFAULT_PR_MONITOR_TIMEOUT_SECONDS: int = 300
 DEFAULT_PR_MONITOR_INTERVAL_SECONDS: int = 60
 DEFAULT_PR_MONITOR_SETTLE_TIMEOUT_SECONDS: int = 60
+DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS: int = 6
+DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS: float = 5.0
 DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS: float = 30.0
 DEFAULT_GH_MAX_RETRIES: int = 2
 DEFAULT_GH_RESOURCE: str = "core"
@@ -782,6 +792,7 @@ DEFAULT_ROADMAP_INTAKE_REASON_CHARS: int = 240
 DEFAULT_ROADMAP_CLOSE_SUMMARY_CHARS: int = 1500
 DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES: int = 60
 DEFAULT_ROADMAP_CLOSURE_INTERVAL_MINUTES: int = 60
+DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES: int = 15
 DEFAULT_ROADMAP_MEMORY_REPO: str = "example/roadmap"
 DEFAULT_ROADMAP_MEMORY_ACTOR: str = "devops-cli"
 DEFAULT_ROADMAP_MEMORY_BOARD_NUMBER: int = 1
@@ -857,6 +868,13 @@ DEFAULT_K8S_INFORMER_STOP_TIMEOUT_SECONDS: float = 5.0
 DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES: int = 10000
 DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS: float = 5.0
 DEFAULT_K8S_STREAM_TIMEOUT_SECONDS: float = 300.0
+
+# ── Kubernetes Doctor Diagnostic Defaults ─────────────────────────────────────
+DEFAULT_K8S_DOCTOR_LOG_TAIL_LINES: int = 20
+DEFAULT_K8S_DOCTOR_STUCK_SECONDS: int = 300
+DEFAULT_K8S_DOCTOR_RESTART_THRESHOLD: int = 3
+DEFAULT_K8S_DOCTOR_EVENT_COUNT_THRESHOLD: int = 5
+
 
 # ── Dashboard TUI Defaults ──────────────────────────────────────────────────
 # Retention ceiling for a streamed log view. A tail can emit hundreds of thousands

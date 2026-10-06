@@ -341,10 +341,10 @@ def test_gh_and_git_children_get_only_the_pinned_token(monkeypatch: pytest.Monke
     monkeypatch.setenv("GITHUB_TOKEN", "C")
     with patch("subprocess.run", return_value=_gh_answers()) as run:
         run_subprocess([CONST_GH_CLI, "pr", "view", "184"], env={"GITHUB_TOKEN": "D"})
-        run_subprocess(["git", "push", "origin", "chore/cut-v0.2.26"])
+        run_subprocess(["git", "push", "origin", "release/v0.2.26"])
     assert _child_envs(run) == [
         ([CONST_GH_CLI, "pr", "view", "184"], "A", None),
-        (["git", "push", "origin", "chore/cut-v0.2.26"], "A", None),
+        (["git", "push", "origin", "release/v0.2.26"], "A", None),
     ]
 
 

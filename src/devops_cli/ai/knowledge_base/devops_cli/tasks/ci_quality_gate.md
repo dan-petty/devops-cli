@@ -2,24 +2,24 @@
 
 ## 1. Overview & Purpose
 
-The Local CI Quality Gate (`devops ci`) provides a comprehensive, 10-point local quality inspection suite that mirrors remote GitHub Actions CI checks. By executing tests, linting, formatting, strict static type checking, security scanning, dependency auditing, GitHub Actions workflow linting, and documentation synchronization locally, developers guarantee release readiness before pushing commits.
+The Local CI Quality Gate (`devops ci`) provides a local quality gate that runs every check `devops ci` reports (Python version, tests, coverage, ruff lint, ruff format, mypy --strict, uv audit, bandit, actionlint, docs, devcontainer, uv check, uv lock --check, outdated deps). By executing these checks locally, developers guarantee release readiness before pushing commits.
 
 ---
 
-## 2. Architecture & The 10-Point Quality Gate
+## 2. Architecture & The Local Quality Gate
 
 ```mermaid
 graph TD
-    A[devops ci / uv run devops ci] --> B[1. Version Check]
-    A --> C[2. Unit Tests pytest -n auto]
-    A --> D[3. Branch Coverage >=90%]
-    A --> E[4. Fast Linting ruff check]
-    A --> F[5. Formatting ruff format --check]
-    A --> G[6. Static Type Check mypy --strict]
-    A --> H[7. Dependency Audit uv audit]
-    A --> I[8. Security AST Scan bandit]
-    A --> J[9. Workflow Linter actionlint]
-    A --> K[10. Docs Sync docs generate --check]
+    A[devops ci / uv run devops ci] --> B[Version Check]
+    A --> C[Unit Tests pytest -n auto]
+    A --> D[Branch Coverage >=90%]
+    A --> E[Fast Linting ruff check]
+    A --> F[Formatting ruff format --check]
+    A --> G[Static Type Check mypy --strict]
+    A --> H[Dependency Audit uv audit]
+    A --> I[Security AST Scan bandit]
+    A --> J[Workflow Linter actionlint]
+    A --> K[Docs Sync docs generate --check]
 ```
 
 ---
@@ -28,7 +28,7 @@ graph TD
 
 ### CI Commands
 ```bash
-# Execute full 10-point quality gate
+# Execute full local quality gate
 devops ci
 
 # Execute with automatic fixes for linting and formatting
@@ -73,7 +73,7 @@ devops ci
 ## 5. Security Recommendations & Zero-Trust Policies
 
 - **Lockfile Enforcement**: CI validation verifies that `uv.lock` is clean, synchronized, and free of known vulnerability advisories.
-- **Fail-Fast Policy**: Any failure in security scanning (`bandit`, `uv audit`) immediately aborts the CI pipeline.
+- **Reporting & Exit Policy**: Every check runs and is reported; the gate exits non-zero when any check failed (`_handle_ci_results` at `src/devops_cli/commands/ci.py:914-937`). There is no fail-fast abort.
 
 ---
 

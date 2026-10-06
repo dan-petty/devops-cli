@@ -194,8 +194,8 @@ def is_release_title(title: str) -> bool:
 
 
 def release_cut_branch(version: str) -> str:
-    """The branch the Release of `version` is cut on: `chore/cut-vX.Y.Z` (#982)."""
-    return f"chore/cut-v{parse_release_version(version)}"
+    """The branch the Release of `version` is cut on: `release/vX.Y.Z`."""
+    return f"release/v{parse_release_version(version)}"
 
 
 def release_title(version: str) -> str:
@@ -848,7 +848,7 @@ class RoadmapStore(Protocol):
         """When the Item's Status on the board last changed, or None when it has none."""
 
     def open_pull_requests(self) -> list[PullRequest]:
-        """Every open pull request of the repository, with its last update and last commit."""
+        """Every open or merged pull request of the repository, with its last update and last commit."""
 
     def release_pull_requests(self, version: str) -> list[PullRequest]:
         """Every pull request, open, closed or merged, with the `release` label and the milestone

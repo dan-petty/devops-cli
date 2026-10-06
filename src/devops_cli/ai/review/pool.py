@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable, Coroutine, Iterable
 from typing import Any
 
-from devops_cli.exceptions import ReviewPoolError
+from devops_cli.exceptions.ai import ReviewPoolError
 
 logger = logging.getLogger(__name__)
 

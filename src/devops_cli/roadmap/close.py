@@ -14,7 +14,7 @@ the next run retries. Issues already closed get nothing, so a second run writes 
 
 The current release is the lowest-numbered open Release. It is due to be cut when it holds no
 open item, at least one item closed as completed, and no release pull request, open or merged:
-one from `chore/cut-vX.Y.Z` into the default branch with the `release` label and the Release's
+one from `release/vX.Y.Z` into the default branch with the `release` label and the Release's
 milestone. The cut itself is the caller's: `devops roadmap close` runs #982's `cut_release`.
 """
 

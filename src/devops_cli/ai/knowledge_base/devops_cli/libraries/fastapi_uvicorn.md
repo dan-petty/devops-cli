@@ -6,8 +6,8 @@
 | :--- | :--- |
 | **Official Documentation** | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/) • [uvicorn.org](https://www.uvicorn.org/) |
 | **Public Git Repository** | [github.com/fastapi/fastapi](https://github.com/fastapi/fastapi) • [github.com/encode/uvicorn](https://github.com/encode/uvicorn) |
-| **Official PyPI Package** | [pypi.org/project/fastapi](https://pypi.org/project/fastapi/) (`0.141.1`) • [pypi.org/project/uvicorn](https://pypi.org/project/uvicorn/) (`0.52.4`) |
-| **DevOps CLI Integration** | [`src/devops_cli/server/`](../../../../../src/devops_cli/server/) • [`src/devops_cli/commands/serve.py`](../../../../../src/devops_cli/commands/serve.py) |
+| **Official PyPI Package** | [pypi.org/project/fastapi](https://pypi.org/project/fastapi/) (`0.142.2`) • [pypi.org/project/uvicorn](https://pypi.org/project/uvicorn/) (`0.53.0`) |
+| **DevOps CLI Integration** | [`src/devops_cli/server/`](../../../../../../src/devops_cli/server/) • [`src/devops_cli/commands/serve.py`](../../../../../../src/devops_cli/commands/serve.py) |
 
 ---
 
@@ -18,7 +18,7 @@
 In `devops-cli`:
 - **Workstation API Engine**: Powers `devops serve`, providing local HTTP endpoints for remote orchestration, IDE sidecars, and background monitoring.
 - **Auto-Generated Documentation**: Exposes interactive Swagger UI (`/docs`) and ReDoc (`/redoc`) generated from Pydantic schemas.
-- **Health Probes & Metrics**: Implements `/healthz`, `/status`, and Prometheus metrics scraping endpoints (`/metrics`).
+- **Health Probes & Metrics**: Implements `/health`, `/healthz`, `/api/v1/status`, and `/metrics`.
 
 ---
 

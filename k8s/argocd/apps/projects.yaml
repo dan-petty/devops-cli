@@ -1,0 +1,114 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: homelab
+  namespace: argocd
+spec:
+  description: Workloads and infrastructure of the homelab cluster
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  sourceRepos:
+    - https://github.com/dan-petty/devops-cli
+    - https://argoproj.github.io/argo-helm
+    - https://prometheus-community.github.io/helm-charts
+    - https://grafana.github.io/helm-charts
+    - https://open-telemetry.github.io/opentelemetry-helm-charts
+    - https://nvidia.github.io/dcgm-exporter/helm-charts
+    - https://open-webui.github.io/helm-charts
+    - https://qdrant.github.io/qdrant-helm
+    - https://traefik.github.io/charts
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+    - server: https://kubernetes.default.svc
+      namespace: cloudflared
+    - server: https://kubernetes.default.svc
+      namespace: devops
+    - server: https://kubernetes.default.svc
+      namespace: llm
+    - server: https://kubernetes.default.svc
+      namespace: logging
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
+    - server: https://kubernetes.default.svc
+      namespace: otel
+    - server: https://kubernetes.default.svc
+      namespace: registry
+  orphanedResources:
+    warn: true
+    ignore:
+      - group: ''
+        kind: Secret
+        name: cloudflared-token
+      - group: ''
+        kind: Secret
+        name: llm-gateway-secrets
+      - group: ''
+        kind: Secret
+        name: qdrant-api-key
+      - group: ''
+        kind: Secret
+        name: valkey-runs-auth
+      - group: ''
+        kind: Secret
+        name: devops-cli
+      - group: ''
+        kind: Secret
+        name: grafana-admin
+      - group: ''
+        kind: Secret
+        name: argocd-initial-admin-secret
+      - group: ''
+        kind: Secret
+        name: argocd-redis
+      - group: ''
+        kind: Secret
+        name: sh.helm.release.v1.*
+      - group: ''
+        kind: PersistentVolumeClaim
+      - group: batch
+        kind: Job
+        name: devops-cli-*
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: homelab-system
+  namespace: argocd
+spec:
+  description: System workloads, ingress controllers and cluster-wide addons
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  sourceRepos:
+    - https://github.com/dan-petty/devops-cli
+    - https://argoproj.github.io/argo-helm
+    - https://prometheus-community.github.io/helm-charts
+    - https://grafana.github.io/helm-charts
+    - https://open-telemetry.github.io/opentelemetry-helm-charts
+    - https://nvidia.github.io/dcgm-exporter/helm-charts
+    - https://open-webui.github.io/helm-charts
+    - https://qdrant.github.io/qdrant-helm
+    - https://traefik.github.io/charts
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: kube-system
+    - server: https://kubernetes.default.svc
+      namespace: default
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+    - server: https://kubernetes.default.svc
+      namespace: cloudflared
+    - server: https://kubernetes.default.svc
+      namespace: devops
+    - server: https://kubernetes.default.svc
+      namespace: llm
+    - server: https://kubernetes.default.svc
+      namespace: logging
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
+    - server: https://kubernetes.default.svc
+      namespace: otel
+    - server: https://kubernetes.default.svc
+      namespace: registry

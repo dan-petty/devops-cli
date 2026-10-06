@@ -163,7 +163,12 @@ def _parse_mcp_input_schema_parameters(input_schema: Any) -> list[dict[str, Any]
 
 def _mcp_tool_to_doc(tool: Any) -> MCPToolDoc:
     """Convert an instantiated FastMCP tool to an MCPToolDoc documentation model."""
-    input_schema = getattr(tool, "parameters", None) or getattr(tool, "inputSchema", None) or {}
+    input_schema = (
+        getattr(tool, "parameters", None)
+        or getattr(tool, "input_schema", None)
+        or getattr(tool, "inputSchema", None)
+        or {}
+    )
     return MCPToolDoc(
         name=tool.name,
         description=tool.description or "",
@@ -1149,11 +1154,12 @@ class DocGenerator:
     def check_docs(
         self, output_dir: Path, check_readme_table: bool = True
     ) -> tuple[bool, list[str]]:
-        """Verify on-disk docs match the generated docs and every MCP argv resolves."""
+        """Verify on-disk docs match the generated docs and every MCP and markdown argv resolves."""
+        from devops_cli.docs.markdown_argv_collector import check_knowledge_base_argv
         from devops_cli.docs.mcp_argv_collector import check_mcp_server_argv
 
         docs = self.generate_all_docs(output_dir)
-        errors: list[str] = check_mcp_server_argv()
+        errors: list[str] = [*check_mcp_server_argv(), *check_knowledge_base_argv(self.root_dir)]
 
         for rel_path, expected_content in docs.items():
             target_path = output_dir / rel_path

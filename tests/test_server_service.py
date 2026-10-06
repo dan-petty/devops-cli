@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,8 +31,9 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import ServiceConfig
 from devops_cli.server.json_logs import JsonLogFormatter
 from devops_cli.server.routes.webhooks import verify_webhook_signature
-from devops_cli.server.service import TriggerBatch, create_service_app
+from devops_cli.server.service import RepoWorker, TriggerBatch, create_service_app
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
+from devops_cli.telemetry.tracer import _from_otlp_any_value, get_tracer, reset_tracer
 
 
 def _sign(payload: bytes, secret: str) -> str:
@@ -58,8 +60,11 @@ def _make_settings(
 
 @pytest.fixture(autouse=True)
 def _reset_metrics() -> None:
-    """Reset global metrics registry before each test."""
+    """Reset global metrics registry and tracer before each test."""
     GLOBAL_METRICS.reset()
+    reset_tracer()
+    yield
+    reset_tracer()
 
 
 def test_verify_webhook_signature_canonical() -> None:
@@ -716,3 +721,127 @@ def test_shutdown_drains_pending_delivery_enqueued_during_active_job() -> None:
     # 4. Context exit runs drain_and_stop(). Verify both batches were executed without loss
     actions = [action for batch in received_batches for (_, _, action) in batch.counts]
     assert ("first" in actions, "second" in actions, len(received_batches)) == (True, True, 2)
+
+
+def test_service_tracing_middleware_adds_headers_and_skips_probes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test HTTP tracing middleware attaches trace headers to endpoints but skips trace spans for probe paths."""
+    sent_payloads: list[tuple[str, dict[str, Any]]] = []
+    tracer = get_tracer()
+    tracer.enabled = True
+    monkeypatch.setattr(tracer, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+
+    settings = _make_settings(repos=["example-org/repo1"])
+    secrets = {"example-org/repo1": "secret-1"}
+    app = create_service_app(settings=settings, secrets=secrets)
+
+    with TestClient(app) as client:
+        res_health = client.get("/healthz")
+        res_ready = client.get("/readyz")
+        res_metrics = client.get("/metrics")
+
+        payload = json.dumps(
+            {"repository": {"full_name": "example-org/repo1"}, "action": "opened"}
+        ).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            CONST_GH_WEBHOOK_EVENT_HEADER: "issues",
+            CONST_GH_WEBHOOK_DELIVERY_HEADER: "deliv-trace-1",
+            CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(payload, "secret-1"),
+        }
+        res_webhook = client.post("/webhooks/github", content=payload, headers=headers)
+
+    assert (
+        res_health.status_code,
+        "X-Process-Time" in res_health.headers,
+        "X-Trace-ID" in res_health.headers,
+        res_ready.status_code,
+        "X-Process-Time" in res_ready.headers,
+        "X-Trace-ID" in res_ready.headers,
+        res_metrics.status_code,
+        "X-Process-Time" in res_metrics.headers,
+        "X-Trace-ID" in res_metrics.headers,
+        res_webhook.status_code,
+        "X-Process-Time" in res_webhook.headers,
+        "X-Trace-ID" in res_webhook.headers,
+        "traceparent" in res_webhook.headers,
+    ) == (
+        200,
+        True,
+        False,
+        200,
+        True,
+        False,
+        200,
+        True,
+        False,
+        202,
+        True,
+        True,
+        True,
+    )
+
+
+def test_repo_worker_executes_batch_with_span(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test RepoWorker._execute_batch records tracer span with metadata, triggers, and error attributes."""
+    sent_payloads: list[tuple[str, dict[str, Any]]] = []
+    tracer = get_tracer()
+    tracer.enabled = True
+    monkeypatch.setattr(tracer, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+
+    now = datetime.now(UTC)
+    batch = TriggerBatch(
+        repo="example-org/repo1",
+        counts={("webhook", "issues", "opened"): 3, ("poll", "", ""): 1},
+        first_at=now,
+        last_at=now,
+    )
+
+    worker = RepoWorker(
+        repo="example-org/repo1",
+        job_func=lambda b: None,
+        clock=lambda: now,
+    )
+    worker._execute_batch(batch)
+
+    def failing_job(b: TriggerBatch) -> None:
+        raise RuntimeError("simulated job failure")
+
+    failing_worker = RepoWorker(
+        repo="example-org/repo1",
+        job_func=failing_job,
+        clock=lambda: now,
+    )
+    failing_worker._execute_batch(batch)
+
+    assert len(sent_payloads) == 2
+    span_ok = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+    span_err = sent_payloads[1][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+
+    attrs_ok = {a["key"]: _from_otlp_any_value(a["value"]) for a in span_ok["attributes"]}
+    attrs_err = {a["key"]: _from_otlp_any_value(a["value"]) for a in span_err["attributes"]}
+
+    assert (
+        span_ok["name"],
+        attrs_ok["service.repo"],
+        attrs_ok["service.triggers"],
+        attrs_ok["service.trigger_types"],
+        attrs_ok["service.result"],
+        span_err["name"],
+        attrs_err["service.repo"],
+        attrs_err["service.result"],
+        attrs_err["error"],
+        attrs_err["error.message"],
+    ) == (
+        "service.job example-org/repo1",
+        "example-org/repo1",
+        4,
+        2,
+        "success",
+        "service.job example-org/repo1",
+        "example-org/repo1",
+        "error",
+        True,
+        "simulated job failure",
+    )

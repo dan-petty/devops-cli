@@ -80,7 +80,8 @@ class KubelinterScanner(BaseSecurityScanner):
 
     def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
         """Build argument command list for invoking Kube-linter."""
-        return build_kubelinter_cmd(target_path)
+        target_abs = target_path.resolve() if target_path.exists() else target_path
+        return build_kubelinter_cmd(target_abs)
 
     def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
         """Parse raw Kube-linter JSON payload into Finding models."""
@@ -108,3 +109,10 @@ def run_kubelinter_scan(
     """Execute Kube-linter scanner and return scan outcome; `isolated` for a review (#972)."""
     scanner = KubelinterScanner()
     return scanner.scan(target, isolated=isolated)
+
+
+__all__ = [
+    "KubelinterScanner",
+    "parse_kubelinter_json",
+    "run_kubelinter_scan",
+]

@@ -275,6 +275,54 @@ class TestGetPRMonitoringStatus:
             assert status.unresolved_threads == []
             assert status.is_ready_for_merge is True
 
+    def test_get_pr_monitoring_status_unread_when_reviews_read_fails(self) -> None:
+        pr_rest_data = {
+            "number": 168,
+            "title": "fix: metrics delta",
+            "draft": False,
+            "head": {"sha": "7316135"},
+            "mergeable": True,
+            "mergeable_state": "clean",
+        }
+        check_runs_data = {
+            "check_runs": [
+                {
+                    "name": "Validation",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "html_url": "https://github.com/runs/1",
+                    "app": {"name": "CI Quality Gate"},
+                },
+            ]
+        }
+        timeline_output = (
+            '{"event": "copilot_work_started", "created_at": "2026-09-12T13:52:12Z"}\n'
+            '{"event": "reviewed", "submitted_at": "2026-09-12T13:59:17Z"}\n'
+        )
+
+        def mock_subprocess(cmd: list[str], **kwargs: object) -> MagicMock:
+            cmd_str = " ".join(cmd)
+            if "pulls/168/reviews" in cmd_str:
+                return MagicMock(returncode=1, stdout="", stderr="HTTP 502: Bad Gateway")
+            if "pulls/168" in cmd_str:
+                return MagicMock(returncode=0, stdout=json.dumps(pr_rest_data), stderr="")
+            if "check-runs" in cmd_str:
+                return MagicMock(returncode=0, stdout=json.dumps(check_runs_data), stderr="")
+            if "timeline" in cmd_str:
+                return MagicMock(returncode=0, stdout=timeline_output, stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with (
+            patch("devops_cli.github.pr_monitor.run_gh", side_effect=mock_subprocess),
+            patch("devops_cli.github.pr_monitor.list_pr_review_threads", return_value=[]),
+        ):
+            status = get_pr_monitoring_status("dan-petty", "devops-cli", 168)
+            assert (
+                status.copilot_status.state,
+                status.copilot_status.unread_reason,
+                status.is_review_ready,
+            ) == ("unread", "HTTP 502: Bad Gateway", False)
+
 
 class TestMonitorPR:
     """Test monitor_pr loop and exit code outcomes."""
@@ -390,6 +438,39 @@ class TestMonitorPR:
             assert result.success is False
             assert result.exit_code == 3
             assert "timed out" in result.message
+
+    def test_monitor_pr_does_not_certify_ready_while_copilot_unread(self) -> None:
+        unread_status = PRMonitorStatus(
+            number=168,
+            title="fix: ready checks but copilot unread",
+            checks=[PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(
+                is_active=False,
+                state="unread",
+                unread_reason="HTTP 403: rate limit",
+                message="Copilot review state could not be read: HTTP 403: rate limit",
+            ),
+            unresolved_threads=[],
+            review_decision="APPROVED",
+            mergeable=True,
+            mergeable_state="clean",
+        )
+        with (
+            patch(
+                "devops_cli.github.pr_monitor.get_pr_monitoring_status", return_value=unread_status
+            ),
+            patch("time.sleep", return_value=None),
+        ):
+            result = monitor_pr(
+                "dan-petty",
+                "devops-cli",
+                168,
+                timeout=1,
+                interval=1,
+                settle_timeout=0,
+            )
+            assert (result.success, result.exit_code) == (False, 3)
+            assert "HTTP 403: rate limit" in result.message
 
     def test_monitor_pr_changes_requested_returns_exit_code_2(self) -> None:
         cr_status = PRMonitorStatus(
@@ -557,6 +638,59 @@ class TestMonitorPR:
             assert status.state == "changes_requested"
             assert status.is_active is False
             assert "recommended changes" in status.message
+
+    def test_detect_copilot_status_unread_when_timeline_read_fails(self) -> None:
+        reviews_data = [
+            {
+                "user": {"login": "copilot-pull-request-reviewer[bot]"},
+                "state": "COMMENTED",
+                "body": "### 🟢 No changes recommended\n\nLooks good!",
+                "submitted_at": "2026-09-12T14:00:00Z",
+            }
+        ]
+        from devops_cli.github.pr_monitor import _detect_copilot_status
+
+        with patch("devops_cli.github.pr_monitor.run_gh") as mock_sub:
+            mock_sub.return_value = MagicMock(
+                returncode=1, stdout="", stderr="HTTP 403: rate limit"
+            )
+            status = _detect_copilot_status("dan-petty", "devops-cli", 168, reviews_data)
+            pr_status = PRMonitorStatus(
+                number=168,
+                title="test",
+                copilot_status=status,
+                unresolved_threads=[],
+                review_decision="APPROVED",
+            )
+            assert (
+                status.state,
+                status.unread_reason,
+                status.is_active,
+                pr_status.is_review_ready,
+            ) == ("unread", "HTTP 403: rate limit", False, False)
+            assert "could not be read: HTTP 403: rate limit" in status.message
+
+    def test_detect_copilot_status_unread_wins_over_changes_requested(self) -> None:
+        reviews_data = [
+            {
+                "user": {"login": "copilot-pull-request-reviewer[bot]"},
+                "state": "COMMENTED",
+                "body": "### 🟡 Changes recommended\n\nFix this.",
+                "submitted_at": "2026-09-12T14:00:00Z",
+            }
+        ]
+        from devops_cli.github.pr_monitor import _detect_copilot_status
+
+        with patch("devops_cli.github.pr_monitor.run_gh") as mock_sub:
+            mock_sub.return_value = MagicMock(
+                returncode=1, stdout="", stderr="HTTP 500: internal server error"
+            )
+            status = _detect_copilot_status("dan-petty", "devops-cli", 168, reviews_data)
+            assert (
+                status.state,
+                status.unread_reason,
+                status.is_active,
+            ) == ("unread", "HTTP 500: internal server error", False)
 
     def test_monitor_pr_succeeds_when_copilot_changes_resolved(self) -> None:
         reviews_data = [
@@ -888,6 +1022,30 @@ class TestMonitorPR:
             review_decision="REVIEW_REQUIRED",
         )
         assert any("requires approved review" in r for r in reasons)
+
+    def test_build_failure_reasons_includes_copilot_unread(self) -> None:
+        """Verify _build_failure_reasons records unread reason when Copilot review cannot be read."""
+        from devops_cli.github.pr_monitor import _build_failure_reasons
+
+        reasons = _build_failure_reasons(
+            checks=[],
+            unresolved_threads=[],
+            copilot_status=CopilotReviewStatus(
+                is_active=False,
+                state="unread",
+                unread_reason="HTTP 403: rate limit",
+                message="Copilot review state could not be read: HTTP 403: rate limit",
+            ),
+            has_changes_requested=False,
+            mergeable=True,
+            mergeable_state="clean",
+            is_draft=False,
+            require_reviews=True,
+            review_decision="APPROVED",
+        )
+        assert any(
+            "Copilot review state could not be read: HTTP 403: rate limit" in r for r in reasons
+        )
 
     def test_parse_timeline_copilot_state_empty_array(self) -> None:
         """Verify _parse_timeline_copilot_state handles empty JSON array."""

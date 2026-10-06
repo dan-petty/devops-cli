@@ -30,7 +30,7 @@ devops ci test [OPTIONS] <paths>
 | `--verbose`, `-v` | `boolean` | - | Enable detailed logging output. |
 | `-k` | `string` | - | Filter tests by keyword expression. |
 | `-x` | `boolean` | - | Stop after first failure. |
-| `-n`, `--numprocesses` | `string` | `auto` | Number of parallel worker processes. |
+| `-n`, `--numprocesses` | `string` | - | Number of parallel worker processes. |
 | `--fallback` / `--no-fallback` | `boolean` | `True` | Run the full suite when a changed source has no covering tests, rather than reporting success without verifying it. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -210,6 +210,22 @@ devops ci lockfile [OPTIONS]
 
 ```bash
 devops ci outdated [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci devcontainer`
+
+**Validate devcontainer manifest configuration syntax.**
+
+```bash
+devops ci devcontainer [OPTIONS]
 ```
 
 **Options:**

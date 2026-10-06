@@ -18,6 +18,7 @@ from devops_cli.commands.k8s.networking import (
     _resolve_effective_addressing,
     _select_best_ingress_host,
     _should_update_url,
+    _should_update_valkey,
     _update_ollama_urls,
     port_forward,
 )
@@ -37,14 +38,35 @@ def test_should_update_url_edge_cases() -> None:
         _should_update_url(None, "http://localhost:8080"),
         _should_update_url("http://example.com:8080", "http://localhost:8080"),
         _should_update_url("http://example.com:8080", "http://127.0.0.1:8080"),
+        _should_update_url("http://example.com:8080", "http://127.0.0.2:8080"),
         _should_update_url("http://example.com:8080", "http://example.com:30080"),
         _should_update_url(
             "http://localhost:6333", "http://localhost:6333", default_url=DEFAULT_QDRANT_URL
         ),
         _should_update_url("http://example.com:8080", None),
     )
-    expected = (True, False, False, True, True, False)
+    expected = (True, False, False, False, True, True, False)
     assert test_cases == expected
+
+
+def test_should_update_valkey_preserves_remote_host() -> None:
+    """_should_update_valkey refuses to clobber a remote host with a loopback URL."""
+    from types import SimpleNamespace
+
+    settings_remote = SimpleNamespace(
+        valkey=SimpleNamespace(url=None, host="example.com:6379", port="6379")
+    )
+    settings_loopback = SimpleNamespace(
+        valkey=SimpleNamespace(url=None, host="127.0.0.1:6379", port="6379")
+    )
+
+    assert (
+        _should_update_valkey(settings_remote, "http://127.0.0.2:6379"),
+        _should_update_valkey(settings_remote, "http://localhost:6379"),
+        _should_update_valkey(settings_remote, "http://example.com:6380"),
+        _should_update_valkey(settings_loopback, "http://127.0.0.2:6379"),
+        _should_update_valkey(None, None),
+    ) == (False, False, True, True, False)
 
 
 def test_update_ollama_urls_endpoint_preservation() -> None:

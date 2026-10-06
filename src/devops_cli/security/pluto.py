@@ -92,3 +92,10 @@ def run_pluto_scan(target: Path = DEFAULT_CURRENT_PATH, *, isolated: bool = Fals
     """
     scanner = PlutoScanner()
     return scanner.scan(target, isolated=isolated)
+
+
+__all__ = [
+    "PlutoScanner",
+    "parse_pluto_json",
+    "run_pluto_scan",
+]

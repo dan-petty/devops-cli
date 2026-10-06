@@ -21,7 +21,14 @@ from devops_cli.ai.review.runner import _record_review_metrics
 from devops_cli.ai.review_schema import Finding, ReviewResult
 from devops_cli.ai.spend.ledger import SpendLedger, track_request_spend
 from devops_cli.telemetry import tracer as tracer_module
-from devops_cli.telemetry.instruments import INSTRUMENTS, InstrumentKind, backend_name
+from devops_cli.telemetry.instruments import (
+    INSTRUMENTS,
+    PROJECT_ITEMS_TOTAL,
+    UPSTREAM_SERVICE_STATUS,
+    InstrumentKind,
+    backend_name,
+    emit,
+)
 from devops_cli.telemetry.tracer import OTelTelemetryClient
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -59,12 +66,17 @@ def _queries(dashboard: Path) -> list[str]:
     return found
 
 
+_PURE_DEVOPS_CLI_DASHBOARDS: frozenset[str] = frozenset(
+    {"ai-spend.json", "devops-cli.json", "project-metrics.json"}
+)
+
+
 def _devops_cli_dashboards() -> list[Path]:
-    """The shipped dashboards with a query on a devops-cli metric."""
+    """The shipped dashboards dedicated to devops-cli metrics."""
     return [
         dashboard
         for dashboard in sorted(DASHBOARDS.glob("*.json"))
-        if any(SERIES_NAME.search(query) for query in _queries(dashboard))
+        if dashboard.name in _PURE_DEVOPS_CLI_DASHBOARDS
     ]
 
 
@@ -92,7 +104,7 @@ def _outermost(query: str) -> str:
 def test_the_devops_cli_dashboards_are_found_by_their_queries() -> None:
     """Verify the glob the query checks run over finds both devops-cli dashboards."""
     names = {dashboard.name for dashboard in _devops_cli_dashboards()}
-    assert {"devops-cli.json", "ai-spend.json"} <= names
+    assert {"devops-cli.json", "ai-spend.json", "project-metrics.json"} <= names
 
 
 @pytest.mark.parametrize("dashboard", _devops_cli_dashboards(), ids=lambda path: path.name)
@@ -124,6 +136,14 @@ def test_every_series_is_read_through_rate_or_increase(dashboard: Path) -> None:
         if not re.search(r"\b(?:rate|increase)\(\s*$", query[: match.start()])
     ]
     assert raw == []
+
+
+def test_all_dashboards_referencing_devops_cli_metrics_name_sent_series() -> None:
+    """Verify any dashboard in the repo that queries a devops_cli_* metric names a valid sent series."""
+    for dashboard in sorted(DASHBOARDS.glob("*.json")):
+        queries = _queries(dashboard)
+        unsent = {name for query in queries for name in SERIES_NAME.findall(query)} - SENT_SERIES
+        assert unsent == set(), f"{dashboard.name} queries unsent devops-cli metrics: {unsent}"
 
 
 def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sends() -> None:
@@ -433,3 +453,24 @@ def test_the_collector_adds_up_deltas_before_prometheus() -> None:
 def test_backends_are_named_by_their_hosts_first_label(served_by: str | None, name: str) -> None:
     """Verify a backend URL, or a bare host and port, is shortened to its host's first label."""
     assert backend_name(served_by) == name
+
+
+def test_gauges_are_recorded_as_instantaneous_values(captured: Captured) -> None:
+    """Verify gauge metrics emit instantaneous point-in-time values rather than accumulating deltas."""
+    emit(PROJECT_ITEMS_TOTAL, 120.0, attributes={"milestone": "v0.4.0", "state": "closed"})
+    emit(PROJECT_ITEMS_TOTAL, 125.0, attributes={"milestone": "v0.4.0", "state": "closed"})
+
+    points = captured.points("devops_cli_project_items_total")
+    metric_entry = captured.metrics[0]
+
+    assert (
+        "gauge" in metric_entry,
+        PROJECT_ITEMS_TOTAL.kind is InstrumentKind.GAUGE,
+        UPSTREAM_SERVICE_STATUS.kind is InstrumentKind.GAUGE,
+        [(p[0]["milestone"], p[0]["state"], p[1]) for p in points],
+    ) == (
+        True,
+        True,
+        True,
+        [("v0.4.0", "closed", 120.0), ("v0.4.0", "closed", 125.0)],
+    )

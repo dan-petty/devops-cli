@@ -178,6 +178,7 @@ devops k8s deploy-stack [OPTIONS]
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
 | `--wait` / `--no-wait` | `boolean` | `True` | Wait for Helm releases and workloads to become ready before returning. |
 | `--timeout`, `-t` | `string` | `10m` | Timeout for Helm operations when waiting. |
 | `--port-forward` / `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
@@ -373,6 +374,7 @@ devops k8s teardown-stack [OPTIONS]
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -684,8 +686,28 @@ devops k8s gpu-matrix [OPTIONS]
 |---|---|---|---|
 | `--gpus`, `-g` | `integer` | - | Filter by GPU count (1, 2, 3, 4). |
 | `--vram`, `-v` | `integer` | - | Filter by VRAM per GPU in GiB (16, 24, 32). |
-| `--backend`, `-b` | `string` | - | Filter by inference backend: ollama or vllm. |
+| `--backend`, `-b` | `string` | - | Filter by inference backend (e.g. ollama). |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
 | `--aliases`, `-a` | `boolean` | - | Include Kubernetes model service aliases mapping. |
+
+---
+
+## `devops k8s doctor`
+
+**Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations.**
+
+```bash
+devops k8s doctor [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | - | Target specific Kubernetes namespace (default: all namespaces). |
+| `--context` | `string` | - | Target Kubernetes cluster context (default: resolved context). |
+| `--tail`, `-t` | `integer` | `20` | Number of container log lines to tail per flagged container. |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, or yaml. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

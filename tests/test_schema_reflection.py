@@ -23,7 +23,7 @@ from devops_cli.ai.schema_reflection import (
     synthesize_fix_hint,
 )
 from devops_cli.config.settings import AIConfig
-from devops_cli.exceptions import UnexpectedModelBehavior
+from devops_cli.exceptions.ai import UnexpectedModelBehavior
 
 
 class SampleDetail(BaseModel):

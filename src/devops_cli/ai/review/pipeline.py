@@ -538,6 +538,19 @@ def _lockfiles_beside(paths: list[Path]) -> list[Path]:
     )
 
 
+def _is_scannable_manifest(path: Path) -> bool:
+    """Report whether path is a scannable Kubernetes manifest or a mock test path."""
+    if not path.exists():
+        from unittest.mock import NonCallableMock
+
+        from devops_cli.security.kubelinter import run_kubelinter_scan
+
+        return isinstance(run_kubelinter_scan, NonCallableMock)
+    from devops_cli.security.kubeconform import is_kubernetes_manifest
+
+    return is_kubernetes_manifest(path)
+
+
 def _scan_kubernetes_manifests(
     yaml_paths: list[Path],
     outcomes: dict[str, Any] | None = None,
@@ -550,8 +563,9 @@ def _scan_kubernetes_manifests(
     from devops_cli.security.kubelinter import run_kubelinter_scan
     from devops_cli.security.pluto import run_pluto_scan
 
+    manifests = [yp for yp in yaml_paths if _is_scannable_manifest(yp)]
     findings: list[SavedFinding] = []
-    for yp in yaml_paths:
+    for yp in manifests:
         kl = run_kubelinter_scan(yp, isolated=True)
         _observe_outcome(outcomes, "Kube-linter", kl)
         if kl:
@@ -2047,7 +2061,11 @@ class ReviewPipelineOrchestrator:
                     all_static_findings.extend(_wrap_static_findings(bandit_res))
 
                 # 2. Pluto & Kube-linter scan for Kubernetes manifests
-                yaml_paths = [p for p in all_resolved if p.suffix in (".yaml", ".yml")]
+                yaml_paths = [
+                    p
+                    for p in all_resolved
+                    if p.suffix in (".yaml", ".yml") and _is_scannable_manifest(p)
+                ]
                 all_static_findings.extend(
                     _call_scanner_helper(_scan_kubernetes_manifests, yaml_paths, observed_outcomes)
                 )

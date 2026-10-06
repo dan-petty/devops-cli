@@ -302,6 +302,24 @@ def k8s_status() -> str:
 
 
 @mcp.tool()
+def k8s_doctor(namespace: str | None = None, context: str | None = None) -> str:
+    """Diagnose Kubernetes cluster deployment health and correlate symptoms across nodes, pods, and events.
+
+    Runs `devops k8s doctor --format json`. When the cluster has findings, the command exits with
+    status 2, so the output begins with `Command exited with status 2:` followed by the JSON report.
+    Status 1 indicates the cluster could not be read or an API call failed.
+    """
+    cmd = ["uv", "run", "devops", "k8s", "doctor", "--format", "json"]
+    if namespace:
+        _validate_mcp_arg("namespace", namespace)
+        cmd.extend(["--namespace", namespace])
+    if context:
+        _validate_mcp_arg("context", context)
+        cmd.extend(["--context", context])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def k8s_bootstrap(auto_start: bool = True) -> str:
     """Bootstrap minikube Kubernetes cluster and deploy infrastructure stack."""
     cmd = ["uv", "run", "devops", "k8s", "bootstrap"]
@@ -3030,8 +3048,9 @@ def run_mcp_server(
 ) -> None:
     """Launch FastMCP server using stdio or sse transport."""
     if transport == "sse":
-        allowed_hosts = {"127.0.0.1", "::1", "localhost"}
-        if not allow_remote and host not in allowed_hosts:
+        from devops_cli.core.validation import is_loopback_host
+
+        if not allow_remote and not is_loopback_host(host):
             raise SecurityError(ERRORS.mcp.security_sse_non_loopback.format(host=host))
         mcp.run(transport="sse", host=host, port=port)
     else:

@@ -19,6 +19,7 @@ from devops_cli.core.validation import (
     validate_safe_key_path,
     validate_service_url,
     validate_url,
+    validate_url_egress,
     validate_version_str,
 )
 from devops_cli.exceptions import InvalidURLError, SSRFBlockedError
@@ -35,7 +36,43 @@ def test_is_non_public_ip() -> None:
         is_non_public_ip(ipaddress.ip_address("2606:4700::1")),
         is_non_public_ip(ipaddress.ip_network("192.168.1.0/24")),
         is_non_public_ip(ipaddress.ip_network("2606:4700::/32")),
-    ) == (True, True, True, False, True, True, False, True, False)
+        is_non_public_ip(ipaddress.ip_address("64:ff9b::a9fe:a9fe")),
+        is_non_public_ip(ipaddress.ip_address("64:ff9b::7f00:1")),
+        is_non_public_ip(ipaddress.ip_address("::127.0.0.1")),
+        is_non_public_ip(ipaddress.ip_network("64:ff9b::a9fe:0/112")),
+        is_non_public_ip(ipaddress.ip_network("64:ff9b::/96")),
+        is_non_public_ip(ipaddress.ip_network("64:ff9b::/95")),
+        is_non_public_ip(ipaddress.ip_address("64:ff9b::808:808")),
+        is_non_public_ip(ipaddress.ip_network("64:ff9b::808:0/112")),
+        is_non_public_ip(ipaddress.ip_address("::ffff:8.8.8.8")),
+        is_non_public_ip(ipaddress.ip_address("64:ff9b:1::808:808")),
+        is_non_public_ip(ipaddress.ip_address("2002:a9fe:a9fe::")),
+        is_non_public_ip(ipaddress.ip_address("2001:0:a9fe:a9fe::")),
+        is_non_public_ip(ipaddress.ip_address("::")),
+    ) == (
+        True,
+        True,
+        True,
+        False,
+        True,
+        True,
+        False,
+        True,
+        False,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        False,
+        False,
+        False,
+        True,
+        True,
+        True,
+        True,
+    )
 
 
 def test_validate_url_valid() -> None:
@@ -293,10 +330,18 @@ def test_validate_url_egress() -> None:
     with pytest.raises(SSRFBlockedError, match="prohibited"):
         validate_url("http://169.254.169.254/latest/meta-data", allow_private=True)
 
-    # Custom error class
-    with pytest.raises(CustomContextError, match="resolves to private or reserved IP"):
+    # Custom error class on metadata
+    with pytest.raises(CustomContextError, match="prohibited"):
         validate_url_egress(
             "http://169.254.169.254/latest/meta-data",
+            allow_private=False,
+            error_cls=CustomContextError,
+        )
+
+    # Custom error class on private IP
+    with pytest.raises(CustomContextError, match="resolves to private or reserved IP"):
+        validate_url_egress(
+            "http://10.0.0.1/manifest.yaml",
             allow_private=False,
             error_cls=CustomContextError,
         )
@@ -422,6 +467,8 @@ def test_is_cloud_metadata_host_superset() -> None:
         is_cloud_metadata_host("metadata.google.internal."),
         is_cloud_metadata_host("metadata"),
         is_cloud_metadata_host("metadata."),
+        is_cloud_metadata_host("metadata.goog"),
+        is_cloud_metadata_host("metadata.goog."),
         is_cloud_metadata_host("fe80::1"),
         is_cloud_metadata_host("example.com", resolve_dns=False),
         is_cloud_metadata_host("8.8.8.8"),
@@ -429,6 +476,12 @@ def test_is_cloud_metadata_host_superset() -> None:
         is_cloud_metadata_host(ipaddress.ip_address("169.254.169.254")),
         is_cloud_metadata_host(ipaddress.ip_address("fd00:ec2::254")),
         is_cloud_metadata_host(ipaddress.ip_network("169.254.0.0/16")),
+        is_cloud_metadata_host("64:ff9b::a9fe:a9fe"),
+        is_cloud_metadata_host(ipaddress.ip_address("64:ff9b::a9fe:a9fe")),
+        is_cloud_metadata_host("2852039166"),
+        is_cloud_metadata_host("168.63.129.16"),
+        is_cloud_metadata_host("fd20:ce::254"),
+        is_cloud_metadata_host("64:ff9b::808:808"),
     ) == (
         True,
         True,
@@ -439,12 +492,20 @@ def test_is_cloud_metadata_host_superset() -> None:
         True,
         True,
         True,
+        True,
+        True,
         False,
         False,
         False,
         True,
         True,
         True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        False,
     )
 
 
@@ -512,3 +573,135 @@ def test_widened_metadata_denials_models_telemetry_ollama() -> None:
         ollama_is_metadata("metadata."),
         ollama_is_metadata("fd00:ec2::254"),
     ) == (True, True, True)
+
+
+def test_pydantic_ai_ssrf_classifier_contract() -> None:
+    """Contract test verifying pydantic_ai._ssrf exports expected classification helpers and link-local networks."""
+    from devops_cli.core.validation import _LINK_LOCAL_NETWORKS, is_cloud_metadata_ip, is_private_ip
+
+    assert _LINK_LOCAL_NETWORKS == (
+        ipaddress.IPv4Network("169.254.0.0/16"),
+        ipaddress.IPv6Network("fe80::/10"),
+    )
+    assert (
+        is_cloud_metadata_ip(ipaddress.ip_address("169.254.169.254")),
+        is_cloud_metadata_ip(ipaddress.ip_address("fd00:ec2::254")),
+        is_cloud_metadata_ip(ipaddress.ip_address("168.63.129.16")),
+        is_cloud_metadata_ip(ipaddress.ip_address("64:ff9b::a9fe:a9fe")),
+        is_cloud_metadata_ip(ipaddress.ip_address("8.8.8.8")),
+        is_private_ip(ipaddress.ip_address("192.168.1.1")),
+        is_private_ip(ipaddress.ip_address("64:ff9b::192.168.1.1")),
+        is_private_ip(ipaddress.ip_address("8.8.8.8")),
+    ) == (True, True, True, True, False, True, True, False)
+
+
+_ACTION_DISPATCH: dict[str, Any] = {
+    "validate_url_allow_private": lambda u: validate_url(u, allow_private=True),
+    "validate_configured_allow_private": lambda u: validate_configured_service_url(
+        u, allow_private=True
+    ),
+    "validate_configured_default": lambda u: validate_configured_service_url(u),
+    "validate_url_egress_allow_private": lambda u: validate_url_egress(u, allow_private=True),
+    "validate_url_egress_web_fetch": lambda u: validate_url_egress(
+        u, purpose="web_fetch", allow_private=False
+    ),
+    "validate_url_egress_no_private": lambda u: validate_url_egress(u, allow_private=False),
+}
+
+
+@pytest.mark.parametrize(
+    ("url", "action", "expected_verdict"),
+    [
+        ("http://2852039166/", "validate_url_allow_private", "SSRFBlockedError"),
+        ("http://0xa9fea9fe/", "validate_url_allow_private", "SSRFBlockedError"),
+        ("http://0xa9.0xfe.0xa9.0xfe/", "validate_url_allow_private", "SSRFBlockedError"),
+        ("http://169。254。169。254/", "validate_url_allow_private", "SSRFBlockedError"),
+        ("http://[64:ff9b::a9fe:a9fe]/", "validate_url_allow_private", "SSRFBlockedError"),
+        ("http://[64:ff9b:1::a9fe:a9fe]/", "validate_url_allow_private", "SSRFBlockedError"),
+        ("http://[2002:a9fe:a9fe::1]/", "validate_url_allow_private", "SSRFBlockedError"),
+        ("http://168.63.129.16/", "validate_url_allow_private", "SSRFBlockedError"),
+        ("http://168.63.129.16/", "validate_configured_allow_private", "SSRFBlockedError"),
+        ("http://168.63.129.16/", "validate_configured_default", "SSRFBlockedError"),
+        ("http://[fd20:ce::254]/", "validate_url_allow_private", "SSRFBlockedError"),
+        ("http://[fd20:ce::254]/", "validate_configured_allow_private", "SSRFBlockedError"),
+        ("http://[fd00:ec2::23]/", "validate_url_allow_private", "SSRFBlockedError"),
+        ("http://[fd00:ec2::23]/", "validate_configured_allow_private", "SSRFBlockedError"),
+        ("http://metadata.goog./", "validate_url_allow_private", "SSRFBlockedError"),
+        ("http://metadata.goog./", "validate_configured_allow_private", "SSRFBlockedError"),
+        ("http://example.com\\@169.254.169.254/", "validate_url_allow_private", "SSRFBlockedError"),
+        ("http://a..b/", "validate_url_allow_private", "InvalidURLError"),
+        ("http://a..b/", "validate_url_egress_allow_private", "SSRFBlockedError"),
+        ("http://" + "x" * 64 + ".example.com/", "validate_url_allow_private", "InvalidURLError"),
+        (
+            "http://" + "x" * 64 + ".example.com/",
+            "validate_url_egress_allow_private",
+            "SSRFBlockedError",
+        ),
+        ("http://169.254.169.254/", "validate_url_egress_allow_private", "SSRFBlockedError"),
+        ("http://[fd00:ec2::254]/", "validate_url_egress_allow_private", "SSRFBlockedError"),
+        (
+            "http://metadata.google.internal/",
+            "validate_url_egress_allow_private",
+            "SSRFBlockedError",
+        ),
+        ("http://[64:ff9b::a9fe:a9fe]/", "validate_url_egress_web_fetch", "SSRFBlockedError"),
+        ("http://[64:ff9b::7f00:1]/", "validate_url_egress_web_fetch", "SSRFBlockedError"),
+        ("http://[::127.0.0.1]/", "validate_url_egress_web_fetch", "SSRFBlockedError"),
+        ("http://168.63.129.16/", "validate_url_egress_web_fetch", "SSRFBlockedError"),
+        ("http://[64:ff9b::808:808]/", "validate_url_egress_no_private", "allowed"),
+        ("http://8.8.8.8/", "validate_url_egress_no_private", "allowed"),
+    ],
+)
+def test_old_vs_new_egress_table(
+    url: str, action: str, expected_verdict: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify acceptance criteria table of old vs new security egress decisions."""
+    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
+    runner = _ACTION_DISPATCH.get(action)
+    if not runner:
+        pytest.fail(f"Unknown test action {action}")
+    try:
+        runner(url)
+        verdict = "allowed"
+    except (SSRFBlockedError, InvalidURLError) as exc:
+        verdict = type(exc).__name__
+
+    assert verdict == expected_verdict
+
+
+def test_dns_resolution_patched_to_metadata_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that host resolving to cloud metadata address is refused even when hostname is ordinary."""
+    import socket
+
+    from devops_cli.core.validation import validate_url_egress
+
+    orig_getaddrinfo = socket.getaddrinfo
+
+    def mock_getaddrinfo(host: Any, port: Any, *args: Any, **kwargs: Any) -> list[Any]:
+        if host == "example.com":
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("168.63.129.16", port or 0))]
+        return orig_getaddrinfo(host, port, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
+    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
+
+    with pytest.raises(SSRFBlockedError):
+        validate_url("http://example.com/", allow_private=False)
+
+    with pytest.raises(SSRFBlockedError):
+        validate_url_egress("http://example.com/", allow_private=False)
+
+
+def test_conftest_dns_guard_ai_numerichost() -> None:
+    """Verify test DNS guard passes AI_NUMERICHOST calls positionally and via keyword."""
+    import socket
+
+    # Positionally passed AI_NUMERICHOST on numeric string
+    res_pos = socket.getaddrinfo("127.0.0.1", 0, 0, 0, 0, socket.AI_NUMERICHOST)
+    # Keyword passed AI_NUMERICHOST on numeric string
+    res_kw = socket.getaddrinfo("127.0.0.1", 0, flags=socket.AI_NUMERICHOST)
+    assert (bool(res_pos), bool(res_kw)) == (True, True)
+
+    # External domain without AI_NUMERICHOST raises gaierror from guard
+    with pytest.raises(socket.gaierror, match="External DNS lookup blocked"):
+        socket.getaddrinfo("nonexistent.unmocked.domain", 80)

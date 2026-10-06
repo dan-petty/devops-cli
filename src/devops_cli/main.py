@@ -68,6 +68,10 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
     "sandbox": ("devops_cli.commands.sandbox", HELP.sandbox.app),
     "dashboard": ("devops_cli.commands.dashboard", HELP.dashboard.app),
     "tui": ("devops_cli.commands.dashboard", "Interactive terminal UI dashboard (alias)"),
+    "status": (
+        "devops_cli.commands.status_cmd",
+        "Inspect published operational status of upstream platforms (GitHub, Cloudflare)",
+    ),
     "format": ("devops_cli.commands.ci", HELP.ci.format_cmd),
     "lint": ("devops_cli.commands.ci", HELP.ci.lint),
 }
@@ -99,7 +103,7 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
 
     prog = "devops" if is_root_level else f"devops {command_name}"
 
-    # Fast dispatch for help queries to avoid importing telemetry/OTLP network exporters.
+    # Fast dispatch for help queries skips devops_cli.telemetry and the tracer span.
     # Arguments after `--` belong to a passed-through command (`devops k8s run-job -- review
     # --help` runs a Job), so a help flag there is not a help query and the exit code counts.
     own_args = args[: args.index("--")] if "--" in args else args

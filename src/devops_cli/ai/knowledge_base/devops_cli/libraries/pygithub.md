@@ -7,7 +7,7 @@
 | **Official Documentation** | [pygithub.readthedocs.io](https://pygithub.readthedocs.io/) |
 | **Public Git Repository** | [github.com/PyGithub/PyGithub](https://github.com/PyGithub/PyGithub) |
 | **Official PyPI Package** | [pypi.org/project/PyGithub](https://pypi.org/project/PyGithub/) (`2.10.0`) |
-| **DevOps CLI Integration** | [`src/devops_cli/commands/pr.py`](../../../../../src/devops_cli/commands/pr.py) • [`src/devops_cli/commands/release.py`](../../../../../src/devops_cli/commands/release.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/commands/pr.py`](../../../../../../src/devops_cli/commands/pr.py) • [`src/devops_cli/commands/release.py`](../../../../../../src/devops_cli/commands/release.py) |
 
 ---
 
@@ -16,7 +16,7 @@
 **PyGithub** is a Python library for accessing the GitHub REST API v3 and GitHub GraphQL API. It manages GitHub repositories, Pull Requests, remote CI workflow checks, release assets, and SSH signing keys.
 
 In `devops-cli`:
-- **PR Management**: Powers `devops pr list`, `devops pr view`, `devops pr diff`, and `devops pr checks`.
+- **PR Management**: Powers the GitHub REST client (`github/client.py`) used by `devops gh`, `devops repos clone-org`, and `devops review pr --post`; `pr` subcommands use the `gh` CLI.
 - **Review Comment Posting**: Formats multi-persona review findings into collapsible markdown comments and posts them to target PRs (`devops review pr <num> --post`).
 - **Release Automation**: Automates version tag pushes, changelog publication, and GitHub Release asset creation (`devops release prepare`).
 

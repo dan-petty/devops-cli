@@ -123,7 +123,7 @@ def gpu_matrix_cmd(
     ] = None,
     backend: Annotated[
         str | None,
-        typer.Option("--backend", "-b", help="Filter by inference backend: ollama or vllm."),
+        typer.Option("--backend", "-b", help="Filter by inference backend (e.g. ollama)."),
     ] = None,
     output_format: Annotated[
         str,

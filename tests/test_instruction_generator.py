@@ -312,23 +312,63 @@ def test_generate_agents_md_enforces_pr_monitor_and_concise_commits() -> None:
         requires_python=">=3.14",
     )
     content = generate_agents_md(meta)
-    assert "Concise, Effect-Driven Commit Messages" in content
-    assert "Mandatory PR Monitoring Gate (`devops pr monitor`)" in content
-    assert "devops pr monitor <pr_number>" in content
-    assert "Wait for Copilot Review Sessions to Settle" in content
-    assert "Stage 2: Transition to Ready for Review" in content
-    assert "Post-Ready Secondary Review & Copilot Monitoring Gate" in content
-    assert "triggers automated GitHub Copilot review sessions" in content
-    assert "devops pr ready <pr_number>" in content
-    assert "5-Minute Completion Allowance & 60-Second Polling Interval" in content
     assert (
+        "Concise, Effect-Driven Commit Messages" in content,
+        "Mandatory PR Monitoring Gate (`devops pr monitor`)" in content,
+        "devops pr monitor <pr_number>" in content,
+        "Wait for Copilot Review Sessions to Settle on PRs into `main`" in content,
+        "Stage 2: Transition to Ready for Review" in content,
+        "Post-Ready Secondary Review & Copilot Monitoring Gate" in content,
+        "Automatic Copilot review runs on PRs into `main` only" in content,
+        "devops pr ready <pr_number>" in content,
+        "5-Minute Completion Allowance & 60-Second Polling Interval" in content,
         "Allow at least 5 minutes (300 seconds) for pull request checks or reviews to complete"
-        in content
-    )
-    assert (
+        in content,
         "Wait at least a full minute (60 seconds) between request cycles when monitoring pull request status"
-        in content
+        in content,
+    ) == (True, True, True, True, True, True, True, True, True, True, True)
+
+
+def test_ai_agents_force_guard_and_refusal(runner: CliRunner, tmp_path: Path) -> None:
+    """Verify devops ai agents refuses to overwrite AGENTS.md without --force while writing stubs."""
+    from unittest.mock import patch
+
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nname = "test-guard"\n', encoding="utf-8")
+    agents_file = tmp_path / "AGENTS.md"
+    original_bytes = b"# Original AGENTS.md\n"
+    agents_file.write_bytes(original_bytes)
+
+    claude_stub = tmp_path / "CLAUDE.md"
+    copilot_stub = tmp_path / ".github" / "copilot-instructions.md"
+
+    # 1. First run without --force: exits non-zero, leaves AGENTS.md untouched, writes stubs
+    res1 = runner.invoke(ai_app, ["agents", "--repo", str(tmp_path), "--template"])
+    assert (
+        res1.exit_code != 0,
+        agents_file.read_bytes() == original_bytes,
+        claude_stub.exists(),
+        copilot_stub.exists(),
+    ) == (True, True, True, True)
+
+    # 2. Second run with --force: overwrites AGENTS.md and exits 0
+    res2 = runner.invoke(ai_app, ["agents", "--repo", str(tmp_path), "--template", "--force"])
+    assert (
+        res2.exit_code,
+        agents_file.read_bytes() != original_bytes,
+    ) == (0, True)
+
+    # 3. Third run with --file CLAUDE.md and no --force exits 0
+    res3 = runner.invoke(
+        ai_app, ["agents", "--repo", str(tmp_path), "--template", "--file", "CLAUDE.md"]
     )
+    assert res3.exit_code == 0
+
+    # 4. Refused run never constructs LLMClient
+    agents_file.write_bytes(original_bytes)
+    with patch("devops_cli.ai.client.LLMClient") as mock_client:
+        res4 = runner.invoke(ai_app, ["agents", "--repo", str(tmp_path)])
+        assert (res4.exit_code != 0, mock_client.called) == (True, False)
 
 
 def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:

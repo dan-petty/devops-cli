@@ -123,6 +123,27 @@ def test_qdrant_delete_collection() -> None:
     assert client.delete_collection("devops_code") is True
 
 
+def test_qdrant_delete_points_by_files() -> None:
+    client = QdrantClient("http://localhost:6333", allow_private_network=True)
+    mock_native = MagicMock()
+    mock_native.delete.return_value = True
+    client._client = mock_native
+
+    # Empty list returns True with no calls
+    assert client.delete_points_by_files("devops_code", []) is True
+    assert mock_native.delete.call_count == 0
+
+    # Single file via delete_points_by_file
+    assert client.delete_points_by_file("devops_code", "src/main.py", project_name="devops") is True
+    assert mock_native.delete.call_count == 1
+
+    # 150 files should be split into 2 batches (100 + 50)
+    assert (
+        client.delete_points_by_files("devops_code", [f"file_{i}.py" for i in range(150)]) is True
+    )
+    assert mock_native.delete.call_count == 3
+
+
 def test_qdrant_build_client_port_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     from typing import Any
 

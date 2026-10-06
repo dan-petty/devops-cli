@@ -19,16 +19,13 @@ ArgoCD is a declarative, GitOps continuous delivery tool for Kubernetes. It foll
 ### DevOps CLI ArgoCD Commands
 ```bash
 # List all registered ArgoCD applications with sync and health status
-devops argo list
+devops argo cd apps list
 
 # Check detailed status of a specific application
-devops argo status --app-name devops-monitoring
+devops argo cd apps status devops-monitoring
 
 # Trigger synchronization of an application
-devops argo sync --app-name devops-monitoring
-
-# Rollback an application to a previous revision
-devops argo rollback --app-name devops-monitoring --revision 1
+devops argo cd apps sync devops-monitoring
 ```
 
 ### Standard `argocd` CLI Commands

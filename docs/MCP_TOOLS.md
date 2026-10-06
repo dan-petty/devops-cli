@@ -83,6 +83,11 @@ Pass the domain name alone, for example `k8s`. |
 | [`k8s_create_tls_secret`](#k8s-create-tls-secret) | Create or update a kubernetes.io/tls secret in a target namespace. |
 | [`k8s_deploy_stack`](#k8s-deploy-stack) | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes cluster. |
 | [`k8s_diff_helm`](#k8s-diff-helm) | Compare local Helm values or charts against deployed cluster releases. |
+| [`k8s_doctor`](#k8s-doctor) | Diagnose Kubernetes cluster deployment health and correlate symptoms across nodes, pods, and events.
+
+Runs `devops k8s doctor --format json`. When the cluster has findings, the command exits with
+status 2, so the output begins with `Command exited with status 2:` followed by the JSON report.
+Status 1 indicates the cluster could not be read or an API call failed. |
 | [`k8s_enable_tls`](#k8s-enable-tls) | Apply TLS secrets across Kubernetes cluster namespaces (argocd, monitoring, llm, otel). |
 | [`k8s_jaeger_info`](#k8s-jaeger-info) | Retrieve Jaeger distributed tracing Query UI URL and OTLP trace endpoints. |
 | [`k8s_lint`](#k8s-lint) | Lint Kubernetes manifests against security best practices and deprecated APIs. |
@@ -979,6 +984,21 @@ Compare local Helm values or charts against deployed cluster releases.
 | `release_name` | `string` | Yes | - | - |
 | `chart` | `string` | Yes | - | - |
 | `namespace` | `string` | No | `default` | - |
+
+### `k8s_doctor`
+
+Diagnose Kubernetes cluster deployment health and correlate symptoms across nodes, pods, and events.
+
+Runs `devops k8s doctor --format json`. When the cluster has findings, the command exits with
+status 2, so the output begins with `Command exited with status 2:` followed by the JSON report.
+Status 1 indicates the cluster could not be read or an API call failed.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `namespace` | `string` | No | - | - |
+| `context` | `string` | No | - | - |
 
 ### `k8s_enable_tls`
 

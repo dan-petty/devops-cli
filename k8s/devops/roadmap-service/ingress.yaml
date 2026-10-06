@@ -15,7 +15,7 @@ spec:
       http:
         paths:
           - path: /webhooks/github
-            pathType: Exact
+            pathType: Prefix
             backend:
               service:
                 name: roadmap-service

@@ -30,7 +30,7 @@ The DevOps CLI is designed as an agentic workstation automation platform, unifie
 2. **Zero-Trust Security & Egress Safety**: No plaintext secrets in logs, configs, or public commits. Mandatory OS Keyring for sensitive credentials, SSRF egress validation, and strict subprocess argument list execution.
 3. **Adaptive Workflow & Model Routing ("Own the Sensitive, Rent the Frontier")**: Decouple static model coupling. Dynamically route prompts across two axes (Complexity and Freshness), retaining sensitive internal IP on local open-weight models (Granite, Qwen, DeepSeek) and routing complex architectural decomposition to frontier engines.
 4. **Agent Harness Slots & Sub-Agent Local Offloading**: Partition multi-agent execution into modular slots (Model, Skills, Tools, Sub-Agents). Offload token-heavy exploration sub-agents to local models ("Big decides, small types, big checks") to achieve 85%+ token savings.
-5. **Model Curation & AI Bill of Materials (AIBOM)**: Fast, automated model governance gating `trust_remote_code=True` before GPU provisioning and generating verifiable AIBOM records (license terms, security findings, quant evals, resource footprints).
+5. **Model Curation & AI Bill of Materials (AIBOM)**: `devops scan aibom` flags models that use `trust_remote_code` and compiles AI Bill of Materials (AIBOM) records (license terms, security findings, quant evals, resource footprints).
 6. **Model Dependency Chaos Engineering & Slow-Zone Resilience**: Deliberately test fallback models ("Chaos Monkey for Models") and enforce 100% documentation and CLI help synchronization so lower-tier models can pilot automation without human coaching.
 7. **Pure Markdown Prompt Isolation**: All LLM prompts, task rubrics, and guardrails reside in dedicated `.md` files under `src/devops_cli/ai/tasks/` rather than multi-line inline strings in Python code.
 8. **Target-Agnostic Code Analysis**: When inspecting target repositories, path resolution is anchored strictly relative to `target_dir` to prevent host file collisions.
@@ -62,7 +62,7 @@ The multi-persona code review pipeline orchestrates specialized AI reviewer pers
                                         ▼
     ┌───────────────────────────────────────────────────────────────────┐
     │ Multi-Persona LLM Inspection (Concurrent Workers)                 │
-    │   (DevSecOps, Architect, QA, Auditor, PM)                        │
+    │   (DevSecOps, Architect, QA, Auditor, PM, Challenger)             │
     └───────────────────────────────────┬───────────────────────────────┘
                                         │
                                         ▼
@@ -79,7 +79,7 @@ The multi-persona code review pipeline orchestrates specialized AI reviewer pers
                                         ▼
     ┌───────────────────────────────────────────────────────────────────┐
     │ Consolidated Markdown Report & JSON Payload Export                │
-    │   (review.md, findings.json, Rich Terminal Table)                 │
+    │   (<persona>-review.md, summary.md, findings.json, Table)         │
     └───────────────────────────────────────────────────────────────────┘
 ```
 
@@ -98,18 +98,19 @@ Every stage in the review pipeline can be selectively enabled or bypassed via CL
 - **`pm`**: Product scope alignment, user experience, documentation freshness, release readiness.
 - **`auditor`**: Compliance, license integrity, regulatory hygiene, audit trail logging.
 - **`qa`**: Deterministic test isolation, edge-case coverage, mock boundaries, flaky test mitigation.
+- **`challenger`**: Adversarial challenger that contests other personas' findings.
 
 ---
 
 ## 3. Subsystem Architecture
 
 ### Configuration & Keyring (`devops_cli.config`)
-- Declarative Pydantic v2 `Settings` with dot-notated access (`devops config get/set`).
-- Dual-tier storage: Plaintext non-sensitive properties in `~/.config/devops-cli/config.json`, encrypted secrets (tokens, API keys) stored securely via OS `keyring`.
+- Declarative Pydantic v2 `Settings` with dot-notated access (`devops config get`, `devops config set`).
+- Dual-tier storage: Plaintext non-sensitive properties in `~/.config/devops-cli/config.yaml` (plus an optional project `config.yaml`), encrypted secrets (tokens, API keys) stored securely via OS `keyring`.
 - Secret audit tooling: `devops config audit-keys` verifies that zero unencrypted secrets exist in plaintext config files.
 
 ### Dedicated Agent Workspace Data Isolation (`<data_dir>/agent`)
-- AI review agents and test automation runs isolate agent-generated reviews, logs, traces, and metadata under the dedicated `agent/` subfolder (`<data_dir>/agent`, e.g. `./.data/agent`) within the workspace data directory (`DEVOPS_CLI_DATA_DIR` / `data.dir`).
+- Data lives under the workspace data directory (`DEVOPS_CLI_DATA_DIR` / `data.dir`, default `./.data`): reviews in `<data_dir>/reviews`, logs in `<data_dir>/logs`, analysis in `<data_dir>/analysis`; `<data_dir>/agent` holds controller and gateway state.
 
 ### Output & Dry-Run Subsystem (`devops_cli.output` & `devops_cli.dry_run`)
 - Centralized terminal rendering using Rich (`print_success`, `print_error`, `print_info`, `print_table`, `print_muted`).
@@ -117,11 +118,11 @@ Every stage in the review pipeline can be selectively enabled or bypassed via CL
 
 ### Response Repair & Thought Stream Processing (`devops_cli.ai.response_repair`)
 - Resilient JSON parsing and automatic schema recovery via `repair_json_string` and `fix_llm_response`.
-- Specialized reasoning model support (`ThinkingStreamProcessor`) parsing `<think>...</think>` tags cleanly while extracting structured output payloads.
+- Specialized reasoning model support (`devops_cli.ai.thinking_stream.ThinkingStreamProcessor`) parsing `<think>...</think>` tags cleanly while extracting structured output payloads.
 
 ### Localized Language Catalog (`devops_cli.lang`)
-- Centralized, immutable Pydantic language catalog (`MESSAGES`, `HELP`, `PERSONAS_CONFIG`) under `devops_cli.lang.en.messages`.
-- Zero raw user-facing string literals in command dispatchers.
+- Centralized, immutable Pydantic language catalog (`MESSAGES` in `devops_cli.lang.en.messages`, `HELP` in `devops_cli.lang.en.help`, re-exported from `devops_cli.lang`).
+- User-facing strings are kept in the language catalog rather than in command dispatchers.
 
 ### Observability & Distributed Tracing (`devops_cli.telemetry`)
 - OpenTelemetry instrumentation with W3C `TRACEPARENT` propagation across subprocesses and HTTP clients.
@@ -145,7 +146,7 @@ Every stage in the review pipeline can be selectively enabled or bypassed via CL
 └─────────────────────┘ └─────────────────────┘ └─────────────────────┘ └─────────────────────┘
 ```
 
-- **Dynamic Model Swapping**: Pluggable provider slots allowing seamless transition between local inference (Ollama, vLLM) and remote frontier APIs (Claude, OpenAI, Gemini).
+- **Dynamic Model Swapping**: Pluggable provider slots allowing seamless transition between local inference (Ollama profiles behind the LLM gateway) and remote frontier APIs (Claude, OpenAI, Gemini).
 - **Sub-Agent Local Offloading**: High-token codebase exploration and AST symbol searching are offloaded to local open-weight models (Granite, Qwen), reserving frontier models for architectural planning and verification ("Big decides, small types, big checks").
-- **Supply Chain Safety & Model Curation**: Model gating rejects `trust_remote_code=True` before GPU provisioning and compiles verifiable AI Bill of Materials (AIBOM) records.
+- **Supply Chain Safety & Model Curation**: `devops scan aibom` flags models that use `trust_remote_code` and compiles AI Bill of Materials (AIBOM) records.
 - **Model Dependency Chaos Engineering**: Periodic validation proving fallback models can successfully execute the CLI toolchain and pass quality gates without human coaching.

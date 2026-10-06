@@ -670,3 +670,25 @@ def test_grafana_dashboard_projections_and_dcgm_grid_layout() -> None:
         [(0, 16, 12), (12, 16, 12), (0, 24, 12), (12, 24, 12)],
         False,
     )
+
+
+def test_cli_dashboard_command_variable_covers_all_registered_subcommands() -> None:
+    """Verify that the command template variable in devops-cli.json covers all CLI subcommands."""
+    from devops_cli.main import _COMMAND_SPECS
+
+    cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
+    var = next(
+        v for v in cli_dash.get("templating", {}).get("list", []) if v.get("name") == "command"
+    )
+
+    option_values = {opt["value"] for opt in var.get("options", []) if opt["value"] != "$__all"}
+    query_values = {cmd.strip() for cmd in var.get("query", "").split(",") if cmd.strip()}
+    registered = set(_COMMAND_SPECS.keys())
+
+    assert (
+        var.get("type"),
+        var.get("includeAll"),
+        var.get("multi"),
+        sorted(registered - option_values),
+        sorted(registered - query_values),
+    ) == ("custom", True, True, [], [])

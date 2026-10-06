@@ -163,6 +163,10 @@ def _resolve_public_dns(host: str) -> list[str]:
     cidrs: list[str] = []
     for ip_str in sorted(resolved_ips):
         ip_obj = ipaddress.ip_address(ip_str)
+        if is_cloud_metadata_host(ip_obj, resolve_dns=False):
+            raise ValueError(
+                f"Public whitelist domain '{host}' resolves to cloud metadata address '{ip_str}'."
+            )
         if is_non_public_ip(ip_obj):
             raise ValueError(
                 f"Public whitelist domain '{host}' resolves to non-public address '{ip_str}'."
@@ -175,13 +179,13 @@ def _resolve_public_host(host: str) -> list[str]:
     """Resolve public host/domain to validated public IPv4/IPv6 address strings."""
     try:
         ip_net = ipaddress.ip_network(host, strict=False)
-        if is_non_public_ip(ip_net):
-            raise ValueError(f"Public whitelist entry resolves to non-public network: {ip_net}")
-        return [ip_net.with_prefixlen]
-    except ValueError as exc:
-        if "non-public network" in str(exc):
-            raise
-    return _resolve_public_dns(host)
+    except ValueError:
+        return _resolve_public_dns(host)
+    if is_cloud_metadata_host(ip_net, resolve_dns=False):
+        raise ValueError(f"Public whitelist entry resolves to cloud metadata: {ip_net}")
+    if is_non_public_ip(ip_net):
+        raise ValueError(f"Public whitelist entry resolves to non-public network: {ip_net}")
+    return [ip_net.with_prefixlen]
 
 
 def _resolve_local_dns(host: str) -> list[str]:
@@ -216,15 +220,13 @@ def _resolve_local_host(host: str) -> list[str]:
         raise ValueError(f"Link-local cloud metadata '{host}' is forbidden in local whitelist.")
     try:
         ip_net = ipaddress.ip_network(host, strict=False)
-        if _is_forbidden_local_ip(ip_net):
-            raise ValueError(f"Link-local cloud metadata '{host}' is forbidden in local whitelist.")
-        if not _is_private_or_loopback(ip_net):
-            raise ValueError(f"Local whitelist entry '{host}' must be a private or loopback IP.")
-        return [ip_net.with_prefixlen]
-    except ValueError as exc:
-        if "forbidden" in str(exc) or "must be a private" in str(exc):
-            raise
-    return _resolve_local_dns(host)
+    except ValueError:
+        return _resolve_local_dns(host)
+    if _is_forbidden_local_ip(ip_net):
+        raise ValueError(f"Link-local cloud metadata '{host}' is forbidden in local whitelist.")
+    if not _is_private_or_loopback(ip_net):
+        raise ValueError(f"Local whitelist entry '{host}' must be a private or loopback IP.")
+    return [ip_net.with_prefixlen]
 
 
 def _build_public_whitelist_egress(whitelist: list[str]) -> list[dict[str, Any]]:

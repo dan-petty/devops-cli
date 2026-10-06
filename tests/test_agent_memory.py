@@ -135,3 +135,67 @@ def test_agent_memory_with_context_window_awareness() -> None:
     # Under 32k context window, it should not summarize
     assert memory.auto_summarize_if_needed(llm_client=mock_client) is False
     assert len(memory.entries) == 10
+
+
+def test_invariants_survive_extractive_summarization() -> None:
+    """Verify invariants survive extractive summarization and never count towards totals."""
+    mem = AgentMemory(session_id="inv-extractive", max_entries=4, max_chars=100, keep_recent=2)
+    res = mem.add_invariant("Never echo plaintext secrets, tokens or private keys.")
+    assert res == "Never echo plaintext secrets, tokens or private keys."
+    for i in range(6):
+        mem.add_interaction("user" if i % 2 == 0 else "assistant", f"Message payload number {i}")
+
+    assert mem.should_summarize() is True
+    summarized = mem.auto_summarize_if_needed()
+    assert (
+        summarized,
+        len(mem.entries),
+        mem.invariants,
+        "Never echo" in mem.summary,
+        mem.total_chars == sum(e.char_count for e in mem.entries),
+    ) == (True, 2, ["Never echo plaintext secrets, tokens or private keys."], False, True)
+
+
+def test_invariants_never_reach_the_summarizer() -> None:
+    """Verify invariants never enter the LLM summarization prompt and clear() keeps them."""
+    client = MagicMock()
+    client.chat.return_value = "Paraphrased summary of previous conversation."
+    mem = AgentMemory(session_id="inv-llm", max_entries=3, keep_recent=1)
+    mem.add_invariant("Never echo plaintext secrets, tokens or private keys.")
+    mem.add_interaction("user", "Setup terraform AWS VPC")
+    mem.add_interaction("assistant", "Generated main.tf and vpc.tf")
+    mem.add_interaction("user", "Now add subnets")
+    mem.add_interaction("assistant", "Added private and public subnets")
+
+    assert mem.should_summarize() is True
+    summarized = mem.auto_summarize_if_needed(llm_client=client)
+    assert (
+        summarized,
+        "Never echo" in client.chat.call_args.kwargs["user"],
+        mem.invariants,
+    ) == (True, False, ["Never echo plaintext secrets, tokens or private keys."])
+
+    mem.clear()
+    assert (mem.entries, mem.summary, mem.invariants) == (
+        [],
+        "",
+        ["Never echo plaintext secrets, tokens or private keys."],
+    )
+
+
+def test_add_invariant_sanitizes_and_dedupes() -> None:
+    """Verify add_invariant masks secrets, collapses whitespace, and ignores blank/duplicates."""
+    mem = AgentMemory(session_id="inv-sanitize")
+    stored = mem.add_invariant("token sk-proj-super_confidential_api_token\nsecond line")
+    assert (
+        stored is not None,
+        "\n" not in (stored or ""),
+        "<masked" in (stored or "") or "[REDACTED" in (stored or ""),
+        mem.invariants == [stored],
+    ) == (True, True, True, True)
+
+    # Adding duplicate returns None and stores nothing extra
+    res_dup = mem.add_invariant("token sk-proj-super_confidential_api_token\nsecond line")
+    # Adding blank returns None and stores nothing extra
+    res_blank = mem.add_invariant("   ")
+    assert (res_dup, res_blank, len(mem.invariants)) == (None, None, 1)

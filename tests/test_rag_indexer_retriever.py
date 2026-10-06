@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,18 @@ class FakeQdrantClient(QdrantClient):
             self.collections[name] = []
         self.collections[name].extend(points)
         return len(points)
+
+    def delete_points_by_files(
+        self,
+        name: str,
+        file_paths: Sequence[str],
+        *,
+        project_name: str | None = None,
+        wait: bool = False,
+    ) -> bool:
+        for f in file_paths:
+            self.delete_points_by_file(name, f, project_name=project_name)
+        return True
 
     def delete_points_by_file(
         self, name: str, file_path: str, *, project_name: str | None = None

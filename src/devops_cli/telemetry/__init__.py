@@ -50,6 +50,13 @@ from devops_cli.telemetry.propagation import (
     new_trace_context,
     parse_traceparent,
 )
+from devops_cli.telemetry.service_status import (
+    emit_service_status_telemetry,
+    fetch_all_service_statuses,
+    fetch_cloudflare_status,
+    fetch_github_status,
+    record_service_status_in_registry,
+)
 from devops_cli.telemetry.tracer import (
     ContextPropagatingThread,
     ContextPropagatingThreadPoolExecutor,
@@ -99,10 +106,14 @@ __all__ = [
     "build_span_waterfall_tree",
     "clear_span_buffer",
     "count_open_sockets",
+    "emit_service_status_telemetry",
     "extract_env",
     "extract_headers",
     "extract_traceparent",
     "extract_traceparent_from_headers",
+    "fetch_all_service_statuses",
+    "fetch_cloudflare_status",
+    "fetch_github_status",
     "flatten_waterfall_tree",
     "generate_span_id",
     "generate_trace_id",
@@ -127,6 +138,7 @@ __all__ = [
     "query_jaeger_trace",
     "record_completed_span",
     "record_metric",
+    "record_service_status_in_registry",
     "render_agent_turn_panel",
     "render_agent_turn_table",
     "render_waterfall_bar",

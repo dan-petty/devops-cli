@@ -14,7 +14,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Any
 
-import click
 import typer
 from pydantic import BaseModel, ConfigDict
 from typer.core import TyperGroup
@@ -26,12 +25,12 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
-    DEFAULT_PYTEST_NUMPROCESSES,
     DEFAULT_PYTHON_VERSION,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
+from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success
 
@@ -46,29 +45,11 @@ def _asks_for_help(ctx: Any, args: list[str]) -> bool:
 
 
 class FileOrSubcommandGroup(TyperGroup):
-    """Custom TyperGroup routing non-subcommand arguments to group callback as files."""
-
-    def resolve_command(self, ctx: Any, args: list[str]) -> tuple[str | None, Any, list[str]]:
-        try:
-            return super().resolve_command(ctx, args)
-        except click.UsageError:
-            if self.invoke_without_command:
-                return None, None, args
-            raise
+    """Custom TyperGroup tracking help requests on subcommands."""
 
     def invoke(self, ctx: Any) -> Any:
-        if not ctx._protected_args:
-            return super().invoke(ctx)
-        cmd_name = ctx._protected_args[0]
-        cmd = self.get_command(ctx, cmd_name)
-        if cmd is None:
-            ctx.args = [*ctx._protected_args, *ctx.args]
-            ctx._protected_args = []
-            with ctx:
-                if self.callback is not None:
-                    return ctx.invoke(self.callback, **ctx.params)
-                return None
-        ctx.meta[CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY] = _asks_for_help(ctx, ctx.args)
+        if ctx._protected_args:
+            ctx.meta[CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY] = _asks_for_help(ctx, ctx.args)
         return super().invoke(ctx)
 
 
@@ -150,6 +131,8 @@ class CheckResult(BaseModel):
     stderr: str = ""
     timed_out: bool = False
     timeout_seconds: float | None = None
+    dry_run: bool = False
+    requests: tuple[PlannedRequest, ...] = ()
 
 
 class CheckSpec(BaseModel):
@@ -186,6 +169,28 @@ def _verify_python_314_environment() -> bool:
     return True
 
 
+def _planned_request_for_cmd(
+    cmd: Sequence[str],
+    *,
+    env: dict[str, str] | None = None,
+    condition: str = "",
+    repeat: str = "",
+) -> PlannedRequest:
+    """Construct a PlannedRequest for a command, inserting uv preview flags when needed."""
+    full_cmd = list(cmd)
+    if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
+        full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
+    env_tuple = tuple((k, v) for k, v in sorted(env.items())) if env else ()
+    return PlannedRequest(
+        method="run",
+        target=full_cmd[0] if full_cmd else "",
+        argv=tuple(full_cmd),
+        env=env_tuple,
+        condition=condition,
+        repeat=repeat,
+    )
+
+
 def _run(
     cmd: list[str],
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -193,6 +198,10 @@ def _run(
     env: dict[str, str] | None = None,
 ) -> bool:
     """Run a CI check subprocess synchronously."""
+    if is_dry_run():
+        req = _planned_request_for_cmd(cmd, env=env)
+        render_request_plan(MESSAGES.ci.ci_dry_run_heading, [req])
+        return True
     root = _get_project_root()
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
@@ -239,6 +248,8 @@ def _unlink_coverage_path(path: Path, *, force: bool) -> None:
 
 def _clean_coverage_artifacts(*, force: bool = False) -> None:
     """Clean up residual temporary .coverage.* worker files from the checked tree and .data/."""
+    if is_dry_run():
+        return
     if not force and os.getenv("PYTEST_CURRENT_TEST"):
         return
 
@@ -295,6 +306,19 @@ async def _execute_check_async(
         )
     else:
         check_spec = spec
+
+    if is_dry_run():
+        req = _planned_request_for_cmd(check_spec.cmd)
+        return CheckResult(
+            name=check_spec.name,
+            display_title=check_spec.display_title,
+            passed=False,
+            dry_run=True,
+            duration_seconds=0.0,
+            stdout="",
+            stderr="",
+            requests=(req,),
+        )
 
     start_time = time.perf_counter()
     root = _get_project_root()
@@ -358,21 +382,12 @@ async def _execute_check_async(
 # =============================================================================
 
 
-def _resolve_pytest_worker_count() -> int:
-    """Dynamically determine optimal Pytest xdist worker count based on available CPU cores."""
-    cpu_count = os.cpu_count() or 4
-    return max(1, min(cpu_count, 8))
-
-
 def _resolve_pytest_cmd() -> list[str]:
     """Construct check command line arguments for the pytest and coverage row."""
     return [
         "uv",
         "run",
         "pytest",
-        "-n",
-        "auto",
-        f"--maxprocesses={_resolve_pytest_worker_count()}",
         f"--durations={CONST_CI_SLOWEST_TESTS_SHOWN}",
         "--cov=src",
         "--cov-report=term-missing",
@@ -680,9 +695,11 @@ def _assemble_ci_results(
         name="coverage",
         display_title=MESSAGES.ci.pytest_coverage,
         passed=test_result.passed,
-        duration_seconds=test_result.duration_seconds,
+        duration_seconds=0.0,
         stdout=test_result.stdout,
         stderr=test_result.stderr,
+        dry_run=test_result.dry_run,
+        requests=test_result.requests,
     )
     assembled: list[CheckResult] = [py_result]
     for i, res in enumerate(raw_results):
@@ -690,6 +707,64 @@ def _assemble_ci_results(
         if i == test_idx:
             assembled.append(coverage_result)
     return assembled
+
+
+def _collect_fix_requests(
+    selected_specs: Sequence[CheckSpec],
+    *,
+    format_fix: bool,
+    lint_fix: bool,
+    docs_fix: bool,
+) -> list[PlannedRequest]:
+    """Collect planned requests for pre-fix steps in execution order."""
+    fixes = [
+        ("format", format_fix),
+        ("lint", lint_fix),
+        ("docs", docs_fix),
+    ]
+    spec_map = {s.name: s for s in selected_specs}
+    requests: list[PlannedRequest] = []
+    for name, enabled in fixes:
+        if not enabled:
+            continue
+        spec = spec_map.get(name)
+        if spec and spec.fix_cmd:
+            requests.append(_planned_request_for_cmd(spec.fix_cmd))
+    return requests
+
+
+def _dry_run_all_checks(
+    selected_specs: Sequence[CheckSpec],
+    *,
+    format_fix: bool,
+    lint_fix: bool,
+    docs_fix: bool,
+) -> list[CheckResult]:
+    """Handle dry run for all checks: render request plan and return dry-run CheckResults."""
+    fix_requests = _collect_fix_requests(
+        selected_specs, format_fix=format_fix, lint_fix=lint_fix, docs_fix=docs_fix
+    )
+    check_requests = [_planned_request_for_cmd(s.cmd) for s in selected_specs]
+    render_request_plan(MESSAGES.ci.ci_dry_run_heading, [*fix_requests, *check_requests])
+    py_result = CheckResult(
+        name="python_version",
+        display_title=MESSAGES.ci.python_version_check,
+        passed=False,
+        dry_run=True,
+        duration_seconds=0.0,
+    )
+    raw_results = [
+        CheckResult(
+            name=spec.name,
+            display_title=spec.display_title,
+            passed=False,
+            dry_run=True,
+            duration_seconds=0.0,
+            requests=(_planned_request_for_cmd(spec.cmd),),
+        )
+        for spec in selected_specs
+    ]
+    return _assemble_ci_results(py_result, selected_specs, raw_results)
 
 
 async def _run_all_checks_async(
@@ -700,6 +775,15 @@ async def _run_all_checks_async(
     specs: Sequence[CheckSpec] | None = None,
 ) -> list[CheckResult]:
     """Execute CI verification gates concurrently using asyncio."""
+    if is_dry_run():
+        selected_specs = list(specs) if specs is not None else get_check_specs()
+        return _dry_run_all_checks(
+            selected_specs,
+            format_fix=format_fix,
+            lint_fix=lint_fix,
+            docs_fix=docs_fix,
+        )
+
     _clean_coverage_artifacts()
 
     py_ok, py_result = _run_python_version_step()
@@ -755,6 +839,8 @@ def _run_all_checks(
 
 def _print_failures(results: list[CheckResult]) -> None:
     """Print diagnostic failure outputs for failed CI checks."""
+    if is_dry_run() or any(res.dry_run for res in results):
+        return
     for res in results:
         if not res.passed and (res.stdout or res.stderr):
             _section(res.display_title)
@@ -768,6 +854,8 @@ def _print_summary(
     results: list[CheckResult], total_elapsed: float, *, cached: bool = False
 ) -> None:
     """Render the final formatted CI Summary table."""
+    if is_dry_run() or any(res.dry_run for res in results):
+        return
     from devops_cli.output import format_duration
 
     rows: list[list[str]] = []
@@ -781,7 +869,11 @@ def _print_summary(
             status_text = "[green]✓ pass[/green]"
         else:
             status_text = "[red]✗ fail[/red]"
-        dur_text = format_duration(res.duration_seconds) if res.duration_seconds > 0 else "<0.01s"
+        dur_text = (
+            "-"
+            if res.name == "coverage"
+            else (format_duration(res.duration_seconds) if res.duration_seconds > 0 else "<0.01s")
+        )
         rows.append([res.name, status_text, dur_text])
 
     _get("print_table")(
@@ -793,31 +885,36 @@ def _print_summary(
     _get("print_muted")(f"Total Elapsed: {format_duration(total_elapsed)} ({mode_text})\n")
 
 
-def _collect_ci_target_files(
-    opt_files: list[str] | None,
-    extra_args: list[str] | None,
-) -> list[str] | None:
-    """Combine explicit --files options and positional arguments into a clean sorted list."""
-    combined = list(opt_files or [])
-    if extra_args:
-        combined.extend(a for a in extra_args if not a.startswith("-"))
-    clean = sorted({f.strip() for f in combined if f.strip()})
-    return clean if clean else None
+def _compute_before_fingerprint(
+    root: Path,
+    ci_options: dict[str, Any],
+    *,
+    is_narrowed: bool,
+) -> str | None:
+    """Compute the workspace fingerprint before checks execute, for full non-dry runs."""
+    if is_narrowed or is_dry_run():
+        return None
+    from devops_cli.ci.cache import compute_workspace_fingerprint
+
+    fp_info = compute_workspace_fingerprint(root=root, options=ci_options)
+    return fp_info[0] if fp_info else None
 
 
 def _try_get_ci_cache(
     root: Path,
-    files: list[str] | None,
     ci_options: dict[str, Any],
+    *,
+    fingerprint: str | None = None,
 ) -> list[CheckResult] | None:
     """Attempt fast retrieval of passing CI cache entry."""
     from devops_cli.ci.cache import compute_workspace_fingerprint, get_ci_cache
 
-    fp_info = compute_workspace_fingerprint(root=root, options=ci_options)
-    if not fp_info:
-        return None
-    fingerprint, _, _ = fp_info
-    entry = get_ci_cache(fingerprint=fingerprint, files=files, options=ci_options, root=root)
+    if fingerprint is None:
+        fp_info = compute_workspace_fingerprint(root=root, options=ci_options)
+        if not fp_info:
+            return None
+        fingerprint = fp_info[0]
+    entry = get_ci_cache(fingerprint=fingerprint, options=ci_options, root=root)
     if entry is None:
         return None
     return [
@@ -836,10 +933,11 @@ def _try_get_ci_cache(
 def _try_save_ci_cache(
     root: Path,
     results: list[CheckResult],
-    files: list[str] | None,
     ci_options: dict[str, Any],
+    *,
+    before_fingerprint: str | None = None,
 ) -> None:
-    """Persist successful CI run into cache."""
+    """Persist successful CI run into cache if working tree did not change during the run."""
     from devops_cli.ci.cache import (
         CICachedCheck,
         compute_workspace_fingerprint,
@@ -849,7 +947,10 @@ def _try_save_ci_cache(
     fp_info = compute_workspace_fingerprint(root=root, options=ci_options)
     if not fp_info:
         return
-    fingerprint, head_sha, file_hashes = fp_info
+    fingerprint, head_sha = fp_info
+    if before_fingerprint is not None and fingerprint != before_fingerprint:
+        _get("print_warning")(MESSAGES.ci.cache_tree_changed, safe=True)
+        return
     cached_checks = [
         CICachedCheck(
             name=res.name,
@@ -865,7 +966,6 @@ def _try_save_ci_cache(
         fingerprint=fingerprint,
         head_sha=head_sha,
         checks=cached_checks,
-        file_hashes=file_hashes,
         options=ci_options,
         passed=True,
         root=root,
@@ -874,16 +974,16 @@ def _try_save_ci_cache(
 
 def _try_fast_cached_ci(
     root: Path,
-    files: list[str] | None,
     ci_options: dict[str, Any],
     *,
+    fingerprint: str | None = None,
     cache: bool,
     force: bool,
 ) -> bool:
     """Attempt fast cached CI execution, rendering summary and returning True on hit."""
     if not cache or force or is_dry_run():
         return False
-    cached_results = _try_get_ci_cache(root, files, ci_options)
+    cached_results = _try_get_ci_cache(root, ci_options, fingerprint=fingerprint)
     if cached_results is None:
         return False
     _get("print_info")(MESSAGES.ci.cache_hit)
@@ -893,6 +993,8 @@ def _try_fast_cached_ci(
 
 def _warn_when_over_budget(results: list[CheckResult]) -> None:
     """Warn when the test step ran past its budget, naming the tests that took longest."""
+    if is_dry_run() or any(res.dry_run for res in results):
+        return
     test_result = next((res for res in results if res.name == "test"), None)
     if test_result is None or test_result.duration_seconds <= CONST_CI_TEST_BUDGET_SECONDS:
         return
@@ -914,9 +1016,9 @@ def _warn_when_over_budget(results: list[CheckResult]) -> None:
 def _handle_ci_results(
     results: list[CheckResult],
     root: Path,
-    all_files: list[str] | None,
     ci_options: dict[str, Any],
     *,
+    before_fingerprint: str | None = None,
     save_cache: bool = True,
 ) -> None:
     """Handle post-execution caching or failure exit.
@@ -926,9 +1028,12 @@ def _handle_ci_results(
     `--no-cache` run has done the full work and proved the tree, so discarding the proof
     made the next ordinary run repeat it for no reason.
     """
+    if is_dry_run() or any(res.dry_run for res in results):
+        return
+
     if all(res.passed for res in results):
-        if save_cache and not is_dry_run():
-            _try_save_ci_cache(root, results, all_files, ci_options)
+        if save_cache:
+            _try_save_ci_cache(root, results, ci_options, before_fingerprint=before_fingerprint)
         return
 
     from devops_cli.ci.cache import clear_ci_cache
@@ -968,39 +1073,36 @@ def all_checks(
             "--skip", help="Skip the specified check names (comma-separated or repeated)."
         ),
     ] = None,
-    files: Annotated[
-        list[str] | None,
-        typer.Option("--files", help=HELP.ci.files),
-    ] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
     """Run all CI checks concurrently in parallel with non-blocking async execution."""
+    if dry_run:
+        set_dry_run(True)
     root = _get_project_root()
     if not ctx.meta.get(CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY):
         _announce_gate_root(root)
     if ctx.invoked_subcommand is not None:
         return
-    if dry_run:
-        set_dry_run(True)
 
     selected_specs = resolve_selected_specs(only=only, skip=skip)
     is_narrowed = bool(only or skip)
 
     effective_fix = fix and not check
     ci_options = {"fix": effective_fix, "check": check}
-    all_files = _collect_ci_target_files(files, getattr(ctx, "args", []))
+    before_fingerprint = _compute_before_fingerprint(root, ci_options, is_narrowed=is_narrowed)
 
     if not is_narrowed and _try_fast_cached_ci(
-        root, all_files, ci_options, cache=cache, force=force
+        root, ci_options, fingerprint=before_fingerprint, cache=cache, force=force
     ):
         return
 
     start_time = time.perf_counter()
-    _get("print_info")("Executing CI quality gates concurrently...")
-    sys.stdout.flush()
+    if not is_dry_run():
+        _get("print_info")("Executing CI quality gates concurrently...")
+        sys.stdout.flush()
     results = asyncio.run(
         _run_all_checks_async(
             lint_fix=effective_fix,
@@ -1012,7 +1114,13 @@ def all_checks(
     _print_failures(results)
     _print_summary(results, total_elapsed=time.perf_counter() - start_time)
     _warn_when_over_budget(results)
-    _handle_ci_results(results, root, all_files, ci_options, save_cache=(not is_narrowed))
+    _handle_ci_results(
+        results,
+        root,
+        ci_options,
+        before_fingerprint=before_fingerprint,
+        save_cache=(not is_narrowed),
+    )
 
 
 # =============================================================================
@@ -1227,14 +1335,16 @@ def _resolve_test_targets(paths: list[Path], fallback: bool) -> list[str] | None
 
 
 def _build_test_cmd(
-    numprocesses: str,
+    numprocesses: str | None,
     verbose: bool,
     k: str | None,
     x: bool,
     targets: list[str] | None,
 ) -> list[str]:
     """Build the pytest command line arguments."""
-    cmd = ["uv", "run", "pytest", "-n", numprocesses]
+    cmd = ["uv", "run", "pytest"]
+    if numprocesses is not None:
+        cmd.extend(["-n", numprocesses])
     if verbose:
         cmd.append("-v")
     if k:
@@ -1253,8 +1363,8 @@ def test(
     k: Annotated[str | None, typer.Option("-k", help=HELP.ci.filter_keyword)] = None,
     x: Annotated[bool, typer.Option("-x", help=HELP.ci.stop_fail)] = False,
     numprocesses: Annotated[
-        str, typer.Option("-n", "--numprocesses", help=HELP.ci.num_workers)
-    ] = DEFAULT_PYTEST_NUMPROCESSES,
+        str | None, typer.Option("-n", "--numprocesses", help=HELP.ci.num_workers)
+    ] = None,
     fallback: Annotated[
         bool, typer.Option("--fallback/--no-fallback", help=HELP.ci.selection_fallback)
     ] = True,
@@ -1290,16 +1400,20 @@ def test(
 
 def _handle_coverage_index_build(cmd: list[str]) -> None:
     """Execute full test suite with coverage contexts and persist coverage reverse index."""
+    root = _get_project_root()
+    index_cmd = list(cmd)
+    index_cmd.append("--cov-context=test")
+
+    if is_dry_run():
+        _run(index_cmd, env={"COVERAGE_CORE": "ctrace"})
+        return
+
     from devops_cli.ci.cache import compute_worktree_blob_hashes, resolve_coverage_index_path
     from devops_cli.core.coverage_index import (
         build_index_from_coverage,
         filter_coverage_source_hashes,
         save_index,
     )
-
-    root = _get_project_root()
-    index_cmd = list(cmd)
-    index_cmd.append("--cov-context=test")
 
     hashes_before = filter_coverage_source_hashes(compute_worktree_blob_hashes(root))
     env = {"COVERAGE_CORE": "ctrace"}
@@ -1562,6 +1676,23 @@ def outdated(
 
 
 @app.command()
+def devcontainer(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Validate devcontainer manifest configuration syntax."""
+    if dry_run:
+        set_dry_run(True)
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    spec = get_check_spec("devcontainer")
+    if not _run(spec.cmd):
+        raise typer.Exit(1)
+
+
+@app.command()
 def maintain(
     fix: Annotated[
         bool,
@@ -1629,5 +1760,6 @@ def run(
     results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix, docs_fix=fix))
     _print_failures(results)
     _print_summary(results, total_elapsed=time.perf_counter() - start_time)
-    if not all(res.passed for res in results):
-        raise typer.Exit(1)
+    if not is_dry_run() and not any(res.dry_run for res in results):
+        if not all(res.passed for res in results):
+            raise typer.Exit(1)

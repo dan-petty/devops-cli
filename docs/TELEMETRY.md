@@ -24,12 +24,22 @@ points devops-cli at the cluster's collector.
 | `devops_cli_ai_local_cost_equivalent_usd_total` | Counter | `USD` | Equivalent hosted cloud spend avoided by local model execution. |
 | `devops_cli_rag_query_duration_ms` | Histogram | `ms` | RAG retrieval time, by stage: embedding, search, ranking, or total for the whole query. |
 | `devops_cli_qdrant_retries_total` | Counter | `1` | Qdrant requests retried after a transient error, by operation and error type. |
-| `devops_cli_project_releases_total` | Counter | `1` | Total project releases tracked. |
-| `devops_cli_project_commits_total` | Counter | `1` | Project commits count by release. |
-| `devops_cli_project_prs_total` | Counter | `1` | Project pull requests merged by release. |
-| `devops_cli_project_ci_runs_total` | Counter | `1` | CI workflow runs by name, status and conclusion. |
-| `devops_cli_project_items_total` | Counter | `1` | Project items by milestone, type, priority and state. |
+| `devops_cli_project_releases_total` | Gauge | `1` | Total project releases tracked. |
+| `devops_cli_project_commits_total` | Gauge | `1` | Project commits count by release. |
+| `devops_cli_project_prs_total` | Gauge | `1` | Project pull requests merged by release. |
+| `devops_cli_project_ci_runs_total` | Gauge | `1` | CI workflow runs by name, status and conclusion. |
+| `devops_cli_project_items_total` | Gauge | `1` | Project items by milestone, type, priority and state. |
 | `devops_cli_project_release_interval_days` | Histogram | `d` | Days elapsed between consecutive project releases. |
+| `devops_cli_project_traffic_views_total` | Gauge | `1` | GitHub repository total page views count. |
+| `devops_cli_project_traffic_views_uniques_total` | Gauge | `1` | GitHub repository unique visitors count. |
+| `devops_cli_project_traffic_clones_total` | Gauge | `1` | GitHub repository total git clones count. |
+| `devops_cli_project_traffic_clones_uniques_total` | Gauge | `1` | GitHub repository unique cloners count. |
+| `devops_cli_project_traffic_referrers_total` | Gauge | `1` | GitHub repository traffic referrals count by referrer source. |
+| `devops_cli_project_traffic_paths_total` | Gauge | `1` | GitHub repository traffic page views by content path. |
+| `devops_cli_project_stars_total` | Gauge | `1` | GitHub repository stargazers count. |
+| `devops_cli_project_forks_total` | Gauge | `1` | GitHub repository forks count. |
+| `devops_cli_upstream_service_status` | Gauge | `1` | Upstream cloud service operational status severity code (0=none/operational, 1=minor, 2=major, 3=critical) by service and indicator. |
+| `devops_cli_upstream_component_status` | Gauge | `1` | Upstream cloud service component status code (0=operational, 1=degraded, 2=partial_outage, 3=major_outage) by service and component. |
 
 ---
 

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
+from collections import defaultdict
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -162,6 +163,29 @@ def _get_single_collection_stat(
     )
 
 
+def _safe_delete_points_by_files(
+    qdrant: Any,
+    collection_name: str,
+    file_paths: Sequence[str],
+    *,
+    project_name: str | None = None,
+) -> bool:
+    """Delete points for file paths in batches if supported, falling back to per-file deletion."""
+    if not file_paths:
+        return True
+    if hasattr(qdrant, "delete_points_by_files"):
+        return bool(
+            qdrant.delete_points_by_files(
+                collection_name, file_paths, project_name=project_name, wait=False
+            )
+        )
+    if hasattr(qdrant, "delete_points_by_file"):
+        for f in file_paths:
+            qdrant.delete_points_by_file(collection_name, f, project_name=project_name)
+        return True
+    return False
+
+
 def _purge_deleted_vectors(
     qdrant: QdrantClient,
     cache: dict[str, str],
@@ -169,6 +193,7 @@ def _purge_deleted_vectors(
     code_collection: str,
     docs_collection: str,
     save_cache_fn: Callable[[dict[str, str]], None],
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> int:
     """Purge obsolete points from Qdrant when files are deleted on disk."""
     scanned_projects = {k.partition(":")[0] for k in file_hashes.keys()}
@@ -176,17 +201,30 @@ def _purge_deleted_vectors(
     deleted_keys = [
         k for k in cache if k.partition(":")[0] in scanned_projects and k not in current_keys
     ]
-    removed_count = 0
+    if not deleted_keys:
+        return 0
+
+    total_deleted = len(deleted_keys)
+    if progress_callback:
+        progress_callback("Purging deleted files", 0, total_deleted)
+
+    by_proj: dict[str, list[str]] = defaultdict(list)
     for dkey in deleted_keys:
         dproj, _, d_rel_path = dkey.partition(":")
         if d_rel_path:
-            qdrant.delete_points_by_file(code_collection, d_rel_path, project_name=dproj)
-            qdrant.delete_points_by_file(docs_collection, d_rel_path, project_name=dproj)
-            removed_count += 1
+            by_proj[dproj].append(d_rel_path)
         del cache[dkey]
-    if deleted_keys:
-        save_cache_fn(cache)
-    return removed_count
+
+    processed = 0
+    for proj, rel_paths in by_proj.items():
+        _safe_delete_points_by_files(qdrant, code_collection, rel_paths, project_name=proj)
+        _safe_delete_points_by_files(qdrant, docs_collection, rel_paths, project_name=proj)
+        processed += len(rel_paths)
+        if progress_callback:
+            progress_callback("Purging deleted files", processed, total_deleted)
+
+    save_cache_fn(cache)
+    return total_deleted
 
 
 def _purge_obsolete_points(
@@ -194,19 +232,36 @@ def _purge_obsolete_points(
     files_to_reindex: list[tuple[Path, str, str]],
     code_collection: str,
     docs_collection: str,
+    cache: dict[str, str] | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> None:
     """Purge existing vectors for files that are about to be re-indexed."""
-    for _, rel_fpath, fproj in files_to_reindex:
-        try:
-            qdrant.delete_points_by_file(code_collection, rel_fpath, project_name=fproj)
-            qdrant.delete_points_by_file(docs_collection, rel_fpath, project_name=fproj)
-        except Exception as exc:
-            logger.debug(
-                "Failed to delete obsolete points for %s (%s): %s",
-                rel_fpath,
-                fproj,
-                exc,
-            )
+    if not files_to_reindex:
+        return
+
+    # If cache has existing entries, only purge files that were previously indexed
+    targets = [f for f in files_to_reindex if not cache or f"{f[2]}:{f[1]}" in cache]
+    if not targets:
+        return
+
+    by_proj: dict[str, list[str]] = defaultdict(list)
+    for _, rel_fpath, fproj in targets:
+        by_proj[fproj].append(rel_fpath)
+
+    total_files = len(targets)
+    processed = 0
+    if progress_callback:
+        progress_callback("Purging obsolete vectors", 0, total_files)
+
+    for fproj, rel_paths in by_proj.items():
+        batch_size = 100
+        for i in range(0, len(rel_paths), batch_size):
+            chunk = rel_paths[i : i + batch_size]
+            _safe_delete_points_by_files(qdrant, code_collection, chunk, project_name=fproj)
+            _safe_delete_points_by_files(qdrant, docs_collection, chunk, project_name=fproj)
+            processed += len(chunk)
+            if progress_callback:
+                progress_callback("Purging obsolete vectors", processed, total_files)
 
 
 def _build_chunk_point(chunk: CodeChunk, vector: list[float]) -> dict[str, Any]:
@@ -295,6 +350,33 @@ def _partition_chunks(all_chunks: list[CodeChunk]) -> tuple[list[CodeChunk], lis
         else:
             code_chunks.append(chunk)
     return code_chunks, doc_chunks
+
+
+def _calc_effective_batch_size(embedder: Any, default_batch: int) -> int:
+    """Calculate batch size from embedder config, Ollama nodes, or gateway concurrency."""
+    ai_cfg = getattr(embedder, "ai_config", getattr(embedder, "config", None))
+    if ai_cfg is None:
+        return default_batch
+    try:
+        prov = str(getattr(ai_cfg, "provider", "")).lower()
+        if prov in ("gateway", "litellm", "portkey") or getattr(ai_cfg, "gateway_enabled", False):
+            gw_conc = getattr(ai_cfg, "gateway_concurrency", {})
+            concurrency = int(gw_conc.get("embedding", 4) if isinstance(gw_conc, dict) else 4)
+            calc_batch = max(1, concurrency) * 32
+        else:
+            raw_urls = getattr(
+                ai_cfg,
+                "ollama_urls",
+                getattr(ai_cfg, "ollama_server_urls", ["http://localhost:11434"]),
+            )
+            urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
+            raw_par = getattr(ai_cfg, "ollama_max_parallel", 2)
+            is_numeric = isinstance(raw_par, (int, float, str)) and not isinstance(raw_par, bool)
+            max_par = int(raw_par) if is_numeric else 2
+            calc_batch = len(urls) * max_par * 32
+        return max(int(default_batch), min(256, calc_batch))
+    except TypeError, ValueError:
+        return int(default_batch)
 
 
 def resolve_qdrant_client(
@@ -490,6 +572,7 @@ class WorkspaceIndexer:
                     self.code_collection,
                     self.docs_collection,
                     self._save_cache,
+                    progress_callback=progress_callback,
                 )
 
             if not all_chunks:
@@ -514,6 +597,8 @@ class WorkspaceIndexer:
                 files_to_reindex,
                 self.code_collection,
                 self.docs_collection,
+                cache=cache,
+                progress_callback=progress_callback,
             )
 
             code_chunks, doc_chunks = _partition_chunks(all_chunks)
@@ -575,18 +660,10 @@ class WorkspaceIndexer:
             return
 
         total = len(chunks)
-        batch_size = getattr(self.embedder, "batch_size", 32)
-        try:
-            ai_cfg = getattr(self.embedder, "config", None)
-            raw_urls = getattr(ai_cfg, "ollama_server_urls", ["http://localhost:11434"])
-            urls = raw_urls if isinstance(raw_urls, list) else ["http://localhost:11434"]
-            raw_par = getattr(ai_cfg, "ollama_max_parallel", 2)
-            is_numeric = isinstance(raw_par, (int, float, str)) and not isinstance(raw_par, bool)
-            max_par = int(raw_par) if is_numeric else 2
-            calc_batch = len(urls) * max_par * 32
-            effective_batch_size = max(int(batch_size), min(256, calc_batch))
-        except TypeError, ValueError:
-            effective_batch_size = int(batch_size)
+        if progress_callback:
+            progress_callback(progress_title, 0, total)
+        base_batch = getattr(self.embedder, "batch_size", 32)
+        effective_batch_size = _calc_effective_batch_size(self.embedder, base_batch)
 
         for i in range(0, total, effective_batch_size):
             batch = chunks[i : i + effective_batch_size]

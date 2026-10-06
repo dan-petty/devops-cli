@@ -88,7 +88,7 @@ devops argo cd gitops watch [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to monitor |
-| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--app-name`, `-a` | `string` | `cluster` | Application name. |
 | `--debounce-ms` | `integer` | `500` | Debounce delay in milliseconds to aggregate rapid modifications |
 | `--interval`, `-i` | `float` | `1.0` | Watch polling interval in seconds |
 | `--max-events` | `integer` | - | Maximum change events to process before exiting |
@@ -126,7 +126,7 @@ devops argo cd gitops sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--app-name`, `-a` | `string` | `cluster` | Application name. |
 | `--mode`, `-m` | `string` | `api` | Synchronization trigger mode ('api' or 'webhook') |
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
@@ -208,7 +208,7 @@ devops argo cd apps bootstrap-gitops [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--root-app`, `-f` | `path` | `k8s/argocd/apps/root-app.yaml` | Path to root ArgoCD App-of-Apps manifest. |
+| `--root-app`, `-f` | `path` | `k8s/argocd/bootstrap/bootstrap.yaml` | Path to root ArgoCD App-of-Apps manifest. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 
 ---
@@ -456,7 +456,7 @@ devops argo gitops watch [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to monitor |
-| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--app-name`, `-a` | `string` | `cluster` | Application name. |
 | `--debounce-ms` | `integer` | `500` | Debounce delay in milliseconds to aggregate rapid modifications |
 | `--interval`, `-i` | `float` | `1.0` | Watch polling interval in seconds |
 | `--max-events` | `integer` | - | Maximum change events to process before exiting |
@@ -494,7 +494,7 @@ devops argo gitops sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--app-name`, `-a` | `string` | `cluster` | Application name. |
 | `--mode`, `-m` | `string` | `api` | Synchronization trigger mode ('api' or 'webhook') |
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |

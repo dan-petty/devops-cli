@@ -40,6 +40,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops sandbox`](#devops-sandbox) — Isolated workload sandbox container lifecycle engine.
 - [`devops dashboard`](#devops-dashboard) — Interactive terminal UI dashboard for workstation situational awareness.
 - [`devops tui`](#devops-tui) — Interactive terminal UI dashboard (alias)
+- [`devops status`](#devops-status) — Inspect published operational status of upstream platforms (GitHub, Cloudflare)
 - [`devops format`](#devops-format) — Automatically apply code formatting in-place (ruff format).
 - [`devops lint`](#devops-lint) — Run static analysis checks and automatically apply fixes (ruff check --fix).
 
@@ -757,6 +758,7 @@ devops k8s deploy-stack [OPTIONS]
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
 | `--wait` / `--no-wait` | `boolean` | `True` | Wait for Helm releases and workloads to become ready before returning. |
 | `--timeout`, `-t` | `string` | `10m` | Timeout for Helm operations when waiting. |
 | `--port-forward` / `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
@@ -934,6 +936,7 @@ devops k8s teardown-stack [OPTIONS]
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s rbac-audit`
 
@@ -1217,9 +1220,27 @@ devops k8s gpu-matrix [OPTIONS]
 |---|---|---|---|
 | `--gpus`, `-g` | `integer` | - | Filter by GPU count (1, 2, 3, 4). |
 | `--vram`, `-v` | `integer` | - | Filter by VRAM per GPU in GiB (16, 24, 32). |
-| `--backend`, `-b` | `string` | - | Filter by inference backend: ollama or vllm. |
+| `--backend`, `-b` | `string` | - | Filter by inference backend (e.g. ollama). |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
 | `--aliases`, `-a` | `boolean` | - | Include Kubernetes model service aliases mapping. |
+
+### `devops k8s doctor`
+
+**Diagnose Kubernetes cluster deployment health, correlate failures, and recommend remediations.**
+
+```bash
+devops k8s doctor [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | - | Target specific Kubernetes namespace (default: all namespaces). |
+| `--context` | `string` | - | Target Kubernetes cluster context (default: resolved context). |
+| `--tail`, `-t` | `integer` | `20` | Number of container log lines to tail per flagged container. |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, or yaml. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -1800,7 +1821,7 @@ devops argo cd gitops watch [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to monitor |
-| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--app-name`, `-a` | `string` | `cluster` | Application name. |
 | `--debounce-ms` | `integer` | `500` | Debounce delay in milliseconds to aggregate rapid modifications |
 | `--interval`, `-i` | `float` | `1.0` | Watch polling interval in seconds |
 | `--max-events` | `integer` | - | Maximum change events to process before exiting |
@@ -1838,7 +1859,7 @@ devops argo cd gitops sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--app-name`, `-a` | `string` | `cluster` | Application name. |
 | `--mode`, `-m` | `string` | `api` | Synchronization trigger mode ('api' or 'webhook') |
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
@@ -1920,7 +1941,7 @@ devops argo cd apps bootstrap-gitops [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--root-app`, `-f` | `path` | `k8s/argocd/apps/root-app.yaml` | Path to root ArgoCD App-of-Apps manifest. |
+| `--root-app`, `-f` | `path` | `k8s/argocd/bootstrap/bootstrap.yaml` | Path to root ArgoCD App-of-Apps manifest. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 
 ### `devops argo workflows`
@@ -2160,7 +2181,7 @@ devops argo gitops watch [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to monitor |
-| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--app-name`, `-a` | `string` | `cluster` | Application name. |
 | `--debounce-ms` | `integer` | `500` | Debounce delay in milliseconds to aggregate rapid modifications |
 | `--interval`, `-i` | `float` | `1.0` | Watch polling interval in seconds |
 | `--max-events` | `integer` | - | Maximum change events to process before exiting |
@@ -2198,7 +2219,7 @@ devops argo gitops sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--app-name`, `-a` | `string` | `cluster` | Application name. |
 | `--mode`, `-m` | `string` | `api` | Synchronization trigger mode ('api' or 'webhook') |
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
@@ -2377,7 +2398,7 @@ devops ci test [OPTIONS] <paths>
 | `--verbose`, `-v` | `boolean` | - | Enable detailed logging output. |
 | `-k` | `string` | - | Filter tests by keyword expression. |
 | `-x` | `boolean` | - | Stop after first failure. |
-| `-n`, `--numprocesses` | `string` | `auto` | Number of parallel worker processes. |
+| `-n`, `--numprocesses` | `string` | - | Number of parallel worker processes. |
 | `--fallback` / `--no-fallback` | `boolean` | `True` | Run the full suite when a changed source has no covering tests, rather than reporting success without verifying it. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -2535,6 +2556,20 @@ devops ci lockfile [OPTIONS]
 
 ```bash
 devops ci outdated [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ci devcontainer`
+
+**Validate devcontainer manifest configuration syntax.**
+
+```bash
+devops ci devcontainer [OPTIONS]
 ```
 
 **Options:**
@@ -2961,6 +2996,7 @@ devops ai agents [OPTIONS]
 |---|---|---|---|
 | `--repo`, `-r` | `path` | `.` | Repository root directory (default: current directory). |
 | `--template` | `boolean` | - | Generate from built-in template without calling the LLM. |
+| `--force` | `boolean` | - | Overwrite existing instruction files (such as AGENTS.md). |
 | `--file`, `-f` | `string` | - | Files to generate (repeatable). |
 
 ### `devops ai chat`
@@ -3021,6 +3057,7 @@ devops ai pipeline [OPTIONS] <prompt>
 | `--max-turns` | `integer` | `5` | Maximum tool turns per agent stage. |
 | `--rag` / `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
 | `--thinking` / `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
+| `--stage-context-tokens` | `integer` | `4096` | Maximum context tokens from previous stages to carry into each pipeline stage (0 to disable budget). |
 
 ### `devops ai token-count`
 
@@ -5761,7 +5798,7 @@ devops roadmap intake [OPTIONS]
 
 ### `devops roadmap close`
 
-**Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on chore/cut-vX.Y.Z in the clone at --root, bumps the version, pushes, and opens the release pull request into the default branch. Lists completed items with no changelog fragment. Writes only with --confirm.**
+**Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, pushes, and opens the release pull request into the default branch. Lists completed items with no changelog fragment. Writes only with --confirm.**
 
 ```bash
 devops roadmap close [OPTIONS]
@@ -6041,7 +6078,7 @@ devops pr close [OPTIONS] <number>
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
 Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
-and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
+and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
 body closes exactly one issue, and it adds, modifies or renames that issue's
 docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves CHANGELOG.md and
 docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. Into release/vX.Y.Z,
@@ -6090,6 +6127,7 @@ devops pr update [OPTIONS] <number>
 | `--base`, `-B` | `string` | - | Filter open pull requests by base branch (e.g. main, release/v0.2.20). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--expected-head-sha` | `string` | - | Expected SHA of the pull request's HEAD ref for optimistic locking. |
+| `--dispatch-ci` | `boolean` | - | Dispatch the ci.yml workflow on the head branch after updating. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops pr threads`
@@ -6234,6 +6272,21 @@ devops gh rate-limit [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+### `devops gh status`
+
+**Display GitHub published operational status, key components, and active incidents.**
+
+```bash
+devops gh status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Emit structured JSON service status summary |
+| `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
 
 ### `devops gh metrics`
 
@@ -6801,13 +6854,15 @@ devops gh runs view [OPTIONS] <run_id>
 
 ### `devops gh branch-protection`
 
+**Manage classic branch protection policies; does not cover rulesets.**
+
 ```bash
 devops gh branch-protection COMMAND [ARGS]...
 ```
 
 #### `devops gh branch-protection audit`
 
-**Audit repository branch protection rulesets against declarative policy specification.**
+**Audit repository classic branch protection against declarative policy specification.**
 
 ```bash
 devops gh branch-protection audit [OPTIONS]
@@ -6824,7 +6879,7 @@ devops gh branch-protection audit [OPTIONS]
 
 #### `devops gh branch-protection sync`
 
-**Synchronize repository branch protection rulesets against declarative policy specification.**
+**Synchronize repository classic branch protection against declarative policy specification.**
 
 ```bash
 devops gh branch-protection sync [OPTIONS]
@@ -7103,7 +7158,7 @@ devops gh pr close [OPTIONS] <number>
 Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
 Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
-and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
+and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
 body closes exactly one issue, and it adds, modifies or renames that issue's
 docs/agent/tasks/task-\<issue\>-*.md. Into a release/* branch it leaves CHANGELOG.md and
 docs/ROADMAP.md to the cut and adds changelog.d/\<issue\>.md instead. Into release/vX.Y.Z,
@@ -7152,6 +7207,7 @@ devops gh pr update [OPTIONS] <number>
 | `--base`, `-B` | `string` | - | Filter open pull requests by base branch (e.g. main, release/v0.2.20). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--expected-head-sha` | `string` | - | Expected SHA of the pull request's HEAD ref for optimistic locking. |
+| `--dispatch-ci` | `boolean` | - | Dispatch the ci.yml workflow on the head branch after updating. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops gh pr threads`
@@ -7815,6 +7871,21 @@ devops cloudflare status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--json`, `-j` | `boolean` | - | Output status details in JSON format |
+
+### `devops cloudflare service-status`
+
+**Display Cloudflare published operational status, key components, and active incidents.**
+
+```bash
+devops cloudflare service-status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json`, `-j` | `boolean` | - | Output status details in JSON format |
+| `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
 
 ### `devops cloudflare dns`
 
@@ -8736,6 +8807,30 @@ devops tui [OPTIONS]
 | `--refresh-interval`, `-r` | `integer` | `5` | Auto-refresh interval in seconds for live dashboard updates. |
 | `--tab`, `-t` | `string` | `k8s` | Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=ai, 5=valkey). |
 | `--dry-run` | `boolean` | - | Simulate dashboard launch and print static summary. |
+
+---
+
+## devops status
+
+Inspect published operational status of upstream platforms (GitHub, Cloudflare)
+
+Inspect published operational status of upstream cloud platforms (GitHub, Cloudflare)
+
+### `devops status`
+
+**Inspect published operational status of upstream cloud platforms (GitHub, Cloudflare)**
+
+```bash
+devops status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--service`, `-s` | `string` | `all` | Target service to inspect (all, github, cloudflare) |
+| `--json`, `-j` | `boolean` | - | Output status details in JSON format |
+| `--emit-telemetry` | `boolean` | - | Emit operational service status metrics over OpenTelemetry to Prometheus |
 
 ---
 

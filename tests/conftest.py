@@ -124,7 +124,13 @@ def prevent_external_network_calls() -> None:
     # names the way an unresolvable one does, so callers take their existing gaierror path at once.
     def guarded_getaddrinfo(host, *args, **kwargs):
         name = host.decode() if isinstance(host, bytes) else str(host)
-        if host is None or _is_loopback(name) or _is_ip_literal(name):
+        flags = kwargs.get("flags", args[4] if len(args) >= 5 else 0) or 0
+        if (
+            host is None
+            or bool(flags & socket.AI_NUMERICHOST)
+            or _is_loopback(name)
+            or _is_ip_literal(name)
+        ):
             return orig_getaddrinfo(host, *args, **kwargs)
         raise socket.gaierror(
             socket.EAI_NONAME,
@@ -457,7 +463,8 @@ def isolate_devops_cli_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     test_config = test_config_dir / "config.yaml"
     test_config.write_text(
         "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\n"
-        "ai:\n  allow_private_network: true\n  rag:\n    enabled: false\n",
+        "ai:\n  allow_private_network: true\n  rag:\n    enabled: false\n"
+        "qdrant:\n  url: http://localhost:6333\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(test_config))
@@ -467,6 +474,41 @@ def isolate_devops_cli_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         yield test_config
     reset_settings_cache()
     reset_tracer()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def guard_live_rag_data() -> None:
+    """Ensure no test ever interacts with or mutates live Qdrant endpoints."""
+    from qdrant_client import QdrantClient as NativeQdrantClient
+
+    from devops_cli.ai.rag.qdrant import QdrantClient
+
+    orig_init = QdrantClient.__init__
+    orig_native_init = NativeQdrantClient.__init__
+
+    def guarded_init(
+        self, base_url: str = "http://localhost:6333", *args: Any, **kwargs: Any
+    ) -> None:
+        url_str = str(base_url).lower()
+        if "retric.click" in url_str:
+            raise RuntimeError(
+                f"Test attempted to connect to live Qdrant endpoint: {base_url}. "
+                "Tests must use localhost, example.com, or mocks."
+            )
+        orig_init(self, base_url, *args, **kwargs)
+
+    def guarded_native_init(self, *args: Any, **kwargs: Any) -> None:
+        raw_url = kwargs.get("url") or (args[0] if args else "")
+        url_str = str(raw_url).lower()
+        if "retric.click" in url_str:
+            raise RuntimeError(
+                f"Test attempted to connect to live Qdrant endpoint: {raw_url}. "
+                "Tests must use localhost, example.com, or mocks."
+            )
+        orig_native_init(self, *args, **kwargs)
+
+    QdrantClient.__init__ = guarded_init
+    NativeQdrantClient.__init__ = guarded_native_init
 
 
 def _check_test_paths_isolated(

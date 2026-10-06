@@ -565,6 +565,58 @@ CONST_CLOUDFLARE_RECORD_COMMENT: Final[str] = "Managed by devops-cli"
 CONST_CLOUDFLARE_BYPASS_POLICY_NAME: Final[str] = "homelab-public-ip-bypass"
 CONST_CLOUDFLARE_ALLOW_POLICY_NAME: Final[str] = "Allow homelab authorized emails"
 CONST_CLOUDFLARE_DEFAULT_SESSION_DURATION: Final[str] = "24h"
+CONST_URL_GITHUB_STATUS_SUMMARY: Final[str] = "https://www.githubstatus.com/api/v2/summary.json"
+CONST_URL_CLOUDFLARE_STATUS_SUMMARY: Final[str] = (
+    "https://www.cloudflarestatus.com/api/v2/summary.json"
+)
+CONST_STATUSPAGE_HTTP_TIMEOUT_SECONDS: Final[float] = 5.0
+CONST_STATUSPAGE_INDICATORS: Final[tuple[str, ...]] = (
+    "none",
+    "minor",
+    "major",
+    "critical",
+)
+CONST_STATUSPAGE_COMPONENT_STATUSES: Final[tuple[str, ...]] = (
+    "operational",
+    "degraded_performance",
+    "partial_outage",
+    "major_outage",
+    "under_maintenance",
+)
+CONST_STATUSPAGE_INDICATOR_VALUES: Final[dict[str, int]] = {
+    "none": 0,
+    "minor": 1,
+    "major": 2,
+    "critical": 3,
+}
+CONST_STATUSPAGE_COMPONENT_STATUS_VALUES: Final[dict[str, int]] = {
+    "operational": 0,
+    "degraded_performance": 1,
+    "partial_outage": 2,
+    "major_outage": 3,
+    "under_maintenance": 1,
+}
+CONST_GITHUB_STATUS_KEY_COMPONENTS: Final[tuple[str, ...]] = (
+    "Git Operations",
+    "API Requests",
+    "Actions",
+    "Pull Requests",
+    "Issues",
+    "Copilot",
+    "Pages",
+    "Packages",
+)
+CONST_CLOUDFLARE_STATUS_KEY_COMPONENTS: Final[tuple[str, ...]] = (
+    "Tunnel",
+    "Authoritative DNS",
+    "Access",
+    "Zero Trust",
+    "Dashboard",
+    "API",
+    "CDN/Cache",
+    "Workers",
+)
+CONST_STATUS_COMMAND_SERVICES: Final[tuple[str, ...]] = ("all", "github", "cloudflare")
 
 
 CONST_URL_K8S_DOWNLOAD_BASE = "https://dl.k8s.io"
@@ -882,6 +934,7 @@ CONST_RECOMMENDATION_BLOCK = "BLOCK"
 
 # ── GitHub CLI & Pull Requests ────────────────────────────────────────────────
 CONST_GH_CLI = "gh"
+CONST_CI_WORKFLOW_FILE = "ci.yml"
 CONST_GIT_CLI = "git"
 CONST_GH_AUTH_SUBCOMMAND = "auth"
 # The token gh reads first; the session pins it on every gh and git child (#767).
@@ -912,6 +965,13 @@ CONST_SERVICE_METRIC_JOB_START_TIMESTAMP: Final[str] = (
     "devops_cli_service_job_start_timestamp_seconds"
 )
 CONST_SERVICE_METRIC_QUEUE_DEPTH: Final[str] = "devops_cli_service_queue_depth"
+CONST_SERVICE_PROBE_PATHS: Final[frozenset[str]] = frozenset(
+    {
+        "/healthz",
+        "/readyz",
+        "/metrics",
+    }
+)
 CONST_GH_NON_API_COMMANDS: Final[frozenset[str]] = frozenset(
     {
         "auth",
@@ -985,6 +1045,7 @@ CONST_ERROR_CODE_CONSTELLATION_RESUME = "CONSTELLATION_RESUME_ERROR"
 CONST_ERROR_CODE_REVIEW_POOL = "REVIEW_POOL_ERROR"
 CONST_ERROR_CODE_TELEMETRY = "TELEMETRY_ERROR"
 CONST_ERROR_CODE_LOGFIRE = "LOGFIRE_CONFIG_ERROR"
+CONST_ERROR_CODE_SERVICE_STATUS = "SERVICE_STATUS_ERROR"
 CONST_ERROR_CODE_LIBRARY_INGESTION = "LIBRARY_INGESTION_ERROR"
 CONST_ERROR_CODE_LIBRARY_NOT_FOUND = "LIBRARY_NOT_FOUND_ERROR"
 CONST_ERROR_CODE_DOCS_INGESTION = "DOCS_INGESTION_ERROR"
@@ -2257,15 +2318,17 @@ CONST_AI_GATEWAY_URL_SETTINGS: Final[dict[str, str]] = {
     "portkey": "portkey_url",
 }
 CONST_AI_DEFAULT_CACHE_MARKER_KIND: Final[str] = "cache-point"
+CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX: Final[str] = (
+    "\n...[stage output truncated to the stage context budget]"
+)
 CONST_AI_ALLOW_PRIVATE_NETWORK_ENV: Final[str] = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
 # The loopback host name (RFC 6761). With the loopback addresses, which `ipaddress` recognises,
 # it names the workstation itself, so a configured service URL may use it without
 # `ai.allow_private_network` (`validate_configured_service_url`).
 CONST_LOOPBACK_HOSTNAME: Final[str] = "localhost"
-CONST_CLOUD_METADATA_HOSTS: Final[frozenset[str]] = frozenset(
-    {"169.254.169.254", "fd00:ec2::254", "metadata.google.internal", "metadata"}
+CONST_CLOUD_METADATA_DNS_HOSTNAMES: Final[frozenset[str]] = frozenset(
+    {"metadata", "metadata.google.internal", "metadata.goog"}
 )
-CONST_CLOUD_METADATA_IPS: Final[frozenset[str]] = frozenset({"169.254.169.254", "fd00:ec2::254"})
 
 # ── AI Model Capability Tier Gates & AIMD Constants ───────────────────────────
 CONST_MIN_REASONING_MODEL_TIER_B: Final[int] = 30
@@ -2557,7 +2620,6 @@ CONST_CODE_EXTENSIONS: Final[frozenset[str]] = frozenset(
 )
 
 CONST_AI_SPEND_TABLE_NAME: Final[str] = "ai_spend_records"
-CONST_LOCAL_HOSTNAMES: Final[frozenset[str]] = frozenset({"localhost", "127.0.0.1", "::1"})
 CONST_LOCAL_PROVIDER_NAMES: Final[frozenset[str]] = frozenset(
     {"ollama", "local", "in-process", "internal"}
 )
@@ -2635,6 +2697,43 @@ CONST_K8S_POD_EVENT_FIELD_SELECTOR: Final[str] = (
 CONST_K8S_SERVICE_HOST_ENV: Final[str] = "KUBERNETES_SERVICE_HOST"
 # What the dashboard banner names when it connects with the pod's service account.
 CONST_K8S_IN_CLUSTER_CONTEXT: Final[str] = "in-cluster"
+
+# ── Kubernetes Doctor Diagnostic Constants ───────────────────────────────────
+CONST_K8S_DOCTOR_EVENT_FIELD_SELECTOR: Final[str] = "type=Warning"
+CONST_K8S_KIND_PERSISTENT_VOLUME: Final[str] = "PersistentVolume"
+CONST_K8S_KIND_NODE: Final[str] = "Node"
+CONST_K8S_KIND_POD: Final[str] = "Pod"
+CONST_K8S_REASON_VOLUME_FAILED_DELETE: Final[str] = "VolumeFailedDelete"
+CONST_K8S_REASON_FAILED_SCHEDULING: Final[str] = "FailedScheduling"
+CONST_K8S_REASON_UNHEALTHY: Final[str] = "Unhealthy"
+CONST_K8S_REASON_IMAGE_PULL_BACKOFF: Final[str] = "ImagePullBackOff"
+CONST_K8S_REASON_ERR_IMAGE_PULL: Final[str] = "ErrImagePull"
+CONST_K8S_REASON_CRASH_LOOP_BACKOFF: Final[str] = "CrashLoopBackOff"
+CONST_K8S_REASON_OOM_KILLED: Final[str] = "OOMKilled"
+CONST_K8S_REASON_ERROR: Final[str] = "Error"
+
+CONST_K8S_DOCTOR_RULE_NODE_NOT_READY: Final[str] = "node-not-ready"
+CONST_K8S_DOCTOR_RULE_NODE_CORDONED: Final[str] = "node-cordoned"
+CONST_K8S_DOCTOR_RULE_VOLUME_RECLAIM_STUCK: Final[str] = "volume-reclaim-stuck"
+CONST_K8S_DOCTOR_RULE_POD_STUCK_TERMINATING: Final[str] = "pod-stuck-terminating"
+CONST_K8S_DOCTOR_RULE_POD_CRASHLOOP: Final[str] = "pod-crashloop"
+CONST_K8S_DOCTOR_RULE_POD_IMAGE_PULL: Final[str] = "pod-image-pull"
+CONST_K8S_DOCTOR_RULE_POD_UNSCHEDULABLE: Final[str] = "pod-unschedulable"
+CONST_K8S_DOCTOR_RULE_POD_NOT_READY: Final[str] = "pod-not-ready"
+CONST_K8S_DOCTOR_RULE_WARNING_EVENTS: Final[str] = "warning-events"
+
+CONST_K8S_DOCTOR_RULES: Final[tuple[str, ...]] = (
+    CONST_K8S_DOCTOR_RULE_NODE_NOT_READY,
+    CONST_K8S_DOCTOR_RULE_NODE_CORDONED,
+    CONST_K8S_DOCTOR_RULE_VOLUME_RECLAIM_STUCK,
+    CONST_K8S_DOCTOR_RULE_POD_STUCK_TERMINATING,
+    CONST_K8S_DOCTOR_RULE_POD_CRASHLOOP,
+    CONST_K8S_DOCTOR_RULE_POD_IMAGE_PULL,
+    CONST_K8S_DOCTOR_RULE_POD_UNSCHEDULABLE,
+    CONST_K8S_DOCTOR_RULE_POD_NOT_READY,
+    CONST_K8S_DOCTOR_RULE_WARNING_EVENTS,
+)
+
 
 # ── Dashboard TUI Domains ────────────────────────────────────────────────────
 # Each domain is one tab of the workstation dashboard, refreshed by its own worker.
@@ -2915,7 +3014,7 @@ CONST_TELEMETRY_PANEL_MAX_SERIES: Final[int] = 50
 # ── Pull Request Grounding ───────────────────────────────────────────────────
 # Readiness requires a pull request to close exactly one issue and to change that issue's task
 # file. Two kinds of pull request deliver the release process rather than one item, and are
-# exempt: the release pull request, `chore/cut-vX.Y.Z` into `main`, and a release-process
+# exempt: the release pull request, `release/vX.Y.Z` into `main`, and a release-process
 # pull request, `chore/open-vX.Y.Z`, optionally followed by `-<slug>`, from the same
 # repository into `release/vX.Y.Z`.
 CONST_RELEASE_BRANCH_PREFIX: Final[str] = "release/"
@@ -2924,9 +3023,6 @@ CONST_RELEASE_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
 )
 CONST_RELEASE_PROCESS_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
     r"chore/open-v(?P<version>\d+\.\d+\.\d+)(?:-[^/\s]+)?"
-)
-CONST_RELEASE_CUT_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
-    r"chore/cut-v(?P<version>\d+\.\d+\.\d+)(?:-[^/\s]+)?"
 )
 # Files every pull request into a release branch used to edit, so each merge made every other
 # open pull request conflict. The cut writes both: `CHANGELOG.md` from `changelog.d/`, and

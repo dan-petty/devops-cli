@@ -28,8 +28,13 @@ if TYPE_CHECKING:
 from devops_cli.ai.agents.memory import AgentMemory
 from devops_cli.ai.agents.pydantic_agent import AgentTool, PydanticAgent, Tool, ToolCall
 from devops_cli.ai.analyze.outlines import _mask_sensitive_data
+from devops_cli.ai.context_budget import count_tokens, truncate_to_token_limit
 from devops_cli.ai.review_schema import extract_json_block
-from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
+from devops_cli.config.constants import CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX
+from devops_cli.config.defaults import (
+    DEFAULT_AGENT_MAX_TURNS,
+    DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS,
+)
 from devops_cli.exceptions import ValidationError
 from devops_cli.models.ai import ChatMessage, ScratchpadBuffer
 
@@ -46,6 +51,8 @@ class PipelineStepResult(BaseModel):
     thoughts: list[str] = Field(default_factory=list)
     passed_context: str = ""
     backend_info: str | None = None
+    context_tokens: int = 0
+    context_truncated: bool = False
 
 
 class MultiAgentPipelineResult[T](BaseModel):
@@ -73,6 +80,87 @@ def _parse_pipeline_output[T](schema: type[T] | None, content: str) -> T | None:
     return None
 
 
+def _format_omitted_stage(idx: int, name: str) -> str:
+    """Format omitted stage output line when stage budget is exhausted."""
+    return f"### Stage {idx} ({name}) Output: omitted, over budget"
+
+
+def _reconcile_stage_budget_excess(
+    allocated: dict[int, str],
+    stage_outputs: list[tuple[int, str, str]],
+    budget: int,
+    trim_idx: int | None,
+) -> str:
+    """Trim excess tokens from the oldest retained stage if delimiter joins exceeded budget."""
+    result = "\n\n".join(allocated[idx] for idx, _, _ in stage_outputs)
+    excess = count_tokens(result) - budget
+    if excess <= 0 or trim_idx is None:
+        return result
+
+    idx, name, content = next(s for s in stage_outputs if s[0] == trim_idx)
+    header = f"### Stage {idx} ({name}) Output:\n"
+    curr_tokens = count_tokens(allocated[trim_idx])
+    new_budget = max(0, curr_tokens - count_tokens(header) - excess)
+    suffix_tokens = count_tokens(CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX)
+    if new_budget > suffix_tokens:
+        trunc_content = truncate_to_token_limit(
+            content,
+            new_budget,
+            suffix=CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX,
+        )
+        allocated[trim_idx] = f"{header}{trunc_content}"
+    else:
+        allocated[trim_idx] = _format_omitted_stage(idx, name)
+
+    return "\n\n".join(allocated[idx] for idx, _, _ in stage_outputs)
+
+
+def _allocate_stage_context(
+    stage_outputs: list[tuple[int, str, str]],
+    budget: int,
+) -> str:
+    """Allocate context budget newest-first, listing over-budget older stages by name only."""
+    reversed_stages = list(reversed(stage_outputs))
+    allocated: dict[int, str] = {}
+    remaining_budget = budget
+    trim_idx: int | None = None
+
+    for i, (idx, name, content) in enumerate(reversed_stages):
+        header = f"### Stage {idx} ({name}) Output:\n"
+        full_block = f"{header}{content}"
+        block_tokens = count_tokens(full_block)
+
+        older_omitted_tokens = sum(
+            count_tokens(_format_omitted_stage(o_idx, o_name))
+            for o_idx, o_name, _ in reversed_stages[i + 1 :]
+        )
+        available_budget = remaining_budget - older_omitted_tokens
+        header_tokens = count_tokens(header)
+        suffix_tokens = count_tokens(CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX)
+
+        if block_tokens <= available_budget:
+            allocated[idx] = full_block
+            remaining_budget -= block_tokens
+            trim_idx = idx
+        elif available_budget > header_tokens + suffix_tokens:
+            content_budget = available_budget - header_tokens
+            trunc_content = truncate_to_token_limit(
+                content,
+                content_budget,
+                suffix=CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX,
+            )
+            trunc_block = f"{header}{trunc_content}"
+            allocated[idx] = trunc_block
+            remaining_budget -= count_tokens(trunc_block)
+            trim_idx = idx
+        else:
+            omitted = _format_omitted_stage(idx, name)
+            allocated[idx] = omitted
+            remaining_budget -= count_tokens(omitted)
+
+    return _reconcile_stage_budget_excess(allocated, stage_outputs, budget, trim_idx)
+
+
 class MultiAgentPipeline[T]:
     """Orchestrates multi-agent stage pipelines with shared tools, memory, and handovers."""
 
@@ -85,10 +173,12 @@ class MultiAgentPipeline[T]:
         session_id: str = "pipeline-session",
         memory: AgentMemory | None = None,
         concurrency_limit: AnyConcurrencyLimit = None,
+        stage_context_tokens: int = DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS,
     ) -> None:
         self.agents: list[PydanticAgent[Any]] = agents or []
         self.output_schema = output_schema
         self.shared_tools = shared_tools or []
+        self.stage_context_tokens = stage_context_tokens
         self.scratchpad = ScratchpadBuffer(session_id=session_id)
         self.memory: AgentMemory = memory or AgentMemory(session_id=session_id)
         self.concurrency_limit = concurrency_limit
@@ -108,6 +198,24 @@ class MultiAgentPipeline[T]:
             for agent in self.agents:
                 for tool in self.shared_tools:
                     agent.add_tool(tool)
+
+    def _build_carried_context(self, stage_outputs: list[tuple[int, str, str]]) -> tuple[str, bool]:
+        """Format and budget carried stage outputs up to stage_context_tokens newest-first."""
+        if not stage_outputs:
+            return "", False
+
+        full_blocks = [
+            f"### Stage {idx} ({name}) Output:\n{content}" for idx, name, content in stage_outputs
+        ]
+        full_text = "\n\n".join(full_blocks)
+
+        if self.stage_context_tokens <= 0:
+            return full_text, False
+
+        if count_tokens(full_text) <= self.stage_context_tokens:
+            return full_text, False
+
+        return _allocate_stage_context(stage_outputs, self.stage_context_tokens), True
 
     def add_agent(self, agent: PydanticAgent[Any]) -> MultiAgentPipeline[T]:
         """Append a PydanticAgent to the pipeline stage sequence."""
@@ -152,25 +260,37 @@ class MultiAgentPipeline[T]:
         steps: list[PipelineStepResult] = []
         all_tool_calls: list[ToolCall] = []
         total_turns = 0
-        accumulated_context = ""
+        stage_outputs: list[tuple[int, str, str]] = []
 
         self.memory.add_interaction("user", initial_prompt)
         self.memory.auto_summarize_if_needed()
 
         for idx, agent in enumerate(self.agents, 1):
-            prompt = initial_prompt
-            if accumulated_context:
+            carried_block, context_truncated = self._build_carried_context(stage_outputs)
+            context_tokens = count_tokens(carried_block) if carried_block else 0
+
+            scratchpad_summary = self.scratchpad.render_context_summary()
+            if carried_block or scratchpad_summary:
+                context_parts: list[str] = []
+                if carried_block:
+                    context_parts.append(carried_block)
+                if scratchpad_summary:
+                    context_parts.append(scratchpad_summary)
+                context_section = "\n\n".join(context_parts)
                 prompt = (
                     f"## Pipeline Context from Previous Stages\n\n"
-                    f"{accumulated_context}\n\n"
+                    f"{context_section}\n\n"
                     f"## Current Stage Task ({agent.name})\n\n"
                     f"{initial_prompt}"
                 )
+            else:
+                prompt = initial_prompt
 
             res = agent.run(
                 prompt,
                 max_turns=max_turns_per_agent,
                 enable_thinking=enable_thinking,
+                skip_rag=skip_rag,
                 message_history=message_history,
             )
 
@@ -185,6 +305,8 @@ class MultiAgentPipeline[T]:
                 thoughts=res.thoughts,
                 passed_context=res.content,
                 backend_info=res.backend_info,
+                context_tokens=context_tokens,
+                context_truncated=context_truncated,
             )
             steps.append(step)
 
@@ -200,10 +322,7 @@ class MultiAgentPipeline[T]:
                 notes=[f"Executed {len(res.tool_calls)} tool calls in {res.turns} turns."],
             )
 
-            accumulated_context += (
-                f"\n### Stage {idx} ({agent.name}) Output:\n{res.content}\n"
-                f"{self.scratchpad.render_context_summary()}\n"
-            )
+            stage_outputs.append((idx, agent.name, res.content))
 
         final_content = steps[-1].content if steps else ""
         parsed_data = _parse_pipeline_output(self.output_schema, final_content)

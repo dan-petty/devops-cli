@@ -10,10 +10,15 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
+import devops_cli.ai.personas  # noqa: F401
+from devops_cli.ai.agents.pydantic_agent import PydanticAgent
 from devops_cli.ai.client import LLMClient
+from devops_cli.ai.context_budget import count_tokens
 from devops_cli.commands.ai import app as ai_app
-from devops_cli.config.settings import Settings
+from devops_cli.config.settings import Settings, load_settings
 
+_ = load_settings()
+count_tokens("warmup")
 runner = CliRunner()
 
 
@@ -50,7 +55,8 @@ def test_ai_subcommands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         assert res_agents.exit_code == 0
 
         res_agents_file = runner.invoke(
-            ai_app, ["agents", "--template", "--file", "AGENTS.md", "--repo", str(tmp_path)]
+            ai_app,
+            ["agents", "--template", "--force", "--file", "AGENTS.md", "--repo", str(tmp_path)],
         )
         assert res_agents_file.exit_code == 0
 
@@ -540,7 +546,7 @@ def test_ai_token_count_route_pipeline_bundle(tmp_path: Path) -> None:
         res_pipe_dry = runner.invoke(
             ai_app, ["pipeline", "Audit architecture", "--personas", "architect,qa"]
         )
-        assert res_pipe_dry.exit_code == 0
+        assert (res_pipe_dry.exit_code, "stage_context_tokens" in res_pipe_dry.output) == (0, True)
 
     # 7. pipeline command execution
     mock_stage_step = MagicMock()
@@ -577,7 +583,7 @@ def test_ai_token_count_route_pipeline_bundle(tmp_path: Path) -> None:
 
 
 def test_a_cut_stream_stores_no_reply_in_chat_memory() -> None:
-    """Verify a stream that raises after its first chunk leaves no assistant entry in memory."""
+    """Verify a stream that raises after its first chunk leaves only the user entry in memory."""
     from devops_cli.ai.agents.memory import AgentMemory
     from devops_cli.ai.client import AIClientError
     from devops_cli.commands.ai import _stream_interactive_chat_turn
@@ -588,10 +594,201 @@ def test_a_cut_stream_stores_no_reply_in_chat_memory() -> None:
 
     client = MagicMock(chat_messages_stream=cut_stream)
     agent = MagicMock(memory=AgentMemory())
-    agent.memory.add_interaction("user", "Explain the deploy.")
     agent._build_system_prompt_with_tools.return_value = "You are an architect."
 
     with pytest.raises(AIClientError, match="before its final frame"):
         _stream_interactive_chat_turn(client, agent, False, "Explain the deploy.")
 
-    assert [entry.role for entry in agent.memory.entries] == ["user"]
+    assert [(entry.role, entry.content) for entry in agent.memory.entries] == [
+        ("user", "Explain the deploy.")
+    ]
+
+
+def test_a_streamed_turn_sends_the_user_message_and_history() -> None:
+    """Verify streamed chat turn sends prompt on turn 1 and accumulated history on turn 2."""
+    from devops_cli.ai.agents.memory import AgentMemory
+    from devops_cli.commands.ai import _stream_interactive_chat_turn
+
+    recorded_messages: list[list[tuple[str, str]]] = []
+
+    def fake_stream(_system: str, messages: list[Any], enable_thinking: bool = False) -> Any:
+        recorded_messages.append([(m.role, m.content) for m in messages])
+        turn = len(recorded_messages)
+        yield f"r{turn}"
+
+    client = MagicMock(chat_messages_stream=fake_stream)
+    agent = MagicMock(memory=AgentMemory())
+    agent._build_system_prompt_with_tools.return_value = "sys"
+
+    _stream_interactive_chat_turn(client, agent, False, "p1")
+    _stream_interactive_chat_turn(client, agent, False, "p2")
+
+    expected_recorded = (
+        [("user", "p1")],
+        [("user", "p1"), ("assistant", "r1"), ("user", "p2")],
+    )
+    expected_memory = [
+        ("user", "p1"),
+        ("assistant", "r1"),
+        ("user", "p2"),
+        ("assistant", "r2"),
+    ]
+
+    assert (
+        (recorded_messages[0], recorded_messages[1]),
+        [(e.role, e.content) for e in agent.memory.entries],
+    ) == (expected_recorded, expected_memory)
+
+
+@pytest.mark.parametrize(
+    ("case_type", "expected_output_fragment"),
+    [
+        ("client_error", "before its final frame"),
+        ("keyboard_interrupt", "Interrupted."),
+    ],
+)
+def test_a_failed_streamed_turn_leaves_memory_as_it_was(
+    case_type: str, expected_output_fragment: str
+) -> None:
+    """Verify failed or interrupted streamed turn leaves agent memory as it was before the turn."""
+    from devops_cli.ai.agents.memory import AgentMemory
+    from devops_cli.ai.client import AIClientError
+
+    recorded_messages: list[list[tuple[str, str]]] = []
+
+    def fake_stream(
+        _self: Any, _system: str, messages: list[Any], enable_thinking: bool = False
+    ) -> Any:
+        recorded_messages.append([(m.role, m.content) for m in messages])
+        if len(recorded_messages) == 1:
+            yield "partial "
+            if case_type == "client_error":
+                raise AIClientError("Provider stream ended before its final frame.")
+            raise KeyboardInterrupt
+        yield "r2"
+
+    mock_console = MagicMock()
+    mock_console.input.side_effect = ["p1", "p2", "exit"]
+
+    captured_memory: list[AgentMemory] = []
+
+    class WrappedAgent(PydanticAgent[Any]):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            captured_memory.append(self.memory)
+
+    with (
+        patch("devops_cli.commands.ai.get_console", return_value=mock_console),
+        patch("devops_cli.ai.client.LLMClient.chat_messages_stream", fake_stream),
+        patch("devops_cli.ai.agents.PydanticAgent", WrappedAgent),
+        patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None),
+    ):
+        res = runner.invoke(ai_app, ["chat", "--no-tools", "--no-rag", "--no-prewarm"])
+
+    mem = captured_memory[0]
+    expected_entries = [("user", "p2"), ("assistant", "r2")]
+
+    assert (
+        res.exit_code,
+        expected_output_fragment in res.output,
+        len(recorded_messages),
+        recorded_messages[1],
+        [(e.role, e.content) for e in mem.entries],
+    ) == (0, True, 2, [("user", "p2")], expected_entries)
+
+
+def test_a_thinking_only_stream_stores_the_prompt_once() -> None:
+    """Verify thinking-only stream fallback executes agent.run and stores prompt exactly once."""
+    from devops_cli.commands.ai import _stream_interactive_chat_turn
+
+    recorded_messages: list[list[tuple[str, str]]] = []
+
+    def fake_stream(_system: str, messages: list[Any], enable_thinking: bool = False) -> Any:
+        recorded_messages.append([(m.role, m.content) for m in messages])
+        yield "<think>reasoning only</think>"
+
+    client = MagicMock()
+    client.chat_messages_stream = fake_stream
+    client.chat_messages.return_value = "r1"
+
+    agent = PydanticAgent(client=client, system_prompt="sys", tools=[])
+
+    with patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None):
+        _stream_interactive_chat_turn(client, agent, True, "p1")
+
+    assert (
+        recorded_messages[0],
+        [(e.role, e.content) for e in agent.memory.entries],
+    ) == ([("user", "p1")], [("user", "p1"), ("assistant", "r1")])
+
+
+def test_chat_seeds_the_invariants() -> None:
+    """Verify devops ai chat seeds DEFAULT_CHAT_INVARIANTS on both non-stream and stream paths."""
+    from devops_cli.config.defaults import DEFAULT_CHAT_INVARIANTS
+
+    role_snippet = (
+        "You are an Enterprise Infrastructure Architect specializing in cloud-native systems"
+    )
+
+    # 1. Non-stream path with tools enabled (calls agent.run -> client.chat_messages)
+    recorded_non_stream_systems: list[str] = []
+
+    def fake_chat_messages(system: str, _messages: list[Any], enable_thinking: bool = False) -> str:
+        recorded_non_stream_systems.append(system)
+        return "r1"
+
+    settings = Settings()
+    with (
+        patch("devops_cli.config.settings.load_settings", return_value=settings),
+        patch("devops_cli.config.settings.get_ai_api_key", return_value=""),
+        patch.object(LLMClient, "chat_messages", side_effect=fake_chat_messages),
+        patch("devops_cli.commands.ai.get_console") as mock_console_getter,
+    ):
+        mock_console = MagicMock()
+        mock_console.input.side_effect = ["p1", "exit"]
+        mock_console_getter.return_value = mock_console
+
+        res_non_stream = runner.invoke(
+            ai_app,
+            ["chat", "--persona", "architect", "--no-stream", "--no-rag", "--no-prewarm"],
+        )
+        assert (
+            res_non_stream.exit_code,
+            len(recorded_non_stream_systems) >= 1,
+        ) == (0, True)
+        sys_ns = recorded_non_stream_systems[0]
+        assert sys_ns.startswith("## Invariants")
+        for inv in DEFAULT_CHAT_INVARIANTS:
+            assert f"- {inv}" in sys_ns
+        assert sys_ns.index(f"- {DEFAULT_CHAT_INVARIANTS[-1]}") < sys_ns.index(role_snippet)
+
+    # 2. Streamed path with --no-tools (calls _stream_interactive_chat_turn -> client.chat_messages_stream)
+    recorded_stream_systems: list[str] = []
+
+    def fake_stream(system: str, _messages: list[Any], enable_thinking: bool = False) -> Any:
+        recorded_stream_systems.append(system)
+        yield "r1"
+
+    with (
+        patch("devops_cli.config.settings.load_settings", return_value=settings),
+        patch("devops_cli.config.settings.get_ai_api_key", return_value=""),
+        patch.object(LLMClient, "chat_messages_stream", side_effect=fake_stream),
+        patch("devops_cli.commands.ai.get_console") as mock_console_getter,
+    ):
+        mock_console = MagicMock()
+        mock_console.input.side_effect = ["p1", "exit"]
+        mock_console_getter.return_value = mock_console
+
+        res_stream = runner.invoke(
+            ai_app,
+            ["chat", "--persona", "architect", "--no-tools", "--no-rag", "--no-prewarm"],
+        )
+        assert (
+            res_stream.exit_code,
+            len(recorded_stream_systems) >= 1,
+        ) == (0, True)
+        sys_s = recorded_stream_systems[0]
+        assert sys_s.startswith("## Invariants")
+        for inv in DEFAULT_CHAT_INVARIANTS:
+            assert f"- {inv}" in sys_s
+        assert sys_s.index(f"- {DEFAULT_CHAT_INVARIANTS[-1]}") < sys_s.index(role_snippet)

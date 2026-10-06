@@ -131,6 +131,50 @@ def cloudflare_status(
         raise typer.Exit(code=exc.exit_code) from exc
 
 
+@app.command("service-status")
+@trace_span("cloudflare.service_status")
+def cloudflare_service_status(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", "-j", help="Output status details in JSON format"),
+    ] = False,
+    emit_telemetry: Annotated[
+        bool,
+        typer.Option(
+            "--emit-telemetry",
+            help="Emit operational service status metrics over OpenTelemetry to Prometheus",
+        ),
+    ] = False,
+) -> None:
+    """Display Cloudflare published operational status, key components, and active incidents."""
+    from devops_cli.exceptions.telemetry import ServiceStatusError
+    from devops_cli.telemetry.service_status import (
+        emit_service_status_telemetry,
+        fetch_cloudflare_status,
+        record_service_status_in_registry,
+        render_statuspage_summary,
+    )
+
+    try:
+        summary = fetch_cloudflare_status()
+    except ServiceStatusError as exc:
+        print_error(f"Failed to fetch Cloudflare service status: {exc.message}")
+        raise typer.Exit(1) from exc
+
+    if emit_telemetry:
+        emit_service_status_telemetry(summary, "cloudflare")
+        record_service_status_in_registry(summary, "cloudflare")
+
+    if json_output:
+        write_stdout(format_json(summary.model_dump()) + "\n")
+        return
+
+    render_statuspage_summary(summary, "Cloudflare")
+
+    if emit_telemetry:
+        print_success("Emitted Cloudflare service status metrics to Prometheus.")
+
+
 @dns_app.command("list")
 @trace_span("cloudflare.dns.list")
 def dns_list(

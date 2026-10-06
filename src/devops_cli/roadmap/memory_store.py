@@ -711,11 +711,11 @@ class InMemoryRoadmapStore(RoadmapStore):
         return self._roadmap.status_times.get(number)
 
     def open_pull_requests(self) -> list[PullRequest]:
-        """Every open pull request, by number."""
+        """Every open or merged pull request, by number."""
         return [
             pull_request
             for _, pull_request in sorted(self._roadmap.pull_requests.items())
-            if pull_request.state is PullRequestState.OPEN
+            if pull_request.state in (PullRequestState.OPEN, PullRequestState.MERGED)
         ]
 
     def release_pull_requests(self, version: str) -> list[PullRequest]:

@@ -116,11 +116,21 @@ def test_pvc_mounted_at_home_data_dir_under_home_and_sync_options() -> None:
         home_mount["mountPath"],
         env["DEVOPS_CLI_DATA_DIR"].startswith("/home/devops"),
         env["DEVOPS_CLI_CONFIG"],
+        env["OTEL_SERVICE_NAME"],
         "Prune=false" in sync_options,
         "Delete=false" in sync_options,
         pvc["spec"]["storageClassName"],
         pvc["spec"]["resources"]["requests"]["storage"],
-    ) == ("/home/devops", True, "/config/devops-cli.yaml", True, True, "local-path", "1Gi")
+    ) == (
+        "/home/devops",
+        True,
+        "/config/devops-cli.yaml",
+        "roadmap-service",
+        True,
+        True,
+        "local-path",
+        "1Gi",
+    )
 
 
 def test_pod_annotations_name_port_8000() -> None:
@@ -131,7 +141,7 @@ def test_pod_annotations_name_port_8000() -> None:
     )
 
 
-def test_ingress_has_class_traefik_one_host_and_exact_path() -> None:
+def test_ingress_has_class_traefik_one_host_and_prefix_path() -> None:
     ingress = _doc("ingress.yaml")
     rules = ingress["spec"]["rules"]
     assert (len(rules), ingress["spec"]["ingressClassName"]) == (1, "traefik")
@@ -145,7 +155,7 @@ def test_ingress_has_class_traefik_one_host_and_exact_path() -> None:
         paths[0]["pathType"],
         paths[0]["backend"]["service"]["name"],
         paths[0]["backend"]["service"]["port"]["number"],
-    ) == ("hooks.example.com", 1, "/webhooks/github", "Exact", "roadmap-service", 8000)
+    ) == ("hooks.example.com", 1, "/webhooks/github", "Prefix", "roadmap-service", 8000)
 
 
 def test_networkpolicy_admits_only_traefik_and_monitoring_on_8000() -> None:
@@ -210,18 +220,24 @@ def test_monitoring_networkpolicy_has_egress_rule_to_devops_on_8000() -> None:
 
 
 def test_configmap_validates_as_settings_with_repos_and_machine_account() -> None:
-    cm = yaml.load(
-        (DEVOPS_DIR / "configmap.yaml").read_text(encoding="utf-8"), Loader=yaml.CSafeLoader
-    )
+    target = DEVOPS_DIR / "configmap.yaml"
+    if not target.exists():
+        target = DEVOPS_DIR / "configmap.example.yaml"
+    cm = yaml.load(target.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
     raw = yaml.safe_load(cm["data"]["devops-cli.yaml"])
     settings = Settings.model_validate(raw)
 
     assert (
         bool(settings.service.repos),
         bool(settings.service.machine_account),
-        settings.service.repos,
-        settings.service.machine_account,
-    ) == (True, True, ["dan-petty/devops-cli"], "devops-bot")
+        settings.telemetry.enabled,
+        settings.telemetry.endpoint,
+    ) == (
+        True,
+        True,
+        True,
+        "http://otel-collector-opentelemetry-collector.otel.svc.cluster.local:4318",
+    )
 
 
 def test_kustomizations_list_manifests_and_directory() -> None:

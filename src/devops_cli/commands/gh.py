@@ -45,9 +45,11 @@ from devops_cli.github.metrics import (
     LabelTaxonomyMetric,
     MilestoneMetric,
     ReleaseCadenceMetric,
+    TrafficSummaryMetric,
     WorkflowRunMetric,
     collect_project_metrics_report,
     emit_project_metrics_telemetry,
+    record_project_metrics_in_registry,
 )
 from devops_cli.github.milestones import (
     MilestoneProgress,
@@ -122,7 +124,7 @@ app.add_typer(views_app, name="views")
 app.add_typer(pages_app, name="pages")
 app.add_typer(issues_app, name="issues")
 app.add_typer(runs_app, name="runs")
-app.add_typer(branch_protection_app, name="branch-protection")
+app.add_typer(branch_protection_app, name="branch-protection", help=HELP.gh.branch_protection_app)
 app.add_typer(secrets_app, name="secrets")
 app.add_typer(pr_app, name="pr")
 
@@ -1421,6 +1423,49 @@ def rate_limit_cmd(
     )
 
 
+@app.command("status")
+def gh_status_cmd(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit structured JSON service status summary"),
+    ] = False,
+    emit_telemetry: Annotated[
+        bool,
+        typer.Option(
+            "--emit-telemetry",
+            help="Emit operational service status metrics over OpenTelemetry to Prometheus",
+        ),
+    ] = False,
+) -> None:
+    """Display GitHub published operational status, key components, and active incidents."""
+    from devops_cli.exceptions.telemetry import ServiceStatusError
+    from devops_cli.telemetry.service_status import (
+        emit_service_status_telemetry,
+        fetch_github_status,
+        record_service_status_in_registry,
+        render_statuspage_summary,
+    )
+
+    try:
+        summary = fetch_github_status()
+    except ServiceStatusError as exc:
+        print_error(f"Failed to fetch GitHub status: {exc.message}")
+        raise typer.Exit(1) from exc
+
+    if emit_telemetry:
+        emit_service_status_telemetry(summary, "github")
+        record_service_status_in_registry(summary, "github")
+
+    if json_output:
+        write_stdout(format_json(summary.model_dump()))
+        return
+
+    render_statuspage_summary(summary, "GitHub")
+
+    if emit_telemetry:
+        print_success("Emitted GitHub service status metrics to Prometheus.")
+
+
 # =============================================================================
 # Command Group: devops gh runs
 # =============================================================================
@@ -1787,6 +1832,18 @@ def _render_labels_table(labels: list[LabelTaxonomyMetric], repo: str) -> None:
     print_table(f"Taxonomy Labels Breakdown ({repo})", columns, rows)
 
 
+def _render_traffic_tables(traffic: TrafficSummaryMetric, repo: str) -> None:
+    """Render top referral sources and popular paths traffic tables."""
+    if traffic.referrers:
+        columns = ["Referrer Source", "Views", "Unique Visitors"]
+        rows = [[r.referrer, str(r.count), str(r.uniques)] for r in traffic.referrers[:10]]
+        print_table(f"Top Referral Sources - 14 Days ({repo})", columns, rows)
+    if traffic.paths:
+        columns = ["Path", "Title", "Views", "Unique Visitors"]
+        rows = [[p.path, p.title[:40], str(p.count), str(p.uniques)] for p in traffic.paths[:10]]
+        print_table(f"Popular Content Paths - 14 Days ({repo})", columns, rows)
+
+
 @app.command("metrics")
 def project_metrics_cmd(
     limit: Annotated[
@@ -1825,6 +1882,7 @@ def project_metrics_cmd(
 
     if emit_telemetry:
         emit_project_metrics_telemetry(report)
+        record_project_metrics_in_registry(report)
 
     if json_output:
         write_stdout(format_json(report.model_dump()))
@@ -1834,7 +1892,10 @@ def project_metrics_cmd(
         f"Repository: [bold]{report.repo}[/bold]\n"
         f"Generated: [cyan]{report.generated_at}[/cyan]\n"
         f"Total Releases Tracked: [bold]{report.total_releases}[/bold]\n"
-        f"Average Release Cadence: [bold]{report.average_cadence_days} days[/bold]"
+        f"Average Release Cadence: [bold]{report.average_cadence_days} days[/bold]\n"
+        f"GitHub Stars: [bold]{report.traffic.stars}[/bold] | Forks: [bold]{report.traffic.forks}[/bold] | Open Issues: [bold]{report.traffic.open_issues}[/bold]\n"
+        f"14-Day Traffic: [bold]{report.traffic.views_count}[/bold] views ({report.traffic.views_uniques} unique) | "
+        f"[bold]{report.traffic.clones_count}[/bold] clones ({report.traffic.clones_uniques} unique)"
     )
     print_panel(summary_text, title="Engineering Velocity & Project Metrics")
 
@@ -1846,6 +1907,8 @@ def project_metrics_cmd(
         _render_milestones_table(report.milestones, target_repo)
     if report.taxonomy_labels:
         _render_labels_table(report.taxonomy_labels, target_repo)
+    if report.traffic.referrers or report.traffic.paths:
+        _render_traffic_tables(report.traffic, target_repo)
 
     if emit_telemetry:
         print_success("✓ Emitted project velocity metrics over OpenTelemetry to Prometheus.")

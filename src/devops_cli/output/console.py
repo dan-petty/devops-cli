@@ -21,6 +21,9 @@ from rich.progress import (
     SpinnerColumn as _RichSpinnerColumn,
 )
 from rich.progress import (
+    TaskID as _RichTaskID,
+)
+from rich.progress import (
     TextColumn as _RichTextColumn,
 )
 from rich.progress import (
@@ -696,8 +699,13 @@ def progress_context(
     *,
     total: float = DEFAULT_PROGRESS_TOTAL,
     console: Any = None,
+    multi_stage: bool = False,
 ) -> Generator[Callable[[str, float], None]]:
     """Context manager providing a styled progress bar with an update callback.
+
+    When multi_stage is True, transitions between distinct stages (e.g. Scanning,
+    Purging, Embedding) allocate dedicated, sequential progress bars so completed
+    stages remain visible while active stages display live progress.
 
     Yields:
         update_fn(description: str, completed: float)
@@ -711,9 +719,31 @@ def progress_context(
         console=active_console,
     ) as progress:
         task_id = progress.add_task(description, total=total)
+        stages: dict[str, _RichTaskID] = {}
+        active_id: list[_RichTaskID] = [task_id]
 
         def _update(desc: str, completed: float) -> None:
-            progress.update(task_id, description=desc, completed=completed)
+            if not multi_stage:
+                progress.update(task_id, description=desc, completed=completed)
+                return
+            stage = desc.split(" (")[0].strip() if " (" in desc else desc
+            if not stages:
+                stages[stage] = task_id
+                progress.update(task_id, description=desc, completed=completed)
+            elif stage not in stages:
+                prev_id = active_id[0]
+                prev_task = progress._tasks.get(prev_id)
+                if prev_task and not prev_task.finished:
+                    progress.update(prev_id, completed=prev_task.total)
+                new_id = progress.add_task(desc, total=total, completed=int(completed))
+                if completed != int(completed):
+                    progress.update(new_id, completed=completed)
+                stages[stage] = new_id
+                active_id[0] = new_id
+            else:
+                target_id = stages[stage]
+                progress.update(target_id, description=desc, completed=completed)
+                active_id[0] = target_id
 
         yield _update
 

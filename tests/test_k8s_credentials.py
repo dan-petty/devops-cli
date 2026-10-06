@@ -66,10 +66,10 @@ def test_fetch_grafana_password_success(mock_keyring: MagicMock, mock_subproc: M
 
 
 @patch("devops_cli.k8s.credentials.fetch_argocd_password")
-@patch("devops_cli.k8s.credentials.fetch_grafana_password")
-def test_sync_k8s_credentials_summary(mock_grafana: MagicMock, mock_argocd: MagicMock) -> None:
+@patch("devops_cli.config.settings._keyring_get")
+def test_sync_k8s_credentials_summary(mock_keyring_get: MagicMock, mock_argocd: MagicMock) -> None:
     mock_argocd.return_value = "argo-pw"
-    mock_grafana.return_value = "graf-pw"
+    mock_keyring_get.return_value = "graf-pw"
 
     res = sync_k8s_credentials(stack="infra")
 
@@ -217,7 +217,7 @@ def test_get_or_mint_grafana_auth() -> None:
 
 
 @patch("devops_cli.k8s.credentials.fetch_argocd_password", return_value="argo-pw")
-@patch("devops_cli.k8s.credentials.fetch_grafana_password", return_value="graf-pw")
+@patch("devops_cli.config.settings._keyring_get", return_value="graf-pw")
 @patch("devops_cli.k8s.credentials.mint_argocd_token", return_value="argo-tok")
 @patch("devops_cli.k8s.credentials.mint_grafana_token", return_value="graf-tok")
 def test_sync_k8s_credentials_with_tokens(
@@ -253,7 +253,7 @@ def test_verify_tokens(mock_get: MagicMock) -> None:
 
 
 @patch("devops_cli.k8s.credentials.fetch_argocd_password", return_value="argo-pw")
-@patch("devops_cli.k8s.credentials.fetch_grafana_password", return_value="graf-pw")
+@patch("devops_cli.config.settings._keyring_get", return_value="graf-pw")
 @patch("devops_cli.k8s.credentials._resolve_existing_token")
 @patch("devops_cli.k8s.credentials.verify_argocd_token", return_value=True)
 @patch("devops_cli.k8s.credentials.verify_grafana_token", return_value=True)

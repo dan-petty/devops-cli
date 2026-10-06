@@ -80,6 +80,8 @@ service:
 persistence:
   enabled: true
   size: 5Gi
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
 
 resources:
   requests:

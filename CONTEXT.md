@@ -139,3 +139,17 @@ _Avoid_: review run, report
 **Known false positive**:
 A kind of finding reviewers keep raising wrongly, recorded once with how to recognize and disprove it.
 _Avoid_: common hallucination, hallucination entry
+
+## Verification
+
+**Gate**:
+A binding condition that must pass before code merges or a release advances.
+_Avoid_: quality gate, 7-gate, 10-gate, barrier, hurdle
+
+**Check**:
+An automated test, analysis step or verification job run against a commit or pull request.
+_Avoid_: test run, task, action, status
+
+**Required check**:
+A check configured in repository rulesets that must complete with a passing status before a pull request can merge.
+_Avoid_: mandatory check, blocking check, required status check

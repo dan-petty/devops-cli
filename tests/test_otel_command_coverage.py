@@ -253,6 +253,7 @@ def test_all_command_specs_registered() -> None:
         "tui",
         "format",
         "lint",
+        "status",
     }
     assert set(_COMMAND_SPECS.keys()) == expected_commands
 
