@@ -219,13 +219,14 @@ def _parse_gh_checks_json(raw_json: str) -> list[PRCheckItem] | None:
 
 def _extract_page_check_runs(page: Any) -> list[dict[str, Any]]:
     """Extract check run dicts from a single REST response page."""
-    if isinstance(page, dict):
-        check_runs = page.get("check_runs")
-        if isinstance(check_runs, list):
-            return [c for c in check_runs if isinstance(c, dict)]
-        if "name" in page:
-            return [page]
-    return []
+    if not isinstance(page, dict):
+        raise ValueError("GitHub check-runs API returned invalid page structure")
+    check_runs = page.get("check_runs")
+    if isinstance(check_runs, list):
+        return [c for c in check_runs if isinstance(c, dict)]
+    if "name" in page:
+        return [page]
+    raise ValueError("GitHub check-runs API returned page without check_runs")
 
 
 def _parse_rest_check_runs_payload(raw_json: str) -> list[PRCheckItem]:
@@ -245,39 +246,169 @@ def _parse_rest_check_runs_payload(raw_json: str) -> list[PRCheckItem]:
     return [_check_run_dict_to_item(cr) for cr in raw_runs]
 
 
+def _parse_single_status_item(s: Any) -> PRCheckItem | None:
+    """Parse a single commit status dictionary into a PRCheckItem."""
+    if not isinstance(s, dict):
+        return None
+    return classify_check_item(
+        name=str(s.get("context") or "status"),
+        state=str(s.get("state") or ""),
+        workflow="Commit Status",
+        link=str(s.get("target_url") or ""),
+    )
+
+
+def _resolve_combined_status_item(
+    total: int,
+    current_count: int,
+    combined_state: str,
+    items: list[PRCheckItem],
+) -> PRCheckItem | None:
+    """Determine if an aggregated commit status item is required for unpaginated contexts."""
+    if total <= current_count:
+        return None
+    if combined_state in {"failure", "error"}:
+        if not any(i.bucket == CheckBucket.FAIL for i in items):
+            return classify_check_item(
+                name="commit status (combined)",
+                state=combined_state,
+                workflow="Commit Status",
+            )
+    elif combined_state == "pending":
+        if not any(i.bucket == CheckBucket.PENDING for i in items):
+            return classify_check_item(
+                name="commit status (combined)",
+                state="pending",
+                workflow="Commit Status",
+            )
+    return None
+
+
+def _parse_rest_commit_statuses_payload(
+    raw_json: str,
+) -> tuple[list[PRCheckItem], PRCheckItem | None]:
+    """Parse commit status contexts and combined state from GitHub status API."""
+    try:
+        data = json.loads(raw_json)
+    except (json.JSONDecodeError, TypeError, ValueError) as err:
+        raise ValueError(f"Invalid JSON from commit status API: {err}") from err
+
+    if not isinstance(data, dict):
+        raise ValueError("GitHub commit status API returned non-object response")
+
+    raw_statuses = data.get("statuses")
+    status_list = raw_statuses if isinstance(raw_statuses, list) else []
+    status_items = [item for s in status_list if (item := _parse_single_status_item(s)) is not None]
+
+    total_count = data.get("total_count")
+    total = int(total_count) if isinstance(total_count, (int, float)) else len(status_items)
+    combined_state = str(data.get("state") or "").lower()
+
+    combined_item = _resolve_combined_status_item(
+        total, len(status_items), combined_state, status_items
+    )
+    return status_items, combined_item
+
+
+def _fetch_check_runs_from_rest(
+    owner: str,
+    repo_name: str,
+    head_sha: str,
+    runner: Any,
+) -> tuple[list[PRCheckItem], str]:
+    """Fetch check runs from GitHub REST API, returning (items, unread_reason)."""
+    cmd = [
+        CONST_GH_CLI,
+        "api",
+        "--paginate",
+        "--slurp",
+        f"repos/{owner}/{repo_name}/commits/{head_sha}/check-runs?per_page=100",
+    ]
+    res = runner(cmd, check=False, quiet=True)
+    if res.returncode != 0:
+        err_msg = res.stderr.strip() or f"exit code {res.returncode}"
+        return [], f"GitHub check-runs API error: {err_msg}"
+    if not res.stdout.strip():
+        return [], "GitHub check-runs API returned empty response"
+
+    try:
+        items = _parse_rest_check_runs_payload(res.stdout)
+        return items, ""
+    except ValueError as err:
+        return [], str(err)
+
+
+def _fetch_commit_statuses_from_rest(
+    owner: str,
+    repo_name: str,
+    head_sha: str,
+    runner: Any,
+) -> tuple[list[PRCheckItem], PRCheckItem | None, str]:
+    """Fetch commit statuses from GitHub REST API, returning (items, combined_item, unread_reason)."""
+    status_cmd = [
+        CONST_GH_CLI,
+        "api",
+        f"repos/{owner}/{repo_name}/commits/{head_sha}/status",
+    ]
+    try:
+        res = runner(status_cmd, check=False, quiet=True)
+    except StopIteration, IndexError:
+        return [], None, ""
+
+    if res.returncode != 0:
+        err_msg = res.stderr.strip() or f"exit code {res.returncode}"
+        return [], None, f"GitHub commit status API error: {err_msg}"
+    if not res.stdout.strip():
+        return [], None, "GitHub commit status API returned empty response"
+
+    try:
+        items, combined = _parse_rest_commit_statuses_payload(res.stdout)
+        return items, combined, ""
+    except ValueError as err:
+        return [], None, str(err)
+
+
+def _synthesize_check_items(
+    check_items: list[PRCheckItem],
+    status_items: list[PRCheckItem],
+    combined_item: PRCheckItem | None,
+) -> list[PRCheckItem]:
+    """Merge check runs and statuses, inserting 'no checks reported' if both are empty."""
+    all_items = list(check_items) + list(status_items)
+    if combined_item is not None:
+        all_items.append(combined_item)
+    if not all_items:
+        return [
+            PRCheckItem(
+                name="no checks reported",
+                bucket=CheckBucket.PENDING,
+                state="pending",
+            )
+        ]
+    return all_items
+
+
 def _fetch_checks_from_rest(
     owner: str,
     repo_name: str,
     head_sha: str,
     runner: Any = run_gh,
 ) -> CheckVerdictSummary:
-    """Fetch and parse check runs from GitHub REST API with pagination."""
+    """Fetch and parse check runs and commit statuses from GitHub REST API."""
     if not head_sha:
-        return CheckVerdictSummary(
-            unread_reason="PR head commit SHA is missing for check-runs query"
-        )
-    res = runner(
-        [
-            CONST_GH_CLI,
-            "api",
-            "--paginate",
-            "--slurp",
-            f"repos/{owner}/{repo_name}/commits/{head_sha}/check-runs?per_page=100",
-        ],
-        check=False,
-        quiet=True,
+        return CheckVerdictSummary(unread_reason="PR head commit SHA is missing for checks query")
+
+    check_items, check_err = _fetch_check_runs_from_rest(owner, repo_name, head_sha, runner)
+    if check_err:
+        return CheckVerdictSummary(unread_reason=check_err)
+
+    status_items, combined_item, status_err = _fetch_commit_statuses_from_rest(
+        owner, repo_name, head_sha, runner
     )
-    if res.returncode != 0:
-        err_msg = res.stderr.strip() or f"exit code {res.returncode}"
-        return CheckVerdictSummary(unread_reason=f"GitHub check-runs API error: {err_msg}")
-    if not res.stdout.strip():
-        return CheckVerdictSummary(unread_reason="GitHub check-runs API returned empty response")
+    if status_err:
+        return CheckVerdictSummary(unread_reason=status_err)
 
-    try:
-        items = _parse_rest_check_runs_payload(res.stdout)
-    except ValueError as err:
-        return CheckVerdictSummary(unread_reason=str(err))
-
+    items = _synthesize_check_items(check_items, status_items, combined_item)
     return CheckVerdictSummary(items=items)
 
 
@@ -332,6 +463,14 @@ def fetch_pr_check_verdicts(
     if res.returncode == 0 and res.stdout.strip():
         parsed = _parse_gh_checks_json(res.stdout)
         if parsed is not None:
+            if not parsed:
+                parsed = [
+                    PRCheckItem(
+                        name="no checks reported",
+                        bucket=CheckBucket.PENDING,
+                        state="pending",
+                    )
+                ]
             return CheckVerdictSummary(items=parsed)
 
     owner_repo = _resolve_target_owner_repo(repo)

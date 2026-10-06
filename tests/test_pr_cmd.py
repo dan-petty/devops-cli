@@ -1662,7 +1662,7 @@ class TestPrCommands:
             assert "<masked-github-token>" in rendered_comment
 
     def test_pr_checks_fallback_empty_checks(self) -> None:
-        """_render_pr_checks_fallback prints message when check_runs is empty."""
+        """_render_pr_checks_fallback renders table with 'no checks reported' pending when empty."""
         from devops_cli.commands.pr import _render_pr_checks_fallback
 
         mock_pr_details = {"head": {"sha": "sha12345"}}
@@ -1675,11 +1675,18 @@ class TestPrCommands:
                 "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_api_empty, stderr=""),
             ),
-            patch("devops_cli.commands.pr.print_info") as mock_print_info,
+            patch("devops_cli.commands.pr.print_table") as mock_print_table,
         ):
             res = _render_pr_checks_fallback(184)
             assert res is True
-            mock_print_info.assert_called_once_with("No check runs found for PR #184.")
+            mock_print_table.assert_called_once()
+            call_kwargs = mock_print_table.call_args[1]
+            rows = call_kwargs.get("rows", [])
+            assert (len(rows), rows[0][0], "pending" in rows[0][1]) == (
+                1,
+                "no checks reported",
+                True,
+            )
 
     def test_pr_diff_failure_exit_code(self, runner: CliRunner) -> None:
         """devops pr diff exits with returncode when gh pr diff fails."""

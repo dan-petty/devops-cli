@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.github.pr_monitor import (
     CopilotReviewStatus,
     PRCheckRun,
@@ -257,6 +258,12 @@ class TestGetPRMonitoringStatus:
                 return MagicMock(returncode=0, stdout=json.dumps(pr_rest_data), stderr="")
             if "check-runs" in cmd_str:
                 return MagicMock(returncode=0, stdout=json.dumps(check_runs_data), stderr="")
+            if "status" in cmd_str:
+                return MagicMock(
+                    returncode=0,
+                    stdout=json.dumps({"state": "success", "statuses": [], "total_count": 0}),
+                    stderr="",
+                )
             if "timeline" in cmd_str:
                 return MagicMock(returncode=0, stdout=timeline_output, stderr="")
             return MagicMock(returncode=0, stdout="", stderr="")
@@ -308,6 +315,12 @@ class TestGetPRMonitoringStatus:
                 return MagicMock(returncode=0, stdout=json.dumps(pr_rest_data), stderr="")
             if "check-runs" in cmd_str:
                 return MagicMock(returncode=0, stdout=json.dumps(check_runs_data), stderr="")
+            if "status" in cmd_str:
+                return MagicMock(
+                    returncode=0,
+                    stdout=json.dumps({"state": "success", "statuses": [], "total_count": 0}),
+                    stderr="",
+                )
             if "timeline" in cmd_str:
                 return MagicMock(returncode=0, stdout=timeline_output, stderr="")
             return MagicMock(returncode=0, stdout="", stderr="")
@@ -1089,3 +1102,137 @@ class TestMonitorPR:
 
         assert _parse_timeline_copilot_state("") == (False, "")
         assert _parse_timeline_copilot_state("   \n\n  ") == (False, "")
+
+    def test_monitor_pr_pending_when_zero_checks_reported(self) -> None:
+        """Verify monitor_pr treats 0 runs and 0 statuses as pending 'no checks reported'."""
+        pr_details = {
+            "title": "feat: zero checks",
+            "head": {"sha": "headsha_zero"},
+            "draft": False,
+            "mergeable": True,
+            "mergeable_state": "clean",
+        }
+        reviews_data = [
+            {
+                "user": {"login": "lead"},
+                "state": "APPROVED",
+                "commit_id": "headsha_zero",
+            }
+        ]
+        with (
+            patch("devops_cli.github.pr_monitor._fetch_pr_details", return_value=pr_details),
+            patch("devops_cli.github.pr_monitor._fetch_raw_reviews", return_value=reviews_data),
+            patch("devops_cli.github.pr_monitor._fetch_unresolved_threads", return_value=[]),
+            patch(
+                "devops_cli.github.pr_monitor._query_timeline_copilot_state",
+                return_value=(False, "reviewed"),
+            ),
+            patch(
+                "devops_cli.github.check_verdict._fetch_checks_from_rest",
+                return_value=CheckVerdictSummary(
+                    items=[
+                        PRCheckItem(
+                            name="no checks reported",
+                            bucket=CheckBucket.PENDING,
+                            state="pending",
+                        )
+                    ]
+                ),
+            ),
+        ):
+            status = get_pr_monitoring_status("dan-petty", "devops-cli", 168)
+            assert (
+                status.total_checks,
+                status.pending_checks[0].name,
+                status.is_ready_for_merge,
+            ) == (1, "no checks reported", False)
+
+            res = monitor_pr(
+                "dan-petty",
+                "devops-cli",
+                168,
+                timeout=1,
+                interval=1,
+                settle_timeout=0,
+                require_reviews=True,
+            )
+            assert (res.success, res.exit_code, "timed out" in res.message) == (False, 3, True)
+
+    def test_monitor_pr_blocks_on_combined_commit_status_failure(self) -> None:
+        """Verify monitor_pr immediately fails when combined status indicates failure."""
+        pr_details = {
+            "title": "fix: failing combined status",
+            "head": {"sha": "headsha_combined"},
+            "draft": False,
+            "mergeable": True,
+            "mergeable_state": "clean",
+        }
+        with (
+            patch("devops_cli.github.pr_monitor._fetch_pr_details", return_value=pr_details),
+            patch("devops_cli.github.pr_monitor._fetch_raw_reviews", return_value=[]),
+            patch("devops_cli.github.pr_monitor._fetch_unresolved_threads", return_value=[]),
+            patch(
+                "devops_cli.github.pr_monitor._query_timeline_copilot_state",
+                return_value=(False, "reviewed"),
+            ),
+            patch(
+                "devops_cli.github.check_verdict._fetch_checks_from_rest",
+                return_value=CheckVerdictSummary(
+                    items=[
+                        PRCheckItem(
+                            name="commit status (combined)",
+                            bucket=CheckBucket.FAIL,
+                            state="failure",
+                        )
+                    ]
+                ),
+            ),
+        ):
+            res = monitor_pr(
+                "dan-petty", "devops-cli", 168, timeout=5, interval=1, settle_timeout=0
+            )
+            assert (res.success, res.exit_code, "CI checks failed" in res.message) == (
+                False,
+                1,
+                True,
+            )
+
+    def test_monitor_pr_fails_closed_when_checks_unread(self) -> None:
+        """Verify monitor_pr fails closed with exit code 1 when checks API cannot be read."""
+        pr_details = {
+            "title": "fix: unread checks",
+            "head": {"sha": "headsha_unread"},
+            "draft": False,
+            "mergeable": True,
+            "mergeable_state": "clean",
+        }
+        with (
+            patch("devops_cli.github.pr_monitor._fetch_pr_details", return_value=pr_details),
+            patch("devops_cli.github.pr_monitor._fetch_raw_reviews", return_value=[]),
+            patch("devops_cli.github.pr_monitor._fetch_unresolved_threads", return_value=[]),
+            patch(
+                "devops_cli.github.pr_monitor._query_timeline_copilot_state",
+                return_value=(False, "reviewed"),
+            ),
+            patch(
+                "devops_cli.github.check_verdict._fetch_checks_from_rest",
+                return_value=CheckVerdictSummary(
+                    unread_reason="GitHub commit status API error: HTTP 500"
+                ),
+            ),
+        ):
+            status = get_pr_monitoring_status("dan-petty", "devops-cli", 168)
+            assert (
+                any("check verification failed closed" in r for r in status.failure_reasons),
+                status.is_ready_for_merge,
+            ) == (True, False)
+
+            res = monitor_pr(
+                "dan-petty", "devops-cli", 168, timeout=5, interval=1, settle_timeout=0
+            )
+            assert (
+                res.success,
+                res.exit_code,
+                "check verification failed closed: GitHub commit status API error: HTTP 500"
+                in res.message,
+            ) == (False, 1, True)
