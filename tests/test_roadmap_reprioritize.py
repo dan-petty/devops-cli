@@ -30,9 +30,15 @@ from devops_cli.github.labels import load_label_specs
 from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
 from devops_cli.roadmap.reprioritize import (
+    Action,
+    Event,
+    Reason,
     ReleaseState,
     ReprioritizationPlan,
+    Transition,
+    admission_event,
     apply_reprioritization,
+    decide,
     is_due,
     plan_reprioritization,
     render_plan,
@@ -290,6 +296,59 @@ def test_an_item_added_between_runs_with_no_change_recorded_is_found_through_the
     assert (changes, started.release_of(slipped)) == ([], [None])
 
 
+def test_an_item_with_an_open_pull_request_added_after_start_is_admitted_and_stays(
+    started: Roadmap,
+) -> None:
+    item = started.file("feature with open pr", kind="feature", priority="P1-High")
+    started.person.open_pull_request(
+        "feat: work", base=f"release/{CURRENT}", head="feat/work", body=f"Closes #{item}"
+    )
+    started.run()
+    found = started.item(item)
+    assert (found.release, started.admitted(item), started.comments(item)) == (
+        CURRENT,
+        CURRENT,
+        ["Admitted to v0.2.25: an open or merged pull request is in flight for it."],
+    )
+
+
+def test_an_item_with_a_merged_pull_request_added_after_start_is_admitted_and_stays(
+    started: Roadmap,
+) -> None:
+    item = started.file("bug with merged pr", kind="bug", priority="P2-Medium")
+    pr = started.person.open_pull_request(
+        "fix: scanner bug", base=f"release/{CURRENT}", head="fix/scanner", body=f"Fixes #{item}"
+    )
+    started.person.close_pull_request(pr, merged=True)
+    started.run()
+    found = started.item(item)
+    assert (found.release, started.admitted(item), started.comments(item)) == (
+        CURRENT,
+        CURRENT,
+        ["Admitted to v0.2.25: an open or merged pull request is in flight for it."],
+    )
+
+
+def test_an_item_with_a_closed_unmerged_pull_request_is_moved_to_backlog(
+    started: Roadmap,
+) -> None:
+    item = started.file("abandoned work", kind="feature", priority="P2-Medium")
+    pr = started.person.open_pull_request(
+        "feat: abandoned", base=f"release/{CURRENT}", head="feat/abandoned", body=f"Closes #{item}"
+    )
+    started.person.close_pull_request(pr, merged=False)
+    started.run()
+    found = started.item(item)
+    assert (found.release, started.admitted(item), started.comments(item)) == (
+        None,
+        None,
+        [
+            "Moved to the backlog: after v0.2.25 started, only a critical fix can join it. "
+            "A person can place it in a planned release, and that placement stands."
+        ],
+    )
+
+
 # ── The cap ───────────────────────────────────────────────────────────────────
 
 
@@ -310,6 +369,33 @@ def test_with_twelve_unstarted_items_a_critical_fix_descopes_the_lowest_ranked_o
         roadmap.size(),
     ) == (
         [NEXT, CURRENT, CURRENT, CURRENT],
+        [
+            f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its size of 12 items, "
+            "and this was its lowest-ranked unstarted item."
+        ],
+        12,
+    )
+
+
+def test_an_item_with_a_pull_request_is_not_descoped_when_a_critical_fix_takes_release_over_cap(
+    roadmap: Roadmap,
+) -> None:
+    high = [roadmap.file(f"p1 {n}", priority="P1-High", value="High") for n in range(9)]
+    low_a = roadmap.file("p3 low a", priority="P3-Low", value="Low")
+    low_b = roadmap.file("p3 low b", priority="P3-Low", value="Low")
+    p3_high = roadmap.file("p3 high", priority="P3-Low", value="High")
+    started_with(roadmap, *high, low_a, low_b, p3_high)
+    roadmap.person.open_pull_request(
+        "feat: low b", base=f"release/{CURRENT}", head="feat/low-b", body=f"Closes #{low_b}"
+    )
+    fix = roadmap.fix()
+    roadmap.run()
+    assert (
+        roadmap.release_of(low_b, low_a, p3_high, fix),
+        roadmap.comments(low_a),
+        roadmap.size(),
+    ) == (
+        [CURRENT, NEXT, CURRENT, CURRENT],
         [
             f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its size of 12 items, "
             "and this was its lowest-ranked unstarted item."
@@ -680,6 +766,32 @@ def test_at_the_start_new_and_blocked_items_leave_but_a_new_critical_fix_stays(
             ["Moved to v0.2.27: a Blocked item can't join a starting release (v0.2.26)."],
             ["Moved to the backlog: a Blocked item can't join a starting release (v0.2.26)."],
         ],
+    )
+
+
+def test_at_the_start_an_item_with_a_pull_request_stays_even_when_new_or_blocked(
+    started: Roadmap,
+) -> None:
+    new_with_pr = started.file("new with pr", status="New", release=NEXT)
+    blocked_with_pr = started.file("blocked with pr", status="Blocked", release=NEXT)
+    started.person.open_pull_request(
+        "feat: new work", base=f"release/{NEXT}", head="feat/new", body=f"Closes #{new_with_pr}"
+    )
+    pr_blocked = started.person.open_pull_request(
+        "feat: blocked work",
+        base=f"release/{NEXT}",
+        head="feat/blocked",
+        body=f"Closes #{blocked_with_pr}",
+    )
+    started.person.close_pull_request(pr_blocked, merged=True)
+    started.ship()
+    started.run()
+    assert (
+        started.release_of(new_with_pr, blocked_with_pr),
+        [started.comments(n) for n in (new_with_pr, blocked_with_pr)],
+    ) == (
+        [NEXT, NEXT],
+        [[], []],
     )
 
 
@@ -2702,3 +2814,35 @@ def test_the_mcp_mirror_previews_unless_its_mode_is_confirm(board: Roadmap) -> N
 def test_the_needs_split_label_the_rules_read_is_one_the_repository_declares() -> None:
     declared = {spec.name for spec in load_label_specs(Path(".github/labels.yml"))}
     assert CONST_ROADMAP_NEEDS_SPLIT_LABEL in declared
+
+
+def test_admission_event_and_decide_for_pull_requests() -> None:
+    regular = Item(number=1, title="regular feature", url="")
+    critical = Item(
+        number=2, title="critical bug", url="", priority="P0-Critical", labels=("type/bug",)
+    )
+    p0_feature = Item(
+        number=3, title="p0 feature", url="", priority="P0-Critical", labels=("type/feature",)
+    )
+
+    assert (
+        admission_event(regular, has_pr=False),
+        admission_event(regular, has_pr=True),
+        admission_event(critical, has_pr=False),
+        admission_event(critical, has_pr=True),
+        admission_event(p0_feature, has_pr=False),
+        admission_event(p0_feature, has_pr=True),
+        decide(ReleaseState.STARTED, Event.PR_JOINED),
+        decide(ReleaseState.CUT, Event.PR_JOINED),
+        decide(ReleaseState.PLANNED, Event.PR_JOINED),
+    ) == (
+        Event.ITEM_JOINED,
+        Event.PR_JOINED,
+        Event.FIX_JOINED,
+        Event.FIX_JOINED,
+        Event.P0_FEATURE_JOINED,
+        Event.PR_JOINED,
+        Transition(Action.ADMIT, Reason.PULL_REQUEST),
+        Transition(Action.ADMIT, Reason.PULL_REQUEST),
+        Transition(Action.KEEP, Reason.PULL_REQUEST),
+    )
