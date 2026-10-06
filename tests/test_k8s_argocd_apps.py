@@ -369,6 +369,9 @@ def _check_overlay_doc(doc: dict[str, Any]) -> None:
 
 
 def test_homelab_domain_overlays() -> None:
+    from devops_cli.k8s.configmap import ensure_devops_configmap
+
+    ensure_devops_configmap()
     for overlay in ("ingress", "devops"):
         overlay_dir = K8S_DIR / "overlays" / "homelab" / overlay
         proc = subprocess.run(
