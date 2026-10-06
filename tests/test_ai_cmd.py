@@ -720,3 +720,75 @@ def test_a_thinking_only_stream_stores_the_prompt_once() -> None:
         recorded_messages[0],
         [(e.role, e.content) for e in agent.memory.entries],
     ) == ([("user", "p1")], [("user", "p1"), ("assistant", "r1")])
+
+
+def test_chat_seeds_the_invariants() -> None:
+    """Verify devops ai chat seeds DEFAULT_CHAT_INVARIANTS on both non-stream and stream paths."""
+    from devops_cli.config.defaults import DEFAULT_CHAT_INVARIANTS
+
+    role_snippet = (
+        "You are an Enterprise Infrastructure Architect specializing in cloud-native systems"
+    )
+
+    # 1. Non-stream path with tools enabled (calls agent.run -> client.chat_messages)
+    recorded_non_stream_systems: list[str] = []
+
+    def fake_chat_messages(system: str, _messages: list[Any], enable_thinking: bool = False) -> str:
+        recorded_non_stream_systems.append(system)
+        return "r1"
+
+    settings = Settings()
+    with (
+        patch("devops_cli.config.settings.load_settings", return_value=settings),
+        patch("devops_cli.config.settings.get_ai_api_key", return_value=""),
+        patch.object(LLMClient, "chat_messages", side_effect=fake_chat_messages),
+        patch("devops_cli.commands.ai.get_console") as mock_console_getter,
+    ):
+        mock_console = MagicMock()
+        mock_console.input.side_effect = ["p1", "exit"]
+        mock_console_getter.return_value = mock_console
+
+        res_non_stream = runner.invoke(
+            ai_app,
+            ["chat", "--persona", "architect", "--no-stream", "--no-rag", "--no-prewarm"],
+        )
+        assert (
+            res_non_stream.exit_code,
+            len(recorded_non_stream_systems) >= 1,
+        ) == (0, True)
+        sys_ns = recorded_non_stream_systems[0]
+        assert sys_ns.startswith("## Invariants")
+        for inv in DEFAULT_CHAT_INVARIANTS:
+            assert f"- {inv}" in sys_ns
+        assert sys_ns.index(f"- {DEFAULT_CHAT_INVARIANTS[-1]}") < sys_ns.index(role_snippet)
+
+    # 2. Streamed path with --no-tools (calls _stream_interactive_chat_turn -> client.chat_messages_stream)
+    recorded_stream_systems: list[str] = []
+
+    def fake_stream(system: str, _messages: list[Any], enable_thinking: bool = False) -> Any:
+        recorded_stream_systems.append(system)
+        yield "r1"
+
+    with (
+        patch("devops_cli.config.settings.load_settings", return_value=settings),
+        patch("devops_cli.config.settings.get_ai_api_key", return_value=""),
+        patch.object(LLMClient, "chat_messages_stream", side_effect=fake_stream),
+        patch("devops_cli.commands.ai.get_console") as mock_console_getter,
+    ):
+        mock_console = MagicMock()
+        mock_console.input.side_effect = ["p1", "exit"]
+        mock_console_getter.return_value = mock_console
+
+        res_stream = runner.invoke(
+            ai_app,
+            ["chat", "--persona", "architect", "--no-tools", "--no-rag", "--no-prewarm"],
+        )
+        assert (
+            res_stream.exit_code,
+            len(recorded_stream_systems) >= 1,
+        ) == (0, True)
+        sys_s = recorded_stream_systems[0]
+        assert sys_s.startswith("## Invariants")
+        for inv in DEFAULT_CHAT_INVARIANTS:
+            assert f"- {inv}" in sys_s
+        assert sys_s.index(f"- {DEFAULT_CHAT_INVARIANTS[-1]}") < sys_s.index(role_snippet)
