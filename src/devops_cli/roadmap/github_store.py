@@ -35,7 +35,7 @@ from itertools import takewhile
 from typing import Any, Protocol
 from urllib.parse import quote, urlsplit
 
-from pydantic import AliasPath, BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import AliasChoices, AliasPath, BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic import ValidationError as MalformedPayloadError
 
 from devops_cli.config.constants import (
@@ -302,8 +302,15 @@ class _PullRequestConnectionPayload(BaseModel):
 
 
 class _OpenPullRequestsPayload(BaseModel):
-    connection: _PullRequestConnectionPayload = Field(
-        validation_alias=AliasPath("data", "repository", "pullRequests")
+    open_prs: _PullRequestConnectionPayload = Field(
+        validation_alias=AliasChoices(
+            AliasPath("data", "repository", "openPrs"),
+            AliasPath("data", "repository", "pullRequests"),
+        )
+    )
+    recent_prs: _PullRequestConnectionPayload = Field(
+        default_factory=lambda: _PullRequestConnectionPayload(nodes=[], totalCount=0),
+        validation_alias=AliasPath("data", "repository", "recentPrs"),
     )
 
 
@@ -656,7 +663,11 @@ _PULL_REQUEST_SELECTION = (
 )
 _OPEN_PULL_REQUESTS_QUERY = _REPOSITORY.format(
     params=", $first: Int!",
-    selection=f"pullRequests(states: [OPEN, MERGED], first: $first) {{ {_PULL_REQUEST_SELECTION} }}",
+    selection=(
+        f"openPrs: pullRequests(states: [OPEN], first: $first) {{ {_PULL_REQUEST_SELECTION} }} "
+        "recentPrs: pullRequests(states: [MERGED], orderBy: {field: CREATED_AT, direction: DESC}, first: $first) "
+        f"{{ {_PULL_REQUEST_SELECTION} }}"
+    ),
 )
 _RELEASE_PULL_REQUESTS_QUERY = _REPOSITORY.format(
     params=", $number: Int!, $first: Int!",
@@ -1632,11 +1643,20 @@ class GitHubRoadmapStore(RoadmapStore):
         )
 
     def open_pull_requests(self) -> list[PullRequest]:
-        """Every open or merged pull request, from one GraphQL read of up to its limit."""
+        """Every open pull request and recent merged pull requests, from one GraphQL read."""
         payload = self._read(
             open_pull_requests_args(self._repo), _OPEN_PULL_REQUESTS, "open pull requests"
         )
-        return self._pull_requests(payload.connection, "open pull requests")
+        self._require_whole(
+            len(payload.open_prs.nodes), payload.open_prs.total_count, "open pull requests"
+        )
+        prs_by_number: dict[int, PullRequest] = {
+            node.number: node.pull_request() for node in payload.open_prs.nodes
+        }
+        for node in payload.recent_prs.nodes:
+            if node.number not in prs_by_number:
+                prs_by_number[node.number] = node.pull_request()
+        return list(prs_by_number.values())
 
     def release_pull_requests(self, version: str) -> list[PullRequest]:
         """The pull requests with the `release` label in the Release's milestone."""

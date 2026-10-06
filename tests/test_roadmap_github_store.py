@@ -1349,8 +1349,8 @@ def test_open_pull_requests_carry_their_last_update_and_last_commit() -> None:
     connection = reply["data"]["repository"]["pullRequests"]
     connection["nodes"] = [_pull_request_node(964, state="OPEN", body="Closes #740")]
     connection["totalCount"] = 1
-    store, runner = board_store({"states: [OPEN, MERGED]": reply})
-    empty, _ = board_store({"states: [OPEN, MERGED]": OPEN_PRS})
+    store, runner = board_store({"openPrs": reply})
+    empty, _ = board_store({"openPrs": OPEN_PRS})
     found = store.open_pull_requests()
     assert (
         [(p.number, p.state, p.body, p.updated_at, p.last_commit_at) for p in found],
@@ -1374,9 +1374,29 @@ def test_open_pull_requests_carry_their_last_update_and_last_commit() -> None:
 def test_a_pull_request_listing_longer_than_one_read_raises() -> None:
     reply: dict[str, Any] = deepcopy(OPEN_PRS)
     reply["data"]["repository"]["pullRequests"]["totalCount"] = 101
-    store, _ = board_store({"states: [OPEN, MERGED]": reply})
+    store, _ = board_store({"openPrs": reply})
     with pytest.raises(GitHubOperationError, match="Read 0 of 101"):
         store.open_pull_requests()
+
+
+def test_open_pull_requests_combines_open_and_recent_merged() -> None:
+    dual_reply = {
+        "data": {
+            "repository": {
+                "openPrs": {
+                    "totalCount": 1,
+                    "nodes": [_pull_request_node(100, state="OPEN", body="Closes #1")],
+                },
+                "recentPrs": {
+                    "totalCount": 500,
+                    "nodes": [_pull_request_node(200, state="MERGED", body="Fixes #2")],
+                },
+            }
+        }
+    }
+    store, _ = board_store({"openPrs": dual_reply})
+    found = store.open_pull_requests()
+    assert [p.number for p in found] == [100, 200]
 
 
 def test_release_pull_requests_are_the_milestones_release_labeled_pull_requests() -> None:
