@@ -27,6 +27,7 @@ Investigate and remediate active Kubernetes pod restarts and deployment failures
 - [x] Live cluster manifests applied and verified with 0 active restarts and healthy endpoints.
 - [x] Changelog fragment `changelog.d/1267.md` authored.
 - [x] Gated CI quality checks pass in `uv run devops ci`.
+- [x] Ambient Logfire pytest plugin disabled in `pyproject.toml` to prevent background network DNS resolution during dry-run tests.
 
 ---
 
@@ -36,5 +37,6 @@ Investigate and remediate active Kubernetes pod restarts and deployment failures
 - [x] `src/devops_cli/ai/gateway.py`: Updated Portkey probe endpoint in `_probe_gateway_http`.
 - [x] `k8s/gpu-feature-discovery/daemonset.yaml`: Aligned image to `nvcr.io/nvidia/k8s-device-plugin:v0.16.2`.
 - [x] `tests/test_k8s.py`: Updated GFD container image assertion.
+- [x] `pyproject.toml`: Disabled ambient Logfire pytest plugins (`-p no:logfire -p no:pytest_logfire`).
 - [x] `changelog.d/1267.md`: Authored changelog fragment for issue #1267.
 - [x] `docs/agent/tasks/task-1267-resolve-portkey-probes-and-gfd-image.md`: Documented task lifecycle.
