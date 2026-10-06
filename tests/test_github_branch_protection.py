@@ -397,3 +397,15 @@ def test_cli_branch_protection_sync_dry_run(mock_load: MagicMock, mock_sync: Mag
     assert res.exit_code == 0
     assert "DRY RUN" in res.stdout
     assert "1 synced" in res.stdout
+
+
+def test_cli_branch_protection_help_mentions_classic_and_rulesets() -> None:
+    res = runner.invoke(app, ["branch-protection", "--help"])
+    assert res.exit_code == 0
+    assert ("classic" in res.stdout) and ("rulesets" in res.stdout)
+
+
+def test_cli_branch_protection_audit_missing_policy_file() -> None:
+    res = runner.invoke(app, ["branch-protection", "audit", "--repo", "dan-petty/devops-cli"])
+    assert res.exit_code == 1
+    assert "Branch protection policy file not found" in res.output
