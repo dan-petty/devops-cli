@@ -1266,7 +1266,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     )
     gfd_ds = next(d for d in gfd_docs if d and d.get("kind") == "DaemonSet")
     gfd_container = gfd_ds["spec"]["template"]["spec"]["containers"][0]
-    assert gfd_container["image"] == "nvcr.io/nvidia/gpu-feature-discovery:v0.20.1"
+    assert gfd_container["image"] == "nvcr.io/nvidia/k8s-device-plugin:v0.16.2"
     gfd_res = gfd_container["resources"]
     assert gfd_res["requests"]["cpu"] == "50m"
     assert gfd_res["requests"]["memory"] == "64Mi"
