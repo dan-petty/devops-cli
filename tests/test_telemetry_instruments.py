@@ -21,7 +21,14 @@ from devops_cli.ai.review.runner import _record_review_metrics
 from devops_cli.ai.review_schema import Finding, ReviewResult
 from devops_cli.ai.spend.ledger import SpendLedger, track_request_spend
 from devops_cli.telemetry import tracer as tracer_module
-from devops_cli.telemetry.instruments import INSTRUMENTS, InstrumentKind, backend_name
+from devops_cli.telemetry.instruments import (
+    INSTRUMENTS,
+    PROJECT_ITEMS_TOTAL,
+    UPSTREAM_SERVICE_STATUS,
+    InstrumentKind,
+    backend_name,
+    emit,
+)
 from devops_cli.telemetry.tracer import OTelTelemetryClient
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -446,3 +453,24 @@ def test_the_collector_adds_up_deltas_before_prometheus() -> None:
 def test_backends_are_named_by_their_hosts_first_label(served_by: str | None, name: str) -> None:
     """Verify a backend URL, or a bare host and port, is shortened to its host's first label."""
     assert backend_name(served_by) == name
+
+
+def test_gauges_are_recorded_as_instantaneous_values(captured: Captured) -> None:
+    """Verify gauge metrics emit instantaneous point-in-time values rather than accumulating deltas."""
+    emit(PROJECT_ITEMS_TOTAL, 120.0, attributes={"milestone": "v0.4.0", "state": "closed"})
+    emit(PROJECT_ITEMS_TOTAL, 125.0, attributes={"milestone": "v0.4.0", "state": "closed"})
+
+    points = captured.points("devops_cli_project_items_total")
+    metric_entry = captured.metrics[0]
+
+    assert (
+        "gauge" in metric_entry,
+        PROJECT_ITEMS_TOTAL.kind is InstrumentKind.GAUGE,
+        UPSTREAM_SERVICE_STATUS.kind is InstrumentKind.GAUGE,
+        [(p[0]["milestone"], p[0]["state"], p[1]) for p in points],
+    ) == (
+        True,
+        True,
+        True,
+        [("v0.4.0", "closed", 120.0), ("v0.4.0", "closed", 125.0)],
+    )

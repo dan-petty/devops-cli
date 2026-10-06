@@ -144,7 +144,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (release) (devops_cli_project_release_interval_days_sum)",
+          "expr": "sum by (release) (devops_cli_project_release_interval_days_sum) / clamp_min(sum by (release) (devops_cli_project_release_interval_days_count), 1)",
           "legendFormat": "{{release}}",
           "refId": "A"
         }
