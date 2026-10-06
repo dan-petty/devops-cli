@@ -194,8 +194,8 @@ def is_release_title(title: str) -> bool:
 
 
 def release_cut_branch(version: str) -> str:
-    """The branch the Release of `version` is cut on: `chore/cut-vX.Y.Z` (#982)."""
-    return f"chore/cut-v{parse_release_version(version)}"
+    """The branch the Release of `version` is cut on: `release/vX.Y.Z`."""
+    return f"release/v{parse_release_version(version)}"
 
 
 def release_title(version: str) -> str:

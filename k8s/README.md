@@ -306,6 +306,8 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `devops/devops-cli` | `DEVOPS_CLI_AI_API_KEY` | keyring `llm_gateway_master_key` | yes | adopt from `llm/llm-gateway-secrets master-key`; else fail | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS` | keyring `service_webhook_secrets` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_TAVILY_API_KEY` | keyring `tavily_api_key` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
+| `monitoring/grafana-admin` | `admin-user` | literal | yes | fail | infra | `deployment/grafana` |
+| `monitoring/grafana-admin` | `admin-password` | keyring `grafana_password` | yes | adopt from `monitoring/grafana admin-password`; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
 
 - The keyring must be unlocked (`devops devcontainer unlock-keyring`); a locked or missing keyring stops the push before anything is read or written, and stops deploy-stack before it applies anything.
 - A value the keyring lacks but the cluster holds is adopted into the keyring, so a first push changes nothing live. Only values nobody types are generated, and each is stored in the keyring before it is pushed.
@@ -373,6 +375,68 @@ devops k8s teardown-stack --stack all
 ```
 
 Teardown leaves the `prometheus-operator-crds` release's CRDs in the cluster. Deleting a CRD deletes every object of its kind, such as every ServiceMonitor, so remove them by hand only when nothing in the cluster uses them.
+
+## GitOps
+
+Argo CD maintains the declared state of the homelab cluster directly from this repository. A two-level application topology decouples cluster bootstrap from release branch tracking:
+
+1. **`bootstrap` (`k8s/argocd/bootstrap/bootstrap.yaml`)**: Tracks `main`. Syncs the root `cluster` Application.
+2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks the active release branch (`release/vX.Y.Z`). Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 20 leaf Applications (8 raw leaf applications and 12 multi-source Helm applications).
+
+When the root `cluster` Application is present in the cluster, `devops k8s deploy-stack` delegates manifest and Helm reconciliation to Argo CD (running only keyring secret push), and `devops k8s teardown-stack` refuses execution to prevent configuration drift.
+
+> [!NOTE]
+> `k8s/coredns/` remains managed outside Argo CD to preserve cluster DNS resolution during bootstrap and recovery cycles.
+
+### Bootstrap & Adoption
+
+To bootstrap GitOps on a running cluster:
+
+```bash
+# Bootstrap the two-level root app topology (defaults to k8s/argocd/bootstrap/bootstrap.yaml)
+devops argo cd apps bootstrap-gitops
+```
+
+### Recovery
+
+If Argo CD itself becomes unavailable or needs to be recovered from scratch:
+
+```bash
+# 1. Recover Argo CD via Helm with pinned chart version and values
+helm upgrade --install argocd argo/argo-cd --version 10.9.6 -n argocd -f k8s/argocd/values.yaml
+
+# 2. Re-apply the bootstrap application to resume gitops reconciliation
+devops argo cd apps bootstrap-gitops
+```
+
+### Drift Detection & Sync Commands
+
+Inspect and manage GitOps state using native `devops argo` commands:
+
+```bash
+# List all managed Applications and their sync/health statuses
+devops argo cd apps list
+
+# Check detailed status of an Application
+devops argo cd apps get <app-name>
+
+# View differences between live cluster state and declared git state
+devops argo cd apps diff <app-name>
+
+# Manually trigger reconciliation / sync for an Application
+devops argo cd apps sync <app-name>
+```
+
+### Replaced Hand Steps
+
+| Previous Manual Step | Replaced By Argo CD GitOps |
+| :--- | :--- |
+| `devops k8s deploy-stack --stack <name>` | Automated reconciliation by Argo CD leaf applications. |
+| `devops k8s apply -k k8s/...` | Declarative raw leaf Applications (`apps/*.yaml`) with `selfHeal: true`. |
+| Manual Helm release upgrades (`helm upgrade ...`) | Multi-source Helm Applications with pinned chart versions and git value files. |
+| Ad-hoc ingress and domain patching | Declarative domain overlays (`k8s/overlays/homelab/ingress/` and `devops/`). |
+| Secret storage in Helm values | External secret synchronization (`devops k8s push-secrets`) decoupled from manifests. |
+| Manual drift reconciliation | Automated self-healing (`automated.prune: true`, `automated.selfHeal: true`). |
 
 ## Cloudflare Wildcard Tunnel & Ingress Routing
 
@@ -452,14 +516,13 @@ Expose homelab Kubernetes services securely to the internet without public ports
 ```
 k8s/
 ├── kustomization.yaml        # Root kustomize: applies namespaces, cloudflared, registry, Grafana dashboard ConfigMaps
-├── namespaces.yaml           # Namespace definitions (argocd, monitoring, otel, llm, cloudflared)
+├── namespaces.yaml           # Namespace definitions with Prune=false,Delete=false
 ├── cloudflared/
 │   ├── kustomization.yaml    # Kustomize overlay for Cloudflare Tunnel
 │   ├── deployment.yaml       # Multi-replica non-root cloudflared deployment
 │   └── networkpolicy.yaml    # Network isolation for tunnel ingress and egress
 ├── devops/                   # In-cluster devops-cli runtime; not in the root kustomization
 │   ├── kustomization.yaml    # Its resources, and the service image's tag (`devops release prepare` sets it)
-│   ├── namespace.yaml        # devops namespace, Pod Security restricted
 │   ├── serviceaccount.yaml   # devops-cli service account without an API token
 │   ├── configmap.example.yaml # devops-cli config template: in-cluster gateway, sanitized placeholders (gitignored configmap.yaml generated dynamically)
 │   ├── cronjob.yaml          # Suspended CronJob devops-cli, the template of every cluster job
@@ -476,12 +539,19 @@ k8s/
 │   ├── traefik-values.yaml   # Traefik Helm values with ClusterIP service type
 │   └── ingress-routes.yaml   # Ingress rules for chat, ai, grafana, argocd, prometheus, qdrant
 ├── argocd/
-│   ├── kustomization.yaml    # Kustomize overlay for ArgoCD
-│   ├── namespace.yaml        # argocd namespace
-│   └── values.yaml           # Helm values for argo/argo-cd
+│   ├── kustomization.yaml    # Kustomize overlay for Argo CD
+│   ├── values.yaml           # Helm values for argo/argo-cd
+│   ├── bootstrap/            # Two-level bootstrap applications
+│   │   ├── bootstrap.yaml    # Root app tracking main, reconciles cluster app
+│   │   └── cluster.yaml      # Cluster app tracking release branch, reconciles projects & leaf apps
+│   └── apps/                 # AppProjects and 20 leaf Applications (8 raw + 12 Helm)
+│       └── projects.yaml     # AppProjects: homelab and homelab-system
+├── overlays/
+│   └── homelab/              # Homelab domain overlays patching example.com
+│       ├── ingress/          # Patches Ingress and IngressRoute resources
+│       └── devops/           # Patches roadmap-service Ingress
 ├── monitoring/
-│   ├── kustomization.yaml    # Kustomize overlay for monitoring: namespace, NetworkPolicy, Service aliases, dashboards
-│   ├── namespace.yaml        # monitoring namespace
+│   ├── kustomization.yaml    # Kustomize overlay for monitoring: NetworkPolicy, Service aliases, dashboards
 │   ├── networkpolicy.yaml    # Default perimeter for the monitoring namespace
 │   ├── service-aliases.yaml  # Alias Services for Prometheus and Grafana
 │   ├── dcgm-exporter-values.yaml # Helm values for nvidia/dcgm-exporter (GPU metrics)
@@ -501,11 +571,10 @@ k8s/
 │       └── prometheus-server.json # The Prometheus server; not provisioned, reaches Grafana through sync
 ├── otel/
 │   ├── kustomization.yaml    # Kustomize overlay for OpenTelemetry
-│   ├── namespace.yaml        # otel namespace
+│   ├── networkpolicy.yaml    # Perimeter NetworkPolicy for otel namespace
 │   └── values.yaml           # Helm values for opentelemetry-collector
 ├── llm/
 │   ├── kustomization.yaml    # Kustomize overlay for LLM stack base
-│   ├── namespace.yaml        # llm namespace
 │   ├── valkey.yaml           # Valkey Deployment + Service manifest
 │   ├── valkey-runs.yaml      # Run index Valkey: PVC, Deployment, NodePort Service, NetworkPolicy
 │   ├── values-open-webui.yaml# Helm values for open-webui/open-webui

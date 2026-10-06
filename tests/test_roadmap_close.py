@@ -35,7 +35,7 @@ from devops_cli.roadmap.store import CloseReason, GitHubState, MergedPullRequest
 REPO = "example/roadmap"
 RELEASE = "v0.2.26"
 BRANCH = f"release/{RELEASE}"
-CUT_BRANCH = f"chore/cut-{RELEASE}"
+CUT_BRANCH = f"release/{RELEASE}"
 runner = CliRunner()
 
 CHECKS = CheckVerdictSummary(
@@ -264,7 +264,7 @@ def _nothing_delivered(store: InMemoryRoadmapStore) -> None:
 def _old_pr_closed_and_other_head(store: InMemoryRoadmapStore) -> None:
     _no_open_item(store)
     store.close_pull_request(_open_release_pr(store))
-    _open_release_pr(store, head=BRANCH)
+    _open_release_pr(store, head="chore/other-branch")
 
 
 @pytest.mark.parametrize(
@@ -420,7 +420,7 @@ def test_the_cut_pushes_the_cut_branch_from_the_release_tip_and_opens_a_ready_pr
         "with no changelog fragment" in result.output and "#2" in result.output,
     ) == (
         tip,
-        tip,
+        cut,
         main,
         ["docs/ROADMAP.md", "pyproject.toml", "src/devops_cli/__init__.py", "uv.lock"],
         True,
@@ -444,12 +444,13 @@ def test_a_cut_after_an_unmerged_release_pr_rebuilds_from_the_new_tip(
     _git(work, "add", "-A")
     _git(work, "commit", "-q", "-m", "fix: nine")
     _git(work, "push", "-q", "origin", f"HEAD:{BRANCH}")
+    prev_tip = _git(origin, "rev-parse", BRANCH)
     _deliver(roadmap, _issue(roadmap, "second"))
     result = _close(work, "--confirm")
     cut = _git(origin, "rev-parse", CUT_BRANCH)
     assert (
         result.exit_code,
-        _git(origin, "rev-parse", f"{cut}^") == _git(origin, "rev-parse", BRANCH),
+        _git(origin, "rev-parse", f"{cut}^") == prev_tip,
         _git(origin, "show", f"{cut}:changelog.d/9.md"),
         _git(origin, "show", f"{cut}:CHANGELOG.md")
         == _git(origin, "show", f"{BRANCH}:CHANGELOG.md"),
@@ -487,8 +488,8 @@ def test_the_dry_run_lists_the_closes_and_the_cut_without_a_request() -> None:
         f"gh api 'repos/{REPO}/pulls?state=closed&base=release%2F%3Crelease%3E",
         "gh pr checks '<number>' --json name,state,bucket,workflow,link --repo example/roadmap",
         f"gh api -X PATCH 'repos/{REPO}/issues/<item>' -f state=closed -f state_reason=completed",
-        "git push --force-with-lease -u origin 'chore/cut-<release>'",
-        "--base '<branch>' --head 'chore/cut-<release>' --milestone '<release>' --label release",
+        "git push --force-with-lease -u origin 'release/<release>'",
+        "--base '<branch>' --head 'release/<release>' --milestone '<release>' --label release",
     ):
         assert any(expected in line for line in lines), (expected, lines)
     assert not any("--draft" in line for line in lines)

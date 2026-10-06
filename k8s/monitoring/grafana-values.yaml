@@ -20,11 +20,14 @@ persistence:
   enabled: true
   storageClassName: local-path
   size: 5Gi
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
 
 initChownData:
   enabled: false
 
-adminPassword: ""
+admin:
+  existingSecret: grafana-admin
 
 grafana.ini:
   security:

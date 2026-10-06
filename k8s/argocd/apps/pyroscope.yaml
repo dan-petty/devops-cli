@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pyroscope
+  namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: homelab
+  sources:
+  - repoURL: https://grafana.github.io/helm-charts
+    chart: pyroscope
+    targetRevision: 2.3.1
+    helm:
+      valueFiles:
+      - $values/k8s/monitoring/pyroscope-values.yaml
+  - repoURL: https://github.com/dan-petty/devops-cli
+    targetRevision: release/v0.2.27
+    ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

@@ -1,0 +1,390 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../ingress
+
+patches:
+  - patch: |-
+      $patch: delete
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: roadmap-service
+        namespace: devops
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: open-webui-ingress
+        namespace: llm
+      spec:
+        rules:
+        - host: chat.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: open-webui
+                  port:
+                    number: 8080
+        - host: homelab.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: open-webui
+                  port:
+                    number: 8080
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: llm-gateway-ingress
+        namespace: llm
+      spec:
+        rules:
+        - host: ai.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: llm-gateway
+                  port:
+                    number: 4000
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: ollama-ingress
+        namespace: llm
+      spec:
+        rules:
+        - host: ollama.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: ollama-16gib
+                  port:
+                    number: 11434
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: qdrant-ingress
+        namespace: llm
+      spec:
+        rules:
+        - host: qdrant.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: qdrant
+                  port:
+                    number: 6333
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: grafana-ingress
+        namespace: monitoring
+      spec:
+        rules:
+        - host: grafana.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: grafana
+                  port:
+                    number: 80
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: prometheus-ingress
+        namespace: monitoring
+      spec:
+        rules:
+        - host: prometheus.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: prometheus
+                  port:
+                    number: 9090
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: alloy-metrics-ingress
+        namespace: monitoring
+      spec:
+        rules:
+        - host: alloy.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: k8s-monitoring-alloy-metrics
+                  port:
+                    number: 12345
+        - host: alloy-metrics.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: k8s-monitoring-alloy-metrics
+                  port:
+                    number: 12345
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: alloy-logs-ingress
+        namespace: monitoring
+      spec:
+        rules:
+        - host: alloy-logs.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: k8s-monitoring-alloy-logs
+                  port:
+                    number: 12345
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: alloy-events-ingress
+        namespace: monitoring
+      spec:
+        rules:
+        - host: alloy-events.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: k8s-monitoring-alloy-singleton
+                  port:
+                    number: 12345
+        - host: alloy-singleton.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: k8s-monitoring-alloy-singleton
+                  port:
+                    number: 12345
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: alloy-operator-ingress
+        namespace: monitoring
+      spec:
+        rules:
+        - host: alloy-operator.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: k8s-monitoring-alloy-operator
+                  port:
+                    number: 8082
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: kube-state-metrics-ingress
+        namespace: monitoring
+      spec:
+        rules:
+        - host: kube-state-metrics.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: k8s-monitoring-kube-state-metrics
+                  port:
+                    number: 8080
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: node-exporter-ingress
+        namespace: monitoring
+      spec:
+        rules:
+        - host: node-exporter.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: k8s-monitoring-node-exporter
+                  port:
+                    number: 9100
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: dcgm-exporter-ingress
+        namespace: monitoring
+      spec:
+        rules:
+        - host: dcgm.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: dcgm-exporter
+                  port:
+                    number: 9400
+        - host: dcgm-exporter.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: dcgm-exporter
+                  port:
+                    number: 9400
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: loki-ingress
+        namespace: logging
+      spec:
+        rules:
+        - host: loki.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: loki
+                  port: null
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: argocd-ingress
+        namespace: argocd
+      spec:
+        rules:
+        - host: argocd.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: argocd-server
+                  port:
+                    number: 80
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: jaeger-ingress
+        namespace: otel
+      spec:
+        rules:
+        - host: jaeger.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: jaeger
+                  port:
+                    number: 16686
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: telemetry-ingress
+        namespace: otel
+      spec:
+        rules:
+        - host: telemetry.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: otel-collector-opentelemetry-collector
+                  port:
+                    number: 4318
+  - patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: otel-metrics-ingress
+        namespace: otel
+      spec:
+        rules:
+        - host: otel-metrics.retric.click
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: otel-collector-opentelemetry-collector
+                  port:
+                    number: 8888
+  - patch: |-
+      apiVersion: traefik.io/v1alpha1
+      kind: IngressRoute
+      metadata:
+        name: traefik-dashboard
+        namespace: kube-system
+      spec:
+        routes:
+        - match: Host(`traefik.retric.click`)
+          kind: Rule
+          services:
+          - name: api@internal
+            kind: TraefikService

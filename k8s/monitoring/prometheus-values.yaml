@@ -26,6 +26,8 @@ server:
     enabled: true
     storageClass: local-path
     size: 20Gi
+    annotations:
+      argocd.argoproj.io/sync-options: Prune=false,Delete=false
 
   service:
     servicePort: 9090

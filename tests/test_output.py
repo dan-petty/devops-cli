@@ -518,6 +518,25 @@ def test_progress_tracking_and_context() -> None:
         update_fn("Step 2", 50.0)
 
 
+def test_progress_context_multi_stage() -> None:
+    """Test progress_context with multi_stage=True transitions across sequential tasks."""
+    buf = io.StringIO()
+    c = get_console(file=buf, color_system=None)
+
+    with progress_context(
+        "Scanning files...", total=100.0, console=c, multi_stage=True
+    ) as update_fn:
+        update_fn("Scanning files (50/100)", 50.0)
+        update_fn("Scanning files (100/100)", 100.0)
+        update_fn("Embedding code (0/200)", 0.0)
+        update_fn("Embedding code (100/200)", 50.0)
+        update_fn("Embedding code (200/200)", 100.0)
+        update_fn("Embedding docs (10/50)", 20.0)
+
+    output = buf.getvalue()
+    assert ("Scanning files" in output, "Embedding code" in output) == (True, True)
+
+
 def test_dry_run_printers() -> None:
     """Test print_dry_run_command, print_dry_run_result, and render_dry_run_result."""
     buf = io.StringIO()

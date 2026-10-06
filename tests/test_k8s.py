@@ -200,6 +200,7 @@ def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing(
         [
             "cloudflared/cloudflared-token: token",
             "devops/devops-cli: GH_TOKEN, DEVOPS_CLI_AI_API_KEY, DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS, DEVOPS_CLI_TAVILY_API_KEY (if namespace devops exists)",
+            "monitoring/grafana-admin: admin-user, admin-password",
         ],
         [],
         [],
@@ -1573,3 +1574,123 @@ def test_pyroscope_port_forward_and_proxy_targets() -> None:
         "http://localhost:4040",
         "http://localhost:4040",
     )
+
+
+def test_is_cluster_argo_managed() -> None:
+    """_is_cluster_argo_managed probes kubectl get application cluster in argocd namespace."""
+    from devops_cli.commands.k8s.stack_lifecycle import _is_cluster_argo_managed
+
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
+        mock_cmd.return_value = _mock_proc(0, "cluster")
+        assert _is_cluster_argo_managed() is True
+        mock_cmd.assert_called_once_with(
+            ["kubectl", "-n", "argocd", "get", "application", "cluster"],
+            check=False,
+            capture=True,
+        )
+
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
+        mock_cmd.return_value = _mock_proc(1, "NotFound")
+        assert _is_cluster_argo_managed() is False
+
+
+def test_k8s_deploy_stack_when_argo_cd_managed() -> None:
+    """When Argo CD Application 'cluster' exists, deploy-stack pushes secrets and exits 0."""
+    with (
+        patch("devops_cli.commands.k8s.cluster_runtime._cluster_reachable", return_value=True),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=True
+        ),
+        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks") as mock_push,
+        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push") as mock_req,
+        patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
+        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
+    ):
+        res = runner.invoke(app, ["deploy-stack", "--stack", "infra"])
+        assert (
+            res.exit_code,
+            "Argo CD manages the cluster" in res.output,
+            mock_push.called,
+            mock_req.called,
+            mock_cmd.called,
+        ) == (0, True, True, True, False)
+
+    with (
+        patch("devops_cli.commands.k8s.cluster_runtime._cluster_reachable", return_value=True),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=True
+        ),
+        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks") as mock_push,
+        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
+    ):
+        res_no_push = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
+        assert (
+            res_no_push.exit_code,
+            "Argo CD manages the cluster" in res_no_push.output,
+            mock_push.called,
+            mock_cmd.called,
+        ) == (0, True, False, False)
+
+
+def test_k8s_teardown_stack_when_argo_cd_managed() -> None:
+    """When Argo CD Application 'cluster' exists, teardown-stack exits 1."""
+    with (
+        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=True
+        ),
+        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
+    ):
+        res = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
+        assert (
+            res.exit_code,
+            "Argo CD manages the cluster" in res.output,
+            "Refusing teardown" in res.output,
+            mock_cmd.called,
+        ) == (1, True, True, False)
+
+
+def test_k8s_deploy_and_teardown_dry_run_makes_no_cluster_calls() -> None:
+    """deploy-stack and teardown-stack under --dry-run invoke no kubectl or helm commands."""
+    with (
+        patch("devops_cli.commands.k8s._cluster_reachable") as mock_reach,
+        patch("devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed") as mock_argo,
+        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
+        patch("devops_cli.commands.k8s.run_subprocess") as mock_sub,
+    ):
+        res_deploy = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--dry-run"])
+        res_teardown = runner.invoke(app, ["teardown-stack", "--stack", "infra", "--dry-run"])
+        assert (
+            res_deploy.exit_code,
+            res_teardown.exit_code,
+            mock_reach.called,
+            mock_argo.called,
+            mock_cmd.called,
+            mock_sub.called,
+        ) == (0, 0, False, False, False, False)
+
+
+def test_k8s_helm_upgrade_command_includes_pinned_version() -> None:
+    """Helm upgrade commands built by deploy-stack include --version pinned flag."""
+    with (
+        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
+        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
+        ),
+        patch("devops_cli.commands.k8s.port_forward"),
+        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
+    ):
+        mock_cmd.return_value = _mock_proc(0, "")
+        res = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
+        assert res.exit_code == 0
+        helm_cmds = [
+            call_args[0][0]
+            for call_args in mock_cmd.call_args_list
+            if isinstance(call_args[0][0], list)
+            and "helm" in call_args[0][0]
+            and "upgrade" in call_args[0][0]
+        ]
+        assert len(helm_cmds) > 0
+        for cmd in helm_cmds:
+            assert "--version" in cmd

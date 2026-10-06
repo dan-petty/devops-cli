@@ -186,6 +186,135 @@ def _update_service_image_tag(root: Path, new_version: str) -> bool:
     return True
 
 
+def _extract_git_revisions_from_doc(doc: Any) -> list[str]:
+    """Extract git targetRevision values from an Argo CD Application doc."""
+    if not isinstance(doc, dict) or doc.get("kind") != "Application":
+        return []
+    if doc.get("metadata", {}).get("name") == "bootstrap":
+        return []
+    spec = doc.get("spec", {})
+    revisions: list[str] = []
+    source = spec.get("source")
+    if isinstance(source, dict) and "chart" not in source and "targetRevision" in source:
+        revisions.append(str(source["targetRevision"]))
+    for s in spec.get("sources", []):
+        if isinstance(s, dict) and "chart" not in s and "targetRevision" in s:
+            revisions.append(str(s["targetRevision"]))
+    return revisions
+
+
+def _get_argocd_git_target_revisions(root: Path) -> list[tuple[Path, str]]:
+    """Return (file_path, target_revision) for every git source in Applications under k8s/argocd/ (excluding bootstrap)."""
+    import yaml
+
+    argocd_dir = root / "k8s" / "argocd"
+    if not argocd_dir.is_dir():
+        return []
+
+    results: list[tuple[Path, str]] = []
+    for path in sorted(argocd_dir.rglob("*.yaml")):
+        try:
+            content = path.read_text(encoding="utf-8")
+            for doc in yaml.safe_load_all(content):
+                for rev in _extract_git_revisions_from_doc(doc):
+                    results.append((path, rev))
+        except Exception:
+            continue
+    return results
+
+
+def _resolve_argocd_next_revision(root: Path, current_version: str) -> str | None:
+    """Find the next open release branch for Argo CD targetRevisions, raising if none exists."""
+    git_revisions = _get_argocd_git_target_revisions(root)
+    if not git_revisions:
+        return None
+
+    from devops_cli.commands.gh import _resolve_repo
+    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.roadmap import store as roadmap_store
+    from devops_cli.roadmap.store import GitHubState, parse_release_version
+
+    parsed_cur = parse_release_version(current_version)
+    target_repo = _resolve_repo(get_repo_origin_name(root))
+    store = roadmap_store.get_roadmap_store(target_repo)
+    open_releases = [
+        r for r in store.releases() if r.state == GitHubState.OPEN and r.version > parsed_cur
+    ]
+    if not open_releases:
+        _get("print_error")(
+            f"No open release found above v{current_version} in roadmap store.",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    next_ver = min(open_releases, key=lambda r: r.version).version
+    return f"release/v{next_ver}"
+
+
+def _apply_argocd_target_revisions(root: Path, next_revision: str) -> bool:
+    """Rewrite git-source targetRevisions under k8s/argocd/ to next_revision."""
+    argocd_dir = root / "k8s" / "argocd"
+    if not argocd_dir.is_dir():
+        return False
+
+    from devops_cli.output import write_text_file
+
+    pattern = re.compile(r"""(targetRevision:\s*["']?)release/v[^"'\s]+(["']?)""")
+    updated = False
+    for path in sorted(argocd_dir.rglob("*.yaml")):
+        if path.name == "bootstrap.yaml":
+            continue
+        content = path.read_text(encoding="utf-8")
+        new_content, count = pattern.subn(rf"\g<1>{next_revision}\g<2>", content)
+        if count > 0:
+            write_text_file(path, new_content)
+            updated = True
+    return updated
+
+
+def _verify_argocd_target_revisions(repo_root: Path, pyproject_ver: str) -> None:
+    """Verify git targetRevisions under k8s/argocd/ are uniform and point to a version above pyproject.toml."""
+    revisions = _get_argocd_git_target_revisions(repo_root)
+    if not revisions:
+        return
+
+    rev_set = {rev for _, rev in revisions}
+    if len(rev_set) > 1:
+        _get("print_error")(
+            f"Argo CD git-source targetRevisions mismatch under k8s/argocd/: found multiple revisions {sorted(rev_set)}. "
+            "They must be uniform.",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    rev = next(iter(rev_set))
+    if not rev.startswith("release/v"):
+        _get("print_error")(
+            f"Argo CD git-source targetRevision '{rev}' does not match expected format 'release/v<version>'.",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    from devops_cli.roadmap.store import parse_release_version
+
+    try:
+        rev_ver = parse_release_version(rev.removeprefix("release/v"))
+        cur_ver = parse_release_version(pyproject_ver)
+    except Exception as exc:
+        _get("print_error")(
+            f"Invalid version in Argo CD git-source targetRevision '{rev}': {exc}",
+            prefix=False,
+        )
+        raise typer.Exit(1) from exc
+
+    if rev_ver <= cur_ver:
+        _get("print_error")(
+            f"Argo CD git-source targetRevision '{rev}' (v{rev_ver}) must name a release above pyproject.toml (v{cur_ver}).",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+
 def _get_latest_git_tag(root: Path) -> str | None:
     """Retrieve latest git tag if git is available."""
     from devops_cli.git.operations import get_latest_git_tag
@@ -673,6 +802,8 @@ def _release_paths(root: Path) -> list[str]:
         paths.append(f"{CONST_CHANGELOG_FRAGMENTS_DIR}/")
     if (root / CONST_SERVICE_IMAGE_KUSTOMIZATION).is_file():
         paths.append(str(CONST_SERVICE_IMAGE_KUSTOMIZATION))
+    if (root / "k8s" / "argocd").is_dir():
+        paths.append("k8s/argocd/")
     return paths
 
 
@@ -787,6 +918,27 @@ def release_status(
 # =============================================================================
 
 
+def _execute_release_prepare(
+    repo_root: Path,
+    clean_version: str,
+    today: str,
+    collection: _FragmentCollection | None,
+    update_changelog: bool,
+    sync_docs: bool,
+) -> None:
+    """Execute local version bumps, changelog updates, and docs generation."""
+    _get("print_info")(
+        MESSAGES.release.preparing_release.format(version=clean_version), prefix=False
+    )
+    _apply_cut_modifications(repo_root, clean_version, sync_docs=sync_docs)
+    if update_changelog and _write_version_changelog(repo_root, clean_version, today, collection):
+        _get("print_info")(
+            MESSAGES.release.updated_changelog.format(version=clean_version, date=today),
+            prefix=False,
+        )
+    _get("print_success")(f"Release preparation for v{clean_version} completed successfully.")
+
+
 @app.command("prepare")
 def release_prepare(
     version: Annotated[str, typer.Argument(help=HELP.release.target_version)],
@@ -875,7 +1027,7 @@ def release_prepare(
                 target=clean_version,
                 details={
                     "version": clean_version,
-                    "branch": f"chore/cut-v{clean_version}",
+                    "branch": f"release/v{clean_version}",
                     "base": "main",
                     "draft": draft,
                     "labels": "release",
@@ -901,42 +1053,14 @@ def release_prepare(
         )
         return
 
-    _get("print_info")(
-        MESSAGES.release.preparing_release.format(version=clean_version), prefix=False
+    _execute_release_prepare(
+        repo_root=repo_root,
+        clean_version=clean_version,
+        today=today,
+        collection=collection,
+        update_changelog=update_changelog,
+        sync_docs=sync_docs,
     )
-
-    # 1. Update pyproject.toml
-    if _update_pyproject_version(repo_root, clean_version):
-        _get("print_info")(
-            MESSAGES.release.updated_pyproject.format(version=clean_version), prefix=False
-        )
-
-    # 2. Update __init__.py
-    if _update_init_version(repo_root, clean_version):
-        _get("print_info")(
-            MESSAGES.release.updated_init.format(version=clean_version), prefix=False
-        )
-
-    # 3. Pin the in-cluster runtime's service image to the release's tag
-    if _update_service_image_tag(repo_root, clean_version):
-        _get("print_info")(
-            MESSAGES.release.updated_service_image_tag.format(version=clean_version),
-            prefix=False,
-        )
-
-    # 4. Update CHANGELOG.md, collecting changelog.d/ when it holds fragments
-    if update_changelog and _write_version_changelog(repo_root, clean_version, today, collection):
-        _get("print_info")(
-            MESSAGES.release.updated_changelog.format(version=clean_version, date=today),
-            prefix=False,
-        )
-
-    # 5. Regenerate documentation & sync README Command Matrix
-    if sync_docs:
-        generator = _get("DocGenerator")(root_dir=repo_root)
-        generator.write_all_docs(output_dir=repo_root / "docs", sync_readme_table=True)
-    msg = f"Release preparation for v{clean_version} completed successfully."
-    _get("print_success")(msg)
 
 
 # =============================================================================
@@ -959,7 +1083,7 @@ def _validate_release_version(version: str | None, repo_root: Path) -> str:
         curr_branch = (
             branch_proc.stdout.strip() if branch_proc.returncode == 0 and branch_proc.stdout else ""
         )
-        match = re.match(r"^(?:release/v|chore/cut-v)(.+)$", curr_branch)
+        match = re.match(r"^release/v(.+)$", curr_branch)
         if match:
             target_ver = match.group(1).lstrip("v").strip()
         else:
@@ -1032,7 +1156,8 @@ def _checkout_cut_branch(root: Path, cut_branch: str, remote_ref: str) -> None:
 
 
 def _apply_cut_modifications(root: Path, version: str, sync_docs: bool) -> None:
-    """Apply version bumps to pyproject, init, image tag, uv.lock, and optionally sync docs."""
+    """Apply version bumps to pyproject, init, image tag, uv.lock, argocd revisions, and optionally sync docs."""
+    next_revision = _resolve_argocd_next_revision(root, version)
     if _update_pyproject_version(root, version):
         _get("print_info")(MESSAGES.release.updated_pyproject.format(version=version), prefix=False)
     if _update_init_version(root, version):
@@ -1040,6 +1165,11 @@ def _apply_cut_modifications(root: Path, version: str, sync_docs: bool) -> None:
     if _update_service_image_tag(root, version):
         _get("print_info")(
             MESSAGES.release.updated_service_image_tag.format(version=version),
+            prefix=False,
+        )
+    if next_revision and _apply_argocd_target_revisions(root, next_revision):
+        _get("print_info")(
+            f"Updated Argo CD git-source targetRevisions under k8s/argocd/ to {next_revision}.",
             prefix=False,
         )
     if _update_uv_lock_version(root, version):
@@ -1344,7 +1474,7 @@ def cut_release(
     """
     root = _get_project_root(repo_root)
     target_ver = _validate_release_version(version, root)
-    cut_branch = f"chore/cut-v{target_ver}"
+    cut_branch = f"release/v{target_ver}"
     release_title = _format_release_title(target_ver, prefix=release_type, breaking=breaking)
 
     if is_dry_run():
@@ -1511,6 +1641,8 @@ def _verify_release_versions(repo_root: Path) -> str:
             prefix=False,
         )
         raise typer.Exit(1)
+
+    _verify_argocd_target_revisions(repo_root, pyproject_ver)
 
     return pyproject_ver
 

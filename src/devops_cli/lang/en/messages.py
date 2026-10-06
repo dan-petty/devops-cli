@@ -1497,7 +1497,7 @@ class RoadmapMessages:
     )
     close_none: str = "none"
     close_dry_run_note: str = (
-        "A cut commits {files} on chore/cut-<release> and opens it ready for review. --plan "
+        "A cut commits {files} on release/<release> and opens it ready for review. --plan "
         "reads GitHub and lists each issue the run closes with its comment, the fragments on "
         "the release branch, left uncollected, and the completed items with none."
     )

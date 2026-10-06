@@ -562,7 +562,7 @@ def close_requests(
     texts = MESSAGES.roadmap
     cond, rep = texts.plan_conditions, texts.plan_repeat
     release, number = _p("release"), _p("number")
-    branch, cut_branch = f"release/{release}", f"chore/cut-{release}"
+    branch, cut_branch = f"release/{release}", f"release/{release}"
     fragment = f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{number}.md"
     task = f"{CONST_AGENT_TASKS_DIR}/task-{number}-<slug>.md"
     reads = [

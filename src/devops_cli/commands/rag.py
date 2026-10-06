@@ -186,7 +186,10 @@ def index_cmd(
         style="cyan",
     )
 
-    with exit_on_error(EmbeddingsError), progress_context("Indexing files...") as update_progress:
+    with (
+        exit_on_error(EmbeddingsError),
+        progress_context("Scanning files...", multi_stage=True) as update_progress,
+    ):
 
         def _on_progress(desc: str, current: int, total: int) -> None:
             pct = (current / max(1, total)) * 100
@@ -283,7 +286,7 @@ def index_kb_cmd(
 
     with (
         exit_on_error(EmbeddingsError),
-        progress_context("Indexing knowledge base...") as update_progress,
+        progress_context("Scanning knowledge base...", multi_stage=True) as update_progress,
     ):
 
         def _on_progress(desc: str, current: int, total: int) -> None:

@@ -27,7 +27,6 @@ from devops_cli.config.constants import (
     CONST_PR_FILE_WRITTEN_STATUSES,
     CONST_RELEASE_BRANCH_PREFIX,
     CONST_RELEASE_BRANCH_RE,
-    CONST_RELEASE_CUT_BRANCH_RE,
     CONST_RELEASE_PROCESS_BRANCH_RE,
     CONST_RELEASE_SHARED_FILES,
 )
@@ -1527,11 +1526,12 @@ def _branch_ref(pr_data: dict[str, Any], side: str) -> str:
 
 
 def _is_release_pr(pr_data: dict[str, Any]) -> bool:
-    """Whether this is the release PR: `chore/cut-vX.Y.Z` into the default branch, not from a fork."""
+    """Whether this is the release PR: `release/vX.Y.Z` into the default branch, not from a fork."""
     base = pr_data.get("base") or {}
     default_branch = str((base.get("repo") or {}).get("default_branch") or "")
     into_default = default_branch != "" and base.get("ref") == default_branch
-    release_head = CONST_RELEASE_CUT_BRANCH_RE.fullmatch(_branch_ref(pr_data, "head")) is not None
+    head_ref = _branch_ref(pr_data, "head")
+    release_head = CONST_RELEASE_BRANCH_RE.fullmatch(head_ref) is not None
     return _same_repository(pr_data) and into_default and release_head
 
 
@@ -1925,7 +1925,7 @@ def check_readiness(
     """Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
 
     Grounding applies to every PR but the release PR (release/vX.Y.Z into the default branch)
-    and release-process PRs (chore/open-vX.Y.Z or chore/cut-vX.Y.Z into release/vX.Y.Z): its
+    and release-process PRs (chore/open-vX.Y.Z into release/vX.Y.Z): its
     body closes exactly one issue, and it adds, modifies or renames that issue's
     docs/agent/tasks/task-<issue>-*.md. Into a release/* branch it leaves CHANGELOG.md and
     docs/ROADMAP.md to the cut and adds changelog.d/<issue>.md instead. Into release/vX.Y.Z,

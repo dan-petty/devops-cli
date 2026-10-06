@@ -3014,7 +3014,7 @@ CONST_TELEMETRY_PANEL_MAX_SERIES: Final[int] = 50
 # ── Pull Request Grounding ───────────────────────────────────────────────────
 # Readiness requires a pull request to close exactly one issue and to change that issue's task
 # file. Two kinds of pull request deliver the release process rather than one item, and are
-# exempt: the release pull request, `chore/cut-vX.Y.Z` into `main`, and a release-process
+# exempt: the release pull request, `release/vX.Y.Z` into `main`, and a release-process
 # pull request, `chore/open-vX.Y.Z`, optionally followed by `-<slug>`, from the same
 # repository into `release/vX.Y.Z`.
 CONST_RELEASE_BRANCH_PREFIX: Final[str] = "release/"
@@ -3023,9 +3023,6 @@ CONST_RELEASE_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
 )
 CONST_RELEASE_PROCESS_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
     r"chore/open-v(?P<version>\d+\.\d+\.\d+)(?:-[^/\s]+)?"
-)
-CONST_RELEASE_CUT_BRANCH_RE: Final[re.Pattern[str]] = re.compile(
-    r"chore/cut-v(?P<version>\d+\.\d+\.\d+)(?:-[^/\s]+)?"
 )
 # Files every pull request into a release branch used to edit, so each merge made every other
 # open pull request conflict. The cut writes both: `CHANGELOG.md` from `changelog.d/`, and
