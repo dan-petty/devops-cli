@@ -6835,13 +6835,15 @@ devops gh runs view [OPTIONS] <run_id>
 
 ### `devops gh branch-protection`
 
+**Manage classic branch protection policies; does not cover rulesets.**
+
 ```bash
 devops gh branch-protection COMMAND [ARGS]...
 ```
 
 #### `devops gh branch-protection audit`
 
-**Audit repository branch protection rulesets against declarative policy specification.**
+**Audit repository classic branch protection against declarative policy specification.**
 
 ```bash
 devops gh branch-protection audit [OPTIONS]
@@ -6858,7 +6860,7 @@ devops gh branch-protection audit [OPTIONS]
 
 #### `devops gh branch-protection sync`
 
-**Synchronize repository branch protection rulesets against declarative policy specification.**
+**Synchronize repository classic branch protection against declarative policy specification.**
 
 ```bash
 devops gh branch-protection sync [OPTIONS]

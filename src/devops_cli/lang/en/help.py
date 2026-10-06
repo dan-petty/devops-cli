@@ -867,11 +867,15 @@ class GHCommandHelp:
     )
     issues_status: str = "Display aggregated issue counts by priority, type, and milestone."
     issues_edit: str = "Edit an existing issue title, body, state, milestone, or taxonomy labels."
-    branch_protection_app: str = "Manage declarative branch protection rulesets and policies."
-    branch_protection_audit: str = (
-        "Audit repository branch protection rulesets against declarative policy specification."
+    branch_protection_app: str = (
+        "Manage classic branch protection policies; does not cover rulesets."
     )
-    branch_protection_sync: str = "Synchronize repository branch protection rulesets against declarative policy specification."
+    branch_protection_audit: str = (
+        "Audit repository classic branch protection against declarative policy specification."
+    )
+    branch_protection_sync: str = (
+        "Synchronize repository classic branch protection against declarative policy specification."
+    )
     branch_protection_branch: str = (
         "Target specific branch for protection audit or synchronization."
     )

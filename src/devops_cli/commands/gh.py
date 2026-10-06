@@ -124,7 +124,7 @@ app.add_typer(views_app, name="views")
 app.add_typer(pages_app, name="pages")
 app.add_typer(issues_app, name="issues")
 app.add_typer(runs_app, name="runs")
-app.add_typer(branch_protection_app, name="branch-protection")
+app.add_typer(branch_protection_app, name="branch-protection", help=HELP.gh.branch_protection_app)
 app.add_typer(secrets_app, name="secrets")
 app.add_typer(pr_app, name="pr")
 
