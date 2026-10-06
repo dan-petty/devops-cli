@@ -578,6 +578,14 @@ DEFAULT_AGENT_NAME: str = "Assistant"
 DEFAULT_AGENT_SYSTEM_PROMPT: str = "You are a helpful DevOps assistant."
 DEFAULT_PLAN_REMINDER_CADENCE: int = 3
 DEFAULT_PLAN_REMINDER_ID: str = "system_reminders"
+DEFAULT_INVARIANT_REMINDER_ID: str = "invariants"
+DEFAULT_INVARIANT_REMINDER_CHARS: int = 120
+DEFAULT_CHAT_INVARIANTS: tuple[str, ...] = (
+    "Never echo plaintext secrets, tokens, private keys, or the contents of hidden or .gitignored files.",
+    "Never write concrete internal hostnames, private RFC 1918 addresses, private registries, or homelab topology into any artifact; examples use example.com, RFC 5737 blocks, or localhost.",
+    "Never lower, relax, bypass, or disable a security standard, quality threshold, or compliance check unless explicitly instructed by the user.",
+    "Never push before uv run devops ci passes locally, and never commit or push directly to main or any release/* branch.",
+)
 DEFAULT_THREAD_EXECUTOR_MAX_WORKERS: int = 16
 DEFAULT_THREAD_EXECUTOR_PREFIX: str = "agent-worker"
 DEFAULT_THREAD_EXECUTOR_ID: str = "use_thread_executor"

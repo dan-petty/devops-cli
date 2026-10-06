@@ -61,6 +61,27 @@ class AgentMemory(BaseModel):
     keep_recent: int = _DEFAULT_KEEP_RECENT
     summary: str = ""
     entries: list[MemoryEntry] = Field(default_factory=list)
+    invariants: list[str] = Field(default_factory=list)
+
+    def add_invariant(self, text: str) -> str | None:
+        """Add an invariant rule to pinned memory.
+
+        Masks secrets, sanitizes prompt boundary tags, collapses whitespace to a single line,
+        and deduplicates. Returns the stored invariant string, or None if blank or duplicate.
+        """
+        from devops_cli.security.sanitizer import (
+            mask_secrets,
+            sanitize_prompt_boundary_tags,
+        )
+
+        sanitized = sanitize_prompt_boundary_tags(mask_secrets(text))
+        collapsed = " ".join(sanitized.split())
+        if not collapsed:
+            return None
+        if collapsed in self.invariants:
+            return None
+        self.invariants.append(collapsed)
+        return collapsed
 
     def add_interaction(
         self,

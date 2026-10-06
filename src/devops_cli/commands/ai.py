@@ -1071,9 +1071,15 @@ def chat(  # noqa: C901
             )
             client.preload_models(blocking=False)
 
+    from devops_cli.ai.agents.memory import AgentMemory
+    from devops_cli.config.defaults import DEFAULT_CHAT_INVARIANTS
+
     agent_tools = get_persona_tools(persona) if tools else []
     agent: PydanticAgent[Any] = PydanticAgent(
-        client=client, system_prompt=system, tools=agent_tools
+        client=client,
+        system_prompt=system,
+        tools=agent_tools,
+        memory=AgentMemory(session_id="chat", invariants=list(DEFAULT_CHAT_INVARIANTS)),
     )
 
     print_section(
