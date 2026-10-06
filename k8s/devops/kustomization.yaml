@@ -8,4 +8,4 @@ resources:
 - roadmap-service
 images:
 - name: ghcr.io/dan-petty/devops-cli/service
-  newTag: v0.2.26
+  newTag: v0.2.27

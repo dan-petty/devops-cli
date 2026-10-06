@@ -15,7 +15,7 @@ spec:
       valueFiles:
       - $values/k8s/llm/values-open-webui.yaml
   - repoURL: https://github.com/dan-petty/devops-cli
-    targetRevision: release/v0.2.27
+    targetRevision: release/v0.2.28
     ref: values
   destination:
     server: https://kubernetes.default.svc

@@ -9,7 +9,7 @@ spec:
   project: homelab
   source:
     repoURL: https://github.com/dan-petty/devops-cli
-    targetRevision: release/v0.2.27
+    targetRevision: release/v0.2.28
     path: k8s/logging
   destination:
     server: https://kubernetes.default.svc
