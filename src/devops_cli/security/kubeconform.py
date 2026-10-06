@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.constants import (
+    CONST_K8S_MANIFEST_EXTENSIONS,
+    CONST_MAX_INSPECT_FILE_SIZE_BYTES,
+)
 from devops_cli.config.defaults import (
     DEFAULT_KUBECONFORM_VERSION,
     DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
@@ -43,6 +47,26 @@ def _is_manifest_document(document: Any) -> bool:
     that teaches people to ignore a validator.
     """
     return isinstance(document, dict) and "apiVersion" in document
+
+
+def is_kubernetes_manifest(path: Path | str) -> bool:
+    """Report whether a file exists and contains a Kubernetes manifest document."""
+    p = Path(path)
+    if not (p.is_file() and p.suffix.lower() in CONST_K8S_MANIFEST_EXTENSIONS):
+        return False
+    try:
+        if p.stat().st_size > CONST_MAX_INSPECT_FILE_SIZE_BYTES:
+            return False
+        content = p.read_text(encoding="utf-8", errors="replace")
+        if "apiVersion" not in content:
+            return False
+        if p.suffix.lower() == ".json":
+            data = json.loads(content)
+            return _is_manifest_document(data)
+        documents = _parse_documents(p)
+        return bool(documents and any(_is_manifest_document(doc) for doc in documents))
+    except Exception:
+        return False
 
 
 def _validate_single_k8s_file_fallback(f: Path, rel_root: Path) -> Finding | None:
@@ -177,3 +201,10 @@ def run_kubeconform_validation(
     """Validate Kubernetes manifests against target version schema using Kubeconform."""
     scanner = KubeconformScanner()
     return scanner.scan(manifest_path, timeout=timeout, k8s_version=k8s_version, strict=strict)
+
+
+__all__ = [
+    "KubeconformScanner",
+    "is_kubernetes_manifest",
+    "run_kubeconform_validation",
+]

@@ -9,18 +9,21 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from devops_cli.ai.review import pipeline
 from devops_cli.ai.review.pipeline import (
     ReviewPipelineOrchestrator,
+    _scan_kubernetes_manifests,
     _static_analyzer_states,
     _static_analyzer_summary,
 )
 from devops_cli.ai.review.profile import ReviewProfile, profiling, summarize_profiles
 from devops_cli.commands import review as review_commands
+from devops_cli.security import is_kubernetes_manifest
 from devops_cli.security.base import ScanOutcome
 
 _ONLY_BANDIT = {
@@ -88,8 +91,11 @@ def test_a_review_with_only_bandit_is_not_reported_as_a_clean_scan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify the reported case end to end: console, orchestrator state and review profile."""
-    for name in ("app.py", "deploy.yaml", "Dockerfile"):
-        (tmp_path / name).write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "deploy.yaml").write_text(
+        "apiVersion: apps/v1\nkind: Deployment\n", encoding="utf-8"
+    )
+    (tmp_path / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
     monkeypatch.setattr("devops_cli.security.bandit.run_bandit_scan", lambda paths, **_: [])
     for scan in ("_scan_kubernetes_manifests", "_scan_container_and_lockfiles"):
         monkeypatch.setattr(pipeline, scan, lambda paths: [])
@@ -247,4 +253,97 @@ def test_a_scanner_timeout_reads_timed_out_in_the_report_and_the_profile(
         ["| Semgrep | failed: timed out after 300 s |"],
         {"Semgrep": "timed out after 300 s"},
         ["Semgrep"],
+    )
+
+
+def test_is_kubernetes_manifest_discrimination(tmp_path: Path) -> None:
+    """Verify is_kubernetes_manifest distinguishes valid manifests from generic files (#1242)."""
+    k8s_yaml = tmp_path / "valid.yaml"
+    k8s_yaml.write_text(
+        "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: test\n", encoding="utf-8"
+    )
+    k8s_json = tmp_path / "valid.json"
+    k8s_json.write_text('{"apiVersion": "v1", "kind": "ConfigMap"}', encoding="utf-8")
+    multi_doc = tmp_path / "multi.yaml"
+    multi_doc.write_text(
+        "---\ncomment: none\n---\napiVersion: apps/v1\nkind: Deployment\n", encoding="utf-8"
+    )
+    labels_yaml = tmp_path / "labels.yml"
+    labels_yaml.write_text("- name: bug\n  color: red\n", encoding="utf-8")
+    workflow_yaml = tmp_path / "ci.yml"
+    workflow_yaml.write_text("name: CI\non: push\njobs: {}\n", encoding="utf-8")
+    python_file = tmp_path / "main.py"
+    python_file.write_text('print("apiVersion = 1")\n', encoding="utf-8")
+    nonexistent = tmp_path / "ghost.yaml"
+
+    assert (
+        is_kubernetes_manifest(k8s_yaml),
+        is_kubernetes_manifest(k8s_json),
+        is_kubernetes_manifest(multi_doc),
+        is_kubernetes_manifest(labels_yaml),
+        is_kubernetes_manifest(workflow_yaml),
+        is_kubernetes_manifest(python_file),
+        is_kubernetes_manifest(nonexistent),
+    ) == (True, True, True, False, False, False, False)
+
+
+def test_is_scannable_manifest_with_mocks_and_real_files(tmp_path: Path) -> None:
+    """Verify _is_scannable_manifest discriminates real manifests and handles mocks (#1242)."""
+    from devops_cli.ai.review.pipeline import _is_scannable_manifest
+
+    manifest = tmp_path / "valid.yaml"
+    manifest.write_text("apiVersion: apps/v1\nkind: Deployment\n", encoding="utf-8")
+    non_manifest = tmp_path / "labels.yml"
+    non_manifest.write_text("- name: bug\n", encoding="utf-8")
+    ghost = tmp_path / "missing.yaml"
+
+    assert (
+        _is_scannable_manifest(manifest),
+        _is_scannable_manifest(non_manifest),
+        _is_scannable_manifest(ghost),
+    ) == (True, False, False)
+
+    with patch("devops_cli.security.kubelinter.run_kubelinter_scan", MagicMock()):
+        assert _is_scannable_manifest(ghost) is True
+
+
+def test_scan_kubernetes_manifests_skips_non_k8s_and_deleted_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify _scan_kubernetes_manifests executes only on real manifests (#1242)."""
+    deleted_yaml = tmp_path / "deleted.yaml"
+    labels_yaml = tmp_path / "labels.yml"
+    labels_yaml.write_text("- name: bug\n", encoding="utf-8")
+    manifest = tmp_path / "deploy.yaml"
+    manifest.write_text("apiVersion: apps/v1\nkind: Deployment\n", encoding="utf-8")
+
+    scanned_kl: list[str] = []
+    scanned_pl: list[str] = []
+
+    def _mock_kl(path: Path, **_: Any) -> ScanOutcome:
+        scanned_kl.append(path.name)
+        return ScanOutcome("ran")
+
+    def _mock_pl(path: Path, **_: Any) -> ScanOutcome:
+        scanned_pl.append(path.name)
+        return ScanOutcome("ran")
+
+    monkeypatch.setattr("devops_cli.security.kubelinter.run_kubelinter_scan", _mock_kl)
+    monkeypatch.setattr("devops_cli.security.pluto.run_pluto_scan", _mock_pl)
+
+    outcomes: dict[str, Any] = {}
+    findings = _scan_kubernetes_manifests([deleted_yaml, labels_yaml, manifest], outcomes=outcomes)
+
+    assert (
+        findings,
+        scanned_kl,
+        scanned_pl,
+        outcomes["Kube-linter"].status,
+        outcomes["Pluto"].status,
+    ) == (
+        [],
+        ["deploy.yaml"],
+        ["deploy.yaml"],
+        "ran",
+        "ran",
     )
