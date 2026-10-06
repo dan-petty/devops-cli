@@ -232,6 +232,7 @@ class Event(StrEnum):
 
     # An item joined the current release after it started.
     FIX_JOINED = "fix_joined"
+    PR_JOINED = "pr_joined"
     P0_FEATURE_JOINED = "p0_feature_joined"
     ITEM_JOINED = "item_joined"
     # An admitted critical fix took the release over the cap, and this item makes room.
@@ -280,6 +281,7 @@ class Reason(StrEnum):
     """Why, as an item's comment says it; `MESSAGES.roadmap.reasons` holds each one's text."""
 
     CRITICAL_FIX = "critical_fix"
+    PULL_REQUEST = "pull_request"
     ADMISSION = "admission"
     P0_FEATURE = "p0_feature"
     CUT = "cut"
@@ -321,12 +323,14 @@ _S, _P, _C, _X = (
 # planned release; an admitted critical fix leaves only when it is Blocked.
 TRANSITIONS: Mapping[tuple[ReleaseState, Event], Transition] = MappingProxyType(
     {
-        # Admission: after the release starts, only a critical fix joins it.
+        # Admission: after the release starts, only a critical fix or an item with a pull request joins it.
         (_S, Event.FIX_JOINED): Transition(Action.ADMIT, Reason.CRITICAL_FIX),
+        (_S, Event.PR_JOINED): Transition(Action.ADMIT, Reason.PULL_REQUEST),
         (_S, Event.P0_FEATURE_JOINED): Transition(Action.TO_NEXT, Reason.P0_FEATURE),
         (_S, Event.ITEM_JOINED): Transition(Action.TO_BACKLOG, Reason.ADMISSION),
         # The cut lock: nothing joins a cut release, and a critical fix goes first into the next.
         (_C, Event.FIX_JOINED): Transition(Action.TO_NEXT, Reason.CUT),
+        (_C, Event.PR_JOINED): Transition(Action.ADMIT, Reason.PULL_REQUEST),
         # The cap: an admitted critical fix that takes the release over it descopes one item.
         (_S, Event.OVER_CAP): Transition(Action.TO_NEXT, Reason.CAP),
         (_S, Event.OVER_SIZE): Transition(Action.TO_NEXT, Reason.OVER_SIZE),
@@ -350,6 +354,7 @@ TRANSITIONS: Mapping[tuple[ReleaseState, Event], Transition] = MappingProxyType(
         (_P, Event.BLOCKED_AT_START): Transition(Action.TO_BACKLOG, Reason.BLOCKED_AT_START),
         (_P, Event.FIX_BLOCKED_AT_START): Transition(Action.TO_NEXT, Reason.BLOCKED_AT_START),
         (_P, Event.CANDIDATE): Transition(Action.PULL_IN, Reason.TOP_UP),
+        (_P, Event.PR_JOINED): Transition(Action.KEEP, Reason.PULL_REQUEST),
         (_P, Event.OVER_CAP_AT_START): Transition(Action.TO_NEXT, Reason.TRIM),
     }
 )
@@ -395,11 +400,13 @@ def is_started(item: Item) -> bool:
     return item.status in CONST_ROADMAP_STARTED_STATUSES
 
 
-def admission_event(item: Item) -> Event:
-    """What an item joining the current release after its start is: a critical fix, a P0
-    feature, or anything else."""
+def admission_event(item: Item, *, has_pr: bool = False) -> Event:
+    """What an item joining the current release after its start is: a critical fix, an item
+    with an open or merged pull request, a P0 feature, or anything else."""
     if is_critical_fix(item):
         return Event.FIX_JOINED
+    if has_pr:
+        return Event.PR_JOINED
     return Event.P0_FEATURE_JOINED if is_p0_feature(item) else Event.ITEM_JOINED
 
 
@@ -896,7 +903,7 @@ class _Run:
         return self.store.status_changed_at(number)
 
     def linked_pull_requests(self, number: int) -> list[PullRequest]:
-        """The open pull requests whose bodies close issue `number`, read once per run."""
+        """The open or merged pull requests whose bodies close issue `number`, read once per run."""
         if self._linked is None:
             self._linked = {}
             for pull_request in self.store.open_pull_requests():
@@ -1381,7 +1388,7 @@ def _stall_event(run: _Run, item: Item) -> Event | None:
 
 def _rule_event(run: _Run, item: Item, members: list[Item]) -> tuple[Event, str] | None:
     """The first rule that applies to an item already in the current release, with its detail."""
-    if is_started(item):
+    if is_started(item) or bool(run.linked_pull_requests(item.number)):
         stalled = _stall_event(run, item)
         return (stalled, "") if stalled else None
     fix = is_critical_fix(item)
@@ -1413,7 +1420,13 @@ def _cap_decisions(
     known = run.size_at_start is not None and run.started == current.number
     over = len(remaining) - max(cap, run.size_at_start or 0) if known else 0
     candidates = sorted(
-        (item for item in remaining if not is_started(item) and not is_critical_fix(item)),
+        (
+            item
+            for item in remaining
+            if not is_started(item)
+            and not is_critical_fix(item)
+            and not run.linked_pull_requests(item.number)
+        ),
         key=run.ranks.last,
     )
     victims = candidates[: max(for_fixes, over)]
@@ -1513,7 +1526,13 @@ def _plan_rules(run: _Run, current: Release, state: ReleaseState) -> Reprioritiz
     """
     target, creates = _next_release(run, current)
     joined = {
-        item.number: run.decision(state, admission_event(item), item, current.title, target)
+        item.number: run.decision(
+            state,
+            admission_event(item, has_pr=bool(run.linked_pull_requests(item.number))),
+            item,
+            current.title,
+            target,
+        )
         for item in run.members(current.title)
         if admitted_to(item) != current.number
     }
@@ -1522,7 +1541,9 @@ def _plan_rules(run: _Run, current: Release, state: ReleaseState) -> Reprioritiz
     leaving = {number for number, decision in decisions.items() if decision.leaves}
     # A fix the run admits takes the release over the cap at most once.
     admitted_now = [
-        d.item for n, d in joined.items() if d.action is Action.ADMIT and n not in leaving
+        d.item
+        for n, d in joined.items()
+        if d.action is Action.ADMIT and is_critical_fix(d.item) and n not in leaving
     ]
     remaining = [item for item in run.members(current.title) if item.number not in leaving]
     for victim in _cap_decisions(run, state, current, target, remaining, admitted_now):
@@ -1550,8 +1571,10 @@ def _plan_rules(run: _Run, current: Release, state: ReleaseState) -> Reprioritiz
 # ── Release start ─────────────────────────────────────────────────────────────
 
 
-def _start_event(item: Item) -> Event | None:
+def _start_event(item: Item, *, has_pr: bool = False) -> Event | None:
     """What a starting release does with an item placed in it that is New or Blocked."""
+    if has_pr:
+        return None
     fix = is_critical_fix(item)
     if item.status == CONST_ROADMAP_STATUS_NEW:
         return Event.FIX_NEW_AT_START if fix else Event.NEW_AT_START
@@ -1650,7 +1673,14 @@ def _fill_or_trim(
             run.decision(ReleaseState.PLANNED, Event.CANDIDATE, item, starting, starting, size)
             for item in pulled
         ], kept_out
-    unstarted = sorted((item for item in kept if not is_started(item)), key=run.ranks.last)
+    unstarted = sorted(
+        (
+            item
+            for item in kept
+            if not is_started(item) and not run.linked_pull_requests(item.number)
+        ),
+        key=run.ranks.last,
+    )
     return [
         run.decision(ReleaseState.PLANNED, Event.OVER_CAP_AT_START, item, starting, later)
         for item in unstarted[: len(kept) - cap]
@@ -1697,7 +1727,8 @@ def _plan_start(
     cleared = [
         run.decision(ReleaseState.PLANNED, event, item, starting, later)
         for item in run.members(starting)
-        if (event := _start_event(item)) is not None
+        if (event := _start_event(item, has_pr=bool(run.linked_pull_requests(item.number))))
+        is not None
     ]
     leaving = {decision.item.number for decision in cleared if decision.leaves}
     kept = [item for item in run.members(starting) if item.number not in leaving]

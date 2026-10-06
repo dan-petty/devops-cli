@@ -656,7 +656,7 @@ _PULL_REQUEST_SELECTION = (
 )
 _OPEN_PULL_REQUESTS_QUERY = _REPOSITORY.format(
     params=", $first: Int!",
-    selection=f"pullRequests(states: OPEN, first: $first) {{ {_PULL_REQUEST_SELECTION} }}",
+    selection=f"pullRequests(states: [OPEN, MERGED], first: $first) {{ {_PULL_REQUEST_SELECTION} }}",
 )
 _RELEASE_PULL_REQUESTS_QUERY = _REPOSITORY.format(
     params=", $number: Int!, $first: Int!",
@@ -1632,7 +1632,7 @@ class GitHubRoadmapStore(RoadmapStore):
         )
 
     def open_pull_requests(self) -> list[PullRequest]:
-        """Every open pull request, from one GraphQL read of up to its limit."""
+        """Every open or merged pull request, from one GraphQL read of up to its limit."""
         payload = self._read(
             open_pull_requests_args(self._repo), _OPEN_PULL_REQUESTS, "open pull requests"
         )

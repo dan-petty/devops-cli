@@ -1132,6 +1132,7 @@ class RoadmapMessages:
     reasons: dict[str, str] = field(
         default_factory=lambda: {
             "critical_fix": "a critical fix can join {release} after it starts.",
+            "pull_request": "an open or merged pull request is in flight for it.",
             "admission": (
                 "after {release} started, only a critical fix can join it. A person can place "
                 "it in a planned release, and that placement stands."

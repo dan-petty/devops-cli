@@ -848,7 +848,7 @@ class RoadmapStore(Protocol):
         """When the Item's Status on the board last changed, or None when it has none."""
 
     def open_pull_requests(self) -> list[PullRequest]:
-        """Every open pull request of the repository, with its last update and last commit."""
+        """Every open or merged pull request of the repository, with its last update and last commit."""
 
     def release_pull_requests(self, version: str) -> list[PullRequest]:
         """Every pull request, open, closed or merged, with the `release` label and the milestone
