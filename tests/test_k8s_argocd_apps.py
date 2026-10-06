@@ -81,27 +81,23 @@ def test_automated_sync_policies() -> None:
 
 def test_git_sources_and_revisions() -> None:
     apps = _all_applications()
-    branch_re = re.compile(r"^release/v\d+\.\d+\.\d+$")
 
     for name, app in apps.items():
         spec = app["spec"]
         if "source" in spec:
             source = spec["source"]
-            if name == "bootstrap":
-                assert (source["repoURL"], source["targetRevision"]) == (REPO_URL, "main")
-            else:
-                assert source["repoURL"] == REPO_URL
-                assert branch_re.match(source["targetRevision"]), (
-                    f"{name} bad revision {source['targetRevision']}"
-                )
+            assert (source["repoURL"], source["targetRevision"]) == (REPO_URL, "main"), (
+                f"{name} bad revision {source.get('targetRevision')}"
+            )
         elif "sources" in spec:
             git_sources = [s for s in spec["sources"] if "chart" not in s]
             assert len(git_sources) == 1, f"{name} expected 1 git source"
             git_s = git_sources[0]
-            assert (git_s["repoURL"], git_s["ref"]) == (REPO_URL, "values")
-            assert branch_re.match(git_s["targetRevision"]), (
-                f"{name} bad revision {git_s['targetRevision']}"
-            )
+            assert (git_s["repoURL"], git_s["ref"], git_s["targetRevision"]) == (
+                REPO_URL,
+                "values",
+                "main",
+            ), f"{name} bad revision {git_s.get('targetRevision')}"
 
 
 def test_helm_sources_pinned_versions() -> None:

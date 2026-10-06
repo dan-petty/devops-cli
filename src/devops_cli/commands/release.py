@@ -190,8 +190,6 @@ def _extract_git_revisions_from_doc(doc: Any) -> list[str]:
     """Extract git targetRevision values from an Argo CD Application doc."""
     if not isinstance(doc, dict) or doc.get("kind") != "Application":
         return []
-    if doc.get("metadata", {}).get("name") == "bootstrap":
-        return []
     spec = doc.get("spec", {})
     revisions: list[str] = []
     source = spec.get("source")
@@ -204,7 +202,7 @@ def _extract_git_revisions_from_doc(doc: Any) -> list[str]:
 
 
 def _get_argocd_git_target_revisions(root: Path) -> list[tuple[Path, str]]:
-    """Return (file_path, target_revision) for every git source in Applications under k8s/argocd/ (excluding bootstrap)."""
+    """Return (file_path, target_revision) for every git source in Applications under k8s/argocd/."""
     import yaml
 
     argocd_dir = root / "k8s" / "argocd"
@@ -224,11 +222,11 @@ def _get_argocd_git_target_revisions(root: Path) -> list[tuple[Path, str]]:
 
 
 def _resolve_argocd_next_revision(root: Path, current_version: str) -> str | None:
-    """Resolve targetRevision for Argo CD manifests to match current_version."""
+    """Resolve targetRevision for Argo CD manifests to 'main'."""
     git_revisions = _get_argocd_git_target_revisions(root)
     if not git_revisions:
         return None
-    return f"release/v{current_version}"
+    return "main"
 
 
 def _apply_argocd_target_revisions(root: Path, next_revision: str) -> bool:
@@ -239,21 +237,19 @@ def _apply_argocd_target_revisions(root: Path, next_revision: str) -> bool:
 
     from devops_cli.output import write_text_file
 
-    pattern = re.compile(r"""(targetRevision:\s*["']?)release/v[^"'\s]+(["']?)""")
+    pattern = re.compile(r"""(targetRevision:\s*["']?)(?:release/v[^"'\s]+|main)(["']?)""")
     updated = False
     for path in sorted(argocd_dir.rglob("*.yaml")):
-        if path.name == "bootstrap.yaml":
-            continue
         content = path.read_text(encoding="utf-8")
         new_content, count = pattern.subn(rf"\g<1>{next_revision}\g<2>", content)
-        if count > 0:
+        if count > 0 and new_content != content:
             write_text_file(path, new_content)
             updated = True
     return updated
 
 
 def _verify_argocd_target_revisions(repo_root: Path, pyproject_ver: str) -> None:
-    """Verify git targetRevisions under k8s/argocd/ are uniform and match release/v<pyproject_ver>."""
+    """Verify git targetRevisions under k8s/argocd/ are uniform and match 'main'."""
     revisions = _get_argocd_git_target_revisions(repo_root)
     if not revisions:
         return
@@ -268,10 +264,10 @@ def _verify_argocd_target_revisions(repo_root: Path, pyproject_ver: str) -> None
         raise typer.Exit(1)
 
     rev = next(iter(rev_set))
-    expected = f"release/v{pyproject_ver}"
+    expected = "main"
     if rev != expected:
         _get("print_error")(
-            f"Version mismatch: Argo CD git-source targetRevision '{rev}' does not match pyproject.toml ({expected}). "
+            f"Version mismatch: Argo CD git-source targetRevision '{rev}' does not match expected '{expected}'. "
             f"Run `devops release prepare {pyproject_ver}`.",
             prefix=False,
         )

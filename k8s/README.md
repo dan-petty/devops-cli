@@ -378,10 +378,10 @@ Teardown leaves the `prometheus-operator-crds` release's CRDs in the cluster. De
 
 ## GitOps
 
-Argo CD maintains the declared state of the homelab cluster directly from this repository. A two-level application topology decouples cluster bootstrap from release branch tracking:
+Argo CD maintains the declared state of the homelab cluster directly from this repository. A two-level application topology decouples cluster bootstrap from leaf applications:
 
 1. **`bootstrap` (`k8s/argocd/bootstrap/bootstrap.yaml`)**: Tracks `main`. Syncs the root `cluster` Application.
-2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks the active release branch (`release/vX.Y.Z`). Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 20 leaf Applications (8 raw leaf applications and 12 multi-source Helm applications).
+2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 20 leaf Applications (8 raw leaf applications and 12 multi-source Helm applications).
 
 When the root `cluster` Application is present in the cluster, `devops k8s deploy-stack` delegates manifest and Helm reconciliation to Argo CD (running only keyring secret push), and `devops k8s teardown-stack` refuses execution to prevent configuration drift.
 
