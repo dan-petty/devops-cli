@@ -11,7 +11,12 @@ from devops_cli.commands.pr import (
     _check_run_blockers,
     _classify_check_run,
     _failing_check_runs,
-    _fetch_check_runs_payload,
+)
+from devops_cli.github.check_verdict import (
+    CheckBucket,
+    CheckVerdictSummary,
+    PRCheckItem,
+    _fetch_check_runs_from_rest,
 )
 
 
@@ -47,44 +52,82 @@ def test_fetch_check_runs_payload_error_cases_raise_runtime_error() -> None:
         MagicMock(returncode=0, stdout=json.dumps({"check_runs": "bad"}), stderr=""),
     ]
     for mock_res in cases:
-        with patch("devops_cli.commands.pr.run_gh", return_value=mock_res):
-            with pytest.raises(RuntimeError):
-                _fetch_check_runs_payload("owner", "repo", "sha123")
+        mock_runner = MagicMock(return_value=mock_res)
+        _, err = _fetch_check_runs_from_rest("owner", "repo", "sha123", runner=mock_runner)
+        assert bool(err) is True
 
 
 def test_fetch_check_runs_payload_success_paginated() -> None:
-    page1 = {"check_runs": [{"name": "ci-lint", "status": "completed"}]}
-    page2 = {"check_runs": [{"name": "ci-test", "status": "completed"}]}
+    page1 = {"check_runs": [{"name": "ci-lint", "status": "completed", "conclusion": "success"}]}
+    page2 = {"check_runs": [{"name": "ci-test", "status": "completed", "conclusion": "success"}]}
     mock_ok = MagicMock(
         returncode=0,
         stdout=json.dumps([page1, page2]),
         stderr="",
     )
-    with patch("devops_cli.commands.pr.run_gh", return_value=mock_ok):
-        res = _fetch_check_runs_payload("owner", "repo", "sha123")
-        assert (len(res), res[0]["name"], res[1]["name"]) == (2, "ci-lint", "ci-test")
+    mock_runner = MagicMock(return_value=mock_ok)
+    items, err = _fetch_check_runs_from_rest("owner", "repo", "sha123", runner=mock_runner)
+    assert (err, len(items), items[0].name, items[1].name) == ("", 2, "ci-lint", "ci-test")
 
 
 def test_failing_check_runs_and_commit_statuses_integration() -> None:
-    runs_payload = [
-        {"name": "unit-tests", "status": "completed", "conclusion": "failure"},
-        {"name": "build", "status": "in_progress"},
-        {"name": "lint", "status": "completed", "conclusion": "success"},
-    ]
-    statuses_payload = [
-        {"context": "security/sonar", "state": "failure"},
-        {"context": "deploy/preview", "state": "pending"},
-        {"context": "code-review/approved", "state": "success"},
-    ]
-    with patch("devops_cli.commands.pr._fetch_check_runs_payload", return_value=runs_payload):
-        with patch(
-            "devops_cli.commands.pr._fetch_commit_statuses_payload", return_value=statuses_payload
-        ):
-            failing, pending = _failing_check_runs("owner", "repo", "sha123")
-            assert (failing, pending) == (
-                ["unit-tests", "security/sonar"],
-                ["build", "deploy/preview"],
-            )
+    mock_summary = CheckVerdictSummary(
+        items=[
+            PRCheckItem(name="unit-tests", bucket=CheckBucket.FAIL, state="failure"),
+            PRCheckItem(name="build", bucket=CheckBucket.PENDING, state="in_progress"),
+            PRCheckItem(name="lint", bucket=CheckBucket.PASS, state="success"),
+            PRCheckItem(name="security/sonar", bucket=CheckBucket.FAIL, state="failure"),
+            PRCheckItem(name="deploy/preview", bucket=CheckBucket.PENDING, state="pending"),
+            PRCheckItem(name="code-review/approved", bucket=CheckBucket.PASS, state="success"),
+        ]
+    )
+    with patch(
+        "devops_cli.github.check_verdict._fetch_checks_from_rest", return_value=mock_summary
+    ):
+        failing, pending = _failing_check_runs("owner", "repo", "sha123")
+        assert (failing, pending) == (
+            ["unit-tests", "security/sonar"],
+            ["build", "deploy/preview"],
+        )
+
+
+def test_failing_check_runs_raises_on_unread() -> None:
+    mock_summary = CheckVerdictSummary(unread_reason="GitHub commit status API error: HTTP 500")
+    with patch(
+        "devops_cli.github.check_verdict._fetch_checks_from_rest", return_value=mock_summary
+    ):
+        with pytest.raises(RuntimeError, match="GitHub commit status API error: HTTP 500"):
+            _failing_check_runs("owner", "repo", "sha123")
+
+
+def test_check_run_blockers_blocks_on_no_checks_reported() -> None:
+    pr_data = {"head": {"sha": "abcdef123456"}}
+    mock_summary = CheckVerdictSummary(
+        items=[PRCheckItem(name="no checks reported", bucket=CheckBucket.PENDING, state="pending")]
+    )
+    with patch(
+        "devops_cli.github.check_verdict._fetch_checks_from_rest", return_value=mock_summary
+    ):
+        blockers = _check_run_blockers(
+            pr_data, pr_num=42, owner="owner", repo_name="repo", allow_pending_checks=False
+        )
+        assert blockers == ["PR #42 has 1 check(s) still running: no checks reported."]
+
+
+def test_check_run_blockers_blocks_on_combined_commit_status_failure() -> None:
+    pr_data = {"head": {"sha": "abcdef123456"}}
+    mock_summary = CheckVerdictSummary(
+        items=[
+            PRCheckItem(name="commit status (combined)", bucket=CheckBucket.FAIL, state="failure")
+        ]
+    )
+    with patch(
+        "devops_cli.github.check_verdict._fetch_checks_from_rest", return_value=mock_summary
+    ):
+        blockers = _check_run_blockers(
+            pr_data, pr_num=42, owner="owner", repo_name="repo", allow_pending_checks=False
+        )
+        assert blockers == ["PR #42 has 1 failing check(s): commit status (combined)."]
 
 
 def test_check_run_blockers_fails_closed_on_api_error() -> None:
