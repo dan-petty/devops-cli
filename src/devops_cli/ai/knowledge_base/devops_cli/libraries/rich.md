@@ -7,7 +7,7 @@
 | **Official Documentation** | [rich.readthedocs.io](https://rich.readthedocs.io/) |
 | **Public Git Repository** | [github.com/Textualize/rich](https://github.com/Textualize/rich) |
 | **Official PyPI Package** | [pypi.org/project/rich](https://pypi.org/project/rich/) (`15.0.0`) |
-| **DevOps CLI Integration** | [`src/devops_cli/output/`](../../../../../src/devops_cli/output/) • [`src/devops_cli/output/formatters/`](../../../../../src/devops_cli/output/formatters/) |
+| **DevOps CLI Integration** | [`src/devops_cli/output/`](../../../../../../src/devops_cli/output/) • [`src/devops_cli/output/formatters/`](../../../../../../src/devops_cli/output/formatters/) |
 
 ---
 
@@ -18,7 +18,7 @@
 In `devops-cli`:
 - **Centralized Output Layer**: Direct calls to standard `print()` or `sys.stdout.write()` are restricted in favor of `devops_cli.output` wrappers that respect NO_COLOR, CI modes, and output redirection.
 - **Canonical Location Highlighting**: Finding tables render clickable locations using the project-wide standard `filename.ext:n-n` format.
-- **Dynamic Spinners**: Long-running background operations (e.g. `devops review`, `devops rag index`, `devops k8s bootstrap`) display non-blocking animated status spinners.
+- **Dynamic Spinners**: Long-running background operations (e.g. `devops review`, `devops ai rag index`, `devops k8s bootstrap`) display non-blocking animated status spinners.
 
 ---
 

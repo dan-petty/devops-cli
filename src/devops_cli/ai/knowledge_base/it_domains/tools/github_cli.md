@@ -2,7 +2,7 @@
 
 ## 1. Overview & Purpose
 
-The GitHub CLI (`gh`) brings GitHub pull requests, issues, Actions workflows, releases, and repository configuration directly to the command line. In the `devops-cli` ecosystem, `gh` powers release PR creation (`devops release create-pr`), remote GitHub Actions CI check monitoring, organization repository discovery, and branch synchronization.
+The GitHub CLI (`gh`) brings GitHub pull requests, issues, Actions workflows, releases, and repository configuration directly to the command line. In the `devops-cli` ecosystem, `gh` powers release PR creation (`devops release pr`), remote GitHub Actions CI check monitoring, organization repository discovery, and branch synchronization.
 
 ---
 
@@ -23,7 +23,7 @@ The GitHub CLI (`gh`) brings GitHub pull requests, issues, Actions workflows, re
 devops pr view 17
 
 # Create official release PR targeting main
-devops release create-pr --version 0.2.0
+devops release pr --version 0.2.0
 
 # Clone all repositories from a GitHub organization
 devops repos clone-org dan-petty
@@ -46,7 +46,7 @@ devops pr create --title "feat(serve): FastAPI service engine" \
 devops pr monitor 17
 
 # List recent workflow runs on a specific branch
-devops gh runs list --branch release/v0.2.0 -L 5
+devops gh runs list --branch release/v0.2.0 --limit 5
 
 # View failure logs for a specific GitHub Actions workflow run
 devops gh runs view <run_id> --log-failed

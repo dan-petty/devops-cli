@@ -24,13 +24,13 @@ Prometheus is an open-source systems monitoring and alerting toolkit. It collect
 ### DevOps CLI Prometheus Commands
 ```bash
 # Execute PromQL query against Prometheus server
-devops prometheus query --query "rate(devops_cli_command_total[5m])"
+devops prometheus query "rate(devops_cli_command_total[5m])"
 
 # Check status of scrape targets and reachability
 devops prometheus targets
 
-# Query active alerts
-devops prometheus alerts
+# List recording and alerting rules
+devops prometheus rules
 ```
 
 ### Standard PromQL Queries & Commands

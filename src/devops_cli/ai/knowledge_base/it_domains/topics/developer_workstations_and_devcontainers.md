@@ -42,8 +42,8 @@ devops devcontainer init
 # Manually trigger post-start lifecycle tasks
 devops devcontainer post-start --workspace .
 
-# Synchronize VS Code multi-root workspace definition
-devops workspace sync
+# Regenerate VS Code multi-root workspace definition
+devops workspace generate
 
 # Clone all repositories from a GitHub organization
 devops repos clone-org dan-petty

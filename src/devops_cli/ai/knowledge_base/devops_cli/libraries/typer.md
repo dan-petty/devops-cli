@@ -6,8 +6,8 @@
 | :--- | :--- |
 | **Official Documentation** | [typer.tiangolo.com](https://typer.tiangolo.com/) • [click.palletsprojects.com](https://click.palletsprojects.com/) |
 | **Public Git Repository** | [github.com/tiangolo/typer](https://github.com/tiangolo/typer) • [github.com/pallets/click](https://github.com/pallets/click) |
-| **Official PyPI Package** | [pypi.org/project/typer](https://pypi.org/project/typer/) (`0.27.1`) • [pypi.org/project/click](https://pypi.org/project/click/) (`8.4.2`) |
-| **DevOps CLI Integration** | [`src/devops_cli/core/cli.py`](../../../../../src/devops_cli/core/cli.py) • [`src/devops_cli/commands/`](../../../../../src/devops_cli/commands/) |
+| **Official PyPI Package** | [pypi.org/project/typer](https://pypi.org/project/typer/) (`0.27.2`) • [pypi.org/project/click](https://pypi.org/project/click/) (`8.5.0`) |
+| **DevOps CLI Integration** | [`src/devops_cli/core/cli.py`](../../../../../../src/devops_cli/core/cli.py) • [`src/devops_cli/commands/`](../../../../../../src/devops_cli/commands/) |
 
 ---
 
@@ -18,7 +18,7 @@
 In the `devops-cli` ecosystem:
 - **CLI Factory Pattern**: `devops_cli.core.cli.new_typer()` instantiates standardized `typer.Typer` apps configured with `no_args_is_help=True`, unified Rich exception handling, and standard parameter resolvers.
 - **Centralized Help Catalog**: All option and argument help strings are referenced directly from `devops_cli.lang.HELP` rather than declared as ad-hoc strings in function signatures.
-- **Subcommand Hierarchy**: 19 distinct sub-applications (e.g. `devops k8s`, `devops review`, `devops tf`, `devops ci`) are mounted onto the root application via `app.add_typer()`.
+- **Subcommand Hierarchy**: The command groups listed in `_COMMAND_SPECS` (`src/devops_cli/main.py`; aliases `tui`, `format`, `lint` included) are mounted onto the root application via `app.add_typer()`, while the root callback handles `--version` and `--dry-run`.
 
 ---
 

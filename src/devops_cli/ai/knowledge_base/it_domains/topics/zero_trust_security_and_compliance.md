@@ -32,7 +32,7 @@ graph TD
 
 ### Multi-Scanner Security Suite
 - `devops ssh audit`: Audits `~/.ssh/` key permissions, RSA bit lengths, and Ed25519 adoption.
-- `devops scan image`: Scans container images with Trivy for CVEs.
+- `devops scan trivy <image> --type image`: Scans container images with Trivy for CVEs.
 - `bandit -r src/`: Analyzes Python AST nodes for common security antipatterns.
 - `uv audit`: Verifies third-party Python dependencies against known CVE databases.
 
@@ -45,7 +45,7 @@ gh auth login
 devops ssh audit
 
 # Run full workstation security scan
-devops scan security src/
+devops scan report src/
 
 # Run Python package dependency vulnerability audit
 uv audit
@@ -58,7 +58,7 @@ uv audit
 1. **Zero Plaintext Secrets & OS Keyring Exclusivity**: Never commit tokens, passwords, or credentials to configuration files, `.env` files, or test fixtures. Always use encrypted OS Keyring backends (`keyring>=25`); never use unencrypted plaintext fallbacks (such as `keyrings.alt`).
 2. **Zero Information Leakage from Private/Gitignored Files**: AI assistants and tooling must never leak, extract, or transcribe data from hidden files (`.env*`, `.ssh/`, `.data/`), private configs, or `.gitignored` paths into documentation, review findings, or code.
 3. **Repository Path Boundary Containment**: Enforce strict filesystem boundary validation (`resolved_path.is_relative_to(repo_root)`) on all file writing and reading helpers to mitigate path traversal (CWE-22) vulnerabilities.
-4. **Use Ed25519 Keys**: Use modern Ed25519 keys for SSH authentication and Git commit signing (`devops ssh generate --type ed25519`).
+4. **Use Ed25519 Keys**: Use modern Ed25519 keys for SSH authentication and Git commit signing (`devops ssh generate`).
 5. **Automate Pre-Commit Scanning**: Enforce security linting (`bandit`, `actionlint`) in pre-commit hooks to catch security issues before remote push.
 6. **Explicit Post-Write Permission Enforcement (`chmod`)**: When generating, updating, or rewriting private cryptographic keys or sensitive certificates, always execute explicit `os.chmod(file_path, mode)` (e.g. `0600` for private keys) immediately after writing. Standard file creation flags (e.g. `os.open` with `O_CREAT|O_TRUNC`) only apply permission modes upon initial file creation; if the target file already exists, kernel semantics retain pre-existing permissions, creating permission bypass risks (CWE-284).
 7. **Directory Containment & Path Traversal Prevention**: Enforce strict path validation (`validate_safe_directory_path`) on all user-supplied output directories to prevent relative path traversal (`..`) from writing keys or certificates to unintended system locations (CWE-22).

@@ -7,7 +7,7 @@
 | **Official Documentation** | [github.com/cpburnz/python-pathspec](https://github.com/cpburnz/python-pathspec) |
 | **Public Git Repository** | [github.com/cpburnz/python-pathspec](https://github.com/cpburnz/python-pathspec) |
 | **Official PyPI Package** | [pypi.org/project/pathspec](https://pypi.org/project/pathspec/) (`1.1.1`) |
-| **DevOps CLI Integration** | [`src/devops_cli/ai/diff/`](../../../../../src/devops_cli/ai/diff/) • [`src/devops_cli/commands/review.py`](../../../../../src/devops_cli/commands/review.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/ai/diff/`](../../../../../../src/devops_cli/ai/diff/) • [`src/devops_cli/commands/review.py`](../../../../../../src/devops_cli/commands/review.py) |
 
 ---
 
@@ -34,7 +34,7 @@ In `devops-cli`:
 
 ## 4. Key Concepts & Core Patterns
 
-1. **`PathSpec.from_lines(pattern_type, lines)`**: Compiles lines of text into a high-speed matcher.
+1. **`PathSpec.from_lines("gitignore", lines)`**: Compiles lines of text into a matcher (`CONST_GITIGNORE_PATTERN_STYLE`); integration lives in `src/devops_cli/core/gitignore.py` and `core/repo.py`.
 2. **`GitWildMatchPattern`**: The standard gitignore pattern engine.
 3. **`spec.match_file(filepath)`**: Returns `True` if the file matches any ignore rule.
 

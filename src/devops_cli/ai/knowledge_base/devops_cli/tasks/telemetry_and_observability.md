@@ -29,14 +29,11 @@ graph LR
 
 ### Telemetry Commands
 ```bash
-# Test connection to active OTLP telemetry collector
+# Test connection to active OTLP telemetry collector and emit test span
 devops telemetry test
 
 # View telemetry status and endpoint configuration
 devops telemetry status
-
-# Emit test trace span to verify ingestion
-devops telemetry probe
 
 # Scrape local Prometheus metrics directly
 curl -s http://localhost:8000/metrics
@@ -48,7 +45,7 @@ curl -s http://localhost:8000/metrics
 
 1. **Non-Blocking Telemetry**: Telemetry emission must run asynchronously or with bounded short timeouts so that collector unreachability never slows down CLI commands.
 2. **Standardized Attributes**: Use consistent attributes: `cli.command`, `subprocess.bin`, `status`, `error.type`.
-3. **Trace Root Cause Analysis**: Use Jaeger UI (`http://localhost:16686`) to trace slow subprocesses or investigate multi-step deployment failures.
+3. **Trace Root Cause Analysis**: Use Jaeger UI to trace slow subprocesses or investigate multi-step deployment failures.
 4. **Scrape Frequency**: Configure Prometheus with a 10s–15s scrape interval for responsive workstation metrics.
 
 ---

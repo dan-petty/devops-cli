@@ -123,14 +123,14 @@ Systems built solely around cutting-edge frontier models ("The Beyond") risk cat
 
 ```bash
 # Evaluate model curation safety and generate AI Bill of Materials (AIBOM)
-devops ai curate-model --model qwen/qwen2.5-coder-32b --check-safety --generate-aibom
+devops scan aibom . --format json
 
 # Score review arms on a synthetic defect corpus, then compare them
 devops review corpus score <corpus> --session <id> --json
 devops ai runs compare <run>
 
 # Run Model Dependency Chaos Engineering drill ("Chaos Monkey for Models")
-devops ai chaos-model --fallback-model ollama/qwen2.5-coder:14b --test-suite regression
+devops ai chaos-model --fallback-model qwen2.5-coder:14b --mode latency
 
 # Centralized emergency quiesce of all running agent tasks and background cron jobs
 devops ai quiesce --reason "Upstream provider model deprecation failover"

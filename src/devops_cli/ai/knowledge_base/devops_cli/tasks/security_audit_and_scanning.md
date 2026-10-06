@@ -29,11 +29,11 @@ graph TD
 # Audit workstation SSH keys, permissions, and cipher safety
 devops ssh audit
 
-# Run full workstation security scanning
-devops scan security src/
+# Run every registered scanner
+devops scan report src/
 
 # Scan container image for CVEs and misconfigurations
-devops scan image ghcr.io/dan-petty/devops-cli/devcontainer:latest
+devops scan trivy ghcr.io/dan-petty/devops-cli/devcontainer:latest --type image
 
 # Audit Python dependencies against vulnerability advisories
 uv audit
@@ -46,7 +46,7 @@ bandit -r src/
 
 ## 4. Best Practice Guidance
 
-1. **Pre-Commit Auditing**: Execute `devops scan security` or `devops ci` prior to creating pull requests to catch security issues locally.
+1. **Pre-Commit Auditing**: Execute `devops scan report` or `devops ci` prior to creating pull requests to catch security issues locally.
 2. **Modern SSH Cryptography**: Prefer Ed25519 keys (`id_ed25519`) over legacy RSA keys for SSH authentication and Git commit signing.
 3. **Automate Dependency Updates**: Regularly update pinned dependencies in `pyproject.toml` and run `uv lock --upgrade` to remediate known CVEs.
 4. **Enforce Least Privilege**: Audit Kubernetes manifests for missing security contexts and unconstrained privilege escalation.

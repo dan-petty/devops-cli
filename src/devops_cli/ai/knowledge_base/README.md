@@ -29,8 +29,8 @@ The Knowledge Base is divided into two primary structural divisions:
 | :--- | :--- | :--- |
 | **DevOps CLI Architecture** | Subsystem breakdown, multi-persona AI review engine, prompt isolation, dry-run protocol, and language catalogs. | [architecture.md](devops_cli/architecture.md) |
 | **Configuration & Settings** | Pydantic settings schema hierarchy, resolution priority, OS Keyring secrets storage, and dotted config commands. | [configuration_and_settings.md](devops_cli/configuration_and_settings.md) |
-| **CLI Command Reference** | Complete command surface reference across all 19 command groups, subcommands, arguments, and flags. | [cli_command_reference.md](devops_cli/cli_command_reference.md) |
-| **Python Packages & Code Libraries** | Technical manual and dedicated guides for all 22 production runtime dependencies and 11 development quality tools. | [python_packages.md](devops_cli/python_packages.md) |
+| **CLI Command Reference** | Command surface reference across command groups, subcommands, arguments, and flags (the complete generated reference is docs/CLI_REFERENCE.md (`devops docs generate`)). | [cli_command_reference.md](devops_cli/cli_command_reference.md) |
+| **Python Packages & Code Libraries** | Technical manual and dedicated guides for the core production runtime dependencies and development quality tools. | [python_packages.md](devops_cli/python_packages.md) |
 
 ### Code Library Guides (`devops_cli/libraries/`)
 
@@ -54,7 +54,7 @@ The Knowledge Base is divided into two primary structural divisions:
 | **FastAPI & Uvicorn** | REST & ASGI | Asynchronous REST service engine and OpenAPI server backing `devops serve`. | [fastapi_uvicorn.md](devops_cli/libraries/fastapi_uvicorn.md) |
 | **OpenTelemetry** | Observability | Distributed tracing, OTLP gRPC export to Jaeger, and Prometheus metrics. | [opentelemetry.md](devops_cli/libraries/opentelemetry.md) |
 | **Pathspec** | Gitignore Matcher | Pure Python pattern matching based on `.gitignore` wildcards and rules. | [pathspec.md](devops_cli/libraries/pathspec.md) |
-| **TLDExtract** | Egress Safety | Public Suffix List domain parsing and SSRF egress safety validation. | [tldextract.md](devops_cli/libraries/tldextract.md) |
+| **TLDExtract** | Domain Parsing | Public Suffix List domain parsing for network references extracted from code. | [tldextract.md](devops_cli/libraries/tldextract.md) |
 | **Packaging** | SemVer & Specs | PyPA core specifications, SemVer 2.0.0 validation, and version bumping. | [packaging.md](devops_cli/libraries/packaging.md) |
 | **PyYAML & Jinja2** | Manifests & Templates | YAML parsing and Jinja2 templating for DevContainers and K8s manifests. | [pyyaml_jinja2.md](devops_cli/libraries/pyyaml_jinja2.md) |
 | **Ruff, Mypy & Pytest** | Quality Suite | 100x fast linter, strict static typing, and parallel test runner ($\ge 90\%$ cov). | [ruff_mypy_pytest.md](devops_cli/libraries/ruff_mypy_pytest.md) |
@@ -64,12 +64,12 @@ The Knowledge Base is divided into two primary structural divisions:
 
 | Operational Task | Domain | Summary | Article |
 | :--- | :--- | :--- | :--- |
-| **AI Code Review** | AI & Quality | Multi-persona code review (Architect, DevSecOps, Auditor, QA, PM) with calibrated feedback. | [ai_code_review.md](devops_cli/tasks/ai_code_review.md) |
+| **AI Code Review** | AI & Quality | Multi-persona code review (Architect, DevSecOps, Auditor, QA, PM, Challenger) with calibrated feedback. | [ai_code_review.md](devops_cli/tasks/ai_code_review.md) |
 | **Security Audit & Scanning** | Security & Compliance | Comprehensive workstation audits, SSH key permission hardening, secret scanning, and CVE lookups. | [security_audit_and_scanning.md](devops_cli/tasks/security_audit_and_scanning.md) |
 | **K8s Stack Deployment** | Kubernetes & Cloud | Automated bootstrap and teardown of local Kubernetes observability and GitOps stacks. | [k8s_stack_deployment.md](devops_cli/tasks/k8s_stack_deployment.md) |
 | **Repo & Workspace Management** | Workstation & Git | Multi-org repository cloning, automated `.code-workspace` synchronization, and branch hygiene. | [repo_and_workspace_management.md](devops_cli/tasks/repo_and_workspace_management.md) |
 | **Infrastructure Provisioning** | Infrastructure as Code | Declarative IaC workflows (init, plan, apply, output, state inspect) with OpenTofu/Terraform. | [infrastructure_provisioning.md](devops_cli/tasks/infrastructure_provisioning.md) |
-| **CI Quality Gate** | Continuous Integration | 10-point local quality gate execution (`devops ci`) and pre-commit verification. | [ci_quality_gate.md](devops_cli/tasks/ci_quality_gate.md) |
+| **CI Quality Gate** | Continuous Integration | Local quality gate execution (`devops ci`) running every check and pre-commit verification. | [ci_quality_gate.md](devops_cli/tasks/ci_quality_gate.md) |
 | **Release Management** | Release Engineering | Semantic version bumping, release quality verification, changelog updates, and release branch PRs. | [release_management.md](devops_cli/tasks/release_management.md) |
 | **Agent Instructions Scaffolding** | Agentic AI | Automatic generation and synchronization of canonical `AGENTS.md`, `CLAUDE.md`, and Copilot stubs. | [agent_instructions_scaffolding.md](devops_cli/tasks/agent_instructions_scaffolding.md) |
 | **RAG Context Indexing** | Semantic Search & AI | Local vector embedding store, document chunking, and grounded context retrieval. | [rag_context_indexing.md](devops_cli/tasks/rag_context_indexing.md) |
@@ -92,7 +92,7 @@ The Knowledge Base is divided into two primary structural divisions:
 | **Observability & Distributed Tracing** | APM & Monitoring | OpenTelemetry distributed trace spans, Prometheus metrics series, and Jaeger UI. | [observability_and_distributed_tracing.md](it_domains/topics/observability_and_distributed_tracing.md) |
 | **Reproducible DevContainers** | Developer Workstations | Containerized developer environments, Docker-in-Docker, persistent history, and MCP sync. | [developer_workstations_and_devcontainers.md](it_domains/topics/developer_workstations_and_devcontainers.md) |
 | **Infrastructure as Code & Cloud Automation** | Cloud IaC | Declarative cloud provisioning with OpenTofu & Terraform, state locking, and drift checks. | [infrastructure_as_code_and_cloud_automation.md](it_domains/topics/infrastructure_as_code_and_cloud_automation.md) |
-| **CI & Progressive Verification** | Continuous Integration | 10-point local quality gate (`devops ci`), progressive testing, and workflow validation. | [continuous_integration_and_progressive_verification.md](it_domains/topics/continuous_integration_and_progressive_verification.md) |
+| **CI & Progressive Verification** | Continuous Integration | Local quality gate (`devops ci`), progressive testing, and workflow validation. | [continuous_integration_and_progressive_verification.md](it_domains/topics/continuous_integration_and_progressive_verification.md) |
 | **Modern Python 3.14+ Ecosystem** | Python Runtime & Tooling | Strict Mypy typing, Astral `uv` packaging, Ruff formatting, and dynamic standard parsers. | [modern_python_runtime_and_ecosystem.md](it_domains/topics/modern_python_runtime_and_ecosystem.md) |
 | **REST API Architecture & Services** | Workstation REST API | Asynchronous FastAPI service engine (`devops serve`), OpenAPI schemas, and status probes. | [rest_api_architecture_and_service_engineering.md](it_domains/topics/rest_api_architecture_and_service_engineering.md) |
 | **Release Engineering & SemVer** | Release Governance | Semantic versioning 2.0.0, release verification gates, and automated PR governance. | [release_engineering_and_semver_governance.md](it_domains/topics/release_engineering_and_semver_governance.md) |

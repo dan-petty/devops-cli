@@ -11,7 +11,7 @@ Helm is the standard package manager for Kubernetes, enabling developers and Dev
 - **Chart Repositories & Dependency Management**: Automatically adds and updates upstream Helm repositories (e.g. `prometheus-community`, `grafana`, `argo`, `jaegertracing`).
 - **Release Lifecycle Management**: Performs atomic, idempotent release upgrades (`helm upgrade --install`) with wait flags and rollback protection.
 - **Values Customization**: Parameterizes deployments via custom YAML values files, configuring resource limits, persistence volumes, and ingress rules.
-- **Stack Automation**: Integrated directly into `src/devops_cli/commands/k8s/` for one-command workstation stack deployments (`devops k8s deploy-stack monitoring`).
+- **Stack Automation**: Integrated directly into `src/devops_cli/commands/k8s/` for one-command workstation stack deployments (`devops k8s deploy-stack --stack infra`).
 
 ---
 
@@ -19,14 +19,14 @@ Helm is the standard package manager for Kubernetes, enabling developers and Dev
 
 ### DevOps CLI Stack Deployment
 ```bash
-# Deploy all workstation stacks (monitoring, gitops, tracing)
-devops k8s deploy-stack all
+# Deploy all workstation stacks (infra, llm, all)
+devops k8s deploy-stack --stack all
 
-# Deploy specific monitoring stack (Prometheus & Grafana)
-devops k8s deploy-stack monitoring
+# Deploy specific infra stack
+devops k8s deploy-stack --stack infra
 
 # Teardown stack cleanly
-devops k8s teardown-stack monitoring
+devops k8s teardown-stack --stack infra
 ```
 
 ### Standard & Advanced Helm Commands

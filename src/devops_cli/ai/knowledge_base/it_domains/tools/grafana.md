@@ -19,10 +19,10 @@ Grafana is the open-source analytics and interactive visualization web applicati
 ### DevOps CLI Grafana Commands
 ```bash
 # List available dashboards and provisioned panels
-devops grafana dashboards
+devops grafana dashboards list
 
-# Test Grafana server connectivity and datasource health
-devops grafana status
+# List configured Grafana datasources
+devops grafana datasources
 ```
 
 ### Standard Grafana API & Port-Forwarding Commands

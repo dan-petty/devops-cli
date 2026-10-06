@@ -23,7 +23,7 @@ Docker provides OS-level virtualization to deliver software in lightweight, isol
 devops docker stats
 
 # Clean up dangling images, unused networks, and build cache
-devops docker prune --all
+devops docker prune --volumes
 ```
 
 ### Standard & Advanced Docker Commands
@@ -59,7 +59,7 @@ docker logs -f --tail 100 <container_id>
 
 - **Never Hardcode Secrets**: Never bake API tokens, SSH private keys, or credentials into Dockerfiles or build arguments.
 - **Socket Permissions**: When mounting `/var/run/docker.sock`, ensure container processes do not expose unauthenticated TCP ports to the external network.
-- **Vulnerability Scanning**: Scan all base images and release tags with Trivy (`devops scan image <image_name>`) prior to pushing to GHCR.
+- **Vulnerability Scanning**: Scan all base images and release tags with Trivy (`devops scan trivy <image_name> --type image`) prior to pushing to GHCR.
 - **PR Image Tagging Policy**: Pull request container builds must NEVER be tagged with `latest`. Only merges to `main` tag `latest`.
 
 ---

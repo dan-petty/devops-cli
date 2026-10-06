@@ -73,7 +73,7 @@ devops k8s teardown-stack --stack llm
 
 1. **Sequential Bootstrap**: Ensure `devops k8s bootstrap` completes and all nodes report `Ready` before launching stack deployments.
 2. **Resource Allocation**: Ensure Minikube has sufficient CPU/memory (`--cpus=4 --memory=8192` or GPU node) when running multiple concurrent stacks.
-3. **Idempotent Deployments**: `deploy-stack` uses `helm upgrade --install --atomic` so commands can be safely re-run without causing resource conflicts.
+3. **Idempotent Deployments**: `deploy-stack` uses `helm upgrade --install --wait --timeout <t>` (plus `--force-conflicts` on Helm 4) and recovers stuck releases, so it can be re-run safely.
 4. **Clean Teardown**: Run `teardown-stack` before deleting clusters to allow Helm hooks and finalizers to release external resources cleanly.
 5. **Multi-Namespace Root Kustomization**: The root `k8s/kustomization.yaml` coordinates child namespaces without setting a single top-level `namespace:` override.
 6. **Cluster Target Verification**: Run `devops k8s contexts` or `devops k8s status` before executing `deploy-stack` to ensure workloads are deployed to the intended cluster context (e.g. Minikube vs. Docker Desktop vs. Cloud EKS).
@@ -84,7 +84,7 @@ devops k8s teardown-stack --stack llm
 
 - **Namespace Segregation**: Keep controllers isolated in dedicated namespaces (`monitoring`, `argocd`, `otel`, `llm`).
 - **Workstation vs. Production Dual-Mode Guidance**:
-  - Local workstation manifests use NodePort (`31434`), hostPort, and `IfNotPresent` pull policies for offline testing.
+  - Local workstation manifests use NodePort (e.g. registry `30500`), hostPort, and `IfNotPresent` pull policies for offline testing.
   - Production deployments must transition to `ClusterIP`, ingress controllers with TLS certificates, non-root users, read-only root filesystems, and strict NetworkPolicies.
 - **Cluster Secrets from the Keyring**: Never create Secrets with `kubectl create secret --from-literal`, which puts the value in the process list and shell history. `devops k8s push-secrets` server-side applies them from stdin, and `devops config set cloudflare.tunnel_token` stores a typed value at a hidden prompt.
 - **Initial Credentials**: Extract and securely store the ArgoCD initial admin secret, then rotate it immediately:

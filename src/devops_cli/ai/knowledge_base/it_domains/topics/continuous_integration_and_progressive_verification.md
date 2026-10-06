@@ -21,8 +21,8 @@ graph TD
 - **Progressive Verification Philosophy**:
   - **Iterative Feedback Loop**: During active development, run isolated checks on modified files to keep developer feedback loops under 2 seconds.
   - **Comprehensive Quality Gate**: Execute the full local CI suite (`devops ci`) at pre-commit and pre-PR milestones to ensure 100% release readiness before pushing code.
-- **The 10-Point Local Quality Gate**:
-  1. Version Consistency (`pyproject.toml`, `__init__.py`, `RELEASE_NOTES.md`).
+- **The Gated CI Quality Gate**:
+  1. Version Consistency (`pyproject.toml`, `__init__.py`, `CHANGELOG.md`).
   2. Parallel Unit Tests (`pytest -n auto`).
   3. Branch Coverage Floor (`>=90%`).
   4. Fast Code Linting (`ruff check`).

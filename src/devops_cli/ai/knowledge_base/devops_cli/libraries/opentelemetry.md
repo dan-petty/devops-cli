@@ -7,7 +7,7 @@
 | **Official Documentation** | [opentelemetry.io/docs/languages/python/](https://opentelemetry.io/docs/languages/python/) • [jaegertracing.io](https://www.jaegertracing.io/) |
 | **Public Git Repository** | [github.com/open-telemetry/opentelemetry-python](https://github.com/open-telemetry/opentelemetry-python) |
 | **Official PyPI Package** | [pypi.org/project/opentelemetry-exporter-otlp-proto-grpc](https://pypi.org/project/opentelemetry-exporter-otlp-proto-grpc/) (`1.44.0`) |
-| **DevOps CLI Integration** | [`src/devops_cli/telemetry/tracer.py`](../../../../../src/devops_cli/telemetry/tracer.py) • [`src/devops_cli/commands/telemetry.py`](../../../../../src/devops_cli/commands/telemetry.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/telemetry/tracer.py`](../../../../../../src/devops_cli/telemetry/tracer.py) • [`src/devops_cli/commands/telemetry.py`](../../../../../../src/devops_cli/commands/telemetry.py) |
 
 ---
 
@@ -18,7 +18,7 @@
 In `devops-cli`:
 - **Distributed Spans**: Every CLI subcommand, AI persona review phase, and security scan stage is wrapped in `@trace_span` to capture duration, status, and semantic attributes.
 - **Traceparent Propagation**: Automatically injects W3C `traceparent` headers into subprocess environments and outbound HTTP requests.
-- **In-Memory Waterfall Profiling**: Powers `devops telemetry profile --last` to render terminal waterfalls and latency heatmaps directly in the console.
+- **In-Memory Waterfall Profiling**: Powers `devops telemetry profile` to render terminal waterfalls and latency heatmaps directly in the console.
 
 ---
 
@@ -35,14 +35,14 @@ In `devops-cli`:
 
 ## 4. Key Concepts & Core Patterns
 
-1. **`TracerProvider` & `BatchSpanProcessor`**: Coordinates span lifecycle and delivers batches to OTLP gRPC endpoints asynchronously.
+1. **`TracerProvider` & `BatchSpanProcessor`**: Coordinates span lifecycle and delivers batches to OTLP gRPC endpoints asynchronously. The devops-cli tracer (`telemetry/tracer.py`) exports spans as OTLP http/json to `telemetry.endpoint` (switching to gRPC for `:4317`/`grpc://` endpoints).
 2. **`@trace_span` Decorator & Context Manager**:
    ```python
    with trace_span("review.persona_review", attributes={"persona": "devsecops", "diff_lines": 120}):
        ...
    ```
 3. **Traceparent Context**: Injects `traceparent: 00-{trace_id}-{span_id}-01` headers into subprocess environments for cross-process tracing.
-4. **Jaeger UI**: Distributed trace waterfalls can be inspected at `http://localhost:16686`.
+4. **Jaeger UI**: Distributed trace waterfalls can be inspected in the Jaeger UI.
 
 ---
 
@@ -61,11 +61,11 @@ def deploy_infrastructure_stack(context: str | None = None) -> bool:
 
 ### Inspecting Local Trace Waterfalls via CLI
 ```bash
-# Render ASCII waterfall breakdown for the most recently executed CLI trace
-devops telemetry profile --last
+# Render ASCII waterfall breakdown for a CLI trace
+devops telemetry profile "devops k8s status"
 
-# Send a test telemetry span to verify local Jaeger connectivity
-devops telemetry test-span
+# Send a test telemetry span to verify collector connectivity
+devops telemetry test
 ```
 
 ---

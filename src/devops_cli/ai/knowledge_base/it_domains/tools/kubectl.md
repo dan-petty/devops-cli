@@ -42,7 +42,7 @@ devops k8s pods --all-namespaces
 devops k8s pods -n monitoring -w
 
 # Stream logs from a specific pod
-devops k8s logs -n monitoring -l app.kubernetes.io/name=prometheus --tail 50
+devops k8s logs prometheus-server-0 -n monitoring --tail 50
 ```
 
 ### Standard & Advanced `kubectl` Commands

@@ -40,19 +40,19 @@ tf/
 ### Common Commands
 ```bash
 # Initialize OpenTofu working directory
-devops tofu init --path tf/aws
+devops tf init tf/aws
 
 # Compute execution plan with variable file
-devops tofu plan --path tf/aws -v tf/environments/dev.tfvars -o dev.tfplan
+devops tf plan tf/aws -v tf/environments/dev.tfvars -o dev.tfplan
 
 # Apply the pre-computed plan file
-devops tofu apply --path tf/aws --plan dev.tfplan
+devops tf apply tf/aws --plan-file dev.tfplan
 
 # Read structured JSON outputs
-devops tofu output --path tf/aws --json
+devops tf output tf/aws --json
 
 # Inspect state status and provider health
-devops tofu status --path tf/aws
+devops tf status tf/aws
 ```
 
 ---

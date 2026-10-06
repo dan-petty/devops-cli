@@ -54,8 +54,8 @@ devops telemetry test
 # View telemetry client status and active exporter endpoint
 devops telemetry status
 
-# Emit test trace probe
-devops telemetry probe
+# Show Jaeger UI endpoint for inspecting traces
+devops telemetry open-ui
 
 # Scrape local Prometheus metrics
 curl -s http://localhost:8000/metrics
