@@ -11,10 +11,14 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.rag.chunker import SemanticChunker
-from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
 from devops_cli.ai.rag.models import CodeChunk, IndexStats
 from devops_cli.ai.rag.qdrant import QdrantClient
-from devops_cli.config.constants import CONST_INDEX_CACHE_FILENAME
+from devops_cli.config.constants import (
+    CONST_EXIT_FAILURE,
+    CONST_INDEX_CACHE_FILENAME,
+    CONST_RAG_SKIPPED_LOCKFILES,
+)
 from devops_cli.config.defaults import (
     DEFAULT_MAX_AST_FILE_SIZE_BYTES,
     DEFAULT_RAG_CACHE_DIR,
@@ -24,6 +28,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_DOCS_COLLECTION,
 )
 from devops_cli.core.repo import is_ignored_by_git
+from devops_cli.lang.en.errors import ERRORS
 from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
@@ -81,7 +86,20 @@ def _load_gitignore_spec(root: Path) -> Any:
         return None
 
 
-def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bool:  # noqa: C901
+def _is_hidden_file_path(p: Path, root: Path) -> bool:
+    """Return True if path is a hidden file or inside a hidden directory."""
+    rel_parts = p.relative_to(root).parts if p.is_relative_to(root) else p.parts
+    if any(part.startswith(".") for part in rel_parts[:-1]):
+        return True
+    return p.name.startswith(".") and not p.name.endswith((".yaml", ".yml", ".json", ".toml"))
+
+
+def _is_lockfile(p: Path) -> bool:
+    """Determine if a file is a package manager lockfile or dependency checksum."""
+    return p.name.endswith(".lock") or p.name in CONST_RAG_SKIPPED_LOCKFILES
+
+
+def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bool:
     """Determine if a path is an indexable code/doc file under root."""
     if not p.is_file() or p.is_symlink():
         return False
@@ -91,10 +109,7 @@ def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bo
             return False
     except OSError:
         return False
-    rel_parts = p.relative_to(root).parts if p.is_relative_to(root) else p.parts
-    if any(part.startswith(".") for part in rel_parts[:-1]):
-        return False
-    if p.name.startswith(".") and not p.name.endswith((".yaml", ".yml", ".json", ".toml")):
+    if _is_lockfile(p) or _is_hidden_file_path(p, root):
         return False
     if gitignore_spec is not None:
         rel = str(p.relative_to(root)) if p.is_relative_to(root) else p.name
@@ -677,7 +692,24 @@ class WorkspaceIndexer:
                 },
             ):
                 texts = [c.content for c in batch]
-                embeddings = self.embedder.embed_texts(texts)
+                try:
+                    embeddings = self.embedder.embed_texts(texts)
+                except Exception as exc:
+                    first_file = batch[0].file_path
+                    last_file = batch[-1].file_path
+                    det = dict(getattr(exc, "details", {}) or {})
+                    det.setdefault("model", getattr(self.embedder, "model", ""))
+                    det["first_file"] = first_file
+                    det["last_file"] = last_file
+                    raise EmbeddingsError(
+                        ERRORS.rag.batch_failed.format(
+                            first_file=first_file,
+                            last_file=last_file,
+                            error=str(exc),
+                        ),
+                        exit_code=CONST_EXIT_FAILURE,
+                        details=det,
+                    ) from exc
                 points = [
                     _build_chunk_point(chunk, vec)
                     for chunk, vec in zip(batch, embeddings, strict=False)

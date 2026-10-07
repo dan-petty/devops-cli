@@ -890,3 +890,76 @@ def test_openai_embeddings_does_not_retry_http_400(monkeypatch: pytest.MonkeyPat
         engine.embed_texts(["bad request"])
 
     assert attempts == 1
+
+
+def test_qwen3_embedding_dimension_pinned() -> None:
+    """CONST_KNOWN_EMBEDDING_DIMENSIONS["qwen3-embedding"] is pinned to 1024."""
+    from devops_cli.config.constants import CONST_KNOWN_EMBEDDING_DIMENSIONS
+
+    assert CONST_KNOWN_EMBEDDING_DIMENSIONS.get("qwen3-embedding") == 1024
+
+
+@pytest.mark.parametrize(
+    ("model", "text", "is_query", "expected"),
+    [
+        ("bge-m3", "def search():", False, "def search():"),
+        ("bge-m3", "def search():", True, "def search():"),
+        (
+            "qwen3-embedding",
+            "search query",
+            True,
+            "Instruct: Given a code search query, retrieve relevant code or documentation\nQuery: search query",
+        ),
+        ("qwen3-embedding", "doc content", False, "doc content"),
+        ("nomic-embed-text", "search query", True, "search_query: search query"),
+        ("nomic-embed-text", "doc content", False, "search_document: doc content"),
+        ("e5-base", "search query", True, "query: search query"),
+        ("e5-base", "doc content", False, "passage: doc content"),
+        ("other-model", "search query", True, "search query"),
+        ("other-model", "doc content", False, "doc content"),
+    ],
+)
+def test_apply_model_prefix_families(model: str, text: str, is_query: bool, expected: str) -> None:
+    """Per-model prompt prefixes for bge-m3, qwen3, nomic, e5, and others."""
+    from devops_cli.ai.rag.embeddings import _apply_model_prefix
+
+    assert _apply_model_prefix(text, model, is_query=is_query) == expected
+
+
+def test_embedding_cache_keys_hash_prompted_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The L1 and Valkey keys hash the text after its prompt is applied; same text under two prompts gives two misses."""
+    mock_valkey = _MockValkey()
+    ai_cfg = AIConfig(provider="custom", ollama_urls=[])
+    ai_cfg.tasks.embedding.model = "qwen3-embedding"
+    engine = EmbeddingsEngine(ai_cfg, valkey_client=mock_valkey)
+
+    call_count = 0
+
+    def fake_dispatch(texts: list[str]) -> list[list[float]]:
+        nonlocal call_count
+        call_count += len(texts)
+        return [[0.1] * 1024 for _ in texts]
+
+    monkeypatch.setattr(engine, "_dispatch_embed", fake_dispatch)
+
+    doc_vec = engine.embed_texts(["common content"])
+    assert call_count == 1
+    assert (engine._cache.hits, engine._cache.misses) == (0, 1)
+
+    query_vec = engine.embed_query("common content")
+    assert (call_count, engine._cache.hits, engine._cache.misses) == (2, 0, 2)
+    assert doc_vec[0] == query_vec
+
+
+def test_embeddings_429_no_deployments_is_transient() -> None:
+    """A 429 'No deployments available' counts as transient."""
+    from devops_cli.ai.rag.embeddings import EmbeddingsError, _reply_vectors
+
+    res = httpx2.Response(
+        429,
+        text="No deployments available",
+        request=httpx2.Request("POST", "http://example.com/api/embed"),
+    )
+    with pytest.raises(EmbeddingsError) as exc_info:
+        _reply_vectors(res, "http://example.com/api/embed", 1, lambda b: b)
+    assert exc_info.value.is_transient is True

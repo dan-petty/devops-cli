@@ -249,6 +249,7 @@ class RAGErrorMessages:
         "is not ollama, openai, copilot or gateway, and no Ollama URLs are set. "
         "Set ai.tasks.embedding.provider"
     )
+    batch_failed: str = "Failed to embed batch from '{first_file}' to '{last_file}': {error}"
 
 
 @dataclass(frozen=True)

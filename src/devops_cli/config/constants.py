@@ -2135,9 +2135,28 @@ CONST_KNOWN_EMBEDDING_DIMENSIONS: Final[dict[str, int]] = {
     "text-embedding-3-large": 3072,
     "text-embedding-ada-002": 1536,
     "all-minilm": 384,
-    "qwen3-embedding": 768,
+    "qwen3-embedding": 1024,
     "embeddinggemma": 768,
 }
+
+# Asymmetric task prefix for Qwen3-Embedding queries
+CONST_QWEN3_EMBEDDING_QUERY_PREFIX: Final[str] = (
+    "Instruct: Given a code search query, retrieve relevant code or documentation\nQuery:"
+)
+
+# Known lockfile basenames skipped by RAG indexer
+CONST_RAG_SKIPPED_LOCKFILES: Final[frozenset[str]] = frozenset(
+    {"package-lock.json", "pnpm-lock.yaml", "go.sum"}
+)
+
+# Safety limit for maximum chunk size in estimated tokens sent to embedding models
+CONST_RAG_MAX_CHUNK_TOKENS: Final[int] = 8192
+
+# Consecutive transient embedding failures before pausing RAG lookups
+CONST_RAG_CIRCUIT_BREAKER_FAILURES: Final[int] = 3
+
+# Duration in seconds to pause RAG lookups when circuit breaker opens
+CONST_RAG_CIRCUIT_BREAKER_PAUSE_SECONDS: Final[float] = 60.0
 
 # Helm releases that deploy DaemonSets across all cluster nodes
 CONST_HELM_DAEMONSET_RELEASES: Final[frozenset[str]] = frozenset(

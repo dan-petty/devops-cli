@@ -273,3 +273,86 @@ def test_indexing_text_the_model_cannot_embed_raises_and_stores_nothing(tmp_path
         [point for points in qdrant.collections.values() for point in points],
         indexer._load_cache(),
     ) == (engine.model, [], {})
+
+
+def test_indexer_skips_lockfiles(tmp_path: Path) -> None:
+    """The indexer skips uv.lock, other *.lock files, package-lock.json, pnpm-lock.yaml and go.sum."""
+    from devops_cli.ai.rag.indexer import _is_indexable_file
+
+    lockfiles = [
+        tmp_path / "uv.lock",
+        tmp_path / "Cargo.lock",
+        tmp_path / "poetry.lock",
+        tmp_path / "package-lock.json",
+        tmp_path / "pnpm-lock.yaml",
+        tmp_path / "go.sum",
+    ]
+    for lf in lockfiles:
+        lf.write_text("lock content", encoding="utf-8")
+        assert _is_indexable_file(lf, tmp_path) is False
+
+    valid_file = tmp_path / "regular.py"
+    valid_file.write_text("print('hello')", encoding="utf-8")
+    assert _is_indexable_file(valid_file, tmp_path) is True
+
+
+def test_failed_second_batch_ends_with_exit_1_and_preserves_first_batch(tmp_path: Path) -> None:
+    """A failed batch ends index with exit 1 naming first and last file, while earlier batches stay cached for resume."""
+    from typing import Any
+
+    from devops_cli.config.constants import CONST_EXIT_FAILURE
+
+    file_a = tmp_path / "file_a.py"
+    file_b = tmp_path / "file_b.py"
+    file_c = tmp_path / "file_c.py"
+    file_a.write_text("def a(): pass\n", encoding="utf-8")
+    file_b.write_text("def b(): pass\n", encoding="utf-8")
+    file_c.write_text("def c(): pass\n", encoding="utf-8")
+
+    qdrant = FakeQdrantClient()
+    cache_dir = tmp_path / ".cache"
+    cache_dir.mkdir()
+
+    batch_calls = 0
+
+    class StubFailingSecondBatchEmbedder:
+        model = "test-model"
+        batch_size = 1
+
+        def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
+            nonlocal batch_calls
+            batch_calls += 1
+            if batch_calls == 2:
+                raise RuntimeError("Gateway 504 Gateway Timeout")
+            return [[0.1] * 8 for _ in texts]
+
+    embedder = StubFailingSecondBatchEmbedder()
+    indexer = WorkspaceIndexer(qdrant=qdrant, embedder=embedder, cache_dir=cache_dir)  # type: ignore[arg-type]
+
+    with pytest.raises(EmbeddingsError) as exc_info:
+        indexer.index_workspace(tmp_path, include_kb=False)
+
+    assert (
+        exc_info.value.exit_code == CONST_EXIT_FAILURE
+        and "Failed to embed batch from" in exc_info.value.message
+        and "Gateway 504 Gateway Timeout" in exc_info.value.message
+    )
+
+    cached = indexer._load_cache()
+    assert len(cached) == 1
+    assert "file_a.py" in next(iter(cached.keys()))
+
+    embedder_recovered = StubFailingSecondBatchEmbedder()
+
+    def fake_embed(texts: list[str], **kwargs: Any) -> list[list[float]]:
+        return [[0.2] * 8 for _ in texts]
+
+    embedder_recovered.embed_texts = fake_embed  # type: ignore[method-assign]
+    indexer_resume = WorkspaceIndexer(
+        qdrant=qdrant,
+        embedder=embedder_recovered,
+        cache_dir=cache_dir,  # type: ignore[arg-type]
+    )
+
+    result = indexer_resume.index_workspace(tmp_path, include_kb=False, force=False)
+    assert (result["indexed_files"], result["skipped_files"]) == (2, 1)
