@@ -12,8 +12,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Every reported review finding is admitted with its producer's anchor (`ToolAnchor` or `AdvisoryAnchor`) and a location validated against the reviewed commit in `devops_cli.review.admission.admit()`, writing `findings.sarif` and rendering introduced, pre-existing, and suppressed findings in `review.md` (#871).
 - Increase in-cluster `roadmap-service` analysis task context window in `k8s/devops/configmap.example.yaml` from 16k (`16384`) to 64k (`65536`) tokens (#1271).
-- Add `devops k8s argocd-source` CLI command and `devops_cli.k8s.argocd_source` module to generate gitignored `.argocd-source.yaml` parameter overrides for Argo CD across `devops` and `ingress` applications with local development service configuration and cluster domain host overrides, eliminating cluster drift without checking personal configurations into git (#1279).
-
 
 ### Changed
 - Unify pull request check runs and commit status contexts retrieval into a single fail-closed reader supporting combined statuses across >30 contexts and reporting zero checks as pending across `pr wait`, monitor, and readiness (#769).
@@ -44,7 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Track `main` across all Argo CD git-source `targetRevision` fields under `k8s/argocd/` while retaining the release version pin for the service image in `k8s/devops/kustomization.yaml` (#1261).
 - Fix Portkey AI Gateway liveness and readiness probe path to `/` and align GPU Feature Discovery image to `nvcr.io/nvidia/k8s-device-plugin:v0.16.2` (#1267).
 - Disable ambient Logfire pytest plugins in test runner configuration to prevent network DNS lookups in dry-run tests (#1267).
-- Resolve Argo CD application synchronization and manifest generation failures: specify valid port `number: 3100` for `loki-ingress`, deduplicate Grafana dashboard ConfigMap ownership between `base` and `monitoring`, remove redundant `Service/pyroscope` alias colliding with the Pyroscope Helm chart, and track generic base manifests and overlays in git without hardcoding private domain configurations (#1279).
+- Resolve Argo CD application synchronization and manifest generation failures: specify valid port `number: 3100` for `loki-ingress`, deduplicate Grafana dashboard ConfigMap ownership between `base` and `monitoring`, remove redundant `Service/pyroscope` alias colliding with the Pyroscope Helm chart, and remove the homelab domain from the committed overlays (#1279).
+- Supply the homelab's values to Argo CD at deploy time instead of from the repository (#1290):
+  - `devops k8s deploy-stack` renders ConfigMap `devops-cli-config` from `config.yaml`, outside any Application.
+  - It writes the hosts each of the Applications `devops` and `ingress` renders, at the revision Argo CD builds (or `--argocd-revision`), onto the Application as Kustomize patches. The `cluster` app-of-apps ignores those patches.
+  - It renders everything before it writes, and refuses an unset service setting or domain by name.
+  - `teardown-stack` deletes the ConfigMap, and the repository no longer tracks `k8s/devops/configmap.yaml`.
 
 ### Security
 - Redact secret-bearing argv items from async subprocess telemetry command summaries and terminate the entire POSIX process group on subprocess timeouts (#780).
