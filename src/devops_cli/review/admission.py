@@ -31,6 +31,7 @@ def _record_rejection(counts: dict[str, int] | None, reason: str) -> None:
 def _check_suppressions(
     *,
     suppressions: Sequence[ReviewSuppression] | None,
+    tool: str,
     rule_id: str,
     path: str,
     fingerprint: str,
@@ -51,7 +52,7 @@ def _check_suppressions(
     if line is not None and file_content:
         file_lines = file_content.splitlines()
         has_marker, added_by_change = check_inline_marker_in_diff(
-            path, line, added_diff_lines or set(), file_lines
+            path, line, added_diff_lines or set(), file_lines, tool
         )
         if has_marker:
             if added_by_change:
@@ -162,6 +163,7 @@ def admit(
 
     state, supp_reason, supp_expiry, supp_by_change = _check_suppressions(
         suppressions=suppressions,
+        tool=tool,
         rule_id=rule_id,
         path=loc_res.normalized_path,
         fingerprint=fp_v2,

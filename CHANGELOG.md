@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.28] - 2026-10-07
 
 ### Added
-- Every reported scanner finding and dependency advisory is admitted with its producer's anchor (`ToolAnchor` or `AdvisoryAnchor`) and a location validated against the reviewed commit in `devops_cli.review.admission.admit()`, writing `findings.sarif` and rendering introduced, pre-existing, and suppressed findings in `review.md`, one suppressed row per file and line, with admission rejections counted by type in `profile.json`; findings from the review's models are not admitted (#871, #1295).
+- Every reported scanner finding and dependency advisory is admitted with its producer's anchor (`ToolAnchor` or `AdvisoryAnchor`) and a location validated against the reviewed commit in `devops_cli.review.admission.admit()`, writing `findings.sarif` and rendering introduced, pre-existing, and suppressed findings in `review.md`, one suppressed row per file and line, with admission rejections counted by type in `profile.json`; an inline marker suppresses only findings of its own tool (`nosec` for Bandit, `nosemgrep` or `no-semgrep` for Semgrep, `noqa` for Ruff), and findings from the review's models are not admitted (#871, #1295, #1341).
 - Increase in-cluster `roadmap-service` analysis task context window in `k8s/devops/configmap.example.yaml` from 16k (`16384`) to 64k (`65536`) tokens (#1271).
 
 ### Changed

@@ -675,6 +675,12 @@ CONST_K8S_SUBDOMAIN_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9.\-]{0,2
 CONST_K8S_NODE_ROLE_LABEL_PREFIX = "node-role.kubernetes.io/"
 CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER: Final[str] = "example.com"
 CONST_K8S_TEMPLATE_DOMAIN_VARS: Final[tuple[str, ...]] = ("DOMAIN", "K8S_DOMAIN")
+CONST_INLINE_SUPPRESSION_MARKERS: Final[dict[str, tuple[str, ...]]] = {
+    "bandit": ("nosec",),
+    "semgrep": ("nosemgrep", "no-semgrep"),
+    "ruff": ("noqa",),
+}
+"""The inline markers each review tool honours; a tool not listed has none (#1341)."""
 CONST_RAG_INCOMPLETE_FILE_MARKER: Final[str] = "incomplete"
 """The RAG cache entry of a file only some of whose chunks are stored; it matches no content hash."""
 CONST_K8S_DEVOPS_CONFIGMAP: Final[str] = "devops-cli-config"
