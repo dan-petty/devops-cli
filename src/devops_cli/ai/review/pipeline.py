@@ -607,18 +607,25 @@ def _admit_single_candidate(
     path_classes: Mapping[str, Sequence[str]] | None = None,
     suppressions: Sequence[Any] | None = None,
     added_diff_lines: set[tuple[str, int]] | None = None,
+    base_fingerprints: set[str] | None = None,
 ) -> tuple[Any | None, SavedFinding | None]:
     """Admit a single scanner finding candidate into a frozen finding (#871)."""
     from devops_cli.review.admission import admit
-    from devops_cli.review.anchors import ToolAnchor
+    from devops_cli.review.anchors import AdvisoryAnchor, ToolAnchor
     from devops_cli.security.normalization import extract_rule_id, strip_rule_prefix
 
     raw_path, s_line, e_line, logical_loc = _parse_candidate_location(sf.location)
     tool = getattr(sf, "_tool", None) or "scanner"
-    r_id = extract_rule_id(sf.title, tool)
-    msg = strip_rule_prefix(sf.title) or sf.description or sf.title
+    anchor = getattr(sf, "_anchor", None)
+    if anchor is not None and isinstance(anchor, AdvisoryAnchor):
+        r_id = anchor.advisory_id
+        tool = getattr(sf, "_tool", None) or anchor.db
+    else:
+        r_id = extract_rule_id(sf.title, tool)
+        if anchor is None:
+            anchor = ToolAnchor(run_id=session_id, result_index=idx, rule_id=r_id)
 
-    anchor = ToolAnchor(run_id=session_id, result_index=idx, rule_id=r_id)
+    msg = strip_rule_prefix(sf.title) or sf.description or sf.title
     admitted = admit(
         anchor=anchor,
         tool=tool,
@@ -637,6 +644,7 @@ def _admit_single_candidate(
         path_classes=path_classes,
         suppressions=suppressions,
         added_diff_lines=added_diff_lines,
+        base_fingerprints=base_fingerprints,
     )
     if admitted is None:
         return None, None
@@ -655,6 +663,7 @@ def _admit_scanner_findings(
     path_classes: Mapping[str, Sequence[str]] | None = None,
     suppressions: Sequence[Any] | None = None,
     added_diff_lines: set[tuple[str, int]] | None = None,
+    base_fingerprints: set[str] | None = None,
 ) -> tuple[list[Any], list[SavedFinding]]:
     """Admit static scanner candidates into frozen review findings (#871)."""
     commit_files = _collect_scanner_commit_files(
@@ -686,6 +695,7 @@ def _admit_scanner_findings(
             path_classes=path_classes,
             suppressions=suppressions,
             added_diff_lines=added_diff_lines,
+            base_fingerprints=base_fingerprints,
         )
         if frozen is not None and saved is not None:
             admitted_frozen.append(frozen)
@@ -772,13 +782,40 @@ def _is_exact_version(version: str | None, ecosystem: str) -> bool:
 
 
 def _build_vulnerability_finding(
-    fpath: str, dep: DependencySpec, v: VulnerabilityRecord
+    fpath: str,
+    dep: DependencySpec,
+    v: VulnerabilityRecord,
+    *,
+    session_id: str = "advisory",
 ) -> SavedFinding:
-    """Build a verified SavedFinding for an identified vulnerable package dependency."""
+    """Build a verified SavedFinding with AdvisoryAnchor for a vulnerable dependency (#871)."""
+    from devops_cli.review.anchors import AdvisoryAnchor
+
+    eco_map = {
+        "pypi": "pypi",
+        "npm": "npm",
+        "crates.io": "cargo",
+        "go": "golang",
+    }
+    eco_norm = (dep.ecosystem or "").strip().lower()
+    purl_type = eco_map.get(eco_norm, eco_norm or "generic")
+    ver = (dep.version_range or "").lstrip("= ").strip() or "unknown"
+    purl = (
+        f"pkg:{purl_type}/{dep.name}@{ver}" if ver != "unknown" else f"pkg:{purl_type}/{dep.name}"
+    )
+
+    anchor = AdvisoryAnchor(
+        db=v.source or "OSV",
+        snapshot=getattr(v, "snapshot", "") or session_id or "default",
+        advisory_id=v.id,
+        purl=purl,
+        locked_version=ver,
+    )
+    line_num = dep.line_number if dep.line_number and dep.line_number > 0 else 1
     desc = f"Dependency '{dep.name}' ({dep.version_range}) is affected by {v.id}: {v.summary}"
     finding = SavedFinding(
         severity=v.severity,
-        location=f"{fpath}:1",
+        location=f"{fpath}:{line_num}",
         title=f"Vulnerable Dependency: {dep.name} ({v.id})",
         description=desc,
         fix=f"Upgrade '{dep.name}' to a patched release.",
@@ -790,6 +827,8 @@ def _build_vulnerability_finding(
         persona="devsecops",
         persona_title="Principal DevSecOps Engineer",
     )
+    setattr(finding, "_tool", (v.source or "OSV").lower())
+    setattr(finding, "_anchor", anchor)
     return apply_verdict(finding, "VERIFIED", by="deterministic:vulnerable_dependency")
 
 
@@ -2041,6 +2080,213 @@ def _resolve_review_added_diff_lines(
     return eff
 
 
+def _classify_scanner_files(
+    all_resolved: Sequence[Path],
+    secret_paths: Sequence[Path],
+    path_classes: Mapping[str, Sequence[str]] | None = None,
+) -> dict[str, list[Path]]:
+    """Group resolved candidate file paths by static analyzer domain (#871)."""
+    py_paths = [
+        p for p in all_resolved if p.suffix == ".py" and not is_fixture_path(p, path_classes)
+    ]
+    yaml_paths = [
+        p
+        for p in all_resolved
+        if p.suffix in (".yaml", ".yml")
+        and _is_scannable_manifest(p)
+        and not is_fixture_path(p, path_classes)
+    ]
+    lockfiles = _lockfiles_beside(list(all_resolved))
+    docker_lock_paths = sorted(
+        {
+            p
+            for p in all_resolved
+            if (
+                p.name.lower() in ("dockerfile", "containerfile") or p.suffix in (".lock", ".lockb")
+            )
+            and not is_fixture_path(p, path_classes)
+        }
+        | {p for p in lockfiles if not is_fixture_path(p, path_classes)}
+    )
+    semgrep_paths = [p for p in all_resolved if not is_fixture_path(p, path_classes)]
+    return {
+        "python": py_paths,
+        "yaml": yaml_paths,
+        "container": docker_lock_paths,
+        "any": semgrep_paths,
+        "secrets": list(all_resolved) + list(secret_paths),
+    }
+
+
+def _run_scanners_for_files(
+    files_by_kind: dict[str, list[Path]],
+    *,
+    tree: Path | None = None,
+    observed_outcomes: dict[str, Any] | None = None,
+) -> list[SavedFinding]:
+    """Execute Bandit, Kube-linter/Pluto, Trivy, Secrets, and Semgrep scanners (#871)."""
+    from devops_cli.security.bandit import run_bandit_scan
+
+    outcomes = observed_outcomes if observed_outcomes is not None else {}
+    findings: list[SavedFinding] = []
+    py_paths = files_by_kind.get("python", [])
+    if py_paths:
+        bandit_res = run_bandit_scan(py_paths, isolated=True)
+        if observed_outcomes is not None:
+            _observe_outcome(outcomes, "Bandit", bandit_res)
+        findings.extend(_wrap_static_findings(bandit_res, tool="bandit"))
+
+    yaml_paths = files_by_kind.get("yaml", [])
+    if yaml_paths:
+        findings.extend(_call_scanner_helper(_scan_kubernetes_manifests, yaml_paths, outcomes))
+
+    docker_lock_paths = files_by_kind.get("container", [])
+    if docker_lock_paths:
+        findings.extend(
+            _call_scanner_helper(_scan_container_and_lockfiles, docker_lock_paths, outcomes)
+        )
+
+    secret_paths = files_by_kind.get("secrets", [])
+    if secret_paths:
+        findings.extend(_call_scanner_helper(_scan_secrets, secret_paths, outcomes))
+
+    semgrep_paths = files_by_kind.get("any", [])
+    if semgrep_paths and tree is not None:
+        findings.extend(_scan_semgrep(semgrep_paths, outcomes, tree=tree))
+
+    return findings
+
+
+def _write_base_revision_files(
+    base_revision: Any,
+    tmp_root: Path,
+    candidates: set[str],
+) -> list[str]:
+    """Write base revision file contents to temporary root directory."""
+    written: list[str] = []
+    for fp in candidates:
+        clean = Path(fp).as_posix().lstrip("/")
+        if not clean:
+            continue
+        try:
+            content = base_revision.read(clean)
+            if content is not None:
+                dest = tmp_root / clean
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(content, encoding="utf-8", errors="replace")
+                written.append(clean)
+        except Exception:
+            continue
+    return written
+
+
+def _write_base_revision_lockfiles(
+    base_revision: Any,
+    tmp_root: Path,
+    written_paths: list[str],
+) -> list[str]:
+    """Populate base revision lockfiles beside written files."""
+    dirs = {Path(p).parent for p in written_paths}
+    extra_lockfiles: list[str] = []
+    for d in dirs:
+        for lf_name in CONST_REVIEW_GENERATED_FILES:
+            lf_rel = (d / lf_name).as_posix().lstrip("./")
+            if lf_rel in written_paths or lf_rel in extra_lockfiles:
+                continue
+            try:
+                lf_content = base_revision.read(lf_rel)
+                if lf_content is not None:
+                    lf_dest = tmp_root / lf_rel
+                    lf_dest.parent.mkdir(parents=True, exist_ok=True)
+                    lf_dest.write_text(lf_content, encoding="utf-8", errors="replace")
+                    extra_lockfiles.append(lf_rel)
+            except Exception:
+                continue
+    return extra_lockfiles
+
+
+def _collect_base_revision_fingerprints(
+    base_revision: Any,
+    *,
+    file_paths: Sequence[str],
+    secret_scan_files: Sequence[str],
+    path_classes: Mapping[str, Sequence[str]] | None = None,
+) -> set[str]:
+    """Scan base revision files to collect pre-existing finding fingerprints (#871)."""
+    if base_revision is None or not getattr(base_revision, "read", None):
+        return set()
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="devops-base-rev-") as tmp_dir_str:
+        tmp_root = Path(tmp_dir_str)
+        candidates = set(file_paths) | set(secret_scan_files)
+        written = _write_base_revision_files(base_revision, tmp_root, candidates)
+        if not written:
+            return set()
+
+        written.extend(_write_base_revision_lockfiles(base_revision, tmp_root, written))
+        base_resolved = [tmp_root / p for p in written if (tmp_root / p).is_file()]
+        base_secrets = [tmp_root / p for p in secret_scan_files if (tmp_root / p).is_file()]
+
+        files_by_kind = _classify_scanner_files(base_resolved, base_secrets, path_classes)
+        base_findings = _run_scanners_for_files(files_by_kind, tree=tmp_root)
+
+        base_admitted, _ = _admit_scanner_findings(
+            base_findings,
+            session_id="base-revision",
+            worktree_root=tmp_root,
+            file_paths=written,
+            secret_scan_files=[],
+            resolve_file_path=lambda p: tmp_root / p,
+            path_classes=path_classes,
+        )
+        return {bf.fingerprint_v2 for bf in base_admitted if getattr(bf, "fingerprint_v2", None)}
+
+
+def _audit_single_dep(
+    dep: DependencySpec,
+    dep_cache: dict[tuple[str, str, str], Any],
+) -> list[VulnerabilityRecord]:
+    """Audit a single dependency against cache, update its status, and return vulns."""
+    d_key = (dep.name, dep.version_range, dep.ecosystem)
+    if d_key not in dep_cache:
+        dep.queried = False
+        dep.severity = "UNCHECKED"
+        dep.security_status = "Not Queried"
+        return []
+
+    entry = dep_cache[d_key]
+    is_pkg_res = isinstance(entry, PackageLookupResult)
+    lookup_status = entry.status if is_pkg_res else "ok"
+    raw_vulns = entry.vulnerabilities if is_pkg_res else entry
+    vulns: list[VulnerabilityRecord] = (
+        list(raw_vulns) if isinstance(raw_vulns, (list, tuple)) else []
+    )
+
+    if lookup_status != "ok":
+        dep.queried = False
+        dep.severity = "UNCHECKED"
+        dep.security_status = "Lookup Failed"
+        return []
+
+    dep.queried = True
+    if not vulns:
+        dep.severity = "CLEAN"
+        dep.security_status = "✓ Clean"
+        return []
+
+    dep.vulnerabilities = vulns
+    highest_sev = max(
+        (v.severity.upper() for v in vulns),
+        key=lambda s: _SEV_ORDER.get(s, 0),
+        default="MEDIUM",
+    )
+    dep.severity = highest_sev
+    dep.security_status = f"⚠️ {len(vulns)} Known Vuln(s) [{highest_sev}]"
+    return vulns
+
+
 class ReviewPipelineOrchestrator:
     """Orchestrates 6-stage multi-agent code reviews with per-file payloads and AI scratchpads."""
 
@@ -2110,6 +2356,7 @@ class ReviewPipelineOrchestrator:
         # The advisories the static analyzers looked up, which verification counts as scanned.
         self.scanner_advisories: list[DependencySpec] = []
         self.admitted_scanner_findings: list[Any] = []
+        self.base_fingerprints: set[str] = set()
         self.suppressions: list[Any] = []
         try:
             import tomllib
@@ -2304,79 +2551,38 @@ class ReviewPipelineOrchestrator:
         all_static_findings: list[SavedFinding] = []
         n_paths = len(file_paths)
         try:
-            from devops_cli.security.bandit import run_bandit_scan
-
             print_info("  • Running static security analyzers...", prefix=False)
 
             with trace_span(
                 "security.static_scanners", attributes={"file_count": n_paths}
             ) as sc_span:
                 all_resolved = [self._resolve_file_path(f) for f in file_paths]
-
                 observed_outcomes: dict[str, Any] = {}
-
-                # 1. Batch Bandit scan for Python files
-                py_paths = [
-                    p
-                    for p in all_resolved
-                    if p.suffix == ".py" and not is_fixture_path(p, self.path_classes)
-                ]
-                if py_paths:
-                    bandit_res = run_bandit_scan(py_paths, isolated=True)
-                    _observe_outcome(observed_outcomes, "Bandit", bandit_res)
-                    all_static_findings.extend(_wrap_static_findings(bandit_res, tool="bandit"))
-
-                # 2. Pluto & Kube-linter scan for Kubernetes manifests
-                yaml_paths = [
-                    p
-                    for p in all_resolved
-                    if p.suffix in (".yaml", ".yml")
-                    and _is_scannable_manifest(p)
-                    and not is_fixture_path(p, self.path_classes)
-                ]
-                all_static_findings.extend(
-                    _call_scanner_helper(_scan_kubernetes_manifests, yaml_paths, observed_outcomes)
+                files_by_kind = _classify_scanner_files(
+                    all_resolved,
+                    [self._resolve_file_path(f) for f in self.secret_scan_files],
+                    self.path_classes,
                 )
+                py_paths = files_by_kind["python"]
+                yaml_paths = files_by_kind["yaml"]
+                docker_lock_paths = files_by_kind["container"]
 
-                # 3. Aqua Trivy scan for Dockerfiles and lockfiles
-                docker_lock_paths = sorted(
-                    {
-                        p
-                        for p in all_resolved
-                        if (
-                            p.name.lower() in ("dockerfile", "containerfile")
-                            or p.suffix in (".lock", ".lockb")
-                        )
-                        and not is_fixture_path(p, self.path_classes)
-                    }
-                    | {
-                        p
-                        for p in _lockfiles_beside(all_resolved)
-                        if not is_fixture_path(p, self.path_classes)
-                    }
-                )
                 all_static_findings.extend(
-                    _call_scanner_helper(
-                        _scan_container_and_lockfiles, docker_lock_paths, observed_outcomes
+                    _run_scanners_for_files(
+                        files_by_kind,
+                        tree=reviewed_tree(self.target_dir),
+                        observed_outcomes=observed_outcomes,
                     )
                 )
 
-                # 4. Gitleaks over the reviewed files and those kept off persona pages; Semgrep
-                # over the reviewed files
-                secret_paths = all_resolved + [
-                    self._resolve_file_path(f) for f in self.secret_scan_files
-                ]
-                all_static_findings.extend(
-                    _call_scanner_helper(_scan_secrets, secret_paths, observed_outcomes)
-                )
-                semgrep_paths = [
-                    p for p in all_resolved if not is_fixture_path(p, self.path_classes)
-                ]
-                all_static_findings.extend(
-                    _scan_semgrep(
-                        semgrep_paths, observed_outcomes, tree=reviewed_tree(self.target_dir)
+                if self.base_revision is not None:
+                    self.base_fingerprints = _collect_base_revision_fingerprints(
+                        self.base_revision,
+                        file_paths=file_paths,
+                        secret_scan_files=self.secret_scan_files,
+                        path_classes=self.path_classes,
                     )
-                )
+
                 eff_added = (
                     added_diff_lines
                     if added_diff_lines is not None
@@ -2392,17 +2598,12 @@ class ReviewPipelineOrchestrator:
                     path_classes=self.path_classes,
                     suppressions=getattr(self, "suppressions", None),
                     added_diff_lines=eff_added,
+                    base_fingerprints=getattr(self, "base_fingerprints", None),
                 )
                 self.admitted_scanner_findings = admitted_frozen
                 all_static_findings = admitted_saved
                 self._record_static_analyzers(
-                    {
-                        "python": py_paths,
-                        "yaml": yaml_paths,
-                        "container": docker_lock_paths,
-                        "any": semgrep_paths,
-                        "secrets": secret_paths,
-                    },
+                    files_by_kind,
                     observed_outcomes=observed_outcomes,
                 )
                 self.static_severities = Counter(f.severity for f in all_static_findings)
@@ -2644,6 +2845,63 @@ class ReviewPipelineOrchestrator:
                     break
         return linked
 
+    def _admit_advisory_finding(
+        self,
+        raw_finding: SavedFinding,
+        fpath: str,
+        wt_root: Path,
+    ) -> tuple[Any | None, SavedFinding | None]:
+        """Attempt to admit an advisory finding candidate against the active worktree."""
+
+        def _read_content(path_str: str) -> str | None:
+            p = wt_root / path_str
+            if not p.is_file():
+                p = self._resolve_file_path(path_str)
+            try:
+                if p.is_file():
+                    return p.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                return None
+            return None
+
+        idx = len(getattr(self, "admitted_scanner_findings", []))
+        return _admit_single_candidate(
+            raw_finding,
+            idx,
+            session_id=getattr(self, "session_id", "advisory"),
+            worktree_root=wt_root,
+            commit_files={fpath, Path(fpath).as_posix().lstrip("/")},
+            file_content_getter=_read_content,
+            path_classes=getattr(self, "path_classes", None),
+            suppressions=getattr(self, "suppressions", None),
+            added_diff_lines=getattr(self, "added_diff_lines", None),
+            base_fingerprints=getattr(self, "base_fingerprints", None),
+        )
+
+    def _audit_dep_vulnerability(
+        self,
+        fpath: str,
+        dep: DependencySpec,
+        v: VulnerabilityRecord,
+        *,
+        wt_root: Path | None,
+        has_file: bool,
+    ) -> SavedFinding:
+        """Build and admit a single dependency vulnerability candidate (#871)."""
+        raw = _build_vulnerability_finding(
+            fpath, dep, v, session_id=getattr(self, "session_id", "advisory")
+        )
+        if not (has_file and wt_root is not None):
+            return raw
+
+        frozen, admitted_sf = self._admit_advisory_finding(raw, fpath, wt_root)
+        if frozen is None or admitted_sf is None:
+            return raw
+
+        if hasattr(self, "admitted_scanner_findings"):
+            self.admitted_scanner_findings.append(frozen)
+        return admitted_sf
+
     def _audit_file_dependencies(
         self,
         fpath: str,
@@ -2652,39 +2910,14 @@ class ReviewPipelineOrchestrator:
     ) -> list[SavedFinding]:
         """Audit dependencies against vulnerability cache and return any vulnerability findings."""
         findings: list[SavedFinding] = []
-        for dep in file_deps:
-            d_key = (dep.name, dep.version_range, dep.ecosystem)
-            if d_key in dep_cache:
-                entry = dep_cache[d_key]
-                is_pkg_res = isinstance(entry, PackageLookupResult)
-                lookup_status = entry.status if is_pkg_res else "ok"
-                vulns = entry.vulnerabilities if is_pkg_res else entry
-                if lookup_status == "ok":
-                    dep.queried = True
-                    if vulns:
-                        dep.vulnerabilities = vulns
-                        highest_sev = max(
-                            (v.severity.upper() for v in vulns),
-                            key=lambda s: _SEV_ORDER.get(s, 0),
-                            default="MEDIUM",
-                        )
-                        dep.severity = highest_sev
-                        dep.security_status = f"⚠️ {len(vulns)} Known Vuln(s) [{highest_sev}]"
-                    else:
-                        dep.severity = "CLEAN"
-                        dep.security_status = "✓ Clean"
-                else:
-                    dep.queried = False
-                    dep.severity = "UNCHECKED"
-                    dep.security_status = "Lookup Failed"
-                    vulns = []
-            else:
-                dep.queried = False
-                dep.severity = "UNCHECKED"
-                dep.security_status = "Not Queried"
-                vulns = []
+        wt_root = reviewed_tree(self.target_dir) if getattr(self, "target_dir", None) else None
+        has_file = wt_root is not None and (wt_root / fpath).is_file()
 
-            findings.extend(_build_vulnerability_finding(fpath, dep, v) for v in vulns)
+        for dep in file_deps:
+            for v in _audit_single_dep(dep, dep_cache):
+                findings.append(
+                    self._audit_dep_vulnerability(fpath, dep, v, wt_root=wt_root, has_file=has_file)
+                )
         return findings
 
     def _audit_file_network_references(
