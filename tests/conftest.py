@@ -486,11 +486,20 @@ def guard_live_rag_data() -> None:
     orig_init = QdrantClient.__init__
     orig_native_init = NativeQdrantClient.__init__
 
+    cfg_domain = ""
+    try:
+        from devops_cli.config.settings import load_settings
+
+        s = load_settings()
+        cfg_domain = (getattr(getattr(s, "k8s", None), "domain", None) or "").strip().lower()
+    except Exception:
+        pass
+
     def guarded_init(
         self, base_url: str = "http://localhost:6333", *args: Any, **kwargs: Any
     ) -> None:
         url_str = str(base_url).lower()
-        if "retric.click" in url_str:
+        if cfg_domain and cfg_domain in url_str:
             raise RuntimeError(
                 f"Test attempted to connect to live Qdrant endpoint: {base_url}. "
                 "Tests must use localhost, example.com, or mocks."
@@ -500,7 +509,7 @@ def guard_live_rag_data() -> None:
     def guarded_native_init(self, *args: Any, **kwargs: Any) -> None:
         raw_url = kwargs.get("url") or (args[0] if args else "")
         url_str = str(raw_url).lower()
-        if "retric.click" in url_str:
+        if cfg_domain and cfg_domain in url_str:
             raise RuntimeError(
                 f"Test attempted to connect to live Qdrant endpoint: {raw_url}. "
                 "Tests must use localhost, example.com, or mocks."

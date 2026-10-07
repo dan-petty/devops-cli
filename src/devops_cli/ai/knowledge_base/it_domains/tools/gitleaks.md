@@ -9,7 +9,7 @@
 ## 2. Usage Information & Architecture
 
 - **Sub-Millisecond Secret Detection**: Scans files, commits, and diffs for hundreds of known secret patterns (AWS, GitHub, Slack, OpenAI, Stripe, RSA private keys).
-- **Graceful Fallback**: When the `gitleaks` binary is not installed on the system, DevOps CLI executes a high-precision built-in regex secret detector.
+- **Graceful Fallback**: When the `gitleaks` binary is not installed on the system, DevOps CLI reports 'not installed'.
 - **Stage 2 Review Injection**: Automatically runs during Stage 2 review payload initialization (`_run_static_scanners`), pre-populating findings.
 - **Agent & MCP Tool**: Exposes `scan_gitleaks` to AI personas and FastMCP servers.
 

@@ -11,7 +11,6 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.scan import app as scan_app
 from devops_cli.security.gitleaks import (
-    _scan_file_native_secrets,
     parse_gitleaks_json,
     run_gitleaks_scan,
 )
@@ -46,20 +45,13 @@ def test_parse_gitleaks_json() -> None:
     assert findings[1].severity == "CRITICAL"
 
 
-def test_run_gitleaks_scan_fallback_native(tmp_path: Path) -> None:
+def test_run_gitleaks_scan_missing_binary(tmp_path: Path) -> None:
     secret_file = tmp_path / "secret.env"
     secret_file.write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n", encoding="utf-8")
 
-    clean_file = tmp_path / "clean.py"
-    clean_file.write_text("def add(a: int, b: int) -> int:\n    return a + b\n", encoding="utf-8")
-
-    with patch("devops_cli.security.gitleaks.run_subprocess", side_effect=FileNotFoundError):
-        findings_secret = run_gitleaks_scan(secret_file)
-        assert len(findings_secret) >= 1
-        assert "AWS Access Key ID" in findings_secret[0].title
-
-        findings_clean = run_gitleaks_scan(clean_file)
-        assert len(findings_clean) == 0
+    with patch("devops_cli.security.base.check_binary", return_value=False):
+        outcome = run_gitleaks_scan(secret_file)
+        assert (outcome.status, len(outcome.findings)) == ("not installed", 0)
 
 
 def test_run_gitleaks_scan_dry_run(tmp_path: Path) -> None:
@@ -75,45 +67,31 @@ def test_scan_secrets_cli(tmp_path: Path) -> None:
         "API_TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz123456\n",
         encoding="utf-8",
     )
-
-    res_scan = runner.invoke(scan_app, ["secrets", str(secret_file)])
-    assert res_scan.exit_code == 0
-    assert "Gitleaks Secret Scan" in res_scan.stdout
-
-    res_json = runner.invoke(scan_app, ["secrets", str(secret_file), "--json"])
-    assert res_json.exit_code == 0
-    assert "GITLEAKS" in res_json.stdout
-
-
-def test_gitleaks_binary_and_all_secret_patterns(tmp_path: Path) -> None:
-    """Verify all native secret pattern recognizers and mocked binary JSON output."""
-    # 1. Test all native secret patterns
-    patterns_file = tmp_path / "all_secrets.txt"
-    dummy_openai = "sk-" + "0" * 48
-    dummy_slack = "xoxb-" + "1" * 10 + "-" + "2" * 12 + "-abc"
-    dummy_stripe = "sk" + "_test_" + "0" * 24
-    patterns_file.write_text(
-        f"OPENAI={dummy_openai}\n"
-        f"SLACK={dummy_slack}\n"
-        f"STRIPE={dummy_stripe}\n"
-        "KEY=-----BEGIN RSA PRIVATE KEY-----\n"
-        "MIIEowIBAAKCAQEA0...\n"
-        "-----END RSA PRIVATE KEY-----\n",
-        encoding="utf-8",
+    fake_json = """[
+        {
+            "RuleID": "github-pat",
+            "Description": "GitHub Personal Access Token",
+            "File": "creds.env",
+            "StartLine": 1,
+            "Match": "ghp_1234567890abcdefghijklmnopqrstuvwxyz123456"
+        }
+    ]"""
+    mock_proc = subprocess.CompletedProcess(
+        args=["gitleaks"], returncode=1, stdout=fake_json, stderr=""
     )
+    with patch("devops_cli.security.gitleaks.run_subprocess", return_value=mock_proc):
+        res_scan = runner.invoke(scan_app, ["secrets", str(secret_file)])
+        assert (res_scan.exit_code, "Gitleaks Secret Scan" in res_scan.stdout) == (0, True)
 
-    findings = _scan_file_native_secrets(patterns_file)
-    assert len(findings) >= 4
-    titles = [f.title for f in findings]
-    assert any("OpenAI" in t for t in titles)
-    assert any("Slack" in t for t in titles)
-    assert any("Stripe" in t for t in titles)
-    assert any("Private Key" in t for t in titles)
+        res_json = runner.invoke(scan_app, ["secrets", str(secret_file), "--json"])
+        assert (res_json.exit_code, "GITLEAKS" in res_json.stdout) == (0, True)
 
-    # Non-existent file
-    assert _scan_file_native_secrets(tmp_path / "nonexistent.txt") == []
 
-    # 2. Mock binary execution returning JSON
+def test_gitleaks_binary_mocked_execution(tmp_path: Path) -> None:
+    """Verify mocked binary JSON output parsing and location extraction."""
+    patterns_file = tmp_path / "all_secrets.txt"
+    patterns_file.write_text("KEY=fake\n", encoding="utf-8")
+
     fake_gitleaks_json = """[
         {
             "RuleID": "generic-api-key",
@@ -128,16 +106,7 @@ def test_gitleaks_binary_and_all_secret_patterns(tmp_path: Path) -> None:
     )
     with patch("devops_cli.security.gitleaks.run_subprocess", return_value=mock_proc):
         res_scan = run_gitleaks_scan([patterns_file])
-        assert len(res_scan) == 1
-        assert res_scan[0].location == "config/keys.env:5"
-
-    # Directory target fallback scan
-    dir_target = tmp_path / "scan_dir"
-    dir_target.mkdir()
-    (dir_target / "file1.txt").write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n", encoding="utf-8")
-    with patch("devops_cli.security.gitleaks.run_subprocess", side_effect=FileNotFoundError):
-        findings_dir = run_gitleaks_scan(dir_target)
-        assert len(findings_dir) >= 1
+        assert (len(res_scan), res_scan[0].location) == (1, "config/keys.env:5")
 
 
 def test_run_gitleaks_scan_ignore_tests(tmp_path: Path) -> None:
@@ -150,7 +119,20 @@ def test_run_gitleaks_scan_ignore_tests(tmp_path: Path) -> None:
     src_file = tmp_path / "src_auth.py"
     src_file.write_text("AWS_KEY=AKIAIOSFODNN7EXAMPLE\n", encoding="utf-8")
 
-    with patch("devops_cli.security.gitleaks.run_subprocess", side_effect=FileNotFoundError):
+    def fake_gitleaks(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        source = cmd[cmd.index("--source") + 1] if "--source" in cmd else str(tmp_path)
+        leaks = [
+            {
+                "RuleID": "aws-key",
+                "Description": "AWS Key",
+                "File": source,
+                "StartLine": 1,
+                "Match": "AKIAIOSFODNN7EXAMPLE",
+            }
+        ]
+        return subprocess.CompletedProcess(cmd, 1, stdout=json.dumps(leaks), stderr="")
+
+    with patch("devops_cli.security.gitleaks.run_subprocess", side_effect=fake_gitleaks):
         # Scanning test file directly with ignore_tests=True returns no findings
         res_test_ignored = run_gitleaks_scan(test_file, ignore_tests=True)
         assert len(res_test_ignored) == 0
@@ -159,10 +141,9 @@ def test_run_gitleaks_scan_ignore_tests(tmp_path: Path) -> None:
         res_test_included = run_gitleaks_scan(test_file, ignore_tests=False)
         assert len(res_test_included) >= 1
 
-        # Scanning directory containing both ignores the test file
-        res_dir = run_gitleaks_scan(tmp_path, ignore_tests=True)
-        assert len(res_dir) == 1
-        assert "src_auth.py" in res_dir[0].location
+        # Scanning list containing both ignores the test file
+        res_dir = run_gitleaks_scan([test_file, src_file], ignore_tests=True)
+        assert (len(res_dir), "src_auth.py" in res_dir[0].location) == (1, True)
 
 
 def test_run_gitleaks_scan_ignore_tests_windows_paths(tmp_path: Path) -> None:
@@ -198,45 +179,8 @@ def test_run_gitleaks_scan_ignore_tests_windows_paths(tmp_path: Path) -> None:
         assert len(res_all) == 2
 
 
-def test_gitleaks_native_word_boundary_and_placeholders(tmp_path: Path) -> None:
-    """Verify word boundaries prevent 'task-*.md' matches and placeholder secrets are filtered."""
-    from devops_cli.security.gitleaks import _is_placeholder_secret
-
-    # 1. Test placeholder secret filter
-    placeholders = [
-        "ghp_your_personal_access_token",
-        "sk-proj-placeholder_value_1234567890",
-        "dummy_secret_value_12345",
-        "api_key_insert_token_here_12345",
-        "<masked-secret>",
-    ]
-    actual_placeholders = tuple(_is_placeholder_secret(p) for p in placeholders)
-    assert actual_placeholders == (True, True, True, True, True)
-
-    # Real-looking token is not treated as a placeholder
-    real_candidate = "sk-proj-" + "aB3d" * 12
-    assert _is_placeholder_secret(real_candidate) is False
-
-    # 2. Test file with task markdown links and task filenames
-    task_file = tmp_path / "task-677-prepare-release-v0.2.23.md"
-    task_file.write_text(
-        "# Task 677: Prepare Release\n"
-        "Link: [task-677-prepare-release-v0.2.23.md](file:///workspaces/devops-cli/docs/agent/tasks/task-677-prepare-release-v0.2.23.md)\n"
-        "Placeholder: ghp_your_personal_access_token\n",
-        encoding="utf-8",
-    )
-    task_findings = _scan_file_native_secrets(task_file)
-    assert len(task_findings) == 0
-
-    # 3. Test genuine OpenAI key is detected
-    secret_file = tmp_path / "real_key.env"
-    secret_file.write_text(f"OPENAI_KEY={real_candidate}\n", encoding="utf-8")
-    secret_findings = _scan_file_native_secrets(secret_file)
-    assert (len(secret_findings), "OpenAI" in secret_findings[0].title) == (1, True)
-
-
-def test_run_gitleaks_scan_list_target_scans_every_file_without_binary(tmp_path: Path) -> None:
-    """Built-in patterns cover every file of a list target, not only the first."""
+def test_run_gitleaks_scan_list_target_without_binary(tmp_path: Path) -> None:
+    """Missing binary reports not installed with empty findings."""
     clean = tmp_path / "clean.py"
     clean.write_text("def add(a: int, b: int) -> int:\n    return a + b\n", encoding="utf-8")
     secret = tmp_path / "secret.env"
@@ -245,8 +189,7 @@ def test_run_gitleaks_scan_list_target_scans_every_file_without_binary(tmp_path:
     with patch("devops_cli.security.base.check_binary", return_value=False):
         outcome = run_gitleaks_scan([clean, secret])
 
-    assert outcome.status == "built-in patterns"
-    assert [f.location for f in outcome.findings] == [f"{secret}:1"]
+    assert (outcome.status, len(outcome.findings)) == ("not installed", 0)
 
 
 def test_run_gitleaks_scan_list_target_runs_binary_on_every_file(tmp_path: Path) -> None:

@@ -12,6 +12,10 @@ import shlex
 from collections.abc import Sequence
 from pathlib import Path
 
+from devops_cli.config.constants import (
+    CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS,
+    CONST_HANDWRITTEN_DOCS_PATHS,
+)
 from devops_cli.core.repo import find_repo_root
 from devops_cli.docs.command_resolver import ArgvPlaceholder, ArgvToken
 from devops_cli.docs.mcp_argv_collector import DevopsArgvReference, describe_unresolved_references
@@ -25,7 +29,9 @@ _KNOWLEDGE_BASE_SUBDIR = Path("src/devops_cli/ai/knowledge_base")
 
 def is_placeholder(token: str) -> bool:
     """Whether a token represents a computed expression or placeholder."""
-    if token == "...":
+    if token in CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS:
+        return True
+    if token.startswith("[") or token.endswith("]"):
         return True
     return (
         ("<" in token and ">" in token)
@@ -178,4 +184,31 @@ def collect_knowledge_base_argv_references(
 def check_knowledge_base_argv(root_dir: Path | None = None) -> list[str]:
     """Describe every knowledge base command line that fails CLI resolution."""
     references = collect_knowledge_base_argv_references(root_dir)
+    return describe_unresolved_references(references)
+
+
+def collect_handwritten_docs_argv_references(
+    root_dir: Path | None = None,
+) -> list[DevopsArgvReference]:
+    """Collect devops command invocations across hand-written repository docs and k8s READMEs."""
+    resolved_root = find_repo_root(root_dir) if root_dir else find_repo_root(Path.cwd())
+    doc_paths: list[Path] = [resolved_root / rel_path for rel_path in CONST_HANDWRITTEN_DOCS_PATHS]
+
+    k8s_dir = resolved_root / "k8s"
+    if k8s_dir.is_dir():
+        doc_paths.extend(sorted(k8s_dir.rglob("README.md")))
+
+    references: list[DevopsArgvReference] = []
+    for file_path in doc_paths:
+        if not file_path.is_file():
+            continue
+        rel_path = file_path.relative_to(resolved_root).as_posix()
+        content = file_path.read_text(encoding="utf-8")
+        references.extend(collect_markdown_argv_references(content, rel_path))
+    return sorted(references, key=lambda ref: (ref.path, ref.line))
+
+
+def check_handwritten_docs_argv(root_dir: Path | None = None) -> list[str]:
+    """Describe every hand-written doc command line that fails CLI resolution."""
+    references = collect_handwritten_docs_argv_references(root_dir)
     return describe_unresolved_references(references)

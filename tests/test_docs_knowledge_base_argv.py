@@ -11,6 +11,7 @@ from devops_cli.commands.docs import app as docs_app
 from devops_cli.docs.command_resolver import ArgvPlaceholder, module_click_command
 from devops_cli.docs.generator import DocGenerator
 from devops_cli.docs.markdown_argv_collector import (
+    collect_handwritten_docs_argv_references,
     collect_knowledge_base_argv_references,
     collect_markdown_argv_references,
 )
@@ -115,3 +116,77 @@ def test_every_knowledge_base_argv_resolves() -> None:
         cli_ref_count >= 60,
         popen.called,
     ) == ([], True, False)
+
+
+def test_every_handwritten_doc_argv_resolves() -> None:
+    """Verify every devops command line in the hand-written docs resolves statically."""
+    for module_path, _ in _COMMAND_SPECS.values():
+        module_click_command(module_path)
+
+    with patch("subprocess.Popen", side_effect=AssertionError("no subprocess")) as popen:
+        references = collect_handwritten_docs_argv_references()
+        unresolved = describe_unresolved_references(references)
+
+    paths_seen = {ref.path for ref in references}
+    expected_paths = {
+        "README.md",
+        "ARCHITECTURE.md",
+        "RELEASE_CYCLE.md",
+        "docs/SDLC.md",
+        "docs/ROUTINE_TASKS.md",
+        "docs/DEVCONTAINER_USAGE.md",
+        "k8s/README.md",
+    }
+    assert (
+        unresolved,
+        expected_paths.issubset(paths_seen),
+        popen.called,
+    ) == ([], True, False)
+
+
+def test_docs_check_reports_an_unresolved_handwritten_doc_argv(tmp_path: Path) -> None:
+    """Verify `devops docs check` fails and reports an unresolved handwritten doc command line."""
+    with (
+        patch.object(DocGenerator, "generate_all_docs", return_value={}),
+        patch(
+            "devops_cli.docs.mcp_argv_collector.collect_mcp_server_argv_references",
+            return_value=[],
+        ),
+        patch(
+            "devops_cli.docs.markdown_argv_collector.collect_knowledge_base_argv_references",
+            return_value=[],
+        ),
+        patch(
+            "devops_cli.docs.markdown_argv_collector.collect_handwritten_docs_argv_references",
+            return_value=[DEFECTIVE_REFERENCE],
+        ),
+    ):
+        ok, errors = DocGenerator().check_docs(tmp_path, check_readme_table=False)
+        result = CliRunner().invoke(
+            docs_app, ["check", "--no-check-readme", "--output-dir", str(tmp_path)]
+        )
+
+    expected_errors = describe_unresolved_references([DEFECTIVE_REFERENCE])
+    assert (ok, errors, result.exit_code, "docs/sample.md:4" in result.output) == (
+        False,
+        expected_errors,
+        1,
+        True,
+    )
+
+
+def test_handwritten_docs_defective_reference_fails_resolution() -> None:
+    """Verify defective commands like 'devops pr merge' fail resolution when checked."""
+    for module_path, _ in _COMMAND_SPECS.values():
+        module_click_command(module_path)
+
+    defective_md = """\
+# Defective Documentation
+```bash
+devops pr merge 123 --squash
+devops scan kubelinter -p k8s/
+```
+"""
+    refs = collect_markdown_argv_references(defective_md, "test_defective.md")
+    unresolved = describe_unresolved_references(refs)
+    assert len(unresolved) == 2

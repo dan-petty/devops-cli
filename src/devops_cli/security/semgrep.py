@@ -111,7 +111,7 @@ def _files_command(names: list[str], config: str) -> list[str] | None:
     """The command that scans the named files; None when none is named."""
     if not names:
         return None
-    return [BIN_SEMGREP, "scan", "--json", "--config", config, "--quiet", *names]
+    return [BIN_SEMGREP, "scan", "--json", "--config", config, "--disable-nosem", "--quiet", *names]
 
 
 def _build_scan_command(

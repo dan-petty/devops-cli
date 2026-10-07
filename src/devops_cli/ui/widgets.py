@@ -22,6 +22,7 @@ from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.widgets import DataTable, Input, Select, Static, TabbedContent, TabPane
 
 from devops_cli.config.constants import (
@@ -148,6 +149,7 @@ class DomainPanel(Vertical):
         super().__init__(id=f"panel-{domain}")
         self.domain = domain
         self.stale_after = stale_after
+        self._pending_snapshot: DomainSnapshot | None = None
 
     @property
     def label(self) -> str:
@@ -164,15 +166,26 @@ class DomainPanel(Vertical):
         # Row selection, not cell selection: these tables are chosen from by record.
         table.cursor_type = "row"
         table.add_columns(*DOMAIN_COLUMNS[self.domain])
+        if self._pending_snapshot is not None:
+            snapshot = self._pending_snapshot
+            self._pending_snapshot = None
+            self.apply(snapshot)
 
     def apply(self, snapshot: DomainSnapshot) -> None:
         """Render a snapshot into the banner and table.
 
         Called from the UI thread only; workers hand snapshots across via the app.
         """
-        banner, rows = render_domain(snapshot, stale_after=self.stale_after)
-        self.query_one(Static).update(banner)
-        redraw_table(self.query_one(DataTable), rows, render_keys(snapshot))
+        if not self.is_mounted:
+            self._pending_snapshot = snapshot
+            return
+        try:
+            banner, rows = render_domain(snapshot, stale_after=self.stale_after)
+            self.query_one(Static).update(banner)
+            redraw_table(self.query_one(DataTable), rows, render_keys(snapshot))
+            self._pending_snapshot = None
+        except NoMatches:
+            self._pending_snapshot = snapshot
 
 
 __all__ = ["DockerPanel", "DomainPanel", "K8sPanel", "LogPane", "ReviewPanel", "redraw_table"]
@@ -231,6 +244,7 @@ class K8sPanel(Vertical):
         # The namespaces the selector offers. The chosen one is read from the selector
         # itself, so a choice made while a refresh is queued is never overwritten.
         self._namespaces: tuple[str, ...] = ()
+        self._pending_snapshot: DomainSnapshot | None = None
 
     @property
     def label(self) -> str:
@@ -256,6 +270,10 @@ class K8sPanel(Vertical):
         table = self._table()
         table.cursor_type = "row"
         table.add_columns(*DOMAIN_COLUMNS[self.domain])
+        if self._pending_snapshot is not None:
+            snapshot = self._pending_snapshot
+            self._pending_snapshot = None
+            self.apply(snapshot)
 
     def _table(self) -> DataTable[Any]:
         return self.query_one(f"#{self.domain}-table", DataTable)
@@ -273,11 +291,18 @@ class K8sPanel(Vertical):
 
         Called from the UI thread only; workers hand snapshots across via the app.
         """
-        self._snapshot = snapshot
-        pods = snapshot.data.pods if snapshot.data is not None else []
-        self._pods = dict(zip(render_keys(snapshot), pods, strict=True))
-        self._offer_namespaces()
-        self._redraw()
+        if not self.is_mounted:
+            self._pending_snapshot = snapshot
+            return
+        try:
+            self._snapshot = snapshot
+            pods = snapshot.data.pods if snapshot.data is not None else []
+            self._pods = dict(zip(render_keys(snapshot), pods, strict=True))
+            self._offer_namespaces()
+            self._redraw()
+            self._pending_snapshot = None
+        except NoMatches:
+            self._pending_snapshot = snapshot
 
     def _offer_namespaces(self) -> None:
         """Offer the namespaces in the snapshot, keeping the one chosen.
@@ -384,6 +409,7 @@ class DockerPanel(Vertical):
         super().__init__(id=f"panel-{domain}")
         self.domain = domain
         self.stale_after = stale_after
+        self._pending_snapshot: DomainSnapshot | None = None
 
     @property
     def label(self) -> str:
@@ -410,6 +436,10 @@ class DockerPanel(Vertical):
             table = self.query_one(f"#{self._table_id(resource)}", DataTable)
             table.cursor_type = "row"
             table.add_columns(*DOCKER_RESOURCE_COLUMNS[resource])
+        if self._pending_snapshot is not None:
+            snapshot = self._pending_snapshot
+            self._pending_snapshot = None
+            self.apply(snapshot)
 
     @staticmethod
     def _table_id(resource: str) -> str:
@@ -420,17 +450,26 @@ class DockerPanel(Vertical):
 
     def apply(self, snapshot: DomainSnapshot) -> None:
         """Render a snapshot into the banner and every resource table."""
-        self.query_one(Static).update(render_banner(snapshot, stale_after=self.stale_after))
-        tabs = self.query_one("#docker-resources", TabbedContent)
-        for resource in CONST_DOCKER_RESOURCES:
-            redraw_table(
-                self.query_one(f"#{self._table_id(resource)}", DataTable),
-                docker_resource_rows(resource, snapshot),
-                docker_resource_keys(resource, snapshot),
-            )
-            # The count rides on the tab label so it is readable without opening the tab.
-            with contextlib.suppress(Exception):
-                tabs.get_tab(f"docker-{resource}").label = docker_resource_label(resource, snapshot)
+        if not self.is_mounted:
+            self._pending_snapshot = snapshot
+            return
+        try:
+            self.query_one(Static).update(render_banner(snapshot, stale_after=self.stale_after))
+            tabs = self.query_one("#docker-resources", TabbedContent)
+            for resource in CONST_DOCKER_RESOURCES:
+                redraw_table(
+                    self.query_one(f"#{self._table_id(resource)}", DataTable),
+                    docker_resource_rows(resource, snapshot),
+                    docker_resource_keys(resource, snapshot),
+                )
+                # The count rides on the tab label so it is readable without opening the tab.
+                with contextlib.suppress(Exception):
+                    tabs.get_tab(f"docker-{resource}").label = docker_resource_label(
+                        resource, snapshot
+                    )
+            self._pending_snapshot = None
+        except NoMatches:
+            self._pending_snapshot = snapshot
 
 
 class ReviewPanel(Vertical):
@@ -494,6 +533,7 @@ class ReviewPanel(Vertical):
         # The session and row key the detail pane last showed. Another finding is read
         # from its header down; the same one, shown again by a refresh, keeps its offset.
         self._shown: tuple[str | None, str | None] = (None, None)
+        self._pending_snapshot: DomainSnapshot | None = None
 
     @property
     def label(self) -> str:
@@ -534,28 +574,40 @@ class ReviewPanel(Vertical):
         sessions.cursor_type = "row"
         sessions.add_columns(*REVIEW_SESSION_COLUMNS)
 
+        if self._pending_snapshot is not None:
+            snapshot = self._pending_snapshot
+            self._pending_snapshot = None
+            self.apply(snapshot)
+
     def apply(self, snapshot: DomainSnapshot) -> None:
         """Render a snapshot into the banner, the findings table and the session list.
 
         The findings table keeps its place across refreshes of one session. A different
         session starts at the top: its row 37 has nothing to do with the last one's.
         """
-        banner, rows = render_domain(snapshot, stale_after=self.stale_after)
-        self.query_one(f"#{self.domain}-banner", Static).update(banner)
+        if not self.is_mounted:
+            self._pending_snapshot = snapshot
+            return
+        try:
+            banner, rows = render_domain(snapshot, stale_after=self.stale_after)
+            self.query_one(f"#{self.domain}-banner", Static).update(banner)
 
-        session_name = snapshot.data.session_name if snapshot.data is not None else None
-        findings = self.query_one("#ai-table", DataTable)
-        keys = render_keys(snapshot)
-        self._findings = finding_records(snapshot, keys)
-        redraw_table(findings, rows, keys, keep_place=session_name == self._session_name)
-        self._session_name = session_name
-        self._show_finding(_highlighted_key(findings))
+            session_name = snapshot.data.session_name if snapshot.data is not None else None
+            findings = self.query_one("#ai-table", DataTable)
+            keys = render_keys(snapshot)
+            self._findings = finding_records(snapshot, keys)
+            redraw_table(findings, rows, keys, keep_place=session_name == self._session_name)
+            self._session_name = session_name
+            self._show_finding(_highlighted_key(findings))
 
-        redraw_table(
-            self.query_one("#review-sessions-table", DataTable),
-            review_session_rows(snapshot),
-            review_session_keys(snapshot),
-        )
+            redraw_table(
+                self.query_one("#review-sessions-table", DataTable),
+                review_session_rows(snapshot),
+                review_session_keys(snapshot),
+            )
+            self._pending_snapshot = None
+        except NoMatches:
+            self._pending_snapshot = snapshot
 
     def _show_finding(self, row_key: str | None) -> None:
         """Show the finding a findings row holds, or say that none is selected."""

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import sys
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -192,6 +195,73 @@ def _dry_run_invocation(sub_args: list[str]) -> Iterator[None]:
                 mark_dry_run_invocation(_invocation_before)
 
 
+@contextmanager
+def _isolate_child_stdio() -> Iterator[tuple[Any, Any]]:
+    """Redirect OS file descriptors 1 and 2 to temporary files during in-process execution.
+
+    Under stdio transport, fd 1 is the JSON-RPC channel. Any child process spawned by
+    commands with `capture_output=False` or standard descriptor inheritance would otherwise
+    write raw terminal output directly to fd 1, corrupting the JSON-RPC protocol stream.
+    """
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        saved_stdout = os.dup(1)
+        saved_stderr = os.dup(2)
+    except OSError:
+        yield None, None
+        return
+
+    with (
+        tempfile.TemporaryFile("w+b") as out_f,
+        tempfile.TemporaryFile("w+b") as err_f,
+    ):
+        os.dup2(out_f.fileno(), 1)
+        os.dup2(err_f.fileno(), 2)
+        try:
+            yield out_f, err_f
+        finally:
+            try:
+                sys.stdout.flush()
+                sys.stderr.flush()
+            except Exception:
+                pass
+            try:
+                os.dup2(saved_stdout, 1)
+                os.close(saved_stdout)
+            except OSError:
+                pass
+            try:
+                os.dup2(saved_stderr, 2)
+                os.close(saved_stderr)
+            except OSError:
+                pass
+
+
+def _read_stream(f: Any) -> str:
+    """Read and decode all bytes from a temporary file stream."""
+    if f is None:
+        return ""
+    try:
+        f.seek(0)
+        content: Any = f.read()
+        if isinstance(content, bytes):
+            return content.decode("utf-8", errors="replace").strip()
+        return str(content).strip()
+    except Exception:
+        return ""
+
+
+def _combine_output_parts(*parts: str) -> str:
+    """Combine distinct non-empty output strings maintaining order."""
+    combined: list[str] = []
+    for part in parts:
+        cleaned = part.strip()
+        if cleaned and cleaned not in combined:
+            combined.append(cleaned)
+    return "\n".join(combined).strip()
+
+
 class InProcessDispatcher:
     """Direct in-process execution engine for devops-cli tools eliminating subshell spawning."""
 
@@ -227,15 +297,16 @@ class InProcessDispatcher:
         """Execute a command in-process when matching devops CLI or fallback to subprocess."""
         sub_args = _extract_devops_sub_args(cmd)
         if sub_args is None:
-            return self._dispatch_subprocess(cmd, timeout=timeout, env=env)
+            code, out = self._dispatch_subprocess(cmd, timeout=timeout, env=env)
+        else:
+            handler_result = self._check_functional_handlers(sub_args)
+            if handler_result is not None:
+                code, out = handler_result
+            else:
+                code, out = self._dispatch_typer(sub_args, env=env)
 
-        # Check registered functional handlers
-        handler_result = self._check_functional_handlers(sub_args)
-        if handler_result is not None:
-            return handler_result
-
-        # In-process Typer execution via CliRunner
-        return self._dispatch_typer(sub_args, env=env)
+        fallback = "Success" if code == 0 else "no output captured"
+        return code, out or fallback
 
     def _check_functional_handlers(self, sub_args: list[str]) -> tuple[int, str] | None:
         """Attempt lookup and execution of registered direct functional handlers."""
@@ -266,25 +337,34 @@ class InProcessDispatcher:
         sub_args: list[str],
         env: dict[str, str] | None = None,
     ) -> tuple[int, str]:
-        """Execute command in-process via Typer CliRunner."""
+        """Execute command in-process via Typer CliRunner while isolating child stdout."""
         from typer.testing import CliRunner
 
         from devops_cli.main import app
 
-        runner = CliRunner()
-        try:
-            start_t = time.perf_counter()
-            with _dry_run_invocation(sub_args):
-                res = runner.invoke(app, sub_args, env=env)
-            dur_ms = (time.perf_counter() - start_t) * 1000
-            logger.debug("In-process dispatch finished in %.2fms", dur_ms)
+        with self._lock:
+            runner = CliRunner()
+            try:
+                start_t = time.perf_counter()
+                with _isolate_child_stdio() as (out_f, err_f):
+                    with _dry_run_invocation(sub_args):
+                        res = runner.invoke(app, sub_args, env=env)
+                    child_out = _read_stream(out_f)
+                    child_err = _read_stream(err_f)
 
-            out = (res.output or "").strip()
-            if res.stderr and res.stderr.strip():
-                out = f"{out}\n{res.stderr.strip()}".strip()
-            return res.exit_code, out or "Success"
-        except Exception as exc:
-            return 1, f"In-process execution error: {exc}"
+                dur_ms = (time.perf_counter() - start_t) * 1000
+                logger.debug("In-process dispatch finished in %.2fms", dur_ms)
+
+                out = _combine_output_parts(
+                    res.output or "",
+                    child_out,
+                    res.stderr or "",
+                    child_err,
+                )
+                fallback = "Success" if res.exit_code == 0 else "no output captured"
+                return res.exit_code, out or fallback
+            except Exception as exc:
+                return 1, f"In-process execution error: {exc}"
 
     def _dispatch_subprocess(
         self,
@@ -302,7 +382,8 @@ class InProcessDispatcher:
                 env=env,
             )
             out = (proc.stdout + ("\n" + proc.stderr if proc.stderr else "")).strip()
-            return proc.returncode, out or "Success"
+            fallback = "Success" if proc.returncode == 0 else "no output captured"
+            return proc.returncode, out or fallback
         except Exception as exc:
             return 1, f"Execution failed: {exc}"
 

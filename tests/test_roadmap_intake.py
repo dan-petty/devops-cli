@@ -18,6 +18,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from fastmcp.exceptions import ToolError
 from typer.testing import CliRunner
 
 from devops_cli import entry
@@ -1031,7 +1032,7 @@ def test_an_unreachable_gateway_exits_non_zero_names_it_and_writes_nothing(
         def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
             raise ConnectionError("connection refused")
 
-    gateway = "http://llm-gateway.lan:4000/v1"
+    gateway = "http://example.com:4000/v1"
     model = GatewayIntakeModel(
         AIConfig(gateway_url=gateway, gateway_enabled=True), embedder=Unreachable()
     )
@@ -1147,7 +1148,8 @@ def test_the_mcp_mirror_dry_run_dispatched_in_process_exports_no_telemetry(
     output = mcp_server.roadmap_intake(repo=REPO, mode="dry-run", issues=[3])
     get_tracer().shutdown()
     after_dry_run = list(exports)
-    mcp_server.roadmap_intake(repo=REPO, mode="plan")
+    with pytest.raises(ToolError):
+        mcp_server.roadmap_intake(repo=REPO, mode="plan")
     get_tracer().shutdown()
     assert (
         "Dry run: no request was made" in output,

@@ -39,6 +39,7 @@ from devops_cli.config.constants import (
     CONST_ERROR_CODE_EMBEDDINGS,
     CONST_EXIT_FAILURE,
     CONST_KNOWN_EMBEDDING_DIMENSIONS,
+    CONST_QWEN3_EMBEDDING_QUERY_PREFIX,
     CONST_VALKEY_EMBEDDING_PREFIX,
 )
 from devops_cli.config.defaults import (
@@ -103,9 +104,8 @@ class _EmbeddingLRUCache:
         self.misses: int = 0
 
     def _key(self, text: str, model: str, *, is_query: bool = False) -> str:
-        """Compute deterministic SHA-256 cache key for (text, model, is_query) tuple."""
-        tag = "q" if is_query else "d"
-        return hashlib.sha256(f"{model}\x00{tag}\x00{text}".encode()).hexdigest()
+        """Compute deterministic SHA-256 cache key for (model, text) tuple after prompt applied."""
+        return hashlib.sha256(f"{model}\x00{text}".encode()).hexdigest()
 
     def get(self, text: str, model: str, *, is_query: bool = False) -> list[float] | None:
         """Return cached embedding vector or None on miss."""
@@ -162,16 +162,18 @@ class EmbeddingsError(DevOpsCLIError, RuntimeError):
         self,
         message: str,
         *,
+        is_transient: bool = False,
         exit_code: int = CONST_EXIT_FAILURE,
         error_code: str = CONST_ERROR_CODE_EMBEDDINGS,
         details: dict[str, Any] | None = None,
     ) -> None:
+        self.is_transient = is_transient
         DevOpsCLIError.__init__(
             self,
             message,
             exit_code=exit_code,
             error_code=error_code,
-            details=details or {},
+            details=details,
         )
 
 
@@ -206,10 +208,12 @@ def _reply_vectors(
     """One embedding reply's vectors; EmbeddingsError naming the endpoint for any other reply."""
     if res.status_code != 200:
         body = " ".join(res.text.split())[:CONST_EMBEDDING_REPLY_EXCERPT_CHARS]
+        is_transient = res.status_code in (408, 429) or res.status_code >= 500
         raise EmbeddingsError(
             ERRORS.rag.embedding_endpoint_status.format(
                 endpoint=endpoint, status=res.status_code, body=body
             ),
+            is_transient=is_transient,
             details={"endpoint": endpoint, "status": res.status_code},
         )
     vectors = _parsed_vectors(res, parse)
@@ -218,6 +222,7 @@ def _reply_vectors(
             ERRORS.rag.embedding_endpoint_malformed.format(
                 endpoint=endpoint, received=len(vectors), expected=expected
             ),
+            is_transient=False,
             details={"endpoint": endpoint, "received": len(vectors), "expected": expected},
         )
     return vectors
@@ -233,6 +238,8 @@ def _endpoint_failure(endpoint: str, exc: Exception) -> str:
 
 def _is_transient_embedding_error(exc: Exception) -> bool:
     """Check if an exception is a transient network, timeout, or connection reset error."""
+    if isinstance(exc, EmbeddingsError):
+        return exc.is_transient
     if isinstance(exc, (httpx2.NetworkError, httpx2.TimeoutException)):
         return True
     if isinstance(
@@ -288,6 +295,28 @@ def _probe_ollama_show_dimension(client: httpx2.Client, base_url: str, model: st
         if key.endswith(".embedding_length") and isinstance(val, int) and val > 0:
             return val
     return None
+
+
+def _apply_model_prefix(text: str, model: str, *, is_query: bool = False) -> str:
+    """Apply asymmetric task prompt prefix based on embedding model family."""
+    m = model.lower().split(":")[0].strip()
+    if m.startswith("bge-m3"):
+        return text
+    if m.startswith("qwen3-embedding") or "qwen3-embedding" in m:
+        if not is_query:
+            return text
+        if text.startswith(CONST_QWEN3_EMBEDDING_QUERY_PREFIX):
+            return text
+        return f"{CONST_QWEN3_EMBEDDING_QUERY_PREFIX} {text}"
+    if "nomic" in m:
+        prefix = "search_query: " if is_query else "search_document: "
+        return (
+            text if text.startswith(("search_query: ", "search_document: ")) else f"{prefix}{text}"
+        )
+    if "e5" in m:
+        prefix = "query: " if is_query else "passage: "
+        return text if text.startswith(("query: ", "passage: ")) else f"{prefix}{text}"
+    return text
 
 
 class EmbeddingsEngine:
@@ -466,9 +495,9 @@ class EmbeddingsEngine:
             self._apply_aimd_increase()
 
     def _valkey_key(self, text: str, model: str, *, is_query: bool = False) -> str:
-        """Generate namespaced deterministic Valkey cache key with query/doc isolation."""
-        tag = "q" if is_query else "d"
-        h = hashlib.sha256(f"{model}\x00{tag}\x00{text}".encode()).hexdigest()
+        """Generate namespaced deterministic Valkey cache key; hashes text after prompt is applied."""
+        sent_text = self._apply_model_prefix([text], is_query=is_query)[0]
+        h = hashlib.sha256(f"{model}\x00{sent_text}".encode()).hexdigest()
         return f"{CONST_VALKEY_EMBEDDING_PREFIX}:{h}"
 
     def _get_valkey_embedding(
@@ -674,11 +703,14 @@ class EmbeddingsEngine:
             details={"model": self.model, "provider": self.ai_config.provider},
         )
 
-    def _embedding_error(self, failures: list[str], *, model: str | None = None) -> EmbeddingsError:
+    def _embedding_error(
+        self, failures: list[str], *, model: str | None = None, is_transient: bool = False
+    ) -> EmbeddingsError:
         """The EmbeddingsError for a request no endpoint answered with embeddings."""
         name = model or self.model
         return EmbeddingsError(
             ERRORS.rag.embedding_failed.format(model=name, failures="; ".join(failures)),
+            is_transient=is_transient,
             details={"model": name, "provider": self.ai_config.provider, "failures": failures},
         )
 
@@ -698,16 +730,16 @@ class EmbeddingsEngine:
         ):
             from devops_cli.telemetry import record_metric
 
+            prefixed_texts = self._apply_model_prefix(texts, is_query=is_query)
             cached, miss_indices, miss_texts = self._partition_with_valkey_l2(
-                texts, is_query=is_query
+                prefixed_texts, is_query=is_query
             )
             record_metric("devops_cli_embedding_cache_hits_total", len(cached), unit="1")
             record_metric("devops_cli_embedding_cache_misses_total", len(miss_texts), unit="1")
             record_metric("devops_cli_embedding_cache_size", self._cache.size, unit="1")
 
             if miss_texts:
-                prefixed_miss = self._apply_model_prefix(miss_texts, is_query=is_query)
-                fresh = self._dispatch_embed(prefixed_miss)
+                fresh = self._dispatch_embed(miss_texts)
                 if len(fresh) != len(miss_texts):
                     raise EmbeddingsError(
                         f"Embedding provider returned {len(fresh)} vectors for {len(miss_texts)} texts",
@@ -729,34 +761,21 @@ class EmbeddingsEngine:
         is_query: bool = False,
     ) -> None:
         """Store fresh embeddings into in-memory L1 and Valkey L2."""
-        for miss_idx, original_text, vector in zip(miss_indices, miss_texts, fresh, strict=True):
-            self._cache.put(original_text, self.model, vector, is_query=is_query)
-            self._set_valkey_embedding(original_text, self.model, vector, is_query=is_query)
+        for miss_idx, sent_text, vector in zip(miss_indices, miss_texts, fresh, strict=True):
+            self._cache.put(sent_text, self.model, vector, is_query=is_query)
+            self._set_valkey_embedding(sent_text, self.model, vector, is_query=is_query)
             cached[miss_idx] = vector
 
     def embed_query(self, text: str) -> list[float]:
         """Generate vector embedding for a single search query with LRU cache acceleration."""
-        hit = self._cache.get(text, self.model, is_query=True)
-        if hit is not None:
-            return hit
         results = self.embed_texts([text], is_query=True)
         if not results:
             raise EmbeddingsError(f"Failed to generate embedding for query: {text[:50]}")
         return results[0]
 
-    def _apply_model_prefix(self, texts: list[str], *, is_query: bool) -> list[str]:
+    def _apply_model_prefix(self, texts: list[str], *, is_query: bool = False) -> list[str]:
         """Apply asymmetric task prefix based on embedding model architecture."""
-        m = self.model.lower()
-        if "nomic" in m:
-            prefix = "search_query: " if is_query else "search_document: "
-            return [
-                t if t.startswith(("search_query: ", "search_document: ")) else f"{prefix}{t}"
-                for t in texts
-            ]
-        elif "qwen" in m or "bge" in m or "e5" in m:
-            prefix = "query: " if is_query else "passage: "
-            return [t if t.startswith(("query: ", "passage: ")) else f"{prefix}{t}" for t in texts]
-        return texts
+        return [_apply_model_prefix(t, self.model, is_query=is_query) for t in texts]
 
     def _query_ollama_node_batch(self, base_url: str, batch_texts: list[str]) -> list[list[float]]:
         """Embed a batch on one Ollama node; raise when the node refuses, fails or misanswers."""
@@ -799,13 +818,16 @@ class EmbeddingsEngine:
     ) -> list[list[float]]:
         """Embed a batch on the first node that answers; raise naming each node's failure."""
         failures: list[str] = []
+        is_transient_flags: list[bool] = []
         for attempt, base_url in enumerate(urls):
             try:
                 return self._try_single_candidate(base_url, batch_texts, attempt)
             except Exception as exc:
                 logger.debug("Ollama embedding on %s failed: %s", base_url, exc)
                 failures.append(_endpoint_failure(_ollama_embed_endpoint(base_url), exc))
-        raise self._embedding_error(failures)
+                is_transient_flags.append(_is_transient_embedding_error(exc))
+        all_transient = bool(is_transient_flags and all(is_transient_flags))
+        raise self._embedding_error(failures, is_transient=all_transient)
 
     def _embed_batch_with_subdivision(
         self, urls: list[str], batch_texts: list[str]
@@ -985,7 +1007,10 @@ class EmbeddingsEngine:
                     endpoint, headers, model, batches, is_gateway
                 )
         except (DevOpsCLIError, httpx2.HTTPError) as exc:
-            raise self._embedding_error([_endpoint_failure(endpoint, exc)], model=model) from exc
+            is_transient = _is_transient_embedding_error(exc)
+            raise self._embedding_error(
+                [_endpoint_failure(endpoint, exc)], model=model, is_transient=is_transient
+            ) from exc
         if embs:
             self._record_dimension(len(embs[0]))
         return embs

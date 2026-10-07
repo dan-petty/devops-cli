@@ -1285,99 +1285,20 @@ def _classify_check_run(run: Any) -> tuple[str | None, str | None]:
     return None, None
 
 
-def _extract_page_runs(page: Any) -> list[dict[str, Any]]:
-    """Extract check runs from a single API payload page."""
-    if not isinstance(page, dict):
-        raise RuntimeError("GitHub check-runs API returned invalid page structure")
-    check_runs = page.get("check_runs")
-    if isinstance(check_runs, list):
-        return check_runs
-    if "name" in page:
-        return [page]
-    raise RuntimeError("GitHub check-runs API returned page without check_runs")
-
-
-def _fetch_check_runs_payload(owner: str, repo_name: str, head_sha: str) -> list[dict[str, Any]]:
-    """Fetch and decode all check-runs pages from GitHub API with pagination."""
-    res = run_gh(
-        [
-            CONST_GH_CLI,
-            "api",
-            "--paginate",
-            "--slurp",
-            f"repos/{owner}/{repo_name}/commits/{head_sha}/check-runs?per_page=100",
-        ],
-        check=False,
-        quiet=True,
-    )
-    if res.returncode != 0:
-        err_msg = res.stderr.strip() or f"exit code {res.returncode}"
-        raise RuntimeError(f"GitHub check-runs API error: {err_msg}")
-    if not res.stdout.strip():
-        raise RuntimeError("GitHub check-runs API returned empty response")
-    try:
-        data = json.loads(res.stdout)
-    except json.JSONDecodeError as err:
-        raise RuntimeError(f"Invalid JSON from check-runs API: {err}") from err
-
-    if isinstance(data, list):
-        return [run for page in data for run in _extract_page_runs(page)]
-    if isinstance(data, dict):
-        return _extract_page_runs(data)
-    raise RuntimeError("GitHub check-runs API returned unexpected payload structure")
-
-
-def _fetch_commit_statuses_payload(
-    owner: str, repo_name: str, head_sha: str
-) -> list[dict[str, Any]]:
-    """Fetch commit status contexts from GitHub status API."""
-    res = run_gh(
-        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/commits/{head_sha}/status"],
-        check=False,
-        quiet=True,
-    )
-    if res.returncode != 0:
-        err_msg = res.stderr.strip() or f"exit code {res.returncode}"
-        raise RuntimeError(f"GitHub commit status API error: {err_msg}")
-    if not res.stdout.strip():
-        raise RuntimeError("GitHub commit status API returned empty response")
-    try:
-        data = json.loads(res.stdout)
-    except json.JSONDecodeError as err:
-        raise RuntimeError(f"Invalid JSON from commit status API: {err}") from err
-    if not isinstance(data, dict):
-        raise RuntimeError("GitHub commit status API returned non-object response")
-    statuses = data.get("statuses")
-    return statuses if isinstance(statuses, list) else []
-
-
 def _failing_check_runs(owner: str, repo_name: str, head_sha: str) -> tuple[list[str], list[str]]:
     """Return the names of concluded-failing and still-running checks and statuses for a commit."""
-    from devops_cli.github.check_verdict import CheckBucket, classify_check_item
+    from devops_cli.github.check_verdict import CheckBucket, _fetch_checks_from_rest
 
-    check_runs = _fetch_check_runs_payload(owner, repo_name, head_sha)
-    failing: list[str] = []
-    pending: list[str] = []
-    for run in check_runs:
-        fail, pend = _classify_check_run(run)
-        if fail:
-            failing.append(fail)
-        elif pend:
-            pending.append(pend)
+    verdict = _fetch_checks_from_rest(owner, repo_name, head_sha, runner=run_gh)
+    if verdict.unread_reason:
+        raise RuntimeError(verdict.unread_reason)
 
-    statuses = _fetch_commit_statuses_payload(owner, repo_name, head_sha)
-    for st in statuses:
-        if not isinstance(st, dict):
-            continue
-        item = classify_check_item(
-            name=str(st.get("context") or "status"),
-            state=st.get("state"),
-        )
-        if item.bucket == CheckBucket.PENDING:
-            pending.append(item.name)
-        elif item.bucket in (CheckBucket.FAIL, CheckBucket.CANCEL, CheckBucket.UNREAD):
-            failing.append(item.name)
-
+    failing = [
+        item.name
+        for item in verdict.items
+        if item.bucket in (CheckBucket.FAIL, CheckBucket.CANCEL, CheckBucket.UNREAD)
+    ]
+    pending = [item.name for item in verdict.items if item.bucket == CheckBucket.PENDING]
     return failing, pending
 
 

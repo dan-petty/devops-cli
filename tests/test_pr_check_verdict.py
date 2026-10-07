@@ -376,3 +376,174 @@ def test_rest_pagination_slurp_bucket_count_matches_total_count() -> None:
         verdict.cancel_count,
         verdict.pending_count,
     ) == (5, 1, False, 1, 1, 1, 1, 1)
+
+
+def test_fetch_pr_check_verdicts_zero_runs_and_zero_statuses_reports_pending() -> None:
+    """Verify head commit with 0 runs and 0 statuses reports pending 'no checks reported'."""
+    mock_runner = MagicMock(
+        side_effect=[
+            MagicMock(returncode=1, stdout="", stderr="CLI error"),
+            MagicMock(returncode=0, stdout=json.dumps({"head": {"sha": "sha_zero"}}), stderr=""),
+            MagicMock(
+                returncode=0, stdout=json.dumps({"total_count": 0, "check_runs": []}), stderr=""
+            ),
+            MagicMock(
+                returncode=0,
+                stdout=json.dumps({"state": "pending", "statuses": [], "total_count": 0}),
+                stderr="",
+            ),
+        ]
+    )
+    verdict = fetch_pr_check_verdicts(100, repo="owner/repo", runner=mock_runner)
+    assert (
+        len(verdict.items),
+        verdict.exit_code,
+        verdict.is_passing,
+        verdict.pending_count,
+        verdict.items[0].name,
+        verdict.items[0].bucket,
+    ) == (1, 8, False, 1, "no checks reported", CheckBucket.PENDING)
+
+
+def test_fetch_pr_check_verdicts_gh_json_empty_reports_pending() -> None:
+    """Verify gh pr checks returning empty JSON list reports pending 'no checks reported'."""
+    mock_runner = MagicMock(return_value=MagicMock(returncode=0, stdout="[]", stderr=""))
+    verdict = fetch_pr_check_verdicts(101, repo="owner/repo", runner=mock_runner)
+    assert (
+        len(verdict.items),
+        verdict.exit_code,
+        verdict.is_passing,
+        verdict.pending_count,
+        verdict.items[0].name,
+        verdict.items[0].bucket,
+    ) == (1, 8, False, 1, "no checks reported", CheckBucket.PENDING)
+
+
+def test_fetch_pr_check_verdicts_combined_status_failure_past_page_one() -> None:
+    """Verify >30 status contexts with combined state failure past page 1 blocks fail-closed."""
+    page_1_statuses = [
+        {"context": f"ci/status-{i}", "state": "success", "target_url": f"https://example.com/{i}"}
+        for i in range(30)
+    ]
+    status_payload = {
+        "state": "failure",
+        "total_count": 35,
+        "statuses": page_1_statuses,
+    }
+    mock_runner = MagicMock(
+        side_effect=[
+            MagicMock(returncode=1, stdout="", stderr="CLI error"),
+            MagicMock(
+                returncode=0, stdout=json.dumps({"head": {"sha": "sha_combined"}}), stderr=""
+            ),
+            MagicMock(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "total_count": 1,
+                        "check_runs": [
+                            {"name": "build", "status": "completed", "conclusion": "success"}
+                        ],
+                    }
+                ),
+                stderr="",
+            ),
+            MagicMock(returncode=0, stdout=json.dumps(status_payload), stderr=""),
+        ]
+    )
+    verdict = fetch_pr_check_verdicts(200, repo="owner/repo", runner=mock_runner)
+    assert (
+        verdict.exit_code,
+        verdict.is_passing,
+        verdict.fail_count,
+        any(
+            i.name == "commit status (combined)" and i.bucket == CheckBucket.FAIL
+            for i in verdict.items
+        ),
+    ) == (1, False, 1, True)
+
+
+def test_fetch_pr_check_verdicts_combined_status_pending_past_page_one() -> None:
+    """Verify >30 status contexts with combined state pending past page 1 yields pending verdict."""
+    page_1_statuses = [
+        {"context": f"ci/status-{i}", "state": "success", "target_url": f"https://example.com/{i}"}
+        for i in range(30)
+    ]
+    status_payload = {
+        "state": "pending",
+        "total_count": 35,
+        "statuses": page_1_statuses,
+    }
+    mock_runner = MagicMock(
+        side_effect=[
+            MagicMock(returncode=1, stdout="", stderr="CLI error"),
+            MagicMock(returncode=0, stdout=json.dumps({"head": {"sha": "sha_pending"}}), stderr=""),
+            MagicMock(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "total_count": 1,
+                        "check_runs": [
+                            {"name": "build", "status": "completed", "conclusion": "success"}
+                        ],
+                    }
+                ),
+                stderr="",
+            ),
+            MagicMock(returncode=0, stdout=json.dumps(status_payload), stderr=""),
+        ]
+    )
+    verdict = fetch_pr_check_verdicts(201, repo="owner/repo", runner=mock_runner)
+    assert (
+        verdict.exit_code,
+        verdict.is_passing,
+        verdict.pending_count,
+        any(
+            i.name == "commit status (combined)" and i.bucket == CheckBucket.PENDING
+            for i in verdict.items
+        ),
+    ) == (8, False, 1, True)
+
+
+def test_fetch_pr_check_verdicts_fails_closed_when_commit_statuses_fail() -> None:
+    """Verify fetch_pr_check_verdicts returns unread verdict when commit status API fails."""
+    mock_runner = MagicMock(
+        side_effect=[
+            MagicMock(returncode=1, stdout="", stderr="CLI error"),
+            MagicMock(returncode=0, stdout=json.dumps({"head": {"sha": "sha_err"}}), stderr=""),
+            MagicMock(
+                returncode=0,
+                stdout=json.dumps({"total_count": 0, "check_runs": []}),
+                stderr="",
+            ),
+            MagicMock(returncode=1, stdout="", stderr="HTTP 500 status failure"),
+        ]
+    )
+    verdict = fetch_pr_check_verdicts(202, repo="owner/repo", runner=mock_runner)
+    assert (
+        verdict.exit_code,
+        verdict.is_passing,
+        "HTTP 500 status failure" in verdict.unread_reason,
+    ) == (1, False, True)
+
+
+def test_fetch_pr_check_verdicts_fails_closed_when_commit_statuses_empty() -> None:
+    """Verify fetch_pr_check_verdicts returns unread verdict when commit status API returns empty body."""
+    mock_runner = MagicMock(
+        side_effect=[
+            MagicMock(returncode=1, stdout="", stderr="CLI error"),
+            MagicMock(returncode=0, stdout=json.dumps({"head": {"sha": "sha_empty"}}), stderr=""),
+            MagicMock(
+                returncode=0,
+                stdout=json.dumps({"total_count": 0, "check_runs": []}),
+                stderr="",
+            ),
+            MagicMock(returncode=0, stdout="", stderr=""),
+        ]
+    )
+    verdict = fetch_pr_check_verdicts(203, repo="owner/repo", runner=mock_runner)
+    assert (
+        verdict.exit_code,
+        verdict.is_passing,
+        "empty response" in verdict.unread_reason,
+    ) == (1, False, True)

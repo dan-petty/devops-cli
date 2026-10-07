@@ -4,17 +4,22 @@ from __future__ import annotations
 
 import json
 import logging
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.rag.chunker import SemanticChunker
-from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
 from devops_cli.ai.rag.models import CodeChunk, IndexStats
 from devops_cli.ai.rag.qdrant import QdrantClient
-from devops_cli.config.constants import CONST_INDEX_CACHE_FILENAME
+from devops_cli.config.constants import (
+    CONST_EXIT_FAILURE,
+    CONST_INDEX_CACHE_FILENAME,
+    CONST_RAG_INCOMPLETE_FILE_MARKER,
+    CONST_RAG_SKIPPED_LOCKFILES,
+)
 from devops_cli.config.defaults import (
     DEFAULT_MAX_AST_FILE_SIZE_BYTES,
     DEFAULT_RAG_CACHE_DIR,
@@ -24,6 +29,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_DOCS_COLLECTION,
 )
 from devops_cli.core.repo import is_ignored_by_git
+from devops_cli.lang.en.errors import ERRORS
 from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
@@ -81,7 +87,20 @@ def _load_gitignore_spec(root: Path) -> Any:
         return None
 
 
-def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bool:  # noqa: C901
+def _is_hidden_file_path(p: Path, root: Path) -> bool:
+    """Return True if path is a hidden file or inside a hidden directory."""
+    rel_parts = p.relative_to(root).parts if p.is_relative_to(root) else p.parts
+    if any(part.startswith(".") for part in rel_parts[:-1]):
+        return True
+    return p.name.startswith(".") and not p.name.endswith((".yaml", ".yml", ".json", ".toml"))
+
+
+def _is_lockfile(p: Path) -> bool:
+    """Determine if a file is a package manager lockfile or dependency checksum."""
+    return p.name.endswith(".lock") or p.name in CONST_RAG_SKIPPED_LOCKFILES
+
+
+def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bool:
     """Determine if a path is an indexable code/doc file under root."""
     if not p.is_file() or p.is_symlink():
         return False
@@ -91,10 +110,7 @@ def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bo
             return False
     except OSError:
         return False
-    rel_parts = p.relative_to(root).parts if p.is_relative_to(root) else p.parts
-    if any(part.startswith(".") for part in rel_parts[:-1]):
-        return False
-    if p.name.startswith(".") and not p.name.endswith((".yaml", ".yml", ".json", ".toml")):
+    if _is_lockfile(p) or _is_hidden_file_path(p, root):
         return False
     if gitignore_spec is not None:
         rel = str(p.relative_to(root)) if p.is_relative_to(root) else p.name
@@ -134,14 +150,23 @@ def _update_incremental_cache(
     file_hashes: dict[str, str] | None,
     batch: list[CodeChunk],
     save_fn: Callable[[dict[str, str]], None],
+    pending: Counter[str],
 ) -> None:
-    """Update and persist incremental cache entries for an embedded batch."""
+    """Record each file of an embedded batch in the cache, then persist.
+
+    A file is cached under its content hash once its last pending chunk is stored. Until then it
+    is cached as incomplete, a value no content hash matches: a resume without `--force` embeds
+    it again (its deterministic chunk ids overwrite the stored points), and the purges still
+    find its stored points if it is edited or deleted first (#1296).
+    """
     if cache is None or file_hashes is None:
         return
     for c in batch:
         ckey = f"{c.project_name}:{c.file_path}"
+        pending[ckey] -= 1
         if ckey in file_hashes:
-            cache[ckey] = file_hashes[ckey]
+            done = pending[ckey] == 0
+            cache[ckey] = file_hashes[ckey] if done else CONST_RAG_INCOMPLETE_FILE_MARKER
     save_fn(cache)
 
 
@@ -602,6 +627,7 @@ class WorkspaceIndexer:
             )
 
             code_chunks, doc_chunks = _partition_chunks(all_chunks)
+            pending = Counter(f"{c.project_name}:{c.file_path}" for c in all_chunks)
 
             # Upsert chunks to their respective collections with batch embeddings
             if code_chunks:
@@ -610,6 +636,7 @@ class WorkspaceIndexer:
                     code_chunks,
                     cache,
                     file_hashes,
+                    pending=pending,
                     progress_callback=progress_callback,
                     progress_title="Embedding code",
                 )
@@ -619,6 +646,7 @@ class WorkspaceIndexer:
                     doc_chunks,
                     cache,
                     file_hashes,
+                    pending=pending,
                     progress_callback=progress_callback,
                     progress_title="Embedding docs",
                 )
@@ -652,10 +680,15 @@ class WorkspaceIndexer:
         chunks: list[CodeChunk],
         cache: dict[str, str],
         file_hashes: dict[str, str],
+        *,
+        pending: Counter[str],
         progress_callback: Callable[[str, int, int], None] | None = None,
         progress_title: str = "Embedding",
     ) -> None:
-        """Embed and upsert a list of chunks in batches."""
+        """Embed and upsert a list of chunks in batches.
+
+        `pending` counts each file's chunks not yet stored, across both collections.
+        """
         if not chunks:
             return
 
@@ -677,7 +710,24 @@ class WorkspaceIndexer:
                 },
             ):
                 texts = [c.content for c in batch]
-                embeddings = self.embedder.embed_texts(texts)
+                try:
+                    embeddings = self.embedder.embed_texts(texts)
+                except Exception as exc:
+                    first_file = batch[0].file_path
+                    last_file = batch[-1].file_path
+                    det = dict(getattr(exc, "details", {}) or {})
+                    det.setdefault("model", getattr(self.embedder, "model", ""))
+                    det["first_file"] = first_file
+                    det["last_file"] = last_file
+                    raise EmbeddingsError(
+                        ERRORS.rag.batch_failed.format(
+                            first_file=first_file,
+                            last_file=last_file,
+                            error=str(exc),
+                        ),
+                        exit_code=CONST_EXIT_FAILURE,
+                        details=det,
+                    ) from exc
                 points = [
                     _build_chunk_point(chunk, vec)
                     for chunk, vec in zip(batch, embeddings, strict=False)
@@ -685,7 +735,7 @@ class WorkspaceIndexer:
                 self.qdrant.upsert_points(collection_name, points)
 
                 # Persist incremental progress to cache
-                _update_incremental_cache(cache, file_hashes, batch, self._save_cache)
+                _update_incremental_cache(cache, file_hashes, batch, self._save_cache, pending)
 
             if progress_callback:
                 progress_callback(progress_title, min(i + len(batch), total), total)

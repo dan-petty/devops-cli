@@ -1,0 +1,20 @@
+# Review path classes configuration (#1047)
+[paths]
+src = ["src/**"]
+test = ["tests/**"]
+fixture = ["tests/fixtures/**", "tests/golden/**"]
+iac = ["k8s/**", "helm/**", "Dockerfile*", "Containerfile*"]
+docs = ["docs/**", "*.md"]
+
+# Severity caps by path class (#871)
+[severity_caps]
+test = "LOW"
+docs = "INFO"
+fixture = "LOW"
+
+# Suppressions (#871, #770, #1024)
+[[suppressions]]
+rule = "B103"
+path = "tests/**"
+reason = "Test suites configure intentional mock file permissions and TLS certificates"
+expiry = "2099-12-31"

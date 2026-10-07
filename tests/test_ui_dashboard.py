@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -59,8 +60,16 @@ def test_fetch_k8s_status_reads_pods_and_nodes_on_one_bounded_client(
     core = _serve(
         monkeypatch,
         FakeCoreV1(
-            pods=[healthy_pod("api-0", "shop"), crashlooping_pod("exporter-0", "monitoring")],
-            nodes=[node("worker-1"), node("worker-2"), node("worker-3"), node("worker-4", "False")],
+            pods=[
+                healthy_pod("api-0", "shop"),
+                crashlooping_pod("exporter-0", "monitoring"),
+            ],
+            nodes=[
+                node("worker-1"),
+                node("worker-2"),
+                node("worker-3"),
+                node("worker-4", "False"),
+            ],
         ),
     )
     summary = fetch_k8s_status()
@@ -85,13 +94,18 @@ def test_fetch_k8s_status_reads_pods_and_nodes_on_one_bounded_client(
 
 
 @pytest.mark.usefixtures("lab_context")
-def test_pods_still_render_when_the_node_list_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pods_still_render_when_the_node_list_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Listing nodes needs a cluster-scoped permission listing pods does not."""
     from kubernetes.client.exceptions import ApiException  # type: ignore[import-untyped]
 
     _serve(
         monkeypatch,
-        FakeCoreV1(pods=[healthy_pod("api-0")], nodes=ApiException(status=403, reason="Forbidden")),
+        FakeCoreV1(
+            pods=[healthy_pod("api-0")],
+            nodes=ApiException(status=403, reason="Forbidden"),
+        ),
     )
     summary = fetch_k8s_status()
     assert (summary.connected, len(summary.pods), summary.nodes_error) == (
@@ -119,7 +133,10 @@ def test_a_failed_pod_list_reports_the_context_and_the_masked_error(
 
 def test_fetch_k8s_status_failure() -> None:
     """fetch_k8s_status gracefully returns disconnected summary on client failure."""
-    with patch("devops_cli.ui.data_providers._get_k8s_client", side_effect=Exception("No cluster")):
+    with patch(
+        "devops_cli.ui.data_providers._get_k8s_client",
+        side_effect=Exception("No cluster"),
+    ):
         summary = fetch_k8s_status()
         assert isinstance(summary, K8sSummary)
         assert summary.connected is False
@@ -128,7 +145,9 @@ def test_fetch_k8s_status_failure() -> None:
 
 
 @pytest.mark.usefixtures("lab_context")
-def test_the_kubernetes_snapshot_runs_no_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_kubernetes_snapshot_runs_no_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A banner badge ran a CLI on every refresh, with a timeout of half an hour."""
     import subprocess
 
@@ -243,7 +262,8 @@ def test_fetch_docker_status_success() -> None:
 def test_fetch_docker_status_failure() -> None:
     """fetch_docker_status gracefully returns disconnected summary on daemon error."""
     with patch(
-        "devops_cli.ui.data_providers._get_docker_client", side_effect=Exception("Daemon down")
+        "devops_cli.ui.data_providers._get_docker_client",
+        side_effect=Exception("Daemon down"),
     ):
         summary = fetch_docker_status()
         assert isinstance(summary, DockerSummary)
@@ -346,7 +366,8 @@ def test_fetch_valkey_status_success() -> None:
 def test_fetch_valkey_status_failure() -> None:
     """fetch_valkey_status returns offline summary when connection fails."""
     with patch(
-        "devops_cli.ui.data_providers.ValkeyClient", side_effect=Exception("Connection refused")
+        "devops_cli.ui.data_providers.ValkeyClient",
+        side_effect=Exception("Connection refused"),
     ):
         summary = fetch_valkey_status()
         assert isinstance(summary, ValkeySummary)
@@ -411,6 +432,42 @@ async def test_textual_dashboard_app_lifecycle() -> None:
         await pilot.press("escape")
         await pilot.pause(0.05)
         assert not isinstance(app.screen, HelpScreen)
+
+
+@pytest.mark.asyncio
+async def test_dashboard_refresh_before_mount_does_not_fail_worker() -> None:
+    """A panel update before the panel is mounted is deferred or dropped, never failing the worker."""
+    from devops_cli.ui.state import DomainSnapshot
+    from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, ReviewPanel
+
+    panels: list[Any] = [
+        DomainPanel("telemetry"),
+        DomainPanel("valkey"),
+        K8sPanel("k8s"),
+        DockerPanel("docker"),
+        ReviewPanel("ai"),
+    ]
+    snapshots = [DomainSnapshot(domain=p.domain) for p in panels]
+    for p, s in zip(panels, snapshots, strict=True):
+        p.apply(s)
+
+    assert (
+        all(p._pending_snapshot is s for p, s in zip(panels, snapshots, strict=True)),
+        all(not p.is_mounted for p in panels),
+    ) == (True, True)
+
+    app = DashboardApp(refresh_interval=0)
+    for s in snapshots:
+        app.apply_snapshot(s)
+
+    from textual.worker import WorkerState
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert (
+            app.is_running,
+            any(w.state == WorkerState.ERROR for w in app.workers),
+        ) == (True, False)
 
 
 # =============================================================================

@@ -10,12 +10,19 @@ import html
 import re
 import urllib.parse
 from functools import partial
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict, cast
+
+import httpx2
+from bs4 import BeautifulSoup
+from markdownify import MarkdownConverter
 
 if TYPE_CHECKING:
     from devops_cli.ai.agents.tools import Tool
 
-from devops_cli.config.constants import CONST_HTTP_EGRESS_POLICY_EXTENSION
+from devops_cli.config.constants import (
+    CONST_HTTP_EGRESS_POLICY_EXTENSION,
+    CONST_WEB_FETCH_CHROME_TAGS,
+)
 from devops_cli.config.defaults import (
     DEFAULT_DUCKDUCKGO_MAX_RESULTS,
     DEFAULT_DUCKDUCKGO_TIMEOUT_SECONDS,
@@ -23,6 +30,7 @@ from devops_cli.config.defaults import (
     DEFAULT_EXA_SEARCH_NUM_RESULTS,
     DEFAULT_TAVILY_MAX_RESULTS,
     DEFAULT_TAVILY_TIMEOUT_SECONDS,
+    DEFAULT_TRUNCATION_SUFFIX,
     DEFAULT_WEB_FETCH_MAX_CONTENT_LENGTH,
     DEFAULT_WEB_FETCH_MAX_DOWNLOAD_BYTES,
     DEFAULT_WEB_FETCH_TIMEOUT_SECONDS,
@@ -262,19 +270,11 @@ else:
             def __init__(self, *args: Any, **kwargs: Any) -> None:
                 pass
 
-    try:
-        from pydantic_ai.common_tools.web_fetch import WebFetchLocalTool
-    except Exception:
-
-        class WebFetchLocalTool:  # type: ignore[no-redef]
-            """WebFetchLocalTool fallback when optional dependency markdownify is not installed."""
-
-            def __init__(self, *args: Any, **kwargs: Any) -> None:
-                pass
+    from pydantic_ai.common_tools.web_fetch import WebFetchLocalTool
 
 
 # =============================================================================
-# SSRF Validation & HTML Parsers
+# SSRF Validation & Untrusted HTML Markdown Rendering
 # =============================================================================
 
 
@@ -287,25 +287,168 @@ def is_private_ip_or_localhost(url_or_host: str) -> bool:
     return is_loopback_or_private_host(host)
 
 
-def _html_to_markdown(raw_html: str) -> str:
-    """Convert HTML content to clean markdown text."""
-    clean = re.sub(r"<(script|style).*?</\1>", "", raw_html, flags=re.DOTALL | re.IGNORECASE)
-    clean = re.sub(
-        r"<h[1-6][^>]*>(.*?)</h[1-6]>", r"\n# \1\n", clean, flags=re.DOTALL | re.IGNORECASE
+class RenderedUntrustedPage(NamedTuple):
+    """Structured result of untrusted web page rendering."""
+
+    markdown: str
+    truncated: bool
+    token_estimate: int
+    removed_regions: list[str]
+    provenance: str
+    injection_suspected: bool
+
+    @property
+    def provenance_line(self) -> str:
+        return self.provenance
+
+    def __str__(self) -> str:
+        return f"{self.provenance}\n{self.markdown}"
+
+
+class UntrustedMarkdownConverter(MarkdownConverter):
+    """MarkdownConverter with dynamic backtick fencing to prevent code fence smuggling."""
+
+    options: dict[str, Any]
+
+    def convert_pre(self, el: Any, text: str, parent_tags: Any = None) -> str:
+        if not text:
+            return ""
+        code_language = self._resolve_code_language(el)
+        if any(c.isspace() or c == "`" for c in code_language):
+            code_language = ""
+        text = self._strip_pre_content(text)
+
+        backtick_runs = re.findall(r"`+", text)
+        max_run = max((len(r) for r in backtick_runs), default=0)
+        fence_len = max(3, max_run + 1)
+        fence = "`" * fence_len
+
+        return f"\n\n{fence}{code_language}\n{text}\n{fence}\n\n"
+
+    def _resolve_code_language(self, el: Any) -> str:
+        options: dict[str, Any] = getattr(self, "options", {})
+        cb = options.get("code_language_callback")
+        if callable(cb):
+            res = str(cb(el) or "")
+            if res:
+                return "" if any(c.isspace() or c == "`" for c in res) else res
+        code_lang = str(options.get("code_language", "") or "")
+        if code_lang:
+            return "" if any(c.isspace() or c == "`" for c in code_lang) else code_lang
+        if not hasattr(el, "get"):
+            return ""
+
+        code_el = el.find("code") if hasattr(el, "find") else None
+        target = code_el or el
+        classes = target.get("class", []) if hasattr(target, "get") else []
+        if isinstance(classes, str):
+            classes = classes.split()
+        for cls in classes:
+            if cls.startswith("language-") or cls.startswith("lang-"):
+                candidate = str(cls.split("-", 1)[1])
+                return "" if any(c.isspace() or c == "`" for c in candidate) else candidate
+        return ""
+
+    def _strip_pre_content(self, text: str) -> str:
+        options: dict[str, Any] = getattr(self, "options", {})
+        strip_mode = options.get("strip_pre")
+        if strip_mode in ("strip", True):
+            return text.strip("\r\n")
+        if strip_mode == "strip_one":
+            if text.startswith("\r\n"):
+                text = text[2:]
+            elif text.startswith(("\n", "\r")):
+                text = text[1:]
+            if text.endswith("\r\n"):
+                text = text[:-2]
+            elif text.endswith(("\n", "\r")):
+                text = text[:-1]
+        return text
+
+
+def _clean_and_decompose_html(raw_html: str) -> tuple[BeautifulSoup, list[str]]:
+    """Parse HTML and decompose chrome, modals, scripts, base tags, and dialogs."""
+    soup = BeautifulSoup(raw_html, "html.parser")
+
+    for base in soup.find_all("base"):
+        base.decompose()
+
+    elements_to_decompose: list[tuple[str, Any]] = []
+    for tag in soup.find_all(True):
+        if tag.decomposed:
+            continue
+        is_dialog_role = str(tag.get("role", "")).lower() == "dialog"
+        is_chrome = tag.name in CONST_WEB_FETCH_CHROME_TAGS
+        if is_chrome or is_dialog_role:
+            elements_to_decompose.append((tag.name, tag))
+
+    removed_regions: list[str] = []
+    for tag_name, tag in elements_to_decompose:
+        if not tag.decomposed:
+            if tag_name not in removed_regions:
+                removed_regions.append(tag_name)
+            tag.decompose()
+
+    return soup, removed_regions
+
+
+def _apply_blank_line_cut(text: str, budget: int | None) -> tuple[str, bool]:
+    """Truncate text within budget at the latest blank line, appending DEFAULT_TRUNCATION_SUFFIX."""
+    if budget is None or len(text) <= budget:
+        return text, False
+
+    target = max(0, budget - len(DEFAULT_TRUNCATION_SUFFIX))
+    cut_idx = text.rfind("\n\n", 0, target)
+    if cut_idx == -1:
+        cut_idx = text.rfind("\n", 0, target)
+    if cut_idx == -1:
+        cut_idx = target
+
+    return text[:cut_idx].rstrip() + DEFAULT_TRUNCATION_SUFFIX, True
+
+
+def render_untrusted_page(
+    html: str,
+    url: str,
+    budget: int | None = None,
+) -> RenderedUntrustedPage:
+    """Render untrusted HTML page as escaped markdown within budget with provenance and isolation."""
+    soup, removed_regions = _clean_and_decompose_html(html)
+
+    converter = UntrustedMarkdownConverter(escape_misc=True, heading_style="ATX")
+    raw_markdown = converter.convert_soup(soup)
+
+    cut_markdown, truncated = _apply_blank_line_cut(raw_markdown, budget)
+
+    from devops_cli.security.sanitizer import sanitize_prompt_boundary_tags
+
+    sanitized = sanitize_prompt_boundary_tags(cut_markdown).strip()
+    wrapped_markdown = (
+        f"<untrusted_web_page>\n{sanitized}\n</untrusted_web_page>"
+        if sanitized
+        else "<untrusted_web_page>\n</untrusted_web_page>"
     )
-    clean = re.sub(r"<p[^>]*>(.*?)</p>", r"\n\1\n", clean, flags=re.DOTALL | re.IGNORECASE)
-    clean = re.sub(r"<br\s*/?>", "\n", clean, flags=re.IGNORECASE)
-    clean = re.sub(
-        r"<a\s+(?:[^>]*?\s+)?href=[\"'](.*?)[\"'][^>]*>(.*?)</a>",
-        r"[\2](\1)",
-        clean,
-        flags=re.DOTALL | re.IGNORECASE,
+
+    from devops_cli.ai.agents.guardrails import PromptInjectionDefender
+
+    defender = PromptInjectionDefender()
+    inj_raw, _ = defender.scan_text(html)
+    inj_md, _ = defender.scan_text(raw_markdown)
+    injection_suspected = bool(inj_raw or inj_md)
+
+    from devops_cli.ai.context_budget import count_tokens
+
+    token_estimate = count_tokens(wrapped_markdown)
+    provenance = f"Provenance: {url}"
+
+    return RenderedUntrustedPage(
+        markdown=wrapped_markdown,
+        truncated=truncated,
+        token_estimate=token_estimate,
+        removed_regions=removed_regions,
+        provenance=provenance,
+        injection_suspected=injection_suspected,
     )
-    clean = re.sub(r"<li[^>]*>(.*?)</li>", r"\n- \1", clean, flags=re.DOTALL | re.IGNORECASE)
-    clean = re.sub(r"<[^>]+>", "", clean)
-    clean = html.unescape(clean)
-    clean = re.sub(r"\n{3,}", "\n\n", clean)
-    return clean.strip()
 
 
 # =============================================================================
@@ -391,12 +534,16 @@ def web_fetch_tool(
             else:
                 content_text = resp.text
 
-            md_text = _html_to_markdown(content_text)
-            if max_content_length is not None and len(md_text) > max_content_length:
-                return md_text[:max_content_length] + "... (truncated)"
-            return md_text
-        except Exception as exc:
-            return f"Error fetching web page {url[:256]}: {str(exc)[:256]}"
+            rendered = render_untrusted_page(
+                content_text,
+                url=str(resp.url),
+                budget=max_content_length,
+            )
+            return f"{rendered.provenance}\n{rendered.markdown}"
+        except httpx2.HTTPError as exc:
+            from devops_cli.exceptions.ai import ToolFailed
+
+            raise ToolFailed(f"Failed to fetch {url[:256]}: {str(exc)[:256]}") from exc
 
     from devops_cli.ai.agents.tools import Tool
 
@@ -544,6 +691,7 @@ __all__ = [
     "ImageGenerationFallbackModelFunc",
     "ImageGenerationSubagentTool",
     "ImageGenerationTool",
+    "RenderedUntrustedPage",
     "TavilySearchResult",
     "TavilySearchTool",
     "WebFetchLocalTool",
@@ -552,7 +700,6 @@ __all__ = [
     "XSearchFallbackModelFunc",
     "XSearchSubagentTool",
     "XSearchTool",
-    "_html_to_markdown",
     "duckduckgo_search_tool",
     "exa_answer_tool",
     "exa_find_similar_tool",
@@ -560,6 +707,7 @@ __all__ = [
     "exa_search_tool",
     "image_generation_tool",
     "is_private_ip_or_localhost",
+    "render_untrusted_page",
     "tavily_search",
     "tavily_search_tool",
     "web_fetch_tool",

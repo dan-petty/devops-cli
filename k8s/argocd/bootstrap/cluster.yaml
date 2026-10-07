@@ -7,15 +7,33 @@ spec:
   project: default
   source:
     repoURL: https://github.com/dan-petty/devops-cli
-    targetRevision: release/v0.2.27
+    targetRevision: main
     path: k8s/argocd/apps
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
+  # `devops k8s deploy-stack` sets the homelab's hosts on these Applications as Kustomize
+  # overrides from config.yaml, so they never enter git; this app-of-apps leaves that field to it
+  # (https://argo-cd.readthedocs.io/en/stable/operator-manual/cluster-bootstrapping/#ignoring-differences-in-child-applications).
+  ignoreDifferences:
+  - group: argoproj.io
+    kind: Application
+    name: devops
+    namespace: argocd
+    jsonPointers:
+    - /spec/source/kustomize
+  - group: argoproj.io
+    kind: Application
+    name: ingress
+    namespace: argocd
+    jsonPointers:
+    - /spec/source/kustomize
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+    - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:

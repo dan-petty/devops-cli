@@ -6,6 +6,7 @@ import asyncio
 import fnmatch
 import json
 import os
+import signal
 import subprocess
 import threading
 import time
@@ -25,6 +26,8 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS,
     DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS,
+    DEFAULT_SHELL_STOP_GRACE_SECONDS,
+    DEFAULT_SHELL_STOP_POLL_SECONDS,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.dry_run import is_dry_run
@@ -466,6 +469,63 @@ def run_subprocess(
         return proc
 
 
+def _signal_process_group(pgid: int, sig: int) -> bool:
+    """Send a signal to the process group, returning False if unreachable."""
+    if not hasattr(os, "killpg"):
+        return False
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError, PermissionError:
+        return False
+    return True
+
+
+def _is_invalid_pgid(pgid: int | None) -> bool:
+    """Check whether a pgid is invalid or belongs to the current process group."""
+    if not isinstance(pgid, int) or pgid <= 1:
+        return True
+    return bool(hasattr(os, "getpgrp") and pgid == os.getpgrp())
+
+
+async def _wait_for_group_exit_async(
+    proc: asyncio.subprocess.Process, pgid: int, deadline: float
+) -> bool:
+    """Poll for group exit until deadline. Returns True if group exited."""
+    while time.monotonic() < deadline:
+        if proc.returncode is not None and not _signal_process_group(pgid, 0):
+            return True
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=DEFAULT_SHELL_STOP_POLL_SECONDS)
+            if not _signal_process_group(pgid, 0):
+                return True
+        except TimeoutError:
+            pass
+    return not _signal_process_group(pgid, 0)
+
+
+async def _terminate_process_group_async(
+    proc: asyncio.subprocess.Process,
+    *,
+    stop_grace_seconds: float = DEFAULT_SHELL_STOP_GRACE_SECONDS,
+) -> None:
+    """Terminate the process group of proc on timeout, escalating from SIGTERM to SIGKILL."""
+    pgid = proc.pid
+    if _is_invalid_pgid(pgid) or not _signal_process_group(pgid, signal.SIGTERM):
+        proc.kill()
+        await proc.wait()
+        return
+
+    deadline = time.monotonic() + stop_grace_seconds
+    if await _wait_for_group_exit_async(proc, pgid, deadline):
+        return
+
+    _signal_process_group(pgid, signal.SIGKILL)
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=stop_grace_seconds)
+    except TimeoutError:
+        pass
+
+
 async def run_subprocess_async(
     cmd: list[str],
     *,
@@ -501,7 +561,7 @@ async def run_subprocess_async(
         print_dry_run_command(cmd, cwd=str(cwd) if cwd else None)
 
     bin_name = Path(cmd[0]).name if cmd else "unknown"
-    cmd_summary = " ".join(cmd[:8]) + ("..." if len(cmd) > 8 else "") if cmd else ""
+    cmd_summary = _sanitize_command_for_telemetry(cmd)
     start_time = time.perf_counter()
 
     sub_env = build_subprocess_env(
@@ -536,14 +596,14 @@ async def run_subprocess_async(
                 env=sub_env,
                 stdout=stdout_pipe,
                 stderr=stderr_pipe,
+                start_new_session=(os.name == "posix"),
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
                     proc.communicate(), timeout=timeout
                 )
             except TimeoutError:
-                proc.kill()
-                await proc.wait()
+                await _terminate_process_group_async(proc)
                 raise subprocess.TimeoutExpired(cmd, timeout) from None
         except FileNotFoundError:
             dur = time.perf_counter() - start_time

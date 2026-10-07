@@ -114,3 +114,19 @@ def test_chunk_file_defensive_boundaries(tmp_path: Path) -> None:
     chunks_oversized = chunker.chunk_file(mock_large, relative_to=inside_dir)
 
     assert (chunks_traversal, chunks_symlink, chunks_oversized) == ([], [], [])
+
+
+def test_chunk_synthetic_file_bounds_tokens(tmp_path: Path) -> None:
+    """A 4,000-line synthetic file is chunked so that every chunk is <= 8,192 tokens."""
+    from devops_cli.ai.rag.chunker import estimate_tokens
+    from devops_cli.config.constants import CONST_RAG_MAX_CHUNK_TOKENS
+
+    lines = [f"line_{i} = 'some payload text content that spans lines'\n" for i in range(4000)]
+    synthetic_file = tmp_path / "synthetic_large.py"
+    synthetic_file.write_text("".join(lines), encoding="utf-8")
+
+    chunker = SemanticChunker()
+    chunks = chunker.chunk_file(synthetic_file, relative_to=tmp_path)
+
+    assert len(chunks) > 0
+    assert all(estimate_tokens(c.content) <= CONST_RAG_MAX_CHUNK_TOKENS for c in chunks)

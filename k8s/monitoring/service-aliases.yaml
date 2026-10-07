@@ -54,22 +54,3 @@ spec:
       port: 80
       targetPort: 3000
       protocol: TCP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: pyroscope
-  namespace: monitoring
-  labels:
-    app.kubernetes.io/name: pyroscope
-    app.kubernetes.io/part-of: devops-cli-stack
-spec:
-  type: ClusterIP
-  selector:
-    app.kubernetes.io/name: pyroscope
-    app.kubernetes.io/instance: pyroscope
-  ports:
-    - name: http
-      port: 4040
-      targetPort: 4040
-      protocol: TCP

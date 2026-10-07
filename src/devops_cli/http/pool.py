@@ -25,8 +25,10 @@ header does not fragment the pool into one client per caller.
 from __future__ import annotations
 
 import atexit
+import inspect
 import logging
 import threading
+from contextlib import nullcontext
 from typing import Any
 
 import httpx2
@@ -131,11 +133,134 @@ async def aclose_shared_clients() -> None:
             logger.debug("Failed closing shared async HTTP client: %s", exc)
 
 
+def _extract_connection_pool(target: Any) -> Any:
+    """Find the underlying httpcore connection pool from a client, transport, or pool."""
+    current = target
+    for _ in range(5):
+        if current is None:
+            break
+        if hasattr(current, "_pool"):
+            return current._pool
+        if hasattr(current, "wrapped"):
+            current = getattr(current, "wrapped", None)
+        elif hasattr(current, "_transport"):
+            current = getattr(current, "_transport", None)
+        elif hasattr(current, "_connections"):
+            return current
+        else:
+            break
+    return None
+
+
+def _purge_connection_if_expired(conn: Any, connections: list[Any], closing: list[Any]) -> None:
+    """Remove a connection from the pool and queue it for closing if expired or closed."""
+    try:
+        closed = conn.is_closed() if callable(getattr(conn, "is_closed", None)) else False
+        expired = conn.has_expired() if callable(getattr(conn, "has_expired", None)) else False
+        if closed:
+            if conn in connections:
+                connections.remove(conn)
+        elif expired:
+            if conn in connections:
+                connections.remove(conn)
+            closing.append(conn)
+    except Exception as exc:
+        logger.debug("Failed evaluating connection expiration: %s", exc)
+
+
+def _close_connection_list(pool: Any, closing: list[Any]) -> None:
+    """Close each connection in closing list using pool or direct method."""
+    if not closing:
+        return
+    if callable(getattr(pool, "_close_connections", None)):
+        try:
+            pool._close_connections(closing)
+            return
+        except Exception as exc:
+            logger.debug("Pool failed closing connections: %s", exc)
+    for conn in closing:
+        try:
+            conn.close()
+        except Exception as exc:
+            logger.debug("Failed closing expired connection: %s", exc)
+
+
+def close_expired_connections(target: Any) -> None:
+    """Close and purge expired, closed, or server-disconnected connections from the target's pool."""
+    pool = _extract_connection_pool(target)
+    if pool is None:
+        return
+    connections = getattr(pool, "_connections", None)
+    if not isinstance(connections, list):
+        return
+
+    closing: list[Any] = []
+    lock = getattr(pool, "_optional_thread_lock", None)
+    cm = lock if lock is not None else nullcontext()
+    with cm:
+        for conn in list(connections):
+            _purge_connection_if_expired(conn, connections, closing)
+
+    _close_connection_list(pool, closing)
+
+
+async def _aclose_connection_list(pool: Any, closing: list[Any]) -> None:
+    """Asynchronously close each connection in closing list using pool or direct method."""
+    if not closing:
+        return
+    close_method = getattr(pool, "_close_connections", None)
+    if callable(close_method):
+        try:
+            res = close_method(closing)
+            if inspect.iscoroutine(res):
+                await res
+            return
+        except Exception as exc:
+            logger.debug("Pool failed closing connections asynchronously: %s", exc)
+    for conn in closing:
+        try:
+            aclose = getattr(conn, "aclose", None)
+            if callable(aclose):
+                await aclose()
+            elif callable(getattr(conn, "close", None)):
+                conn.close()
+        except Exception as exc:
+            logger.debug("Failed closing expired connection asynchronously: %s", exc)
+
+
+async def aclose_expired_connections(target: Any) -> None:
+    """Close and purge expired, closed, or server-disconnected connections from an async target's pool."""
+    pool = _extract_connection_pool(target)
+    if pool is None:
+        return
+    connections = getattr(pool, "_connections", None)
+    if not isinstance(connections, list):
+        return
+
+    closing: list[Any] = []
+    lock = getattr(pool, "_optional_thread_lock", None)
+    if lock is not None and hasattr(lock, "__aenter__"):
+        async with lock:
+            for conn in list(connections):
+                _purge_connection_if_expired(conn, connections, closing)
+    elif lock is not None and hasattr(lock, "__enter__"):
+        with lock:
+            for conn in list(connections):
+                _purge_connection_if_expired(conn, connections, closing)
+    else:
+        for conn in list(connections):
+            _purge_connection_if_expired(conn, connections, closing)
+
+    await _aclose_connection_list(pool, closing)
+
+
 atexit.register(close_shared_clients)
 
 
 __all__ = [
+    "aclose_expired_connections",
     "aclose_shared_clients",
+    "close_expired_connections",
     "close_shared_clients",
     "connection_limits",
     "get_shared_async_client",

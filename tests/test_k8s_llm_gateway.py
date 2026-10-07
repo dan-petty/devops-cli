@@ -142,7 +142,7 @@ class TestK8sLLMGatewayManifests:
                 "qwen3.8:27b",
                 "deepseek-r1:70b",
             ],
-            "simple-shuffle",
+            "least-busy",
             [
                 {"devops-reasoning": ["devops-coder"]},
                 {"devops-coder": ["devops-reasoning", "devops-chat"]},
@@ -188,16 +188,23 @@ class TestK8sLLMGatewayManifests:
         )
 
     def test_gateway_review_pool_spans_ollama_backends(self) -> None:
-        """Verify devops-review shares requests across Ollama backends with appropriate weights."""
+        """Verify devops-review shares requests across Ollama backends with appropriate weights and zero retries."""
         deployments = _deployments("devops-review")
         weights = {
             m["litellm_params"]["api_base"]: m["litellm_params"].get("weight") for m in deployments
         }
-        assert weights == {
-            "http://ollama-48gib-fast.llm.svc.cluster.local:11434": 9,
-            "http://ollama-64gib-standard.llm.svc.cluster.local:11434": 6,
-            "http://ollama-16gib-fast.llm.svc.cluster.local:11434": 6,
-        }
+        retries = [m["litellm_params"].get("num_retries") for m in deployments]
+        assert (
+            weights,
+            retries,
+        ) == (
+            {
+                "http://ollama-48gib-fast.llm.svc.cluster.local:11434": 9,
+                "http://ollama-64gib-standard.llm.svc.cluster.local:11434": 6,
+                "http://ollama-16gib-fast.llm.svc.cluster.local:11434": 6,
+            },
+            [0, 0, 0],
+        )
 
     @pytest.mark.parametrize("group", ["qwen3-coder:30b", "gpt-oss:20b"])
     def test_a_review_model_has_a_group_of_its_review_deployments_alone(self, group: str) -> None:
@@ -237,7 +244,8 @@ class TestK8sLLMGatewayManifests:
         ) == (
             True,
             _routes(review),
-            [(["litellm_params", "model_name"], ["api_base", "model", "weight"])] * len(review),
+            [(["litellm_params", "model_name"], ["api_base", "model", "num_retries", "weight"])]
+            * len(review),
             False,
             [],
         )
@@ -349,9 +357,11 @@ class TestK8sLLMGatewayManifests:
 
         assert (
             cfg["general_settings"]["master_key"],
+            cfg["general_settings"]["cancel_on_disconnect"],
             cfg["router_settings"]["timeout"] >= 600,
         ) == (
             "os.environ/LITELLM_MASTER_KEY",
+            True,
             True,
         )
 

@@ -321,8 +321,8 @@ class K8sMessages:
         "--plan reads the keyring, gh and the cluster to show each key's state."
     )
     job_cronjob_missing: str = (
-        "CronJob devops/devops-cli not found. Apply it first: "
-        "devops k8s apply k8s/devops/ --template"
+        "CronJob devops/devops-cli not found. Deploy it first: "
+        "devops k8s deploy-stack --stack devops"
     )
     job_created: str = "Created Job {name}. Follow it with: kubectl -n devops logs -f job/{name}"
     job_dry_run_heading: str = (
@@ -723,6 +723,7 @@ class RAGMessages:
         "RAG lookup failed, so prompts go on without retrieved context: {error}. Later failures "
         "this run are logged at debug level."
     )
+    paused: str = "RAG lookups paused for {seconds}s after {failures} failures: {error}."
 
 
 @dataclass(frozen=True)

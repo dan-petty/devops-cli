@@ -81,27 +81,23 @@ def test_automated_sync_policies() -> None:
 
 def test_git_sources_and_revisions() -> None:
     apps = _all_applications()
-    branch_re = re.compile(r"^release/v\d+\.\d+\.\d+$")
 
     for name, app in apps.items():
         spec = app["spec"]
         if "source" in spec:
             source = spec["source"]
-            if name == "bootstrap":
-                assert (source["repoURL"], source["targetRevision"]) == (REPO_URL, "main")
-            else:
-                assert source["repoURL"] == REPO_URL
-                assert branch_re.match(source["targetRevision"]), (
-                    f"{name} bad revision {source['targetRevision']}"
-                )
+            assert (source["repoURL"], source["targetRevision"]) == (REPO_URL, "main"), (
+                f"{name} bad revision {source.get('targetRevision')}"
+            )
         elif "sources" in spec:
             git_sources = [s for s in spec["sources"] if "chart" not in s]
             assert len(git_sources) == 1, f"{name} expected 1 git source"
             git_s = git_sources[0]
-            assert (git_s["repoURL"], git_s["ref"]) == (REPO_URL, "values")
-            assert branch_re.match(git_s["targetRevision"]), (
-                f"{name} bad revision {git_s['targetRevision']}"
-            )
+            assert (git_s["repoURL"], git_s["ref"], git_s["targetRevision"]) == (
+                REPO_URL,
+                "values",
+                "main",
+            ), f"{name} bad revision {git_s.get('targetRevision')}"
 
 
 def test_helm_sources_pinned_versions() -> None:
@@ -200,6 +196,8 @@ def test_projects_whitelists_and_orphaned_resources() -> None:
     for secret in CLUSTER_SECRETS:
         assert ("", "Secret", secret.name) in ignored_tuples
 
+    # deploy-stack applies it from config.yaml, so no Application owns it (#1290)
+    assert ("", "ConfigMap", "devops-cli-config") in ignored_tuples
     assert ("", "Secret", "argocd-initial-admin-secret") in ignored_tuples
     assert ("", "Secret", "argocd-redis") in ignored_tuples
     assert ("", "Secret", "sh.helm.release.v1.*") in ignored_tuples
@@ -362,18 +360,8 @@ def test_perimeters_in_applications() -> None:
 # ── Domain Overlays ──────────────────────────────────────────────────────────
 
 
-def _check_overlay_doc(doc: dict[str, Any]) -> None:
-    kind = doc.get("kind", "")
-    if kind == "Ingress":
-        for rule in doc.get("spec", {}).get("rules", []):
-            assert rule["host"].endswith(".retric.click")
-    elif kind == "IngressRoute":
-        for route in doc.get("spec", {}).get("routes", []):
-            assert ".retric.click" in route["match"]
-
-
 def test_homelab_domain_overlays() -> None:
-    for overlay in ("ingress", "devops"):
+    for overlay in ("devops", "ingress"):
         overlay_dir = K8S_DIR / "overlays" / "homelab" / overlay
         proc = subprocess.run(
             ["kubectl", "kustomize", str(overlay_dir)],
@@ -381,8 +369,72 @@ def test_homelab_domain_overlays() -> None:
             capture_output=True,
             text=True,
         )
-        assert "example.com" not in proc.stdout, f"Found example.com in overlay {overlay}"
+        assert proc.returncode == 0, f"Overlay {overlay} failed to build: {proc.stderr}"
 
         docs = [d for d in yaml.safe_load_all(proc.stdout) if d]
+        assert len(docs) > 0, f"No documents rendered for overlay {overlay}"
         for doc in docs:
-            _check_overlay_doc(doc)
+            assert "kind" in doc
+            assert "metadata" in doc
+
+
+# ── Deploy-time homelab values (#1290) ───────────────────────────────────────
+
+
+def test_the_app_of_apps_keeps_the_hosts_deploy_stack_sets_on_the_homelab_applications() -> None:
+    """`cluster` leaves the Kustomize overrides of the homelab Applications to deploy-stack."""
+    from devops_cli.config.constants import (
+        CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS as HOMELAB_APPLICATIONS,
+    )
+
+    spec = _load_yaml(BOOTSTRAP_DIR / "cluster.yaml")["spec"]
+    assert (
+        spec.get("ignoreDifferences"),
+        "RespectIgnoreDifferences=true" in spec["syncPolicy"].get("syncOptions", []),
+    ) == (
+        [
+            {
+                "group": "argoproj.io",
+                "kind": "Application",
+                "name": name,
+                "namespace": "argocd",
+                "jsonPointers": ["/spec/source/kustomize"],
+            }
+            for name in HOMELAB_APPLICATIONS
+        ],
+        True,
+    )
+
+
+def test_no_homelab_application_sets_kustomize_overrides_in_git() -> None:
+    """Git leaves the field to deploy-stack, so the two never contend for it."""
+    from devops_cli.config.constants import (
+        CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS as HOMELAB_APPLICATIONS,
+    )
+
+    apps = _all_applications()
+    assert [
+        name for name in HOMELAB_APPLICATIONS if "kustomize" in apps[name]["spec"]["source"]
+    ] == []
+
+
+def test_no_application_renders_the_devops_cli_config_map_and_no_commit_holds_it() -> None:
+    """The ConfigMap is rendered from the active config at deploy time, never from git."""
+    rendered = subprocess.run(
+        ["kubectl", "kustomize", str(K8S_DIR / "overlays" / "homelab" / "devops")],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    objects = [(d["kind"], d["metadata"]["name"]) for d in yaml.safe_load_all(rendered) if d]
+    ignored = subprocess.run(
+        ["git", "check-ignore", "-q", "k8s/devops/configmap.yaml"], cwd=REPO_ROOT, check=False
+    ).returncode
+    tracked = subprocess.run(
+        ["git", "ls-files", "k8s/devops/configmap.yaml"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert (("ConfigMap", "devops-cli-config") in objects, ignored, tracked) == (False, 0, "")

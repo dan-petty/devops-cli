@@ -190,8 +190,6 @@ def _extract_git_revisions_from_doc(doc: Any) -> list[str]:
     """Extract git targetRevision values from an Argo CD Application doc."""
     if not isinstance(doc, dict) or doc.get("kind") != "Application":
         return []
-    if doc.get("metadata", {}).get("name") == "bootstrap":
-        return []
     spec = doc.get("spec", {})
     revisions: list[str] = []
     source = spec.get("source")
@@ -204,7 +202,7 @@ def _extract_git_revisions_from_doc(doc: Any) -> list[str]:
 
 
 def _get_argocd_git_target_revisions(root: Path) -> list[tuple[Path, str]]:
-    """Return (file_path, target_revision) for every git source in Applications under k8s/argocd/ (excluding bootstrap)."""
+    """Return (file_path, target_revision) for every git source in Applications under k8s/argocd/."""
     import yaml
 
     argocd_dir = root / "k8s" / "argocd"
@@ -224,36 +222,63 @@ def _get_argocd_git_target_revisions(root: Path) -> list[tuple[Path, str]]:
 
 
 def _resolve_argocd_next_revision(root: Path, current_version: str) -> str | None:
-    """Resolve targetRevision for Argo CD manifests to match current_version."""
+    """Resolve targetRevision for Argo CD manifests to 'main'."""
     git_revisions = _get_argocd_git_target_revisions(root)
     if not git_revisions:
         return None
-    return f"release/v{current_version}"
+    return "main"
+
+
+def _apply_git_revision_to_doc(doc: Any, next_revision: str) -> bool:
+    """Update git-source targetRevisions in an Application doc to next_revision."""
+    if not isinstance(doc, dict) or doc.get("kind") != "Application":
+        return False
+    spec = doc.get("spec", {})
+    changed = False
+    source = spec.get("source")
+    if isinstance(source, dict) and "chart" not in source and "targetRevision" in source:
+        if source["targetRevision"] != next_revision:
+            source["targetRevision"] = next_revision
+            changed = True
+    for s in spec.get("sources", []):
+        if isinstance(s, dict) and "chart" not in s and "targetRevision" in s:
+            if s["targetRevision"] != next_revision:
+                s["targetRevision"] = next_revision
+                changed = True
+    return changed
 
 
 def _apply_argocd_target_revisions(root: Path, next_revision: str) -> bool:
     """Rewrite git-source targetRevisions under k8s/argocd/ to next_revision."""
+    import yaml
+
+    from devops_cli.output import write_text_file
+
     argocd_dir = root / "k8s" / "argocd"
     if not argocd_dir.is_dir():
         return False
 
-    from devops_cli.output import write_text_file
-
-    pattern = re.compile(r"""(targetRevision:\s*["']?)release/v[^"'\s]+(["']?)""")
     updated = False
     for path in sorted(argocd_dir.rglob("*.yaml")):
-        if path.name == "bootstrap.yaml":
+        try:
+            docs = list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
+        except Exception:
             continue
-        content = path.read_text(encoding="utf-8")
-        new_content, count = pattern.subn(rf"\g<1>{next_revision}\g<2>", content)
-        if count > 0:
-            write_text_file(path, new_content)
+
+        file_changed = any(_apply_git_revision_to_doc(d, next_revision) for d in docs)
+        if file_changed:
+            content = (
+                yaml.safe_dump_all(docs, sort_keys=False)
+                if len(docs) > 1
+                else yaml.safe_dump(docs[0], sort_keys=False)
+            )
+            write_text_file(path, content)
             updated = True
     return updated
 
 
 def _verify_argocd_target_revisions(repo_root: Path, pyproject_ver: str) -> None:
-    """Verify git targetRevisions under k8s/argocd/ are uniform and match release/v<pyproject_ver>."""
+    """Verify git targetRevisions under k8s/argocd/ are uniform and match 'main'."""
     revisions = _get_argocd_git_target_revisions(repo_root)
     if not revisions:
         return
@@ -268,10 +293,10 @@ def _verify_argocd_target_revisions(repo_root: Path, pyproject_ver: str) -> None
         raise typer.Exit(1)
 
     rev = next(iter(rev_set))
-    expected = f"release/v{pyproject_ver}"
+    expected = "main"
     if rev != expected:
         _get("print_error")(
-            f"Version mismatch: Argo CD git-source targetRevision '{rev}' does not match pyproject.toml ({expected}). "
+            f"Version mismatch: Argo CD git-source targetRevision '{rev}' does not match expected '{expected}'. "
             f"Run `devops release prepare {pyproject_ver}`.",
             prefix=False,
         )

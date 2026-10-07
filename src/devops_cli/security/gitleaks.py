@@ -9,10 +9,7 @@ from typing import Any, ClassVar
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_GITLEAKS, build_gitleaks_cmd
-from devops_cli.config.constants import (
-    CONST_REVIEW_SCAN_GITLEAKS_CONFIG,
-    CONST_SECRET_PLACEHOLDER_MARKERS,
-)
+from devops_cli.config.constants import CONST_REVIEW_SCAN_GITLEAKS_CONFIG
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS,
@@ -28,82 +25,6 @@ from devops_cli.security.base import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Native high-precision fallback patterns for secrets when gitleaks binary is not in PATH
-_FALLBACK_SECRET_PATTERNS: tuple[tuple[str, str, re.Pattern[str]], ...] = (
-    (
-        "AWS Access Key ID",
-        "HIGH",
-        re.compile(r"\b(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}\b"),
-    ),
-    (
-        "GitHub Personal Access Token",
-        "CRITICAL",
-        re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,255}\b"),
-    ),
-    (
-        "OpenAI API Key",
-        "CRITICAL",
-        re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9]{32,128}\b"),
-    ),
-    (
-        "Private Key Block",
-        "CRITICAL",
-        re.compile(r"-----BEGIN\s+(?:RSA|OPENSSH|EC|DSA|PGP|ENCRYPTED)?\s*PRIVATE KEY-----"),
-    ),
-    (
-        "Slack Token",
-        "HIGH",
-        re.compile(r"\bxox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*\b"),
-    ),
-    (
-        "Stripe API Key",
-        "HIGH",
-        re.compile(r"\b(?:sk|rk)_(?:test|live)_[0-9a-zA-Z]{24,99}\b"),
-    ),
-)
-
-
-def _is_placeholder_secret(match_str: str) -> bool:
-    """Return True if match appears to be an illustrative placeholder or documentation token."""
-    lowered = match_str.lower()
-    return any(p in lowered for p in CONST_SECRET_PLACEHOLDER_MARKERS)
-
-
-def _scan_line_for_secrets(line: str, file_path: Path, line_idx: int) -> list[Finding]:
-    """Test line against fallback secret patterns and return matching findings."""
-    matches: list[Finding] = []
-    fix_msg = "Revoke and rotate secret immediately. Move credentials to OS Keyring or environment variables."
-    for desc, sev, pattern in _FALLBACK_SECRET_PATTERNS:
-        match = pattern.search(line)
-        if match and not _is_placeholder_secret(match.group(0)):
-            matches.append(
-                Finding(
-                    severity=sev,
-                    location=f"{file_path}:{line_idx}",
-                    title=f"[GITLEAKS] Secret detected: {desc}",
-                    description=f"Potential uncommitted {desc} pattern identified at line {line_idx}.",
-                    fix=fix_msg,
-                    confidence_score=None,
-                )
-            )
-    return matches
-
-
-def _scan_file_native_secrets(file_path: Path) -> list[Finding]:
-    """Fallback scanner using built-in high-precision secret patterns."""
-    if not file_path.exists() or not file_path.is_file():
-        return []
-
-    findings: list[Finding] = []
-    try:
-        with file_path.open("r", encoding="utf-8", errors="replace") as f:
-            for line_idx, line in enumerate(f, start=1):
-                findings.extend(_scan_line_for_secrets(line, file_path, line_idx))
-    except Exception as exc:
-        logger.debug("Failed reading %s for native scan: %s", file_path, exc)
-        return []
-    return findings
 
 
 def _parse_single_gitleaks_item(item: dict[str, Any]) -> Finding:
@@ -189,7 +110,7 @@ class GitleaksScanner(BaseSecurityScanner):
     name: str = "gitleaks"
     binary_name: str = BIN_GITLEAKS
     gating: ClassVar[bool] = True
-    has_builtin_patterns: ClassVar[bool] = True
+    has_builtin_patterns: ClassVar[bool] = False
     # Gitleaks reads `.gitleaks.toml` from the scanned source and `.gitleaksignore` from its
     # working directory unless each is named.
     isolation_files: ClassVar[tuple[ScannerConfigFile, ...]] = (
@@ -204,6 +125,10 @@ class GitleaksScanner(BaseSecurityScanner):
         **kwargs: Any,
     ) -> ScanOutcome:
         """Scan a path, or each file of a list, since Gitleaks takes one source per run."""
+        if not self._check_binary() and not self._is_dry_run():
+            return ScanOutcome(
+                "not installed", [], f"Binary '{self.binary_name}' not found on PATH"
+            )
         if not isinstance(target_path, list):
             return super().scan(target_path, timeout=timeout, **kwargs)
         files = _resolve_scan_files(target_path)
@@ -228,14 +153,6 @@ class GitleaksScanner(BaseSecurityScanner):
         if isinstance(data, list):
             return parse_gitleaks_json(data)
         return []
-
-    def fallback_scan(self, target_path: Path | list[Path]) -> list[Finding]:
-        """Execute high-precision native regex pattern scanner when gitleaks binary is unavailable."""
-        files_to_scan = _resolve_scan_files(target_path, ignore_tests=False)
-        findings: list[Finding] = []
-        for fp in files_to_scan:
-            findings.extend(_scan_file_native_secrets(fp))
-        return findings
 
     def dry_run_scan(self, target_path: Path | list[Path], **kwargs: Any) -> list[Finding]:
         """Return simulated Gitleaks findings for dry-run simulation."""

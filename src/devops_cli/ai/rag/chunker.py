@@ -13,11 +13,68 @@ from pathlib import Path
 from devops_cli.ai.analyze.scanner import detect_language
 from devops_cli.ai.rag.metadata import extract_code_metadata, extract_doc_metadata
 from devops_cli.ai.rag.models import CodeChunk
+from devops_cli.config.constants import CONST_RAG_MAX_CHUNK_TOKENS
 from devops_cli.config.defaults import DEFAULT_RAG_CHUNK_OVERLAP, DEFAULT_RAG_CHUNK_SIZE
 
 logger = logging.getLogger(__name__)
 
 MAX_CHUNK_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MiB safety cap
+
+
+def estimate_tokens(text: str) -> int:
+    """The project's token estimate (~4 characters per token)."""
+    return max(1, len(text) // 4) if text else 0
+
+
+def _append_sub_window(
+    sub_windows: list[tuple[int, int, str]],
+    start_line: int,
+    end_line: int,
+    content: str,
+    max_chars: int,
+) -> None:
+    """Append bounded sub-window(s) to sub_windows list."""
+    if not content:
+        return
+    if len(content) <= max_chars:
+        sub_windows.append((start_line, end_line, content))
+    else:
+        for piece in [content[i : i + max_chars] for i in range(0, len(content), max_chars)]:
+            sub_windows.append((start_line, end_line, piece))
+
+
+def _split_window_by_token_limit(
+    lines: list[str],
+    window_start_line: int,
+    max_tokens: int = CONST_RAG_MAX_CHUNK_TOKENS,
+) -> list[tuple[int, int, str]]:
+    """Split a window of lines into (start_line, end_line, content) tuples capped at max_tokens."""
+    sub_windows: list[tuple[int, int, str]] = []
+    current_lines: list[str] = []
+    current_chars = 0
+    current_start = window_start_line
+    max_chars = max_tokens * 4
+
+    for offset, line in enumerate(lines):
+        line_chars = len(line) + (1 if current_lines else 0)
+        if current_lines and (current_chars + line_chars > max_chars):
+            content = "\n".join(current_lines).strip()
+            end_line = current_start + len(current_lines) - 1
+            _append_sub_window(sub_windows, current_start, end_line, content, max_chars)
+            current_start = window_start_line + offset
+            current_lines = [line]
+            current_chars = len(line)
+        else:
+            current_lines.append(line)
+            current_chars += line_chars
+
+    if current_lines:
+        content = "\n".join(current_lines).strip()
+        end_line = current_start + len(current_lines) - 1
+        _append_sub_window(sub_windows, current_start, end_line, content, max_chars)
+
+    return sub_windows
+
 
 _LANGUAGE_PATTERNS: dict[str, tuple[re.Pattern[str], str]] = {
     "go": (
@@ -223,7 +280,10 @@ class SemanticChunker:
                 project_name=project_name,
             )
 
-        return chunks
+        bounded_chunks: list[CodeChunk] = []
+        for chk in chunks:
+            bounded_chunks.extend(self._split_large_chunk(chk))
+        return bounded_chunks
 
     def _make_code_chunk(
         self,
@@ -609,6 +669,64 @@ class SemanticChunker:
 
         return chunks
 
+    def _create_window_chunk(
+        self,
+        file_path: str,
+        start_line: int,
+        end_line: int,
+        content: str,
+        language: str,
+        category: str,
+        project_name: str,
+    ) -> CodeChunk:
+        """Create a CodeChunk from a line-window or sub-window slice."""
+        c_id = self._generate_id(file_path, start_line, end_line)
+        meta = (
+            extract_doc_metadata(content, file_path=file_path)
+            if category == "docs"
+            else extract_code_metadata(content, language=language, file_path=file_path)
+        )
+        return CodeChunk(
+            id=c_id,
+            file_path=file_path,
+            start_line=start_line,
+            end_line=end_line,
+            content=content,
+            language=language or "text",
+            doc_type="doc" if category == "docs" else "code",
+            category=category,
+            project_name=project_name,
+            symbol_names=[],
+            metadata=meta,
+            content_hash=self._hash_content(content),
+        )
+
+    def _split_large_chunk(self, chunk: CodeChunk) -> list[CodeChunk]:
+        """Split a CodeChunk that exceeds the maximum token limit into sub-chunks."""
+        if estimate_tokens(chunk.content) <= CONST_RAG_MAX_CHUNK_TOKENS:
+            return [chunk]
+        lines = chunk.content.splitlines()
+        sub_windows = _split_window_by_token_limit(
+            lines, chunk.start_line, CONST_RAG_MAX_CHUNK_TOKENS
+        )
+        return [
+            CodeChunk(
+                id=self._generate_id(chunk.file_path, s, e),
+                file_path=chunk.file_path,
+                start_line=s,
+                end_line=e,
+                content=cnt,
+                language=chunk.language,
+                doc_type=chunk.doc_type,
+                category=chunk.category,
+                project_name=chunk.project_name,
+                symbol_names=chunk.symbol_names,
+                metadata=chunk.metadata,
+                content_hash=self._hash_content(cnt),
+            )
+            for s, e, cnt in sub_windows
+        ]
+
     def _chunk_line_window(
         self,
         content: str,
@@ -633,28 +751,27 @@ class SemanticChunker:
             if not chunk_content:
                 continue
 
-            c_id = self._generate_id(file_path, start + 1, end)
-            meta = (
-                extract_doc_metadata(chunk_content, file_path=file_path)
-                if category == "docs"
-                else extract_code_metadata(chunk_content, language=language, file_path=file_path)
-            )
-            chunks.append(
-                CodeChunk(
-                    id=c_id,
-                    file_path=file_path,
-                    start_line=start + 1,
-                    end_line=end,
-                    content=chunk_content,
-                    language=language or "text",
-                    doc_type="doc" if category == "docs" else "code",
-                    category=category,
-                    project_name=project_name,
-                    symbol_names=[],
-                    metadata=meta,
-                    content_hash=self._hash_content(chunk_content),
+            if estimate_tokens(chunk_content) > CONST_RAG_MAX_CHUNK_TOKENS:
+                for sub_start, sub_end, sub_content in _split_window_by_token_limit(
+                    chunk_lines, start + 1, CONST_RAG_MAX_CHUNK_TOKENS
+                ):
+                    chunks.append(
+                        self._create_window_chunk(
+                            file_path,
+                            sub_start,
+                            sub_end,
+                            sub_content,
+                            language,
+                            category,
+                            project_name,
+                        )
+                    )
+            else:
+                chunks.append(
+                    self._create_window_chunk(
+                        file_path, start + 1, end, chunk_content, language, category, project_name
+                    )
                 )
-            )
 
         return chunks
 

@@ -293,9 +293,9 @@ def _probe_gateway_http(
     """Execute HTTP health check against gateway provider endpoints."""
     try:
         if provider == CONST_AI_GATEWAY_PROVIDER_PORTKEY:
-            resp = client.get(f"{probe_base}/health")
+            resp = client.get(f"{probe_base}/")
             if resp.status_code != 200:
-                resp = client.get(f"{probe_base}/v1/health")
+                resp = client.get(f"{probe_base}/health")
         else:
             resp = client.get(f"{probe_base}/health/readiness")
             if resp.status_code != 200:

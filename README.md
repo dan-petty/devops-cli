@@ -16,8 +16,8 @@
 
 - **Zero-Plaintext Secret Architecture**: Sensitive tokens (`grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via Python `keyring`. GitHub access is gh's own login: each process acts as the one identity `gh auth token` returns. Configuration files contain zero plaintext credentials.
 - **Active SSRF & Egress Guardrails**: Outbound API requests pass through strict IP validation (`validate_service_url`) blocking private subnets (RFC 1918), loopbacks, and cloud metadata endpoints by default.
-- **Multi-Persona Agentic Code Review**: Paginated diff analysis across branches and PRs using specialized expert personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) backed by `ScratchpadBuffer` reasoning context and deterministic finding verification.
-- **Native DevContainer Lifecycle Engine**: Cross-platform Python lifecycle orchestration (`devops devcontainer run-lifecycle`) replaces legacy shell scripts for post-create and post-start hooks.
+- **Multi-Persona Agentic Code Review**: Paginated diff analysis across branches and PRs using specialized expert personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`, plus the adversarial `challenger` selectable with `--persona challenger`) backed by `ScratchpadBuffer` reasoning context and deterministic finding verification.
+- **Native DevContainer Lifecycle Engine**: Cross-platform Python lifecycle commands (`devops devcontainer post-create` / `post-start`, both runnable together via `devops devcontainer run-lifecycle`) implement the post-create and post-start hooks.
 - **End-to-End Release Cycle Automation**: Native `devops release` subcommands suite (`status`, `prepare`, `check`, `notes`, `tag`) automating version bumping, changelogs, docs sync, and CI validation.
 - **FastMCP Server & Native Tool Bridge**: Infrastructure and analysis tools exposed over Model Context Protocol for seamless integration into AI IDEs and autonomous subagents.
 
@@ -119,6 +119,7 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 - **Project Manager (`--persona pm`)**: Scope risk, breaking changes, test coverage adequacy, deployment rollback readiness, action items.
 - **Auditor (`--persona auditor`)**: Regulatory compliance frameworks (NIST SP 800-53, PCI-DSS v4.0, SOC 2 Type II) with exact control IDs.
 - **QA / Test Engineer (`--persona qa`)**: Regression prevention, test coverage gaps, edge cases, pytest code skeletons, validation steps.
+- **Challenger (`--persona challenger`)**: Adversarial code reviewer stress-testing architectural assumptions, edge cases, failure modes, and potential regressions.
 
 ---
 
@@ -128,14 +129,14 @@ summary_data, report_md = orchestrator.generate_consolidated_report(payloads)
 2. **Key Material Mounting**: `${localEnv:HOME}/.ssh` is bind-mounted by design into `.devcontainer` for local SSH key generation and 90-day rotation.
 3. **SSRF Protections**: `validate_service_url` blocks non-public IPs unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set. A service URL from the user's own configuration (Ollama, Qdrant, the LLM gateway, a provider's `api_base_url`) may also name loopback (`validate_configured_service_url`).
 4. **Workspace Boundary Guards**: Path traversal checks (`_is_safe_workspace_path`) enforce repository boundaries on file commands.
-5. **Checksum Verification**: `devops install-tools` validates SHA-256 checksums before writing binaries to disk.
+5. **Checksum Verification**: `devops install-tools` verifies SHA-256 checksums for kubectl, kustomize, helm, argo, argocd and kubectl-argo-rollouts. For trivy, popeye, pluto and k9s it aborts on a mismatch but installs with a warning if the checksum file is unavailable. kube-linter is installed without verification.
 6. **Automated Design Justification & Documentation Maintenance**: Non-instructional, reference-backed inline comments (`# NOTE (Design Justification - <REF>): ...`) automatically document intentional design trade-offs directly above target code constructs, and project documentation (`AGENTS.md`, `README.md`, `CLAUDE.md`, `.github/copilot-instructions.md`) is routinely updated whenever code or prompt conventions evolve.
 
 ---
 
 ## Strategic Prioritization Matrix & Product Roadmap
 
-The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliverables (`v0.2.4` through `v0.3.0`), architectural principles, and continuous release schedules are actively managed in the dedicated [Product Roadmap](docs/ROADMAP.md).
+The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliverables (`v0.0.1` through `v0.3.5`, plus `v0.4.x`/`v0.5.x` themes), architectural principles, and continuous release schedules are actively managed in the dedicated [Product Roadmap](docs/ROADMAP.md).
 
 ---
 

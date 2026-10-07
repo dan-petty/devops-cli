@@ -2,63 +2,24 @@
 
 # Roadmap — dan-petty/devops-cli
 
-## Current release: v0.2.26 — Roadmap Closure, Refinement & Automatic Release Cut
+## Current release: v0.2.28 — MCP Tool Safety, Web Fetch Hardening, Alerting & Supply-Chain Truth
 
-- [x] #406 feat(cli): `devops ci test` selects tests from a coverage index built on demand by `devops ci coverage --build-index` — Status: Done · Priority: P1-High · Value: Medium · Effort: Medium
-- [x] #420 feat(cli): extend the ruff rule set to the correctness families — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #431 fix(security): network references come from url and ip syntax, not identifier-prefix and property-suffix lists — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #548 fix(k8s): pod logs reach loki once and labelled, with alloy as the only shipper (remove fluent-bit) — Status: Done · Priority: P1-High · Value: Medium · Effort: Low
-- [x] #741 feat(k8s): devops-cli runs in the homelab cluster as Jobs, and every cluster Secret is pushed from the keyring, also by deploy-stack (devops k8s push-secrets, devops k8s run-job) — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #742 feat(github): single-entry item intake with duplicate detection and placement (`devops roadmap intake`) — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #743 feat(release): item closure summaries, generated changelog and automatic release cut (`devops roadmap close`) — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #744 feat(ai): item refinement to ready with proposed decisions (`devops roadmap refine`) — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #752 feat(cli): service mode for `devops serve` with github webhooks, a polling tick and per-repo job queues — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #753 feat(release): production service image for scheduled jobs and webhook handlers — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #767 refactor(github): one github session per identity owning token, quota and transport — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #832 refactor(ci): ci installs nothing on the runner, and live bubblewrap tests skip where bwrap is missing — Status: Done · Priority: P1-High · Value: Medium · Effort: Low
-- [x] #843 refactor(ci): github ci runs the gate through `devops ci` from one check table — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #981 feat(roadmap): run the roadmap jobs when they are due (`devops roadmap run`) — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #982 fix(release): one fail-closed release path: cut branch from the remote release tip, `uv.lock` bump, draft flag, required label and milestone — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #1083 feat(k8s): the roadmap service runs in the cluster's devops namespace, reachable from outside only on /webhooks/github — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #1125 fix(github): GraphQL mutations and implicit-POST `gh api` writes get the rate limiter's mutation pacing, decided from the request gh sends — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #1175 fix(telemetry): grafana dashboard projections, rolling averages, and panel queries — Status: Done · Priority: P2-Medium · Value: — · Effort: —
-- [x] #906 Release Epic: v0.2.26 — Roadmap Closure, Refinement & Automatic Release Cut — Status: Done · Priority: — · Value: — · Effort: —
-- [x] #1158 feat(telemetry): enhance grafana dashboards for ai spend, cli telemetry, gpus, and sre services — Status: Done · Priority: — · Value: — · Effort: —
-
-## Planned release: v0.2.27 — Binding Quality Gates, Verdict Evidence, Context Budgets & Cluster Doctor
-
-- [ ] #859 feat(ai): sequential pipeline stages carry a budgeted context, with the scratchpad appended once — Status: Ready · Priority: P0-Critical · Value: Medium · Effort: High
-- [ ] #408 feat(k8s): cluster deployment health diagnosis (`devops k8s doctor`) — Status: Ready · Priority: P1-High · Value: Medium · Effort: High
-- [ ] #754 fix(ci): only collaborators can trigger pr updates with `/update` or `/sync` comments — Status: Ready · Priority: P1-High · Value: High · Effort: Low
-- [ ] #755 feat(k8s): argo cd keeps the homelab cluster at the current release branch, with automated sync, prune and self-heal that never delete data — Status: Ready · Priority: P1-High · Value: High · Effort: High
-- [ ] #806 fix(github): pr monitor reports copilot as idle or completed when its timeline or reviews read fails — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
-- [ ] #838 fix(ci): the gate cache certifies only the tree it checked — Status: Ready · Priority: P1-High · Value: High · Effort: Low
-- [ ] #840 docs(agents): instruction surfaces state only what is true, and `devops ai agents` never overwrites AGENTS.md — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #842 chore(github): required CI checks bind merges into release and main, and ADR 0004 records the verification policy — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #858 fix(cli): cli start-up imports no telemetry when the bridge is off, and timing tests stop asserting host speed — Status: Ready · Priority: P1-High · Value: Medium · Effort: Medium
-- [ ] #874 fix(ai): streamed `devops ai chat` turns send the user's message — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
-- [ ] #885 fix(ci): `devops ci` checks run for real under their own `--dry-run` — Status: Ready · Priority: P1-High · Value: Medium · Effort: Medium
-- [ ] #897 fix(security): egress guards refuse cloud metadata in every numeric, NAT64 and provider form, classified by ipaddress and one maintained library — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #920 fix(ai): the knowledge base names only commands, options and components that exist — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #984 feat(ci): `devops pr update --dispatch-ci` starts ci.yml on each branch it updates, and only update-prs.yml may hold `actions: write` — Status: Ready · Priority: P1-High · Value: — · Effort: —
-- [ ] #985 feat(ai): pinned invariants survive memory summarization, lead every system prompt and recur on a cadence — Status: Ready · Priority: P1-High · Value: — · Effort: —
-- [x] #907 Release Epic: v0.2.27 — Binding Quality Gates, Verdict Evidence, Context Budgets & Cluster Doctor — Status: Done · Priority: — · Value: — · Effort: —
-
-## Planned release: v0.2.28 — MCP Tool Safety, Web Fetch Hardening, Alerting & Supply-Chain Truth
-
-- [ ] #519 fix(ui): dashboard refresh races panel mounting and fails the worker — Status: Ready · Priority: P1-High · Value: High · Effort: Low
+- [x] #519 fix(ui): dashboard refresh races panel mounting and fails the worker — Status: Done · Priority: P1-High · Value: High · Effort: Low
 - [x] #608 feat(review): order-independent review finding consolidation with a permutation test — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #769 refactor(github): read a pull request's checks once, fail-closed, for wait, monitor and readiness — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #780 fix(security): the async process runner redacts telemetry and kills the process group on timeout — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
-- [ ] #794 fix(k8s): tunnel sync and url setup still overwrite settings they should keep — Status: New · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #839 fix(ai): mcp command tools return the failing output and never write to the protocol stream — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #857 feat(mcp): mcp tools declare ToolAnnotations, and mutating tools require approval in devops-cli's own agent loop — Status: New · Priority: P1-High · Value: High · Effort: High
-- [ ] #861 fix(github): supply-chain claims made true — live Dependabot, zizmor and workflow invocation contracts — Status: New · Priority: P1-High · Value: High · Effort: High
-- [ ] #894 fix(ai): web_fetch reports a failed fetch as a tool failure, not as page text — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
-- [ ] #896 feat(ai): web_fetch renders pages as untrusted, escaped markdown within a budget — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #921 docs: hand-written docs name only commands, options and components that exist — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #983 refactor(github): the github session owns transport, ledger, error classes and link pagination — Status: New · Priority: P1-High · Value: — · Effort: —
+- [x] #769 refactor(github): read a pull request's checks once, fail-closed, for wait, monitor and readiness — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #780 fix(security): the async process runner redacts telemetry and kills the process group on timeout — Status: Done · Priority: P1-High · Value: Medium · Effort: Low
+- [x] #839 fix(ai): mcp command tools return the failing output and never write to the protocol stream — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #871 feat(review): every reported finding is admitted with its producer's anchor and a location that exists in the reviewed commit, the review writes findings.sarif, and review.md shows findings and suppressions — Status: Done · Priority: P1-High · Value: High · Effort: High
+- [x] #894 fix(ai): web_fetch reports a failed fetch as a tool failure, not as page text — Status: Done · Priority: P1-High · Value: Medium · Effort: Low
+- [x] #896 feat(ai): web_fetch renders pages as untrusted, escaped markdown within a budget — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #921 docs: hand-written docs name only commands, options and components that exist — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #1047 fix(review): a review scans a worktree of the reviewed commit, never hands a deleted file to a tool, and reports which files each tool scanned — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #1059 fix(review): a verdict that both confirms and refutes its finding stays unverified with a contradiction note, even when its reason repeats the title — Status: Done · Priority: P1-High · Value: High · Effort: Low
+- [x] #1065 fix(ai): a failing embedding model pauses rag lookups instead of ending rag for the run, and each embedding model gets its own prompts, cache keys, dimension and bounded chunks — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #1069 fix(ai): review calls through the gateway no longer stall for about 190 s on ollama, with the cause measured first — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #1267 fix(k8s): resolve portkey probe path and gpu-feature-discovery image tag — Status: Done · Priority: P1-High · Value: High · Effort: Low
 - [x] #908 Release Epic: v0.2.28 — MCP Tool Safety, Web Fetch Hardening, Alerting & Supply-Chain Truth — Status: Done · Priority: — · Value: — · Effort: —
+- [x] #1261 fix(k8s): argo cd git-source targetRevision tracks main while service image pin tracks release — Status: Done · Priority: — · Value: — · Effort: —
 
 ## Planned release: v0.2.29 — Pre-v0.3.0 hardening: web fetch connection safety, deploy-stack perimeters and gateway policy, and CLI correctness. Holds P1 work due before v0.3.0, with two of its 12 slots kept for P1 items that surface during v0.2.25-v0.2.29.
 
@@ -74,6 +35,14 @@
 - [ ] #1013 fix(review): the response cache stores and serves only replies the review can use, and a schema echo no longer reads as a clean file — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
 - [ ] #1021 fix(review): a correct refutation stands when the guard's evidence is a path token, a citation inside the finding's own lines, or generic scanner wording — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
 - [ ] #1034 fix(github): a paginated gh api read fails closed on a page that is not the expected json, instead of returning a short listing — Status: Ready · Priority: P1-High · Value: High · Effort: Low
+
+## Planned release: v0.2.30
+
+No items.
+
+## Planned release: v0.2.31
+
+No items.
 
 ## Backlog
 
@@ -94,15 +63,14 @@
 - [ ] #771 refactor(review): review session store that owns layout, fingerprints and verdicts — Status: New · Priority: P1-High · Value: Medium · Effort: High
 - [ ] #772 feat(review): review tools run through one injectable executor in a network-less sandbox with CPU, memory and time limits — Status: Ready · Priority: P1-High · Value: High · Effort: High
 - [ ] #793 fix(ai): a partial pricing snapshot replaces the whole catalog and never expires — Status: Ready · Priority: P1-High · Value: Medium · Effort: Medium
+- [ ] #794 fix(k8s): tunnel sync and url setup still overwrite settings they should keep — Status: New · Priority: P1-High · Value: High · Effort: Medium
 - [ ] #820 chore(ai): remove the code, config and policies left over from the removed vLLM deployments — Status: Ready · Priority: P1-High · Value: Medium · Effort: High
 - [ ] #844 feat(ci): fail-to-pass check proves a fix's tests fail on its base (`devops ci fail-to-pass`) — Status: Ready · Priority: P1-High · Value: Medium · Effort: High
-- [ ] #871 feat(review): every reported finding is admitted with its producer's anchor and a location that exists in the reviewed commit, the review writes findings.sarif, and review.md shows findings and suppressions — Status: Ready · Priority: P1-High · Value: High · Effort: High
+- [ ] #857 feat(mcp): mcp tools declare ToolAnnotations, and mutating tools require approval in devops-cli's own agent loop — Status: New · Priority: P1-High · Value: High · Effort: High
+- [ ] #861 fix(github): supply-chain claims made true — live Dependabot, zizmor and workflow invocation contracts — Status: New · Priority: P1-High · Value: High · Effort: High
 - [ ] #873 feat(review): ruff and mypy run as review evidence with the project's settings, advisory rules report only on changed lines, and changed functions show complexity before and after — Status: Ready · Priority: P1-High · Value: Medium · Effort: Medium
-- [ ] #1047 fix(review): a review scans a worktree of the reviewed commit, never hands a deleted file to a tool, and reports which files each tool scanned — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #1059 fix(review): a verdict that both confirms and refutes its finding stays unverified with a contradiction note, even when its reason repeats the title — Status: Ready · Priority: P1-High · Value: High · Effort: Low
-- [ ] #1065 fix(ai): a failing embedding model pauses rag lookups instead of ending rag for the run, and each embedding model gets its own prompts, cache keys, dimension and bounded chunks — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #983 refactor(github): the github session owns transport, ledger, error classes and link pagination — Status: New · Priority: P1-High · Value: — · Effort: —
 - [ ] #1066 fix(ai): a rag collection records its embedding model, a mismatch fails instead of wiping the collection, and ranking keeps the cosine score — Status: Ready · Priority: P1-High · Value: Medium · Effort: Medium
-- [ ] #1069 fix(ai): review calls through the gateway no longer stall for about 190 s on ollama, with the cause measured first — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
 - [ ] #1103 refactor(docs): no documentation-only pull requests: release artifacts are made as the release merges, and every kept doc changes with its code or is deleted — Status: New · Priority: P1-High · Value: High · Effort: Medium
 - [ ] #1104 fix(k8s): the pyroscope Service alias collides with the pyroscope Helm release's own Service, so a fresh deploy-stack can't install Pyroscope — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
 - [ ] #1107 feat(ci): hand-rolled URL and address parsing fails `devops ci`, AGENTS.md makes the library the rule, and reviews stop discarding the findings — Status: New · Priority: P1-High · Value: High · Effort: High
@@ -231,7 +199,7 @@
 - [ ] #1068 fix(ai): `analyze --enhanced` and `ai agents` use the `ai.tasks.metadata` model — Status: Ready · Priority: P2-Medium · Value: Low · Effort: Low
 - [ ] #1070 fix(ai): sampling settings reach the model or are refused, review sessions record them, and the reply cache key includes them — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #1081 feat(k8s): the homelab runs gitea under argo cd as a read-write internal forge, served in-cluster over http and to workstations at https://git.<domain> through the cloudflare tunnel, with its admin secret pushed from the keyring — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [ ] #1082 feat(k8s): argo cd deploys iteration branches from gitea over in-cluster http into fenced trial namespaces, while everything on the release branch keeps reading github — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1082 feat(k8s): argo cd points to gitea for git and container registries, serving development versions to the cluster for all open pull requests — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #1085 fix(github): a rerun that reverts a stall change counts its own Status write as a person's activity, so a stall descope is quietly undone — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #1090 feat(repos): every clone under repos/ keeps a gitea remote at https://git.<domain> next to origin, created on gitea when missing, with github's main and release branches carried over by devops repos sync — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #1105 fix(release): compact release notes list plain entry titles, and fragments keep one short house shape so a release's notes stay readable — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low

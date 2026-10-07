@@ -5,11 +5,14 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import tempfile
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+from pydantic import ValidationError
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
 import devops_cli.commands.k8s.networking as net
@@ -19,6 +22,9 @@ from devops_cli.config.constants import (
     CONST_HELM_DAEMONSET_RELEASES,
     CONST_HELM_OWNERSHIP_CONFLICT_RE,
     CONST_HELM_TEARDOWN_RETAINED_RELEASES,
+    CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS,
+    CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK,
+    CONST_K8S_DEVOPS_CONFIGMAP,
 )
 from devops_cli.config.defaults import (
     DEFAULT_HELM_RECOVERY_MAX_RETRIES,
@@ -26,8 +32,15 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_STACK,
 )
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
-from devops_cli.exceptions.k8s import ClusterSecretPushError
+from devops_cli.exceptions.k8s import ClusterSecretPushError, KubernetesContextError
+from devops_cli.k8s.argocd_overrides import (
+    application_patch,
+    application_source,
+    host_patches,
+    render_at_revision,
+)
 from devops_cli.k8s.cluster_secrets import BASE_STACK, DETACHED_STACKS, secrets_for_stacks
+from devops_cli.k8s.configmap import render_active_devops_configmap
 from devops_cli.k8s.secret_push import namespace_exists
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -171,7 +184,6 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "devops": [
         DEFAULT_K8S_DIR / "devops" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "devops" / "serviceaccount.yaml",
-        DEFAULT_K8S_DIR / "devops" / "configmap.yaml",
         DEFAULT_K8S_DIR / "devops" / "cronjob.yaml",
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "pvc.yaml",
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "service.yaml",
@@ -179,6 +191,13 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "ingress.yaml",
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "networkpolicy.yaml",
     ],
+}
+
+# Kustomizations under --k8s-dir that a native deploy applies with `kubectl apply -k` after the
+# root one. The root leaves the dashboards out so that Argo CD's `monitoring` Application alone
+# owns their ConfigMaps (#1279); a cluster without Argo CD gets them from here (#1297).
+_KUSTOMIZATIONS_BY_STACK: dict[str, tuple[Path, ...]] = {
+    "infra": (Path("monitoring", "dashboards"),),
 }
 
 VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "devops", "all")
@@ -544,10 +563,6 @@ def _apply_single_manifest(
 ) -> None:
     """Apply an individual manifest file, rendering templates if a domain is available."""
     p = Path(manifest_path)
-    if p.name == "configmap.yaml" and p.parent.name == "devops" and not p.exists():
-        from devops_cli.k8s.configmap import ensure_devops_configmap
-
-        ensure_devops_configmap(k8s_dir=p.parent.parent)
     print_info(f"[bold]Applying manifest {p.name}...[/bold]", prefix=False)
     if domain and p.is_file():
         from devops_cli.k8s.template import render_manifest_template
@@ -755,19 +770,162 @@ def _verify_cluster_ready(effective_context: str | None) -> None:
         raise typer.Exit(1)
 
 
-def _deploy_native_manifests(
+def _homelab_applications(selected_stacks: Sequence[str]) -> list[str]:
+    """The homelab Argo CD Applications whose hosts the stacks' deploy sets."""
+    wanted = {
+        app
+        for s in selected_stacks
+        for app in CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK.get(s, ())
+    }
+    return [app for app in CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS if app in wanted]
+
+
+def _render_devops_configmap(k8s_dir: Path) -> str:
+    """ConfigMap devops-cli-config rendered from the active config, or exit naming what is missing."""
+    try:
+        return render_active_devops_configmap(k8s_dir=k8s_dir)
+    except (FileNotFoundError, KubernetesContextError, ValidationError) as exc:
+        print_error(f"Cannot render ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}: {exc}", prefix=False)
+        raise typer.Exit(1) from exc
+
+
+def _apply_rendered(manifest: str, what: str, kubectl_ctx: list[str]) -> None:
+    """Apply a manifest rendered in memory, or exit with kubectl's reason."""
+    res = runtime._run_cmd(
+        ["kubectl", "apply", "-f", "-"] + kubectl_ctx, input=manifest, check=False, capture=True
+    )
+    if res.returncode != 0:
+        print_error(f"Failed to apply {what}: {(res.stderr or res.stdout).strip()}", prefix=False)
+        raise typer.Exit(1)
+    print_success(f"{what} applied from the active config")
+
+
+def _dry_run_domain(domain: str | None) -> str:
+    """The domain the host overrides would use, or why an Argo CD-managed cluster would refuse."""
+    from devops_cli.k8s.template import resolve_template_domain
+
+    try:
+        return resolve_template_domain(domain)
+    except KubernetesContextError as exc:
+        return f"no usable domain, so an Argo CD-managed cluster refuses ({exc})"
+
+
+def _homelab_host_overrides(
     selected_stacks: Sequence[str],
+    domain: str | None,
+    revision: str | None,
+    kubectl_ctx: list[str],
+) -> list[tuple[str, dict[str, Any]]]:
+    """Each homelab Application the stacks deploy, with the merge patch setting its hosts.
+
+    The hosts come from the configured domain and what the Application renders at the revision
+    Argo CD builds (its live `targetRevision`, or `revision` to stage a release before it
+    merges), never from the local checkout. An Application that renders no host under the
+    placeholder there is refused rather than given an empty patch list, which would drop hosts
+    staged earlier. Nothing is written here, so a refusal changes nothing in the cluster.
+    """
+    applications = _homelab_applications(selected_stacks)
+    if not applications:
+        return []
+    try:
+        from devops_cli.k8s.template import resolve_template_domain
+
+        configured = resolve_template_domain(domain)
+        overrides = []
+        with tempfile.TemporaryDirectory(prefix="devops-argocd-") as workdir:
+            for application in applications:
+                read = ["kubectl", "get", "application", application, "-n", "argocd", "-o", "json"]
+                got = runtime._run_cmd(read + kubectl_ctx, check=False, capture=True)
+                if got.returncode != 0:
+                    raise KubernetesContextError(
+                        f"Argo CD Application '{application}' could not be read: "
+                        f"{(got.stderr or got.stdout).strip()}"
+                    )
+                source = application_source(got.stdout)
+                if revision:
+                    source = replace(source, revision=revision)
+                rendered = render_at_revision(source, Path(workdir) / application, runtime._run_cmd)
+                patches = host_patches(rendered, configured)
+                if not patches:
+                    raise KubernetesContextError(
+                        f"Application '{application}' renders no host under the placeholder domain "
+                        f"at {source.revision}, so there is nothing to set; pass --argocd-revision "
+                        "with the revision the hosts are for."
+                    )
+                overrides.append((application, application_patch(patches)))
+        return overrides
+    except (KubernetesContextError, ValueError) as exc:
+        print_error(f"Cannot derive the homelab hosts for Argo CD: {exc}", prefix=False)
+        raise typer.Exit(1) from exc
+
+
+def _set_homelab_hosts(
+    overrides: Sequence[tuple[str, dict[str, Any]]], kubectl_ctx: list[str]
+) -> None:
+    """Write each Application's host overrides, or exit with kubectl's reason."""
+    for application, patch in overrides:
+        res = runtime._run_cmd(
+            ["kubectl", "patch", "application", application, "-n", "argocd"]
+            + ["--type", "merge", "-p", json.dumps(patch)]
+            + kubectl_ctx,
+            check=False,
+            capture=True,
+        )
+        if res.returncode != 0:
+            print_error(
+                f"Could not set the homelab hosts on Argo CD Application '{application}': "
+                f"{(res.stderr or res.stdout).strip()}",
+                prefix=False,
+            )
+            raise typer.Exit(1)
+        print_success(f"Argo CD Application '{application}' renders the configured hosts")
+
+
+def _apply_kustomizations(kustomizations: Sequence[Path], kubectl_ctx: list[str]) -> None:
+    """Apply each kustomization directory with `kubectl apply -k`, in order."""
+    for kustomization in kustomizations:
+        runtime._run_cmd(["kubectl", "apply", "-k", str(kustomization)] + kubectl_ctx)
+
+
+def _deploy_native_manifests(
     all_manifests: list[str],
-    k8s_dir: Path,
+    config_map: str | None,
     kubectl_ctx: list[str],
     domain: str | None,
 ) -> None:
-    """Synchronize dynamically generated manifests and apply native Kubernetes resources."""
-    if "devops" in selected_stacks:
-        from devops_cli.k8s.configmap import ensure_devops_configmap
-
-        ensure_devops_configmap(k8s_dir=k8s_dir, force=True)
+    """Apply the devops ConfigMap rendered from the active config, then the native manifests."""
+    if config_map is not None:
+        _apply_rendered(config_map, f"ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}", kubectl_ctx)
     _apply_manifest_files(all_manifests, kubectl_ctx, domain=domain)
+
+
+def _handle_argo_managed_deployment(
+    selected_stacks: Sequence[str],
+    effective_context: str | None,
+    push_secrets: bool,
+    config_map: str | None,
+    domain: str | None = None,
+    revision: str | None = None,
+) -> None:
+    """Supply the values git never holds, and leave every manifest to Argo CD.
+
+    Secrets come from the keyring, ConfigMap devops-cli-config from the active config, and the
+    homelab hosts become Kustomize overrides on the Applications that render them (#1290).
+    """
+    kubectl_ctx = ["--context", effective_context] if effective_context else []
+    overrides = _homelab_host_overrides(selected_stacks, domain, revision, kubectl_ctx)
+    if push_secrets:
+        print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
+        push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
+    if config_map is not None:
+        _apply_rendered(config_map, f"ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}", kubectl_ctx)
+    _set_homelab_hosts(overrides, kubectl_ctx)
+
+    print_info(
+        "Argo CD manages the cluster (Application 'cluster' found in namespace 'argocd'). "
+        "Skipping manifest and Helm deployment; see GitOps in k8s/README.md.",
+        prefix=False,
+    )
 
 
 def deploy_stack(
@@ -808,6 +966,9 @@ def deploy_stack(
         bool,
         typer.Option("--push-secrets/--no-push-secrets", help=HELP.k8s.push_secrets_flag),
     ] = True,
+    argocd_revision: Annotated[
+        str | None, typer.Option("--argocd-revision", help=HELP.k8s.argocd_revision)
+    ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.k8s.deploy_dry_run)] = False,
 ) -> None:
     """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes.
@@ -824,9 +985,15 @@ def deploy_stack(
 
     all_releases: list[dict[str, str]] = []
     all_manifests: list[str] = []
+    all_kustomizations: list[Path] = []
     for s_name in selected_stacks:
         all_releases.extend(_HELM_RELEASES_BY_STACK.get(s_name, []))
         all_manifests.extend([str(p) for p in _MANIFESTS_BY_STACK.get(s_name, [])])
+        all_kustomizations.extend(k8s_dir / k for k in _KUSTOMIZATIONS_BY_STACK.get(s_name, ()))
+
+    # 1. Render what git does not hold before anything else: a missing setting stops a dry run
+    # and a deploy alike, before either touches the cluster
+    config_map = _render_devops_configmap(k8s_dir) if "devops" in selected_stacks else None
 
     if dry_run or is_dry_run():
         render_dry_run_result(
@@ -846,60 +1013,72 @@ def deploy_stack(
                 "secrets": _dry_run_secrets(selected_stacks, push_secrets),
                 "helm_releases": [r["name"] for r in all_releases],
                 "manifests": all_manifests,
+                "kustomizations": [str(k) for k in all_kustomizations],
+                "config_map": (
+                    f"devops/{CONST_K8S_DEVOPS_CONFIGMAP} (rendered from the active config)"
+                    if config_map is not None
+                    else None
+                ),
+                "argocd_overrides": [
+                    f"argocd/{app}: spec.source.kustomize.patches, hosts under "
+                    f"{_dry_run_domain(domain)} at {argocd_revision or 'its targetRevision'} "
+                    "(if Application 'cluster' exists)"
+                    for app in _homelab_applications(selected_stacks)
+                ],
             },
         )
         return
 
-    # 1. A push needs the unlocked keyring: check it before anything reads or writes the cluster
+    # 2. A push needs the unlocked keyring: check it before anything reads or writes the cluster
     if push_secrets:
         require_keyring_for_push()
 
-    # 2. Verify cluster reachability
+    # 3. Verify cluster reachability
     _verify_cluster_ready(effective_context)
 
     if _is_cluster_argo_managed(effective_context):
-        if push_secrets:
-            print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
-            push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
-        print_info(
-            "Argo CD manages the cluster (Application 'cluster' found in namespace 'argocd'). "
-            "Skipping manifest and Helm deployment; see GitOps in k8s/README.md.",
-            prefix=False,
+        _handle_argo_managed_deployment(
+            selected_stacks,
+            effective_context,
+            push_secrets,
+            config_map,
+            domain=domain,
+            revision=argocd_revision,
         )
         return
 
     kubectl_ctx = ["--context", effective_context] if effective_context else []
     helm_ctx = ["--kube-context", effective_context] if effective_context else []
 
-    # 3. Apply kustomize base (namespaces)
+    # 4. Apply kustomize base (namespaces), then the stacks' kustomizations the base leaves out
     print_info("[bold]Applying namespaces...[/bold]", prefix=False)
-    runtime._run_cmd(["kubectl", "apply", "-k", str(k8s_dir)] + kubectl_ctx)
+    _apply_kustomizations([k8s_dir, *all_kustomizations], kubectl_ctx)
 
-    # 4. Push the stacks' Secrets before anything reads them
+    # 5. Push the stacks' Secrets before anything reads them
     if push_secrets:
         print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
         push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
 
-    # 5. Add Helm repos for selected stacks
+    # 6. Add Helm repos for selected stacks
     _deploy_helm_repos(selected_stacks)
 
-    # 6. Install native manifests
-    _deploy_native_manifests(selected_stacks, all_manifests, k8s_dir, kubectl_ctx, domain)
+    # 7. Install native manifests
+    _deploy_native_manifests(all_manifests, config_map, kubectl_ctx, domain)
 
-    # 7. Check for unready cluster nodes to avoid DaemonSet wait timeouts
+    # 8. Check for unready cluster nodes to avoid DaemonSet wait timeouts
     unready_nodes = runtime._get_unready_nodes(context=effective_context)
     if unready_nodes and wait:
         print_warning(
             f"Detected unready cluster nodes: {', '.join(unready_nodes)}. Skipping Helm '--wait' for DaemonSet releases to prevent deadline timeouts."
         )
 
-    # 8. Install Helm releases
+    # 9. Install Helm releases
     for release in all_releases:
         _install_single_release(
             release, effective_context, helm_ctx, wait, timeout, unready_nodes=unready_nodes
         )
 
-    # 9. Post-deployment networking & credentials
+    # 10. Post-deployment networking & credentials
     write_stdout("\n")
     print_success(f"Kubernetes stack ({stack}) deployed.")
     write_stdout("\n")
@@ -1014,6 +1193,9 @@ def teardown_stack(
                 "context": effective_context,
                 "helm_uninstalls": [r["name"] for r in all_uninstalls],
                 "manifest_deletes": all_manifest_deletes,
+                "config_map_delete": (
+                    f"devops/{CONST_K8S_DEVOPS_CONFIGMAP}" if "devops" in selected_stacks else None
+                ),
             },
         )
         return
@@ -1041,7 +1223,17 @@ def teardown_stack(
             check=False,
         )
 
-    # 2. Uninstall Helm releases in reverse order
+    # 2. Delete the ConfigMap deploy-stack rendered from config, which no manifest file holds
+    if "devops" in selected_stacks:
+        print_info(f"[bold]Deleting ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}...[/bold]", prefix=False)
+        runtime._run_cmd(
+            ["kubectl", "delete", "configmap", CONST_K8S_DEVOPS_CONFIGMAP, "-n", "devops"]
+            + ["--ignore-not-found"]
+            + kubectl_ctx,
+            check=False,
+        )
+
+    # 3. Uninstall Helm releases in reverse order
     for release in all_uninstalls:
         print_info(f"[bold]Uninstalling {release['name']}...[/bold]", prefix=False)
         runtime._run_cmd(
@@ -1049,7 +1241,7 @@ def teardown_stack(
             check=False,
         )
 
-    # 3. Clean up namespaces
+    # 4. Clean up namespaces
     _teardown_namespaces(stack, k8s_dir, kubectl_ctx)
 
     print_success(f"Kubernetes stack ({stack}) torn down.")

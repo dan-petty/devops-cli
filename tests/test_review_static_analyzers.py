@@ -32,7 +32,7 @@ _ONLY_BANDIT = {
     "Pluto": "not installed",
     "Trivy": "not installed",
     "Semgrep": "not installed",
-    "Gitleaks": "built-in patterns",
+    "Gitleaks": "not installed",
 }
 
 
@@ -61,7 +61,7 @@ def test_each_analyzer_is_marked_ran_missing_fallback_or_without_files() -> None
         "Pluto": "no files",
         "Trivy": "no files",
         "Semgrep": "not installed",
-        "Gitleaks": "built-in patterns",
+        "Gitleaks": "not installed",
     }
 
 
@@ -70,9 +70,8 @@ def test_the_summary_names_what_ran_and_what_was_not_installed() -> None:
     lines = _static_analyzer_summary(_ONLY_BANDIT, findings=0)
 
     assert lines == [
-        "    [dim]✓ Static analyzers found 0 finding(s): Bandit, "
-        "Gitleaks (built-in patterns) ran[/dim]",
-        "    [yellow]! Not installed, so not run: Kube-linter, Pluto, Trivy, Semgrep[/yellow]",
+        "    [dim]✓ Static analyzers found 0 finding(s): Bandit ran[/dim]",
+        "    [yellow]! Not installed, so not run: Kube-linter, Pluto, Trivy, Semgrep, Gitleaks[/yellow]",
     ]
 
 
@@ -114,7 +113,7 @@ def test_a_review_with_only_bandit_is_not_reported_as_a_clean_scan(
         _ONLY_BANDIT,
     )
     assert printed[-1] == (
-        "    [yellow]! Not installed, so not run: Kube-linter, Pluto, Trivy, Semgrep[/yellow]"
+        "    [yellow]! Not installed, so not run: Kube-linter, Pluto, Trivy, Semgrep, Gitleaks[/yellow]"
     )
     assert not any("completed" in line for line in printed)
 
@@ -135,7 +134,7 @@ def test_the_session_report_lists_each_analyzer_result(tmp_path: Path) -> None:
         "| Pluto | not installed |",
         "| Trivy | not installed |",
         "| Semgrep | not installed |",
-        "| Gitleaks | built-in patterns |",
+        "| Gitleaks | not installed |",
     ]
 
 

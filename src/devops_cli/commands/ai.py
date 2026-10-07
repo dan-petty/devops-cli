@@ -45,7 +45,6 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_TEST_PROMPT,
     DEFAULT_DIFF_CHUNK_BUDGET,
     DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS,
-    DEFAULT_RAG_TOP_K,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     DEFAULT_TIKTOKEN_MODEL,
 )
@@ -194,7 +193,7 @@ def _try_retrieve_rag_context(
     persona: str | None = None,
     category: str | None = None,
     project: str | None = None,
-    top_k: int = DEFAULT_RAG_TOP_K,
+    top_k: int | None = None,
 ) -> str | None:
     """Attempt to retrieve relevant semantic context from RAG vector store."""
     try:
@@ -1111,7 +1110,7 @@ def chat(  # noqa: C901
 
             effective_prompt = user_input
             if rag:
-                rag_snippet = _try_retrieve_rag_context(user_input, persona=persona, top_k=3)
+                rag_snippet = _try_retrieve_rag_context(user_input, persona=persona)
                 if rag_snippet:
                     effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
 

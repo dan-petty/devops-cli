@@ -8,11 +8,12 @@ the sum of five network round trips and one unreachable cluster froze every unre
 
 from __future__ import annotations
 
+import contextlib
 from functools import partial
 from typing import Any, ClassVar
 
 from textual import work
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding, BindingType
 from textual.containers import Vertical
 from textual.screen import ModalScreen
@@ -291,12 +292,17 @@ class DashboardApp(App[None]):
         own banner. Letting it propagate would fail the worker and, because this runs on
         the UI thread, take down a dashboard whose other four subsystems are healthy.
         """
-        panels: list[Any] = [
-            *self.query(f"#panel-{snapshot.domain}").results(DomainPanel),
-            *self.query(f"#panel-{snapshot.domain}").results(DockerPanel),
-            *self.query(f"#panel-{snapshot.domain}").results(ReviewPanel),
-            *self.query(f"#panel-{snapshot.domain}").results(K8sPanel),
-        ]
+        if not self.is_running:
+            return
+        try:
+            panels: list[Any] = [
+                *self.query(f"#panel-{snapshot.domain}").results(DomainPanel),
+                *self.query(f"#panel-{snapshot.domain}").results(DockerPanel),
+                *self.query(f"#panel-{snapshot.domain}").results(ReviewPanel),
+                *self.query(f"#panel-{snapshot.domain}").results(K8sPanel),
+            ]
+        except ScreenStackError:
+            return
         for panel in panels:
             try:
                 panel.apply(snapshot)
@@ -305,7 +311,8 @@ class DashboardApp(App[None]):
                 # retaining the payload that just broke the projection would only re-raise.
                 message = f"render failed: {type(exc).__name__}: {exc}"
                 self._state.publish_error(snapshot.domain, message)
-                panel.apply(DomainSnapshot(domain=snapshot.domain, error=message))
+                with contextlib.suppress(Exception):
+                    panel.apply(DomainSnapshot(domain=snapshot.domain, error=message))
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Route a row selection to the action that row represents."""

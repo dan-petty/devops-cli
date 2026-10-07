@@ -26,11 +26,14 @@ from devops_cli.ai.mcp.argument_contract import (
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_AI_PROVIDER_IDS,
+    CONST_CI_TEST_BUDGET_MARGIN_SECONDS,
+    CONST_CI_TEST_BUDGET_SECONDS,
     CONST_FALCO_SEVERITY_LEVELS,
     CONST_FASTMCP_SERVER_LOGGER,
     CONST_MAX_SECURITY_STREAM_TAIL_LINES,
     CONST_MCP_EAGER_DOMAINS,
     CONST_MCP_LAZY_DOMAINS,
+    CONST_MCP_MAX_COMMAND_OUTPUT_CHARS,
     CONST_MIN_SECURITY_STREAM_TAIL_LINES,
     CONST_MODEL_ENDPOINT_MARKERS,
     CONST_VERIFIED_BY_AGENT,
@@ -42,6 +45,7 @@ from devops_cli.config.defaults import (
     DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
     DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    DEFAULT_TRUNCATION_SUFFIX,
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import SecurityError, ValidationError
@@ -62,12 +66,21 @@ mcp = FastMCP(
 PullOrIssueNumber = Annotated[int, Field(ge=1, strict=True)]
 
 
+def _bound_output(text: str, max_chars: int = CONST_MCP_MAX_COMMAND_OUTPUT_CHARS) -> str:
+    """Bound tool output length while appending truncation suffix if exceeded."""
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + DEFAULT_TRUNCATION_SUFFIX
+
+
 def _run_mcp_cmd(
     cmd: list[str],
     timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
     env: dict[str, str] | None = None,
 ) -> str:
     """Run a command for an MCP tool in-process or via subprocess and return masked output."""
+    from fastmcp.exceptions import ToolError
+
     from devops_cli.ai.mcp.dispatcher import _extract_devops_sub_args, get_mcp_dispatcher
     from devops_cli.security.sanitizer import mask_secrets
 
@@ -77,8 +90,9 @@ def _run_mcp_cmd(
         dispatcher = get_mcp_dispatcher()
         exit_code, output = dispatcher.dispatch(cmd, timeout=timeout, env=env)
         clean = mask_secrets(output.strip())
+        clean = _bound_output(clean)
         if exit_code != 0:
-            return f"Command exited with status {exit_code}:\n{clean}"
+            raise ToolError(f"Command exited with status {exit_code}:\n{clean}")
         return clean or "Success"
 
     try:
@@ -91,8 +105,9 @@ def _run_mcp_cmd(
 
     output = (res.stdout + ("\n" + res.stderr if res.stderr else "")).strip()
     output = mask_secrets(output)
+    output = _bound_output(output)
     if res.returncode != 0:
-        return f"Command exited with status {res.returncode}:\n{output}"
+        raise ToolError(f"Command exited with status {res.returncode}:\n{output}")
     return output or "Success"
 
 
@@ -635,12 +650,31 @@ def config_output(output_format: str = "json") -> str:
 
 
 @mcp.tool()
-def ci_run(check: Literal["all", "test", "lint", "format", "typecheck"] = "all") -> str:
-    """Run devops-cli complete quality gate (pytest, ruff check, ruff format, mypy)."""
-    cmd = ["uv", "run", "devops", "ci"]
+def ci_run(
+    check: Literal[
+        "all",
+        "test",
+        "lint",
+        "format",
+        "typecheck",
+        "audit",
+        "security",
+        "actionlint",
+        "docs",
+        "uv-check",
+        "lockfile",
+        "outdated",
+        "devcontainer",
+    ] = "all",
+) -> str:
+    """Run devops-cli complete quality gate or an individual check in check-only mode without modifying files: python version check (3.14+), pytest & coverage, ruff lint, ruff format, mypy typecheck, uv audit, bandit security scan, actionlint, docs validation, uv check, uv lockfile freshness, outdated package tree, and devcontainer validation."""
+    cmd = ["uv", "run", "devops", "ci", "--check"]
     if check != "all":
-        cmd.append(check)
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS * 3)
+        cmd.extend(["--only", check])
+    return _run_mcp_cmd(
+        cmd,
+        timeout=CONST_CI_TEST_BUDGET_SECONDS + CONST_CI_TEST_BUDGET_MARGIN_SECONDS,
+    )
 
 
 @mcp.tool()

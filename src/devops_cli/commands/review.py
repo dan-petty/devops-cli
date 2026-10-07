@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING, Annotated, Any
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
+    from devops_cli.ai.analyze.symbols import BaseRevision
     from devops_cli.ai.personas import PersonaDefinition
+    from devops_cli.ai.review.runner import ReviewClients
     from devops_cli.ai.review_schema import ReviewResult
     from devops_cli.config.settings import Settings
 
@@ -334,11 +336,19 @@ def path(
     path_targets = targets or [DEFAULT_CURRENT_PATH]
 
     def _execute_current_review() -> None:
+        from devops_cli.git.operations import git_show_toplevel
+
+        print_info("Scanning in place (uncommitted work)...", prefix=False)
         if len(path_targets) == 1:
             target = path_targets[0]
             pages, title, agents_md, routed_files = _prepare_path_content(target, pattern)
             target_resolved = target.resolve()
-            target_dir = target_resolved if target_resolved.is_dir() else target_resolved.parent
+            top = git_show_toplevel(target_resolved)
+            target_dir = (
+                top
+                if top is not None
+                else (target_resolved if target_resolved.is_dir() else target_resolved.parent)
+            )
             target_ref = str(target_resolved)
         else:
             all_pages: list[str] = []
@@ -388,7 +398,6 @@ def path(
         )
 
     if watch:
-        from devops_cli.output import print_info
         from devops_cli.watchers.file_watcher import DebouncedFileWatcher
 
         def _on_change(changed: list[Path]) -> None:
@@ -554,24 +563,58 @@ def branch(
     pages, title, agents_md, target_ref, base_revision = _prepare_branch_content(
         branch_name, base, repo_path
     )
-    _execute_review_workflow(
-        pages,
-        title,
-        _build_prompt,
-        agents_md,
-        all_personas,
-        persona,
-        summary,
-        clients,
-        target_type="branch",
-        target_ref=target_ref,
-        target_dir=repo_path,
-        stage_flags=stage_flags,
-        concurrency=concurrency,
-        parallel=parallel,
-        base_revision=base_revision,
-        full_output=full,
-    )
+    session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    if base_revision is None or getattr(base_revision, "read_head", None) is None:
+        print_info("Scanning in place (uncommitted work)...", prefix=False)
+        _execute_review_workflow(
+            pages,
+            title,
+            _build_prompt,
+            agents_md,
+            all_personas,
+            persona,
+            summary,
+            clients,
+            target_type="branch",
+            target_ref=target_ref,
+            target_dir=repo_path,
+            stage_flags=stage_flags,
+            concurrency=concurrency,
+            parallel=parallel,
+            base_revision=base_revision,
+            full_output=full,
+            session_id=session_id,
+        )
+        return
+
+    from devops_cli.git.worktree import review_worktrees_context
+
+    with review_worktrees_context(
+        repo_path,
+        commit_rev=target_ref,
+        base_rev=getattr(base_revision, "revision", None),
+        session_id=session_id,
+    ) as rw:
+        _execute_review_workflow(
+            pages,
+            title,
+            _build_prompt,
+            agents_md,
+            all_personas,
+            persona,
+            summary,
+            clients,
+            target_type="branch",
+            target_ref=target_ref,
+            target_dir=rw.commit_worktree or repo_path,
+            stage_flags=stage_flags,
+            concurrency=concurrency,
+            parallel=parallel,
+            base_revision=base_revision,
+            full_output=full,
+            session_id=session_id,
+            partial_context=rw.partial_context,
+        )
 
 
 # =============================================================================
@@ -620,6 +663,89 @@ def _post_pr_review_comment(
         return
     pull.create_issue_comment(comment_body)
     print_success(f"Review posted as comment on PR #{number}")
+
+
+def _run_pr_review_workflow(
+    pages: list[str],
+    title: str,
+    agents_md: str,
+    pull: Any,
+    number: int,
+    head_dir: Path,
+    base_revision: BaseRevision | None,
+    all_personas: bool,
+    persona: Persona | None,
+    summary: bool,
+    clients: ReviewClients,
+    stage_flags: Any,
+    concurrency: int | None,
+    parallel: bool,
+    full: bool,
+    session_id: str,
+    repo_arg: str | None = None,
+) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
+    """Execute PR review workflow, using detached worktree if available, else partial context."""
+    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.git.worktree import fetch_pr_head, review_worktrees_context
+
+    base_sha = getattr(getattr(pull, "base", None), "sha", None)
+    local_repo = get_repo_origin_name(Path.cwd())
+    if repo_arg is not None and local_repo is not None and repo_arg != local_repo:
+        pr_commit = None
+    else:
+        pr_commit = fetch_pr_head(Path.cwd(), number)
+    if pr_commit is None:
+        print_warning(
+            f"PR head unavailable from refs/pull/{number}/head; marked partial context",
+            prefix=False,
+        )
+        return _execute_review_workflow(
+            pages,
+            title,
+            _build_prompt,
+            agents_md,
+            all_personas,
+            persona,
+            summary,
+            clients,
+            target_type="pr",
+            target_ref=str(number),
+            target_dir=head_dir,
+            stage_flags=stage_flags,
+            concurrency=concurrency,
+            parallel=parallel,
+            base_revision=base_revision,
+            full_output=full,
+            session_id=session_id,
+            partial_context=True,
+        )
+
+    with review_worktrees_context(
+        Path.cwd(),
+        commit_rev=pr_commit,
+        base_rev=base_sha,
+        session_id=session_id,
+    ) as rw:
+        return _execute_review_workflow(
+            pages,
+            title,
+            _build_prompt,
+            agents_md,
+            all_personas,
+            persona,
+            summary,
+            clients,
+            target_type="pr",
+            target_ref=str(number),
+            target_dir=rw.commit_worktree or head_dir,
+            stage_flags=stage_flags,
+            concurrency=concurrency,
+            parallel=parallel,
+            base_revision=base_revision,
+            full_output=full,
+            session_id=session_id,
+            partial_context=rw.partial_context,
+        )
 
 
 @app.command()
@@ -766,6 +892,7 @@ def pr(
     # The review reads the PR head's files, not the local checkout's version of them. The head
     # is named after the checkout the review runs in, which its project resolves to, so the
     # review is shown and suppresses the claims people judged there (#950).
+    session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     with tempfile.TemporaryDirectory(prefix=f"devops-review-pr-{number}-") as head_parent:
         head_dir = Path(head_parent) / project_of(Path.cwd())
         # A review run from the file-system root names no project, and keeps the directory itself.
@@ -773,23 +900,24 @@ def pr(
         pages, title, agents_md, pull, repo_name, base_revision = _prepare_pr_content(
             number, repo, head_dir=head_dir
         )
-        reviews = _execute_review_workflow(
+        reviews = _run_pr_review_workflow(
             pages,
             title,
-            _build_prompt,
             agents_md,
+            pull,
+            number,
+            head_dir,
+            base_revision,
             all_personas,
             persona,
             summary,
             clients,
-            target_type="pr",
-            target_ref=str(number),
-            target_dir=head_dir,
-            stage_flags=stage_flags,
-            concurrency=concurrency,
-            parallel=parallel,
-            base_revision=base_revision,
-            full_output=full,
+            stage_flags,
+            concurrency,
+            parallel,
+            full,
+            session_id,
+            repo_arg=repo,
         )
 
     if post_comment and reviews:

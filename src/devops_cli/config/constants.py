@@ -131,8 +131,23 @@ CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
 # such a call. `devops docs check` resolves every list that starts with it.
 CONST_MCP_SERVER_MODULE = "devops_cli.ai.mcp.server"
 CONST_DEVOPS_ARGV_PREFIX: Final[tuple[str, ...]] = ("uv", "run", "devops")
+# Well-known placeholder tokens and handwritten documentation files checked for command argv resolution (#921).
+CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
+    {"...", "COMMAND", "ARGS", "OPTIONS", "SUBCOMMAND", "PARAMS"}
+)
+CONST_HANDWRITTEN_DOCS_PATHS: Final[tuple[Path, ...]] = (
+    Path("README.md"),
+    Path("ARCHITECTURE.md"),
+    Path("RELEASE_CYCLE.md"),
+    Path("docs/SDLC.md"),
+    Path("docs/ROUTINE_TASKS.md"),
+    Path("docs/DEVCONTAINER_USAGE.md"),
+    Path("docs/VISION.md"),
+)
 # The list methods that add tokens to an argv the MCP server builds up in a variable.
 CONST_ARGV_EXTENDING_METHODS: Final[frozenset[str]] = frozenset({"append", "extend"})
+# Bound on the length of command output returned to an MCP client.
+CONST_MCP_MAX_COMMAND_OUTPUT_CHARS: Final[int] = 4000
 # The class of mistake a refused MCP tool argument is reported as, so a model can correct the
 # call in one turn (#862).
 CONST_ARGUMENT_HALLUCINATED: Final[str] = "HALLUCINATED_PARAM"
@@ -193,8 +208,11 @@ CONST_MCP_UNDECLARED_PARAMETER_ECHO_LENGTH: Final[int] = 64
 # which the log keeps as this placeholder instead.
 CONST_FASTMCP_SERVER_LOGGER: Final[str] = "fastmcp.server.server"
 CONST_REDACTED_LOG_VALUE: Final[str] = "<redacted>"
+# HTML chrome and non-content tags decomposed during untrusted page rendering (#896).
+CONST_WEB_FETCH_CHROME_TAGS: Final[frozenset[str]] = frozenset(
+    {"header", "nav", "footer", "aside", "dialog", "script", "style", "noscript"}
+)
 # Root commands whose module app takes the command's own name as its first argument:
-# `devops lint` runs the `lint` subcommand of `devops_cli.commands.ci`.
 CONST_CLI_ROOT_LEVEL_COMMANDS: Final[frozenset[str]] = frozenset({"format", "lint"})
 # The command words that run a `devops review` command, which reads a tree devops-cli does not
 # own: the root command enters that rule before it opens the command's span and so builds the
@@ -264,6 +282,7 @@ CONST_REVIEW_SCAN_BANDIT_INI = "[bandit]\n"
 CONST_SCAN_STATUS_PRECEDENCE: Final[tuple[str, ...]] = (
     "failed",
     "unavailable",
+    "not installed",
     "dry-run",
     "built-in patterns",
     "ran",
@@ -275,6 +294,8 @@ CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_
 # The gate runs before every push, so its test step must stay inside this budget; past it, the
 # gate names the slowest tests from a pytest durations report of this many entries.
 CONST_CI_TEST_BUDGET_SECONDS: Final[float] = 300.0
+# Margin added to the CI test budget when computing MCP tool timeouts for `ci_run`.
+CONST_CI_TEST_BUDGET_MARGIN_SECONDS: Final[float] = 60.0
 CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
 # Host-folder shares (WSL's drvfs over 9p) answer each file check hundreds of times slower than
 # a Linux filesystem, which multiplies the gate's time for a workspace checked out on them.
@@ -464,6 +485,22 @@ CONST_SPECS_DIR_NAME = ".devops/specs"
 # Review-specific conventions a project keeps for devops ai review: read in full, beside the
 # general conventions file, by the personas and the verifier.
 CONST_REVIEW_CONVENTIONS_FILE = ".devops/review.md"
+# Declarative path classes configuration file for review routing and tool scoping (#1047).
+CONST_REVIEW_CONFIG_FILE = ".devops/review.toml"
+CONST_DEFAULT_PATH_CLASSES: Final[dict[str, tuple[str, ...]]] = {
+    "src": ("src/**", "lib/**", "app/**"),
+    "test": ("tests/**", "test/**", "*_test.py", "test_*.py"),
+    "fixture": (
+        "tests/fixtures/**",
+        "tests/golden/**",
+        "fixtures/**",
+        "golden/**",
+        "**/fixtures/**",
+        "**/golden/**",
+    ),
+    "iac": ("k8s/**", "helm/**", "Dockerfile*", "Containerfile*", "*.tf", "*.tfvars"),
+    "docs": ("docs/**", "*.md", "*.rst", "LICENSE*", "NOTICE*"),
+}
 CONST_SPECS_DIR_PATH = Path(CONST_SPECS_DIR_NAME)
 CONST_CHAOS_DIR_NAME = "k8s/chaos"
 CONST_CHAOS_DIR_PATH = Path(CONST_CHAOS_DIR_NAME)
@@ -638,6 +675,30 @@ CONST_K8S_SUBDOMAIN_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9.\-]{0,2
 CONST_K8S_NODE_ROLE_LABEL_PREFIX = "node-role.kubernetes.io/"
 CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER: Final[str] = "example.com"
 CONST_K8S_TEMPLATE_DOMAIN_VARS: Final[tuple[str, ...]] = ("DOMAIN", "K8S_DOMAIN")
+CONST_INLINE_SUPPRESSION_MARKERS: Final[dict[str, tuple[str, ...]]] = {
+    "bandit": ("nosec",),
+    "semgrep": ("nosemgrep", "no-semgrep"),
+    "ruff": ("noqa",),
+}
+"""The inline markers each review tool honours; a tool not listed has none (#1341)."""
+CONST_RAG_INCOMPLETE_FILE_MARKER: Final[str] = "incomplete"
+"""The RAG cache entry of a file only some of whose chunks are stored; it matches no content hash."""
+CONST_K8S_DEVOPS_CONFIGMAP: Final[str] = "devops-cli-config"
+"""The ConfigMap `devops k8s deploy-stack` renders from config.yaml; no Argo CD Application owns it."""
+CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS: Final[tuple[str, ...]] = ("devops", "ingress")
+"""The Argo CD Applications whose hosts deploy-stack sets from the configured domain (#1290)."""
+CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK: Final[dict[str, tuple[str, ...]]] = {
+    "infra": ("ingress",),
+    "devops": ("devops", "ingress"),
+}
+"""The homelab Applications whose hosts a stack's deploy sets."""
+CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS: Final[float] = 300.0
+"""How long fetching an Application's revision may take before deploy-stack gives up."""
+CONST_GIT_NONINTERACTIVE_ENV: Final[dict[str, str]] = {
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
+}
+"""Environment that makes git fail instead of prompting for credentials or a passphrase."""
 CONST_K8S_TEMPLATE_EXTENSIONS: Final[tuple[str, ...]] = (".yaml", ".yml")
 # Where each workload kind keeps its pod spec: Pod; PodTemplate; Deployment, ReplicaSet,
 # StatefulSet, DaemonSet, Job and ReplicationController; CronJob.
@@ -2128,9 +2189,28 @@ CONST_KNOWN_EMBEDDING_DIMENSIONS: Final[dict[str, int]] = {
     "text-embedding-3-large": 3072,
     "text-embedding-ada-002": 1536,
     "all-minilm": 384,
-    "qwen3-embedding": 768,
+    "qwen3-embedding": 1024,
     "embeddinggemma": 768,
 }
+
+# Asymmetric task prefix for Qwen3-Embedding queries
+CONST_QWEN3_EMBEDDING_QUERY_PREFIX: Final[str] = (
+    "Instruct: Given a code search query, retrieve relevant code or documentation\nQuery:"
+)
+
+# Known lockfile basenames skipped by RAG indexer
+CONST_RAG_SKIPPED_LOCKFILES: Final[frozenset[str]] = frozenset(
+    {"package-lock.json", "pnpm-lock.yaml", "go.sum"}
+)
+
+# Safety limit for maximum chunk size in estimated tokens sent to embedding models
+CONST_RAG_MAX_CHUNK_TOKENS: Final[int] = 8192
+
+# Consecutive transient embedding failures before pausing RAG lookups
+CONST_RAG_CIRCUIT_BREAKER_FAILURES: Final[int] = 3
+
+# Duration in seconds to pause RAG lookups when circuit breaker opens
+CONST_RAG_CIRCUIT_BREAKER_PAUSE_SECONDS: Final[float] = 60.0
 
 # Helm releases that deploy DaemonSets across all cluster nodes
 CONST_HELM_DAEMONSET_RELEASES: Final[frozenset[str]] = frozenset(

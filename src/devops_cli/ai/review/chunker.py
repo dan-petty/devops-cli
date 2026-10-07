@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path, PurePath, PurePosixPath
 
 from devops_cli.ai.review.sanitization import _unique_preserve_order
@@ -139,6 +139,70 @@ def extract_file_diff_hunks(segments: Iterable[str]) -> dict[str, list[tuple[int
     return file_hunks
 
 
+def _resolve_diff_path(line: str, current_path: str | None) -> str | None:
+    """Resolve target file path from diff header line or retain existing path."""
+    header_path = _parse_diff_header_filename(line)
+    if header_path:
+        return header_path
+    if line.startswith("+++ b/"):
+        return line[6:].strip()
+    return current_path
+
+
+def _parse_numbered_diff_line(line: str, path: str | None) -> tuple[str, int] | None:
+    """Extract (path, line_number) if line is a numbered added line."""
+    match = _LINE_NUMBER_COLUMN.match(line)
+    if not (match and match[1]):
+        return None
+    content = line[match.end() :]
+    if content.startswith("+") and not content.startswith("+++") and path:
+        return (path, int(match[1]))
+    return None
+
+
+def _step_raw_diff_line(
+    line: str, path: str | None, current_line: int
+) -> tuple[int, tuple[str, int] | None]:
+    """Advance raw unified diff line counter and return added coordinate if applicable."""
+    hunk_range = _parse_hunk_header_range(line)
+    if hunk_range is not None:
+        return hunk_range[0], None
+    if line.startswith("+") and not line.startswith("+++"):
+        coord = (path, current_line) if (path and current_line > 0) else None
+        return current_line + 1, coord
+    next_line = current_line + 1 if (line.startswith(" ") or not line) else current_line
+    return next_line, None
+
+
+def extract_added_diff_lines(
+    diff_text: str, default_path: str | None = None
+) -> set[tuple[str, int]]:
+    """Extract set of (file_path, new_line_number) coordinates for added lines in a diff.
+
+    Handles both raw unified diffs and review pages with prefixed line numbers.
+    """
+    added_lines: set[tuple[str, int]] = set()
+    current_path = default_path
+    current_line = 0
+
+    for raw_line in diff_text.splitlines():
+        line = raw_line.strip("\r")
+        new_path = _resolve_diff_path(line, current_path)
+        if new_path != current_path:
+            current_path = new_path
+            current_line = 0
+            continue
+        numbered_coord = _parse_numbered_diff_line(line, current_path)
+        if numbered_coord:
+            added_lines.add(numbered_coord)
+            continue
+        current_line, raw_coord = _step_raw_diff_line(line, current_path, current_line)
+        if raw_coord:
+            added_lines.add(raw_coord)
+
+    return added_lines
+
+
 def strip_line_numbers(text: str) -> str:
     """Remove the line-number column that review pages carry."""
     return _LINE_NUMBER_COLUMN.sub("", text)
@@ -162,7 +226,7 @@ def _extract_header_filenames(segment: str, header_type: str = "all") -> list[st
         if header_type in ("diff", "all") and line.startswith("diff --git "):
             parts = line.split()
             if len(parts) >= 4:
-                items.append(parts[2].removeprefix("a/"))
+                items.append(parts[3].removeprefix("b/"))
         elif header_type in ("path", "file", "all") and line.startswith("### File: "):
             item = line.removeprefix("### File: ").strip()
             item = item.split(" (part ", 1)[0].strip()
@@ -381,7 +445,10 @@ def _paginate_file_diff_block(
     return [f"{preamble}{piece}" for pieces in windows for piece in pieces]
 
 
-def skips_persona_review(path: str | PurePath) -> bool:
+def skips_persona_review(
+    path: str | PurePath,
+    path_classes: Mapping[str, Sequence[str]] | None = None,
+) -> bool:
     """Whether a file stays off persona pages, by its repository-relative path (#948).
 
     Lockfiles stay off for their size. Planning documents (the roadmap, the changelog and its
@@ -390,16 +457,23 @@ def skips_persona_review(path: str | PurePath) -> bool:
     the persona pages of the release/v0.2.25 branch reviews. Path, branch and pull request
     reviews all decide with this predicate, and the secret scan still reads what it skips.
     """
+    from devops_cli.ai.review.path_classes import is_fixture_path
+
     posix = PurePosixPath(str(path).replace("\\", "/").removeprefix("./"))
+    if is_fixture_path(posix, path_classes=path_classes):
+        return True
     return posix.name in CONST_REVIEW_GENERATED_FILES or any(
         posix.full_match(pattern) for pattern in CONST_REVIEW_ROUTED_PATH_PATTERNS
     )
 
 
-def _skips_persona_review_block(block: str) -> bool:
+def _skips_persona_review_block(
+    block: str,
+    path_classes: Mapping[str, Sequence[str]] | None = None,
+) -> bool:
     """Whether a diff block's header names a file `skips_persona_review` keeps off the pages."""
     names = _extract_header_filenames(block.split("\n", 1)[0], header_type="diff")
-    return bool(names) and skips_persona_review(names[0])
+    return bool(names) and skips_persona_review(names[0], path_classes=path_classes)
 
 
 def review_page_chars(context_window: int) -> int:
@@ -417,6 +491,7 @@ def diff_stream_chunks(
     max_chars: int = DEFAULT_REVIEW_MAX_DIFF_CHARS,
     window_size_factor: float = DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
     overlap_factor: float = DEFAULT_REVIEW_OVERLAP_FACTOR,
+    path_classes: Mapping[str, Sequence[str]] | None = None,
 ) -> Iterator[str]:
     """Stream unified diff chunks file-by-file with rolling window pagination.
 
@@ -428,7 +503,7 @@ def diff_stream_chunks(
     )
     # A diff whose every file is skipped yields no page: an empty one reached the model (#948).
     for block in _stream_diff_file_blocks(line_iter):
-        if not block.strip() or _skips_persona_review_block(block):
+        if not block.strip() or _skips_persona_review_block(block, path_classes=path_classes):
             continue
         yield from _paginate_file_diff_block(
             number_diff_lines(block),
@@ -443,6 +518,7 @@ def diff_pages(
     max_chars: int = DEFAULT_REVIEW_MAX_DIFF_CHARS,
     window_size_factor: float = DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
     overlap_factor: float = DEFAULT_REVIEW_OVERLAP_FACTOR,
+    path_classes: Mapping[str, Sequence[str]] | None = None,
 ) -> list[str]:
     """Paginate a unified diff file-by-file into individual review pages using rolling windows."""
     return list(
@@ -451,6 +527,7 @@ def diff_pages(
             max_chars=max_chars,
             window_size_factor=window_size_factor,
             overlap_factor=overlap_factor,
+            path_classes=path_classes,
         )
     )
 
@@ -543,6 +620,7 @@ def find_repo_files(
 __all__ = [
     "diff_pages",
     "diff_stream_chunks",
+    "extract_added_diff_lines",
     "extract_diff_hunks",
     "extract_file_diff_hunks",
     "find_repo_files",

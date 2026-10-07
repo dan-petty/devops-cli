@@ -8,7 +8,7 @@ import logging
 import secrets
 import time
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -29,6 +29,7 @@ from devops_cli.ai.review.chunker import (
 )
 from devops_cli.ai.review.classification import _persona_system_prompt
 from devops_cli.ai.review.flags import ReviewStageFlags
+from devops_cli.ai.review.path_classes import load_path_classes
 from devops_cli.ai.review.profile import (
     ReviewProfile,
     ReviewProfiler,
@@ -1503,7 +1504,10 @@ def _review_candidate_files(root: Path, pattern: str) -> list[Path]:
     return _partition_candidate_files(root, pattern)[0]
 
 
-def _routed_changes(base_revision: BaseRevision | None) -> list[str]:
+def _routed_changes(
+    base_revision: BaseRevision | None,
+    path_classes: Mapping[str, Sequence[str]] | None = None,
+) -> list[str]:
     """The files a branch or pull request changed that persona review skips, for the secret
     scan; a deleted file has nothing left to scan."""
     if base_revision is None:
@@ -1512,7 +1516,8 @@ def _routed_changes(base_revision: BaseRevision | None) -> list[str]:
     return [
         change.path
         for change in base_revision.changes
-        if change.change_type != deleted and skips_persona_review(change.path)
+        if change.change_type != deleted
+        and skips_persona_review(change.path, path_classes=path_classes)
     ]
 
 
@@ -1927,8 +1932,12 @@ def _prepare_branch_content(
         raise typer.Exit(0)
 
     title = f"Branch `{target_branch}` vs `{effective_base}`"
-    pages = [redact_text(p) for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
     base_revision = _branch_base_revision(repo_path, effective_base, target_branch, is_working_tree)
+    path_classes = load_path_classes(base_revision=base_revision)
+    pages = [
+        redact_text(p)
+        for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS, path_classes=path_classes)
+    ]
     # The conventions are read where the diff starts, as a pull request's are read at its base,
     # so a branch cannot loosen its own review.
     agents_md = _load_agents_md(repo_path, base_revision.revision)
@@ -1974,7 +1983,8 @@ def _prepare_pr_content(
         _materialize_pr_head(gh, repo, pull, head_dir, pr_files)
         base_revision = _pr_base_revision(gh, repo, pull, pr_files)
     agents_md = _load_agents_md(head_dir or Path.cwd())
-    pages = [redact_text(p) for p in diff_pages(diff, _MAX_DIFF_CHARS)]
+    path_classes = load_path_classes(base_revision=base_revision)
+    pages = [redact_text(p) for p in diff_pages(diff, _MAX_DIFF_CHARS, path_classes=path_classes)]
     return pages, title, agents_md, pull, repo, base_revision
 
 
@@ -2082,6 +2092,8 @@ def _write_review_profile(
     profiler: ReviewProfiler, orchestrator: Any, target: str, files: int
 ) -> ReviewProfile:
     """Write the session's profile.json and summarise where the time went."""
+    profiler.set_coverage(getattr(orchestrator, "coverage", {}))
+    profiler.set_partial_context(getattr(orchestrator, "partial_context", False))
     profile = profiler.build(session_id=orchestrator.session_id, target=target, files=files)
     path = profile.write(orchestrator.session_dir)
     report_profile(profile)
@@ -2170,16 +2182,21 @@ def _run_orchestrator_review(
     stage_flags: ReviewStageFlags | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Execute orchestrator pipeline review for all files."""
+    # Each file gets the pages whose headers name it; a substring match gave `a.py` the
+    # pages of `data.py` as well.
+    diff_map = {
+        f: "\n".join(p for p in pages if f in _extract_header_filenames(p)) for f in all_files
+    }
     with review_stage("payloads"):
         payloads = orchestrator.init_per_file_payloads(
-            all_files, metadata_by_path, target_dir=target_dir, stage_flags=stage_flags
+            all_files,
+            metadata_by_path,
+            target_dir=target_dir,
+            stage_flags=stage_flags,
+            diff_text_by_file=diff_map,
+            pages=pages,
         )
     if not is_dry_run():
-        # Each file gets the pages whose headers name it; a substring match gave `a.py` the
-        # pages of `data.py` as well.
-        diff_map = {
-            f: "\n".join(p for p in pages if f in _extract_header_filenames(p)) for f in all_files
-        }
         with review_stage("persona_review"):
             orchestrator.execute_multi_persona_review(
                 payloads, diff_text_by_file=diff_map, personas=active_p, stage_flags=stage_flags
@@ -2286,6 +2303,8 @@ def _execute_review_workflow(
     base_revision: BaseRevision | None = None,
     full_output: bool = False,
     routed_files: Sequence[str] = (),
+    session_id: str | None = None,
+    partial_context: bool = False,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Common review execution workflow for path, branch, and PR reviews.
 
@@ -2308,9 +2327,13 @@ def _execute_review_workflow(
         print_info(f"[dim]{spans_msg}[/dim]", prefix=False)
 
     all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
+    if base_revision is not None and base_revision.changes:
+        deleted = {c.path for c in base_revision.changes if c.change_type == "deleted"}
+        all_files = [f for f in all_files if f not in deleted]
     _check_and_warn_perimeter_changes(target_type, all_files)
     subject = review_subject(target_type, target_ref, pages)
     orchestrator = ReviewPipelineOrchestrator(
+        session_id=session_id,
         llm_client=clients.analysis,
         verification_client=clients.verification,
         target_dir=target_dir,
@@ -2320,7 +2343,14 @@ def _execute_review_workflow(
         subject=subject,
         conventions_revision=base_revision.revision if base_revision else None,
         full_output=full_output,
-        secret_scan_files=sorted({*routed_files, *_routed_changes(base_revision)}),
+        secret_scan_files=sorted(
+            {
+                *routed_files,
+                *_routed_changes(base_revision, path_classes=load_path_classes(base_revision)),
+            }
+        ),
+        base_revision=base_revision,
+        partial_context=partial_context,
     )
     if not all_files:
         return _review_routed_files_only(orchestrator, persona, stage_flags)

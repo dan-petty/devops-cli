@@ -599,7 +599,8 @@ class DocGenerator:
 
         for tool in sorted(tools, key=lambda t: t.name):
             anchor = tool.name.replace("_", "-")
-            lines.append(f"| [`{tool.name}`](#{anchor}) | {tool.description} |")
+            summary = " ".join(tool.description.splitlines()).strip()
+            lines.append(f"| [`{tool.name}`](#{anchor}) | {summary} |")
 
         lines.append("")
         lines.append("---")
@@ -1155,11 +1156,18 @@ class DocGenerator:
         self, output_dir: Path, check_readme_table: bool = True
     ) -> tuple[bool, list[str]]:
         """Verify on-disk docs match the generated docs and every MCP and markdown argv resolves."""
-        from devops_cli.docs.markdown_argv_collector import check_knowledge_base_argv
+        from devops_cli.docs.markdown_argv_collector import (
+            check_handwritten_docs_argv,
+            check_knowledge_base_argv,
+        )
         from devops_cli.docs.mcp_argv_collector import check_mcp_server_argv
 
         docs = self.generate_all_docs(output_dir)
-        errors: list[str] = [*check_mcp_server_argv(), *check_knowledge_base_argv(self.root_dir)]
+        errors: list[str] = [
+            *check_mcp_server_argv(),
+            *check_knowledge_base_argv(self.root_dir),
+            *check_handwritten_docs_argv(self.root_dir),
+        ]
 
         for rel_path, expected_content in docs.items():
             target_path = output_dir / rel_path

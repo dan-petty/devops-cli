@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.28] - 2026-10-07
+
+### Added
+- Every reported scanner finding and dependency advisory is admitted with its producer's anchor (`ToolAnchor` or `AdvisoryAnchor`) and a location validated against the reviewed commit in `devops_cli.review.admission.admit()`, writing `findings.sarif` and rendering introduced, pre-existing, and suppressed findings in `review.md`, one suppressed row per file and line (only scanner findings are compared with the base revision; every dependency advisory is listed as introduced), with admission rejections counted by type in `profile.json`; an inline marker suppresses only findings of its own tool (`nosec` for Bandit, `nosemgrep` or `no-semgrep` for Semgrep, `noqa` for Ruff), and findings from the review's models are not admitted (#871, #1295, #1341).
+- Increase in-cluster `roadmap-service` analysis task context window in `k8s/devops/configmap.example.yaml` from 16k (`16384`) to 64k (`65536`) tokens (#1271).
+
+### Changed
+- Unify pull request check runs and commit status contexts retrieval into a single fail-closed reader supporting combined statuses across >30 contexts and reporting zero checks as pending across `pr wait`, monitor, and readiness (#769).
+
+### Fixed
+- Defend dashboard domain panels against mounting race conditions by deferring snapshot rendering when unmounted or during child query races, preventing `NoMatches` worker failures (#519).
+- Isolate MCP in-process child process stdio to temporary files to prevent protocol stream corruption, return bounded masked failure output with FastMCP `ToolError` on non-zero exit codes, and expand `ci_run` tool to accept any gate check name with budgeted timeout (#839).
+- Ensure `web_fetch` reports failed HTTP fetches as tool failures (`ToolFailed`) and security blocks as errors, rather than returning failure descriptions as page text (#894).
+- Align all hand-written documentation (`README.md`, `ARCHITECTURE.md`, `RELEASE_CYCLE.md`, `docs/SDLC.md`, `docs/ROUTINE_TASKS.md`, `docs/DEVCONTAINER_USAGE.md`, `docs/VISION.md`, `k8s/README.md`, and `k8s/llm/profiles/README.md`) to name only commands, options, flags, and architecture patterns that exist, backed by static argv validation in `devops docs check` (#921).
+- Reviews of branches and pull requests scan an isolated detached worktree of the reviewed revision under user data root instead of the active checkout, preventing uncommitted edits from leaking into review findings or symbol metadata (#1047).
+- Git change set parsing uses `git diff --name-status -M` to ensure deleted files are never passed to static analyzers, and renames track the target path at head while preserving old paths (#1047).
+- Single-file path reviews resolve repository root via `git rev-parse --show-toplevel`, and uncommitted reviews report scanning in place (#1047).
+- Pre-analysis of the worktree reuses cached metadata when content hash matches the commit blob, bypassing mtime checks (#1047).
+- PR reviews fetch head from `refs/pull/N/head` and mark partial context when unavailable (#1047).
+- Path classes loaded from `.devops/review.toml` route fixtures and golden sets to secret scanning only, skipping general analyzers (#1047).
+- Detailed per-tool coverage matrix recorded in `profile.json` and rendered under `## Coverage` in `review.md` (#1047).
+- Gitleaks regex fallback deleted in favor of deterministic binary execution; missing binary reports as not installed (#1047).
+- Ensure a review verifier verdict that both confirms and refutes its finding stays unverified with a `verifier-contradiction` note rather than ending `VERIFIED` or `verifier-inconclusive`, even when its reason repeats the title or confirms the claim (#1059).
+- A failing embedding model pauses RAG lookups with a circuit breaker after three consecutive transient errors instead of permanently ending RAG for the run, while permanent errors from unknown or unserved models stop RAG with one warning (#1065).
+- Route lookups concurrently once healthy while coordinating a single probe after failures, avoiding serialized wait loops across concurrent review workers (#1065).
+- Hash prompt-prefixed text for L1 and Valkey L2 embedding cache keys, supporting distinct model prompt prefixes across `qwen3-embedding`, `bge-m3`, `nomic`, and `e5` families (#1065).
+- Pin `CONST_KNOWN_EMBEDDING_DIMENSIONS["qwen3-embedding"]` to 1024, honor configured `ai.rag.top_k` and `ai.rag.score_threshold` (including threshold 0), skip package manager lockfiles, and bound semantic chunks to 8,192 estimated tokens, which is 32,768 characters at the project's four-characters-per-token estimate (#1065, #1296).
+- End failed indexing batches with exit 1 naming the first and last file. A run without `--force` resumes where it failed: a file is cached once all of its chunks are stored and as incomplete until then, so a file that spanned the failed batch is embedded again, and its stored chunks are purged if it is deleted or edited first (#1065, #1296).
+- Route review requests through the LLM gateway with `least-busy` routing and `cancel_on_disconnect: true`, avoiding edge cut stalls and backend queue build-up on Ollama (#1069).
+- `devops ai gateway connect` automatically discovers and configures the gateway's NodePort address on the LAN, probing `/health/liveliness` and `/model/info` while bypassing edge timeouts (#1069).
+- Enforce single retry layer across LLM client transports: retryable status codes (408, 429, 5xx) retry with exponential backoff while non-retryable 4xx errors fail immediately without retry loops (#1069).
+- Lower a gateway review's file workers from 16 to three, the sum of `DEFAULT_GATEWAY_REVIEW_SLOTS`, or to `ai.ollama_max_parallel` per `ai.ollama_urls` entry when that is more. Each file's personas still query the gateway in parallel, so requests in flight can exceed the slot count. Isolate persona retry execution, and purge expired or CLOSE-WAIT connections from the HTTP connection pool (#1069).
+- Track `main` across all Argo CD git-source `targetRevision` fields under `k8s/argocd/` while retaining the release version pin for the service image in `k8s/devops/kustomization.yaml` (#1261).
+- Fix Portkey AI Gateway liveness and readiness probe path to `/` and align GPU Feature Discovery image to `nvcr.io/nvidia/k8s-device-plugin:v0.16.2` (#1267).
+- Disable ambient Logfire pytest plugins in test runner configuration to prevent network DNS lookups in dry-run tests (#1267).
+- Resolve Argo CD application synchronization and manifest generation failures: specify valid port `number: 3100` for `loki-ingress`, deduplicate Grafana dashboard ConfigMap ownership between `base` and `monitoring`, remove redundant `Service/pyroscope` alias colliding with the Pyroscope Helm chart, and remove the homelab domain from the committed overlays; a native `deploy-stack --stack infra` applies `k8s/monitoring/dashboards` itself (#1279, #1297).
+- Supply the homelab's values to Argo CD at deploy time instead of from the repository (#1290):
+  - `devops k8s deploy-stack` renders ConfigMap `devops-cli-config` from `config.yaml`, outside any Application.
+  - It writes the hosts each of the Applications `devops` and `ingress` renders, at the revision Argo CD builds (or `--argocd-revision`), onto the Application as Kustomize patches. The `cluster` app-of-apps ignores those patches.
+  - It renders everything before it writes, and refuses an unset service setting or domain by name.
+  - `teardown-stack` deletes the ConfigMap, and the repository no longer tracks `k8s/devops/configmap.yaml`.
+
+### Security
+- Redact secret-bearing argv items from async subprocess telemetry command summaries and terminate the entire POSIX process group on subprocess timeouts (#780).
+- Render untrusted web pages as escaped markdown within context budget with dynamic backtick fencing, chrome/dialog decomposition, prompt boundary tag sanitization, and response URL provenance isolation (#896).
+
 ## [0.2.27] - 2026-10-06
 
 ### Added

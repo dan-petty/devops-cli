@@ -42,6 +42,7 @@ def _run_cmd(
     check: bool = True,
     capture: bool = False,
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     import os
     from pathlib import Path
@@ -65,6 +66,7 @@ def _run_cmd(
     return run_subprocess(
         cmd,
         input=input,
+        env=env,
         check=check,
         capture_output=capture,
         text=True,

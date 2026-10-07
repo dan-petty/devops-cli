@@ -14,7 +14,7 @@ from devops_cli.commands.kustomize import app as kustomize_app
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.template import (
-    _normalize_domain,
+    normalize_domain,
     render_manifest_path,
     render_manifest_template,
     resolve_template_domain,
@@ -25,18 +25,18 @@ runner = CliRunner()
 
 def test_normalize_domain_valid() -> None:
     """Normalize whitespace, uppercase, and leading dots on valid domains."""
-    res_a = _normalize_domain("  EXAMPLE.COM  ")
-    res_b = _normalize_domain(".retric.click")
-    assert (res_a, res_b) == ("example.com", "retric.click")
+    res_a = normalize_domain("  EXAMPLE.COM  ")
+    res_b = normalize_domain(".example.com")
+    assert (res_a, res_b) == ("example.com", "example.com")
 
 
 def test_normalize_domain_invalid_raises() -> None:
     """Invalid characters or empty strings raise KubernetesContextError."""
     with pytest.raises(KubernetesContextError, match="Invalid domain name"):
-        _normalize_domain("invalid domain with spaces!")
+        normalize_domain("invalid domain with spaces!")
 
     with pytest.raises(KubernetesContextError, match="Invalid domain name"):
-        _normalize_domain("")
+        normalize_domain("")
 
 
 def test_resolve_template_domain_precedence() -> None:

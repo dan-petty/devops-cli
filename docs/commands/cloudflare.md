@@ -72,7 +72,7 @@ devops cloudflare dns sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--domain`, `-d` | `string` | - | Root domain name (e.g. retric.click) |
+| `--domain`, `-d` | `string` | - | Root domain name (e.g. example.com) |
 | `--tunnel-cname`, `-c` | `string` | - | Target tunnel CNAME or Tunnel UUID |
 | `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to tunnel |
 | `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
@@ -91,7 +91,7 @@ devops cloudflare dns delete [OPTIONS] <targets>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<targets>` | `string` | Yes | One or more DNS record names (e.g. chat.retric.click) or record IDs to delete |
+| `<targets>` | `string` | Yes | One or more DNS record names (e.g. chat.example.com) or record IDs to delete |
 
 **Options:**
 
@@ -140,7 +140,7 @@ devops cloudflare tunnel sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--tunnel-id`, `-t` | `string` | - | Cloudflare Tunnel ID |
-| `--domain`, `-d` | `string` | - | Domain to route through tunnel (e.g. retric.click) |
+| `--domain`, `-d` | `string` | - | Domain to route through tunnel (e.g. example.com) |
 | `--service` | `string` | `http://traefik.kube-system.svc.cluster.local:80` | Cluster ingress destination service URL |
 | `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to service |
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |

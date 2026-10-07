@@ -434,105 +434,31 @@ def _detect_copilot_status(
     )
 
 
-def _extract_page_runs(page: Any) -> list[dict[str, Any]]:
-    """Extract check run dicts from a single API payload page."""
-    if isinstance(page, dict):
-        runs = page.get("check_runs")
-        if isinstance(runs, list):
-            return [r for r in runs if isinstance(r, dict)]
-        if "name" in page:
-            return [page]
-    return []
-
-
-def _fetch_commit_check_runs(owner: str, repo: str, head_sha: str) -> list[PRCheckRun]:
-    """Fetch GitHub Check Runs for commit SHA via paginated slurped REST query."""
-    check_cmd = [
-        CONST_GH_CLI,
-        "api",
-        "--paginate",
-        "--slurp",
-        f"repos/{owner}/{repo}/commits/{head_sha}/check-runs?per_page=100",
-    ]
-    check_proc = run_gh(check_cmd, check=False, quiet=True)
-    if check_proc.returncode != 0 or not check_proc.stdout.strip():
-        return []
-    try:
-        check_data = json.loads(check_proc.stdout)
-    except json.JSONDecodeError:
-        return []
-
-    pages = check_data if isinstance(check_data, list) else [check_data]
-    raw_runs = [r for page in pages for r in _extract_page_runs(page)]
-
-    results: list[PRCheckRun] = []
-    for c in raw_runs:
-        raw_status = str(c.get("status") or "completed")
-        raw_conclusion = str(c.get("conclusion") or "")
-        item = classify_check_item(
-            name=str(c.get("name") or "Check"),
-            status=raw_status,
-            conclusion=raw_conclusion,
-            workflow=str(c.get("app", {}).get("name") or ""),
-            link=str(c.get("html_url") or ""),
-        )
-        results.append(
-            PRCheckRun(
-                name=item.name,
-                workflow=item.workflow,
-                status=raw_status.upper(),
-                conclusion=raw_conclusion.upper(),
-                url=item.link,
-                bucket=item.bucket,
-            )
-        )
-    return results
-
-
-def _fetch_commit_status_contexts(owner: str, repo: str, head_sha: str) -> list[PRCheckRun]:
-    """Fetch GitHub Commit Status Contexts for commit SHA."""
-    status_cmd = [
-        CONST_GH_CLI,
-        "api",
-        f"repos/{owner}/{repo}/commits/{head_sha}/status",
-    ]
-    status_proc = run_gh(status_cmd, check=False, quiet=True)
-    if status_proc.returncode != 0 or not status_proc.stdout.strip():
-        return []
-    try:
-        status_data = json.loads(status_proc.stdout)
-    except json.JSONDecodeError:
-        return []
-
-    results: list[PRCheckRun] = []
-    for s in status_data.get("statuses", []):
-        if not isinstance(s, dict):
-            continue
-        st_state = str(s.get("state") or "")
-        item = classify_check_item(
-            name=str(s.get("context") or "Status"),
-            state=st_state,
-            workflow="Commit Status",
-            link=str(s.get("target_url") or ""),
-        )
-        results.append(
-            PRCheckRun(
-                name=item.name,
-                workflow=item.workflow,
-                status="COMPLETED" if item.bucket != CheckBucket.PENDING else "IN_PROGRESS",
-                conclusion=st_state.upper() if item.bucket != CheckBucket.PENDING else "",
-                url=item.link,
-                bucket=item.bucket,
-            )
-        )
-    return results
-
-
 def _fetch_rest_check_runs(owner: str, repo: str, head_sha: str) -> list[PRCheckRun]:
     """Fetch check runs and commit status contexts via GitHub REST API."""
-    return _fetch_commit_check_runs(owner, repo, head_sha) + _fetch_commit_status_contexts(
-        owner, repo, head_sha
-    )
+    from devops_cli.github.check_verdict import _fetch_checks_from_rest
+
+    verdict = _fetch_checks_from_rest(owner, repo, head_sha, runner=run_gh)
+    if verdict.unread_reason:
+        return [
+            PRCheckRun(
+                name="PR check verification failed closed",
+                status="COMPLETED",
+                conclusion=verdict.unread_reason,
+                bucket=CheckBucket.UNREAD,
+            )
+        ]
+    return [
+        PRCheckRun(
+            name=item.name,
+            workflow=item.workflow,
+            status="COMPLETED" if item.bucket != CheckBucket.PENDING else "IN_PROGRESS",
+            conclusion=item.state.upper() if item.bucket != CheckBucket.PENDING else "",
+            url=item.link,
+            bucket=item.bucket,
+        )
+        for item in verdict.items
+    ]
 
 
 class RawReviewsList(list[dict[str, Any]]):
@@ -616,8 +542,11 @@ def _build_failure_reasons(
 ) -> list[str]:
     """Compile structured list of failure reasons preventing merge."""
     reasons: list[str] = []
+    unread = [c for c in checks if c.bucket == CheckBucket.UNREAD]
     failing = [c for c in checks if c.is_failure]
-    if failing:
+    if unread:
+        reasons.append(f"PR check verification failed closed: {unread[0].conclusion}")
+    elif failing:
         reasons.append(f"{len(failing)} CI check(s) failed")
     if unresolved_threads:
         reasons.append(f"{len(unresolved_threads)} unresolved review thread(s)")
@@ -740,10 +669,17 @@ def _check_early_pr_failures(
 ) -> PRMonitorResult | None:
     """Check for immediate failure conditions such as failing CI or requested changes."""
     if latest_status.failing_checks:
+        unread = [c for c in latest_status.failing_checks if c.bucket == CheckBucket.UNREAD]
+        if unread:
+            msg = f"PR #{pr_number} check verification failed closed: {unread[0].conclusion}"
+        else:
+            msg = (
+                f"PR #{pr_number} CI checks failed: {len(latest_status.failing_checks)} failure(s)."
+            )
         return PRMonitorResult(
             success=False,
             exit_code=1,
-            message=f"PR #{pr_number} CI checks failed: {len(latest_status.failing_checks)} failure(s).",
+            message=msg,
             status=latest_status,
         )
     if (

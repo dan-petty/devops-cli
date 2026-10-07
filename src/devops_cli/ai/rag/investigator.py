@@ -6,6 +6,7 @@ import functools
 import logging
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
@@ -13,6 +14,10 @@ from devops_cli.ai.rag.models import RAGContext
 from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.ai.rag.retriever import SemanticRetriever
 from devops_cli.config import settings as settings_mod
+from devops_cli.config.constants import (
+    CONST_RAG_CIRCUIT_BREAKER_FAILURES,
+    CONST_RAG_CIRCUIT_BREAKER_PAUSE_SECONDS,
+)
 from devops_cli.config.defaults import (
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
@@ -31,31 +36,134 @@ logger = logging.getLogger(__name__)
 _INVESTIGATION_CACHE: dict[str, tuple[float, RAGContext | None]] = {}
 _RETRIEVER_CACHE: tuple[float, SemanticRetriever] | None = None
 _CACHE_TTL_SECONDS = 60.0
+_CIRCUIT_BREAKER_FAILURES = CONST_RAG_CIRCUIT_BREAKER_FAILURES
+_CIRCUIT_BREAKER_PAUSE_SECONDS = CONST_RAG_CIRCUIT_BREAKER_PAUSE_SECONDS
 
-# Set by the first lookup the embedding model cannot embed. Each later lookup would send the
-# same failing request, and on a node that keeps one model loaded it can evict the model the
-# run is using, so RAG stays off for the rest of the process.
+# Set by the first permanent error (unserved/unknown model).
 _RAG_STOPPED = threading.Event()
 _STOP_LOCK = threading.Lock()
-# Set by the first lookup the embedding model answers. Until then lookups embed one at a time
-# under _PROBE_LOCK, so review workers that start together send one request to a model that
-# is not served, not one each before the first failure stops RAG.
+_RETRIEVER_LOCK = threading.Lock()
+# Set by the first lookup the embedding model answers.
 _RAG_SERVED = threading.Event()
-_PROBE_LOCK = threading.Lock()
-# Set by the first lookup that fails for any other reason, such as a vector store the SSRF guard
-# refuses. That one warns, so a RAG backend that cannot be reached is not silent; later failures
-# log at debug, as each review worker's lookup would repeat the warning.
+# Set by the first lookup that fails for any non-embedding reason.
 _FAILURE_REPORTED = threading.Event()
+
+# Circuit breaker state for transient failures
+_circuit_breaker_opened_at: float | None = None
+_consecutive_transient_failures: int = 0
+_STATE_LOCK = threading.Lock()
+
+
+class _ProbeCoordinator:
+    """Coordinates a single probe lookup while concurrent lookups wait for its outcome."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._event: threading.Event | None = None
+        self._succeeded: bool = False
+
+    def clear(self) -> None:
+        with self._lock:
+            if self._event is not None:
+                self._event.set()
+            self._event = None
+            self._succeeded = False
+
+    def coordinate(self, search_fn: Callable[[], RAGContext | None]) -> RAGContext | None:
+        with self._lock:
+            if self._event is not None:
+                event = self._event
+                is_prober = False
+            else:
+                self._event = threading.Event()
+                self._succeeded = False
+                event = self._event
+                is_prober = True
+
+        if not is_prober:
+            event.wait()
+            return search_fn() if self._succeeded else None
+
+        success = False
+        try:
+            ctx = search_fn()
+            with _STATE_LOCK:
+                success = (
+                    _RAG_SERVED.is_set()
+                    and _circuit_breaker_opened_at is None
+                    and _consecutive_transient_failures == 0
+                )
+            return ctx
+        finally:
+            with self._lock:
+                self._succeeded = success
+                self._event = None
+                event.set()
+
+
+_PROBE_COORDINATOR = _ProbeCoordinator()
+
+
+def _record_success() -> None:
+    """Reset transient failure accounting and mark RAG as served."""
+    global _consecutive_transient_failures, _circuit_breaker_opened_at
+    with _STATE_LOCK:
+        _consecutive_transient_failures = 0
+        _circuit_breaker_opened_at = None
+        _RAG_SERVED.set()
+
+
+def _record_transient_failure(exc: Exception) -> None:
+    """Record a transient failure; opens circuit breaker after consecutive threshold."""
+    global _consecutive_transient_failures, _circuit_breaker_opened_at
+    with _STATE_LOCK:
+        _consecutive_transient_failures += 1
+        if _consecutive_transient_failures >= _CIRCUIT_BREAKER_FAILURES:
+            _circuit_breaker_opened_at = time.monotonic()
+            err_msg = getattr(exc, "message", str(exc))
+            logger.warning(
+                MESSAGES.rag.paused.format(
+                    seconds=int(_CIRCUIT_BREAKER_PAUSE_SECONDS),
+                    failures=_CIRCUIT_BREAKER_FAILURES,
+                    error=err_msg,
+                )
+            )
+
+
+def _is_breaker_active(now: float) -> bool:
+    """Check if the circuit breaker is currently open and pausing lookups."""
+    with _STATE_LOCK:
+        if _circuit_breaker_opened_at is None:
+            return False
+        return (now - _circuit_breaker_opened_at) < _CIRCUIT_BREAKER_PAUSE_SECONDS
+
+
+def _is_probe_required(now: float) -> bool:
+    """Check if a single probe lookup is required."""
+    with _STATE_LOCK:
+        if not _RAG_SERVED.is_set():
+            return True
+        if _circuit_breaker_opened_at is not None:
+            return (now - _circuit_breaker_opened_at) >= _CIRCUIT_BREAKER_PAUSE_SECONDS
+        return False
 
 
 def clear_investigation_cache() -> None:
     """Clear in-memory RAG investigation and retriever caches, and lift a run-wide RAG stop."""
-    global _RETRIEVER_CACHE, _INVESTIGATION_CACHE
+    global \
+        _RETRIEVER_CACHE, \
+        _INVESTIGATION_CACHE, \
+        _circuit_breaker_opened_at, \
+        _consecutive_transient_failures
     _RETRIEVER_CACHE = None
     _INVESTIGATION_CACHE.clear()
     _RAG_STOPPED.clear()
     _RAG_SERVED.clear()
     _FAILURE_REPORTED.clear()
+    with _STATE_LOCK:
+        _circuit_breaker_opened_at = None
+        _consecutive_transient_failures = 0
+    _PROBE_COORDINATOR.clear()
 
 
 def _stop_rag_for_run(model: str, exc: EmbeddingsError) -> None:
@@ -79,45 +187,73 @@ def _report_lookup_failure(exc: Exception) -> None:
         logger.debug("RAG investigation skipped due to error: %s", redact_text(str(exc))[:256])
 
 
+def _cached_retriever_if_valid(now: float) -> SemanticRetriever | None:
+    """Return cached retriever if within TTL and healthy, else None."""
+    if _RETRIEVER_CACHE is not None:
+        last_t, retriever = _RETRIEVER_CACHE
+        if now - last_t < _CACHE_TTL_SECONDS and retriever.qdrant.is_alive():
+            return retriever
+    return None
+
+
 def _get_or_create_retriever(
     st: Settings, top_k: int | None, score_threshold: float | None
 ) -> SemanticRetriever | None:
     """Get or create cached SemanticRetriever instance."""
     global _RETRIEVER_CACHE
     now = time.monotonic()
-    if _RETRIEVER_CACHE is not None:
-        last_t, retriever = _RETRIEVER_CACHE
-        if now - last_t < _CACHE_TTL_SECONDS and retriever.qdrant.is_alive():
-            return retriever
+    valid = _cached_retriever_if_valid(now)
+    if valid is not None:
+        return valid
 
-    qdrant_url = st.qdrant.url or "http://localhost:6333"
-    qdrant = QdrantClient(
-        base_url=qdrant_url,
-        api_key=settings_mod.get_qdrant_api_key(st),
-        allow_private_network=st.ai.allow_private_network,
-        timeout=st.qdrant.timeout,
-    )
-    if not qdrant.is_alive():
-        logger.debug(
-            "Qdrant vector store unreachable at %s, skipping RAG investigation", qdrant_url
+    with _RETRIEVER_LOCK:
+        valid = _cached_retriever_if_valid(now)
+        if valid is not None:
+            return valid
+
+        qdrant_url = st.qdrant.url or "http://localhost:6333"
+        qdrant = QdrantClient(
+            base_url=qdrant_url,
+            api_key=settings_mod.get_qdrant_api_key(st),
+            allow_private_network=st.ai.allow_private_network,
+            timeout=st.qdrant.timeout,
         )
-        return None
+        if not qdrant.is_alive():
+            logger.debug(
+                "Qdrant vector store unreachable at %s, skipping RAG investigation", qdrant_url
+            )
+            return None
 
-    embedder = EmbeddingsEngine(ai_config=st.ai, api_key=settings_mod.get_ai_api_key(st))
-    prefix = st.qdrant.collection_prefix or "devops"
-    code_coll = f"{prefix}_code" if prefix else DEFAULT_RAG_COLLECTION
-    docs_coll = f"{prefix}_docs" if prefix else DEFAULT_RAG_DOCS_COLLECTION
+        embedder = EmbeddingsEngine(ai_config=st.ai, api_key=settings_mod.get_ai_api_key(st))
+        prefix = st.qdrant.collection_prefix or "devops"
+        code_coll = f"{prefix}_code" if prefix else DEFAULT_RAG_COLLECTION
+        docs_coll = f"{prefix}_docs" if prefix else DEFAULT_RAG_DOCS_COLLECTION
 
-    retriever = SemanticRetriever(
-        qdrant=qdrant,
-        embedder=embedder,
-        code_collection=code_coll,
-        docs_collection=docs_coll,
-        default_top_k=top_k or DEFAULT_RAG_TOP_K,
-        default_score_threshold=score_threshold or DEFAULT_RAG_SCORE_THRESHOLD,
-    )
-    _RETRIEVER_CACHE = (now, retriever)
-    return retriever
+        cfg_rag = getattr(st.ai, "rag", None)
+        cfg_top_k = getattr(cfg_rag, "top_k", None) if cfg_rag else None
+        cfg_threshold = getattr(cfg_rag, "score_threshold", None) if cfg_rag else None
+
+        eff_top_k = (
+            top_k
+            if top_k is not None
+            else (cfg_top_k if cfg_top_k is not None else DEFAULT_RAG_TOP_K)
+        )
+        eff_threshold = (
+            score_threshold
+            if score_threshold is not None
+            else (cfg_threshold if cfg_threshold is not None else DEFAULT_RAG_SCORE_THRESHOLD)
+        )
+
+        retriever = SemanticRetriever(
+            qdrant=qdrant,
+            embedder=embedder,
+            code_collection=code_coll,
+            docs_collection=docs_coll,
+            default_top_k=eff_top_k,
+            default_score_threshold=eff_threshold,
+        )
+        _RETRIEVER_CACHE = (now, retriever)
+        return retriever
 
 
 def _retrieve(
@@ -133,11 +269,11 @@ def _retrieve(
     file_filter: str | None,
     max_chars: int,
 ) -> RAGContext | None:
-    """Retrieve context for the query; None when the store is unreachable or RAG is off.
+    """Retrieve context for the query; None when the store is unreachable, stopped or paused."""
+    now = time.monotonic()
+    if _RAG_STOPPED.is_set() or _is_breaker_active(now):
+        return None
 
-    Until the embedding model has answered a lookup, lookups take turns, so a model that is
-    not served gets one request between them.
-    """
     retriever = _get_or_create_retriever(st, top_k, score_threshold)
     if retriever is None:
         return None
@@ -154,15 +290,9 @@ def _retrieve(
         file_filter=file_filter,
         max_chars=max_chars,
     )
-    if _RAG_SERVED.is_set():
+    if not _is_probe_required(now):
         return search()
-    with _PROBE_LOCK:
-        if not _RAG_SERVED.is_set():
-            ctx = search()
-            if ctx is not None:
-                _RAG_SERVED.set()
-            return ctx
-    return search()
+    return _PROBE_COORDINATOR.coordinate(search)
 
 
 def _search(
@@ -178,12 +308,12 @@ def _search(
     file_filter: str | None,
     max_chars: int,
 ) -> RAGContext | None:
-    """Search for the query's context; None when RAG is off or this lookup turns it off."""
+    """Search for the query's context; None when RAG is off, paused, or fails."""
     if _RAG_STOPPED.is_set():
         return None
     try:
         if persona:
-            return retriever.retrieve_context_for_persona(
+            ctx = retriever.retrieve_context_for_persona(
                 search_query,
                 persona=persona,
                 top_k=top_k,
@@ -191,18 +321,27 @@ def _search(
                 project=project,
                 language=language,
             )
-        return retriever.retrieve_context(
-            search_query,
-            top_k=top_k,
-            score_threshold=score_threshold,
-            project=project,
-            language=language,
-            category=category,
-            file_filter=file_filter,
-            max_chars=max_chars,
-        )
+        else:
+            ctx = retriever.retrieve_context(
+                search_query,
+                top_k=top_k,
+                score_threshold=score_threshold,
+                project=project,
+                language=language,
+                category=category,
+                file_filter=file_filter,
+                max_chars=max_chars,
+            )
+        _record_success()
+        return ctx
     except EmbeddingsError as exc:
-        _stop_rag_for_run(retriever.embedder.model, exc)
+        if not exc.is_transient:
+            _stop_rag_for_run(retriever.embedder.model, exc)
+        else:
+            _record_transient_failure(exc)
+        return None
+    except Exception as exc:
+        _record_transient_failure(exc)
         return None
 
 
@@ -255,19 +394,20 @@ def investigate_rag_context(
 ) -> RAGContext | None:
     """Execute a safe, non-blocking RAG investigation step to retrieve relevant context.
 
-    The first lookup whose query the embedding model cannot embed turns RAG off for the rest
-    of the process and logs one warning naming the model, the error and the fix. Later calls
-    return None without building a retriever or sending a request, until
-    `clear_investigation_cache` lifts the stop. Until the model has answered a lookup, lookups
-    that run at once, such as the review workers' per-file lookups, embed one at a time, so a
-    model that is not served gets one request between them.
+    A permanent error from an unknown or unserved embedding model turns RAG off for the rest of
+    the process and logs one warning naming the model, the error and the fix. Transient errors
+    (timeouts, connection resets, rate limits, 5xx) skip that lookup. After three consecutive
+    transient failures, a circuit breaker pauses RAG lookups for 60 seconds; afterwards, a single
+    lookup probes to resume lookups once healthy. Lookups that arrive concurrently while no lookup
+    has succeeded wait for the probe's outcome, running concurrently on success and skipping on
+    failure.
 
     Returns:
         RAGContext if the vector store is available and matching chunks are retrieved;
-        None if RAG is disabled or stopped, unreachable, or yields zero relevant results.
+        None if RAG is disabled, stopped, paused, unreachable, or yields zero relevant results.
     """
     clean_query = query.strip()
-    if not clean_query or _RAG_STOPPED.is_set():
+    if not clean_query or _RAG_STOPPED.is_set() or _is_breaker_active(time.monotonic()):
         return None
 
     st = settings or settings_mod.load_settings()

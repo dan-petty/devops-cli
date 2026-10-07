@@ -116,20 +116,20 @@ flowchart LR
 
 ## 4. Native DevContainer Lifecycle Engine
 
-Replacing fragile bash scripts (`postCreate.sh`, `postStart.sh`), `devops devcontainer run-lifecycle` executes cross-platform Python lifecycle tasks:
+Replacing fragile bash scripts, `devops devcontainer post-create` and `devops devcontainer post-start` (wrapped together by `devops devcontainer run-lifecycle`) execute cross-platform Python lifecycle tasks:
 
 ```mermaid
 flowchart TD
-    DC_HOOK["DevContainer Lifecycle Trigger"] --> PY_ENGINE["devops devcontainer run-lifecycle"]
+    DC_HOOK["DevContainer Lifecycle Trigger"] --> PY_ENGINE["devops devcontainer post-create / post-start"]
 
     subgraph PostCreateTasks["Post-Create Stage"]
-        T1["Persist Shell History (.data/zsh_history)"]
+        T1["Persist Shell History (~/.bash_history)"]
         T2["Generate Shell Autocompletions"]
         T3["Scaffold .data Directories & Config"]
     end
 
     subgraph PostStartTasks["Post-Start Stage"]
-        T4["Sync Managed SSH Keys & Agent"]
+        T4["Fix SSH Key Permissions & Configure Commit Signing"]
         T5["Apply Git User & Security Defaults"]
         T6["Validate Kubeconfig & Cluster Context"]
         T7["Register FastMCP Server Configuration"]
@@ -155,42 +155,42 @@ flowchart TD
 ## 6. SRE Reliability, Observability & Quality Gates
 
 - **Structured Metrics & Telemetry**: Integrates with Prometheus query endpoints (`devops prometheus`) and Grafana dashboards (`devops grafana`) to monitor workstation and cluster health.
-- **Gated CI Quality Gate**: Automated enforcement of Python 3.14 runtime, Ruff formatting, Mypy strict typing, documentation freshness, test coverage, and static security scanning (`devops ci run`).
+- **Gated CI Quality Gate**: Automated enforcement of Python 3.14 runtime, Ruff formatting, Mypy strict typing, documentation freshness, test coverage, and static security scanning (`devops ci`).
 - **Release Verification & Introspection**: Built-in release cycle management (`devops release status`, `devops release check`, `devops release tag`) ensures consistent versioning and documentation synchronization across releases.
 
 ---
 
 ## 7. Universal Architectural Standards & Consistency Blueprint
 
-To ensure complete stylistic cohesion, maintainability, and zero boilerplate project-wide, the codebase enforces five core architectural design patterns:
+To ensure complete stylistic cohesion, maintainability, and zero boilerplate project-wide, the codebase follows core architectural design patterns:
 
-### 1. Declarative CLI Command Dispatch (`@cli_command_handler`)
-Every CLI subcommand across all 30+ Typer command modules follows a single declarative decorator pattern:
-- Automatic `--dry-run` inspection and `render_dry_run_result()` response generation.
-- Automatic OpenTelemetry span wrapping (`@trace_span`) with standardized span attributes (`domain`, `operation`, `arguments`).
+### 1. Declarative CLI Command Dispatch & OpenTelemetry Instrumentation
+Every command is registered on a `new_typer()` app (`OTelTyper`, `devops_cli/core/cli.py`), which wraps it in a `cli.<command>` OpenTelemetry span:
+- Each command handles `--dry-run` itself via `is_dry_run()` / `render_dry_run_result()`.
+- Automatic OpenTelemetry span wrapping with standardized span attributes (`domain`, `operation`, `arguments`).
 - Centralized domain exception interception with formatted Rich diagnostics output.
-- Unified multi-format serialization (`--format json|yaml|table|markdown`) mapped directly to domain Pydantic `*Result` models.
+- Commands that offer machine-readable output declare their own `--format` (table/json/yaml via `devops_cli.output.serialization.emit_serialized`) or `--json` flag. There is no global `--format` option.
 
 ### 2. End-to-End Pydantic Resource Model Interoperability
-All data exchange across CLI commands, FastMCP tools, PydanticAI multi-agent turns, and FastAPI REST endpoints (`/api/v1/...`) binds to identical typed Pydantic models in `devops_cli.models`:
+Domain results are modelled with Pydantic in `devops_cli.models`. The REST routes define their own response models in `server/routes/`, and MCP tools return the CLI's text output:
 - **Strict Typing**: Mandatory field descriptions, `Field(default_factory=...)` mutable defaults, and zero hardcoded synthetic scoring floats.
 - **Bi-Directional JSON Schema Generation**: Clean schema generation for IDE completions and LLM tool calling.
 
-### 3. Universal Process Execution Pipeline (`ProcessExecutionPipeline`)
-All external tool and binary invocations (`tofu`, `kubectl`, `helm`, `dive`, `trivy`, `semgrep`, `gitleaks`) utilize a single subprocess pipeline:
-- Strict command argument list verification (rejecting hyphen-prefixed injection payloads).
-- Explicit bounded timeouts with standardized `TimeoutExpired` domain error translation.
-- Structured SIEM audit trail recording (`.data/logs/audit.jsonl`).
-- Deterministic mock isolation protocols for fast offline unit testing.
+### 3. Safe Subprocess Execution & Process Group Management
+All external binaries run through `run_subprocess` / `run_subprocess_async` (`devops_cli.core.process`):
+- Strict command argument list verification (rejecting hyphen-prefixed injection payloads) with `shell=False`.
+- Explicit bounded timeouts (default 1800 s) with standardized `TimeoutExpired` domain error translation.
+- An audit-record writer (`devops_cli.core.audit.record_audit_event`, `.data/logs/audit.jsonl`) exists but is not yet called from command or subprocess execution.
+- Deterministic mock isolation protocols for fast offline unit testing, dry-run reporting, environment isolation, and OpenTelemetry spans.
 
-### 4. Universal Multi-Stage Workflow Protocol (`StagePipeline[ContextT, ResultT]`)
-All multi-step agentic workflows (`review`, `analyze`, `spec`, `benchmark`, `diagram`, `test-gen`) implement a standardized stage protocol:
-- Partitioned into single-responsibility stage modules under `stages/` (e.g. `pre_analysis.py`, `static_scan.py`, `persona_review.py`).
+### 4. Multi-Stage Workflow Architecture
+The review workflow runs as `ReviewPipelineOrchestrator` methods (pre-analysis, payload init, persona review, verification, re-ranking, reporting), and `ai/review/stages/` holds `adversarial_debate.py` and `reporting.py`:
+- Partitioned into single-responsibility stage modules under `stages/` (e.g. `adversarial_debate.py`, `reporting.py`).
 - Standardized stage lifecycle hooks (`before_stage`, `after_stage`, `on_stage_error`).
 - Scratchpad buffer reasoning state handover between stages.
 
-### 5. Unified Async HTTP/2 Connection & Security Broker (`HttpClientBroker`)
-All outbound HTTP operations (LLM APIs, OSV.dev, Shodan, Cloudflare Radar, GitHub API) share a single connection broker:
-- Native HTTP/2 connection pooling with persistent keepalive and backoff retries.
+### 5. HTTP Connection Management & Security Broker
+`HttpClientBroker` (`devops_cli.http.broker`) serves agent tools and Vault with HTTP/2, per-request SSRF validation and W3C `traceparent` injection. LLM clients use the shared connection pool in `devops_cli.http.pool`, and the GitHub, vulnerability-lookup and Cloudflare clients create their own `httpx2` clients:
+- Native HTTP/2 connection pooling with persistent keepalive and backoff retries where supported.
 - SSRF private-network isolation and egress endpoint validation.
 - Automatic W3C `traceparent` header injection for distributed trace waterfalls.

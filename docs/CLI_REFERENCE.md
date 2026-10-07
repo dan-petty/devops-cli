@@ -764,6 +764,7 @@ devops k8s deploy-stack [OPTIONS]
 | `--port-forward` / `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
 | `--configure-urls` / `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
 | `--push-secrets` / `--no-push-secrets` | `boolean` | `True` | Push the stacks' Secrets from the OS keyring before applying anything (--no-push-secrets for a cluster without a keyring). |
+| `--argocd-revision` | `string` | - | Derive the Argo CD host overrides from this Git revision instead of each Application's targetRevision, to stage them before a release merges (Argo CD-managed clusters only). |
 | `--dry-run` | `boolean` | - | Print the releases, manifests and Secrets (key names only) a deploy would apply, and run nothing. |
 
 ### `devops k8s sync-secrets`
@@ -4388,6 +4389,23 @@ devops ai gateway routes [OPTIONS]
 | `--provider`, `-p` | `string` | - | Gateway provider: litellm or portkey. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
+#### `devops ai gateway connect`
+
+**Find the cluster's LLM gateway NodePort, verify it answers, and configure LAN review calls.**
+
+```bash
+devops ai gateway connect [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context` | `string` | - | Kubernetes context to query (defaults to current). |
+| `--namespace`, `-n` | `string` | `llm` | Kubernetes namespace. |
+| `--service` | `string` | `llm-gateway` | Name of the Service running the gateway. |
+| `--timeout` | `float` | `5.0` | Health probe timeout in seconds. |
+
 #### `devops ai gateway failover`
 
 **Trigger or test circuit-breaker failover of a virtual model to secondary backends.**
@@ -7922,7 +7940,7 @@ devops cloudflare dns sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--domain`, `-d` | `string` | - | Root domain name (e.g. retric.click) |
+| `--domain`, `-d` | `string` | - | Root domain name (e.g. example.com) |
 | `--tunnel-cname`, `-c` | `string` | - | Target tunnel CNAME or Tunnel UUID |
 | `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to tunnel |
 | `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
@@ -7941,7 +7959,7 @@ devops cloudflare dns delete [OPTIONS] <targets>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<targets>` | `string` | Yes | One or more DNS record names (e.g. chat.retric.click) or record IDs to delete |
+| `<targets>` | `string` | Yes | One or more DNS record names (e.g. chat.example.com) or record IDs to delete |
 
 **Options:**
 
@@ -7988,7 +8006,7 @@ devops cloudflare tunnel sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--tunnel-id`, `-t` | `string` | - | Cloudflare Tunnel ID |
-| `--domain`, `-d` | `string` | - | Domain to route through tunnel (e.g. retric.click) |
+| `--domain`, `-d` | `string` | - | Domain to route through tunnel (e.g. example.com) |
 | `--service` | `string` | `http://traefik.kube-system.svc.cluster.local:80` | Cluster ingress destination service URL |
 | `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to service |
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |

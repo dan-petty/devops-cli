@@ -372,12 +372,26 @@ def list_changed_files(repo_dir: Path, base: str, head: str | None = None) -> li
     `-z` leaves paths unquoted and gives a rename's old and new path as separate fields. The
     plain format prints `R088<TAB>old.py<TAB>new.py`, which split once reads as one path.
     """
-    revisions = [base] if head is None else [base, head]
-    if not all(_is_safe_revision(revision) for revision in revisions):
+    if head is not None and not (_is_safe_revision(base) and _is_safe_revision(head)):
         return []
-    cmd = ["git", "diff", "--name-status", "-z", "--find-renames", *revisions, "--"]
+    if head is None and not _is_safe_revision(base):
+        return []
+    ref_arg = [f"{base}...{head}"] if head is not None else [base]
+    cmd = ["git", "diff", "--name-status", "-z", "--find-renames", *ref_arg, "--"]
     try:
         proc = run_subprocess(cmd, cwd=repo_dir, quiet=True)
+        if proc.returncode != 0 and head is not None:
+            fallback_cmd = [
+                "git",
+                "diff",
+                "--name-status",
+                "-z",
+                "--find-renames",
+                base,
+                head,
+                "--",
+            ]
+            proc = run_subprocess(fallback_cmd, cwd=repo_dir, quiet=True)
     except Exception as exc:
         logger.debug("Could not list the files changed since %s: %s", base, exc)
         return []
@@ -397,3 +411,17 @@ def _parse_name_status(output: str) -> list[ChangedFile]:
             ChangedFile(change_type=change_type, path=next(fields, ""), old_path=old_path)
         )
     return changes
+
+
+def git_show_toplevel(path: Path) -> Path | None:
+    """The repository root enclosing `path`, via `git rev-parse --show-toplevel`, or None."""
+    target = path if path.is_dir() else path.parent
+    try:
+        proc = run_subprocess(
+            ["git", "-C", str(target), "rev-parse", "--show-toplevel"], quiet=True
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return Path(proc.stdout.strip()).resolve()
+    except Exception:
+        pass
+    return None

@@ -139,6 +139,9 @@ class ReviewProfile(BaseModel):
     persona_outcomes: dict[str, int] = Field(default_factory=dict)
     persona_replies: list[dict[str, Any]] = Field(default_factory=list)
     unparsed_personas: list[str] = Field(default_factory=list)
+    coverage: dict[str, dict[str, str]] = Field(default_factory=dict)
+    partial_context: bool = False
+    rejections: dict[str, int] = Field(default_factory=dict)
     stages: list[StageProfile] = Field(default_factory=list)
 
     @property
@@ -186,6 +189,19 @@ class ReviewProfiler:
         self._persona_replies: list[dict[str, Any]] = []
         self._persona_outcomes: dict[str, int] = {}
         self._unparsed_personas: set[str] = set()
+        self._coverage: dict[str, dict[str, str]] = {}
+        self._partial_context: bool = False
+        self._rejections: dict[str, int] = {}
+
+    def record_rejection(self, reason: str) -> None:
+        """Record one typed candidate rejection into profile."""
+        with self._lock:
+            self._rejections[reason] = self._rejections.get(reason, 0) + 1
+
+    def set_rejections(self, rejections: dict[str, int]) -> None:
+        """Set typed candidate rejections."""
+        with self._lock:
+            self._rejections.update(rejections)
 
     def record_persona_reply(
         self,
@@ -279,6 +295,16 @@ class ReviewProfiler:
         """Record the target conventions the review's prompts carry, as they were rendered."""
         self._conventions = conventions
 
+    def set_coverage(self, coverage: dict[str, dict[str, str]]) -> None:
+        """Record the coverage matrix per (tool, file)."""
+        with self._lock:
+            self._coverage = {t: dict(m) for t, m in coverage.items()}
+
+    def set_partial_context(self, partial_context: bool) -> None:
+        """Record whether PR head was unavailable, leaving only partial context."""
+        with self._lock:
+            self._partial_context = partial_context
+
     def build(self, *, session_id: str, target: str, files: int = 0) -> ReviewProfile:
         """Assemble the profile of everything recorded so far."""
         from devops_cli.ai.run_store import digest
@@ -289,6 +315,9 @@ class ReviewProfiler:
             replies = list(self._persona_replies)
             outcomes = dict(self._persona_outcomes)
             unparsed = sorted(self._unparsed_personas)
+            coverage = {t: dict(m) for t, m in self._coverage.items()}
+            partial_ctx = self._partial_context
+            rejections = dict(self._rejections)
         for stage in stages:
             stage.wall_seconds = round(stage.wall_seconds, 3)
             stage.activity = {
@@ -320,6 +349,9 @@ class ReviewProfiler:
             persona_outcomes=outcomes,
             persona_replies=replies,
             unparsed_personas=unparsed,
+            coverage=coverage,
+            partial_context=partial_ctx,
+            rejections=rejections,
             stages=stages,
         )
 
