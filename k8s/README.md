@@ -327,7 +327,7 @@ To rotate a generated value, store a new one at a hidden prompt with `uv run key
 
 ```bash
 devops config set service.repos <owner/name>             # the repositories the service works for
-devops config set k8s.github_account <machine-login>     # or service.machine_account
+devops config set k8s.github_account <machine-login>     # push-secrets needs it, even with service.machine_account set
 devops k8s deploy-stack --stack devops --context <context>
 devops k8s push-secrets --context <context> --plan       # reads the keyring, gh and the cluster: key names and states, never a value
 devops k8s push-secrets --context <context>
@@ -386,7 +386,7 @@ This repository is public, so it holds no homelab value. Ingress hosts sit under
 | Value | Source | Where it lives | Supplied by |
 | :--- | :--- | :--- | :--- |
 | Secrets | the OS keyring (`devops k8s push-secrets`) | Secrets in the cluster | every stack's deploy, for its Secrets |
-| `service.repos`, `service.machine_account` (or `k8s.github_account`) | `config.yaml` | ConfigMap `devops-cli-config`, which no Application owns | `--stack devops` or `all` |
+| `service.repos`, `service.machine_account` (or `k8s.github_account`), `service.poll_interval_seconds`, `service.drain_timeout_seconds` | `config.yaml` | ConfigMap `devops-cli-config`, which no Application owns | `--stack devops` or `all` |
 | Hosts under the configured domain | `--domain`, else `k8s.domain`, `cloudflare.domain`, `DEVOPS_CLI_K8S_DOMAIN` or `DEVOPS_CLI_DOMAIN` | Kustomize patches in `spec.source.kustomize` of the Applications `devops` and `ingress` | `--stack devops` or `all` (both Applications), `--stack infra` (`ingress` only) |
 
 The rest of ConfigMap `devops-cli-config` (gateway URL, models, context windows, telemetry) comes from `k8s/devops/configmap.example.yaml` in the checkout deploy-stack runs from (`--k8s-dir`, default `./k8s`), so run it from a checkout of the release the cluster runs.
@@ -399,10 +399,10 @@ These values exist only in the cluster and in `config.yaml`. Once `cluster` has 
 
 #### When a release merges into `main`
 
-1. The Applications track `main` (`devops release check` holds them there), so a merge moves `main` forward and the host patches stay in place. Stage hosts only when the release adds, removes, renames or reorders an Ingress or IngressRoute, or a host in one: right before merging, run `devops k8s deploy-stack --stack devops --argocd-revision release/vX.Y.Z` from a checkout of the release. If the release moved a host that `main` also renders, the Application shows the ComparisonError `testing value <pointer> failed` until the merge, and its live Ingresses stay as they were.
+1. The Applications track `main` (`devops release check` holds them there), so a merge moves `main` forward and the host patches stay in place. Run `devops k8s deploy-stack --stack devops --argocd-revision release/vX.Y.Z` from a checkout of the release, right before merging, when the release changes `k8s/devops/configmap.example.yaml` (the ConfigMap follows only deploy-stack) or adds, removes, renames or reorders an Ingress or IngressRoute, or a host in one. If the release moved a host that `main` also renders, the Application shows the ComparisonError `testing value <pointer> failed` until the merge, and its live Ingresses stay as they were.
 2. Merge. Argo CD builds the release with the staged hosts.
 3. The `devops` Application pins roadmap-service and CronJob `devops-cli` to `service:vX.Y.Z`, which the Release Orchestration workflow publishes only after its release job. roadmap-service uses the Recreate strategy, so it is down until that image exists; watch the workflow, and once the image is published run `kubectl -n devops rollout restart deploy/roadmap-service`.
-4. Check: `devops argo cd apps status devops` and `devops argo cd apps status ingress` are Synced and Healthy, `kubectl get ingress,ingressroute -A -o yaml | grep example.com` prints nothing, and `kubectl -n devops get configmap devops-cli-config -o yaml` holds the configured repositories.
+4. Check: `devops argo cd apps status devops` and `devops argo cd apps status ingress` are Synced and Healthy, `kubectl get ingress,ingressroute -A -o yaml | grep example.com` prints nothing, and `kubectl -n devops get configmap devops-cli-config -o yaml` holds the configured repositories and the release's template values (gateway URL, models, context windows).
 
 > [!NOTE]
 > `k8s/coredns/` remains managed outside Argo CD to preserve cluster DNS resolution during bootstrap and recovery cycles.

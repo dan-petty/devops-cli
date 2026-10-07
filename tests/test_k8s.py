@@ -1976,7 +1976,7 @@ def test_deploy_stack_dry_run_says_an_argo_cd_cluster_needs_a_domain_and_runs_no
         monkeypatch.delenv(name, raising=False)
     cluster = _Cluster(applications_repo)
     res = _deploy(cluster, "--stack", "infra", "--dry-run")
-    assert (res.exit_code, cluster.calls, "no configured domain" in res.output) == (0, [], True)
+    assert (res.exit_code, cluster.calls, "no usable domain" in res.output) == (0, [], True)
 
 
 def test_deploy_stack_dry_run_refuses_like_the_deploy_without_service_repositories(

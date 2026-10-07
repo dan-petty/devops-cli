@@ -131,12 +131,15 @@ def test_an_application_the_overrides_cannot_follow_is_refused_by_name(
         application_source(printed)
 
 
+@pytest.mark.parametrize("field", ["repo_url", "revision"])
 def test_a_revision_or_repository_from_the_cluster_is_never_read_as_a_git_option(
-    tmp_path: Path,
+    tmp_path: Path, field: str
 ) -> None:
     repo = _repo(tmp_path, "chat.example.com")
     marker = tmp_path / "marker"
-    hostile = ApplicationSource(".", f"--upload-pack=touch {marker}; git-upload-pack", "k8s/app")
+    option = f"--upload-pack=touch {marker}; git-upload-pack"
+    fields = {"repo_url": ".", "revision": "main", "path": "k8s/app", field: option}
+    hostile = ApplicationSource(**fields)
     with pytest.raises(KubernetesContextError):
         render_at_revision(hostile, repo / "work", _run)
     assert not marker.exists()

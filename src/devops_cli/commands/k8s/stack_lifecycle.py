@@ -799,8 +799,8 @@ def _dry_run_domain(domain: str | None) -> str:
 
     try:
         return resolve_template_domain(domain)
-    except KubernetesContextError:
-        return "no configured domain: an Argo CD-managed cluster refuses until k8s.domain is set"
+    except KubernetesContextError as exc:
+        return f"no usable domain, so an Argo CD-managed cluster refuses ({exc})"
 
 
 def _homelab_host_overrides(

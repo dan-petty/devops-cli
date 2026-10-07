@@ -25,7 +25,8 @@ graph TD
   - `infra`: Argo CD in `argocd`; Grafana Kubernetes Monitoring (`k8s-monitoring`), Prometheus, Grafana, dcgm-exporter and Pyroscope in `monitoring`; the OpenTelemetry Collector and Jaeger in `otel`.
   - `llm`: Local LLM stack (Ollama, Open-WebUI, Qdrant Vector DB, Valkey Cache, LiteLLM gateway) in `llm` namespace.
   - `logging`: Loki in `logging` namespace.
-  - `all`: `infra`, `llm` and `logging`.
+  - `devops`: devops-cli's cluster Jobs and roadmap-service in `devops` namespace; deploy-stack renders their ConfigMap `devops-cli-config` from `config.yaml`, and on an Argo CD-managed cluster sets the homelab hosts on the Applications `devops` and `ingress`.
+  - `all`: `infra`, `llm`, `logging` and `devops`.
 - **Cluster Secrets**: right after the namespaces, `deploy-stack` pushes every Secret its stacks read from the OS keyring (`devops k8s push-secrets`, workstation keyring → cluster), so the keyring must be unlocked (`devops devcontainer unlock-keyring`). `--no-push-secrets` skips the push on a cluster without a keyring.
 
 ---
