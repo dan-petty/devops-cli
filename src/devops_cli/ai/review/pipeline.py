@@ -4383,7 +4383,13 @@ class ReviewPipelineOrchestrator:
         rows: list[str] = []
         seen: set[tuple[str, str, str]] = set()
         for f in suppressed:
-            loc = getattr(f, "location", "") or getattr(f, "path", "")
+            # Admitted findings carry path and line apart; location_display joins them, so two
+            # suppressions of one rule in one file stay two rows.
+            loc = (
+                getattr(f, "location_display", "")
+                or getattr(f, "location", "")
+                or getattr(f, "path", "")
+            )
             key = (loc, getattr(f, "rule_id", ""), getattr(f, "title", ""))
             if key in seen:
                 continue

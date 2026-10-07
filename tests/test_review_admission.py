@@ -864,12 +864,15 @@ def test_review_toml_suppressed_scanner_finding_is_listed_not_reported(
     from devops_cli.ai.review_schema import Finding as SchemaFinding
 
     (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "app.py").write_text("assert True\nexec('x')\n", encoding="utf-8")
+    (tmp_path / "src" / "app.py").write_text(
+        "assert True\nexec('x')\nassert False\n", encoding="utf-8"
+    )
     _stub_bandit_only(
         monkeypatch,
         [
             SchemaFinding(title="[B101] assert used", location="src/app.py:1", severity="LOW"),
             SchemaFinding(title="[B102] exec used", location="src/app.py:2", severity="HIGH"),
+            SchemaFinding(title="[B101] assert used", location="src/app.py:3", severity="LOW"),
         ],
     )
     orchestrator = ReviewPipelineOrchestrator(session_id="s1295-supp", target_dir=tmp_path)
@@ -885,12 +888,17 @@ def test_review_toml_suppressed_scanner_finding_is_listed_not_reported(
         orchestrator._build_suppressed_findings_section(reported),
     ) == (
         ["[B102] exec used"],
-        [("B101", FindingState.SUPPRESSED), ("B102", FindingState.OPEN)],
+        [
+            ("B101", FindingState.SUPPRESSED),
+            ("B102", FindingState.OPEN),
+            ("B101", FindingState.SUPPRESSED),
+        ],
         [
             "## Suppressed Findings",
             "| Severity | Location | Reason | Expiry | Suppressed By |",
             "|---|---|---|---|---|",
-            "| **LOW** | `src/app.py` | accepted risk | None | review.toml/base marker |",
+            "| **LOW** | `src/app.py:1` | accepted risk | None | review.toml/base marker |",
+            "| **LOW** | `src/app.py:3` | accepted risk | None | review.toml/base marker |",
             "",
         ],
     )
