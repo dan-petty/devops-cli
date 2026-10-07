@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -149,13 +149,19 @@ def _update_incremental_cache(
     file_hashes: dict[str, str] | None,
     batch: list[CodeChunk],
     save_fn: Callable[[dict[str, str]], None],
+    pending: Counter[str],
 ) -> None:
-    """Update and persist incremental cache entries for an embedded batch."""
+    """Cache each file of an embedded batch once its last pending chunk is stored, then persist.
+
+    A file whose chunks span a later, failed batch stays uncached, so a resume without
+    `--force` embeds it again; its deterministic chunk ids overwrite the stored points (#1296).
+    """
     if cache is None or file_hashes is None:
         return
     for c in batch:
         ckey = f"{c.project_name}:{c.file_path}"
-        if ckey in file_hashes:
+        pending[ckey] -= 1
+        if pending[ckey] == 0 and ckey in file_hashes:
             cache[ckey] = file_hashes[ckey]
     save_fn(cache)
 
@@ -617,6 +623,7 @@ class WorkspaceIndexer:
             )
 
             code_chunks, doc_chunks = _partition_chunks(all_chunks)
+            pending = Counter(f"{c.project_name}:{c.file_path}" for c in all_chunks)
 
             # Upsert chunks to their respective collections with batch embeddings
             if code_chunks:
@@ -625,6 +632,7 @@ class WorkspaceIndexer:
                     code_chunks,
                     cache,
                     file_hashes,
+                    pending=pending,
                     progress_callback=progress_callback,
                     progress_title="Embedding code",
                 )
@@ -634,6 +642,7 @@ class WorkspaceIndexer:
                     doc_chunks,
                     cache,
                     file_hashes,
+                    pending=pending,
                     progress_callback=progress_callback,
                     progress_title="Embedding docs",
                 )
@@ -667,10 +676,15 @@ class WorkspaceIndexer:
         chunks: list[CodeChunk],
         cache: dict[str, str],
         file_hashes: dict[str, str],
+        *,
+        pending: Counter[str],
         progress_callback: Callable[[str, int, int], None] | None = None,
         progress_title: str = "Embedding",
     ) -> None:
-        """Embed and upsert a list of chunks in batches."""
+        """Embed and upsert a list of chunks in batches.
+
+        `pending` counts each file's chunks not yet stored, across both collections.
+        """
         if not chunks:
             return
 
@@ -717,7 +731,7 @@ class WorkspaceIndexer:
                 self.qdrant.upsert_points(collection_name, points)
 
                 # Persist incremental progress to cache
-                _update_incremental_cache(cache, file_hashes, batch, self._save_cache)
+                _update_incremental_cache(cache, file_hashes, batch, self._save_cache, pending)
 
             if progress_callback:
                 progress_callback(progress_title, min(i + len(batch), total), total)

@@ -356,3 +356,53 @@ def test_failed_second_batch_ends_with_exit_1_and_preserves_first_batch(tmp_path
 
     result = indexer_resume.index_workspace(tmp_path, include_kb=False, force=False)
     assert (result["indexed_files"], result["skipped_files"]) == (2, 1)
+
+
+class _BatchCountingEmbedder:
+    """Embeds one text per batch and raises on the batch numbered ``fail_on_call``."""
+
+    model = "test-model"
+    batch_size = 1
+
+    def __init__(self, fail_on_call: int | None = None) -> None:
+        self.fail_on_call = fail_on_call
+        self.calls = 0
+
+    def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
+        self.calls += 1
+        if self.calls == self.fail_on_call:
+            raise RuntimeError("Gateway 504 Gateway Timeout")
+        return [[0.1] * 8 for _ in texts]
+
+
+def test_failed_batch_inside_a_file_leaves_that_file_for_resume(tmp_path: Path) -> None:
+    """A file whose chunks span a failed batch stays uncached, so a resume without --force stores all of them."""
+    big = tmp_path / "big.py"
+    big.write_text(
+        "".join(
+            f"def func_{n}():\n" + "".join(f"    value_{i} = {i}\n" for i in range(59))
+            for n in range(4)
+        ),
+        encoding="utf-8",
+    )
+    qdrant = FakeQdrantClient()
+    cache_dir = tmp_path / ".cache"
+    failing = _BatchCountingEmbedder(fail_on_call=2)
+    indexer = WorkspaceIndexer(qdrant=qdrant, embedder=failing, cache_dir=cache_dir)  # type: ignore[arg-type]
+
+    with pytest.raises(EmbeddingsError):
+        indexer.index_workspace(tmp_path, project="p", include_kb=False)
+    cached_after_failure = indexer._load_cache()
+
+    healthy = _BatchCountingEmbedder()
+    resumed = WorkspaceIndexer(qdrant=qdrant, embedder=healthy, cache_dir=cache_dir)  # type: ignore[arg-type]
+    resumed.index_workspace(tmp_path, project="p", include_kb=False)
+
+    expected = {
+        chunk.id
+        for chunk in resumed.chunker.chunk_file(
+            big, relative_to=tmp_path.resolve(), project_name="p"
+        )
+    }
+    stored = {point["id"] for points in qdrant.collections.values() for point in points}
+    assert (len(expected) > 1, cached_after_failure, expected - stored) == (True, {}, set())
