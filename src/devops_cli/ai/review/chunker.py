@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path, PurePath, PurePosixPath
 
 from devops_cli.ai.review.sanitization import _unique_preserve_order
@@ -381,7 +381,10 @@ def _paginate_file_diff_block(
     return [f"{preamble}{piece}" for pieces in windows for piece in pieces]
 
 
-def skips_persona_review(path: str | PurePath) -> bool:
+def skips_persona_review(
+    path: str | PurePath,
+    path_classes: Mapping[str, Sequence[str]] | None = None,
+) -> bool:
     """Whether a file stays off persona pages, by its repository-relative path (#948).
 
     Lockfiles stay off for their size. Planning documents (the roadmap, the changelog and its
@@ -393,17 +396,20 @@ def skips_persona_review(path: str | PurePath) -> bool:
     from devops_cli.ai.review.path_classes import is_fixture_path
 
     posix = PurePosixPath(str(path).replace("\\", "/").removeprefix("./"))
-    if is_fixture_path(posix):
+    if is_fixture_path(posix, path_classes=path_classes):
         return True
     return posix.name in CONST_REVIEW_GENERATED_FILES or any(
         posix.full_match(pattern) for pattern in CONST_REVIEW_ROUTED_PATH_PATTERNS
     )
 
 
-def _skips_persona_review_block(block: str) -> bool:
+def _skips_persona_review_block(
+    block: str,
+    path_classes: Mapping[str, Sequence[str]] | None = None,
+) -> bool:
     """Whether a diff block's header names a file `skips_persona_review` keeps off the pages."""
     names = _extract_header_filenames(block.split("\n", 1)[0], header_type="diff")
-    return bool(names) and skips_persona_review(names[0])
+    return bool(names) and skips_persona_review(names[0], path_classes=path_classes)
 
 
 def review_page_chars(context_window: int) -> int:
@@ -421,6 +427,7 @@ def diff_stream_chunks(
     max_chars: int = DEFAULT_REVIEW_MAX_DIFF_CHARS,
     window_size_factor: float = DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
     overlap_factor: float = DEFAULT_REVIEW_OVERLAP_FACTOR,
+    path_classes: Mapping[str, Sequence[str]] | None = None,
 ) -> Iterator[str]:
     """Stream unified diff chunks file-by-file with rolling window pagination.
 
@@ -432,7 +439,7 @@ def diff_stream_chunks(
     )
     # A diff whose every file is skipped yields no page: an empty one reached the model (#948).
     for block in _stream_diff_file_blocks(line_iter):
-        if not block.strip() or _skips_persona_review_block(block):
+        if not block.strip() or _skips_persona_review_block(block, path_classes=path_classes):
             continue
         yield from _paginate_file_diff_block(
             number_diff_lines(block),
@@ -447,6 +454,7 @@ def diff_pages(
     max_chars: int = DEFAULT_REVIEW_MAX_DIFF_CHARS,
     window_size_factor: float = DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
     overlap_factor: float = DEFAULT_REVIEW_OVERLAP_FACTOR,
+    path_classes: Mapping[str, Sequence[str]] | None = None,
 ) -> list[str]:
     """Paginate a unified diff file-by-file into individual review pages using rolling windows."""
     return list(
@@ -455,6 +463,7 @@ def diff_pages(
             max_chars=max_chars,
             window_size_factor=window_size_factor,
             overlap_factor=overlap_factor,
+            path_classes=path_classes,
         )
     )
 

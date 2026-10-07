@@ -37,6 +37,7 @@ def _read_config_content(base_revision: BaseRevision | None, repo_root: Path | N
                 return content
         except Exception as exc:
             logger.debug("Failed reading %s from base revision: %s", CONST_REVIEW_CONFIG_FILE, exc)
+        return None
 
     if repo_root is not None:
         cfg_file = repo_root / CONST_REVIEW_CONFIG_FILE

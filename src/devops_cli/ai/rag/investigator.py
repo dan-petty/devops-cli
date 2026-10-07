@@ -87,7 +87,12 @@ class _ProbeCoordinator:
         success = False
         try:
             ctx = search_fn()
-            success = ctx is not None
+            with _STATE_LOCK:
+                success = (
+                    _RAG_SERVED.is_set()
+                    and _circuit_breaker_opened_at is None
+                    and _consecutive_transient_failures == 0
+                )
             return ctx
         finally:
             with self._lock:
@@ -327,8 +332,7 @@ def _search(
                 file_filter=file_filter,
                 max_chars=max_chars,
             )
-        if ctx is not None:
-            _record_success()
+        _record_success()
         return ctx
     except EmbeddingsError as exc:
         if not exc.is_transient:

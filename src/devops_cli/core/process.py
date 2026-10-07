@@ -596,7 +596,7 @@ async def run_subprocess_async(
                 env=sub_env,
                 stdout=stdout_pipe,
                 stderr=stderr_pipe,
-                start_new_session=True,
+                start_new_session=(os.name == "posix"),
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(

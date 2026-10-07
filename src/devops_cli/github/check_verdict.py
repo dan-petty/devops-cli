@@ -425,7 +425,7 @@ def _resolve_target_owner_repo(repo: str | None) -> tuple[str, str] | None:
 
 def _resolve_head_sha(number: int, repo: str | None, runner: Any = run_gh) -> str:
     """Resolve head commit SHA for a PR number."""
-    cmd = [CONST_GH_CLI, "pr", "view", str(number), "--json", "head"]
+    cmd = [CONST_GH_CLI, "pr", "view", str(number), "--json", "headRefOid"]
     if repo:
         cmd.extend(["--repo", repo])
     res = runner(cmd, check=False, quiet=True)
@@ -433,6 +433,8 @@ def _resolve_head_sha(number: int, repo: str | None, runner: Any = run_gh) -> st
         return ""
     try:
         data = json.loads(res.stdout)
+        if data.get("headRefOid"):
+            return str(data["headRefOid"])
         head = data.get("head", {})
         return str(head.get("sha", "") if isinstance(head, dict) else "")
     except json.JSONDecodeError, TypeError, ValueError:

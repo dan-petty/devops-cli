@@ -94,12 +94,12 @@ class ExpiringAsyncConnectionTransport(httpx2.AsyncBaseTransport):
         self.wrapped = wrapped
 
     async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
-        from devops_cli.http.pool import close_expired_connections
+        from devops_cli.http.pool import aclose_expired_connections
 
         try:
             return await self.wrapped.handle_async_request(request)
         finally:
-            close_expired_connections(self.wrapped)
+            await aclose_expired_connections(self.wrapped)
 
     async def aclose(self) -> None:
         await self.wrapped.aclose()

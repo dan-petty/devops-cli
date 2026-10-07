@@ -240,6 +240,7 @@ def test_a_branch_review_reads_each_changed_file_at_the_merge_base(review_repo: 
         [("main", "feature")],
         [(_MERGE_BASE, "feature")],
         [
+            (_MERGE_BASE, ".devops/review.toml"),
             (_MERGE_BASE, "mod.py"),
             (_MERGE_BASE, "old_name.py"),
             ("feature", "fresh.py"),
@@ -297,7 +298,11 @@ def test_a_working_tree_review_reads_head(review_repo: Path) -> None:
     )
 
     assert (asked, _delta(metadata["mod.py"])) == (
-        {"merge_base": [], "changes": [("HEAD", None)], "reads": [("HEAD", "mod.py")]},
+        {
+            "merge_base": [],
+            "changes": [("HEAD", None)],
+            "reads": [("HEAD", ".devops/review.toml"), ("HEAD", "mod.py")],
+        },
         ([], ["legacy_helper"], ["keep"]),
     )
 
