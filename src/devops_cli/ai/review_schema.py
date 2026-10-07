@@ -1308,6 +1308,9 @@ class SavedFinding(Finding):
     # person's verdict keys the claim it suppresses on it, and the feedback export carries its
     # excerpt; None when the location cites no line of a file inside the reviewed checkout.
     cited_code: CitedCode | None = None
+    # False when admission found the finding's fingerprint at the base revision (#871, #1295),
+    # so review.md lists it under pre-existing findings rather than introduced ones.
+    introduced: bool = True
 
 
 class FileReviewPayload(BaseModel):

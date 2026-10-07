@@ -619,7 +619,7 @@ def test_review_markdown_sections() -> None:
     )
     assert f_intro is not None and f_pre is not None and f_supp is not None
 
-    fake_pipeline = SimpleNamespace(admitted_findings=[f_intro, f_pre, f_supp])
+    fake_pipeline = SimpleNamespace(admitted_scanner_findings=[f_intro, f_pre, f_supp])
     intro_lines = ReviewPipelineOrchestrator._build_introduced_findings_section(
         fake_pipeline,
         [f_intro],  # type: ignore[arg-type]
@@ -836,3 +836,171 @@ def test_base_revision_fingerprints_distinguishes_preexisting_findings(
         "new",
         True,
     )
+
+
+def _stub_bandit_only(monkeypatch: pytest.MonkeyPatch, bandit_findings: list[object]) -> None:
+    """Have Bandit report bandit_findings and every other static scanner report nothing."""
+    from devops_cli.security.base import ScanOutcome
+
+    monkeypatch.setattr(
+        "devops_cli.security.bandit.run_bandit_scan",
+        lambda *_, **__: ScanOutcome("ran", bandit_findings),
+    )
+    for scan in (
+        "_scan_kubernetes_manifests",
+        "_scan_container_and_lockfiles",
+        "_scan_secrets",
+        "_scan_semgrep",
+    ):
+        monkeypatch.setattr(f"devops_cli.ai.review.pipeline.{scan}", lambda *_, **__: [])
+
+
+def test_review_toml_suppressed_scanner_finding_is_listed_not_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scanner finding a review.toml suppression covers leaves the reported set, stays in the
+    admitted findings SARIF is written from, and is listed under Suppressed in review.md (#1295)."""
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.ai.review_schema import Finding as SchemaFinding
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text(
+        "assert True\nexec('x')\nassert False\n", encoding="utf-8"
+    )
+    _stub_bandit_only(
+        monkeypatch,
+        [
+            SchemaFinding(title="[B101] assert used", location="src/app.py:1", severity="LOW"),
+            SchemaFinding(title="[B102] exec used", location="src/app.py:2", severity="HIGH"),
+            SchemaFinding(title="[B101] assert used", location="src/app.py:3", severity="LOW"),
+        ],
+    )
+    orchestrator = ReviewPipelineOrchestrator(session_id="s1295-supp", target_dir=tmp_path)
+    orchestrator.suppressions = [
+        ReviewSuppression(rule="B101", path="src/**", reason="accepted risk")
+    ]
+
+    reported = orchestrator._run_static_scanners(["src/app.py"])["src/app.py"]
+
+    assert (
+        [f.title for f in reported],
+        [(f.rule_id, f.state) for f in orchestrator.admitted_scanner_findings],
+        orchestrator._build_suppressed_findings_section(reported),
+    ) == (
+        ["[B102] exec used"],
+        [
+            ("B101", FindingState.SUPPRESSED),
+            ("B102", FindingState.OPEN),
+            ("B101", FindingState.SUPPRESSED),
+        ],
+        [
+            "## Suppressed Findings",
+            "| Severity | Location | Reason | Expiry | Suppressed By |",
+            "|---|---|---|---|---|",
+            "| **LOW** | `src/app.py:1` | accepted risk | None | review.toml/base marker |",
+            "| **LOW** | `src/app.py:3` | accepted risk | None | review.toml/base marker |",
+            "",
+        ],
+    )
+
+
+def test_scanner_finding_at_a_base_fingerprint_is_listed_as_preexisting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scanner finding whose fingerprint the base revision has is reported under Pre-existing
+    in review.md, not under Introduced (#1295)."""
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.ai.review_schema import Finding as SchemaFinding
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("exec('x')\n", encoding="utf-8")
+    _stub_bandit_only(
+        monkeypatch,
+        [SchemaFinding(title="[B102] exec used", location="src/app.py:1", severity="HIGH")],
+    )
+    orchestrator = ReviewPipelineOrchestrator(session_id="s1295-base", target_dir=tmp_path)
+    orchestrator._run_static_scanners(["src/app.py"])
+    orchestrator.base_fingerprints = {orchestrator.admitted_scanner_findings[0].fingerprint_v2}
+
+    reported = orchestrator._run_static_scanners(["src/app.py"])["src/app.py"]
+
+    assert (
+        orchestrator._build_introduced_findings_section(reported),
+        orchestrator._build_preexisting_findings_section(reported),
+    ) == (
+        [],
+        [
+            "## Pre-existing Findings in Changed Files",
+            "| Severity | Location | Title |",
+            "|---|---|---|",
+            "| **HIGH** | `src/app.py:1` | [B102] exec used |",
+            "",
+        ],
+    )
+
+
+def test_head_revision_admission_rejections_reach_the_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Scanner candidates admission rejects at the reviewed revision are counted by type in
+    profile.json (#1295)."""
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.ai.review.profile import profiling
+    from devops_cli.ai.review_schema import Finding as SchemaFinding
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("assert True\n", encoding="utf-8")
+    _stub_bandit_only(
+        monkeypatch,
+        [
+            SchemaFinding(title="[B101] assert used", location="src/app.py:1", severity="LOW"),
+            SchemaFinding(title="[B102] exec used", location="src/missing.py:5", severity="HIGH"),
+            SchemaFinding(title="[B101] assert used", location="src/app.py:40", severity="LOW"),
+        ],
+    )
+
+    with profiling() as profiler:
+        orchestrator = ReviewPipelineOrchestrator(session_id="s1295-rej", target_dir=tmp_path)
+        orchestrator._run_static_scanners(["src/app.py"])
+        profile = profiler.build(session_id="s1295-rej", target="src/app.py", files=1)
+
+    assert (len(orchestrator.admitted_scanner_findings), profile.rejections) == (
+        1,
+        {"path-not-in-commit": 1, "line-out-of-range": 1},
+    )
+
+
+def test_suppressed_dependency_advisory_is_listed_not_reported(tmp_path: Path) -> None:
+    """A dependency advisory a review.toml suppression covers is not reported, and stays in the
+    admitted findings SARIF and the Suppressed section of review.md are written from (#1295)."""
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.models.vulnerability import (
+        DependencySpec,
+        PackageLookupResult,
+        VulnerabilityRecord,
+    )
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "requirements.txt").write_text("requests==2.20.0\n", encoding="utf-8")
+    orchestrator = ReviewPipelineOrchestrator(session_id="s1295-adv", target_dir=tmp_path)
+    orchestrator.suppressions = [
+        ReviewSuppression(rule="GHSA-xxxx-yyyy", path="src/**", reason="accepted risk")
+    ]
+    dep = DependencySpec(name="requests", version_range="2.20.0", ecosystem="PyPI", line_number=1)
+    vuln = VulnerabilityRecord(
+        id="GHSA-xxxx-yyyy",
+        summary="Remote Code Execution",
+        severity="CRITICAL",
+        source="OSV",
+        details_url="https://example.com/advisory",
+    )
+    dep_cache = {
+        ("requests", "2.20.0", "PyPI"): PackageLookupResult(status="ok", vulnerabilities=[vuln])
+    }
+
+    findings = orchestrator._audit_file_dependencies("src/requirements.txt", [dep], dep_cache)
+
+    assert (
+        findings,
+        [(f.rule_id, f.state) for f in orchestrator.admitted_scanner_findings],
+    ) == ([], [("GHSA-xxxx-yyyy", FindingState.SUPPRESSED)])
