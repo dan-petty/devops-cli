@@ -133,11 +133,17 @@ def ensure_devops_configmap(
     effective_repos = _resolve_effective_repos(active_settings, existing_repos)
     effective_account = _resolve_effective_account(active_settings, existing_account)
 
+    svc = getattr(active_settings, "service", None)
+    drain_timeout = getattr(svc, "drain_timeout_seconds", None)
+    poll_interval = getattr(svc, "poll_interval_seconds", None)
+
     template_text = template_path.read_text(encoding="utf-8")
     rendered = render_devops_configmap_content(
         template_text,
         repos=effective_repos,
         machine_account=effective_account,
+        drain_timeout_seconds=drain_timeout,
+        poll_interval_seconds=poll_interval,
     )
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -163,9 +169,15 @@ def render_active_devops_configmap(
     effective_repos = _resolve_effective_repos(active_settings, [])
     effective_account = _resolve_effective_account(active_settings, None)
 
+    svc = getattr(active_settings, "service", None)
+    drain_timeout = getattr(svc, "drain_timeout_seconds", None)
+    poll_interval = getattr(svc, "poll_interval_seconds", None)
+
     template_text = template_path.read_text(encoding="utf-8")
     return render_devops_configmap_content(
         template_text,
         repos=effective_repos,
         machine_account=effective_account,
+        drain_timeout_seconds=drain_timeout,
+        poll_interval_seconds=poll_interval,
     )

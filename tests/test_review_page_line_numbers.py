@@ -14,6 +14,7 @@ from pathlib import Path
 from devops_cli.ai.review.chunker import (
     _split_source_file_blocks,
     diff_pages,
+    extract_added_diff_lines,
     number_diff_lines,
     number_source_lines,
     page_line_number,
@@ -223,3 +224,33 @@ def test_persona_prompts_ask_for_the_shown_line_numbers() -> None:
     assert all(re.search(r"line number.*never copy them", p, re.S) for p in prompts)
     assert "never copy them" in protocol
     assert "number in the file" in load_task_prompt("verify_finding_system.md")
+
+
+def test_extract_added_diff_lines_raw_and_numbered() -> None:
+    """extract_added_diff_lines maps added line coordinates across raw diffs and numbered pages."""
+    raw_diff = (
+        "diff --git a/test.py b/test.py\n"
+        "--- a/test.py\n"
+        "+++ b/test.py\n"
+        "@@ -1,3 +1,4 @@\n"
+        " a = 1\n"
+        "-b = 2\n"
+        "+b = 3  # noqa: E501\n"
+        "+c = 4\n"
+    )
+    numbered_page = (
+        "### File: test.py (part 1 of 1)\n"
+        "@@ -1,3 +1,4 @@\n"
+        "1\t a = 1\n"
+        "\t-b = 2\n"
+        "2\t+b = 3  # noqa: E501\n"
+        "3\t+c = 4\n"
+    )
+
+    assert (
+        extract_added_diff_lines(raw_diff),
+        extract_added_diff_lines(numbered_page),
+    ) == (
+        {("test.py", 2), ("test.py", 3)},
+        {("test.py", 2), ("test.py", 3)},
+    )

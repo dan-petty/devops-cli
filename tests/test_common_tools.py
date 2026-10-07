@@ -63,6 +63,24 @@ def test_render_untrusted_page_convert_pre_fence_longer_than_backticks() -> None
     ) == (True, True)
 
 
+def test_render_untrusted_page_rejects_language_with_backticks_or_whitespace() -> None:
+    """Language identifiers containing backticks or whitespace are rejected to prevent fence escape."""
+    html_backticks = '<pre><code class="language-py```injected">print(1)</code></pre>'
+    res_b = render_untrusted_page(html_backticks, url="https://example.com/page")
+
+    from devops_cli.ai.common_tools import UntrustedMarkdownConverter
+
+    converter = UntrustedMarkdownConverter(options={"code_language": "py injected\n"})
+    md_injected = converter.convert("<pre><code>print(1)</code></pre>")
+
+    assert (
+        "py```injected" not in res_b.markdown,
+        "```\nprint(1)\n```" in res_b.markdown,
+        "injected" not in md_injected,
+        "```\nprint(1)\n```" in md_injected,
+    ) == (True, True, True, True)
+
+
 def test_render_untrusted_page_decomposes_chrome_and_dialog_and_records_removed_regions() -> None:
     """Chrome tags and [role=dialog] elements (including removed <main>) are decomposed and recorded."""
     html_sample = (

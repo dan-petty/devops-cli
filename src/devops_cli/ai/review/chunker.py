@@ -139,6 +139,70 @@ def extract_file_diff_hunks(segments: Iterable[str]) -> dict[str, list[tuple[int
     return file_hunks
 
 
+def _resolve_diff_path(line: str, current_path: str | None) -> str | None:
+    """Resolve target file path from diff header line or retain existing path."""
+    header_path = _parse_diff_header_filename(line)
+    if header_path:
+        return header_path
+    if line.startswith("+++ b/"):
+        return line[6:].strip()
+    return current_path
+
+
+def _parse_numbered_diff_line(line: str, path: str | None) -> tuple[str, int] | None:
+    """Extract (path, line_number) if line is a numbered added line."""
+    match = _LINE_NUMBER_COLUMN.match(line)
+    if not (match and match[1]):
+        return None
+    content = line[match.end() :]
+    if content.startswith("+") and not content.startswith("+++") and path:
+        return (path, int(match[1]))
+    return None
+
+
+def _step_raw_diff_line(
+    line: str, path: str | None, current_line: int
+) -> tuple[int, tuple[str, int] | None]:
+    """Advance raw unified diff line counter and return added coordinate if applicable."""
+    hunk_range = _parse_hunk_header_range(line)
+    if hunk_range is not None:
+        return hunk_range[0], None
+    if line.startswith("+") and not line.startswith("+++"):
+        coord = (path, current_line) if (path and current_line > 0) else None
+        return current_line + 1, coord
+    next_line = current_line + 1 if (line.startswith(" ") or not line) else current_line
+    return next_line, None
+
+
+def extract_added_diff_lines(
+    diff_text: str, default_path: str | None = None
+) -> set[tuple[str, int]]:
+    """Extract set of (file_path, new_line_number) coordinates for added lines in a diff.
+
+    Handles both raw unified diffs and review pages with prefixed line numbers.
+    """
+    added_lines: set[tuple[str, int]] = set()
+    current_path = default_path
+    current_line = 0
+
+    for raw_line in diff_text.splitlines():
+        line = raw_line.strip("\r")
+        new_path = _resolve_diff_path(line, current_path)
+        if new_path != current_path:
+            current_path = new_path
+            current_line = 0
+            continue
+        numbered_coord = _parse_numbered_diff_line(line, current_path)
+        if numbered_coord:
+            added_lines.add(numbered_coord)
+            continue
+        current_line, raw_coord = _step_raw_diff_line(line, current_path, current_line)
+        if raw_coord:
+            added_lines.add(raw_coord)
+
+    return added_lines
+
+
 def strip_line_numbers(text: str) -> str:
     """Remove the line-number column that review pages carry."""
     return _LINE_NUMBER_COLUMN.sub("", text)
@@ -556,6 +620,7 @@ def find_repo_files(
 __all__ = [
     "diff_pages",
     "diff_stream_chunks",
+    "extract_added_diff_lines",
     "extract_diff_hunks",
     "extract_file_diff_hunks",
     "find_repo_files",
