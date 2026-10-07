@@ -1243,3 +1243,311 @@ def test_a_person_mitigating_a_scanner_finding_is_warned_when_its_file_changes(
         ],
         find_perimeter_changes(["src/devops_cli/commands/other.py"], ledger, repo_root=repo),
     ) == ([f"{repo}/src/devops_cli/commands/workspace.py"], [entry.id], [])
+
+
+def test_contradictory_verdict_llm_acc69d97_stays_unverified() -> None:
+    """Offline golden test: a verdict confirming its finding while matching genuine invalidation
+    criteria ends UNVERIFIED with verifier-contradiction, taking no verified_by, verified_at,
+    or citation_line, even when its reason repeats the title (#1059).
+
+    Covers session S10 cache llm_acc69d97 on finding :1221 (path traversal) and finding :1239
+    (race condition), plus swapped-criteria fixture.
+    """
+    from devops_cli.config.constants import CONST_VERIFIER_CONTRADICTION
+
+    finding_1221 = Finding(
+        severity="HIGH",
+        location="src/devops_cli/ai/review/verification.py:1221",
+        title="Potential Path Traversal in Type Checking Probe",
+        description="The _module_typechecks_clean function constructs a module path using absolute().",
+        fix="module = str(Path(path_str).resolve())",
+        verification_criteria=[
+            VerificationCriterion(
+                description="The module path is constructed using Path.resolve() which resolves symbolic links and normalizes the path",
+                executable=False,
+            )
+        ],
+        invalidation_criteria=[
+            VerificationCriterion(
+                description="Path.resolve() normalizes paths to prevent directory traversal",
+                executable=False,
+            )
+        ],
+    )
+    verdict_1221 = {
+        "finding_id": 1,
+        "title": "Potential Path Traversal in Type Checking Probe",
+        "verified": True,
+        "mitigated": False,
+        "invalidated": False,
+        "status": "VERIFIED",
+        "reportable": True,
+        "location": "src/devops_cli/ai/review/verification.py:1221",
+        "citation_line": 1221,
+        "verified_criteria_matched": [
+            "The module path is constructed using Path.resolve() which resolves symbolic links and normalizes the path"
+        ],
+        "invalidated_criteria_matched": [
+            "Path.resolve() normalizes paths to prevent directory traversal"
+        ],
+        "reason": (
+            "Line 1221 in src/devops_cli/ai/review/verification.py shows module = str(Path(path_str).absolute()). "
+            "However, the code uses a cached directory path. Path(path_str).absolute() call is not directly used to "
+            "construct the module path passed to mypy. Therefore, the vulnerability described is mitigated by isolation."
+        ),
+    }
+
+    finding_1239 = Finding(
+        severity="MEDIUM",
+        location="src/devops_cli/ai/review/verification.py:1239",
+        title="Potential Race Condition in Type Checking Probe Cache Directory Creation",
+        description="No explicit check to ensure that the cache directory is protected from race conditions.",
+        fix="Add explicit locking or atomic operations when creating and accessing the cache directory.",
+        verification_criteria=[
+            VerificationCriterion(
+                description="Cache directory creation is protected by a lock to prevent race conditions",
+                executable=False,
+            )
+        ],
+        invalidation_criteria=[
+            VerificationCriterion(
+                description="The code does not implement explicit race condition protection for cache directory creation",
+                executable=False,
+            )
+        ],
+    )
+    verdict_1239 = {
+        "finding_id": 2,
+        "title": "Potential Race Condition in Type Checking Probe Cache Directory Creation",
+        "verified": True,
+        "mitigated": False,
+        "invalidated": False,
+        "status": "VERIFIED",
+        "reportable": True,
+        "location": "src/devops_cli/ai/review/verification.py:1239",
+        "citation_line": 1239,
+        "verified_criteria_matched": [
+            "Cache directory creation is protected by a lock to prevent race conditions"
+        ],
+        "invalidated_criteria_matched": [
+            "The code does not implement explicit race condition protection for cache directory creation"
+        ],
+        "reason": (
+            "Lines 1223-1246 show _TYPECHECK_PROBE_LOCK is used. The lock ensures only one thread can execute, "
+            "preventing race conditions during concurrent access to the cache directory. This mitigates the "
+            "potential race condition described in the finding."
+        ),
+    }
+
+    finding_swapped_1239 = Finding(
+        severity="MEDIUM",
+        location="src/devops_cli/ai/review/verification.py:1239",
+        title="Potential Race Condition in Type Checking Probe Cache Directory Creation",
+        description="No explicit check to ensure that the cache directory is protected from race conditions.",
+        fix="Add explicit locking or atomic operations when creating and accessing the cache directory.",
+        verification_criteria=[
+            VerificationCriterion(
+                description="The code does not implement explicit race condition protection for cache directory creation",
+                executable=False,
+            )
+        ],
+        invalidation_criteria=[
+            VerificationCriterion(
+                description="Cache directory creation is protected by a lock to prevent race conditions",
+                executable=False,
+            )
+        ],
+    )
+    swapped_verdict_1239 = {
+        **verdict_1239,
+        "verified_criteria_matched": [
+            "The code does not implement explicit race condition protection for cache directory creation"
+        ],
+        "invalidated_criteria_matched": [
+            "Cache directory creation is protected by a lock to prevent race conditions"
+        ],
+    }
+
+    judged_1221 = _apply_single_finding_verification(
+        finding_1221, verdict_1221, "2026-10-06T00:00:00Z"
+    )
+    judged_1239 = _apply_single_finding_verification(
+        finding_1239, verdict_1239, "2026-10-06T00:00:00Z"
+    )
+    judged_swapped = _apply_single_finding_verification(
+        finding_swapped_1239, swapped_verdict_1239, "2026-10-06T00:00:00Z"
+    )
+
+    assert_verdict_invariants([judged_1221, judged_1239, judged_swapped])
+
+    expected_outcome = ("UNVERIFIED", True, None, None, None, CONST_VERIFIER_CONTRADICTION)
+    assert (
+        (
+            judged_1221.status,
+            judged_1221.reportable,
+            judged_1221.verified_by,
+            judged_1221.verified_at,
+            judged_1221.citation_line,
+            judged_1221.verification_note,
+        ),
+        (
+            judged_1239.status,
+            judged_1239.reportable,
+            judged_1239.verified_by,
+            judged_1239.verified_at,
+            judged_1239.citation_line,
+            judged_1239.verification_note,
+        ),
+        (
+            judged_swapped.status,
+            judged_swapped.reportable,
+            judged_swapped.verified_by,
+            judged_swapped.verified_at,
+            judged_swapped.citation_line,
+            judged_swapped.verification_note,
+        ),
+    ) == (expected_outcome, expected_outcome, expected_outcome)
+
+
+def test_unchanged_verification_behavior_s10_pricing_and_services() -> None:
+    """Verify unchanged behavior for verdicts that only refute (self-refutation), verdicts that neither
+    confirm nor refute (inconclusive), and confirmations whose invalidation criteria all restate the claim."""
+    from devops_cli.config.constants import (
+        CONST_VERIFIER_INCONCLUSIVE,
+        CONST_VERIFIER_SELF_REFUTATION,
+    )
+
+    pricing_finding = Finding(
+        severity="HIGH",
+        location="src/devops_cli/ai/spend/pricing.py:55-56",
+        title="Exception Handling in Settings Loading",
+        description=(
+            "The _load_settings_payload function catches all exceptions generically with except Exception: pass, "
+            "which can mask critical configuration errors or unexpected system issues."
+        ),
+        fix="Log the exception or catch specific exceptions like (OSError, ValueError) and re-raise or handle them appropriately.",
+        verification_criteria=[
+            VerificationCriterion(
+                description="Function should not catch all exceptions without logging or re-raising specific ones",
+                executable=False,
+            )
+        ],
+        invalidation_criteria=[
+            VerificationCriterion(
+                description="Function should raise an exception when settings loading fails",
+                executable=False,
+            )
+        ],
+    )
+    pricing_verdict = {
+        "finding_id": 1,
+        "title": "Exception Handling in Settings Loading",
+        "status": "INVALIDATED",
+        "invalidated": True,
+        "verified": False,
+        "citation_line": 55,
+        "invalidated_criteria_matched": [
+            "Function should not catch all exceptions without logging or re-raising specific ones"
+        ],
+        "reason": (
+            "Line 55 in src/devops_cli/ai/spend/pricing.py explicitly catches all exceptions with except Exception: pass "
+            "and does not log or re-raise them. The verification criterion states that the function should not catch all "
+            "exceptions without logging, which is violated by the implementation, confirming the finding is accurate."
+        ),
+    }
+    judged_pricing = _apply_single_finding_verification(
+        pricing_finding, pricing_verdict, "2026-10-06T00:00:00Z"
+    )
+
+    services_finding = Finding(
+        severity="MEDIUM",
+        location="k8s/llm/profiles/services.yaml:Service/ollama-128gib",
+        title="Service exposes unauthenticated internal endpoint",
+        description="The ollama service definition exposes port 11434 without auth.",
+    )
+    services_verdict = {
+        "finding_id": 2,
+        "status": "UNVERIFIED",
+        "verified": False,
+        "invalidated": False,
+        "mitigated": False,
+        "reason": "Cannot determine from yaml whether network policy enforces authorization.",
+    }
+    judged_services = _apply_single_finding_verification(
+        services_finding, services_verdict, "2026-10-06T00:00:00Z"
+    )
+
+    restating_finding = Finding(
+        severity="MEDIUM",
+        location="Dockerfile:10",
+        title="FROM directive still uses latest tag",
+        description="The Dockerfile FROM directive specifies latest tag.",
+        fix="Pin the image to a specific sha256 digest.",
+        verification_criteria=[
+            VerificationCriterion(
+                description="The FROM directive still uses 'latest' as the image tag.",
+                executable=False,
+            )
+        ],
+        invalidation_criteria=[
+            VerificationCriterion(
+                description="The FROM directive pins the image to a specific sha256 digest.",
+                executable=False,
+            )
+        ],
+    )
+    restating_verdict = {
+        "finding_id": 3,
+        "status": "VERIFIED",
+        "verified": True,
+        "citation_line": 10,
+        "verified_criteria_matched": ["The FROM directive still uses 'latest' as the image tag."],
+        "invalidated_criteria_matched": [
+            "The FROM directive still uses 'latest' as the image tag."
+        ],
+        "reason": "Line 10 specifies python:latest, confirming the latest tag is used.",
+    }
+    judged_restating = _apply_single_finding_verification(
+        restating_finding, restating_verdict, "2026-10-06T00:00:00Z"
+    )
+
+    assert_verdict_invariants([judged_pricing, judged_services, judged_restating])
+
+    assert (
+        (judged_pricing.status, judged_pricing.verification_note, judged_pricing.verified_by),
+        (judged_services.status, judged_services.verification_note, judged_services.verified_by),
+        (
+            judged_restating.status,
+            judged_restating.verification_note,
+            judged_restating.verified_by,
+            judged_restating.citation_line,
+        ),
+    ) == (
+        ("UNVERIFIED", CONST_VERIFIER_SELF_REFUTATION, None),
+        ("UNVERIFIED", CONST_VERIFIER_INCONCLUSIVE, None),
+        ("VERIFIED", None, "llm", 10),
+    )
+
+
+def test_unverified_note_counts_includes_contradiction() -> None:
+    """Verify _unverified_note_counts tallies verifier-contradiction both standalone and with details."""
+    from devops_cli.ai.review_schema import _unverified_note_counts
+    from devops_cli.config.constants import CONST_VERIFIER_CONTRADICTION
+
+    findings = [
+        Finding(
+            title="f1",
+            location="a.py:1",
+            status="UNVERIFIED",
+            verification_note=CONST_VERIFIER_CONTRADICTION,
+        ),
+        Finding(
+            title="f2",
+            location="b.py:2",
+            status="UNVERIFIED",
+            verification_note=f"{CONST_VERIFIER_CONTRADICTION}: reason denies claim",
+        ),
+        Finding(title="f3", location="c.py:3", status="VERIFIED", verified=True, verified_by="llm"),
+    ]
+    counts = _unverified_note_counts(findings)
+    assert counts == {CONST_VERIFIER_CONTRADICTION: 2}
