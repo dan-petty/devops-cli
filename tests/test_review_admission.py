@@ -1004,3 +1004,50 @@ def test_suppressed_dependency_advisory_is_listed_not_reported(tmp_path: Path) -
         findings,
         [(f.rule_id, f.state) for f in orchestrator.admitted_scanner_findings],
     ) == ([], [("GHSA-xxxx-yyyy", FindingState.SUPPRESSED)])
+
+
+@pytest.mark.parametrize(
+    ("tool", "line_text", "state"),
+    [
+        ("bandit", "eval(x)  # noqa: E501", FindingState.OPEN),
+        ("semgrep", "eval(x)  # nosec B307", FindingState.OPEN),
+        ("trivy", "eval(x)  # nosec", FindingState.OPEN),
+        ("bandit", "eval(x)  # nosec B307", FindingState.SUPPRESSED),
+        ("semgrep", "eval(x)  # nosemgrep", FindingState.SUPPRESSED),
+        ("semgrep", "eval(x)  // no-semgrep", FindingState.SUPPRESSED),
+        ("ruff", "eval(x)  # noqa: S307", FindingState.SUPPRESSED),
+    ],
+)
+def test_an_inline_marker_suppresses_only_findings_of_its_own_tool(
+    tool: str, line_text: str, state: FindingState
+) -> None:
+    """A `# noqa` never hides a Bandit or Semgrep finding, nor a `# nosec` a Semgrep one (#1341)."""
+    found = admit(
+        anchor=ToolAnchor(run_id="run-1", result_index=0, rule_id="R1"),
+        tool=tool,
+        rule_id="R1",
+        path="src/app.py",
+        message="eval used",
+        line=1,
+        commit_files={"src/app.py"},
+        file_content_getter=lambda p: line_text + "\n",
+    )
+    assert found is not None
+    assert found.state is state
+
+
+def test_a_marker_of_another_tool_added_by_the_change_does_not_mark_the_finding() -> None:
+    """Only the finding's own marker counts as suppressed by this change (#1341)."""
+    found = admit(
+        anchor=ToolAnchor(run_id="run-1", result_index=0, rule_id="B307"),
+        tool="bandit",
+        rule_id="B307",
+        path="src/app.py",
+        message="eval used",
+        line=1,
+        commit_files={"src/app.py"},
+        file_content_getter=lambda p: "eval(x)  # noqa: E501\n",
+        added_diff_lines={("src/app.py", 1)},
+    )
+    assert found is not None
+    assert (found.state, found.suppressed_by_change) == (FindingState.OPEN, False)

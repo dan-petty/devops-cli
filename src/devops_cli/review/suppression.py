@@ -14,9 +14,7 @@ from datetime import date
 from pathlib import PurePosixPath
 from typing import Any
 
-_INLINE_MARKER_REGEX = re.compile(
-    r"(?:#|//)\s*(?:noqa|nosec|nosemgrep|no-semgrep)\b", re.IGNORECASE
-)
+from devops_cli.config.constants import CONST_INLINE_SUPPRESSION_MARKERS
 
 
 @dataclass(frozen=True)
@@ -90,9 +88,17 @@ def load_review_suppressions(review_config: dict[str, Any]) -> list[ReviewSuppre
     return suppressions
 
 
-def has_inline_marker(line_text: str) -> bool:
-    """Return True if line_text contains an inline suppression marker."""
-    return bool(_INLINE_MARKER_REGEX.search(line_text))
+def has_inline_marker(line_text: str, tool: str) -> bool:
+    """Whether `line_text` carries an inline suppression marker of `tool`.
+
+    Each marker belongs to one tool, so a `# noqa` never hides a Bandit or Semgrep finding and a
+    `# nosec` never hides a Semgrep one; a tool without its own marker is never suppressed inline.
+    """
+    markers = CONST_INLINE_SUPPRESSION_MARKERS.get(tool.lower(), ())
+    if not markers:
+        return False
+    pattern = r"(?:#|//)\s*(?:" + "|".join(re.escape(m) for m in markers) + r")\b"
+    return re.search(pattern, line_text, re.IGNORECASE) is not None
 
 
 def check_inline_marker_in_diff(
@@ -100,6 +106,7 @@ def check_inline_marker_in_diff(
     line: int,
     added_diff_lines: set[tuple[str, int]],
     file_lines: Sequence[str],
+    tool: str,
 ) -> tuple[bool, bool]:
     """Determine if a line has an inline marker and whether it was added by the change.
 
@@ -109,7 +116,7 @@ def check_inline_marker_in_diff(
     if not (1 <= line <= len(file_lines)):
         return False, False
     line_text = file_lines[line - 1]
-    if not has_inline_marker(line_text):
+    if not has_inline_marker(line_text, tool):
         return False, False
 
     is_added = (path, line) in added_diff_lines
