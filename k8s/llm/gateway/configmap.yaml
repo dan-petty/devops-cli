@@ -82,16 +82,19 @@ data:
           model: ollama_chat/qwen3-coder:30b
           api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
           weight: 9
+          num_retries: 0
       - model_name: devops-review
         litellm_params:
           model: ollama_chat/qwen3-coder:30b
           api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
           weight: 6
+          num_retries: 0
       - model_name: devops-review
         litellm_params:
           model: ollama_chat/gpt-oss:20b
           api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
           weight: 6
+          num_retries: 0
 
       # One group per devops-review model, copying its deployments and weights exactly, so a
       # review can be pinned to one model and routed as the pool routes it. No max_input_tokens
@@ -101,17 +104,20 @@ data:
           model: ollama_chat/qwen3-coder:30b
           api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
           weight: 9
+          num_retries: 0
       - model_name: qwen3-coder:30b
         litellm_params:
           model: ollama_chat/qwen3-coder:30b
           api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
           weight: 6
+          num_retries: 0
 
       - model_name: gpt-oss:20b
         litellm_params:
           model: ollama_chat/gpt-oss:20b
           api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
           weight: 6
+          num_retries: 0
 
       - model_name: gemma4:31b
         litellm_params:
@@ -166,9 +172,9 @@ data:
       telemetry: false
 
     router_settings:
-      # simple-shuffle routes requests weighted by throughput (litellm_params.weight),
-      # directing traffic according to measured backend capacity.
-      routing_strategy: simple-shuffle
+      # least-busy routes requests to the backend with the fewest in-flight requests,
+      # preventing pile-ups behind long generations across Ollama nodes.
+      routing_strategy: least-busy
       num_retries: 5
       allowed_fails: 3
       cooldown_time: 30
@@ -195,5 +201,6 @@ data:
 
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
+      cancel_on_disconnect: true
       store_model_in_db: false
       proxy_batch_write_at: 10

@@ -108,6 +108,7 @@ DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS: float = 5.0
 # `devops ai gateway tune`: the sweep runs in an ephemeral container attached to the gateway pod,
 # since the inference backends admit traffic only from the gateway. The image tracks this
 # project's Python.
+DEFAULT_AI_GATEWAY_SERVICE: str = "llm-gateway"
 DEFAULT_AI_GATEWAY_DEPLOYMENT: str = "llm-gateway"
 DEFAULT_GATEWAY_TUNE_IMAGE: str = "python:3.14-slim"
 DEFAULT_GATEWAY_TUNE_MODEL_GROUP: str = "devops-review"
@@ -436,7 +437,12 @@ DEFAULT_HOST_SANDBOX_BINARY: Final[str] = "/usr/bin/bwrap"
 DEFAULT_PRE_ANALYSIS_WORKERS: int = 4
 DEFAULT_REVIEW_MAX_WORKERS: int = 4
 DEFAULT_REVIEW_CONCURRENCY: int = 4
-DEFAULT_GATEWAY_REVIEW_CONCURRENCY: int = 16
+DEFAULT_GATEWAY_REVIEW_SLOTS: dict[str, int] = {
+    "http://ollama-48gib-fast.llm.svc.cluster.local:11434": 1,
+    "http://ollama-64gib-standard.llm.svc.cluster.local:11434": 1,
+    "http://ollama-16gib-fast.llm.svc.cluster.local:11434": 1,
+}
+DEFAULT_GATEWAY_REVIEW_CONCURRENCY: int = sum(DEFAULT_GATEWAY_REVIEW_SLOTS.values())
 DEFAULT_REVIEW_MAX_CONCURRENCY: int = 32
 DEFAULT_REVIEW_RATE_LIMIT: float = 10.0
 DEFAULT_REVIEW_RATE_CAPACITY: float = 10.0

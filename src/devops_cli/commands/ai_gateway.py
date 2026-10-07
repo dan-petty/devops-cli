@@ -21,6 +21,8 @@ from devops_cli.commands.ai_runs import announce_run
 from devops_cli.config.constants import CONST_AI_GATEWAY_VIRTUAL_MODELS, CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_DEPLOYMENT,
+    DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
+    DEFAULT_AI_GATEWAY_SERVICE,
     DEFAULT_GATEWAY_TUNE_CONCURRENCY,
     DEFAULT_GATEWAY_TUNE_IMAGE,
     DEFAULT_GATEWAY_TUNE_MAX_TOKENS,
@@ -31,11 +33,13 @@ from devops_cli.config.defaults import (
     DEFAULT_LLM_NAMESPACE,
     DEFAULT_POOL_LOAD_WINDOW,
 )
-from devops_cli.config.settings import get_ai_api_key, load_settings
+from devops_cli.config.settings import get_ai_api_key, load_settings, save_settings
 from devops_cli.core.cli import new_typer
+from devops_cli.core.validation import validate_url_egress
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.http.validation import validate_service_url
 from devops_cli.k8s.context import resolve_context
+from devops_cli.k8s.node_port import NodePortSpec, ServiceNotReachableError, node_port_address
 from devops_cli.lang import MESSAGES
 from devops_cli.output import (
     print_error,
@@ -156,6 +160,82 @@ def routes_cmd(
         return
 
     _render_routes_table(routes)
+
+
+def _probe_gateway_liveliness_and_models(
+    base_url: str,
+    headers: dict[str, str],
+    timeout: float,
+) -> None:
+    """Probe gateway liveliness and model info endpoints before configuring connection."""
+    import httpx2
+
+    try:
+        with httpx2.Client(timeout=timeout) as client:
+            live_resp = client.get(f"{base_url}/health/liveliness")
+            if live_resp.status_code >= 400:
+                print_error(
+                    f"The LLM gateway at {base_url} is not live: HTTP {live_resp.status_code}"
+                )
+                raise typer.Exit(code=1)
+            model_resp = client.get(f"{base_url}/model/info", headers=headers)
+            if model_resp.status_code >= 400:
+                print_error(
+                    f"The LLM gateway at {base_url} rejected model info query: HTTP {model_resp.status_code}"
+                )
+                raise typer.Exit(code=1)
+    except (httpx2.HTTPError, OSError) as exc:
+        print_error(f"The LLM gateway at {base_url} does not answer: {str(exc)[:256]}")
+        raise typer.Exit(code=1) from exc
+
+
+@app.command("connect")
+def connect_cmd(
+    context: Annotated[
+        str | None,
+        typer.Option("--context", help="Kubernetes context to query (defaults to current)."),
+    ] = None,
+    namespace: Annotated[
+        str,
+        typer.Option("--namespace", "-n", help="Kubernetes namespace."),
+    ] = DEFAULT_LLM_NAMESPACE,
+    service: Annotated[
+        str,
+        typer.Option("--service", help="Name of the Service running the gateway."),
+    ] = DEFAULT_AI_GATEWAY_SERVICE,
+    timeout: Annotated[
+        float,
+        typer.Option("--timeout", help="Health probe timeout in seconds."),
+    ] = DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
+) -> None:
+    """Find the cluster's LLM gateway NodePort, verify it answers, and configure LAN review calls."""
+    spec = NodePortSpec(
+        what="LLM gateway",
+        port=4000,
+        port_name="http",
+        port_label="HTTP",
+        manifest="k8s/llm/gateway/service.yaml",
+    )
+    try:
+        host, port = node_port_address(context, namespace, service, spec)
+    except ServiceNotReachableError as exc:
+        print_error(f"Cannot find the LLM gateway: {exc.message}", prefix=False)
+        raise typer.Exit(code=1) from exc
+
+    base_url = f"http://{host}:{port}"
+    node_port_url = f"{base_url}/v1"
+    validate_url_egress(base_url, purpose="AI gateway", allow_private=True)
+
+    settings = load_settings()
+    api_key = get_ai_api_key(settings)
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+    _probe_gateway_liveliness_and_models(base_url, headers, timeout)
+
+    settings.ai.gateway_url = node_port_url
+    settings.ai.allow_private_network = True
+    save_settings(settings)
+    print_success(f"Connected to LLM gateway at {node_port_url} (LAN path enabled).")
 
 
 @app.command("failover")

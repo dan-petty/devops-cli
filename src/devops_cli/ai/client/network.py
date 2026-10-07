@@ -339,10 +339,15 @@ def request_limited_json(
     the CLI's memory. A reply that is not 2xx raises `httpx2.HTTPStatusError`, unparsed.
     """
     limit = DEFAULT_AI_MAX_RESPONSE_BYTES if limit_bytes is None else limit_bytes
-    with http_client.stream(method, url, **request_kwargs) as response:
-        body = _read_limited_body(response, limit)
-    _raise_for_status(response, body)
-    return _json_object(body), response.headers
+    try:
+        with http_client.stream(method, url, **request_kwargs) as response:
+            body = _read_limited_body(response, limit)
+        _raise_for_status(response, body)
+        return _json_object(body), response.headers
+    finally:
+        from devops_cli.http.pool import close_expired_connections
+
+        close_expired_connections(http_client)
 
 
 def validate_base_url(

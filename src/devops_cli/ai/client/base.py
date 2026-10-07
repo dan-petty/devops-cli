@@ -57,7 +57,7 @@ class BaseLLMProviderMixin:
 
         cfg = getattr(self, "_config", None)
         retries = getattr(cfg, "max_retries", None) if cfg is not None else None
-        max_attempts = int(retries) + 1 if retries is not None and int(retries) > 0 else 5
+        max_attempts = int(retries) + 1 if retries is not None and int(retries) >= 0 else 5
         try:
             wrapped = httpx2.HTTPTransport(limits=connection_limits(), http2=True)
             return create_retry_transport(max_attempts=max_attempts, wrapped=wrapped)

@@ -1543,6 +1543,23 @@ devops ai gateway routes [OPTIONS]
 | `--provider`, `-p` | `string` | - | Gateway provider: litellm or portkey. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
+### `devops ai gateway connect`
+
+**Find the cluster's LLM gateway NodePort, verify it answers, and configure LAN review calls.**
+
+```bash
+devops ai gateway connect [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context` | `string` | - | Kubernetes context to query (defaults to current). |
+| `--namespace`, `-n` | `string` | `llm` | Kubernetes namespace. |
+| `--service` | `string` | `llm-gateway` | Name of the Service running the gateway. |
+| `--timeout` | `float` | `5.0` | Health probe timeout in seconds. |
+
 ### `devops ai gateway failover`
 
 **Trigger or test circuit-breaker failover of a virtual model to secondary backends.**
