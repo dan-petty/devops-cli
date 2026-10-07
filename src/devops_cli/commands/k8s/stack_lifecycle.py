@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+import yaml
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
 import devops_cli.commands.k8s.networking as net
@@ -779,32 +780,145 @@ def _deploy_native_manifests(
     _apply_manifest_files(all_manifests, kubectl_ctx, domain=domain)
 
 
+def _sync_argo_devops_overrides(
+    k8s_dir: Path,
+    effective_domain: str | None,
+    k_ctx: list[str],
+) -> None:
+    """Stream rendered ConfigMap and Ingress and patch Argo CD Application for devops stack."""
+    from devops_cli.config.settings import load_settings
+    from devops_cli.k8s.argocd_source import generate_argocd_source, render_argocd_source_content
+    from devops_cli.k8s.configmap import render_active_devops_configmap
+    from devops_cli.k8s.template import render_manifest_template
+
+    print_info("Generating Argo CD source parameter overrides...", prefix=False)
+    generate_argocd_source(k8s_dir=k8s_dir, domain=effective_domain)
+
+    try:
+        rendered_cm = render_active_devops_configmap(k8s_dir=k8s_dir)
+        runtime._run_cmd(["kubectl", "apply", "-f", "-"] + k_ctx, input=rendered_cm, check=False)
+    except Exception:
+        pass
+
+    try:
+        rs_ing = k8s_dir / "devops" / "roadmap-service" / "ingress.yaml"
+        if rs_ing.is_file() and effective_domain:
+            rendered_ing = render_manifest_template(
+                rs_ing.read_text(encoding="utf-8"), domain=effective_domain
+            )
+            runtime._run_cmd(
+                ["kubectl", "apply", "-f", "-"] + k_ctx, input=rendered_ing, check=False
+            )
+    except Exception:
+        pass
+
+    try:
+        cm_tpl = k8s_dir / "devops" / "configmap.example.yaml"
+        if cm_tpl.is_file():
+            source_doc = render_argocd_source_content(
+                cm_tpl.read_text(encoding="utf-8"),
+                domain=effective_domain,
+                settings=load_settings(),
+            )
+            parsed_source = yaml.safe_load(source_doc)
+            if isinstance(parsed_source, dict) and "kustomize" in parsed_source:
+                patch_json = json.dumps(
+                    {"spec": {"source": {"kustomize": parsed_source["kustomize"]}}}
+                )
+                runtime._run_cmd(
+                    [
+                        "kubectl",
+                        "patch",
+                        "application",
+                        "devops",
+                        "-n",
+                        "argocd",
+                        "--type=merge",
+                        "-p",
+                        patch_json,
+                    ]
+                    + k_ctx,
+                    check=False,
+                )
+    except Exception:
+        pass
+
+
+def _sync_argo_ingress_overrides(
+    k8s_dir: Path,
+    effective_domain: str | None,
+    k_ctx: list[str],
+) -> None:
+    """Stream rendered ingress routes and patch Argo CD Application for ingress stack."""
+    from devops_cli.config.settings import load_settings
+    from devops_cli.k8s.argocd_source import render_ingress_argocd_source_content
+    from devops_cli.k8s.template import render_manifest_template
+
+    try:
+        routes_path = k8s_dir / "ingress" / "ingress-routes.yaml"
+        if routes_path.is_file() and effective_domain:
+            rendered_routes = render_manifest_template(
+                routes_path.read_text(encoding="utf-8"), domain=effective_domain
+            )
+            runtime._run_cmd(
+                ["kubectl", "apply", "-f", "-"] + k_ctx, input=rendered_routes, check=False
+            )
+            source_doc = render_ingress_argocd_source_content(
+                routes_path.read_text(encoding="utf-8"),
+                domain=effective_domain,
+                settings=load_settings(),
+            )
+            parsed_source = yaml.safe_load(source_doc)
+            if isinstance(parsed_source, dict) and "kustomize" in parsed_source:
+                patch_json = json.dumps(
+                    {"spec": {"source": {"kustomize": parsed_source["kustomize"]}}}
+                )
+                runtime._run_cmd(
+                    [
+                        "kubectl",
+                        "patch",
+                        "application",
+                        "ingress",
+                        "-n",
+                        "argocd",
+                        "--type=merge",
+                        "-p",
+                        patch_json,
+                    ]
+                    + k_ctx,
+                    check=False,
+                )
+    except Exception:
+        pass
+
+
 def _handle_argo_managed_deployment(
     selected_stacks: Sequence[str],
     effective_context: str | None,
     k8s_dir: Path,
     push_secrets: bool,
+    domain: str | None = None,
 ) -> None:
     """Handle deployment tasks for an Argo CD-managed cluster."""
     if push_secrets:
         print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
         push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
-    if "devops" in selected_stacks:
-        from devops_cli.k8s.argocd_source import generate_argocd_source
-        from devops_cli.k8s.configmap import render_active_devops_configmap
 
-        print_info("Generating Argo CD source parameter overrides...", prefix=False)
-        generate_argocd_source(k8s_dir=k8s_dir)
+    effective_domain = domain
+    if not effective_domain:
         try:
-            rendered_cm = render_active_devops_configmap(k8s_dir=k8s_dir)
-            k_ctx = ["--context", effective_context] if effective_context else []
-            runtime._run_cmd(
-                ["kubectl", "apply", "-f", "-"] + k_ctx,
-                input=rendered_cm,
-                check=False,
-            )
+            from devops_cli.k8s.template import resolve_template_domain
+
+            effective_domain = resolve_template_domain()
         except Exception:
-            pass
+            effective_domain = None
+
+    k_ctx = ["--context", effective_context] if effective_context else []
+    if "devops" in selected_stacks:
+        _sync_argo_devops_overrides(k8s_dir, effective_domain, k_ctx)
+    if "ingress" in selected_stacks or "infra" in selected_stacks or "devops" in selected_stacks:
+        _sync_argo_ingress_overrides(k8s_dir, effective_domain, k_ctx)
+
     print_info(
         "Argo CD manages the cluster (Application 'cluster' found in namespace 'argocd'). "
         "Skipping manifest and Helm deployment; see GitOps in k8s/README.md.",
@@ -900,7 +1014,9 @@ def deploy_stack(
     _verify_cluster_ready(effective_context)
 
     if _is_cluster_argo_managed(effective_context):
-        _handle_argo_managed_deployment(selected_stacks, effective_context, k8s_dir, push_secrets)
+        _handle_argo_managed_deployment(
+            selected_stacks, effective_context, k8s_dir, push_secrets, domain=domain
+        )
         return
 
     kubectl_ctx = ["--context", effective_context] if effective_context else []
