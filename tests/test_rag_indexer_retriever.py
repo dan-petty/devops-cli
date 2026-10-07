@@ -11,6 +11,7 @@ from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
 from devops_cli.ai.rag.indexer import WorkspaceIndexer
 from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.ai.rag.retriever import SemanticRetriever
+from devops_cli.config.constants import CONST_RAG_INCOMPLETE_FILE_MARKER
 from devops_cli.config.settings import AIConfig
 
 
@@ -356,3 +357,93 @@ def test_failed_second_batch_ends_with_exit_1_and_preserves_first_batch(tmp_path
 
     result = indexer_resume.index_workspace(tmp_path, include_kb=False, force=False)
     assert (result["indexed_files"], result["skipped_files"]) == (2, 1)
+
+
+class _BatchCountingEmbedder:
+    """Embeds one text per batch and raises on the batch numbered ``fail_on_call``."""
+
+    model = "test-model"
+    batch_size = 1
+
+    def __init__(self, fail_on_call: int | None = None) -> None:
+        self.fail_on_call = fail_on_call
+        self.calls = 0
+
+    def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
+        self.calls += 1
+        if self.calls == self.fail_on_call:
+            raise RuntimeError("Gateway 504 Gateway Timeout")
+        return [[0.1] * 8 for _ in texts]
+
+
+def _interrupted_index(tmp_path: Path) -> tuple[FakeQdrantClient, Path, Path, dict[str, str]]:
+    """A multi-chunk big.py beside a one-chunk small.py, the store and the cache an embedding
+    failure inside big.py left; small.py keeps the project in later scans."""
+    (tmp_path / "small.py").write_text("def small():\n    return 1\n", encoding="utf-8")
+    big = tmp_path / "big.py"
+    big.write_text(
+        "".join(
+            f"def func_{n}():\n" + "".join(f"    value_{i} = {i}\n" for i in range(59))
+            for n in range(4)
+        ),
+        encoding="utf-8",
+    )
+    qdrant = FakeQdrantClient()
+    cache_dir = tmp_path / ".cache"
+    failing = _BatchCountingEmbedder(fail_on_call=3)
+    indexer = WorkspaceIndexer(qdrant=qdrant, embedder=failing, cache_dir=cache_dir)  # type: ignore[arg-type]
+    with pytest.raises(EmbeddingsError):
+        indexer.index_workspace(tmp_path, project="p", include_kb=False)
+    return qdrant, cache_dir, big, indexer._load_cache()
+
+
+def _resume(tmp_path: Path, qdrant: FakeQdrantClient, cache_dir: Path) -> WorkspaceIndexer:
+    resumed = WorkspaceIndexer(
+        qdrant=qdrant, embedder=_BatchCountingEmbedder(), cache_dir=cache_dir
+    )  # type: ignore[arg-type]
+    resumed.index_workspace(tmp_path, project="p", include_kb=False)
+    return resumed
+
+
+def _stored(qdrant: FakeQdrantClient) -> set[str]:
+    return {point["id"] for points in qdrant.collections.values() for point in points}
+
+
+def _chunk_ids(indexer: WorkspaceIndexer, path: Path, root: Path) -> set[str]:
+    return {
+        c.id for c in indexer.chunker.chunk_file(path, relative_to=root.resolve(), project_name="p")
+    }
+
+
+def test_failed_batch_inside_a_file_leaves_that_file_for_resume(tmp_path: Path) -> None:
+    """A file whose chunks span a failed batch is cached as incomplete, so a resume stores all of them."""
+    qdrant, cache_dir, big, cached_after_failure = _interrupted_index(tmp_path)
+    resumed = _resume(tmp_path, qdrant, cache_dir)
+    expected = _chunk_ids(resumed, big, tmp_path)
+    assert (
+        len(expected) > 1,
+        cached_after_failure.get("p:big.py"),
+        expected - _stored(qdrant),
+    ) == (
+        True,
+        CONST_RAG_INCOMPLETE_FILE_MARKER,
+        set(),
+    )
+
+
+def test_a_partly_stored_file_deleted_before_the_resume_leaves_no_points(tmp_path: Path) -> None:
+    qdrant, cache_dir, big, _ = _interrupted_index(tmp_path)
+    big.unlink()
+    resumed = _resume(tmp_path, qdrant, cache_dir)
+    assert _stored(qdrant) == _chunk_ids(resumed, tmp_path / "small.py", tmp_path)
+
+
+def test_a_partly_stored_file_edited_before_the_resume_keeps_only_its_new_chunks(
+    tmp_path: Path,
+) -> None:
+    qdrant, cache_dir, big, _ = _interrupted_index(tmp_path)
+    big.write_text("# edited\n" * 5 + big.read_text(encoding="utf-8"), encoding="utf-8")
+    resumed = _resume(tmp_path, qdrant, cache_dir)
+    assert _stored(qdrant) == _chunk_ids(resumed, big, tmp_path) | _chunk_ids(
+        resumed, tmp_path / "small.py", tmp_path
+    )
