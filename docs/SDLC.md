@@ -20,7 +20,7 @@ flowchart LR
 
 ### The Seven Pillars of DevOps CLI Engineering
 1. **Test-Driven Specification (TDD as Living Contract)**: Implementation code is never written without pre-existing executable tests establishing functional expectations, interfaces, and boundary conditions.
-2. **Strict Architectural Invariant Gates**: Continuous compliance verification enforces Cyclomatic Complexity $\le 10$, Nesting Depth $\le 5$ (< 6 indentation levels), standardized domain exceptions, and $\ge 90\%$ branch code coverage.
+2. **Strict Architectural Invariant Gates**: Continuous compliance verification enforces Cyclomatic Complexity $\le 10$, Nesting Depth $\le 5$ (< 6 indentation levels), standardized domain exceptions, and $\ge 90\%$ line code coverage.
 3. **Zero-Trust Security & Egress Safety**: No plaintext secrets anywhere in code, configuration, or logs (OS Keyring / Vault isolation); SSRF endpoint validation; bounded subprocess timeouts; least-privilege containers.
 4. **Supply Chain Integrity (SLSA Level 3)**: Locked dependency graph (`uv.lock`), weekly Dependabot vulnerability audits, cryptographic hash validation, and automated static security analysis (`bandit`, `pip-audit`, `detect-private-key`).
 5. **Multi-Persona AI Review & Fact Grounding**: Multi-agent code review pipeline evaluates all changes across five specialized personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`), grounded by the local DevOps CLI Knowledge Base (`src/devops_cli/ai/knowledge_base/`).
@@ -159,7 +159,8 @@ flowchart TD
         H4[check-merge-conflict]
         H5[check-yaml / toml / json]
         H6[ruff check & format]
-        H7[actionlint]
+        H7[structural-invariants]
+        H8[devops-ci-test-changed]
     end
 
     subgraph CIQualityGate["Primary Quality Gate (devops ci / uv run devops ci)"]
@@ -173,6 +174,9 @@ flowchart TD
         G8[bandit SAST security]
         G9[actionlint workflow check]
         G10[docs sync & check]
+        G11[uv_check]
+        G12[lockfile check]
+        G13[outdated packages]
     end
 
     PreCommit --> CIQualityGate
@@ -180,14 +184,16 @@ flowchart TD
 
 #### Pre-Commit Hardening
 The `.pre-commit-config.yaml` suite intercepts flawed commits before they enter git history:
-- `detect-private-key`: Scans staged files for RSA, SSH, and EC private keys (excluding synthetic mock test keys in `^tests/`).
+- `detect-private-key`: Scans staged files for RSA, SSH, and EC private keys (excluding the synthetic keys in `tests/test_review_prompt_guardrails.py` and `tests/test_security_gitleaks.py`).
 - `check-merge-conflict`: Blocks accidental commits containing unresolved conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`).
 - `check-yaml`, `check-toml`, `check-json`: Validates configuration syntax across all structured files.
 - `ruff`: Enforces lint rules and code formatting.
-- `actionlint`: Statically analyzes GitHub Actions workflow files.
+- `structural-invariants`: Enforces max nesting depth $\le 5$ (< 6 indentation levels) across source files.
+- `devops-ci-test-changed`: Runs targeted test suite covering staged files.
+- Pre-push `devops ci` gate: Executes the complete quality check suite (including `actionlint`) before pushes.
 
 #### The Primary CI Verification Gate (`devops ci`)
-Before opening or updating a PR, engineers and agents execute `devops ci` (or `uv run devops ci`). This command runs the definitive 10-check quality suite:
+Before opening or updating a PR, engineers and agents execute `devops ci` (or `uv run devops ci`). The default run auto-applies ruff format/lint fixes. This command runs every check `devops ci` defines:
 1. `python_version`: Verifies Python runtime compatibility.
 2. `test`: Executes all unit and integration tests via `pytest`.
 3. `coverage`: Enforces strict $\ge 90\%$ code coverage across `src/`.
@@ -197,7 +203,10 @@ Before opening or updating a PR, engineers and agents execute `devops ci` (or `u
 7. `audit`: Validates dependencies against known vulnerabilities via `uv audit`.
 8. `security`: Scans for security antipatterns using `bandit`.
 9. `actionlint`: Validates `.github/workflows/` against GitHub Actions schema.
-10. `docs`: Verifies documentation generation freshness (`devops docs check`).
+10. `docs`: Regenerates docs (`devops docs generate --sync-readme`) by default; `devops ci --check` verifies freshness with `devops docs check` without changing files.
+11. `uv_check`: Verifies project dependencies and Python environment consistency via `uv check`.
+12. `lockfile`: Verifies lockfile synchronization via `uv lock --check`.
+13. `outdated`: Inspects dependency tree for outdated packages via `uv tree --outdated`.
 
 ---
 
@@ -271,9 +280,9 @@ gitGraph
 - **Declarative Code Ownership (`.github/CODEOWNERS`)**: Pull requests automatically assign reviews based on touched file paths (Core CLI, AI/MCP, K8s, Security, CI/CD).
 - **Automated Dependency Updates (`.github/renovate.json`)**: Renovate monitors `github-actions` and `docker` dependencies with prefix `chore(deps)` and mandatory `type/chore` taxonomy labels. Python and `uv` dependencies are updated deliberately as part of the project workflow with synchronized `uv.lock`.
 - **GitHub Project Governance, Views & Labeling Standards**:
-  - **Declarative Taxonomy (`.github/labels.yml`)**: Every PR must possess mandatory `type/*` and `scope/*` classification labels, verified in CI and audited via `devops gh labels audit`.
+  - **Declarative Taxonomy (`.github/labels.yml`)**: Every PR must carry `type/*` and `scope/*` labels, audited manually via `devops gh labels audit` (not enforced in CI).
   - **GitHub-Sourced Roadmap (ADR 0001)**: Issues are the roadmap's items, milestones its releases and the project board holds their Status and Priority. `docs/ROADMAP.md` is a view that `devops roadmap render` regenerates in the release PR at the cut.
-  - **Standardized Projects v2 & Issues Views (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**: Four standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) track features across lifecycles (`New` -> `Ready` -> `In Progress` -> `In Review` -> `Done`, or `Blocked` while waiting on something outside the roadmap), audited via `devops gh views list` / `spec` and synced via `devops gh project sync` with mandatory repository board linkage (`devops gh project link <number>`) so projects appear under `https://github.com/dan-petty/devops-cli/projects` and views under `https://github.com/dan-petty/devops-cli/issues/views`.
+  - **Standardized Projects v2 & Issues Views (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**: Four standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) track features across lifecycles (`New` -> `Ready` -> `In Progress` -> `In Review` -> `Done`, or `Blocked` while waiting on something outside the roadmap), audited via `devops gh views list` / `spec` / `audit` and synced via `devops gh views sync` (board items via `devops gh project sync`) with mandatory repository board linkage (`devops gh project link <number>`) so projects appear under `https://github.com/dan-petty/devops-cli/projects` and views under `https://github.com/dan-petty/devops-cli/issues/views`.
 - **Human-in-the-Loop Merging**: AI agents prepare PRs, monitor remote GitHub Actions CI, and remediate failures. AI agents **never merge PRs autonomously**. Maintainers approve and squash-merge.
 - **Sequential Pull Request Processing Queue (Strict Oldest-to-Newest / FIFO Execution)**:
   - When multiple open PRs exist across the repository or targeting an active release branch, AI agents and contributors **MUST ALWAYS process and advance pull requests in strict chronological order from oldest to newest** (FIFO queue: lowest PR number / earliest creation date first).
@@ -281,7 +290,7 @@ gitGraph
 - **Two-Stage PR Review Lifecycle & Post-Ready Copilot Monitoring**:
   - **Stage 1 (In-Progress Draft)**: Pull requests for in-progress work are created as drafts (`devops pr create --draft`). CI checks are monitored on every push.
   - **Stage 2 (Transition to Ready for Review)**: Once all work is completed, CI checks pass, and comments are addressed, agents convert the draft pull request to ready for review (`devops pr ready <pr_number>`).
-  - **Post-Ready Secondary Review & Copilot Gate**: Marking a pull request ready transitions it to public review state and triggers CI workflows, CodeQL scans, and reviewer notifications. Automatic Copilot review runs on PRs into `main` only, because reviewing every PR used the monthly token budget halfway through the month, so each release PR into `main` is the reviewed gate. Marking a `release/*` PR ready triggers CI and CodeQL, not Copilot; agents never wait for a Copilot review on a `release/*` PR. Agents MUST NOT consider tasks complete upon marking ready; agents must allow at least 5 minutes (300 seconds) for checks and reviews to complete, wait at least a full minute (60 seconds) between request cycles when monitoring PR status, inspect open threads (`devops pr threads list <pr_number> --unresolved-only`), apply test-first fixes, reply directly in-thread, resolve threads, and re-verify checks until 100% green.
+  - **Post-Ready Secondary Review & Copilot Gate**: Marking a pull request ready transitions it to public review state and triggers CI workflows and reviewer notifications (CodeQL runs on every push). Automatic Copilot review runs on PRs into `main` only, because reviewing every PR used the monthly token budget halfway through the month, so each release PR into `main` is the reviewed gate. Marking a `release/*` PR ready triggers CI, not Copilot; agents never wait for a Copilot review on a `release/*` PR. Agents MUST NOT consider tasks complete upon marking ready; agents must allow at least 5 minutes (300 seconds) for checks and reviews to complete, wait at least a full minute (60 seconds) between request cycles when monitoring PR status, inspect open threads (`devops pr threads list <pr_number> --unresolved-only`), apply test-first fixes, reply directly in-thread, resolve threads, and re-verify checks until 100% green.
 - **Mandatory PR Monitoring Gate (`devops pr monitor`) & Review Remediation Mandate**:
   - AI agents and developers **MUST ALWAYS** monitor remote CI checks and Copilot reviews (on PRs into `main`) via `devops pr monitor <pr_number>` (or `devops pr wait <pr_number>`) immediately after opening or updating PRs.
   - **Cadence & Timeout Standards**: Allow at least 5 minutes (300s) for remote CI checks and review bots to complete, and wait at least a full minute (60s) between request cycles when monitoring check status. Never poll in rapid or sub-minute intervals.
@@ -343,7 +352,7 @@ flowchart TD
 | **2. Specification** | Test-First Authoring | `pytest tests/test_<feature>.py` | Clean initial failure (asserting new behavior) |
 | **3. Implementation**| Invariant Enforcement | `tests/test_architectural_invariants.py` | Complexity $\le 10$, Nesting $\le 5$, zero bare exceptions |
 | **4. Verification**  | Full CI Suite | `devops ci` (or `uv run devops ci`) | All Gated quality checks green, coverage $\ge 90\%$ |
-| **4. Pre-Commit**    | Git Hook Interception | `uv run pre-commit run --all-files` | 12/12 hooks passing |
+| **4. Pre-Commit**    | Git Hook Interception | `uv run pre-commit run --all-files` | All pre-commit hooks passing |
 | **5. AI Review**     | Multi-Persona Review | `devops review branch <branch> --dry-run` | Zero high/critical unmitigated findings |
 | **6. PR Lifecycle**  | Branch Governance | `devops pr create --base release/vX.Y.Z` | CODEOWNERS notified; remote CI checks green |
 | **6. Release**       | Release Train | `devops roadmap close --confirm` (manual fallback: `devops release prepare <version> --create-pr`) | Items closed with summaries; release PR cut; tag and GitHub Release |
@@ -354,7 +363,7 @@ flowchart TD
 ## 4. Related Architecture & Documentation References
 
 - **Routine Operations Manual**: [`docs/ROUTINE_TASKS.md`](ROUTINE_TASKS.md)
-- **Release Management Runbook**: [`docs/RELEASE_RUNBOOK.md`](RELEASE_RUNBOOK.md)
+- **Release Management Runbook**: [`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)
 - **Master Strategic Roadmap**: [`docs/ROADMAP.md`](ROADMAP.md)
 - **Contributing Guidelines**: [`CONTRIBUTING.md`](../CONTRIBUTING.md)
 - **Enterprise Security Policy**: [`SECURITY.md`](../SECURITY.md)

@@ -6,14 +6,14 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 
 | Stack | Components | Namespaces | Default Ports |
 | :--- | :--- | :--- | :--- |
-| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Grafana, Prometheus, Alertmanager, Grafana K8s Monitoring Stack (Alloy + exporters), Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector | `argocd`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope) |
-| **`llm`** | Ollama, Open-WebUI, Qdrant Vector DB, Valkey Cache, Valkey Run Index | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
-| **`logging`** | Loki (pod logs shipped from `infra` stack's Alloy) | `logging` | `3100` (Loki) |
-| **`all`** | All components from all stacks | `argocd`, `monitoring`, `otel`, `llm`, `logging` | All ports above |
+| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Grafana k8s-monitoring (Alloy + kube-state-metrics + node-exporter), Prometheus server, Grafana, Alertmanager, Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector, Jaeger | `argocd`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope) |
+| **`llm`** | Ollama (per-VRAM-tier DaemonSets), LLM Gateway (LiteLLM), Open-WebUI, Qdrant Vector DB, Valkey Cache | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
+| **`logging`** | Loki, Fluent Bit (pod logs shipped from `infra` stack's Alloy) | `logging` | `3100` (Loki) |
+| **`all`** | All components from the three stacks | `argocd`, `monitoring`, `otel`, `llm`, `logging` | All ports above |
 
 ## Prerequisites
 
-- minikube running (`minikube status` or auto-started by postStart.sh)
+- minikube running (`minikube status` or auto-started by `devops devcontainer post-start`)
 - kubectl and helm on PATH (installed by devcontainer features)
 - standard Kubernetes context configuration (the CLI uses `$KUBECONFIG` or defaults to `~/.kube/config`)
 
@@ -53,7 +53,7 @@ kubectl -n monitoring port-forward svc/pyroscope 4040:4040
 
 ### LLM Stack (`llm`)
 ```bash
-# Ollama REST API of the default tier, behind the cluster-internal ollama-16gib Service
+# Ollama REST API (one ClusterIP Service per VRAM tier, e.g. ollama-16gib)
 kubectl -n llm port-forward svc/ollama-16gib 11434:11434
 
 # Open-WebUI Web Interface
@@ -65,17 +65,18 @@ minikube service qdrant -n llm --url
 # Valkey In-Memory Cache
 kubectl -n llm exec -it svc/valkey -- valkey-cli ping
 
-# Valkey Run Index: benchmark and evaluation runs shared by workstations. Its password Secret
-# comes from the keyring (see Cluster Secrets), then point devops-cli at it through its NodePort.
+# Valkey Run Index (not deployed by deploy-stack; apply `k8s/llm/valkey-runs.yaml` yourself after creating its password):
+# benchmark and evaluation runs shared by workstations. Its password Secret comes from the keyring (see Cluster Secrets),
+# then point devops-cli at it through its NodePort.
 devops k8s push-secrets --only llm/valkey-runs-auth
 devops ai runs connect
 
-# LLM Gateway: authenticated OpenAI-compatible API for every model (vLLM and Ollama)
+# LLM Gateway: authenticated OpenAI-compatible API for every Ollama model
 minikube service llm-gateway -n llm --url
 ```
 
 ### LLM Gateway (`llm-gateway`)
-The LiteLLM gateway is the single entry point to every inference server. It serves the virtual models `devops-chat`, `devops-coder`, `devops-reasoning` and `devops-embedding`, escalates a prompt too long for a model to the next larger context window (`devops-chat` → `devops-coder` 16K → `devops-reasoning` 64K) before calling any backend, falls back from an unavailable `devops-coder` to `devops-reasoning` before the small Ollama model, and rejects requests without its master key. `devops k8s deploy-stack` writes the key (`llm/llm-gateway-secrets`, starting with `sk-`) from the keyring before the gateway starts, adopting a live key the keyring lacks and generating one where neither has it; `devops k8s push-secrets --only llm/llm-gateway-secrets` does the same alone (see Cluster Secrets).
+The LiteLLM gateway is the single entry point to every inference server. It serves the virtual models `devops-chat`, `devops-coder`, `devops-reasoning` and `devops-review`, plus models by name (`qwen3.8:27b`, `gemma4:31b`, `deepseek-r1:70b`, `bge-m3:latest`, `embeddinggemma:300m`). It moves a prompt too long for `devops-chat` to `devops-coder`, then `devops-reasoning`, before calling any backend. It falls back from an unavailable `devops-coder` to `devops-reasoning` before the small Ollama model, and rejects requests without its master key. `devops k8s deploy-stack` writes the key (`llm/llm-gateway-secrets`, starting with `sk-`) from the keyring before the gateway starts, adopting a live key the keyring lacks and generating one where neither has it; `devops k8s push-secrets --only llm/llm-gateway-secrets` does the same alone (see Cluster Secrets).
 The Service is a NodePort that Kubernetes assigns; find it with `kubectl -n llm get svc llm-gateway`, then call the API from any node address:
 ```bash
 KEY=$(kubectl -n llm get secret llm-gateway-secrets -o jsonpath='{.data.master-key}' | base64 -d)
@@ -83,8 +84,8 @@ curl -H "Authorization: Bearer $KEY" http://<node>:<node-port>/v1/models
 ```
 These groups route reviews, embeddings and background work:
 
-- `devops-review` spreads one model name over the interactive Ollama tiers: `qwen3-coder:30b` on `ollama-48gib-fast` and `ollama-64gib-standard`, and `gpt-oss:20b` on `ollama-16gib-fast`. Each deployment takes a share of requests weighted by its throughput, and pre-call checks keep a prompt off any deployment whose window it exceeds. No deployment is capped with `max_parallel_requests`: LiteLLM waits on the cap only after routing, so queued requests pile up behind it while larger servers idle, and the backends queue excess requests themselves.
-- `bge-m3:latest` is the embedding group. Its one deployment is on the background tier, `ollama-48gib-slow`, with `model_info.mode: embedding` so health checks embed rather than generate.
+- `devops-review` spreads one model name over four Ollama tiers: `qwen3-coder:30b` on `ollama-48gib` (weight 9) and `ollama-64gib` (6), and `gpt-oss:20b` on `ollama-16gib` (8) and `ollama-24gib` (1). Each deployment takes a share of requests weighted by its throughput, and pre-call checks keep a prompt off any deployment whose window it exceeds. No deployment is capped with `max_parallel_requests`: LiteLLM waits on the cap only after routing, so queued requests pile up behind it while larger servers idle, and the backends queue excess requests themselves.
+- Ollama models are also served under their own names: `qwen3.8:27b`, `gemma4:31b`, `deepseek-r1:70b`, and the embedding models `bge-m3:latest` and `embeddinggemma:300m`. Embedding groups configure `model_info.mode: embedding` so health checks embed rather than generate.
 - `qwen3-coder:30b` and `gpt-oss:20b` each pin one of `devops-review`'s models: the group copies that model's `devops-review` deployments and weights, with no `max_input_tokens` and no fallback, so a review measured on one model is routed as the pool routes it.
 - `devops-background` is the background tier's one generation model: `qwen3.8:27b` on `ollama-48gib-slow`. That tier serves one request at a time, so it is in no interactive or review pool, where background work would queue in front of review calls. It keeps its embedding model and `qwen3.8:27b` loaded together and is sent no other model. In-cluster services (`k8s/devops/` such as `roadmap-service` and cluster jobs) and `devops-review` fallback reach it; the pinned groups have no fallback. The gateway's 1,500 s timeout outlasts the review client's 1,200 s, so a `devops-review` call that timed out at the gateway was already given up, and the fallback spends the tier's slot on a reply nobody reads. Use it for `devops review path --watch`, `devops ai pipeline`, `devops ai agents` and `devops ai analyze` through environment overrides, never in workstation `config.yaml`, so no interactive run lands on it. Set `DEVOPS_CLI_AI_MAX_RETRIES=1`. The gateway abandons a call after 1,100 s and never retries it, but the client retries a failed or timed-out call in its HTTP transport and again in its dispatch loop, `ai.max_retries` times each, and every retry waits for the same single slot. With `1` a call is sent at most four times; `0` does not stop retries, because the transport then makes five attempts:
   ```bash
@@ -95,7 +96,7 @@ These groups route reviews, embeddings and background work:
   DEVOPS_CLI_AI_MAX_RETRIES=1 DEVOPS_CLI_AI_MODEL=devops-background devops ai agents   # likewise devops ai analyze
   ```
 
-Recheck the `devops-review` weights whenever a backend, model or node changes. `devops ai gateway tune` measures each deployment on its own, from an ephemeral Python container attached to the gateway pod (`kubectl debug`), since the backends admit only the gateway. It recommends each weight as capacity (fixed-length tokens per second) divided by cost (the tokens the model writes per request), and lists each backend's GPUs and engine. It changes nothing; copy the recommended weights into `litellm_params.weight`:
+Recheck the `devops-review` weights whenever a backend, model or node changes. `devops ai gateway tune` measures each deployment on its own, from an ephemeral Python container attached to the gateway pod (`kubectl debug`), so each backend is measured over the gateway's own network path. It recommends each weight as capacity (fixed-length tokens per second) divided by cost (the tokens the model writes per request), and lists each backend's GPUs and engine. It changes nothing; copy the recommended weights into `litellm_params.weight`:
 ```bash
 devops ai gateway tune                      # devops-review at concurrency 1, 4 and 8
 devops ai gateway tune --model devops-chat --format json
@@ -109,7 +110,7 @@ ai:
     analysis:            # devops ai review
       provider: gateway
       model: devops-review
-      context_window: 16384   # sizes review pages to fit the smallest server
+      context_window: 16384   # review page size; every devops-review backend holds at least 48K
     # verification:      # checks the findings analysis produced; unset, analysis verifies
     #   model: devops-reasoning   # layered on analysis: same provider, gateway and window
     chat:                # devops ai chat
@@ -117,24 +118,18 @@ ai:
       model: devops-coder
     embedding:
       provider: gateway
-      model: bge-m3:latest
+      model: embeddinggemma:300m
 ```
 Provider `gateway` always sends to `ai.gateway_url`, even when `ai.api_base_url` is set for another provider. To send one task to a different gateway, set `api_base_url` on that task.
 
-`verification` applies on top of `analysis`, so it only has to name what differs. Leave it unset unless a comparison on your own reviews favors a split. On the homelab, verifying with the 32B model (`devops-reasoning`) made reviews slower, since every verification queued on one server. It also rejected nearly every candidate, while one top-severity false positive still passed.
+`verification` applies on top of `analysis`, so it only has to name what differs. Leave it unset unless a comparison on your own reviews favors a split. On the homelab, verifying with the 32B model then behind `devops-reasoning` (vLLM, since removed) made reviews slower, since every verification queued on one server. It also rejected nearly every candidate, while one top-severity false positive still passed.
 
 Open WebUI uses the same key: on a fresh install it connects to the gateway automatically. An existing installation keeps the connections stored in its database, so add `http://llm-gateway.llm.svc.cluster.local:4000/v1` under Admin Panel > Settings > Connections.
 
-### GPU Placement: vLLM and Ollama
-Inference engines are placed by GPU architecture, using node labels from NVIDIA GPU Feature Discovery (`nvidia.com/gpu.family`) or an architecture labeler (`nvidia.com/gpu.architecture`):
+### GPU Placement: Ollama tiers
+Ollama runs as one DaemonSet per total-VRAM tier (`ollama-16gib` … `ollama-128gib`, `llm/profiles/ollama-profiles.yaml`), scheduled by the node label `nvidia.com/gpu.total-vram-gib`. The gateway reaches each tier through its ClusterIP Service `ollama-<n>gib`.
 
-| Workload | Nodes | Model | Served as | Virtual model |
-| :--- | :--- | :--- | :--- | :--- |
-| `vllm` Deployment | 2+ Ampere-or-newer GPUs | Qwen2.5-Coder-32B-Instruct-AWQ, tensor parallel 2, 64K context (YaRN) | `qwen2.5-coder-32b-instruct` | `devops-reasoning` |
-| `vllm-single` Deployment | 1 Ampere-or-newer GPU with 16 GiB+ | Qwen2.5-Coder-14B-Instruct-AWQ, FP8 KV cache, 16K context | `qwen2.5-coder-14b-instruct` | `devops-coder` |
-| `ollama` StatefulSet, one pod per node | GPUs older than Ampere | Pulled on demand | Ollama model tags | `devops-chat`, `devops-embedding`, `ollama/*` |
-
-Inference workloads pull models directly and are reachable inside the cluster through the gateway. The gateway lists each Ollama pod (`ollama-<n>.ollama-nodes`) as its own deployment, balancing load and cooling down failures per node.
+Inference workloads pull models directly and are reachable inside the cluster through the gateway.
 
 ## Port Forwarding & Automated Configuration
 
@@ -333,7 +328,7 @@ To rotate a generated value, store a new one at a hidden prompt with `uv run key
 ```bash
 devops k8s deploy-stack --stack devops --context <context>
 # or directly:
-devops k8s apply k8s/devops/ --template --context <context>
+devops k8s apply k8s/devops/ --template
 devops config set k8s.github_account <machine-login>
 devops k8s push-secrets --context <context> --plan       # reads the keyring, gh and the cluster: key names and states, never a value
 devops k8s push-secrets --context <context>
@@ -418,10 +413,7 @@ Inspect and manage GitOps state using native `devops argo` commands:
 devops argo cd apps list
 
 # Check detailed status of an Application
-devops argo cd apps get <app-name>
-
-# View differences between live cluster state and declared git state
-devops argo cd apps diff <app-name>
+devops argo cd apps status <app-name>
 
 # Manually trigger reconciliation / sync for an Application
 devops argo cd apps sync <app-name>
@@ -432,7 +424,7 @@ devops argo cd apps sync <app-name>
 | Previous Manual Step | Replaced By Argo CD GitOps |
 | :--- | :--- |
 | `devops k8s deploy-stack --stack <name>` | Automated reconciliation by Argo CD leaf applications. |
-| `devops k8s apply -k k8s/...` | Declarative raw leaf Applications (`apps/*.yaml`) with `selfHeal: true`. |
+| `devops k8s apply k8s/...` | Declarative raw leaf Applications (`apps/*.yaml`) with `selfHeal: true`. |
 | Manual Helm release upgrades (`helm upgrade ...`) | Multi-source Helm Applications with pinned chart versions and git value files. |
 | Ad-hoc ingress and domain patching | Declarative domain overlays (`k8s/overlays/homelab/ingress/` and `devops/`). |
 | Secret storage in Helm values | External secret synchronization (`devops k8s push-secrets`) decoupled from manifests. |
@@ -462,7 +454,7 @@ Expose homelab Kubernetes services securely to the internet without public ports
                                    │           │
                  ┌─────────────────┘           └─────────────────┐
                  ▼                                               ▼
-     k8s / Namespace: llm                         k8s / Namespace: monitoring
+     k8s / Namespace: llm                         k8s / Namespaces: monitoring, argocd
   [chat.homelab.<domain>] ──▶ open-webui       [grafana.homelab.<domain>] ──▶ grafana
   [ai.homelab.<domain>]   ──▶ llm-gateway      [argocd.homelab.<domain>]  ──▶ argocd
 ```
@@ -502,7 +494,7 @@ Expose homelab Kubernetes services securely to the internet without public ports
    ```bash
    kubectl patch svc traefik -n kube-system -p '{"spec": {"type": "ClusterIP"}}'
    ```
-4. Deploy the core service Ingress definitions with template substitution (substitutes `k8s.domain` from `config.yaml`):
+4. Deploy the core service Ingress definitions with template substitution (substitutes `k8s.domain` from `config.yaml`; set it to `homelab.<domain>` so the rendered hosts such as `chat.homelab.<domain>` fall under the `*.homelab.<domain>` tunnel hostname):
    ```bash
    devops k8s apply k8s/ingress/ingress-routes.yaml --template
    ```
@@ -575,6 +567,7 @@ k8s/
 │   └── values.yaml           # Helm values for opentelemetry-collector
 ├── llm/
 │   ├── kustomization.yaml    # Kustomize overlay for LLM stack base
+│   ├── profiles/             # Ollama per-VRAM-tier DaemonSets and ollama-<n>gib Services (applied by deploy-stack)
 │   ├── valkey.yaml           # Valkey Deployment + Service manifest
 │   ├── valkey-runs.yaml      # Run index Valkey: PVC, Deployment, NodePort Service, NetworkPolicy
 │   ├── values-open-webui.yaml# Helm values for open-webui/open-webui

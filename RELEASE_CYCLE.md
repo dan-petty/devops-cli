@@ -115,15 +115,19 @@ uv run devops ci
 ### Core Validation Checks
 1. **Python Version Check**: Strictly enforces Python 3.14+ runtime.
 2. **Unit Tests (`pytest -n auto --maxprocesses=8`)**: Parallel unit test execution with dynamic worker auto-scaling and full mock isolation.
-3. **Code Coverage (`pytest-cov`)**: Enforces branch and line coverage thresholds.
+3. **Code Coverage (`pytest-cov`)**: Enforces the 90% line coverage threshold.
 4. **Linting (`ruff check .`)**: Strict PEP 8 linting, import sorting, and unused symbol elimination.
 5. **Formatting (`ruff format --check .`)**: Enforces 100-character line length standards.
 6. **Type Checking (`mypy --strict src`)**: Full static type checking in strict mode across all source files.
 7. **Dependency Audit (`uv audit`)**: Automated vulnerability scanning of lockfile packages against OSV.
 8. **Security Scan (`bandit`)**: Static vulnerability, subshell safety, and code analysis.
 9. **Workflow Linting (`actionlint`)**: Validates GitHub Actions workflow schemas and script syntax.
-10. **DevContainer Smoke Test (`devops devcontainer validate`)**: Smoke-tests DevContainer manifests prior to publication.
-11. **Documentation Validation (`devops docs check`)**: Asserts all CLI markdown docs and README matrices are synchronized.
+10. **Documentation Validation (`devops docs check`)**: Asserts all CLI markdown docs and README matrices are synchronized.
+11. **Project Environment Validation (`uv check`)**: Verifies project dependencies and Python environment consistency.
+12. **Lockfile Validation (`uv lock --check`)**: Verifies `uv.lock` remains strictly synchronized with `pyproject.toml`.
+13. **Dependency Freshness (`uv tree --outdated`)**: Inspects dependency tree for outdated packages.
+
+CI (`ci.yml`) additionally runs `devops devcontainer validate --workspace .`.
 
 ---
 
@@ -134,11 +138,11 @@ The `devops-cli` provides native first-class subcommands to automate every stage
 | Subcommand | Description | Example |
 | :--- | :--- | :--- |
 | `devops release status` | Displays release version consistency, git tag, changelog state, and docs freshness. | `devops release status` |
-| `devops release prepare <ver>` | Bumps versions in `pyproject.toml` and `__init__.py`, collects `changelog.d/` into `CHANGELOG.md`, and syncs docs/README. | `devops release prepare 0.1.10 [-p]` |
+| `devops release prepare <ver>` | Bumps version in `pyproject.toml` (`__init__.py` derives `__version__` from it), collects `changelog.d/` into `CHANGELOG.md`, and syncs docs/README. | `devops release prepare 0.1.10 [-p]` |
 | `devops release pr [-v <ver>]` | Creates a release branch (`release/vX.Y.Z`), commits bumps, and opens a GitHub Release PR. | `devops release pr -v 0.1.10` |
 | `devops release check` | Authoritative verification gate: asserts version matching, clean git tree, docs freshness, and CI validation. | `devops release check` |
 | `devops release notes [-v <ver>]` | Extracts and renders formatted markdown release notes from `CHANGELOG.md`. | `devops release notes -v 0.1.10` |
-| `devops release tag [-v <ver>]` | Creates release commit and annotated git tag (used by CI release automation on `main`). | `devops release tag 0.1.10` |
+| `devops release tag [-v <ver>]` | Creates release commit and annotated git tag locally (release.yml tags with git directly). | `devops release tag -v 0.1.10` |
 
 ---
 
@@ -201,8 +205,8 @@ Once all automated CI checks pass and reviews are complete, repository maintaine
 
 ### Step 5: Automated Release Publishing (GitHub Actions)
 Upon PR merge into `main`, [`.github/workflows/release.yml`](.github/workflows/release.yml) automatically:
-1. Detects the release commit (`chore(release): bump version to vX.Y.Z`).
-2. Runs authoritative verification (`devops release check --allow-dirty`).
+1. Runs on every push to `main` and reads the target version from `pyproject.toml`.
+2. Runs release verification without the CI suite (`devops release check --allow-dirty --skip-ci`).
 3. Cuts and pushes the annotated git tag `vX.Y.Z`.
 4. Extracts release notes using `devops release notes` and creates the official GitHub Release.
 
@@ -218,7 +222,4 @@ uv run devops devcontainer run-lifecycle --all
 
 For active release milestones, architectural technical specifications, and the portfolio prioritization matrix, consult the canonical [Strategic Roadmap](docs/ROADMAP.md).
 
-- **Current Active Development**: Milestone `v0.2.20`.
-- **Completed Milestones**: `v0.2.19` (*Autonomous Trial-and-Error Solution Discovery, MCTS Exploration & Delta-Debugging Engine*), `v0.2.18` (*Sigstore Cosign Container Provenance & Automated Keyless Signing*), `v0.2.17` (*Protocol-Agnostic Endpoint Readiness & Health Probing*).
-- **Scheduled Milestones**: `v0.2.21` and `v0.2.22`.
-- **Roadmap Governance**: Follow test-first progressive verification, active GitHub Projects v2 issue population, and automated milestone closure on release merge.
+Current and scheduled milestones: see [docs/ROADMAP.md](docs/ROADMAP.md) and the GitHub milestones page. Follow test-first progressive verification, active GitHub Projects v2 issue population, and automated milestone closure on release merge.
