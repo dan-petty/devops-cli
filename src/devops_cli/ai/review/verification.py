@@ -1775,21 +1775,28 @@ def _refutes(item: dict[str, Any], inv_matched: list[str]) -> bool:
     return bool(inv_matched) or flagged or status == "INVALIDATED"
 
 
-def _verdict_status(item: dict[str, Any], inv_matched: list[str]) -> tuple[str, bool]:
-    """The status and reportability a verdict supports.
+def _is_confirmed_verdict(item: dict[str, Any]) -> bool:
+    """Whether a verdict claims to confirm its finding."""
+    return (
+        _verdict_bool(item.get("verified")) is True
+        or str(item.get("status") or "").strip().upper() == "VERIFIED"
+    )
+
+
+def _verdict_status(item: dict[str, Any], inv_matched: list[str]) -> tuple[str, bool, bool]:
+    """The status, reportability, and contradiction flag a verdict supports.
 
     Only clear evidence removes a finding. A verdict that both confirms and refutes it, or that
     declines to confirm it without naming invalidating evidence, leaves it unverified and in
     the report, as a finding with no verdict is.
     """
-    verified = _verdict_bool(item.get("verified"))
-    status = str(item.get("status") or "").strip().upper()
     refuted = _refutes(item, inv_matched)
-    confirmed = verified is True or status == "VERIFIED"
+    confirmed = _is_confirmed_verdict(item)
     if refuted and confirmed:
-        return "UNVERIFIED", True
+        return "UNVERIFIED", True, True
     if refuted:
-        return "INVALIDATED", False
+        return "INVALIDATED", False, False
+    status = str(item.get("status") or "").strip().upper()
     if _verdict_bool(item.get("mitigated")) or status == "MITIGATED":
         # A mitigation is a claim about the code too: without a reason naming the mechanism
         # and perimeter files it proves nothing, degrading to UNVERIFIED (reportable=True).
@@ -1803,11 +1810,11 @@ def _verdict_status(item: dict[str, Any], inv_matched: list[str]) -> tuple[str, 
             reason_str and not _is_placeholder(_extract_perimeter_files(item, reason_str))
         )
         if not reason_str or not has_mech or not has_perim:
-            return "UNVERIFIED", True
-        return "MITIGATED", True
+            return "UNVERIFIED", True, False
+        return "MITIGATED", True, False
     if confirmed:
-        return "VERIFIED", _verdict_bool(item.get("reportable")) is not False
-    return "UNVERIFIED", True
+        return "VERIFIED", _verdict_bool(item.get("reportable")) is not False, False
+    return "UNVERIFIED", True, False
 
 
 # Words too common to tell one claim from another.
@@ -1873,7 +1880,8 @@ def _without_self_refutation(
         return item, inv_matched, False
     genuine = [c for c in inv_matched if not _restates_the_finding(c, f)]
     reason = str(item.get("reason") or "").strip()
-    if genuine and not _reason_confirms(reason, f):
+    confirmed = _is_confirmed_verdict(item)
+    if genuine and (confirmed or not _reason_confirms(reason, f)):
         return item, inv_matched, False
     if not inv_matched and not _reason_confirms(reason, f):
         return item, inv_matched, False
@@ -2345,16 +2353,17 @@ def _resolve_finding_attributes(
     return sev, loc, final_obs, final_exp
 
 
-def _no_verdict_note(f: Finding, withdrawn: bool) -> str:
+def _no_verdict_note(f: Finding, withdrawn: bool, contradicted: bool = False) -> str:
     """Why a finding the verifier judged has no verdict, when no check of the verdict said.
 
     A withdrawn self-refutation says so. Criteria that passed both ways sent the finding to the
     verifier, and when it cannot decide either, that is still why. Otherwise the verifier was
-    inconclusive: it neither confirmed, refuted nor found a mitigation, or it both confirmed
-    and refuted.
+    inconclusive: it neither confirmed, refuted nor found a mitigation.
     """
     if withdrawn:
         return CONST_VERIFIER_SELF_REFUTATION
+    if contradicted:
+        return CONST_VERIFIER_CONTRADICTION
     if f.verification_note == CONST_CRITERIA_NON_DISCRIMINATING:
         return CONST_CRITERIA_NON_DISCRIMINATING
     return CONST_VERIFIER_INCONCLUSIVE
@@ -2385,7 +2394,7 @@ def _apply_single_finding_verification(
 
     ver_matched = _verdict_list(item.get("verified_criteria_matched"))
     item, inv_matched, withdrawn = _without_self_refutation(f, item)
-    status_val, is_rep = _verdict_status(item, inv_matched)
+    status_val, is_rep, contradicted = _verdict_status(item, inv_matched)
     conf = _extract_finding_confidence(item.get("confidence_score"), f.confidence_score)
 
     merged_ver_matched = list(dict.fromkeys(f.verified_criteria_matched + ver_matched))
@@ -2412,8 +2421,10 @@ def _apply_single_finding_verification(
 
     sev, loc, final_obs, final_exp = _resolve_finding_attributes(f, item)
     status_val, by, reason = _check_finding_polarity(final_obs, final_exp, status_val, reason)
-    if status_val == "UNVERIFIED" and verification_note is None:
-        verification_note = _no_verdict_note(f, withdrawn)
+    if status_val == "UNVERIFIED":
+        citation_line = None
+        if verification_note is None:
+            verification_note = _no_verdict_note(f, withdrawn, contradicted=contradicted)
 
     return apply_verdict(
         f,
