@@ -116,6 +116,32 @@ def test_the_patch_sets_the_kustomize_patches_of_the_application_source() -> Non
     assert application_patch(patches) == {"spec": {"source": {"kustomize": {"patches": patches}}}}
 
 
+@pytest.mark.parametrize(
+    ("spec", "message"),
+    [
+        ({"sources": [{"repoURL": "https://example.com/repo"}]}, "several sources"),
+        ({"source": {"path": "k8s/x"}}, "names no spec.source.repoURL"),
+    ],
+)
+def test_an_application_the_overrides_cannot_follow_is_refused_by_name(
+    spec: dict, message: str
+) -> None:
+    printed = json.dumps({"metadata": {"name": "ingress"}, "spec": spec})
+    with pytest.raises(KubernetesContextError, match=f"Application 'ingress' .*{message}"):
+        application_source(printed)
+
+
+def test_a_revision_or_repository_from_the_cluster_is_never_read_as_a_git_option(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path, "chat.example.com")
+    marker = tmp_path / "marker"
+    hostile = ApplicationSource(".", f"--upload-pack=touch {marker}; git-upload-pack", "k8s/app")
+    with pytest.raises(KubernetesContextError):
+        render_at_revision(hostile, repo / "work", _run)
+    assert not marker.exists()
+
+
 def test_an_applications_source_is_read_from_its_kubectl_json() -> None:
     printed = json.dumps(
         {
@@ -134,9 +160,21 @@ def test_an_applications_source_is_read_from_its_kubectl_json() -> None:
 
 
 def _run(
-    cmd: list[str], *, check: bool = False, capture: bool = True
+    cmd: list[str],
+    *,
+    check: bool = False,
+    capture: bool = True,
+    timeout: float | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, capture_output=capture, text=True, check=check)
+    return subprocess.run(
+        cmd,
+        capture_output=capture,
+        text=True,
+        check=check,
+        timeout=timeout,
+        env={**os.environ, **(env or {})},
+    )
 
 
 def _repo(tmp_path: Path, host: str) -> Path:

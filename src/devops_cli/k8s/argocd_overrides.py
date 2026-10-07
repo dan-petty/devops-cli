@@ -19,6 +19,10 @@ from typing import Any
 
 import yaml
 
+from devops_cli.config.constants import (
+    CONST_GIT_NONINTERACTIVE_ENV,
+    CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS,
+)
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.template import normalize_domain, render_manifest_template
 
@@ -37,7 +41,17 @@ class ApplicationSource:
 
 def application_source(application_json: str) -> ApplicationSource:
     """The source of an Application as ``kubectl get application -o json`` prints it."""
-    source = json.loads(application_json)["spec"]["source"]
+    application = json.loads(application_json)
+    name = (application.get("metadata") or {}).get("name", "?")
+    spec = application.get("spec") or {}
+    if spec.get("sources"):
+        raise KubernetesContextError(
+            f"Argo CD Application '{name}' renders several sources (spec.sources); "
+            "its host overrides need a single spec.source."
+        )
+    source = spec.get("source") or {}
+    if not source.get("repoURL"):
+        raise KubernetesContextError(f"Argo CD Application '{name}' names no spec.source.repoURL.")
     return ApplicationSource(
         repo_url=source["repoURL"],
         revision=source.get("targetRevision") or "HEAD",
@@ -45,7 +59,18 @@ def application_source(application_json: str) -> ApplicationSource:
     )
 
 
-def _stdout(result: subprocess.CompletedProcess[str], cmd: list[str]) -> str:
+def _stdout(run: Run, cmd: list[str]) -> str:
+    """The output of `cmd`, run without prompts and within the fetch time limit."""
+    try:
+        result = run(
+            cmd,
+            check=False,
+            capture=True,
+            timeout=CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS,
+            env=dict(CONST_GIT_NONINTERACTIVE_ENV),
+        )
+    except subprocess.SubprocessError as exc:
+        raise KubernetesContextError(f"`{' '.join(cmd)}` did not finish: {exc}") from exc
     if result.returncode != 0:
         reason = (result.stderr or result.stdout or "").strip()
         raise KubernetesContextError(f"`{' '.join(cmd)}` failed: {reason}")
@@ -56,30 +81,28 @@ def render_at_revision(source: ApplicationSource, workdir: Path, run: Run) -> st
     """What Argo CD renders for `source`: its path built by Kustomize at its revision.
 
     The revision is fetched into `workdir`, never into the caller's checkout, so the hosts come
-    from what Argo CD builds whichever branch the caller has checked out.
+    from what Argo CD builds whichever branch the caller has checked out. The repository and
+    revision come from the cluster or the command line, so git reads them after
+    ``--end-of-options`` and can never take one for an option.
     """
     checkout = workdir / "checkout"
-    for cmd in (
-        ["git", "init", "--quiet", str(checkout)],
-        [
-            "git",
-            "-C",
-            str(checkout),
-            "fetch",
-            "--quiet",
-            "--depth",
-            "1",
-            source.repo_url,
-            source.revision,
-        ],
-        ["git", "-C", str(checkout), "checkout", "--quiet", "FETCH_HEAD"],
-    ):
-        _stdout(run(cmd, check=False, capture=True), cmd)
+    git = ["git", "-C", str(checkout)]
+    _stdout(run, ["git", "init", "--quiet", str(checkout)])
+    fetch = [
+        "fetch",
+        "--quiet",
+        "--depth",
+        "1",
+        "--end-of-options",
+        source.repo_url,
+        source.revision,
+    ]
+    _stdout(run, [*git, *fetch])
+    _stdout(run, [*git, "checkout", "--quiet", "FETCH_HEAD"])
     target = (checkout / source.path).resolve()
     if not target.is_relative_to(checkout.resolve()):
         raise KubernetesContextError(f"Application path {source.path!r} leaves its repository.")
-    cmd = ["kubectl", "kustomize", str(target)]
-    return _stdout(run(cmd, check=False, capture=True), cmd)
+    return _stdout(run, ["kubectl", "kustomize", str(target)])
 
 
 def _host_fields(doc: dict[str, Any]) -> list[tuple[str, str]]:

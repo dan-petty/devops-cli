@@ -326,8 +326,9 @@ To rotate a generated value, store a new one at a hidden prompt with `uv run key
 `k8s/devops/` runs devops-cli as cluster Jobs, so agents drive it with kubectl and never handle keys. It is managed by `devops k8s deploy-stack --stack devops` (and `--stack all`), the only command that creates its ConfigMap `devops-cli-config`, which it renders from `config.yaml`; `devops k8s apply k8s/devops/ --template` applies the rest without it, and the pods wait for that ConfigMap. Each Job reads its credentials from Secret `devops/devops-cli` through `envFrom`, its configuration from ConfigMap `devops-cli-config` (provider `gateway` at `http://llm-gateway.llm.svc.cluster.local:4000/v1`), holds no Kubernetes API token, accepts no ingress, and reaches only DNS, the gateway, the OpenTelemetry collector in namespace `otel` and public HTTPS. Commands that need Qdrant, Prometheus, Grafana, Argo CD or a repository checkout do not run there yet.
 
 ```bash
+devops config set service.repos <owner/name>             # the repositories the service works for
+devops config set k8s.github_account <machine-login>     # or service.machine_account
 devops k8s deploy-stack --stack devops --context <context>
-devops config set k8s.github_account <machine-login>
 devops k8s push-secrets --context <context> --plan       # reads the keyring, gh and the cluster: key names and states, never a value
 devops k8s push-secrets --context <context>
 devops k8s run-job --context <context> -- --version      # follows the log, exits with the Job's exit code
@@ -342,7 +343,7 @@ kubectl -n devops logs -f job/<name>
 
 ### Roadmap service
 
-1. `uv run devops config set service.webhook_secrets` (hidden prompt; a JSON object mapping `owner/name` to its secret).
+1. `uv run devops config set service.repos <owner/name>` (each repository the service works for), then `uv run devops config set service.webhook_secrets` (hidden prompt; a JSON object mapping `owner/name` to its secret). deploy-stack refuses the devops stack until `service.repos` and the machine account (step 2) are set.
 2. `uv run devops k8s push-secrets --stack devops`, with the machine account's login in `k8s.github_account` (#741). deploy-stack also pushes it once namespace `devops` exists.
 3. Invite the machine account as a Write collaborator on each repo and board.
 4. Check that the GHCR `service` package is public (#741 made it so): `DOCKER_CONFIG=$(mktemp -d) docker pull ghcr.io/dan-petty/devops-cli/service:<tag>`.
@@ -388,18 +389,20 @@ This repository is public, so it holds no homelab value. Ingress hosts sit under
 | `service.repos`, `service.machine_account` (or `k8s.github_account`) | `config.yaml` | ConfigMap `devops-cli-config`, which no Application owns | `--stack devops` or `all` |
 | Hosts under the configured domain | `--domain`, else `k8s.domain`, `cloudflare.domain`, `DEVOPS_CLI_K8S_DOMAIN` or `DEVOPS_CLI_DOMAIN` | Kustomize patches in `spec.source.kustomize` of the Applications `devops` and `ingress` | `--stack devops` or `all` (both Applications), `--stack infra` (`ingress` only) |
 
-deploy-stack derives the host patches from what each Application renders at the revision Argo CD builds: it fetches the Application's `targetRevision` from its `repoURL` into a temporary directory and builds its path with Kustomize, whichever branch is checked out locally. `--argocd-revision <ref>` builds another revision instead, to stage hosts before a release merges. The `cluster` Application ignores `spec.source.kustomize` on the two Applications and syncs with `RespectIgnoreDifferences=true`, so its self-heal keeps the patches.
+The rest of ConfigMap `devops-cli-config` (gateway URL, models, context windows, telemetry) comes from `k8s/devops/configmap.example.yaml` in the checkout deploy-stack runs from (`--k8s-dir`, default `./k8s`), so run it from a checkout of the release the cluster runs.
 
-Each patch names one Ingress or IngressRoute and tests the placeholder host at each position before replacing it, so a host that git reorders or removes within that object fails the Application's manifest generation instead of routing to another backend. Kustomize skips a patch whose object no longer exists, and nothing covers an object or host that git adds: run `devops k8s deploy-stack --stack devops` again once such a change reaches the Applications' revision. deploy-stack renders everything before it writes anything, so an unset setting stops it, and its dry run, with an error naming the setting.
+Unlike the ConfigMap, the host patches do not depend on the checkout. deploy-stack derives them from what each Application renders at the revision Argo CD builds: it fetches the Application's `targetRevision` from its `repoURL` into a temporary directory and builds its path with Kustomize, whichever branch is checked out locally. `--argocd-revision <ref>` builds another revision instead, to stage hosts before a release merges. The `cluster` Application ignores `spec.source.kustomize` on the two Applications and syncs with `RespectIgnoreDifferences=true`, so its self-heal keeps the patches.
+
+Each patch names one Ingress or IngressRoute and tests the placeholder host at each position before replacing it, so a host that git reorders or removes within that object fails the Application's manifest generation instead of routing to another backend. Kustomize skips a patch whose object no longer exists, and nothing covers an object or host that git adds: run `devops k8s deploy-stack --stack devops` again once such a change reaches the Applications' revision. deploy-stack renders everything before it writes anything, so an unset setting stops it with an error naming the setting and changes nothing in the cluster. An unset service setting stops the dry run too; an unset domain stops only an Argo CD-managed deploy, and the dry run says so. A revision whose Application renders no host under the placeholder is refused rather than given an empty patch list.
 
 These values exist only in the cluster and in `config.yaml`. Once `cluster` has recreated the Applications `devops` and `ingress` (after `bootstrap-gitops`, for example), run `devops k8s deploy-stack --stack devops` to set them again; until then they sync the placeholder hosts.
 
 #### When a release merges into `main`
 
-1. Before merging, stage the hosts for the release: `devops k8s deploy-stack --stack devops --argocd-revision release/vX.Y.Z`. Until the merge retargets the Applications, `ingress` shows the ComparisonError `testing value /spec/rules/0/host failed` because it still renders the previous revision; the live Ingresses are unchanged. Keep the window short by running it right before the merge.
-2. Merge. `cluster` retargets the Applications, which then build the release with the staged hosts.
+1. The Applications track `main` (`devops release check` holds them there), so a merge moves `main` forward and the host patches stay in place. Stage hosts only when the release adds, removes, renames or reorders an Ingress or IngressRoute, or a host in one: right before merging, run `devops k8s deploy-stack --stack devops --argocd-revision release/vX.Y.Z` from a checkout of the release. If the release moved a host that `main` also renders, the Application shows the ComparisonError `testing value <pointer> failed` until the merge, and its live Ingresses stay as they were.
+2. Merge. Argo CD builds the release with the staged hosts.
 3. The `devops` Application pins roadmap-service and CronJob `devops-cli` to `service:vX.Y.Z`, which the Release Orchestration workflow publishes only after its release job. roadmap-service uses the Recreate strategy, so it is down until that image exists; watch the workflow, and once the image is published run `kubectl -n devops rollout restart deploy/roadmap-service`.
-4. Check: `devops argo cd apps status devops` and `devops argo cd apps status ingress` are Synced and Healthy, `kubectl get ingress,ingressroute -A -o wide` shows no host under `example.com`, and `kubectl -n devops get configmap devops-cli-config -o yaml` holds the configured repositories.
+4. Check: `devops argo cd apps status devops` and `devops argo cd apps status ingress` are Synced and Healthy, `kubectl get ingress,ingressroute -A -o yaml | grep example.com` prints nothing, and `kubectl -n devops get configmap devops-cli-config -o yaml` holds the configured repositories.
 
 > [!NOTE]
 > `k8s/coredns/` remains managed outside Argo CD to preserve cluster DNS resolution during bootstrap and recovery cycles.

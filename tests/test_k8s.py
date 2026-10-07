@@ -1685,6 +1685,7 @@ class _Cluster:
         check: bool = True,
         capture: bool = False,
         timeout: float = 0.0,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         self.calls.append((cmd, input))
         if cmd[0] == "git" or cmd[1] == "kustomize":
@@ -1804,6 +1805,27 @@ def test_deploy_stack_stages_the_hosts_of_a_revision_before_it_merges(
     res = _deploy(cluster, "--stack", "infra", "--domain", _DOMAIN, "--argocd-revision", "release")
     staged = _hosts("ingress", ("Ingress", "chat", "llm", ["chat.example.com", "ai.example.com"]))
     assert (res.exit_code, cluster.writes()) == (0, [staged])
+
+
+def test_deploy_stack_refuses_a_revision_with_no_placeholder_host_rather_than_clear_staged_hosts(
+    applications_repo: Path,
+) -> None:
+    """A revision whose hosts are already real (an older overlay) would leave an empty patch list."""
+    _git(applications_repo, "checkout", "-q", "-b", "pinned")
+    _commit(
+        applications_repo, {"k8s/ingress/routes.yaml": _ingress("chat", "llm", "chat.example.org")}
+    )
+    cluster = _Cluster(applications_repo)
+    res = _deploy(cluster, "--stack", "infra", "--domain", _DOMAIN, "--argocd-revision", "pinned")
+    assert (
+        res.exit_code,
+        cluster.writes(),
+        "renders no host under the placeholder" in res.output,
+    ) == (
+        1,
+        [],
+        True,
+    )
 
 
 def test_deploy_stack_infra_on_argo_cd_sets_only_the_ingress_hosts(applications_repo: Path) -> None:
@@ -1945,6 +1967,16 @@ def test_deploy_stack_dry_run_reports_the_config_map_and_host_overrides_and_runs
         "argocd/devops" in res.output,
         "argocd/ingress" in res.output,
     ) == (0, [], True, True, True)
+
+
+def test_deploy_stack_dry_run_says_an_argo_cd_cluster_needs_a_domain_and_runs_nothing(
+    applications_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("DEVOPS_CLI_K8S_DOMAIN", "DEVOPS_CLI_DOMAIN", "DEVOPS_CLI_CLOUDFLARE_DOMAIN"):
+        monkeypatch.delenv(name, raising=False)
+    cluster = _Cluster(applications_repo)
+    res = _deploy(cluster, "--stack", "infra", "--dry-run")
+    assert (res.exit_code, cluster.calls, "no configured domain" in res.output) == (0, [], True)
 
 
 def test_deploy_stack_dry_run_refuses_like_the_deploy_without_service_repositories(

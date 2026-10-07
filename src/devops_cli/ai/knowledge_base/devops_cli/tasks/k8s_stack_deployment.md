@@ -49,7 +49,8 @@ devops k8s deploy-stack --stack infra
 # 4. Deploy local LLM stack (Ollama, Open-WebUI, Qdrant, Valkey, gateway)
 devops k8s deploy-stack --stack llm
 
-# 5. Preview a deploy: releases, manifests, and the Secrets it pushes (key names only)
+# 5. Preview a deploy: releases, manifests, and the Secrets it pushes (key names only).
+#    The devops stack needs service.repos and a machine account in config.yaml first.
 devops k8s deploy-stack --stack all --dry-run
 
 # 6. Write or check the cluster Secrets from the keyring alone

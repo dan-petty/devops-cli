@@ -793,6 +793,16 @@ def _apply_rendered(manifest: str, what: str, kubectl_ctx: list[str]) -> None:
     print_success(f"{what} applied from the active config")
 
 
+def _dry_run_domain(domain: str | None) -> str:
+    """The domain the host overrides would use, or why an Argo CD-managed cluster would refuse."""
+    from devops_cli.k8s.template import resolve_template_domain
+
+    try:
+        return resolve_template_domain(domain)
+    except KubernetesContextError:
+        return "no configured domain: an Argo CD-managed cluster refuses until k8s.domain is set"
+
+
 def _homelab_host_overrides(
     selected_stacks: Sequence[str],
     domain: str | None,
@@ -803,8 +813,9 @@ def _homelab_host_overrides(
 
     The hosts come from the configured domain and what the Application renders at the revision
     Argo CD builds (its live `targetRevision`, or `revision` to stage a release before it
-    merges), never from the local checkout. Nothing is written here, so a missing domain or a
-    failed build changes nothing in the cluster.
+    merges), never from the local checkout. An Application that renders no host under the
+    placeholder there is refused rather than given an empty patch list, which would drop hosts
+    staged earlier. Nothing is written here, so a refusal changes nothing in the cluster.
     """
     applications = _homelab_applications(selected_stacks)
     if not applications:
@@ -827,11 +838,16 @@ def _homelab_host_overrides(
                 if revision:
                     source = replace(source, revision=revision)
                 rendered = render_at_revision(source, Path(workdir) / application, runtime._run_cmd)
-                overrides.append(
-                    (application, application_patch(host_patches(rendered, configured)))
-                )
+                patches = host_patches(rendered, configured)
+                if not patches:
+                    raise KubernetesContextError(
+                        f"Application '{application}' renders no host under the placeholder domain "
+                        f"at {source.revision}, so there is nothing to set; pass --argocd-revision "
+                        "with the revision the hosts are for."
+                    )
+                overrides.append((application, application_patch(patches)))
         return overrides
-    except (KubernetesContextError, ValueError, KeyError) as exc:
+    except (KubernetesContextError, ValueError) as exc:
         print_error(f"Cannot derive the homelab hosts for Argo CD: {exc}", prefix=False)
         raise typer.Exit(1) from exc
 
@@ -859,7 +875,6 @@ def _set_homelab_hosts(
 
 
 def _deploy_native_manifests(
-    selected_stacks: Sequence[str],
     all_manifests: list[str],
     config_map: str | None,
     kubectl_ctx: list[str],
@@ -874,7 +889,6 @@ def _deploy_native_manifests(
 def _handle_argo_managed_deployment(
     selected_stacks: Sequence[str],
     effective_context: str | None,
-    k8s_dir: Path,
     push_secrets: bool,
     config_map: str | None,
     domain: str | None = None,
@@ -990,8 +1004,8 @@ def deploy_stack(
                     else None
                 ),
                 "argocd_overrides": [
-                    f"argocd/{app}: spec.source.kustomize.patches, hosts under the configured "
-                    f"domain at {argocd_revision or 'its targetRevision'} "
+                    f"argocd/{app}: spec.source.kustomize.patches, hosts under "
+                    f"{_dry_run_domain(domain)} at {argocd_revision or 'its targetRevision'} "
                     "(if Application 'cluster' exists)"
                     for app in _homelab_applications(selected_stacks)
                 ],
@@ -1010,7 +1024,6 @@ def deploy_stack(
         _handle_argo_managed_deployment(
             selected_stacks,
             effective_context,
-            k8s_dir,
             push_secrets,
             config_map,
             domain=domain,
@@ -1034,7 +1047,7 @@ def deploy_stack(
     _deploy_helm_repos(selected_stacks)
 
     # 7. Install native manifests
-    _deploy_native_manifests(selected_stacks, all_manifests, config_map, kubectl_ctx, domain)
+    _deploy_native_manifests(all_manifests, config_map, kubectl_ctx, domain)
 
     # 8. Check for unready cluster nodes to avoid DaemonSet wait timeouts
     unready_nodes = runtime._get_unready_nodes(context=effective_context)
