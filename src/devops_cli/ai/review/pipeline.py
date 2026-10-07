@@ -23,7 +23,7 @@ import os
 import re
 import time
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -58,6 +58,7 @@ from devops_cli.ai.review.classification import (
     get_default_personas_for_context,
 )
 from devops_cli.ai.review.flags import ReviewStageFlags
+from devops_cli.ai.review.path_classes import is_fixture_path, load_path_classes
 from devops_cli.ai.review.profile import active_profiler
 from devops_cli.ai.review.review_environment import _get_reviews_base_dir, reviewed_tree
 from devops_cli.ai.review.sanitization import (
@@ -432,9 +433,12 @@ def _format_reviewed_file_console_message(
 
 
 def _try_reuse_cached_analysis_meta(
-    old_meta: FileAnalysisMeta, file_path: Path, file_mtime: datetime
+    old_meta: FileAnalysisMeta,
+    file_path: Path,
+    file_mtime: datetime,
+    bypass_mtime: bool = False,
 ) -> FileAnalysisMeta | None:
-    """Attempt to reuse cached analysis metadata if file has not been modified and content matches."""
+    """Attempt to reuse cached analysis metadata if file content matches commit blob or mtime."""
     if not (old_meta.last_analyzed and old_meta.pseudocode):
         return None
     try:
@@ -443,10 +447,12 @@ def _try_reuse_cached_analysis_meta(
         st = file_path.stat()
         if old_meta.size_bytes and st.st_size != old_meta.size_bytes:
             return None
+        cur_hash = hashlib.sha256(file_path.read_bytes(), usedforsecurity=False).hexdigest()
+        if bypass_mtime and old_meta.content_hash and cur_hash == old_meta.content_hash:
+            return old_meta
         analyzed_dt = datetime.fromisoformat(old_meta.last_analyzed)
         if file_mtime > analyzed_dt:
             return None
-        cur_hash = hashlib.sha256(file_path.read_bytes(), usedforsecurity=False).hexdigest()
         if old_meta.content_hash and cur_hash != old_meta.content_hash:
             return None
         return old_meta.model_copy(update={"content_hash": cur_hash})
@@ -991,6 +997,7 @@ def _collect_paths_to_analyze(
     existing_file_metas: dict[str, FileAnalysisMeta],
     force_refresh: bool,
     file_metas: list[FileAnalysisMeta],
+    bypass_mtime: bool = False,
 ) -> list[tuple[Path, str]]:
     """Filter candidate paths and reuse existing analysis metadata where available."""
     paths_to_analyze: list[tuple[Path, str]] = []
@@ -1004,7 +1011,11 @@ def _collect_paths_to_analyze(
             if (
                 not force_refresh
                 and old_meta
-                and (reused := _try_reuse_cached_analysis_meta(old_meta, p, file_mtime))
+                and (
+                    reused := _try_reuse_cached_analysis_meta(
+                        old_meta, p, file_mtime, bypass_mtime=bypass_mtime
+                    )
+                )
             ):
                 file_metas.append(reused)
             else:
@@ -1070,7 +1081,7 @@ ANALYZER_NOT_INSTALLED = "not installed"
 ANALYZER_NO_FILES = "no files"
 ANALYZER_FAILED = "failed"
 
-# (name, binary, the kind of file it scans). Gitleaks falls back to built-in secret patterns.
+# (name, binary, the kind of file it scans).
 _STATIC_ANALYZERS: tuple[tuple[str, str, str], ...] = (
     ("Bandit", BIN_BANDIT, "python"),
     ("Kube-linter", BIN_KUBELINTER, "yaml"),
@@ -1080,7 +1091,7 @@ _STATIC_ANALYZERS: tuple[tuple[str, str, str], ...] = (
     # Gitleaks also reads the files kept off persona pages (#948).
     ("Gitleaks", BIN_GITLEAKS, "secrets"),
 )
-_ANALYZERS_WITH_BUILTIN_PATTERNS = frozenset({"Gitleaks"})
+_ANALYZERS_WITH_BUILTIN_PATTERNS: frozenset[str] = frozenset()
 
 
 def _static_analyzer_state_from_outcome(outcome: Any) -> str:
@@ -1090,7 +1101,7 @@ def _static_analyzer_state_from_outcome(outcome: Any) -> str:
         return ANALYZER_RAN
     if status == "built-in patterns":
         return ANALYZER_BUILTIN_PATTERNS
-    if status == "unavailable":
+    if status in ("unavailable", "not installed"):
         return ANALYZER_NOT_INSTALLED
     if status == "failed":
         return ANALYZER_FAILED
@@ -1138,6 +1149,86 @@ def _static_analyzer_reasons(
         if state == ANALYZER_FAILED and reason:
             reasons[name] = str(reason)
     return reasons
+
+
+def _resolve_single_tool_state(state: str, reason: str | None) -> str:
+    """Map single analyzer state and reason to tool-level outcome."""
+    if reason and "timed out after" in reason:
+        return reason
+    if reason == "canary failed":
+        return "canary failed"
+    if state == ANALYZER_FAILED:
+        return f"failed({reason})" if reason else "failed"
+    if state == ANALYZER_NOT_INSTALLED:
+        return "not installed"
+    if state in (ANALYZER_RAN, ANALYZER_BUILTIN_PATTERNS):
+        return "ran"
+    return state
+
+
+def _resolve_effective_tool_states(
+    states: dict[str, str], reasons: dict[str, str]
+) -> dict[str, str]:
+    """Map analyzer states and reasons to tool-level outcomes for coverage calculation."""
+    return {
+        tool: _resolve_single_tool_state(state, reasons.get(tool)) for tool, state in states.items()
+    }
+
+
+def _is_tool_manifest_match(resolved_path: Path) -> bool:
+    """Whether path is a Kubernetes manifest eligible for Pluto / Kube-linter."""
+    return resolved_path.suffix in (".yaml", ".yml") and _is_scannable_manifest(resolved_path)
+
+
+def _is_tool_container_or_lockfile_match(resolved_path: Path) -> bool:
+    """Whether path is a Dockerfile or lockfile eligible for Trivy."""
+    return resolved_path.name.lower() in (
+        "dockerfile",
+        "containerfile",
+    ) or resolved_path.suffix in (".lock", ".lockb")
+
+
+def _resolve_tool_file_status(
+    tool: str,
+    resolved_path: Path,
+    tool_state: str | None,
+    path_classes: Mapping[str, Sequence[str]],
+) -> str:
+    """Resolve status of a single (tool, file) pairing."""
+    if tool != "Gitleaks" and is_fixture_path(resolved_path, path_classes):
+        return "skipped(fixture)"
+
+    if tool == "Bandit" and resolved_path.suffix != ".py":
+        return "skipped(not python)"
+
+    if tool in ("Kube-linter", "Pluto") and not _is_tool_manifest_match(resolved_path):
+        return "skipped(not manifest)"
+
+    if tool == "Trivy" and not _is_tool_container_or_lockfile_match(resolved_path):
+        return "skipped(not container or lockfile)"
+
+    if tool_state == "ran":
+        return "scanned"
+
+    return tool_state or "not installed"
+
+
+def _compute_coverage_matrix(
+    tools: Sequence[str],
+    files: Sequence[str],
+    resolve_fn: Callable[[str], Path],
+    tool_states: dict[str, str],
+    path_classes: Mapping[str, Sequence[str]],
+) -> dict[str, dict[str, str]]:
+    """Compute (tool, file) coverage matrix recording scanned, skipped, failed, etc."""
+    matrix: dict[str, dict[str, str]] = {}
+    for tool in tools:
+        tool_state = tool_states.get(tool)
+        matrix[tool] = {
+            f: _resolve_tool_file_status(tool, resolve_fn(f), tool_state, path_classes)
+            for f in files
+        }
+    return matrix
 
 
 def _static_analyzer_summary(states: dict[str, str], findings: int) -> list[str]:
@@ -1792,8 +1883,21 @@ class ReviewPipelineOrchestrator:
         conventions_revision: str | None = None,
         full_output: bool = False,
         secret_scan_files: Sequence[str] = (),
+        base_revision: BaseRevision | None = None,
+        partial_context: bool = False,
     ) -> None:
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        self.base_revision = base_revision
+        self.partial_context = partial_context
+        self.coverage: dict[str, dict[str, str]] = {}
+        repo_root = None
+        try:
+            from devops_cli.core.repo import find_repo_root
+
+            repo_root = find_repo_root(target_dir)
+        except Exception:
+            pass
+        self.path_classes = load_path_classes(base_revision, repo_root=repo_root)
         # Files kept off persona pages that the secret scan still reads: planning documents,
         # generated references and lockfiles (#948). Neither persona review nor its payloads
         # take them, except to carry what the scan found.
@@ -1956,6 +2060,7 @@ class ReviewPipelineOrchestrator:
                 existing_file_metas,
                 force_refresh,
                 file_metas,
+                bypass_mtime=target_type in ("branch", "pr"),
             )
 
             updated_any = False
@@ -2016,7 +2121,11 @@ class ReviewPipelineOrchestrator:
                 observed_outcomes: dict[str, Any] = {}
 
                 # 1. Batch Bandit scan for Python files
-                py_paths = [p for p in all_resolved if p.suffix == ".py"]
+                py_paths = [
+                    p
+                    for p in all_resolved
+                    if p.suffix == ".py" and not is_fixture_path(p, self.path_classes)
+                ]
                 if py_paths:
                     bandit_res = run_bandit_scan(py_paths, isolated=True)
                     _observe_outcome(observed_outcomes, "Bandit", bandit_res)
@@ -2026,7 +2135,9 @@ class ReviewPipelineOrchestrator:
                 yaml_paths = [
                     p
                     for p in all_resolved
-                    if p.suffix in (".yaml", ".yml") and _is_scannable_manifest(p)
+                    if p.suffix in (".yaml", ".yml")
+                    and _is_scannable_manifest(p)
+                    and not is_fixture_path(p, self.path_classes)
                 ]
                 all_static_findings.extend(
                     _call_scanner_helper(_scan_kubernetes_manifests, yaml_paths, observed_outcomes)
@@ -2037,10 +2148,17 @@ class ReviewPipelineOrchestrator:
                     {
                         p
                         for p in all_resolved
-                        if p.name.lower() in ("dockerfile", "containerfile")
-                        or p.suffix in (".lock", ".lockb")
+                        if (
+                            p.name.lower() in ("dockerfile", "containerfile")
+                            or p.suffix in (".lock", ".lockb")
+                        )
+                        and not is_fixture_path(p, self.path_classes)
                     }
-                    | set(_lockfiles_beside(all_resolved))
+                    | {
+                        p
+                        for p in _lockfiles_beside(all_resolved)
+                        if not is_fixture_path(p, self.path_classes)
+                    }
                 )
                 all_static_findings.extend(
                     _call_scanner_helper(
@@ -2056,9 +2174,12 @@ class ReviewPipelineOrchestrator:
                 all_static_findings.extend(
                     _call_scanner_helper(_scan_secrets, secret_paths, observed_outcomes)
                 )
+                semgrep_paths = [
+                    p for p in all_resolved if not is_fixture_path(p, self.path_classes)
+                ]
                 all_static_findings.extend(
                     _scan_semgrep(
-                        all_resolved, observed_outcomes, tree=reviewed_tree(self.target_dir)
+                        semgrep_paths, observed_outcomes, tree=reviewed_tree(self.target_dir)
                     )
                 )
                 self._record_static_analyzers(
@@ -2066,13 +2187,29 @@ class ReviewPipelineOrchestrator:
                         "python": py_paths,
                         "yaml": yaml_paths,
                         "container": docker_lock_paths,
-                        "any": all_resolved,
+                        "any": semgrep_paths,
                         "secrets": secret_paths,
                     },
                     observed_outcomes=observed_outcomes,
                 )
                 self.static_severities = Counter(f.severity for f in all_static_findings)
                 self.scanner_advisories = _scanner_advisories(all_static_findings)
+
+                tools = [name for name, _, _ in _STATIC_ANALYZERS]
+                all_files_to_cover = sorted(set(file_paths) | set(self.secret_scan_files))
+                tool_effective_states = _resolve_effective_tool_states(
+                    self.static_analyzers, self.static_analyzer_reasons
+                )
+                self.coverage = _compute_coverage_matrix(
+                    tools,
+                    all_files_to_cover,
+                    self._resolve_file_path,
+                    tool_effective_states,
+                    self.path_classes,
+                )
+                active_prof = active_profiler()
+                if active_prof:
+                    active_prof.set_coverage(self.coverage)
 
                 static_findings_by_file = _match_static_findings_to_files(
                     all_static_findings, [*file_paths, *self.secret_scan_files]
@@ -3600,8 +3737,10 @@ class ReviewPipelineOrchestrator:
         lines = [
             f"# Code Review Report (Session `{session_id}`)",
             f"*Generated at: {generated_at}*",
-            "",
         ]
+        if self.partial_context:
+            lines.append("*Context: partial context*")
+        lines.append("")
         lines.extend(
             synthesize_report_executive_summary(
                 reportable_findings=reportable_findings,
@@ -3634,6 +3773,7 @@ class ReviewPipelineOrchestrator:
         lines.extend(self._build_network_table(all_nets))
 
         lines.extend(self._build_static_analyzers_section())
+        lines.extend(self._build_coverage_section())
 
         baseline_lines = self._build_category_baseline_section(
             candidate_findings or all_findings, reportable_findings
@@ -3669,6 +3809,17 @@ class ReviewPipelineOrchestrator:
             cell = " ".join(result.split()).replace("|", "\\|")
             rows.append(f"| {name} | {cell} |")
         return ["## Static Analyzers", "| Analyzer | Result |", "|---|---|", *rows, ""]
+
+    def _build_coverage_section(self) -> list[str]:
+        """Coverage matrix per (tool, file) in review.md."""
+        if not self.coverage:
+            return []
+        rows = [
+            f"| {tool.replace('|', r'\|')} | `{fpath.replace('|', r'\|')}` | {status.replace('|', r'\|')} |"
+            for tool in sorted(self.coverage)
+            for fpath, status in sorted(self.coverage[tool].items())
+        ]
+        return ["## Coverage", "| Tool | File | Status |", "|---|---|---|", *rows, ""]
 
     def _render_console_findings_table(
         self, console: Any, reportable_findings: list[SavedFinding]
