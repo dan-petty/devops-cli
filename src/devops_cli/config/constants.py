@@ -675,6 +675,22 @@ CONST_K8S_SUBDOMAIN_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9.\-]{0,2
 CONST_K8S_NODE_ROLE_LABEL_PREFIX = "node-role.kubernetes.io/"
 CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER: Final[str] = "example.com"
 CONST_K8S_TEMPLATE_DOMAIN_VARS: Final[tuple[str, ...]] = ("DOMAIN", "K8S_DOMAIN")
+CONST_K8S_DEVOPS_CONFIGMAP: Final[str] = "devops-cli-config"
+"""The ConfigMap `devops k8s deploy-stack` renders from config.yaml; no Argo CD Application owns it."""
+CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS: Final[tuple[str, ...]] = ("devops", "ingress")
+"""The Argo CD Applications whose hosts deploy-stack sets from the configured domain (#1290)."""
+CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK: Final[dict[str, tuple[str, ...]]] = {
+    "infra": ("ingress",),
+    "devops": ("devops", "ingress"),
+}
+"""The homelab Applications whose hosts a stack's deploy sets."""
+CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS: Final[float] = 300.0
+"""How long fetching an Application's revision may take before deploy-stack gives up."""
+CONST_GIT_NONINTERACTIVE_ENV: Final[dict[str, str]] = {
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
+}
+"""Environment that makes git fail instead of prompting for credentials or a passphrase."""
 CONST_K8S_TEMPLATE_EXTENSIONS: Final[tuple[str, ...]] = (".yaml", ".yml")
 # Where each workload kind keeps its pod spec: Pod; PodTemplate; Deployment, ReplicaSet,
 # StatefulSet, DaemonSet, Job and ReplicationController; CronJob.

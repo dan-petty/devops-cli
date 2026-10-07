@@ -196,6 +196,8 @@ def test_projects_whitelists_and_orphaned_resources() -> None:
     for secret in CLUSTER_SECRETS:
         assert ("", "Secret", secret.name) in ignored_tuples
 
+    # deploy-stack applies it from config.yaml, so no Application owns it (#1290)
+    assert ("", "ConfigMap", "devops-cli-config") in ignored_tuples
     assert ("", "Secret", "argocd-initial-admin-secret") in ignored_tuples
     assert ("", "Secret", "argocd-redis") in ignored_tuples
     assert ("", "Secret", "sh.helm.release.v1.*") in ignored_tuples
@@ -359,9 +361,6 @@ def test_perimeters_in_applications() -> None:
 
 
 def test_homelab_domain_overlays() -> None:
-    from devops_cli.k8s.configmap import ensure_devops_configmap
-
-    ensure_devops_configmap()
     for overlay in ("devops", "ingress"):
         overlay_dir = K8S_DIR / "overlays" / "homelab" / overlay
         proc = subprocess.run(
@@ -377,3 +376,65 @@ def test_homelab_domain_overlays() -> None:
         for doc in docs:
             assert "kind" in doc
             assert "metadata" in doc
+
+
+# ── Deploy-time homelab values (#1290) ───────────────────────────────────────
+
+
+def test_the_app_of_apps_keeps_the_hosts_deploy_stack_sets_on_the_homelab_applications() -> None:
+    """`cluster` leaves the Kustomize overrides of the homelab Applications to deploy-stack."""
+    from devops_cli.config.constants import (
+        CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS as HOMELAB_APPLICATIONS,
+    )
+
+    spec = _load_yaml(BOOTSTRAP_DIR / "cluster.yaml")["spec"]
+    assert (
+        spec.get("ignoreDifferences"),
+        "RespectIgnoreDifferences=true" in spec["syncPolicy"].get("syncOptions", []),
+    ) == (
+        [
+            {
+                "group": "argoproj.io",
+                "kind": "Application",
+                "name": name,
+                "namespace": "argocd",
+                "jsonPointers": ["/spec/source/kustomize"],
+            }
+            for name in HOMELAB_APPLICATIONS
+        ],
+        True,
+    )
+
+
+def test_no_homelab_application_sets_kustomize_overrides_in_git() -> None:
+    """Git leaves the field to deploy-stack, so the two never contend for it."""
+    from devops_cli.config.constants import (
+        CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS as HOMELAB_APPLICATIONS,
+    )
+
+    apps = _all_applications()
+    assert [
+        name for name in HOMELAB_APPLICATIONS if "kustomize" in apps[name]["spec"]["source"]
+    ] == []
+
+
+def test_no_application_renders_the_devops_cli_config_map_and_no_commit_holds_it() -> None:
+    """The ConfigMap is rendered from the active config at deploy time, never from git."""
+    rendered = subprocess.run(
+        ["kubectl", "kustomize", str(K8S_DIR / "overlays" / "homelab" / "devops")],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    objects = [(d["kind"], d["metadata"]["name"]) for d in yaml.safe_load_all(rendered) if d]
+    ignored = subprocess.run(
+        ["git", "check-ignore", "-q", "k8s/devops/configmap.yaml"], cwd=REPO_ROOT, check=False
+    ).returncode
+    tracked = subprocess.run(
+        ["git", "ls-files", "k8s/devops/configmap.yaml"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert (("ConfigMap", "devops-cli-config") in objects, ignored, tracked) == (False, 0, "")

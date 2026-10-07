@@ -220,9 +220,7 @@ def test_monitoring_networkpolicy_has_egress_rule_to_devops_on_8000() -> None:
 
 
 def test_configmap_validates_as_settings_with_repos_and_machine_account() -> None:
-    target = DEVOPS_DIR / "configmap.yaml"
-    if not target.exists():
-        target = DEVOPS_DIR / "configmap.example.yaml"
+    target = DEVOPS_DIR / "configmap.example.yaml"
     cm = yaml.load(target.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
     raw = yaml.safe_load(cm["data"]["devops-cli.yaml"])
     settings = Settings.model_validate(raw)

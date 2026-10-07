@@ -184,6 +184,7 @@ devops k8s deploy-stack [OPTIONS]
 | `--port-forward` / `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
 | `--configure-urls` / `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
 | `--push-secrets` / `--no-push-secrets` | `boolean` | `True` | Push the stacks' Secrets from the OS keyring before applying anything (--no-push-secrets for a cluster without a keyring). |
+| `--argocd-revision` | `string` | - | Derive the Argo CD host overrides from this Git revision instead of each Application's targetRevision, to stage them before a release merges (Argo CD-managed clusters only). |
 | `--dry-run` | `boolean` | - | Print the releases, manifests and Secrets (key names only) a deploy would apply, and run nothing. |
 
 ---
@@ -207,24 +208,6 @@ devops k8s sync-secrets [OPTIONS]
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-
----
-
-## `devops k8s argocd-source`
-
-**Generate a gitignored .argocd-source.yaml file with local development parameter overrides for Argo CD.**
-
-```bash
-devops k8s argocd-source [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
-| `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
-| `--dry-run` | `boolean` | - | Print generated .argocd-source.yaml content to stdout without writing files. |
 
 ---
 

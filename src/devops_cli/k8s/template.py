@@ -21,7 +21,7 @@ from devops_cli.exceptions.k8s import KubernetesContextError
 _KUSTOMIZATION_NAMES: tuple[str, ...] = ("kustomization.yaml", "kustomization.yml", "Kustomization")
 
 
-def _normalize_domain(domain: str) -> str:
+def normalize_domain(domain: str) -> str:
     """Normalize and validate a target domain string for template substitution."""
     norm = domain.strip().lower().lstrip(".")
     if not norm or not CONST_K8S_SUBDOMAIN_RE.match(norm):
@@ -35,20 +35,20 @@ def _normalize_domain(domain: str) -> str:
 def resolve_template_domain(domain_override: str | None = None) -> str:
     """Resolve the effective domain from CLI override, config settings, or environment."""
     if domain_override and domain_override.strip():
-        return _normalize_domain(domain_override)
+        return normalize_domain(domain_override)
 
     settings: Any = load_settings()
     k8s_domain = getattr(getattr(settings, "k8s", None), "domain", None)
     if k8s_domain and str(k8s_domain).strip():
-        return _normalize_domain(str(k8s_domain))
+        return normalize_domain(str(k8s_domain))
 
     cf_domain = getattr(getattr(settings, "cloudflare", None), "domain", None)
     if cf_domain and str(cf_domain).strip():
-        return _normalize_domain(str(cf_domain))
+        return normalize_domain(str(cf_domain))
 
     env_domain = os.environ.get("DEVOPS_CLI_K8S_DOMAIN") or os.environ.get("DEVOPS_CLI_DOMAIN")
     if env_domain and env_domain.strip():
-        return _normalize_domain(env_domain)
+        return normalize_domain(env_domain)
 
     raise KubernetesContextError(
         "No domain configured for template substitution. "
@@ -62,7 +62,7 @@ def render_manifest_template(
     extra_vars: dict[str, str] | None = None,
 ) -> str:
     """Substitute placeholder domain and environment variables in manifest content."""
-    normalized_domain = _normalize_domain(domain)
+    normalized_domain = normalize_domain(domain)
     # Case-insensitive substitution of the canonical placeholder domain (e.g. example.com)
     rendered = re.sub(
         re.escape(CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER),
@@ -90,12 +90,6 @@ def _render_kustomize_dir(
     extra_vars: dict[str, str] | None = None,
 ) -> str:
     """Run kustomize build on a directory and substitute domain variables."""
-    if (target_dir / "configmap.example.yaml").is_file() and not (
-        target_dir / "configmap.yaml"
-    ).is_file():
-        from devops_cli.k8s.configmap import ensure_devops_configmap
-
-        ensure_devops_configmap(k8s_dir=target_dir.parent)
     cmd = ["kubectl", "kustomize", str(target_dir)]
     proc = run_subprocess(
         cmd,

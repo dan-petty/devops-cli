@@ -20,7 +20,6 @@ from devops_cli.commands.k8s import (
     stack_lifecycle as _stack_lifecycle,
 )
 from devops_cli.commands.k8s.bootstrap import bootstrap
-from devops_cli.commands.k8s.cluster_argocd_source import argocd_source
 from devops_cli.commands.k8s.cluster_context import (
     apply,
     contexts,
@@ -108,7 +107,6 @@ app.command("bootstrap")(bootstrap)
 app.command("bootstrap-openwebui")(bootstrap_openwebui)
 app.command("deploy-stack")(deploy_stack)
 app.command("sync-secrets")(sync_secrets)
-app.command("argocd-source", help=HELP.k8s.argocd_source)(argocd_source)
 app.command("push-secrets", help=HELP.k8s.push_secrets)(push_secrets)
 app.command("run-job", help=HELP.k8s.run_job)(run_job)
 app.command("configure-urls")(configure_urls)
@@ -159,7 +157,6 @@ __all__ = [
     "_verify_url_reachability",
     "app",
     "apply",
-    "argocd_source",
     "bootstrap",
     "bootstrap_openwebui",
     "chaos_cmd",

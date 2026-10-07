@@ -323,12 +323,9 @@ class K8sCommandHelp:
         "Push the stacks' Secrets from the OS keyring before applying anything "
         "(--no-push-secrets for a cluster without a keyring)."
     )
-    argocd_source: str = (
-        "Generate a gitignored .argocd-source.yaml file with local development "
-        "parameter overrides for Argo CD."
-    )
-    argocd_source_dry_run: str = (
-        "Print generated .argocd-source.yaml content to stdout without writing files."
+    argocd_revision: str = (
+        "Derive the Argo CD host overrides from this Git revision instead of each Application's "
+        "targetRevision, to stage them before a release merges (Argo CD-managed clusters only)."
     )
     run_job: str = (
         "Run a devops command as a Job in namespace devops, from CronJob devops-cli's "

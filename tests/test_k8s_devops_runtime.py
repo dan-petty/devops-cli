@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -22,8 +23,6 @@ DEVOPS_DIR = K8S_DIR / "devops"
 @functools.cache
 def _doc(name: str) -> Any:
     target = DEVOPS_DIR / name
-    if not target.exists() and name == "configmap.yaml":
-        target = DEVOPS_DIR / "configmap.example.yaml"
     return yaml.load(target.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
 
 
@@ -134,7 +133,7 @@ def test_writable_paths_are_empty_dirs_and_the_data_dir_is_under_home() -> None:
 
 
 def test_config_targets_the_in_cluster_gateway_and_holds_no_credential() -> None:
-    raw = yaml.safe_load(_doc("configmap.yaml")["data"]["devops-cli.yaml"])
+    raw = yaml.safe_load(_doc("configmap.example.yaml")["data"]["devops-cli.yaml"])
     settings = Settings.model_validate(raw)
     leaked = [key for key in sorted(opt.SECRET_CONFIG_OPTIONS) if _dotted(raw, key) is not None]
     assert (
@@ -232,17 +231,20 @@ def test_kustomization_lists_every_manifest_and_pins_the_image_and_stays_out_of_
     naming the last published image, so opening a cycle needs no tag that does not exist yet.
     """
     kustomization = _doc("kustomization.yaml")
-    manifests = sorted(
-        [
-            p.name
-            for p in DEVOPS_DIR.glob("*.yaml")
-            if p.name != "kustomization.yaml"
-            and not p.name.endswith(".example.yaml")
-            and not p.name.startswith(".")
-        ]
-        + (["configmap.yaml"] if not (DEVOPS_DIR / "configmap.yaml").exists() else [])
-        + ["roadmap-service"]
-    )
+    on_disk = [
+        p.name
+        for p in DEVOPS_DIR.glob("*.yaml")
+        if p.name != "kustomization.yaml" and not p.name.endswith(".example.yaml")
+    ]
+    # A gitignored local copy, such as a configmap.yaml an older deploy-stack wrote, is no manifest
+    tracked = subprocess.run(
+        ["git", "ls-files", "--", *on_disk],
+        cwd=DEVOPS_DIR,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    manifests = sorted([*tracked, "roadmap-service"])
     root = yaml.safe_load((K8S_DIR / "kustomization.yaml").read_text(encoding="utf-8"))
     (image,) = kustomization["images"]
     tag = str(image["newTag"])

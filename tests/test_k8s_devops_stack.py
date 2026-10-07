@@ -37,10 +37,7 @@ def test_devops_stack_registration_and_resolution() -> None:
 
 
 def test_devops_stack_manifests_integrity() -> None:
-    """Verify all manifests for the devops stack exist and cover core components."""
-    from devops_cli.k8s.configmap import ensure_devops_configmap
-
-    ensure_devops_configmap()
+    """Every devops manifest exists; the ConfigMap is rendered from config at deploy time instead."""
     manifests = _MANIFESTS_BY_STACK.get("devops", [])
     filenames = [p.name for p in manifests]
 
@@ -54,11 +51,11 @@ def test_devops_stack_manifests_integrity() -> None:
         "deployment.yaml" in filenames,
         "service.yaml" in filenames,
     ) == (
-        9,
+        8,
         True,
         True,
         True,
-        True,
+        False,
         True,
         True,
         True,
@@ -76,8 +73,13 @@ def test_devops_namespace_in_namespaces_yaml() -> None:
     assert "devops" in names
 
 
-def test_deploy_stack_devops_dry_run() -> None:
+def test_deploy_stack_devops_dry_run(isolate_devops_cli_config: Path) -> None:
     """Verify deploy-stack --stack devops includes devops manifests in dry-run output."""
+    from devops_cli.config.settings import reset_settings_cache
+
+    with isolate_devops_cli_config.open("a", encoding="utf-8") as config:
+        config.write("service:\n  repos:\n    - owner/repo\n  machine_account: devops-bot\n")
+    reset_settings_cache()
     set_dry_run(True)
     try:
         result = runner.invoke(app, ["deploy-stack", "--stack", "devops"])
@@ -86,7 +88,7 @@ def test_deploy_stack_devops_dry_run() -> None:
             "configmap.yaml" in result.output,
             "roadmap-service" in result.output,
             "cronjob.yaml" in result.output,
-        ) == (0, True, True, True)
+        ) == (0, False, True, True)
     finally:
         set_dry_run(False)
 
@@ -140,8 +142,13 @@ def test_roadmap_service_ingress_in_ingress_routes() -> None:
     )
 
 
-def test_deploy_stack_domain_option_in_dry_run() -> None:
+def test_deploy_stack_domain_option_in_dry_run(isolate_devops_cli_config: Path) -> None:
     """Verify deploy-stack propagates domain option in dry-run output."""
+    from devops_cli.config.settings import reset_settings_cache
+
+    with isolate_devops_cli_config.open("a", encoding="utf-8") as config:
+        config.write("service:\n  repos:\n    - owner/repo\n  machine_account: devops-bot\n")
+    reset_settings_cache()
     set_dry_run(True)
     try:
         result = runner.invoke(

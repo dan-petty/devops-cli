@@ -211,12 +211,12 @@ def test_the_dry_run_lists_exactly_the_requests_a_run_then_makes(jobs: FakeJobs)
     )
 
 
-def test_a_missing_cronjob_exits_1_with_the_apply_hint(jobs: FakeJobs) -> None:
+def test_a_missing_cronjob_exits_1_with_the_deploy_stack_hint(jobs: FakeJobs) -> None:
     jobs.cronjob = None
     result = _run("--", "--version")
     assert (
         result.exit_code,
-        "devops k8s apply k8s/devops/ --template" in result.output,
+        "devops k8s deploy-stack --stack devops" in result.output,
         jobs.created,
     ) == (
         1,

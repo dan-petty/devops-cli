@@ -10,9 +10,6 @@ import yaml
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.configmap import (
-    DEFAULT_PLACEHOLDER_ACCOUNT,
-    DEFAULT_PLACEHOLDER_REPO,
-    ensure_devops_configmap,
     render_active_devops_configmap,
     render_devops_configmap_content,
 )
@@ -71,86 +68,21 @@ def test_render_devops_configmap_substitutes_repos_and_account() -> None:
     )
 
 
-def test_render_devops_configmap_falls_back_to_defaults() -> None:
-    """Verify default placeholders used when repos or account are empty."""
-    rendered = render_devops_configmap_content(SAMPLE_TEMPLATE, repos=[], machine_account=None)
-    doc = yaml.safe_load(rendered)
-    inner = yaml.safe_load(doc["data"]["devops-cli.yaml"])
-    settings = Settings.model_validate(inner)
-
-    assert (
-        settings.service.repos,
-        settings.service.machine_account,
-    ) == (
-        [DEFAULT_PLACEHOLDER_REPO],
-        DEFAULT_PLACEHOLDER_ACCOUNT,
-    )
+@pytest.mark.parametrize(("repos", "account"), [([], "devops-bot"), (["owner/repo"], " ")])
+def test_the_config_map_needs_a_repository_and_an_account(repos: list[str], account: str) -> None:
+    """No placeholder stands in for a value the service needs."""
+    with pytest.raises(
+        KubernetesContextError, match="at least one repository and a machine account"
+    ):
+        render_devops_configmap_content(SAMPLE_TEMPLATE, repos=repos, machine_account=account)
 
 
 def test_render_devops_configmap_invalid_template_raises() -> None:
     """Verify KubernetesContextError is raised if service block is missing."""
     with pytest.raises(KubernetesContextError, match="standard service configuration block"):
-        render_devops_configmap_content("apiVersion: v1\nkind: ConfigMap\n")
-
-
-def test_ensure_devops_configmap_creates_from_example(tmp_path: Path) -> None:
-    """Verify ensure_devops_configmap writes target when missing."""
-    k8s_dir = tmp_path / "k8s"
-    devops_dir = k8s_dir / "devops"
-    devops_dir.mkdir(parents=True)
-    (devops_dir / "configmap.example.yaml").write_text(SAMPLE_TEMPLATE, encoding="utf-8")
-
-    class DummySettings:
-        service = type(
-            "DummyService", (), {"repos": ["test/repo"], "machine_account": "bot-user"}
-        )()
-        k8s = type("DummyK8s", (), {"github_account": None})()
-
-    target = ensure_devops_configmap(k8s_dir=k8s_dir, settings=DummySettings())
-
-    assert (
-        target.is_file(),
-        "test/repo" in target.read_text(encoding="utf-8"),
-        "bot-user" in target.read_text(encoding="utf-8"),
-    ) == (True, True, True)
-
-
-def test_ensure_devops_configmap_preserves_existing_repos_if_settings_empty(
-    tmp_path: Path,
-) -> None:
-    """Verify existing repos in target are preserved when active settings provide none."""
-    k8s_dir = tmp_path / "k8s"
-    devops_dir = k8s_dir / "devops"
-    devops_dir.mkdir(parents=True)
-    (devops_dir / "configmap.example.yaml").write_text(SAMPLE_TEMPLATE, encoding="utf-8")
-
-    existing_target = devops_dir / "configmap.yaml"
-    initial = render_devops_configmap_content(
-        SAMPLE_TEMPLATE,
-        repos=["persisted/repo"],
-        machine_account="persisted-bot",
-    )
-    existing_target.write_text(initial, encoding="utf-8")
-
-    class EmptySettings:
-        service = type("DummyService", (), {"repos": [], "machine_account": None})()
-        k8s = type("DummyK8s", (), {"github_account": None})()
-
-    res = ensure_devops_configmap(k8s_dir=k8s_dir, settings=EmptySettings(), force=True)
-    content = res.read_text(encoding="utf-8")
-
-    assert (
-        "persisted/repo" in content,
-        "persisted-bot" in content,
-    ) == (True, True)
-
-
-def test_ensure_devops_configmap_missing_template_raises(tmp_path: Path) -> None:
-    """Verify FileNotFoundError is raised if template does not exist."""
-    with pytest.raises(
-        FileNotFoundError, match=r"Ensure k8s/devops/configmap\.example\.yaml exists"
-    ):
-        ensure_devops_configmap(k8s_dir=tmp_path)
+        render_devops_configmap_content(
+            "apiVersion: v1\nkind: ConfigMap\n", repos=["owner/repo"], machine_account="devops-bot"
+        )
 
 
 def test_render_devops_configmap_with_timeouts_and_poll() -> None:
@@ -207,3 +139,51 @@ def test_render_active_devops_configmap_missing_template_raises(tmp_path: Path) 
         FileNotFoundError, match=r"Ensure k8s/devops/configmap\.example\.yaml exists"
     ):
         render_active_devops_configmap(k8s_dir=tmp_path)
+
+
+def _template_dir(tmp_path: Path) -> Path:
+    devops_dir = tmp_path / "devops"
+    devops_dir.mkdir(parents=True)
+    (devops_dir / "configmap.example.yaml").write_text(SAMPLE_TEMPLATE, encoding="utf-8")
+    return tmp_path
+
+
+def _settings(repos: list[str], account: str | None, github_account: str | None = None) -> object:
+    class _Settings:
+        service = type("Service", (), {"repos": repos, "machine_account": account})()
+        k8s = type("K8s", (), {"github_account": github_account})()
+
+    return _Settings()
+
+
+def test_the_active_config_map_without_repositories_is_refused_naming_the_setting(
+    tmp_path: Path,
+) -> None:
+    """A deploy never ships the template's placeholder repository."""
+    with pytest.raises(KubernetesContextError, match=r"service\.repos"):
+        render_active_devops_configmap(
+            k8s_dir=_template_dir(tmp_path), settings=_settings([], "bot")
+        )
+
+
+def test_the_active_config_map_without_an_account_is_refused_naming_the_settings(
+    tmp_path: Path,
+) -> None:
+    """A deploy never ships the template's placeholder machine account."""
+    with pytest.raises(
+        KubernetesContextError, match=r"service\.machine_account.*k8s\.github_account"
+    ):
+        render_active_devops_configmap(
+            k8s_dir=_template_dir(tmp_path), settings=_settings(["owner/repo"], None)
+        )
+
+
+def test_the_machine_account_falls_back_to_the_configured_github_account(tmp_path: Path) -> None:
+    rendered = render_active_devops_configmap(
+        k8s_dir=_template_dir(tmp_path), settings=_settings(["owner/repo"], None, "devops-bot")
+    )
+    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
+    assert (inner["service"]["repos"], inner["service"]["machine_account"]) == (
+        ["owner/repo"],
+        "devops-bot",
+    )
