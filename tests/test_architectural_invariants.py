@@ -251,6 +251,69 @@ def test_no_module_runs_python_in_process() -> None:
     assert tuple(callers) == ()
 
 
+def _is_review_finding_import(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.ImportFrom)
+        and bool(node.module and node.module.startswith("devops_cli.review"))
+        and any(alias.name == "Finding" for alias in node.names)
+    )
+
+
+def _find_review_finding_callers(src: Path, texts: dict[Path, str]) -> list[str]:
+    callers: list[str] = []
+    for path, text in texts.items():
+        if "Finding(" not in text:
+            continue
+        rel = path.relative_to(src).as_posix()
+        tree = ast.parse(text, filename=str(path))
+        if not any(_is_review_finding_import(node) for node in ast.walk(tree)):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                name = (
+                    node.func.id
+                    if isinstance(node.func, ast.Name)
+                    else getattr(node.func, "attr", None)
+                )
+                if name == "Finding" and rel != "review/admission.py":
+                    callers.append(f"{rel}:{node.lineno}")
+    return callers
+
+
+def _find_admission_calls_outside_admit(src: Path) -> list[int]:
+    adm_path = src / "review" / "admission.py"
+    adm_tree = ast.parse(adm_path.read_text(encoding="utf-8"), filename=str(adm_path))
+    calls: list[int] = []
+    for node in adm_tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name != "admit":
+            for sub in ast.walk(node):
+                if (
+                    isinstance(sub, ast.Call)
+                    and isinstance(sub.func, ast.Name)
+                    and sub.func.id == "Finding"
+                ):
+                    calls.append(sub.lineno)
+    return calls
+
+
+def test_finding_is_constructed_only_by_admission() -> None:
+    """A frozen review Finding is built only by review/admission.py::admit(). (#871)
+
+    A test asserts that no other module constructs one. The test reads source text
+    first and parses only files containing 'Finding(', as test_no_module_runs_python_in_process does.
+    """
+    from devops_cli.review.finding import Finding
+
+    assert Finding.model_config.get("frozen") is True
+
+    src = Path(__file__).resolve().parents[1] / "src" / "devops_cli"
+    texts = {path: path.read_text(encoding="utf-8") for path in src.rglob("*.py")}
+    callers = _find_review_finding_callers(src, texts)
+    calls_outside_admit = _find_admission_calls_outside_admit(src)
+
+    assert (tuple(callers), tuple(calls_outside_admit)) == ((), ())
+
+
 def _resolve_import_edge(
     sub: ast.Import,
     mod: str,

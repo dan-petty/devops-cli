@@ -62,6 +62,8 @@ class SarifError(ValueError):
 def _rule_for(finding: NormalizedFinding) -> dict[str, Any]:
     """Build the rule descriptor a result refers to by id."""
     properties: dict[str, Any] = {"tags": ["security", finding.tool]}
+    if finding.rule_properties:
+        properties.update(finding.rule_properties)
     if finding.gating:
         # GitHub code scanning orders by this rather than by `level`, so both are
         # emitted: the level for generic consumers, the score for GitHub.
@@ -92,13 +94,21 @@ def _location_for(finding: NormalizedFinding) -> list[dict[str, Any]]:
         if finding.line > 0:
             physical["region"] = {"startLine": finding.line}
     location: dict[str, Any] = {"physicalLocation": physical}
+    logical: list[dict[str, Any]] = []
     if finding.symbol:
-        location["logicalLocations"] = [{"name": finding.symbol}]
+        logical.append({"name": finding.symbol})
+    if finding.logical_locations:
+        logical.extend(finding.logical_locations)
+    if logical:
+        location["logicalLocations"] = logical
     return [location]
 
 
 def _result_for(finding: NormalizedFinding, rule_index: int) -> dict[str, Any]:
     """Build a single SARIF result."""
+    partial_fps: dict[str, str] = {CONST_SARIF_FINGERPRINT_KEY: finding.fingerprint}
+    if finding.partial_fingerprints:
+        partial_fps.update(finding.partial_fingerprints)
     result: dict[str, Any] = {
         "ruleId": finding.rule_id,
         "ruleIndex": rule_index,
@@ -108,9 +118,11 @@ def _result_for(finding: NormalizedFinding, rule_index: int) -> dict[str, Any]:
             else CONST_SARIF_LEVEL_NOTE
         ),
         "message": {"text": finding.message or finding.description or finding.rule_id},
-        "partialFingerprints": {CONST_SARIF_FINGERPRINT_KEY: finding.fingerprint},
+        "partialFingerprints": partial_fps,
         "properties": {"tool": finding.tool, "severity": finding.severity},
     }
+    if finding.baseline_state:
+        result["baselineState"] = finding.baseline_state
     locations = _location_for(finding)
     if locations:
         result["locations"] = locations
@@ -139,14 +151,18 @@ def _run_for(
             rules.append(_rule_for(finding))
         results.append(_result_for(finding, index))
 
+    driver: dict[str, Any] = {
+        "name": tool,
+        "informationUri": CONST_SARIF_TOOL_URI,
+        "rules": rules,
+    }
+    for f in findings:
+        if f.tool_version:
+            driver["version"] = f.tool_version
+            break
+
     run: dict[str, Any] = {
-        "tool": {
-            "driver": {
-                "name": tool,
-                "informationUri": CONST_SARIF_TOOL_URI,
-                "rules": rules,
-            }
-        },
+        "tool": {"driver": driver},
         "results": results,
     }
     if invocation is not None:
@@ -392,14 +408,50 @@ def _location_of(result: dict[str, Any]) -> tuple[str, int | None, str | None]:
     return path, line, symbol
 
 
+def _driver_version(run: dict[str, Any]) -> str | None:
+    """Resolve the tool driver version for a run."""
+    tool = run.get("tool")
+    if isinstance(tool, dict):
+        driver = tool.get("driver")
+        if isinstance(driver, dict):
+            version = driver.get("version")
+            if isinstance(version, str) and version.strip():
+                return version.strip()
+    return None
+
+
+def _logical_locations_of(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract logical locations from a result's first location."""
+    locations = result.get("locations")
+    if not isinstance(locations, list) or not locations:
+        return []
+    first = locations[0]
+    if not isinstance(first, dict):
+        return []
+    logical = first.get("logicalLocations")
+    if isinstance(logical, list):
+        return [loc for loc in logical if isinstance(loc, dict)]
+    return []
+
+
 def _finding_from_result(
-    result: dict[str, Any], rules: list[dict[str, Any]], tool: str
+    result: dict[str, Any],
+    rules: list[dict[str, Any]],
+    tool: str,
+    tool_version: str | None = None,
 ) -> NormalizedFinding:
     """Convert one SARIF result into a normalized finding."""
     rule = _resolve_rule(result, rules)
     rule_id = result.get("ruleId") or rule.get("id") or f"{tool}.unknown"
     path, line, symbol = _location_of(result)
     message = _text_of(result, "message") or _text_of(rule, "shortDescription")
+    raw_fps = result.get("partialFingerprints")
+    partial_fps = raw_fps if isinstance(raw_fps, dict) else {}
+    raw_props = rule.get("properties")
+    rule_props = raw_props if isinstance(raw_props, dict) else {}
+    raw_base = result.get("baselineState")
+    baseline_state = raw_base.strip() if isinstance(raw_base, str) and raw_base.strip() else None
+    logical_locs = _logical_locations_of(result)
 
     return NormalizedFinding(
         tool=tool,
@@ -411,6 +463,11 @@ def _finding_from_result(
         symbol=symbol,
         description=_text_of(rule, "fullDescription") or message,
         fix=_text_of(rule, "help"),
+        tool_version=tool_version,
+        partial_fingerprints=partial_fps,
+        rule_properties=rule_props,
+        baseline_state=baseline_state,
+        logical_locations=tuple(logical_locs),
     )
 
 
@@ -435,13 +492,16 @@ def from_sarif(document: Any) -> list[NormalizedFinding]:
         if not isinstance(run, dict):
             continue
         tool = _driver_name(run)
+        tool_version = _driver_version(run)
         rules = _driver_rules(run)
         results = run.get("results")
         if not isinstance(results, list):
             continue
         for result in results:
             if isinstance(result, dict):
-                findings.append(_finding_from_result(result, rules, tool))
+                findings.append(
+                    _finding_from_result(result, rules, tool, tool_version=tool_version)
+                )
     return findings
 
 

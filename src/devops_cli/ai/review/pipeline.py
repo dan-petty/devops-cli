@@ -3769,6 +3769,9 @@ class ReviewPipelineOrchestrator:
         lines.extend(summary_lines)
         lines.extend(self._build_findings_table(reportable_findings))
         lines.extend(self._build_detailed_findings_section(reportable_findings))
+        lines.extend(self._build_introduced_findings_section(reportable_findings))
+        lines.extend(self._build_preexisting_findings_section(reportable_findings))
+        lines.extend(self._build_suppressed_findings_section(all_findings or reportable_findings))
         lines.extend(self._build_dependencies_table(all_deps))
         lines.extend(self._build_network_table(all_nets))
 
@@ -3820,6 +3823,91 @@ class ReviewPipelineOrchestrator:
             for fpath, status in sorted(self.coverage[tool].items())
         ]
         return ["## Coverage", "| Tool | File | Status |", "|---|---|---|", *rows, ""]
+
+    def _build_introduced_findings_section(self, findings: list[Any]) -> list[str]:
+        """Render Introduced Findings section for review.md (#871)."""
+        introduced = [
+            f
+            for f in findings
+            if getattr(f, "introduced", True) and getattr(f, "state", "OPEN") != "SUPPRESSED"
+        ]
+        if not introduced:
+            return []
+        rows = [
+            f"| **{getattr(f, 'severity', 'MEDIUM')}** | `{getattr(f, 'location', '') or getattr(f, 'location_display', '') or getattr(f, 'path', '')}` | {escape_markdown_title(getattr(f, 'title', '') or getattr(f, 'message', ''), is_table=True)} |"
+            for f in introduced
+        ]
+        return [
+            "## Introduced Findings",
+            "| Severity | Location | Title |",
+            "|---|---|---|",
+            *rows,
+            "",
+        ]
+
+    def _build_preexisting_findings_section(self, findings: list[Any]) -> list[str]:
+        """Render Pre-existing Findings in Changed Files section for review.md (#871)."""
+        preexisting = [
+            f
+            for f in findings
+            if not getattr(f, "introduced", True) and getattr(f, "state", "OPEN") != "SUPPRESSED"
+        ]
+        if not preexisting:
+            return []
+        rows = [
+            f"| **{getattr(f, 'severity', 'MEDIUM')}** | `{getattr(f, 'location', '') or getattr(f, 'location_display', '') or getattr(f, 'path', '')}` | {escape_markdown_title(getattr(f, 'title', '') or getattr(f, 'message', ''), is_table=True)} |"
+            for f in preexisting
+        ]
+        return [
+            "## Pre-existing Findings in Changed Files",
+            "| Severity | Location | Title |",
+            "|---|---|---|",
+            *rows,
+            "",
+        ]
+
+    def _build_suppressed_findings_section(self, findings: list[Any]) -> list[str]:
+        """Render Suppressed Findings section for review.md (#871)."""
+        suppressed: list[Any] = []
+        admitted = getattr(self, "admitted_findings", None)
+        if isinstance(admitted, (list, tuple)):
+            suppressed.extend(
+                f
+                for f in admitted
+                if getattr(f, "state", "") == "SUPPRESSED"
+                or getattr(f, "suppressed_by_change", False)
+            )
+        suppressed.extend(
+            f
+            for f in findings
+            if getattr(f, "state", "") == "SUPPRESSED" or getattr(f, "suppressed_by_change", False)
+        )
+        if not suppressed:
+            return []
+        rows: list[str] = []
+        seen: set[tuple[str, str, str]] = set()
+        for f in suppressed:
+            loc = getattr(f, "location", "") or getattr(f, "path", "")
+            key = (loc, getattr(f, "rule_id", ""), getattr(f, "title", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            sev = getattr(f, "severity", "MEDIUM")
+            reason = getattr(f, "suppression_reason", "Inline marker") or "Inline marker"
+            expiry = getattr(f, "suppression_expiry", None) or "None"
+            by = (
+                "suppressed by this change"
+                if getattr(f, "suppressed_by_change", False)
+                else "review.toml/base marker"
+            )
+            rows.append(f"| **{sev}** | `{loc}` | {reason} | {expiry} | {by} |")
+        return [
+            "## Suppressed Findings",
+            "| Severity | Location | Reason | Expiry | Suppressed By |",
+            "|---|---|---|---|---|",
+            *rows,
+            "",
+        ]
 
     def _render_console_findings_table(
         self, console: Any, reportable_findings: list[SavedFinding]
@@ -4292,6 +4380,39 @@ class ReviewPipelineOrchestrator:
         (self.session_dir / CONST_REVIEW_CANDIDATES_FILENAME).write_text(
             candidates.model_dump_json(indent=2), encoding="utf-8"
         )
+
+        from devops_cli.security.normalization import NormalizedFinding
+        from devops_cli.security.sarif import write_sarif
+
+        sarif_findings: list[NormalizedFinding] = []
+        for af in getattr(self, "admitted_scanner_findings", []):
+            loc_tuple = tuple([{"name": af.logical_location}]) if af.logical_location else ()
+            sarif_findings.append(
+                NormalizedFinding(
+                    tool=af.tool,
+                    tool_version=af.tool_version,
+                    rule_id=af.rule_id,
+                    severity=af.severity,
+                    message=af.message,
+                    path=af.path,
+                    line=af.line,
+                    symbol=af.symbol,
+                    description=af.description,
+                    fix=af.fix,
+                    partial_fingerprints=dict(af.partial_fingerprints),
+                    rule_properties=dict(af.properties),
+                    baseline_state=af.baseline_state,
+                    logical_locations=loc_tuple,
+                )
+            )
+        write_sarif(sarif_findings, self.session_dir / "findings.sarif")
+
+        if profiler := active_profiler():
+            profiler.set_findings(
+                candidates=len(candidate_findings),
+                verified=sum(1 for f in all_findings if getattr(f, "verified", False)),
+                reported=len(payload_out.findings),
+            )
 
         reportable_findings = [
             f for f in all_findings if f.reportable and not f.is_empty and f.location.strip()

@@ -141,6 +141,7 @@ class ReviewProfile(BaseModel):
     unparsed_personas: list[str] = Field(default_factory=list)
     coverage: dict[str, dict[str, str]] = Field(default_factory=dict)
     partial_context: bool = False
+    rejections: dict[str, int] = Field(default_factory=dict)
     stages: list[StageProfile] = Field(default_factory=list)
 
     @property
@@ -190,6 +191,17 @@ class ReviewProfiler:
         self._unparsed_personas: set[str] = set()
         self._coverage: dict[str, dict[str, str]] = {}
         self._partial_context: bool = False
+        self._rejections: dict[str, int] = {}
+
+    def record_rejection(self, reason: str) -> None:
+        """Record one typed candidate rejection into profile."""
+        with self._lock:
+            self._rejections[reason] = self._rejections.get(reason, 0) + 1
+
+    def set_rejections(self, rejections: dict[str, int]) -> None:
+        """Set typed candidate rejections."""
+        with self._lock:
+            self._rejections.update(rejections)
 
     def record_persona_reply(
         self,
@@ -305,6 +317,7 @@ class ReviewProfiler:
             unparsed = sorted(self._unparsed_personas)
             coverage = {t: dict(m) for t, m in self._coverage.items()}
             partial_ctx = self._partial_context
+            rejections = dict(self._rejections)
         for stage in stages:
             stage.wall_seconds = round(stage.wall_seconds, 3)
             stage.activity = {
@@ -338,6 +351,7 @@ class ReviewProfiler:
             unparsed_personas=unparsed,
             coverage=coverage,
             partial_context=partial_ctx,
+            rejections=rejections,
             stages=stages,
         )
 

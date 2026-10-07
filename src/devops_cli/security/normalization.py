@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -134,6 +135,11 @@ class NormalizedFinding:
     fix: str = ""
     references: tuple[str, ...] = ()
     gating: bool = True
+    tool_version: str | None = None
+    partial_fingerprints: Mapping[str, str] = field(default_factory=dict)
+    rule_properties: Mapping[str, Any] = field(default_factory=dict)
+    baseline_state: str | None = None
+    logical_locations: tuple[dict[str, Any], ...] = ()
 
     @property
     def rank(self) -> int:
