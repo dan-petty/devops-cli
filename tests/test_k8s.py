@@ -2049,3 +2049,56 @@ def test_k8s_helm_upgrade_command_includes_pinned_version() -> None:
         assert len(helm_cmds) > 0
         for cmd in helm_cmds:
             assert "--version" in cmd
+
+
+def test_native_deploy_stack_infra_applies_the_grafana_dashboards() -> None:
+    """Without Argo CD, deploy-stack applies `monitoring/dashboards` after the root kustomization.
+
+    The root leaves the dashboards to Argo CD's `monitoring` Application (#1279), so nothing else
+    creates the Grafana dashboard ConfigMaps on a natively deployed cluster (#1297).
+    """
+    with (
+        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
+        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
+        ),
+        patch("devops_cli.commands.k8s.port_forward"),
+        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
+    ):
+        mock_cmd.return_value = _mock_proc(0, "")
+        res = runner.invoke(
+            app, ["deploy-stack", "--stack", "infra", "--no-push-secrets", "--k8s-dir", "k8s"]
+        )
+    kustomize_targets = [
+        Path(cmd[3])
+        for cmd in (call.args[0] for call in mock_cmd.call_args_list)
+        if cmd[:3] == ["kubectl", "apply", "-k"]
+    ]
+    assert (res.exit_code, kustomize_targets) == (
+        0,
+        [Path("k8s"), Path("k8s", "monitoring", "dashboards")],
+    )
+
+
+@pytest.mark.parametrize(
+    ("stack", "kustomizations"),
+    [
+        ("infra", [str(Path("k8s", "monitoring", "dashboards"))]),
+        ("all", [str(Path("k8s", "monitoring", "dashboards"))]),
+        ("llm", []),
+    ],
+)
+def test_deploy_stack_dry_run_lists_the_kustomizations_its_stacks_apply(
+    stack: str, kustomizations: list[str], isolate_devops_cli_config: Path
+) -> None:
+    """The dry run names each kustomization the stacks apply after the root one (#1297)."""
+    _configure_service(isolate_devops_cli_config)
+    with patch("devops_cli.commands.k8s.stack_lifecycle.render_dry_run_result") as render:
+        res = runner.invoke(
+            app, ["deploy-stack", "--stack", stack, "--k8s-dir", "k8s", "--dry-run"]
+        )
+    assert (res.exit_code, render.call_args.kwargs["details"].get("kustomizations")) == (
+        0,
+        kustomizations,
+    )

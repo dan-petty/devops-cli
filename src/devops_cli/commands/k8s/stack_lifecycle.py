@@ -193,6 +193,13 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     ],
 }
 
+# Kustomizations under --k8s-dir that a native deploy applies with `kubectl apply -k` after the
+# root one. The root leaves the dashboards out so that Argo CD's `monitoring` Application alone
+# owns their ConfigMaps (#1279); a cluster without Argo CD gets them from here (#1297).
+_KUSTOMIZATIONS_BY_STACK: dict[str, tuple[Path, ...]] = {
+    "infra": (Path("monitoring", "dashboards"),),
+}
+
 VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "devops", "all")
 
 
@@ -874,6 +881,12 @@ def _set_homelab_hosts(
         print_success(f"Argo CD Application '{application}' renders the configured hosts")
 
 
+def _apply_kustomizations(kustomizations: Sequence[Path], kubectl_ctx: list[str]) -> None:
+    """Apply each kustomization directory with `kubectl apply -k`, in order."""
+    for kustomization in kustomizations:
+        runtime._run_cmd(["kubectl", "apply", "-k", str(kustomization)] + kubectl_ctx)
+
+
 def _deploy_native_manifests(
     all_manifests: list[str],
     config_map: str | None,
@@ -972,9 +985,11 @@ def deploy_stack(
 
     all_releases: list[dict[str, str]] = []
     all_manifests: list[str] = []
+    all_kustomizations: list[Path] = []
     for s_name in selected_stacks:
         all_releases.extend(_HELM_RELEASES_BY_STACK.get(s_name, []))
         all_manifests.extend([str(p) for p in _MANIFESTS_BY_STACK.get(s_name, [])])
+        all_kustomizations.extend(k8s_dir / k for k in _KUSTOMIZATIONS_BY_STACK.get(s_name, ()))
 
     # 1. Render what git does not hold before anything else: a missing setting stops a dry run
     # and a deploy alike, before either touches the cluster
@@ -998,6 +1013,7 @@ def deploy_stack(
                 "secrets": _dry_run_secrets(selected_stacks, push_secrets),
                 "helm_releases": [r["name"] for r in all_releases],
                 "manifests": all_manifests,
+                "kustomizations": [str(k) for k in all_kustomizations],
                 "config_map": (
                     f"devops/{CONST_K8S_DEVOPS_CONFIGMAP} (rendered from the active config)"
                     if config_map is not None
@@ -1034,9 +1050,9 @@ def deploy_stack(
     kubectl_ctx = ["--context", effective_context] if effective_context else []
     helm_ctx = ["--kube-context", effective_context] if effective_context else []
 
-    # 4. Apply kustomize base (namespaces)
+    # 4. Apply kustomize base (namespaces), then the stacks' kustomizations the base leaves out
     print_info("[bold]Applying namespaces...[/bold]", prefix=False)
-    runtime._run_cmd(["kubectl", "apply", "-k", str(k8s_dir)] + kubectl_ctx)
+    _apply_kustomizations([k8s_dir, *all_kustomizations], kubectl_ctx)
 
     # 5. Push the stacks' Secrets before anything reads them
     if push_secrets:

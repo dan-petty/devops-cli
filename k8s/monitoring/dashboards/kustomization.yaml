@@ -1,6 +1,8 @@
 # Grafana dashboard ConfigMaps for the dashboard sidecar (k8s/monitoring/grafana-values.yaml),
 # which loads every ConfigMap labelled grafana_dashboard.
-# Applied by: kubectl apply -k k8s/ (devops k8s deploy-stack), through the root kustomization.
+# Applied by: Argo CD's `monitoring` Application (k8s/monitoring) on a cluster it manages, or
+# `kubectl apply -k k8s/monitoring/dashboards` in `devops k8s deploy-stack --stack infra`
+# without Argo CD. The root kustomization leaves it out so `base` does not own it as well.
 #
 # Names carry no content hash, so a re-apply updates each ConfigMap in place rather than leaving
 # the old one behind for the sidecar to load twice. Each ConfigMap stays under kubectl's
