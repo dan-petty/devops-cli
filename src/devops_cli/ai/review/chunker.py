@@ -162,7 +162,7 @@ def _extract_header_filenames(segment: str, header_type: str = "all") -> list[st
         if header_type in ("diff", "all") and line.startswith("diff --git "):
             parts = line.split()
             if len(parts) >= 4:
-                items.append(parts[2].removeprefix("a/"))
+                items.append(parts[3].removeprefix("b/"))
         elif header_type in ("path", "file", "all") and line.startswith("### File: "):
             item = line.removeprefix("### File: ").strip()
             item = item.split(" (part ", 1)[0].strip()
@@ -390,7 +390,11 @@ def skips_persona_review(path: str | PurePath) -> bool:
     the persona pages of the release/v0.2.25 branch reviews. Path, branch and pull request
     reviews all decide with this predicate, and the secret scan still reads what it skips.
     """
+    from devops_cli.ai.review.path_classes import is_fixture_path
+
     posix = PurePosixPath(str(path).replace("\\", "/").removeprefix("./"))
+    if is_fixture_path(posix):
+        return True
     return posix.name in CONST_REVIEW_GENERATED_FILES or any(
         posix.full_match(pattern) for pattern in CONST_REVIEW_ROUTED_PATH_PATTERNS
     )

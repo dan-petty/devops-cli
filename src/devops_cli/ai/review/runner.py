@@ -2082,6 +2082,8 @@ def _write_review_profile(
     profiler: ReviewProfiler, orchestrator: Any, target: str, files: int
 ) -> ReviewProfile:
     """Write the session's profile.json and summarise where the time went."""
+    profiler.set_coverage(getattr(orchestrator, "coverage", {}))
+    profiler.set_partial_context(getattr(orchestrator, "partial_context", False))
     profile = profiler.build(session_id=orchestrator.session_id, target=target, files=files)
     path = profile.write(orchestrator.session_dir)
     report_profile(profile)
@@ -2286,6 +2288,8 @@ def _execute_review_workflow(
     base_revision: BaseRevision | None = None,
     full_output: bool = False,
     routed_files: Sequence[str] = (),
+    session_id: str | None = None,
+    partial_context: bool = False,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Common review execution workflow for path, branch, and PR reviews.
 
@@ -2308,9 +2312,13 @@ def _execute_review_workflow(
         print_info(f"[dim]{spans_msg}[/dim]", prefix=False)
 
     all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
+    if base_revision is not None and base_revision.changes:
+        deleted = {c.path for c in base_revision.changes if c.change_type == "deleted"}
+        all_files = [f for f in all_files if f not in deleted]
     _check_and_warn_perimeter_changes(target_type, all_files)
     subject = review_subject(target_type, target_ref, pages)
     orchestrator = ReviewPipelineOrchestrator(
+        session_id=session_id,
         llm_client=clients.analysis,
         verification_client=clients.verification,
         target_dir=target_dir,
@@ -2321,6 +2329,8 @@ def _execute_review_workflow(
         conventions_revision=base_revision.revision if base_revision else None,
         full_output=full_output,
         secret_scan_files=sorted({*routed_files, *_routed_changes(base_revision)}),
+        base_revision=base_revision,
+        partial_context=partial_context,
     )
     if not all_files:
         return _review_routed_files_only(orchestrator, persona, stage_flags)

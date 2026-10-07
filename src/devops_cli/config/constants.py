@@ -282,6 +282,7 @@ CONST_REVIEW_SCAN_BANDIT_INI = "[bandit]\n"
 CONST_SCAN_STATUS_PRECEDENCE: Final[tuple[str, ...]] = (
     "failed",
     "unavailable",
+    "not installed",
     "dry-run",
     "built-in patterns",
     "ran",
@@ -484,6 +485,22 @@ CONST_SPECS_DIR_NAME = ".devops/specs"
 # Review-specific conventions a project keeps for devops ai review: read in full, beside the
 # general conventions file, by the personas and the verifier.
 CONST_REVIEW_CONVENTIONS_FILE = ".devops/review.md"
+# Declarative path classes configuration file for review routing and tool scoping (#1047).
+CONST_REVIEW_CONFIG_FILE = ".devops/review.toml"
+CONST_DEFAULT_PATH_CLASSES: Final[dict[str, tuple[str, ...]]] = {
+    "src": ("src/**", "lib/**", "app/**"),
+    "test": ("tests/**", "test/**", "*_test.py", "test_*.py"),
+    "fixture": (
+        "tests/fixtures/**",
+        "tests/golden/**",
+        "fixtures/**",
+        "golden/**",
+        "**/fixtures/**",
+        "**/golden/**",
+    ),
+    "iac": ("k8s/**", "helm/**", "Dockerfile*", "Containerfile*", "*.tf", "*.tfvars"),
+    "docs": ("docs/**", "*.md", "*.rst", "LICENSE*", "NOTICE*"),
+}
 CONST_SPECS_DIR_PATH = Path(CONST_SPECS_DIR_NAME)
 CONST_CHAOS_DIR_NAME = "k8s/chaos"
 CONST_CHAOS_DIR_PATH = Path(CONST_CHAOS_DIR_NAME)

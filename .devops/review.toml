@@ -1,0 +1,7 @@
+# Review path classes configuration (#1047)
+[paths]
+src = ["src/**"]
+test = ["tests/**"]
+fixture = ["tests/fixtures/**", "tests/golden/**"]
+iac = ["k8s/**", "helm/**", "Dockerfile*", "Containerfile*"]
+docs = ["docs/**", "*.md"]
