@@ -6,7 +6,7 @@
 
 ## 1. Published Container Images & Tags
 
-The official multi-architecture (`linux/amd64`, `linux/arm64`) images are hosted on GHCR at:
+The official `linux/amd64` image is hosted on GHCR at:
 `ghcr.io/dan-petty/devops-cli/devcontainer`
 
 | Tag Pattern | Example | Description | Best For |
@@ -33,8 +33,8 @@ The published Dev Container image is built on `debian:sid` (Debian Unstable) pro
 - **Runtimes & Package Managers**: Python 3.14+, `uv` (ultra-fast package & virtualenv manager), `git`, `zsh` with Oh My Zsh.
 - **Containers & Virtualization**: Docker-in-Docker (DinD) enabled with rootless socket mapping for non-root user `vscode`.
 - **Kubernetes & Cloud Native**: `kubectl`, `helm`, `minikube` (with optional GPU passthrough support), `kustomize`.
-- **Infrastructure as Code**: OpenTofu (`tofu`) and Terraform (`terraform`) dual compatibility.
-- **Security & Compliance Integrations**: Embedded Python SAST and audit tools (`bandit`, `pip-audit`, `checkov`), with native runner integrations for external scanners (`trivy`, `semgrep`, `gitleaks`, `kube-linter`, `pluto`, `actionlint`), installable on-demand via `devops install-tools` or system package managers.
+- **Infrastructure as Code**: `devops tf` wraps OpenTofu or Terraform; install `tofu` or `terraform` yourself, since the image ships neither.
+- **Security & Compliance Integrations**: runners for `bandit`, `checkov`, `trivy`, `semgrep`, `gitleaks`, `kube-linter`, `pluto` and `actionlint` (`devops scan`, `devops ci`). Post-create installs `semgrep`, `trivy`, `kube-linter` and `pluto`. Install `bandit`, `checkov`, `gitleaks` and `actionlint` yourself, or add them to your project's dev dependencies.
 - **Sandbox Confinement & Host Isolation**: Linux bubblewrap (`bwrap`) pre-installed for unprivileged namespace confinement of executable verification criteria and untrusted code execution. Criteria run the reviewed repository's own `.venv/bin` first on `PATH`, so `python` and `ruff` are the project's; run `uv sync` in that repository before a review, or criteria fall back to the system's `/usr/bin` tools.
 - **AI Code Review & MCP Integration**: `devops-cli` suite pre-installed with Model Context Protocol (FastMCP) server endpoints (`devops mcp serve`), OpenTelemetry instrumentation, and Logfire.
 
@@ -50,14 +50,15 @@ You can scaffold a complete, best-practice `.devcontainer/` setup targeting the 
 # Initialize a new project with the published GHCR container image
 devops devcontainer init --name my-project --published
 
-# Or specify a custom pinned tag
+# --image currently writes :latest for devops-cli images; pin by editing "image" in the generated .devcontainer/devcontainer.json
 devops devcontainer init --name my-project --image ghcr.io/dan-petty/devops-cli/devcontainer:v0.2.16
 ```
 
 This scaffolds:
 1. `.devcontainer/devcontainer.json`: Pre-configured manifest using the published image with `/tmp`, persistent user home volume, SSH directory forwarding, post-create lifecycle commands (`devops devcontainer post-create`), and IDE extensions.
 2. `.vscode/mcp.json`: Model Context Protocol configuration exposing `devops-cli` tools to AI coding assistants (Claude Desktop, Cursor, VS Code, Antigravity IDE).
-3. `AGENTS.md`: Operational engineering instructions and architectural constraints for AI pair programmers.
+3. `AGENTS.md`, `CLAUDE.md` and `.github/copilot-instructions.md`: Operational engineering instructions and architectural constraints for AI pair programmers.
+4. `.mcp.json`: the same MCP server for Claude Code.
 
 ---
 
@@ -257,8 +258,8 @@ devops ai config --provider ollama --model qwen2.5-coder:7b --ollama-urls http:/
 # Verify provider connectivity and latency
 devops ai test
 
-# Run multi-persona code review on active branch against main
-devops review branch
+# Run every reviewer persona on the active branch against main
+devops review branch --all
 
 # Or explicitly review a specific feature branch against main
 devops review branch feat/my-feature --base main
@@ -395,16 +396,12 @@ When developing in self-contained environments or GitHub Codespaces, the Dev Con
 #### GPU Passthrough & CPU Fallback
 On workstations equipped with NVIDIA GPUs, Minikube automatically attempts to start with hardware GPU passthrough (`--gpus all`):
 ```bash
-minikube start --driver=docker --gpus=all --cpus=4 --memory=8192
+minikube start --driver=docker --gpus=all   # only when nvidia-smi is present; otherwise minikube start --driver=docker
 ```
 If the container runtime lacks NVIDIA Container Toolkit support or fails to allocate GPUs, DevOps CLI automatically detects the failure and transparently falls back to CPU mode, ensuring container startup never fails due to missing GPU drivers.
 
-#### Enabled Add-Ons
-Embedded Minikube automatically enables standard production-like add-ons:
-- `ingress`: NGINX ingress controller for routing traffic to local services.
-- `metrics-server`: Real-time CPU and memory metrics for `kubectl top` and HPA.
-- `dashboard`: Kubernetes web administration console.
-- `default-storageclass`: Dynamic PersistentVolume claim provisioning.
+#### Add-Ons
+devops-cli enables no Minikube add-ons; minikube's defaults (`default-storageclass`, `storage-provisioner`) apply. Enable others with `minikube addons enable ingress` (or `metrics-server`, `dashboard`).
 
 ---
 
@@ -552,7 +549,7 @@ When connecting to private cloud Kubernetes clusters (e.g. within an AWS VPC, GC
 # 1. List all available kubeconfig contexts and identify active cluster
 devops k8s contexts
 
-# 2. Switch context (autostarts Minikube if switching to stopped minikube; verifies external clusters)
+# 2. Switch context (autostarts a stopped Minikube; also saves k8s.context)
 devops k8s switch-context <context-name>
 
 # 3. Probe cluster health, nodes, and component statuses
@@ -562,10 +559,11 @@ devops k8s status
 devops k8s pods --all-namespaces
 
 # 5. Deploy infrastructure and observability stacks to the active cluster
-devops k8s deploy-stack --stack infra   # Argo CD, monitoring, OpenTelemetry & Jaeger
-devops k8s deploy-stack --stack llm     # Ollama, Open-WebUI, Qdrant, Valkey, LLM gateway
-devops k8s deploy-stack --stack all     # All stacks simultaneously
+devops k8s deploy-stack --stack infra     # ArgoCD, k8s-monitoring (Alloy), Prometheus, Grafana, OTel Collector, Jaeger
+devops k8s deploy-stack --stack llm       # Ollama profiles, LLM gateway, Open WebUI, Qdrant, Valkey
+devops k8s deploy-stack --stack logging   # Loki, Fluent Bit
+devops k8s deploy-stack --stack all       # all three
 
 # 6. Stream logs from a deployed controller
-devops k8s logs -n argocd -l app.kubernetes.io/name=argocd-server --tail 100 -f
+devops k8s stream-logs argocd-server -n argocd --tail 100 -f
 ```

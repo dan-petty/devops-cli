@@ -131,6 +131,19 @@ CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
 # such a call. `devops docs check` resolves every list that starts with it.
 CONST_MCP_SERVER_MODULE = "devops_cli.ai.mcp.server"
 CONST_DEVOPS_ARGV_PREFIX: Final[tuple[str, ...]] = ("uv", "run", "devops")
+# Well-known placeholder tokens and handwritten documentation files checked for command argv resolution (#921).
+CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
+    {"...", "COMMAND", "ARGS", "OPTIONS", "SUBCOMMAND", "PARAMS"}
+)
+CONST_HANDWRITTEN_DOCS_PATHS: Final[tuple[Path, ...]] = (
+    Path("README.md"),
+    Path("ARCHITECTURE.md"),
+    Path("RELEASE_CYCLE.md"),
+    Path("docs/SDLC.md"),
+    Path("docs/ROUTINE_TASKS.md"),
+    Path("docs/DEVCONTAINER_USAGE.md"),
+    Path("docs/VISION.md"),
+)
 # The list methods that add tokens to an argv the MCP server builds up in a variable.
 CONST_ARGV_EXTENDING_METHODS: Final[frozenset[str]] = frozenset({"append", "extend"})
 # Bound on the length of command output returned to an MCP client.
