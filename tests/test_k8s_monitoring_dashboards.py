@@ -147,15 +147,12 @@ def test_the_monitoring_kustomization_takes_its_dashboards_from_the_generator() 
     ) == (True, [])
 
 
-def test_deploy_stack_applies_the_dashboards_through_the_root_kustomization() -> None:
-    """Verify `k8s/kustomization.yaml` lists `monitoring/dashboards` and every resource exists.
+def test_root_kustomization_leaves_dashboards_to_monitoring_stack() -> None:
+    """Verify `k8s/kustomization.yaml` avoids duplicate dashboard ownership with `k8s/monitoring`.
 
-    `devops k8s deploy-stack` runs `kubectl apply -k <k8s_dir>` on the root kustomization, in
-    the same run that creates the `monitoring` namespace.
+    Argo CD's `monitoring` application owns `dashboards` in namespace `monitoring`. Listing
+    dashboards in the root kustomization causes a SharedResourceWarning conflict loop with `base`.
     """
     resources = _kustomization(K8S_DIR)["resources"]
 
-    assert (
-        "monitoring/dashboards" in resources,
-        [resource for resource in resources if not (K8S_DIR / resource).exists()],
-    ) == (True, [])
+    assert "monitoring/dashboards" not in resources

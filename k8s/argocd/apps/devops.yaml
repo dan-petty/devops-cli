@@ -14,6 +14,12 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: devops
+  ignoreDifferences:
+  - group: ""
+    kind: ConfigMap
+    name: devops-cli-config
+    jsonPointers:
+    - /data
   syncPolicy:
     automated:
       prune: true

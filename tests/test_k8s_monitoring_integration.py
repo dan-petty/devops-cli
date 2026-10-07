@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 import yaml
 
 from devops_cli.commands.k8s.networking import _collect_port_forward_services
+from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
@@ -296,7 +297,8 @@ def test_deploy_stack_applies_the_monitoring_services_the_stack_addresses() -> N
         if namespace == "monitoring"
     }
 
-    assert sorted(addressed - _kustomize_services(K8S_DIR)) == []
+    helm_services = {(r["namespace"], r["name"]) for r in _HELM_RELEASES_BY_STACK.get("infra", [])}
+    assert sorted(addressed - _kustomize_services(K8S_DIR) - helm_services) == []
 
 
 def test_dcgm_exporter_values_timeout_and_capabilities() -> None:

@@ -302,7 +302,8 @@ patches:
               backend:
                 service:
                   name: loki
-                  port: null
+                  port:
+                    number: 3100
   - patch: |-
       apiVersion: networking.k8s.io/v1
       kind: Ingress
