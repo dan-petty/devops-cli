@@ -323,11 +323,13 @@ class K8sCommandHelp:
         "Push the stacks' Secrets from the OS keyring before applying anything "
         "(--no-push-secrets for a cluster without a keyring)."
     )
-    push_config: str = (
-        "Push the in-cluster devops-cli-config ConfigMap from active configuration "
-        "without modifying git."
+    argocd_source: str = (
+        "Generate a gitignored .argocd-source.yaml file with local development "
+        "parameter overrides for Argo CD."
     )
-    push_config_restart: str = "Restart roadmap-service deployment after applying configuration."
+    argocd_source_dry_run: str = (
+        "Print generated .argocd-source.yaml content to stdout without writing files."
+    )
     run_job: str = (
         "Run a devops command as a Job in namespace devops, from CronJob devops-cli's "
         "template with only its arguments changed, follow its log and exit with its exit code."

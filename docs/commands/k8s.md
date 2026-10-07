@@ -210,12 +210,12 @@ devops k8s sync-secrets [OPTIONS]
 
 ---
 
-## `devops k8s push-config`
+## `devops k8s argocd-source`
 
-**Push the in-cluster devops-cli-config ConfigMap from active configuration without modifying git.**
+**Generate a gitignored .argocd-source.yaml file with local development parameter overrides for Argo CD.**
 
 ```bash
-devops k8s push-config [OPTIONS]
+devops k8s argocd-source [OPTIONS]
 ```
 
 **Options:**
@@ -223,9 +223,8 @@ devops k8s push-config [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
-| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
-| `--restart` / `--no-restart` | `boolean` | `True` | Restart roadmap-service deployment after applying configuration. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
+| `--dry-run` | `boolean` | - | Print generated .argocd-source.yaml content to stdout without writing files. |
 
 ---
 

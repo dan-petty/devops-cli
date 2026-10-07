@@ -324,7 +324,7 @@ class KubernetesConfig(BaseModel):
     )
     domain: str | None = Field(
         default=None,
-        description="Base domain name for homelab ingress routes and tunnel services (e.g. retric.ai)",
+        description="Base domain name for homelab ingress routes and tunnel services (e.g. example.com)",
     )
     addressing: str | None = Field(
         default=None,
@@ -367,7 +367,7 @@ class CloudflareConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     domain: str | None = Field(
         default=None,
-        description="Root or zone domain name managed in Cloudflare (e.g. retric.ai)",
+        description="Root or zone domain name managed in Cloudflare (e.g. example.com)",
     )
     tunnel: str | None = Field(
         default=None,

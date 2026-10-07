@@ -63,6 +63,10 @@ secrets/
 # Local project config override (copy config.example.yaml → config.yaml to activate)
 /config.yaml
 
+# Argo CD source parameter overrides (local development only, never commit)
+.argocd-source*.yaml
+**/.argocd-source*.yaml
+
 # Local data directory — reports, review output, computed artefacts
 .data/*
 !.data/.gitkeep

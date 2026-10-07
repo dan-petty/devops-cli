@@ -279,7 +279,7 @@ def _render_dns_sync_results(
 def dns_sync(
     domain: Annotated[
         str | None,
-        typer.Option("--domain", "-d", help="Root domain name (e.g. retric.click)"),
+        typer.Option("--domain", "-d", help="Root domain name (e.g. example.com)"),
     ] = None,
     tunnel_cname: Annotated[
         str | None,
@@ -442,7 +442,7 @@ def dns_delete(
     targets: Annotated[
         list[str],
         typer.Argument(
-            help="One or more DNS record names (e.g. chat.retric.click) or record IDs to delete"
+            help="One or more DNS record names (e.g. chat.example.com) or record IDs to delete"
         ),
     ],
     record_type: Annotated[
@@ -593,7 +593,7 @@ def tunnel_sync(
     ] = None,
     domain: Annotated[
         str | None,
-        typer.Option("--domain", "-d", help="Domain to route through tunnel (e.g. retric.click)"),
+        typer.Option("--domain", "-d", help="Domain to route through tunnel (e.g. example.com)"),
     ] = None,
     service: Annotated[
         str,

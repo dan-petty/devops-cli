@@ -37,4 +37,4 @@ This deliverable resolves all acceptance criteria for #1065:
 - [x] Offline tests with stub embedders run without gateway/network and each under 1 s.
 - [x] `changelog.d/1065.md` records the fix under `### Fixed`.
 - [x] `uv run devops ci` passes.
-- Pending a person: (after #1064) restart hog's Ollama pod while a multi-file review runs to verify pause and resume live.
+- Pending a person: (after #1064) restart the Ollama pod while a multi-file review runs to verify pause and resume live.

@@ -1032,7 +1032,7 @@ def test_an_unreachable_gateway_exits_non_zero_names_it_and_writes_nothing(
         def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
             raise ConnectionError("connection refused")
 
-    gateway = "http://llm-gateway.lan:4000/v1"
+    gateway = "http://example.com:4000/v1"
     model = GatewayIntakeModel(
         AIConfig(gateway_url=gateway, gateway_enabled=True), embedder=Unreachable()
     )

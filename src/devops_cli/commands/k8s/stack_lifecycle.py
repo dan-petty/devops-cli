@@ -544,13 +544,6 @@ def _apply_single_manifest(
 ) -> None:
     """Apply an individual manifest file, rendering templates if a domain is available."""
     p = Path(manifest_path)
-    if p.name == "configmap.yaml" and p.parent.name == "devops":
-        from devops_cli.k8s.configmap import push_devops_configmap
-
-        ctx = kubectl_ctx[1] if len(kubectl_ctx) > 1 and kubectl_ctx[0] == "--context" else None
-        print_info(f"[bold]Applying manifest {p.name}...[/bold]", prefix=False)
-        push_devops_configmap(k8s_dir=p.parent.parent, context=ctx)
-        return
     print_info(f"[bold]Applying manifest {p.name}...[/bold]", prefix=False)
     if domain and p.is_file():
         from devops_cli.k8s.template import render_manifest_template
@@ -766,6 +759,10 @@ def _deploy_native_manifests(
     domain: str | None,
 ) -> None:
     """Synchronize dynamically generated manifests and apply native Kubernetes resources."""
+    if "devops" in selected_stacks:
+        from devops_cli.k8s.argocd_source import generate_argocd_source
+
+        generate_argocd_source(k8s_dir=k8s_dir, domain=domain)
     _apply_manifest_files(all_manifests, kubectl_ctx, domain=domain)
 
 
@@ -780,10 +777,10 @@ def _handle_argo_managed_deployment(
         print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
         push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
     if "devops" in selected_stacks:
-        from devops_cli.k8s.configmap import push_devops_configmap
+        from devops_cli.k8s.argocd_source import generate_argocd_source
 
-        print_info("Pushing devops-cli-config ConfigMap...", prefix=False)
-        push_devops_configmap(k8s_dir=k8s_dir, context=effective_context)
+        print_info("Generating Argo CD source parameter overrides...", prefix=False)
+        generate_argocd_source(k8s_dir=k8s_dir)
     print_info(
         "Argo CD manages the cluster (Application 'cluster' found in namespace 'argocd'). "
         "Skipping manifest and Helm deployment; see GitOps in k8s/README.md.",

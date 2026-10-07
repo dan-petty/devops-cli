@@ -236,7 +236,9 @@ def test_kustomization_lists_every_manifest_and_pins_the_image_and_stays_out_of_
         [
             p.name
             for p in DEVOPS_DIR.glob("*.yaml")
-            if p.name != "kustomization.yaml" and not p.name.endswith(".example.yaml")
+            if p.name != "kustomization.yaml"
+            and not p.name.endswith(".example.yaml")
+            and not p.name.startswith(".")
         ]
         + (["configmap.yaml"] if not (DEVOPS_DIR / "configmap.yaml").exists() else [])
         + ["roadmap-service"]
