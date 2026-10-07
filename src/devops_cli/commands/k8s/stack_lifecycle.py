@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-import yaml
+from pydantic import ValidationError
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
 import devops_cli.commands.k8s.networking as net
@@ -27,8 +27,15 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_STACK,
 )
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
-from devops_cli.exceptions.k8s import ClusterSecretPushError
+from devops_cli.exceptions.k8s import ClusterSecretPushError, KubernetesContextError
+from devops_cli.k8s.argocd_overrides import (
+    HOMELAB_APPLICATIONS,
+    application_patch,
+    application_source_dir,
+    host_patches,
+)
 from devops_cli.k8s.cluster_secrets import BASE_STACK, DETACHED_STACKS, secrets_for_stacks
+from devops_cli.k8s.configmap import render_active_devops_configmap
 from devops_cli.k8s.secret_push import namespace_exists
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -172,7 +179,6 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "devops": [
         DEFAULT_K8S_DIR / "devops" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "devops" / "serviceaccount.yaml",
-        DEFAULT_K8S_DIR / "devops" / "configmap.yaml",
         DEFAULT_K8S_DIR / "devops" / "cronjob.yaml",
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "pvc.yaml",
         DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "service.yaml",
@@ -546,28 +552,6 @@ def _apply_single_manifest(
     """Apply an individual manifest file, rendering templates if a domain is available."""
     p = Path(manifest_path)
     print_info(f"[bold]Applying manifest {p.name}...[/bold]", prefix=False)
-    if p.name == "configmap.yaml" and p.parent.name == "devops":
-        try:
-            from devops_cli.k8s.configmap import render_active_devops_configmap
-
-            rendered_cm = render_active_devops_configmap(k8s_dir=p.parent.parent)
-            res = runtime._run_cmd(
-                ["kubectl", "apply", "-f", "-"] + kubectl_ctx,
-                input=rendered_cm,
-                check=False,
-            )
-            if isinstance(getattr(res, "returncode", None), int) and res.returncode != 0:
-                print_error(
-                    f"Failed to apply active devops ConfigMap: {res.stderr or res.stdout}",
-                    prefix=False,
-                )
-                raise typer.Exit(1)
-            return
-        except Exception as exc:
-            if isinstance(exc, typer.Exit):
-                raise
-            print_error(f"Failed to render active devops ConfigMap: {exc}", prefix=False)
-            raise typer.Exit(1) from exc
     if domain and p.is_file():
         from devops_cli.k8s.template import render_manifest_template
 
@@ -774,142 +758,100 @@ def _verify_cluster_ready(effective_context: str | None) -> None:
         raise typer.Exit(1)
 
 
-def _deploy_native_manifests(
-    selected_stacks: Sequence[str],
-    all_manifests: list[str],
-    k8s_dir: Path,
-    kubectl_ctx: list[str],
-    domain: str | None,
-) -> None:
-    """Synchronize dynamically generated manifests and apply native Kubernetes resources."""
-    if "devops" in selected_stacks:
-        from devops_cli.k8s.argocd_source import generate_argocd_source
-
-        generate_argocd_source(k8s_dir=k8s_dir, domain=domain)
-    _apply_manifest_files(all_manifests, kubectl_ctx, domain=domain)
+_HOMELAB_APPLICATIONS_BY_STACK: dict[str, tuple[str, ...]] = {
+    "infra": ("ingress",),
+    "devops": ("devops", "ingress"),
+}
+"""The Argo CD Applications whose hosts a stack's deploy sets from the configured domain."""
 
 
-def _sync_argo_devops_overrides(
-    k8s_dir: Path,
-    effective_domain: str | None,
-    k_ctx: list[str],
-) -> None:
-    """Stream rendered ConfigMap and Ingress and patch Argo CD Application for devops stack."""
-    from devops_cli.config.settings import load_settings
-    from devops_cli.k8s.argocd_source import generate_argocd_source, render_argocd_source_content
-    from devops_cli.k8s.configmap import render_active_devops_configmap
-    from devops_cli.k8s.template import render_manifest_template
-
-    print_info("Generating Argo CD source parameter overrides...", prefix=False)
-    generate_argocd_source(k8s_dir=k8s_dir, domain=effective_domain)
-
+def _render_devops_configmap(k8s_dir: Path) -> str:
+    """ConfigMap devops-cli-config rendered from the active config, or exit naming what is missing."""
     try:
-        rendered_cm = render_active_devops_configmap(k8s_dir=k8s_dir)
+        return render_active_devops_configmap(k8s_dir=k8s_dir)
+    except (FileNotFoundError, KubernetesContextError, ValidationError) as exc:
+        print_error(f"Cannot render ConfigMap devops-cli-config: {exc}", prefix=False)
+        raise typer.Exit(1) from exc
+
+
+def _apply_rendered(manifest: str, what: str, kubectl_ctx: list[str]) -> None:
+    """Apply a manifest rendered in memory, or exit with kubectl's reason."""
+    res = runtime._run_cmd(
+        ["kubectl", "apply", "-f", "-"] + kubectl_ctx, input=manifest, check=False, capture=True
+    )
+    if res.returncode != 0:
+        print_error(f"Failed to apply {what}: {(res.stderr or res.stdout).strip()}", prefix=False)
+        raise typer.Exit(1)
+    print_success(f"{what} applied from the active config")
+
+
+def _homelab_host_overrides(
+    selected_stacks: Sequence[str], k8s_dir: Path, domain: str | None
+) -> list[tuple[str, dict[str, Any]]]:
+    """Each homelab Application the stacks deploy, with the merge patch setting its hosts.
+
+    The hosts come from the configured domain and each Application's local rendering; nothing
+    is written here, so a missing domain or a failed build changes nothing in the cluster.
+    """
+    wanted = {app for s in selected_stacks for app in _HOMELAB_APPLICATIONS_BY_STACK.get(s, ())}
+    applications = [app for app in HOMELAB_APPLICATIONS if app in wanted]
+    if not applications:
+        return []
+    try:
+        from devops_cli.k8s.template import resolve_template_domain
+
+        configured = resolve_template_domain(domain)
+        overrides = []
+        for application in applications:
+            source = application_source_dir(k8s_dir, application)
+            built = runtime._run_cmd(
+                ["kubectl", "kustomize", str(source)], check=False, capture=True
+            )
+            if built.returncode != 0:
+                raise KubernetesContextError(
+                    f"kubectl kustomize {source} failed: {(built.stderr or built.stdout).strip()}"
+                )
+            patch = application_patch(host_patches(built.stdout or "", configured))
+            overrides.append((application, patch))
+        return overrides
+    except (FileNotFoundError, KubernetesContextError) as exc:
+        print_error(f"Cannot derive the homelab hosts for Argo CD: {exc}", prefix=False)
+        raise typer.Exit(1) from exc
+
+
+def _set_homelab_hosts(
+    overrides: Sequence[tuple[str, dict[str, Any]]], kubectl_ctx: list[str]
+) -> None:
+    """Write each Application's host overrides, or exit with kubectl's reason."""
+    for application, patch in overrides:
         res = runtime._run_cmd(
-            ["kubectl", "apply", "-f", "-"] + k_ctx, input=rendered_cm, check=False
+            ["kubectl", "patch", "application", application, "-n", "argocd"]
+            + ["--type", "merge", "-p", json.dumps(patch)]
+            + kubectl_ctx,
+            check=False,
+            capture=True,
         )
-        if isinstance(getattr(res, "returncode", None), int) and res.returncode != 0:
+        if res.returncode != 0:
             print_error(
-                f"Failed to apply active devops ConfigMap in Argo-managed cluster: {res.stderr or res.stdout}",
+                f"Could not set the homelab hosts on Argo CD Application '{application}': "
+                f"{(res.stderr or res.stdout).strip()}",
                 prefix=False,
             )
             raise typer.Exit(1)
-    except Exception as exc:
-        if isinstance(exc, typer.Exit):
-            raise
-        print_error(f"Failed to render active devops ConfigMap: {exc}", prefix=False)
-        raise typer.Exit(1) from exc
-
-    try:
-        rs_ing = k8s_dir / "devops" / "roadmap-service" / "ingress.yaml"
-        if rs_ing.is_file() and effective_domain:
-            rendered_ing = render_manifest_template(
-                rs_ing.read_text(encoding="utf-8"), domain=effective_domain
-            )
-            runtime._run_cmd(
-                ["kubectl", "apply", "-f", "-"] + k_ctx, input=rendered_ing, check=False
-            )
-    except Exception:
-        pass
-
-    try:
-        cm_tpl = k8s_dir / "devops" / "configmap.example.yaml"
-        if cm_tpl.is_file():
-            source_doc = render_argocd_source_content(
-                cm_tpl.read_text(encoding="utf-8"),
-                domain=effective_domain,
-                settings=load_settings(),
-            )
-            parsed_source = yaml.safe_load(source_doc)
-            if isinstance(parsed_source, dict) and "kustomize" in parsed_source:
-                patch_json = json.dumps(
-                    {"spec": {"source": {"kustomize": parsed_source["kustomize"]}}}
-                )
-                runtime._run_cmd(
-                    [
-                        "kubectl",
-                        "patch",
-                        "application",
-                        "devops",
-                        "-n",
-                        "argocd",
-                        "--type=merge",
-                        "-p",
-                        patch_json,
-                    ]
-                    + k_ctx,
-                    check=False,
-                )
-    except Exception:
-        pass
+        print_success(f"Argo CD Application '{application}' renders the configured hosts")
 
 
-def _sync_argo_ingress_overrides(
-    k8s_dir: Path,
-    effective_domain: str | None,
-    k_ctx: list[str],
+def _deploy_native_manifests(
+    selected_stacks: Sequence[str],
+    all_manifests: list[str],
+    config_map: str | None,
+    kubectl_ctx: list[str],
+    domain: str | None,
 ) -> None:
-    """Stream rendered ingress routes and patch Argo CD Application for ingress stack."""
-    from devops_cli.config.settings import load_settings
-    from devops_cli.k8s.argocd_source import render_ingress_argocd_source_content
-    from devops_cli.k8s.template import render_manifest_template
-
-    try:
-        routes_path = k8s_dir / "ingress" / "ingress-routes.yaml"
-        if routes_path.is_file() and effective_domain:
-            rendered_routes = render_manifest_template(
-                routes_path.read_text(encoding="utf-8"), domain=effective_domain
-            )
-            runtime._run_cmd(
-                ["kubectl", "apply", "-f", "-"] + k_ctx, input=rendered_routes, check=False
-            )
-            source_doc = render_ingress_argocd_source_content(
-                routes_path.read_text(encoding="utf-8"),
-                domain=effective_domain,
-                settings=load_settings(),
-            )
-            parsed_source = yaml.safe_load(source_doc)
-            if isinstance(parsed_source, dict) and "kustomize" in parsed_source:
-                patch_json = json.dumps(
-                    {"spec": {"source": {"kustomize": parsed_source["kustomize"]}}}
-                )
-                runtime._run_cmd(
-                    [
-                        "kubectl",
-                        "patch",
-                        "application",
-                        "ingress",
-                        "-n",
-                        "argocd",
-                        "--type=merge",
-                        "-p",
-                        patch_json,
-                    ]
-                    + k_ctx,
-                    check=False,
-                )
-    except Exception:
-        pass
+    """Apply the devops ConfigMap rendered from the active config, then the native manifests."""
+    if config_map is not None:
+        _apply_rendered(config_map, "ConfigMap devops-cli-config", kubectl_ctx)
+    _apply_manifest_files(all_manifests, kubectl_ctx, domain=domain)
 
 
 def _handle_argo_managed_deployment(
@@ -917,27 +859,22 @@ def _handle_argo_managed_deployment(
     effective_context: str | None,
     k8s_dir: Path,
     push_secrets: bool,
+    config_map: str | None,
     domain: str | None = None,
 ) -> None:
-    """Handle deployment tasks for an Argo CD-managed cluster."""
+    """Supply the values git never holds, and leave every manifest to Argo CD.
+
+    Secrets come from the keyring, ConfigMap devops-cli-config from the active config, and the
+    homelab hosts become Kustomize overrides on the Applications that render them (#1290).
+    """
+    kubectl_ctx = ["--context", effective_context] if effective_context else []
+    overrides = _homelab_host_overrides(selected_stacks, k8s_dir, domain)
     if push_secrets:
         print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
         push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
-
-    effective_domain = domain
-    if not effective_domain:
-        try:
-            from devops_cli.k8s.template import resolve_template_domain
-
-            effective_domain = resolve_template_domain()
-        except Exception:
-            effective_domain = None
-
-    k_ctx = ["--context", effective_context] if effective_context else []
-    if "devops" in selected_stacks:
-        _sync_argo_devops_overrides(k8s_dir, effective_domain, k_ctx)
-    if "ingress" in selected_stacks or "infra" in selected_stacks or "devops" in selected_stacks:
-        _sync_argo_ingress_overrides(k8s_dir, effective_domain, k_ctx)
+    if config_map is not None:
+        _apply_rendered(config_map, "ConfigMap devops-cli-config", kubectl_ctx)
+    _set_homelab_hosts(overrides, kubectl_ctx)
 
     print_info(
         "Argo CD manages the cluster (Application 'cluster' found in namespace 'argocd'). "
@@ -1026,7 +963,9 @@ def deploy_stack(
         )
         return
 
-    # 1. A push needs the unlocked keyring: check it before anything reads or writes the cluster
+    # 1. Render what git does not hold, and check the keyring a push needs, before touching the
+    # cluster: a missing setting or a locked keyring changes nothing
+    config_map = _render_devops_configmap(k8s_dir) if "devops" in selected_stacks else None
     if push_secrets:
         require_keyring_for_push()
 
@@ -1035,7 +974,7 @@ def deploy_stack(
 
     if _is_cluster_argo_managed(effective_context):
         _handle_argo_managed_deployment(
-            selected_stacks, effective_context, k8s_dir, push_secrets, domain=domain
+            selected_stacks, effective_context, k8s_dir, push_secrets, config_map, domain=domain
         )
         return
 
@@ -1055,7 +994,7 @@ def deploy_stack(
     _deploy_helm_repos(selected_stacks)
 
     # 6. Install native manifests
-    _deploy_native_manifests(selected_stacks, all_manifests, k8s_dir, kubectl_ctx, domain)
+    _deploy_native_manifests(selected_stacks, all_manifests, config_map, kubectl_ctx, domain)
 
     # 7. Check for unready cluster nodes to avoid DaemonSet wait timeouts
     unready_nodes = runtime._get_unready_nodes(context=effective_context)

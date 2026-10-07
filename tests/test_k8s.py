@@ -1594,124 +1594,182 @@ def test_is_cluster_argo_managed() -> None:
         assert _is_cluster_argo_managed() is False
 
 
-def test_k8s_deploy_stack_when_argo_cd_managed() -> None:
-    """When Argo CD Application 'cluster' exists, deploy-stack pushes secrets and exits 0."""
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._cluster_reachable", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=True
-        ),
-        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks") as mock_push,
-        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push") as mock_req,
-        patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
-        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
-    ):
-        res = runner.invoke(app, ["deploy-stack", "--stack", "infra"])
-        assert (
-            res.exit_code,
-            "Argo CD manages the cluster" in res.output,
-            mock_push.called,
-            mock_req.called,
-            mock_cmd.called,
-        ) == (0, True, True, True, False)
-
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._cluster_reachable", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=True
-        ),
-        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks") as mock_push,
-        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
-    ):
-        res_no_push = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
-        assert (
-            res_no_push.exit_code,
-            "Argo CD manages the cluster" in res_no_push.output,
-            mock_push.called,
-            mock_cmd.called,
-        ) == (0, True, False, False)
+# The configured domain has to differ from the repository's placeholder, example.com, for a
+# substitution to show; example.org is reserved for documentation by RFC 2606 like example.com.
+_DOMAIN = "example.org"
+_ROUTE = (
+    "apiVersion: networking.k8s.io/v1\nkind: Ingress\n"
+    "metadata:\n  name: chat\n  namespace: llm\n"
+    "spec:\n  rules:\n    - host: chat.example.com\n"
+)
 
 
-def test_k8s_deploy_stack_when_argo_cd_managed_devops_stack(tmp_path: Path) -> None:
-    """When Argo CD manages cluster, deploy-stack devops streams ConfigMap, Ingress, and patches apps."""
-    devops_dir = tmp_path / "devops"
-    devops_dir.mkdir(parents=True, exist_ok=True)
-    rs_dir = devops_dir / "roadmap-service"
-    rs_dir.mkdir(parents=True, exist_ok=True)
-    (devops_dir / "configmap.example.yaml").write_text(
-        "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: devops-cli-config\n  namespace: devops\ndata:\n  devops-cli.yaml: |\n    service:\n      repos:\n        - owner/repo\n      machine_account: devops-bot\n",
-        encoding="utf-8",
+class _Kubectl:
+    """kubectl for a reachable cluster: records each call and answers `kubectl kustomize`.
+
+    `argo` says whether Application `cluster` exists; a write naming `fail` exits 1.
+    """
+
+    def __init__(self, *, argo: bool = True, fail: str | None = None) -> None:
+        self.calls: list[tuple[list[str], str | None]] = []
+        self.argo = argo
+        self.fail = fail
+
+    def __call__(
+        self,
+        cmd: list[str],
+        *,
+        input: str | None = None,
+        check: bool = True,
+        capture: bool = False,
+        timeout: float = 0.0,
+    ) -> subprocess.CompletedProcess[str]:
+        self.calls.append((cmd, input))
+        if cmd[1:6] == ["-n", "argocd", "get", "application", "cluster"]:
+            found = self.argo
+            return subprocess.CompletedProcess(
+                cmd, 0 if found else 1, "cluster" if found else "", ""
+            )
+        if cmd[1] == "kustomize":
+            return subprocess.CompletedProcess(cmd, 0, _ROUTE, "")
+        failed = self.fail is not None and self.fail in cmd
+        return subprocess.CompletedProcess(cmd, int(failed), "", "denied" if failed else "")
+
+    def writes(self) -> list[list[str]]:
+        return [cmd for cmd, _ in self.calls if cmd[1] in ("apply", "patch")]
+
+    def stdin_of(self, cmd: list[str]) -> str | None:
+        return next(given for called, given in self.calls if called == cmd)
+
+
+def _configure_service(config_path: Path) -> None:
+    """The active config names the repositories and machine account the service works for."""
+    from devops_cli.config.settings import reset_settings_cache
+
+    with config_path.open("a", encoding="utf-8") as config:
+        config.write("service:\n  repos:\n    - owner/repo\n  machine_account: devops-bot\n")
+    reset_settings_cache()
+
+
+_CONTEXT = ["--context", "minikube"]
+
+
+def _deploy(kubectl: _Kubectl, *args: str) -> Any:
+    with patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", kubectl):
+        return runner.invoke(app, ["deploy-stack", "--no-push-secrets", *_CONTEXT, *args])
+
+
+def _host_override(application: str) -> list[str]:
+    from devops_cli.k8s.argocd_overrides import application_patch, host_patches
+
+    body = json.dumps(application_patch(host_patches(_ROUTE, _DOMAIN)))
+    return [
+        "kubectl",
+        "patch",
+        "application",
+        application,
+        "-n",
+        "argocd",
+        "--type",
+        "merge",
+        "-p",
+        body,
+        *_CONTEXT,
+    ]
+
+
+def test_deploy_stack_on_argo_cd_applies_the_config_map_and_sets_both_applications_hosts(
+    isolate_devops_cli_config: Path,
+) -> None:
+    """The ConfigMap comes from the active config; the hosts go onto the Applications."""
+    from devops_cli.k8s.argocd_overrides import application_source_dir
+
+    _configure_service(isolate_devops_cli_config)
+    kubectl = _Kubectl()
+    res = _deploy(kubectl, "--stack", "devops", "--domain", _DOMAIN)
+    apply_config_map = ["kubectl", "apply", "-f", "-", *_CONTEXT]
+    config_map = yaml.safe_load(kubectl.stdin_of(apply_config_map) or "")
+    service = yaml.safe_load(config_map["data"]["devops-cli.yaml"])["service"]
+    k8s_dir = Path("k8s")
+    assert (
+        res.exit_code,
+        kubectl.writes(),
+        [cmd for cmd, _ in kubectl.calls if cmd[1] == "kustomize"],
+        config_map["metadata"]["name"],
+        (service["repos"], service["machine_account"]),
+    ) == (
+        0,
+        [apply_config_map, _host_override("devops"), _host_override("ingress")],
+        [
+            ["kubectl", "kustomize", str(application_source_dir(k8s_dir, "devops"))],
+            ["kubectl", "kustomize", str(application_source_dir(k8s_dir, "ingress"))],
+        ],
+        "devops-cli-config",
+        (["owner/repo"], "devops-bot"),
     )
-    (rs_dir / "ingress.yaml").write_text(
-        "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: roadmap-service\n  namespace: devops\nspec:\n  rules:\n    - host: example.com\n",
-        encoding="utf-8",
+
+
+def test_deploy_stack_infra_on_argo_cd_sets_only_the_ingress_hosts() -> None:
+    kubectl = _Kubectl()
+    res = _deploy(kubectl, "--stack", "infra", "--domain", _DOMAIN)
+    assert (res.exit_code, kubectl.writes()) == (0, [_host_override("ingress")])
+
+
+def test_deploy_stack_llm_on_argo_cd_changes_nothing_itself() -> None:
+    kubectl = _Kubectl()
+    res = _deploy(kubectl, "--stack", "llm")
+    assert (res.exit_code, kubectl.writes(), "Argo CD manages the cluster" in res.output) == (
+        0,
+        [],
+        True,
     )
 
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._cluster_reachable", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=True
-        ),
-        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks"),
-        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
-        patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
-        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd") as mock_run_cmd,
-    ):
-        res = runner.invoke(
-            app,
-            [
-                "deploy-stack",
-                "--stack",
-                "devops",
-                "--k8s-dir",
-                str(tmp_path),
-                "--domain",
-                "example.com",
-            ],
-        )
-        assert (
-            res.exit_code,
-            "Argo CD manages the cluster" in res.output,
-            mock_run_cmd.called,
-        ) == (0, True, True)
 
-
-def test_k8s_deploy_stack_when_argo_cd_managed_ingress_stack(tmp_path: Path) -> None:
-    """When Argo CD manages cluster, deploy-stack infra with domain streams routes and patches ingress app."""
-    ing_dir = tmp_path / "ingress"
-    ing_dir.mkdir(parents=True, exist_ok=True)
-    (ing_dir / "ingress-routes.yaml").write_text(
-        "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: chat-ingress\n  namespace: kube-system\nspec:\n  rules:\n    - host: example.com\n",
-        encoding="utf-8",
+def test_deploy_stack_fails_when_argo_cd_refuses_the_hosts(isolate_devops_cli_config: Path) -> None:
+    _configure_service(isolate_devops_cli_config)
+    kubectl = _Kubectl(fail="ingress")
+    res = _deploy(kubectl, "--stack", "devops", "--domain", _DOMAIN)
+    assert (res.exit_code, "Application 'ingress'" in res.output, "denied" in res.output) == (
+        1,
+        True,
+        True,
     )
 
-    with (
-        patch("devops_cli.commands.k8s.cluster_runtime._cluster_reachable", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=True
-        ),
-        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks"),
-        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
-        patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
-        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd") as mock_run_cmd,
-    ):
-        res = runner.invoke(
-            app,
-            [
-                "deploy-stack",
-                "--stack",
-                "infra",
-                "--k8s-dir",
-                str(tmp_path),
-                "--domain",
-                "example.com",
-            ],
-        )
-        assert (
-            res.exit_code,
-            "Argo CD manages the cluster" in res.output,
-            mock_run_cmd.called,
-        ) == (0, True, True)
+
+def test_deploy_stack_without_a_domain_writes_nothing_and_names_the_setting(
+    isolate_devops_cli_config: Path,
+) -> None:
+    _configure_service(isolate_devops_cli_config)
+    kubectl = _Kubectl()
+    res = _deploy(kubectl, "--stack", "devops")
+    assert (res.exit_code, kubectl.writes(), "k8s.domain" in res.output) == (1, [], True)
+
+
+def test_deploy_stack_without_service_repositories_writes_nothing_and_names_the_setting() -> None:
+    kubectl = _Kubectl()
+    res = _deploy(kubectl, "--stack", "devops", "--domain", _DOMAIN)
+    assert (res.exit_code, kubectl.writes(), "service.repos" in res.output) == (1, [], True)
+
+
+def test_deploy_stack_on_a_native_cluster_applies_the_rendered_config_map_and_no_file_of_it(
+    isolate_devops_cli_config: Path,
+) -> None:
+    _configure_service(isolate_devops_cli_config)
+    kubectl = _Kubectl(argo=False)
+    res = _deploy(kubectl, "--stack", "devops", "--domain", _DOMAIN)
+    applied = kubectl.writes()
+    config_map = yaml.safe_load(kubectl.stdin_of(["kubectl", "apply", "-f", "-", *_CONTEXT]) or "")
+    assert (
+        res.exit_code,
+        applied[:2],
+        config_map["metadata"]["name"],
+        [cmd for cmd in applied if any("configmap" in part for part in cmd)],
+    ) == (
+        0,
+        [["kubectl", "apply", "-k", "k8s", *_CONTEXT], ["kubectl", "apply", "-f", "-", *_CONTEXT]],
+        "devops-cli-config",
+        [],
+    )
 
 
 def test_k8s_teardown_stack_when_argo_cd_managed() -> None:

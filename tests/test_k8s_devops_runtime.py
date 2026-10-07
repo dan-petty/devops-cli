@@ -22,8 +22,6 @@ DEVOPS_DIR = K8S_DIR / "devops"
 @functools.cache
 def _doc(name: str) -> Any:
     target = DEVOPS_DIR / name
-    if not target.exists() and name == "configmap.yaml":
-        target = DEVOPS_DIR / "configmap.example.yaml"
     return yaml.load(target.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
 
 
@@ -134,7 +132,7 @@ def test_writable_paths_are_empty_dirs_and_the_data_dir_is_under_home() -> None:
 
 
 def test_config_targets_the_in_cluster_gateway_and_holds_no_credential() -> None:
-    raw = yaml.safe_load(_doc("configmap.yaml")["data"]["devops-cli.yaml"])
+    raw = yaml.safe_load(_doc("configmap.example.yaml")["data"]["devops-cli.yaml"])
     settings = Settings.model_validate(raw)
     leaked = [key for key in sorted(opt.SECRET_CONFIG_OPTIONS) if _dotted(raw, key) is not None]
     assert (
@@ -240,7 +238,6 @@ def test_kustomization_lists_every_manifest_and_pins_the_image_and_stays_out_of_
             and not p.name.endswith(".example.yaml")
             and not p.name.startswith(".")
         ]
-        + (["configmap.yaml"] if not (DEVOPS_DIR / "configmap.yaml").exists() else [])
         + ["roadmap-service"]
     )
     root = yaml.safe_load((K8S_DIR / "kustomization.yaml").read_text(encoding="utf-8"))

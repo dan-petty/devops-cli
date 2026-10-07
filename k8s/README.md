@@ -378,7 +378,21 @@ Argo CD maintains the declared state of the homelab cluster directly from this r
 1. **`bootstrap` (`k8s/argocd/bootstrap/bootstrap.yaml`)**: Tracks `main`. Syncs the root `cluster` Application.
 2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 20 leaf Applications (8 raw leaf applications and 12 multi-source Helm applications).
 
-When the root `cluster` Application is present in the cluster, `devops k8s deploy-stack` delegates manifest and Helm reconciliation to Argo CD (running only keyring secret push), and `devops k8s teardown-stack` refuses execution to prevent configuration drift.
+When the root `cluster` Application is present in the cluster, `devops k8s deploy-stack` delegates manifest and Helm reconciliation to Argo CD, and `devops k8s teardown-stack` refuses execution to prevent configuration drift.
+
+### Homelab Values at Deploy Time
+
+This repository is public, so it holds no homelab value. Ingress hosts sit under the placeholder domain `example.com`, and the devops-cli config holds only its template, `k8s/devops/configmap.example.yaml`. `devops k8s deploy-stack` supplies the real values from `config.yaml` (and the keyring) each time it runs:
+
+| Value | Source | Where it lives |
+| :--- | :--- | :--- |
+| Secrets | the OS keyring (`devops k8s push-secrets`) | Secrets in the cluster |
+| `service.repos`, `service.machine_account` (or `k8s.github_account`) | `config.yaml` | ConfigMap `devops-cli-config`, which no Application owns |
+| Hosts under `k8s.domain` | `config.yaml` or `--domain` | Kustomize patches in `spec.source.kustomize` of the Applications `devops` and `ingress` |
+
+The `cluster` Application ignores `spec.source.kustomize` on those two Applications and syncs with `RespectIgnoreDifferences=true`, so its self-heal keeps the patches. Each patch tests the placeholder host before replacing it: a rule that moved in git fails the Application's manifest generation instead of routing a host to another backend, and the next `deploy-stack` derives the patches anew. deploy-stack renders everything before it writes anything, so an unset setting stops it with an error naming the setting and changes nothing in the cluster.
+
+These values exist only in the cluster and in `config.yaml`. After `bootstrap-gitops` recreates the Applications, run `devops k8s deploy-stack` to set them again. Run it before a release merges into `main`, too, so the Applications carry the hosts by the time `cluster` retargets them.
 
 > [!NOTE]
 > `k8s/coredns/` remains managed outside Argo CD to preserve cluster DNS resolution during bootstrap and recovery cycles.
@@ -426,7 +440,7 @@ devops argo cd apps sync <app-name>
 | `devops k8s deploy-stack --stack <name>` | Automated reconciliation by Argo CD leaf applications. |
 | `devops k8s apply k8s/...` | Declarative raw leaf Applications (`apps/*.yaml`) with `selfHeal: true`. |
 | Manual Helm release upgrades (`helm upgrade ...`) | Multi-source Helm Applications with pinned chart versions and git value files. |
-| Ad-hoc ingress and domain patching | Declarative domain overlays (`k8s/overlays/homelab/ingress/` and `devops/`). |
+| Ad-hoc ingress and domain patching | Host overrides that `devops k8s deploy-stack` sets on the Applications `devops` and `ingress` from `config.yaml` (see Homelab Values at Deploy Time). |
 | Secret storage in Helm values | External secret synchronization (`devops k8s push-secrets`) decoupled from manifests. |
 | Manual drift reconciliation | Automated self-healing (`automated.prune: true`, `automated.selfHeal: true`). |
 
@@ -516,7 +530,7 @@ k8s/
 ├── devops/                   # In-cluster devops-cli runtime; not in the root kustomization
 │   ├── kustomization.yaml    # Its resources, and the service image's tag (`devops release prepare` sets it)
 │   ├── serviceaccount.yaml   # devops-cli service account without an API token
-│   ├── configmap.example.yaml # devops-cli config template: in-cluster gateway, sanitized placeholders (gitignored configmap.yaml generated dynamically)
+│   ├── configmap.example.yaml # devops-cli config template: deploy-stack renders ConfigMap devops-cli-config from it and config.yaml
 │   ├── cronjob.yaml          # Suspended CronJob devops-cli, the template of every cluster job
 │   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out
 │   └── roadmap-service/      # Continuous roadmap service Deployment, Service, Ingress, NetworkPolicy, PVC
@@ -539,7 +553,7 @@ k8s/
 │   └── apps/                 # AppProjects and 20 leaf Applications (8 raw + 12 Helm)
 │       └── projects.yaml     # AppProjects: homelab and homelab-system
 ├── overlays/
-│   └── homelab/              # Homelab domain overlays patching example.com
+│   └── homelab/              # Homelab overlays the Applications devops and ingress render; hosts stay under example.com
 │       ├── ingress/          # Patches Ingress and IngressRoute resources
 │       └── devops/           # Patches roadmap-service Ingress
 ├── monitoring/

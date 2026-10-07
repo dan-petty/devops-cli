@@ -56,14 +56,6 @@ def isolate_kubeconfig(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Non
 
 
 @pytest.fixture(autouse=True, scope="session")
-def ensure_devops_k8s_configmap() -> None:
-    """Ensure k8s/devops/configmap.yaml exists from example template for manifest tests."""
-    from devops_cli.k8s.configmap import ensure_devops_configmap
-
-    ensure_devops_configmap()
-
-
-@pytest.fixture(autouse=True, scope="session")
 def register_test_mock_provider():
     """Register test MockProvider for unit testing."""
     from devops_cli.ai.providers import register_provider

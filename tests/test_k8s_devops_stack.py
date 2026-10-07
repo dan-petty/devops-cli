@@ -37,10 +37,7 @@ def test_devops_stack_registration_and_resolution() -> None:
 
 
 def test_devops_stack_manifests_integrity() -> None:
-    """Verify all manifests for the devops stack exist and cover core components."""
-    from devops_cli.k8s.configmap import ensure_devops_configmap
-
-    ensure_devops_configmap()
+    """Every devops manifest exists; the ConfigMap is rendered from config at deploy time instead."""
     manifests = _MANIFESTS_BY_STACK.get("devops", [])
     filenames = [p.name for p in manifests]
 
@@ -54,11 +51,11 @@ def test_devops_stack_manifests_integrity() -> None:
         "deployment.yaml" in filenames,
         "service.yaml" in filenames,
     ) == (
-        9,
+        8,
         True,
         True,
         True,
-        True,
+        False,
         True,
         True,
         True,
@@ -86,7 +83,7 @@ def test_deploy_stack_devops_dry_run() -> None:
             "configmap.yaml" in result.output,
             "roadmap-service" in result.output,
             "cronjob.yaml" in result.output,
-        ) == (0, True, True, True)
+        ) == (0, False, True, True)
     finally:
         set_dry_run(False)
 

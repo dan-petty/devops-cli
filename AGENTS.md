@@ -271,7 +271,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
         - *Stuck or Failed Pod*: If the pod is stuck, restarting, or unresponsive, execute:
           `kubectl -n devops rollout restart deploy/roadmap-service`
           Wait for readiness with `kubectl -n devops rollout status deploy/roadmap-service --timeout=180s`.
-        - *ConfigMap Drift*: If `k8s/devops/configmap.yaml` was changed, re-apply via `uv run devops k8s deploy-stack --stack devops` (or `--stack all`).
+        - *ConfigMap Drift*: If `k8s/devops/configmap.example.yaml` or the `service` settings in `config.yaml` changed, re-apply via `uv run devops k8s deploy-stack --stack devops` (or `--stack all`), which renders ConfigMap `devops-cli-config` from them.
       - **Safe Manual Fallback Protocol**:
         - Only if `roadmap-service` is confirmed offline, down, unreachable, or in a disconnected local dev environment without a Kubernetes cluster:
           - Agents MUST first verify that no in-cluster pod is actively executing (`kubectl get deployment roadmap-service -n devops` fails or shows 0 ready replicas).
