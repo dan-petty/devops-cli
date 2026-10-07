@@ -723,6 +723,7 @@ class RAGMessages:
         "RAG lookup failed, so prompts go on without retrieved context: {error}. Later failures "
         "this run are logged at debug level."
     )
+    paused: str = "RAG lookups paused for {seconds}s after {failures} failures: {error}."
 
 
 @dataclass(frozen=True)
