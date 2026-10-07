@@ -26,6 +26,5 @@ Bandit itself ignores `# noqa`. Its own comment pattern (bandit 1.9.4, `core/man
 ## Acceptance Criteria
 - [x] An inline marker suppresses only findings of the tool it belongs to, findings of a tool without its own marker are never suppressed inline, and the table lives in `config/constants.py`.
 - [x] Tests show that a Bandit finding on a `# noqa` line and a Semgrep finding on a `# nosec` line stay open, and that each tool's own marker still suppresses, including the added-by-change case; the cross-tool cases fail at bbc644b.
-- [x] `changelog.d/1341.md` records the change; `CHANGELOG.md` and `docs/ROADMAP.md` are not edited.
+- [x] The v0.2.28 section of `CHANGELOG.md` records the change in the #871 entry, in this pull request rather than through a fragment and a separate collation pull request. The owner decided on 2026-10-07 that the release's last fix lands as one pull request. `docs/ROADMAP.md` is not edited.
 - [x] `uv run devops ci` passes.
-- Release process: before #1283 merges, the v0.2.28 section of `CHANGELOG.md` takes this fragment through a `chore/open-v0.2.28-<slug>` pull request.
