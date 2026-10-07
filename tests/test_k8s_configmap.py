@@ -10,8 +10,6 @@ import yaml
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.configmap import (
-    DEFAULT_PLACEHOLDER_ACCOUNT,
-    DEFAULT_PLACEHOLDER_REPO,
     render_active_devops_configmap,
     render_devops_configmap_content,
 )
@@ -70,26 +68,21 @@ def test_render_devops_configmap_substitutes_repos_and_account() -> None:
     )
 
 
-def test_render_devops_configmap_falls_back_to_defaults() -> None:
-    """Verify default placeholders used when repos or account are empty."""
-    rendered = render_devops_configmap_content(SAMPLE_TEMPLATE, repos=[], machine_account=None)
-    doc = yaml.safe_load(rendered)
-    inner = yaml.safe_load(doc["data"]["devops-cli.yaml"])
-    settings = Settings.model_validate(inner)
-
-    assert (
-        settings.service.repos,
-        settings.service.machine_account,
-    ) == (
-        [DEFAULT_PLACEHOLDER_REPO],
-        DEFAULT_PLACEHOLDER_ACCOUNT,
-    )
+@pytest.mark.parametrize(("repos", "account"), [([], "devops-bot"), (["owner/repo"], " ")])
+def test_the_config_map_needs_a_repository_and_an_account(repos: list[str], account: str) -> None:
+    """No placeholder stands in for a value the service needs."""
+    with pytest.raises(
+        KubernetesContextError, match="at least one repository and a machine account"
+    ):
+        render_devops_configmap_content(SAMPLE_TEMPLATE, repos=repos, machine_account=account)
 
 
 def test_render_devops_configmap_invalid_template_raises() -> None:
     """Verify KubernetesContextError is raised if service block is missing."""
     with pytest.raises(KubernetesContextError, match="standard service configuration block"):
-        render_devops_configmap_content("apiVersion: v1\nkind: ConfigMap\n")
+        render_devops_configmap_content(
+            "apiVersion: v1\nkind: ConfigMap\n", repos=["owner/repo"], machine_account="devops-bot"
+        )
 
 
 def test_render_devops_configmap_with_timeouts_and_poll() -> None:

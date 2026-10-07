@@ -54,6 +54,9 @@ spec:
         kind: Secret
         name: devops-cli
       - group: ''
+        kind: ConfigMap
+        name: devops-cli-config
+      - group: ''
         kind: Secret
         name: grafana-admin
       - group: ''

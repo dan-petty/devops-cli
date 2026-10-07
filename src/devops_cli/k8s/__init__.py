@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from devops_cli.k8s.argocd_overrides import (
+    ApplicationSource,
     application_patch,
-    application_source_dir,
+    application_source,
     host_patches,
+    render_at_revision,
 )
 from devops_cli.k8s.chaos import execute_chaos_experiment
 from devops_cli.k8s.configmap import (
@@ -24,14 +26,16 @@ from devops_cli.k8s.template import (
 )
 
 __all__ = [
+    "ApplicationSource",
     "KubernetesService",
     "ResourceInformer",
     "application_patch",
-    "application_source_dir",
+    "application_source",
     "diff_helm_release",
     "execute_chaos_experiment",
     "host_patches",
     "render_active_devops_configmap",
+    "render_at_revision",
     "render_devops_configmap_content",
     "render_manifest_path",
     "render_manifest_template",

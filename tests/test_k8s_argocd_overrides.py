@@ -10,12 +10,14 @@ from pathlib import Path
 import pytest
 import yaml
 
+from devops_cli.config.constants import CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.argocd_overrides import (
-    HOMELAB_APPLICATIONS,
+    ApplicationSource,
     application_patch,
-    application_source_dir,
+    application_source,
     host_patches,
+    render_at_revision,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -34,6 +36,10 @@ spec:
   rules:
     - host: chat.example.com
     - host: example.com
+    - host: "*.example.com"
+  tls:
+    - hosts:
+        - chat.example.com
 ---
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -76,6 +82,10 @@ def test_each_placeholder_host_is_checked_then_set_to_the_configured_domain() ->
                 {"op": "replace", "path": "/spec/rules/0/host", "value": "chat.example.org"},
                 {"op": "test", "path": "/spec/rules/1/host", "value": "example.com"},
                 {"op": "replace", "path": "/spec/rules/1/host", "value": "example.org"},
+                {"op": "test", "path": "/spec/rules/2/host", "value": "*.example.com"},
+                {"op": "replace", "path": "/spec/rules/2/host", "value": "*.example.org"},
+                {"op": "test", "path": "/spec/tls/0/hosts/0", "value": "chat.example.com"},
+                {"op": "replace", "path": "/spec/tls/0/hosts/0", "value": "chat.example.org"},
             ],
         ),
         (
@@ -106,11 +116,68 @@ def test_the_patch_sets_the_kustomize_patches_of_the_application_source() -> Non
     assert application_patch(patches) == {"spec": {"source": {"kustomize": {"patches": patches}}}}
 
 
-def test_each_homelab_application_names_its_directory_under_the_k8s_dir() -> None:
-    assert {app: application_source_dir(K8S_DIR, app) for app in HOMELAB_APPLICATIONS} == {
-        "devops": K8S_DIR / "overlays" / "homelab" / "devops",
-        "ingress": K8S_DIR / "overlays" / "homelab" / "ingress",
-    }
+def test_an_applications_source_is_read_from_its_kubectl_json() -> None:
+    printed = json.dumps(
+        {
+            "spec": {
+                "source": {
+                    "repoURL": "https://example.com/repo",
+                    "targetRevision": "main",
+                    "path": "k8s/x",
+                }
+            }
+        }
+    )
+    assert application_source(printed) == ApplicationSource(
+        "https://example.com/repo", "main", "k8s/x"
+    )
+
+
+def _run(
+    cmd: list[str], *, check: bool = False, capture: bool = True
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, capture_output=capture, text=True, check=check)
+
+
+def _repo(tmp_path: Path, host: str) -> Path:
+    repo = tmp_path / "repo"
+    (repo / "k8s" / "app").mkdir(parents=True)
+    (repo / "k8s" / "app" / "kustomization.yaml").write_text("resources:\n  - ingress.yaml\n")
+    (repo / "k8s" / "app" / "ingress.yaml").write_text(
+        "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: chat\n"
+        f"spec:\n  rules:\n    - host: {host}\n"
+    )
+    for cmd in (
+        ["init", "-q", "-b", "main"],
+        ["add", "-A"],
+        ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "app"],
+    ):
+        subprocess.run(["git", "-C", str(repo), *cmd], check=True, capture_output=True)
+    return repo
+
+
+def test_an_application_renders_what_its_revision_holds(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, "chat.example.com")
+    rendered = render_at_revision(
+        ApplicationSource(repo.as_uri(), "main", "k8s/app"), tmp_path / "work", _run
+    )
+    assert [d["spec"]["rules"] for d in yaml.safe_load_all(rendered)] == [
+        [{"host": "chat.example.com"}]
+    ]
+
+
+@pytest.mark.parametrize(
+    ("revision", "path", "message"),
+    [("main", "../outside", "leaves its repository"), ("missing", "k8s/app", "git -C")],
+)
+def test_a_revision_that_cannot_render_is_refused(
+    tmp_path: Path, revision: str, path: str, message: str
+) -> None:
+    repo = _repo(tmp_path, "chat.example.com")
+    with pytest.raises(KubernetesContextError, match=message):
+        render_at_revision(
+            ApplicationSource(repo.as_uri(), revision, path), tmp_path / "work", _run
+        )
 
 
 def _kustomize(directory: Path) -> subprocess.CompletedProcess[str]:
@@ -138,11 +205,12 @@ def _overlay(tmp_path: Path, source: Path, patches: list[dict]) -> Path:
     return tmp_path
 
 
-@pytest.mark.parametrize("application", HOMELAB_APPLICATIONS)
+@pytest.mark.parametrize("application", CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS)
 def test_kustomize_applies_the_overrides_to_every_host_the_application_renders(
     application: str, tmp_path: Path
 ) -> None:
-    source = application_source_dir(K8S_DIR, application)
+    manifest = yaml.safe_load((K8S_DIR / "argocd" / "apps" / f"{application}.yaml").read_text())
+    source = REPO_ROOT / manifest["spec"]["source"]["path"]
     before = _kustomize(source).stdout
     after = _kustomize(_overlay(tmp_path, source, host_patches(before, DOMAIN)))
     hosts = _hosts(after.stdout)

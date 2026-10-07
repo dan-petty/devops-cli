@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -230,16 +231,20 @@ def test_kustomization_lists_every_manifest_and_pins_the_image_and_stays_out_of_
     naming the last published image, so opening a cycle needs no tag that does not exist yet.
     """
     kustomization = _doc("kustomization.yaml")
-    manifests = sorted(
-        [
-            p.name
-            for p in DEVOPS_DIR.glob("*.yaml")
-            if p.name != "kustomization.yaml"
-            and not p.name.endswith(".example.yaml")
-            and not p.name.startswith(".")
-        ]
-        + ["roadmap-service"]
-    )
+    on_disk = [
+        p.name
+        for p in DEVOPS_DIR.glob("*.yaml")
+        if p.name != "kustomization.yaml" and not p.name.endswith(".example.yaml")
+    ]
+    # A gitignored local copy, such as a configmap.yaml an older deploy-stack wrote, is no manifest
+    tracked = subprocess.run(
+        ["git", "ls-files", "--", *on_disk],
+        cwd=DEVOPS_DIR,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    manifests = sorted([*tracked, "roadmap-service"])
     root = yaml.safe_load((K8S_DIR / "kustomization.yaml").read_text(encoding="utf-8"))
     (image,) = kustomization["images"]
     tag = str(image["newTag"])

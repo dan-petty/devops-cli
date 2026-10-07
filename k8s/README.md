@@ -323,12 +323,10 @@ To rotate a generated value, store a new one at a hidden prompt with `uv run key
 
 ## devops-cli in the cluster
 
-`k8s/devops/` runs devops-cli as cluster Jobs, so agents drive it with kubectl and never handle keys. It is managed by `devops k8s deploy-stack --stack devops` (and `--stack all`), and can also be rendered directly with `devops k8s apply k8s/devops/ --template`. Each Job reads its credentials from Secret `devops/devops-cli` through `envFrom`, its configuration from ConfigMap `devops-cli-config` (provider `gateway` at `http://llm-gateway.llm.svc.cluster.local:4000/v1`), holds no Kubernetes API token, accepts no ingress, and reaches only DNS, the gateway, the OpenTelemetry collector in namespace `otel` and public HTTPS. Commands that need Qdrant, Prometheus, Grafana, Argo CD or a repository checkout do not run there yet.
+`k8s/devops/` runs devops-cli as cluster Jobs, so agents drive it with kubectl and never handle keys. It is managed by `devops k8s deploy-stack --stack devops` (and `--stack all`), the only command that creates its ConfigMap `devops-cli-config`, which it renders from `config.yaml`; `devops k8s apply k8s/devops/ --template` applies the rest without it, and the pods wait for that ConfigMap. Each Job reads its credentials from Secret `devops/devops-cli` through `envFrom`, its configuration from ConfigMap `devops-cli-config` (provider `gateway` at `http://llm-gateway.llm.svc.cluster.local:4000/v1`), holds no Kubernetes API token, accepts no ingress, and reaches only DNS, the gateway, the OpenTelemetry collector in namespace `otel` and public HTTPS. Commands that need Qdrant, Prometheus, Grafana, Argo CD or a repository checkout do not run there yet.
 
 ```bash
 devops k8s deploy-stack --stack devops --context <context>
-# or directly:
-devops k8s apply k8s/devops/ --template
 devops config set k8s.github_account <machine-login>
 devops k8s push-secrets --context <context> --plan       # reads the keyring, gh and the cluster: key names and states, never a value
 devops k8s push-secrets --context <context>
@@ -351,7 +349,7 @@ kubectl -n devops logs -f job/<name>
 5. `devops cloudflare tunnel routes`. If no route covers the webhook host, add one in the dashboard, not with `tunnel sync` (#794).
 6. `devops cloudflare access status`, then add a Bypass application for `hooks.<domain>/webhooks/github`.
 7. `devops k8s apply k8s/monitoring/networkpolicy.yaml`, until #755 or #913 deploys it.
-8. `devops k8s deploy-stack --stack devops` (or `--stack all`), or `devops k8s apply k8s/devops/ --template`.
+8. `devops k8s deploy-stack --stack devops` (or `--stack all`).
 9. Add each repo's webhook: `https://hooks.<domain>/webhooks/github`, `application/json`, that repo's secret, and the Issues, Pull requests and Milestones events.
 10. To rotate a credential, update it in the keyring (`uv run devops config set service.webhook_secrets`, or `gh auth login` for the machine account), then run `uv run devops k8s push-secrets --only devops/devops-cli --rotate`. It restarts `roadmap-service`.
 11. Run one service per set of repos. While it runs, use `devops roadmap run --dry-run` (#981).
@@ -382,17 +380,26 @@ When the root `cluster` Application is present in the cluster, `devops k8s deplo
 
 ### Homelab Values at Deploy Time
 
-This repository is public, so it holds no homelab value. Ingress hosts sit under the placeholder domain `example.com`, and the devops-cli config holds only its template, `k8s/devops/configmap.example.yaml`. `devops k8s deploy-stack` supplies the real values from `config.yaml` (and the keyring) each time it runs:
+This repository is public, so it holds no homelab value. Ingress hosts sit under the placeholder domain `example.com`, and the devops-cli config holds only its template, `k8s/devops/configmap.example.yaml`. `devops k8s deploy-stack` supplies the real values from `config.yaml` and the keyring:
 
-| Value | Source | Where it lives |
-| :--- | :--- | :--- |
-| Secrets | the OS keyring (`devops k8s push-secrets`) | Secrets in the cluster |
-| `service.repos`, `service.machine_account` (or `k8s.github_account`) | `config.yaml` | ConfigMap `devops-cli-config`, which no Application owns |
-| Hosts under `k8s.domain` | `config.yaml` or `--domain` | Kustomize patches in `spec.source.kustomize` of the Applications `devops` and `ingress` |
+| Value | Source | Where it lives | Supplied by |
+| :--- | :--- | :--- | :--- |
+| Secrets | the OS keyring (`devops k8s push-secrets`) | Secrets in the cluster | every stack's deploy, for its Secrets |
+| `service.repos`, `service.machine_account` (or `k8s.github_account`) | `config.yaml` | ConfigMap `devops-cli-config`, which no Application owns | `--stack devops` or `all` |
+| Hosts under the configured domain | `--domain`, else `k8s.domain`, `cloudflare.domain`, `DEVOPS_CLI_K8S_DOMAIN` or `DEVOPS_CLI_DOMAIN` | Kustomize patches in `spec.source.kustomize` of the Applications `devops` and `ingress` | `--stack devops` or `all` (both Applications), `--stack infra` (`ingress` only) |
 
-The `cluster` Application ignores `spec.source.kustomize` on those two Applications and syncs with `RespectIgnoreDifferences=true`, so its self-heal keeps the patches. Each patch tests the placeholder host before replacing it: a rule that moved in git fails the Application's manifest generation instead of routing a host to another backend, and the next `deploy-stack` derives the patches anew. deploy-stack renders everything before it writes anything, so an unset setting stops it with an error naming the setting and changes nothing in the cluster.
+deploy-stack derives the host patches from what each Application renders at the revision Argo CD builds: it fetches the Application's `targetRevision` from its `repoURL` into a temporary directory and builds its path with Kustomize, whichever branch is checked out locally. `--argocd-revision <ref>` builds another revision instead, to stage hosts before a release merges. The `cluster` Application ignores `spec.source.kustomize` on the two Applications and syncs with `RespectIgnoreDifferences=true`, so its self-heal keeps the patches.
 
-These values exist only in the cluster and in `config.yaml`. After `bootstrap-gitops` recreates the Applications, run `devops k8s deploy-stack` to set them again. Run it before a release merges into `main`, too, so the Applications carry the hosts by the time `cluster` retargets them.
+Each patch names one Ingress or IngressRoute and tests the placeholder host at each position before replacing it, so a host that git reorders or removes within that object fails the Application's manifest generation instead of routing to another backend. Kustomize skips a patch whose object no longer exists, and nothing covers an object or host that git adds: run `devops k8s deploy-stack --stack devops` again once such a change reaches the Applications' revision. deploy-stack renders everything before it writes anything, so an unset setting stops it, and its dry run, with an error naming the setting.
+
+These values exist only in the cluster and in `config.yaml`. Once `cluster` has recreated the Applications `devops` and `ingress` (after `bootstrap-gitops`, for example), run `devops k8s deploy-stack --stack devops` to set them again; until then they sync the placeholder hosts.
+
+#### When a release merges into `main`
+
+1. Before merging, stage the hosts for the release: `devops k8s deploy-stack --stack devops --argocd-revision release/vX.Y.Z`. Until the merge retargets the Applications, `ingress` shows the ComparisonError `testing value /spec/rules/0/host failed` because it still renders the previous revision; the live Ingresses are unchanged. Keep the window short by running it right before the merge.
+2. Merge. `cluster` retargets the Applications, which then build the release with the staged hosts.
+3. The `devops` Application pins roadmap-service and CronJob `devops-cli` to `service:vX.Y.Z`, which the Release Orchestration workflow publishes only after its release job. roadmap-service uses the Recreate strategy, so it is down until that image exists; watch the workflow, and once the image is published run `kubectl -n devops rollout restart deploy/roadmap-service`.
+4. Check: `devops argo cd apps status devops` and `devops argo cd apps status ingress` are Synced and Healthy, `kubectl get ingress,ingressroute -A -o wide` shows no host under `example.com`, and `kubectl -n devops get configmap devops-cli-config -o yaml` holds the configured repositories.
 
 > [!NOTE]
 > `k8s/coredns/` remains managed outside Argo CD to preserve cluster DNS resolution during bootstrap and recovery cycles.
@@ -404,6 +411,10 @@ To bootstrap GitOps on a running cluster:
 ```bash
 # Bootstrap the two-level root app topology (defaults to k8s/argocd/bootstrap/bootstrap.yaml)
 devops argo cd apps bootstrap-gitops
+
+# Once `cluster` has created the Applications devops and ingress, set the homelab hosts and ConfigMap
+kubectl -n argocd get application devops ingress
+devops k8s deploy-stack --stack devops
 ```
 
 ### Recovery
@@ -416,6 +427,10 @@ helm upgrade --install argocd argo/argo-cd --version 10.9.6 -n argocd -f k8s/arg
 
 # 2. Re-apply the bootstrap application to resume gitops reconciliation
 devops argo cd apps bootstrap-gitops
+
+# 3. Once `cluster` has recreated the Applications devops and ingress, set the homelab hosts and ConfigMap
+kubectl -n argocd get application devops ingress
+devops k8s deploy-stack --stack devops
 ```
 
 ### Drift Detection & Sync Commands
@@ -554,8 +569,8 @@ k8s/
 │       └── projects.yaml     # AppProjects: homelab and homelab-system
 ├── overlays/
 │   └── homelab/              # Homelab overlays the Applications devops and ingress render; hosts stay under example.com
-│       ├── ingress/          # Patches Ingress and IngressRoute resources
-│       └── devops/           # Patches roadmap-service Ingress
+│       ├── ingress/          # Application ingress: k8s/ingress without the roadmap-service Ingress
+│       └── devops/           # Application devops: k8s/devops
 ├── monitoring/
 │   ├── kustomization.yaml    # Kustomize overlay for monitoring: NetworkPolicy, Service aliases, dashboards
 │   ├── networkpolicy.yaml    # Default perimeter for the monitoring namespace

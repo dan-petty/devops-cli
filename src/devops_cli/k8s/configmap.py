@@ -18,34 +18,28 @@ _SERVICE_BLOCK_PATTERN = re.compile(
     re.MULTILINE,
 )
 
-DEFAULT_PLACEHOLDER_REPO = "owner/repo"
-DEFAULT_PLACEHOLDER_ACCOUNT = "devops-bot"
-
-
-def _format_repo_items(repos: Sequence[str]) -> str:
-    """Format repository names as YAML list elements indented for devops-cli.yaml."""
-    clean_repos = [r.strip() for r in repos if r and r.strip()]
-    if not clean_repos:
-        clean_repos = [DEFAULT_PLACEHOLDER_REPO]
-    return "\n".join(f"        - {repo}" for repo in clean_repos)
-
 
 def render_devops_configmap_content(
     template_content: str,
-    repos: Sequence[str] | None = None,
-    machine_account: str | None = None,
+    repos: Sequence[str],
+    machine_account: str,
     drain_timeout_seconds: int | None = None,
     poll_interval_seconds: int | None = None,
 ) -> str:
-    """Substitute service target repositories and machine account into ConfigMap template."""
+    """The ConfigMap template with its service block set to `repos` and `machine_account`."""
     m = _SERVICE_BLOCK_PATTERN.search(template_content)
     if not m:
         raise KubernetesContextError(
             "Could not locate standard service configuration block in devops ConfigMap template."
         )
+    clean_repos = [r.strip() for r in repos if r and r.strip()]
+    account = (machine_account or "").strip()
+    if not clean_repos or not account:
+        raise KubernetesContextError(
+            "The devops ConfigMap needs at least one repository and a machine account."
+        )
 
-    formatted_repos = _format_repo_items(repos or [])
-    account = (machine_account or "").strip() or DEFAULT_PLACEHOLDER_ACCOUNT
+    formatted_repos = "\n".join(f"        - {repo}" for repo in clean_repos)
     extra_lines = ""
     if drain_timeout_seconds is not None:
         extra_lines += f"\n      drain_timeout_seconds: {drain_timeout_seconds}"

@@ -1,37 +1,85 @@
 """Argo CD Application overrides that carry the homelab's hosts from the active config.
 
 The repository names every Ingress and IngressRoute host under the placeholder domain
-``example.com``. ``devops k8s deploy-stack`` writes the configured domain onto the Applications
-that render them, as Kustomize JSON patches in ``spec.source.kustomize``, and the ``cluster``
-app-of-apps leaves that field alone (``k8s/argocd/bootstrap/cluster.yaml``). No homelab value
-enters git (#1290).
+(``CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER``). ``devops k8s deploy-stack`` builds what each
+homelab Application renders at the revision Argo CD builds, and writes the configured domain onto
+the Application as Kustomize JSON patches in ``spec.source.kustomize``, which the ``cluster``
+app-of-apps leaves alone (``k8s/argocd/bootstrap/cluster.yaml``). No homelab value enters git
+(#1290).
 """
 
 from __future__ import annotations
 
 import json
-import re
-from pathlib import Path, PurePosixPath
+import subprocess
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import yaml
 
 from devops_cli.exceptions.k8s import KubernetesContextError
-from devops_cli.k8s.template import normalize_domain
+from devops_cli.k8s.template import normalize_domain, render_manifest_template
 
-PLACEHOLDER_DOMAIN = "example.com"
-
-HOMELAB_APPLICATIONS: tuple[str, ...] = ("devops", "ingress")
-"""The Applications whose rendered hosts come from the configured domain."""
-
-_PLACEHOLDER_HOST = re.compile(
-    rf"(?<![\w.-])((?:[a-z0-9-]+\.)*){re.escape(PLACEHOLDER_DOMAIN)}(?![\w.-])", re.IGNORECASE
-)
+Run = Callable[..., subprocess.CompletedProcess[str]]
+"""Runs a command as ``devops_cli.commands.k8s.cluster_runtime._run_cmd`` does."""
 
 
-def _under(domain: str, value: str) -> str:
-    """`value` with every host under the placeholder domain moved under `domain`."""
-    return _PLACEHOLDER_HOST.sub(lambda m: f"{m.group(1)}{domain}", value)
+@dataclass(frozen=True)
+class ApplicationSource:
+    """The repository, revision and path an Argo CD Application renders."""
+
+    repo_url: str
+    revision: str
+    path: str
+
+
+def application_source(application_json: str) -> ApplicationSource:
+    """The source of an Application as ``kubectl get application -o json`` prints it."""
+    source = json.loads(application_json)["spec"]["source"]
+    return ApplicationSource(
+        repo_url=source["repoURL"],
+        revision=source.get("targetRevision") or "HEAD",
+        path=source.get("path") or ".",
+    )
+
+
+def _stdout(result: subprocess.CompletedProcess[str], cmd: list[str]) -> str:
+    if result.returncode != 0:
+        reason = (result.stderr or result.stdout or "").strip()
+        raise KubernetesContextError(f"`{' '.join(cmd)}` failed: {reason}")
+    return result.stdout or ""
+
+
+def render_at_revision(source: ApplicationSource, workdir: Path, run: Run) -> str:
+    """What Argo CD renders for `source`: its path built by Kustomize at its revision.
+
+    The revision is fetched into `workdir`, never into the caller's checkout, so the hosts come
+    from what Argo CD builds whichever branch the caller has checked out.
+    """
+    checkout = workdir / "checkout"
+    for cmd in (
+        ["git", "init", "--quiet", str(checkout)],
+        [
+            "git",
+            "-C",
+            str(checkout),
+            "fetch",
+            "--quiet",
+            "--depth",
+            "1",
+            source.repo_url,
+            source.revision,
+        ],
+        ["git", "-C", str(checkout), "checkout", "--quiet", "FETCH_HEAD"],
+    ):
+        _stdout(run(cmd, check=False, capture=True), cmd)
+    target = (checkout / source.path).resolve()
+    if not target.is_relative_to(checkout.resolve()):
+        raise KubernetesContextError(f"Application path {source.path!r} leaves its repository.")
+    cmd = ["kubectl", "kustomize", str(target)]
+    return _stdout(run(cmd, check=False, capture=True), cmd)
 
 
 def _host_fields(doc: dict[str, Any]) -> list[tuple[str, str]]:
@@ -72,9 +120,12 @@ def _target(doc: dict[str, Any]) -> dict[str, str]:
 def host_patches(rendered: str, domain: str) -> list[dict[str, Any]]:
     """One Kustomize JSON patch per object in `rendered` that routes a host under the placeholder.
 
-    Each such host is first tested, then replaced by the same host under `domain`. A rule that
-    git has moved since fails the Application's manifest generation instead of sending a host to
-    another backend.
+    Each such host is first tested, then replaced by the same host under `domain`, substituted
+    as ``render_manifest_template`` does for native deploys. A host that git has since reordered
+    or removed within its object fails the Application's manifest generation instead of routing
+    to another backend. Kustomize skips a patch whose object no longer exists, and nothing covers
+    an object or host git adds, so deploy-stack runs again once such a change reaches the
+    Application's revision.
     """
     configured = normalize_domain(domain)
     patches = []
@@ -83,7 +134,7 @@ def host_patches(rendered: str, domain: str) -> list[dict[str, Any]]:
             continue
         ops = []
         for pointer, value in _host_fields(doc):
-            pinned = _under(configured, value)
+            pinned = render_manifest_template(value, domain=configured)
             if pinned != value:
                 ops += [
                     {"op": "test", "path": pointer, "value": value},
@@ -97,16 +148,3 @@ def host_patches(rendered: str, domain: str) -> list[dict[str, Any]]:
 def application_patch(patches: list[dict[str, Any]]) -> dict[str, Any]:
     """The merge patch that makes `patches` an Application's Kustomize patches."""
     return {"spec": {"source": {"kustomize": {"patches": patches}}}}
-
-
-def application_source_dir(k8s_dir: Path, application: str) -> Path:
-    """The directory under `k8s_dir` that Application `application` renders."""
-    manifest = k8s_dir / "argocd" / "apps" / f"{application}.yaml"
-    source = PurePosixPath(
-        yaml.safe_load(manifest.read_text(encoding="utf-8"))["spec"]["source"]["path"]
-    )
-    if source.parts[:1] != ("k8s",):
-        raise KubernetesContextError(
-            f"Argo CD Application '{application}' renders {source}, which is outside k8s/."
-        )
-    return k8s_dir.joinpath(*source.parts[1:])

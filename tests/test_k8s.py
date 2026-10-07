@@ -207,18 +207,22 @@ def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing(
     )
 
 
-def test_deploy_stack_dry_run_makes_no_request(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_deploy_stack_dry_run_makes_no_request(
+    monkeypatch: pytest.MonkeyPatch, isolate_devops_cli_config: Path
+) -> None:
     """No kubectl, helm or gh child, no keyring call and no connection, with the Secret push on
     and the context left to the settings."""
     from tests.cluster_secret_fakes import forbid_requests
 
+    _configure_service(isolate_devops_cli_config)
     attempted = forbid_requests(monkeypatch)
     result = runner.invoke(app, ["deploy-stack", "--stack", "all", "--dry-run"])
     assert (result.exit_code, result.exception, attempted) == (0, None, [])
 
 
-def test_k8s_deploy_stack_all_dry_run() -> None:
+def test_k8s_deploy_stack_all_dry_run(isolate_devops_cli_config: Path) -> None:
     """k8s deploy-stack --stack all must include infra, llm, logging, and devops components."""
+    _configure_service(isolate_devops_cli_config)
     set_dry_run(True)
     try:
         result = runner.invoke(app, ["deploy-stack", "--stack", "all"])
@@ -1597,23 +1601,81 @@ def test_is_cluster_argo_managed() -> None:
 # The configured domain has to differ from the repository's placeholder, example.com, for a
 # substitution to show; example.org is reserved for documentation by RFC 2606 like example.com.
 _DOMAIN = "example.org"
-_ROUTE = (
-    "apiVersion: networking.k8s.io/v1\nkind: Ingress\n"
-    "metadata:\n  name: chat\n  namespace: llm\n"
-    "spec:\n  rules:\n    - host: chat.example.com\n"
-)
+_CONTEXT = ["--context", "minikube"]
 
 
-class _Kubectl:
-    """kubectl for a reachable cluster: records each call and answers `kubectl kustomize`.
+def _ingress(name: str, namespace: str, *hosts: str) -> str:
+    rules = "".join(f"    - host: {host}\n" for host in hosts)
+    return (
+        "apiVersion: networking.k8s.io/v1\nkind: Ingress\n"
+        f"metadata:\n  name: {name}\n  namespace: {namespace}\nspec:\n  rules:\n{rules}"
+    )
 
-    `argo` says whether Application `cluster` exists; a write naming `fail` exits 1.
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+        check=True,
+        capture_output=True,
+    )
+
+
+def _commit(repo: Path, files: dict[str, str]) -> None:
+    for name, text in files.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "manifests")
+
+
+@pytest.fixture
+def applications_repo(tmp_path: Path) -> Path:
+    """The repository the Applications render: `main`, and branch `release` with one host more."""
+    repo = tmp_path / "applications"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _commit(
+        repo,
+        {
+            "k8s/ingress/kustomization.yaml": "resources:\n  - routes.yaml\n",
+            "k8s/ingress/routes.yaml": _ingress("chat", "llm", "chat.example.com"),
+            "k8s/devops/kustomization.yaml": "resources:\n  - ingress.yaml\n",
+            "k8s/devops/ingress.yaml": _ingress("roadmap-service", "devops", "hooks.example.com"),
+            "k8s/overlays/homelab/ingress/kustomization.yaml": "resources:\n  - ../../../ingress\n",
+            "k8s/overlays/homelab/devops/kustomization.yaml": "resources:\n  - ../../../devops\n",
+        },
+    )
+    _git(repo, "checkout", "-q", "-b", "release")
+    _commit(
+        repo,
+        {"k8s/ingress/routes.yaml": _ingress("chat", "llm", "chat.example.com", "ai.example.com")},
+    )
+    _git(repo, "checkout", "-q", "main")
+    return repo
+
+
+class _Cluster:
+    """kubectl and git around a reachable cluster, Argo CD-managed unless `argo` is False.
+
+    Calls that read or write the cluster are recorded and answered here; git and
+    `kubectl kustomize` run for real, against the Applications' repository. Each Application
+    renders `k8s/overlays/homelab/<name>` at `main` unless `paths` says otherwise, and a write
+    naming `fail` exits 1.
     """
 
-    def __init__(self, *, argo: bool = True, fail: str | None = None) -> None:
+    def __init__(
+        self,
+        repo: Path,
+        *,
+        argo: bool = True,
+        fail: str | None = None,
+        paths: dict[str, str] | None = None,
+    ) -> None:
         self.calls: list[tuple[list[str], str | None]] = []
+        self.repo = repo
         self.argo = argo
         self.fail = fail
+        self.paths = paths or {}
 
     def __call__(
         self,
@@ -1625,21 +1687,28 @@ class _Kubectl:
         timeout: float = 0.0,
     ) -> subprocess.CompletedProcess[str]:
         self.calls.append((cmd, input))
+        if cmd[0] == "git" or cmd[1] == "kustomize":
+            return subprocess.run(cmd, input=input, capture_output=True, text=True, check=False)
         if cmd[1:6] == ["-n", "argocd", "get", "application", "cluster"]:
-            found = self.argo
             return subprocess.CompletedProcess(
-                cmd, 0 if found else 1, "cluster" if found else "", ""
+                cmd, 0 if self.argo else 1, "cluster" * self.argo, ""
             )
-        if cmd[1] == "kustomize":
-            return subprocess.CompletedProcess(cmd, 0, _ROUTE, "")
+        if cmd[1:3] == ["get", "application"]:
+            path = self.paths.get(cmd[3], f"k8s/overlays/homelab/{cmd[3]}")
+            source = {"repoURL": self.repo.as_uri(), "targetRevision": "main", "path": path}
+            return subprocess.CompletedProcess(cmd, 0, json.dumps({"spec": {"source": source}}), "")
         failed = self.fail is not None and self.fail in cmd
         return subprocess.CompletedProcess(cmd, int(failed), "", "denied" if failed else "")
 
     def writes(self) -> list[list[str]]:
-        return [cmd for cmd, _ in self.calls if cmd[1] in ("apply", "patch")]
+        return [
+            cmd
+            for cmd, _ in self.calls
+            if cmd[0] == "kubectl" and cmd[1] in ("apply", "patch", "delete")
+        ]
 
-    def stdin_of(self, cmd: list[str]) -> str | None:
-        return next(given for called, given in self.calls if called == cmd)
+    def stdin_of(self, cmd: list[str]) -> str:
+        return next(given or "" for called, given in self.calls if called == cmd)
 
 
 def _configure_service(config_path: Path) -> None:
@@ -1651,18 +1720,41 @@ def _configure_service(config_path: Path) -> None:
     reset_settings_cache()
 
 
-_CONTEXT = ["--context", "minikube"]
+def _deploy(cluster: _Cluster, *args: str, push: bool = False) -> Any:
+    flag = "--push-secrets" if push else "--no-push-secrets"
+    with patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster):
+        return runner.invoke(app, ["deploy-stack", flag, *_CONTEXT, *args])
 
 
-def _deploy(kubectl: _Kubectl, *args: str) -> Any:
-    with patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", kubectl):
-        return runner.invoke(app, ["deploy-stack", "--no-push-secrets", *_CONTEXT, *args])
-
-
-def _host_override(application: str) -> list[str]:
-    from devops_cli.k8s.argocd_overrides import application_patch, host_patches
-
-    body = json.dumps(application_patch(host_patches(_ROUTE, _DOMAIN)))
+def _hosts(application: str, *pinned: tuple[str, str, str, list[str]]) -> list[str]:
+    """`kubectl patch` of `application` setting each (kind, name, namespace, hosts) under _DOMAIN."""
+    patches = [
+        {
+            "target": {
+                "group": "networking.k8s.io",
+                "version": "v1",
+                "kind": kind,
+                "name": name,
+                "namespace": ns,
+            },
+            "patch": json.dumps(
+                [
+                    op
+                    for i, host in enumerate(hosts)
+                    for op in (
+                        {"op": "test", "path": f"/spec/rules/{i}/host", "value": host},
+                        {
+                            "op": "replace",
+                            "path": f"/spec/rules/{i}/host",
+                            "value": host.replace("example.com", _DOMAIN),
+                        },
+                    )
+                ]
+            ),
+        }
+        for kind, name, ns, hosts in pinned
+    ]
+    body = json.dumps({"spec": {"source": {"kustomize": {"patches": patches}}}})
     return [
         "kubectl",
         "patch",
@@ -1678,57 +1770,86 @@ def _host_override(application: str) -> list[str]:
     ]
 
 
-def test_deploy_stack_on_argo_cd_applies_the_config_map_and_sets_both_applications_hosts(
-    isolate_devops_cli_config: Path,
-) -> None:
-    """The ConfigMap comes from the active config; the hosts go onto the Applications."""
-    from devops_cli.k8s.argocd_overrides import application_source_dir
+_APPLY_STDIN = ["kubectl", "apply", "-f", "-", *_CONTEXT]
+_DEVOPS_HOSTS = _hosts("devops", ("Ingress", "roadmap-service", "devops", ["hooks.example.com"]))
+_INGRESS_HOSTS = _hosts("ingress", ("Ingress", "chat", "llm", ["chat.example.com"]))
 
+
+def test_deploy_stack_on_argo_cd_applies_the_config_map_and_sets_hosts_from_each_applications_revision(
+    isolate_devops_cli_config: Path, applications_repo: Path
+) -> None:
+    """The hosts come from what the Applications render at their revision, not the checkout."""
     _configure_service(isolate_devops_cli_config)
-    kubectl = _Kubectl()
-    res = _deploy(kubectl, "--stack", "devops", "--domain", _DOMAIN)
-    apply_config_map = ["kubectl", "apply", "-f", "-", *_CONTEXT]
-    config_map = yaml.safe_load(kubectl.stdin_of(apply_config_map) or "")
+    cluster = _Cluster(applications_repo)
+    res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
+    config_map = yaml.safe_load(cluster.stdin_of(_APPLY_STDIN))
     service = yaml.safe_load(config_map["data"]["devops-cli.yaml"])["service"]
-    k8s_dir = Path("k8s")
     assert (
         res.exit_code,
-        kubectl.writes(),
-        [cmd for cmd, _ in kubectl.calls if cmd[1] == "kustomize"],
+        cluster.writes(),
         config_map["metadata"]["name"],
         (service["repos"], service["machine_account"]),
     ) == (
         0,
-        [apply_config_map, _host_override("devops"), _host_override("ingress")],
-        [
-            ["kubectl", "kustomize", str(application_source_dir(k8s_dir, "devops"))],
-            ["kubectl", "kustomize", str(application_source_dir(k8s_dir, "ingress"))],
-        ],
+        [_APPLY_STDIN, _DEVOPS_HOSTS, _INGRESS_HOSTS],
         "devops-cli-config",
         (["owner/repo"], "devops-bot"),
     )
 
 
-def test_deploy_stack_infra_on_argo_cd_sets_only_the_ingress_hosts() -> None:
-    kubectl = _Kubectl()
-    res = _deploy(kubectl, "--stack", "infra", "--domain", _DOMAIN)
-    assert (res.exit_code, kubectl.writes()) == (0, [_host_override("ingress")])
+def test_deploy_stack_stages_the_hosts_of_a_revision_before_it_merges(
+    applications_repo: Path,
+) -> None:
+    cluster = _Cluster(applications_repo)
+    res = _deploy(cluster, "--stack", "infra", "--domain", _DOMAIN, "--argocd-revision", "release")
+    staged = _hosts("ingress", ("Ingress", "chat", "llm", ["chat.example.com", "ai.example.com"]))
+    assert (res.exit_code, cluster.writes()) == (0, [staged])
 
 
-def test_deploy_stack_llm_on_argo_cd_changes_nothing_itself() -> None:
-    kubectl = _Kubectl()
-    res = _deploy(kubectl, "--stack", "llm")
-    assert (res.exit_code, kubectl.writes(), "Argo CD manages the cluster" in res.output) == (
+def test_deploy_stack_infra_on_argo_cd_sets_only_the_ingress_hosts(applications_repo: Path) -> None:
+    cluster = _Cluster(applications_repo)
+    res = _deploy(cluster, "--stack", "infra", "--domain", _DOMAIN)
+    assert (res.exit_code, cluster.writes()) == (0, [_INGRESS_HOSTS])
+
+
+def test_deploy_stack_llm_on_argo_cd_changes_nothing_itself(applications_repo: Path) -> None:
+    cluster = _Cluster(applications_repo)
+    res = _deploy(cluster, "--stack", "llm")
+    assert (res.exit_code, cluster.writes(), "Argo CD manages the cluster" in res.output) == (
         0,
         [],
         True,
     )
 
 
-def test_deploy_stack_fails_when_argo_cd_refuses_the_hosts(isolate_devops_cli_config: Path) -> None:
+def test_deploy_stack_on_argo_cd_pushes_secrets_after_deriving_the_hosts_and_before_writing(
+    isolate_devops_cli_config: Path, applications_repo: Path
+) -> None:
     _configure_service(isolate_devops_cli_config)
-    kubectl = _Kubectl(fail="ingress")
-    res = _deploy(kubectl, "--stack", "devops", "--domain", _DOMAIN)
+    cluster = _Cluster(applications_repo)
+    with (
+        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push") as keyring,
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle.push_for_stacks",
+            side_effect=lambda stacks, ctx: cluster.calls.append((["<push>"], None)),
+        ),
+        patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
+    ):
+        res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN, push=True)
+    steps = [cmd[0] if cmd[0] in ("<push>", "git") else cmd[1] for cmd, _ in cluster.calls]
+    assert (res.exit_code, keyring.called, steps[steps.index("<push>") :]) == (
+        0,
+        True,
+        ["<push>", "apply", "patch", "patch"],
+    )
+
+
+def test_deploy_stack_fails_when_argo_cd_refuses_the_hosts(
+    isolate_devops_cli_config: Path, applications_repo: Path
+) -> None:
+    _configure_service(isolate_devops_cli_config)
+    cluster = _Cluster(applications_repo, fail="ingress")
+    res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
     assert (res.exit_code, "Application 'ingress'" in res.output, "denied" in res.output) == (
         1,
         True,
@@ -1736,40 +1857,102 @@ def test_deploy_stack_fails_when_argo_cd_refuses_the_hosts(isolate_devops_cli_co
     )
 
 
-def test_deploy_stack_without_a_domain_writes_nothing_and_names_the_setting(
-    isolate_devops_cli_config: Path,
+def test_deploy_stack_fails_when_the_cluster_refuses_the_config_map(
+    isolate_devops_cli_config: Path, applications_repo: Path
 ) -> None:
     _configure_service(isolate_devops_cli_config)
-    kubectl = _Kubectl()
-    res = _deploy(kubectl, "--stack", "devops")
-    assert (res.exit_code, kubectl.writes(), "k8s.domain" in res.output) == (1, [], True)
+    cluster = _Cluster(applications_repo, fail="apply")
+    res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
+    assert (
+        res.exit_code,
+        cluster.writes(),
+        "Failed to apply ConfigMap devops-cli-config" in res.output,
+    ) == (1, [_APPLY_STDIN], True)
 
 
-def test_deploy_stack_without_service_repositories_writes_nothing_and_names_the_setting() -> None:
-    kubectl = _Kubectl()
-    res = _deploy(kubectl, "--stack", "devops", "--domain", _DOMAIN)
-    assert (res.exit_code, kubectl.writes(), "service.repos" in res.output) == (1, [], True)
+def test_deploy_stack_writes_nothing_when_an_application_does_not_build_at_its_revision(
+    isolate_devops_cli_config: Path, applications_repo: Path
+) -> None:
+    _configure_service(isolate_devops_cli_config)
+    cluster = _Cluster(applications_repo, paths={"ingress": "k8s/overlays/homelab/missing"})
+    res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
+    assert (res.exit_code, cluster.writes(), "kubectl kustomize" in res.output) == (1, [], True)
+
+
+def test_deploy_stack_without_a_domain_writes_nothing_and_names_the_setting(
+    isolate_devops_cli_config: Path, applications_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("DEVOPS_CLI_K8S_DOMAIN", "DEVOPS_CLI_DOMAIN", "DEVOPS_CLI_CLOUDFLARE_DOMAIN"):
+        monkeypatch.delenv(name, raising=False)
+    _configure_service(isolate_devops_cli_config)
+    cluster = _Cluster(applications_repo)
+    res = _deploy(cluster, "--stack", "devops")
+    assert (res.exit_code, cluster.writes(), "k8s.domain" in res.output) == (1, [], True)
+
+
+def test_deploy_stack_without_service_repositories_writes_nothing_and_names_the_setting(
+    applications_repo: Path,
+) -> None:
+    cluster = _Cluster(applications_repo)
+    res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
+    assert (res.exit_code, cluster.calls, "service.repos" in res.output) == (1, [], True)
 
 
 def test_deploy_stack_on_a_native_cluster_applies_the_rendered_config_map_and_no_file_of_it(
-    isolate_devops_cli_config: Path,
+    isolate_devops_cli_config: Path, applications_repo: Path
 ) -> None:
     _configure_service(isolate_devops_cli_config)
-    kubectl = _Kubectl(argo=False)
-    res = _deploy(kubectl, "--stack", "devops", "--domain", _DOMAIN)
-    applied = kubectl.writes()
-    config_map = yaml.safe_load(kubectl.stdin_of(["kubectl", "apply", "-f", "-", *_CONTEXT]) or "")
+    cluster = _Cluster(applications_repo, argo=False)
+    res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
+    applied = cluster.writes()
+    config_map = yaml.safe_load(cluster.stdin_of(_APPLY_STDIN))
     assert (
         res.exit_code,
         applied[:2],
         config_map["metadata"]["name"],
         [cmd for cmd in applied if any("configmap" in part for part in cmd)],
-    ) == (
-        0,
-        [["kubectl", "apply", "-k", "k8s", *_CONTEXT], ["kubectl", "apply", "-f", "-", *_CONTEXT]],
+    ) == (0, [["kubectl", "apply", "-k", "k8s", *_CONTEXT], _APPLY_STDIN], "devops-cli-config", [])
+
+
+def test_teardown_stack_devops_deletes_the_config_map_deploy_stack_rendered(
+    applications_repo: Path,
+) -> None:
+    cluster = _Cluster(applications_repo, argo=False)
+    with patch("devops_cli.commands.k8s.cluster_runtime._run_cmd", cluster):
+        res = runner.invoke(app, ["teardown-stack", "--stack", "devops", *_CONTEXT])
+    delete = [
+        "kubectl",
+        "delete",
+        "configmap",
         "devops-cli-config",
-        [],
-    )
+        "-n",
+        "devops",
+        "--ignore-not-found",
+    ]
+    assert (res.exit_code, [*delete, *_CONTEXT] in cluster.writes()) == (0, True)
+
+
+def test_deploy_stack_dry_run_reports_the_config_map_and_host_overrides_and_runs_nothing(
+    isolate_devops_cli_config: Path, applications_repo: Path
+) -> None:
+    _configure_service(isolate_devops_cli_config)
+    cluster = _Cluster(applications_repo)
+    res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN, "--dry-run")
+    assert (
+        res.exit_code,
+        cluster.calls,
+        "devops/devops-cli-config" in res.output,
+        "argocd/devops" in res.output,
+        "argocd/ingress" in res.output,
+    ) == (0, [], True, True, True)
+
+
+def test_deploy_stack_dry_run_refuses_like_the_deploy_without_service_repositories(
+    applications_repo: Path,
+) -> None:
+    cluster = _Cluster(applications_repo)
+    res = _deploy(cluster, "--stack", "devops", "--dry-run")
+    assert (res.exit_code, cluster.calls, "service.repos" in res.output) == (1, [], True)
 
 
 def test_k8s_teardown_stack_when_argo_cd_managed() -> None:

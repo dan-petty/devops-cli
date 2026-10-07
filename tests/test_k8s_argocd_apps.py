@@ -196,6 +196,8 @@ def test_projects_whitelists_and_orphaned_resources() -> None:
     for secret in CLUSTER_SECRETS:
         assert ("", "Secret", secret.name) in ignored_tuples
 
+    # deploy-stack applies it from config.yaml, so no Application owns it (#1290)
+    assert ("", "ConfigMap", "devops-cli-config") in ignored_tuples
     assert ("", "Secret", "argocd-initial-admin-secret") in ignored_tuples
     assert ("", "Secret", "argocd-redis") in ignored_tuples
     assert ("", "Secret", "sh.helm.release.v1.*") in ignored_tuples
@@ -381,7 +383,9 @@ def test_homelab_domain_overlays() -> None:
 
 def test_the_app_of_apps_keeps_the_hosts_deploy_stack_sets_on_the_homelab_applications() -> None:
     """`cluster` leaves the Kustomize overrides of the homelab Applications to deploy-stack."""
-    from devops_cli.k8s.argocd_overrides import HOMELAB_APPLICATIONS
+    from devops_cli.config.constants import (
+        CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS as HOMELAB_APPLICATIONS,
+    )
 
     spec = _load_yaml(BOOTSTRAP_DIR / "cluster.yaml")["spec"]
     assert (
@@ -404,7 +408,9 @@ def test_the_app_of_apps_keeps_the_hosts_deploy_stack_sets_on_the_homelab_applic
 
 def test_no_homelab_application_sets_kustomize_overrides_in_git() -> None:
     """Git leaves the field to deploy-stack, so the two never contend for it."""
-    from devops_cli.k8s.argocd_overrides import HOMELAB_APPLICATIONS
+    from devops_cli.config.constants import (
+        CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS as HOMELAB_APPLICATIONS,
+    )
 
     apps = _all_applications()
     assert [

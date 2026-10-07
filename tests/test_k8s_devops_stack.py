@@ -73,8 +73,13 @@ def test_devops_namespace_in_namespaces_yaml() -> None:
     assert "devops" in names
 
 
-def test_deploy_stack_devops_dry_run() -> None:
+def test_deploy_stack_devops_dry_run(isolate_devops_cli_config: Path) -> None:
     """Verify deploy-stack --stack devops includes devops manifests in dry-run output."""
+    from devops_cli.config.settings import reset_settings_cache
+
+    with isolate_devops_cli_config.open("a", encoding="utf-8") as config:
+        config.write("service:\n  repos:\n    - owner/repo\n  machine_account: devops-bot\n")
+    reset_settings_cache()
     set_dry_run(True)
     try:
         result = runner.invoke(app, ["deploy-stack", "--stack", "devops"])
@@ -137,8 +142,13 @@ def test_roadmap_service_ingress_in_ingress_routes() -> None:
     )
 
 
-def test_deploy_stack_domain_option_in_dry_run() -> None:
+def test_deploy_stack_domain_option_in_dry_run(isolate_devops_cli_config: Path) -> None:
     """Verify deploy-stack propagates domain option in dry-run output."""
+    from devops_cli.config.settings import reset_settings_cache
+
+    with isolate_devops_cli_config.open("a", encoding="utf-8") as config:
+        config.write("service:\n  repos:\n    - owner/repo\n  machine_account: devops-bot\n")
+    reset_settings_cache()
     set_dry_run(True)
     try:
         result = runner.invoke(

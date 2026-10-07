@@ -57,7 +57,7 @@ devops k8s push-secrets --dry-run    # no request: the requests a push would mak
 devops k8s push-secrets --plan       # reads the keyring, gh and the cluster: each key's state
 devops k8s push-secrets --only llm/qdrant-api-key
 
-# 7. Run one devops command as a Job in the cluster (after `devops k8s apply k8s/devops/ --template`)
+# 7. Run one devops command as a Job in the cluster (after `devops k8s deploy-stack --stack devops`)
 devops k8s run-job -- ai gateway status --format json
 
 # 8. Check deployed pod health across all namespaces
