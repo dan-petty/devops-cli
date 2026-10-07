@@ -1632,6 +1632,88 @@ def test_k8s_deploy_stack_when_argo_cd_managed() -> None:
         ) == (0, True, False, False)
 
 
+def test_k8s_deploy_stack_when_argo_cd_managed_devops_stack(tmp_path: Path) -> None:
+    """When Argo CD manages cluster, deploy-stack devops streams ConfigMap, Ingress, and patches apps."""
+    devops_dir = tmp_path / "devops"
+    devops_dir.mkdir(parents=True, exist_ok=True)
+    rs_dir = devops_dir / "roadmap-service"
+    rs_dir.mkdir(parents=True, exist_ok=True)
+    (devops_dir / "configmap.example.yaml").write_text(
+        "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: devops-cli-config\n  namespace: devops\ndata:\n  devops-cli.yaml: |\n    service:\n      repos:\n        - owner/repo\n      machine_account: devops-bot\n",
+        encoding="utf-8",
+    )
+    (rs_dir / "ingress.yaml").write_text(
+        "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: roadmap-service\n  namespace: devops\nspec:\n  rules:\n    - host: example.com\n",
+        encoding="utf-8",
+    )
+
+    with (
+        patch("devops_cli.commands.k8s.cluster_runtime._cluster_reachable", return_value=True),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=True
+        ),
+        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks"),
+        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
+        patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
+        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd") as mock_run_cmd,
+    ):
+        res = runner.invoke(
+            app,
+            [
+                "deploy-stack",
+                "--stack",
+                "devops",
+                "--k8s-dir",
+                str(tmp_path),
+                "--domain",
+                "example.com",
+            ],
+        )
+        assert (
+            res.exit_code,
+            "Argo CD manages the cluster" in res.output,
+            mock_run_cmd.called,
+        ) == (0, True, True)
+
+
+def test_k8s_deploy_stack_when_argo_cd_managed_ingress_stack(tmp_path: Path) -> None:
+    """When Argo CD manages cluster, deploy-stack infra with domain streams routes and patches ingress app."""
+    ing_dir = tmp_path / "ingress"
+    ing_dir.mkdir(parents=True, exist_ok=True)
+    (ing_dir / "ingress-routes.yaml").write_text(
+        "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: chat-ingress\n  namespace: kube-system\nspec:\n  rules:\n    - host: example.com\n",
+        encoding="utf-8",
+    )
+
+    with (
+        patch("devops_cli.commands.k8s.cluster_runtime._cluster_reachable", return_value=True),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=True
+        ),
+        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks"),
+        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
+        patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
+        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd") as mock_run_cmd,
+    ):
+        res = runner.invoke(
+            app,
+            [
+                "deploy-stack",
+                "--stack",
+                "infra",
+                "--k8s-dir",
+                str(tmp_path),
+                "--domain",
+                "example.com",
+            ],
+        )
+        assert (
+            res.exit_code,
+            "Argo CD manages the cluster" in res.output,
+            mock_run_cmd.called,
+        ) == (0, True, True)
+
+
 def test_k8s_teardown_stack_when_argo_cd_managed() -> None:
     """When Argo CD Application 'cluster' exists, teardown-stack exits 1."""
     with (
