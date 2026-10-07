@@ -17,6 +17,7 @@ from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
     CONST_INDEX_CACHE_FILENAME,
+    CONST_RAG_INCOMPLETE_FILE_MARKER,
     CONST_RAG_SKIPPED_LOCKFILES,
 )
 from devops_cli.config.defaults import (
@@ -151,18 +152,21 @@ def _update_incremental_cache(
     save_fn: Callable[[dict[str, str]], None],
     pending: Counter[str],
 ) -> None:
-    """Cache each file of an embedded batch once its last pending chunk is stored, then persist.
+    """Record each file of an embedded batch in the cache, then persist.
 
-    A file whose chunks span a later, failed batch stays uncached, so a resume without
-    `--force` embeds it again; its deterministic chunk ids overwrite the stored points (#1296).
+    A file is cached under its content hash once its last pending chunk is stored. Until then it
+    is cached as incomplete, a value no content hash matches: a resume without `--force` embeds
+    it again (its deterministic chunk ids overwrite the stored points), and the purges still
+    find its stored points if it is edited or deleted first (#1296).
     """
     if cache is None or file_hashes is None:
         return
     for c in batch:
         ckey = f"{c.project_name}:{c.file_path}"
         pending[ckey] -= 1
-        if pending[ckey] == 0 and ckey in file_hashes:
-            cache[ckey] = file_hashes[ckey]
+        if ckey in file_hashes:
+            done = pending[ckey] == 0
+            cache[ckey] = file_hashes[ckey] if done else CONST_RAG_INCOMPLETE_FILE_MARKER
     save_fn(cache)
 
 
