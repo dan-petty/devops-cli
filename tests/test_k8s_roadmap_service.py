@@ -232,11 +232,13 @@ def test_configmap_validates_as_settings_with_repos_and_machine_account() -> Non
         bool(settings.service.machine_account),
         settings.telemetry.enabled,
         settings.telemetry.endpoint,
+        settings.ai.tasks.analysis.context_window,
     ) == (
         True,
         True,
         True,
         "http://otel-collector-opentelemetry-collector.otel.svc.cluster.local:4318",
+        65536,
     )
 
 

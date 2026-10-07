@@ -31,6 +31,7 @@ data:
       tasks:
         analysis:
           model: devops-background
+          context_window: 65536
         chat:
           model: devops-background
         embedding:
