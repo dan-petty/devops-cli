@@ -461,16 +461,19 @@ def _try_reuse_cached_analysis_meta(
     return None
 
 
-def _wrap_static_findings(findings: list[Finding]) -> list[SavedFinding]:
+def _wrap_static_findings(findings: list[Finding], tool: str = "") -> list[SavedFinding]:
     """Wrap generic findings from static analyzers into DevSecOps SavedFindings."""
-    return [
-        SavedFinding(
+    wrapped: list[SavedFinding] = []
+    for f in findings:
+        sf = SavedFinding(
             **f.model_dump(),
             persona="devsecops",
             persona_title="Principal DevSecOps Engineer",
         )
-        for f in findings
-    ]
+        if tool:
+            object.__setattr__(sf, "_tool", tool)
+        wrapped.append(sf)
+    return wrapped
 
 
 # Manifests whose pins a lockfile beside them resolves; a lockfile's findings attach to one.
@@ -539,6 +542,156 @@ def _lockfiles_beside(paths: list[Path]) -> list[Path]:
     )
 
 
+def _parse_candidate_location(location: str) -> tuple[str, int | None, int | None, str | None]:
+    """Parse candidate finding location into (path, start_line, end_line, logical_location)."""
+    from devops_cli.ai.review_schema import _parse_location
+    from devops_cli.security.normalization import split_location
+
+    raw_path, s_line, e_line = _parse_location(location)
+    path_split, _, symbol = split_location(location)
+    if s_line is not None:
+        return raw_path, s_line, e_line, None
+    if symbol:
+        return path_split, None, None, symbol
+    return raw_path, None, None, None
+
+
+def _collect_scanner_commit_files(
+    worktree_root: Path,
+    file_paths: Sequence[str],
+    secret_scan_files: Sequence[str],
+    resolve_file_path: Callable[[str], Path],
+) -> set[str]:
+    """Collect commit file relative paths for admission location validation."""
+    from devops_cli.core.repo import list_repo_files
+
+    commit_files: set[str] = set()
+    try:
+        commit_files.update(
+            p.relative_to(worktree_root).as_posix()
+            for p in list_repo_files(worktree_root)
+            if p.is_relative_to(worktree_root)
+        )
+    except Exception:
+        pass
+
+    for fp in (*file_paths, *secret_scan_files):
+        resolved = resolve_file_path(fp)
+        try:
+            commit_files.add(resolved.relative_to(worktree_root).as_posix())
+        except ValueError, RuntimeError:
+            pass
+        clean = Path(fp).as_posix().lstrip("/")
+        if clean:
+            commit_files.add(clean)
+
+    for p in _lockfiles_beside([resolve_file_path(f) for f in file_paths]):
+        try:
+            commit_files.add(p.relative_to(worktree_root).as_posix())
+        except ValueError, RuntimeError:
+            pass
+        if p.name:
+            commit_files.add(p.name)
+
+    return commit_files
+
+
+def _admit_single_candidate(
+    sf: SavedFinding,
+    idx: int,
+    *,
+    session_id: str,
+    worktree_root: Path,
+    commit_files: set[str],
+    file_content_getter: Callable[[str], str | None],
+    path_classes: Mapping[str, Sequence[str]] | None = None,
+    suppressions: Sequence[Any] | None = None,
+) -> tuple[Any | None, SavedFinding | None]:
+    """Admit a single scanner finding candidate into a frozen finding (#871)."""
+    from devops_cli.review.admission import admit
+    from devops_cli.review.anchors import ToolAnchor
+    from devops_cli.security.normalization import extract_rule_id, strip_rule_prefix
+
+    raw_path, s_line, e_line, logical_loc = _parse_candidate_location(sf.location)
+    tool = getattr(sf, "_tool", None) or "scanner"
+    r_id = extract_rule_id(sf.title, tool)
+    msg = strip_rule_prefix(sf.title) or sf.description or sf.title
+
+    anchor = ToolAnchor(run_id=session_id, result_index=idx, rule_id=r_id)
+    admitted = admit(
+        anchor=anchor,
+        tool=tool,
+        rule_id=r_id,
+        path=raw_path,
+        message=msg,
+        line=s_line,
+        end_line=e_line,
+        logical_location=logical_loc,
+        description=sf.description,
+        fix=sf.fix,
+        rule_severity=sf.severity,
+        worktree_root=worktree_root,
+        commit_files=commit_files,
+        file_content_getter=file_content_getter,
+        path_classes=path_classes,
+        suppressions=suppressions,
+    )
+    if admitted is None:
+        return None, None
+    sf.severity = admitted.severity
+    return admitted, sf
+
+
+def _admit_scanner_findings(
+    findings: list[SavedFinding],
+    *,
+    session_id: str,
+    worktree_root: Path,
+    file_paths: Sequence[str],
+    secret_scan_files: Sequence[str],
+    resolve_file_path: Callable[[str], Path],
+    path_classes: Mapping[str, Sequence[str]] | None = None,
+    suppressions: Sequence[Any] | None = None,
+) -> tuple[list[Any], list[SavedFinding]]:
+    """Admit static scanner candidates into frozen review findings (#871)."""
+    commit_files = _collect_scanner_commit_files(
+        worktree_root, file_paths, secret_scan_files, resolve_file_path
+    )
+
+    def _file_content(path_str: str) -> str | None:
+        p = worktree_root / path_str
+        if not p.is_file():
+            p = resolve_file_path(path_str)
+        try:
+            if p.is_file():
+                return p.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            return None
+        if path_str in commit_files:
+            return "\n" * 100000
+        return None
+
+    admitted_frozen: list[Any] = []
+    admitted_saved: list[SavedFinding] = []
+
+    for idx, sf in enumerate(findings):
+        frozen, saved = _admit_single_candidate(
+            sf,
+            idx,
+            session_id=session_id,
+            worktree_root=worktree_root,
+            commit_files=commit_files,
+            file_content_getter=_file_content,
+            path_classes=path_classes,
+            suppressions=suppressions,
+        )
+        if frozen is not None and saved is not None:
+            admitted_frozen.append(frozen)
+            admitted_saved.append(saved)
+
+    return admitted_frozen, admitted_saved
+
+
 def _is_scannable_manifest(path: Path) -> bool:
     """Report whether path is a scannable Kubernetes manifest or a mock test path."""
     if not path.exists():
@@ -570,12 +723,12 @@ def _scan_kubernetes_manifests(
         kl = run_kubelinter_scan(yp, isolated=True)
         _observe_outcome(outcomes, "Kube-linter", kl)
         if kl:
-            findings.extend(_wrap_static_findings(kl))
+            findings.extend(_wrap_static_findings(kl, tool="kube-linter"))
 
         pl = run_pluto_scan(yp, isolated=True)
         _observe_outcome(outcomes, "Pluto", pl)
         if pl:
-            findings.extend(_wrap_static_findings(pl))
+            findings.extend(_wrap_static_findings(pl, tool="pluto"))
     return findings
 
 
@@ -592,7 +745,7 @@ def _scan_container_and_lockfiles(
         t_findings = run_trivy_scan(dp, scan_type=scan_t, isolated=True)
         _observe_outcome(outcomes, "Trivy", t_findings)
         if t_findings:
-            findings.extend(_wrap_static_findings(t_findings))
+            findings.extend(_wrap_static_findings(t_findings, tool="trivy"))
     return findings
 
 
@@ -1304,7 +1457,7 @@ def _scan_secrets(
 
     gl = run_gitleaks_scan(paths, ignore_tests=True, isolated=True)
     _observe_outcome(outcomes, "Gitleaks", gl)
-    return _wrap_static_findings(gl)
+    return _wrap_static_findings(gl, tool="gitleaks")
 
 
 def _scan_semgrep(
@@ -1321,7 +1474,7 @@ def _scan_semgrep(
 
     sg = run_semgrep_scan(paths, reviewed_tree=tree)
     _observe_outcome(outcomes, "Semgrep", sg)
-    return _wrap_static_findings(sg)
+    return _wrap_static_findings(sg, tool="semgrep")
 
 
 def _run_seconds(outcome: Any) -> float | None:
@@ -1931,6 +2084,19 @@ class ReviewPipelineOrchestrator:
         self.static_severities: Counter[str] = Counter()
         # The advisories the static analyzers looked up, which verification counts as scanned.
         self.scanner_advisories: list[DependencySpec] = []
+        self.admitted_scanner_findings: list[Any] = []
+        self.suppressions: list[Any] = []
+        try:
+            import tomllib
+
+            from devops_cli.ai.review.path_classes import _read_config_content
+            from devops_cli.review.suppression import load_review_suppressions
+
+            cfg_text = _read_config_content(base_revision, repo_root)
+            if cfg_text:
+                self.suppressions = load_review_suppressions(tomllib.loads(cfg_text))
+        except Exception:
+            self.suppressions = []
         self._conventions_by_dir: dict[Path, str] = {}
         self.personas: list[str] = []
 
@@ -2129,7 +2295,7 @@ class ReviewPipelineOrchestrator:
                 if py_paths:
                     bandit_res = run_bandit_scan(py_paths, isolated=True)
                     _observe_outcome(observed_outcomes, "Bandit", bandit_res)
-                    all_static_findings.extend(_wrap_static_findings(bandit_res))
+                    all_static_findings.extend(_wrap_static_findings(bandit_res, tool="bandit"))
 
                 # 2. Pluto & Kube-linter scan for Kubernetes manifests
                 yaml_paths = [
@@ -2182,6 +2348,18 @@ class ReviewPipelineOrchestrator:
                         semgrep_paths, observed_outcomes, tree=reviewed_tree(self.target_dir)
                     )
                 )
+                admitted_frozen, admitted_saved = _admit_scanner_findings(
+                    all_static_findings,
+                    session_id=self.session_id,
+                    worktree_root=reviewed_tree(self.target_dir),
+                    file_paths=file_paths,
+                    secret_scan_files=self.secret_scan_files,
+                    resolve_file_path=self._resolve_file_path,
+                    path_classes=self.path_classes,
+                    suppressions=getattr(self, "suppressions", None),
+                )
+                self.admitted_scanner_findings = admitted_frozen
+                all_static_findings = admitted_saved
                 self._record_static_analyzers(
                     {
                         "python": py_paths,

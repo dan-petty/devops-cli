@@ -613,6 +613,7 @@ def branch(
             base_revision=base_revision,
             full_output=full,
             session_id=session_id,
+            partial_context=rw.partial_context,
         )
 
 

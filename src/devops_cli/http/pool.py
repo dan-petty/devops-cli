@@ -25,6 +25,7 @@ header does not fragment the pool into one client per caller.
 from __future__ import annotations
 
 import atexit
+import inspect
 import logging
 import threading
 from contextlib import nullcontext
@@ -203,10 +204,61 @@ def close_expired_connections(target: Any) -> None:
     _close_connection_list(pool, closing)
 
 
+async def _aclose_connection_list(pool: Any, closing: list[Any]) -> None:
+    """Asynchronously close each connection in closing list using pool or direct method."""
+    if not closing:
+        return
+    close_method = getattr(pool, "_close_connections", None)
+    if callable(close_method):
+        try:
+            res = close_method(closing)
+            if inspect.iscoroutine(res):
+                await res
+            return
+        except Exception as exc:
+            logger.debug("Pool failed closing connections asynchronously: %s", exc)
+    for conn in closing:
+        try:
+            aclose = getattr(conn, "aclose", None)
+            if callable(aclose):
+                await aclose()
+            elif callable(getattr(conn, "close", None)):
+                conn.close()
+        except Exception as exc:
+            logger.debug("Failed closing expired connection asynchronously: %s", exc)
+
+
+async def aclose_expired_connections(target: Any) -> None:
+    """Close and purge expired, closed, or server-disconnected connections from an async target's pool."""
+    pool = _extract_connection_pool(target)
+    if pool is None:
+        return
+    connections = getattr(pool, "_connections", None)
+    if not isinstance(connections, list):
+        return
+
+    closing: list[Any] = []
+    lock = getattr(pool, "_optional_thread_lock", None)
+    if lock is not None and hasattr(lock, "__aenter__"):
+        async with lock:
+            for conn in list(connections):
+                _purge_connection_if_expired(conn, connections, closing)
+    elif lock is not None and hasattr(lock, "__enter__"):
+        with lock:
+            for conn in list(connections):
+                _purge_connection_if_expired(conn, connections, closing)
+    else:
+        for conn in list(connections):
+            _purge_connection_if_expired(conn, connections, closing)
+
+    await _aclose_connection_list(pool, closing)
+
+
 atexit.register(close_shared_clients)
 
 
 __all__ = [
+    "aclose_expired_connections",
     "aclose_shared_clients",
     "close_expired_connections",
     "close_shared_clients",

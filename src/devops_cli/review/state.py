@@ -6,6 +6,21 @@ from collections.abc import Iterable
 from enum import StrEnum
 from typing import Any
 
+from devops_cli.config.constants import CONST_EXIT_FAILURE
+from devops_cli.exceptions.base import DevOpsCLIError
+
+
+class ReviewStateError(DevOpsCLIError, ValueError):
+    """Exception raised for invalid review finding state or state transition."""
+
+    def __init__(self, message: str, **kwargs: Any) -> None:
+        super().__init__(
+            message,
+            exit_code=CONST_EXIT_FAILURE,
+            error_code="REVIEW_STATE_ERROR",
+            **kwargs,
+        )
+
 
 class FindingState(StrEnum):
     """Lifecycle states for an admitted review finding."""
@@ -43,8 +58,8 @@ def _resolve_finding_state(state_val: Any) -> FindingState:
         try:
             return FindingState(state_val.upper().strip())
         except ValueError as err:
-            raise ValueError(f"Invalid finding state '{state_val}'") from err
-    raise ValueError(f"Finding has missing or invalid state: {state_val}")
+            raise ReviewStateError(f"Invalid finding state '{state_val}'") from err
+    raise ReviewStateError(f"Finding has missing or invalid state: {state_val}")
 
 
 def _validate_finding_state_fields(state: FindingState, f: Any) -> None:
@@ -55,15 +70,17 @@ def _validate_finding_state_fields(state: FindingState, f: Any) -> None:
 
     if state == FindingState.SUPPRESSED:
         if not suppression_reason and not getattr(f, "inline_marker", None):
-            raise ValueError("SUPPRESSED finding must record a suppression reason or inline marker")
+            raise ReviewStateError(
+                "SUPPRESSED finding must record a suppression reason or inline marker"
+            )
     elif state == FindingState.CONFIRMED:
         if not confirmed_by or not str(confirmed_by).strip():
-            raise ValueError("CONFIRMED finding must record who confirmed it")
+            raise ReviewStateError("CONFIRMED finding must record who confirmed it")
     elif state == FindingState.OPEN:
         if confirmed_by:
-            raise ValueError("OPEN finding cannot record confirmed_by")
+            raise ReviewStateError("OPEN finding cannot record confirmed_by")
         if suppression_reason and not suppressed_by_change:
-            raise ValueError(
+            raise ReviewStateError(
                 "OPEN finding cannot record active suppression reason without suppressed_by_change"
             )
 

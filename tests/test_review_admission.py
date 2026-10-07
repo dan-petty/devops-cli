@@ -637,3 +637,70 @@ def test_review_markdown_sections() -> None:
     assert "## Pre-existing Findings in Changed Files" in pre_lines
     assert "## Suppressed Findings" in supp_lines
     assert any("suppressed by this change" in line for line in supp_lines)
+
+
+def test_orchestrator_static_scanners_populate_admitted_scanner_findings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Static security scanners wire candidates through admit(), populating admitted_scanner_findings."""
+    src_dir = tmp_path / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    app_py = src_dir / "app.py"
+    app_py.write_text("assert True\n", encoding="utf-8")
+
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.ai.review_schema import Finding as SchemaFinding
+    from devops_cli.security.base import ScanOutcome
+
+    f_valid = SchemaFinding(
+        title="[B101] assert used",
+        location="src/app.py:1",
+        severity="LOW",
+    )
+    f_invalid = SchemaFinding(
+        title="[B102] exec used",
+        location="src/nonexistent.py:5",
+        severity="HIGH",
+    )
+
+    monkeypatch.setattr(
+        "devops_cli.security.bandit.run_bandit_scan",
+        lambda *_, **__: ScanOutcome("ran", [f_valid, f_invalid]),
+    )
+    for scan in (
+        "_scan_kubernetes_manifests",
+        "_scan_container_and_lockfiles",
+        "_scan_secrets",
+        "_scan_semgrep",
+    ):
+        monkeypatch.setattr(f"devops_cli.ai.review.pipeline.{scan}", lambda *_, **__: [])
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="s871-admit", target_dir=tmp_path)
+    by_file = orchestrator._run_static_scanners(["src/app.py"])
+
+    admitted = orchestrator.admitted_scanner_findings
+    assert len(admitted) == 1
+    af = admitted[0]
+    assert (
+        af.rule_id,
+        af.tool,
+        af.path,
+        af.line,
+        af.anchor.kind,
+        af.anchor.run_id,
+        af.anchor.rule_id,
+        af.severity,
+        len(by_file.get("src/app.py", [])),
+        dict(orchestrator.static_severities),
+    ) == (
+        "B101",
+        "bandit",
+        "src/app.py",
+        1,
+        "tool",
+        "s871-admit",
+        "B101",
+        "LOW",
+        1,
+        {"LOW": 1},
+    )
