@@ -609,10 +609,16 @@ def _admit_single_candidate(
     suppressions: Sequence[Any] | None = None,
     added_diff_lines: set[tuple[str, int]] | None = None,
     base_fingerprints: set[str] | None = None,
+    rejection_counts: dict[str, int] | None = None,
 ) -> tuple[Any | None, SavedFinding | None]:
-    """Admit a single scanner finding candidate into a frozen finding (#871)."""
+    """Admit a single scanner finding candidate into a frozen finding (#871).
+
+    A suppressed candidate returns its frozen finding and no SavedFinding, so it is listed as
+    suppressed but never reported (#1295).
+    """
     from devops_cli.review.admission import admit
     from devops_cli.review.anchors import AdvisoryAnchor, ToolAnchor
+    from devops_cli.review.state import FindingState
     from devops_cli.security.normalization import extract_rule_id, strip_rule_prefix
 
     raw_path, s_line, e_line, logical_loc = _parse_candidate_location(sf.location)
@@ -646,10 +652,14 @@ def _admit_single_candidate(
         suppressions=suppressions,
         added_diff_lines=added_diff_lines,
         base_fingerprints=base_fingerprints,
+        rejection_counts=rejection_counts,
     )
     if admitted is None:
         return None, None
+    if admitted.state == FindingState.SUPPRESSED:
+        return admitted, None
     sf.severity = admitted.severity
+    sf.introduced = admitted.introduced
     return admitted, sf
 
 
@@ -665,6 +675,7 @@ def _admit_scanner_findings(
     suppressions: Sequence[Any] | None = None,
     added_diff_lines: set[tuple[str, int]] | None = None,
     base_fingerprints: set[str] | None = None,
+    rejection_counts: dict[str, int] | None = None,
 ) -> tuple[list[Any], list[SavedFinding]]:
     """Admit static scanner candidates into frozen review findings (#871)."""
     commit_files = _collect_scanner_commit_files(
@@ -697,9 +708,11 @@ def _admit_scanner_findings(
             suppressions=suppressions,
             added_diff_lines=added_diff_lines,
             base_fingerprints=base_fingerprints,
+            rejection_counts=rejection_counts,
         )
-        if frozen is not None and saved is not None:
+        if frozen is not None:
             admitted_frozen.append(frozen)
+        if saved is not None:
             admitted_saved.append(saved)
 
     return admitted_frozen, admitted_saved
@@ -2605,6 +2618,7 @@ class ReviewPipelineOrchestrator:
                     if added_diff_lines is not None
                     else getattr(self, "added_diff_lines", None)
                 )
+                rejections: dict[str, int] = {}
                 admitted_frozen, admitted_saved = _admit_scanner_findings(
                     all_static_findings,
                     session_id=self.session_id,
@@ -2616,6 +2630,7 @@ class ReviewPipelineOrchestrator:
                     suppressions=getattr(self, "suppressions", None),
                     added_diff_lines=eff_added,
                     base_fingerprints=getattr(self, "base_fingerprints", None),
+                    rejection_counts=rejections,
                 )
                 self.admitted_scanner_findings = admitted_frozen
                 all_static_findings = admitted_saved
@@ -2641,6 +2656,7 @@ class ReviewPipelineOrchestrator:
                 active_prof = active_profiler()
                 if active_prof:
                     active_prof.set_coverage(self.coverage)
+                    active_prof.set_rejections(rejections)
 
                 static_findings_by_file = _match_static_findings_to_files(
                     all_static_findings, [*file_paths, *self.secret_scan_files]
@@ -2903,8 +2919,11 @@ class ReviewPipelineOrchestrator:
         *,
         wt_root: Path | None,
         has_file: bool,
-    ) -> SavedFinding:
-        """Build and admit a single dependency vulnerability candidate (#871)."""
+    ) -> SavedFinding | None:
+        """Build and admit a single dependency vulnerability candidate (#871).
+
+        Returns None for an advisory a suppression covers, which is listed but not reported.
+        """
         raw = _build_vulnerability_finding(
             fpath, dep, v, session_id=getattr(self, "session_id", "advisory")
         )
@@ -2912,7 +2931,7 @@ class ReviewPipelineOrchestrator:
             return raw
 
         frozen, admitted_sf = self._admit_advisory_finding(raw, fpath, wt_root)
-        if frozen is None or admitted_sf is None:
+        if frozen is None:
             return raw
 
         if hasattr(self, "admitted_scanner_findings"):
@@ -2932,9 +2951,11 @@ class ReviewPipelineOrchestrator:
 
         for dep in file_deps:
             for v in _audit_single_dep(dep, dep_cache):
-                findings.append(
-                    self._audit_dep_vulnerability(fpath, dep, v, wt_root=wt_root, has_file=has_file)
+                sf = self._audit_dep_vulnerability(
+                    fpath, dep, v, wt_root=wt_root, has_file=has_file
                 )
+                if sf is not None:
+                    findings.append(sf)
         return findings
 
     def _audit_file_network_references(
@@ -4344,7 +4365,7 @@ class ReviewPipelineOrchestrator:
     def _build_suppressed_findings_section(self, findings: list[Any]) -> list[str]:
         """Render Suppressed Findings section for review.md (#871)."""
         suppressed: list[Any] = []
-        admitted = getattr(self, "admitted_findings", None)
+        admitted = getattr(self, "admitted_scanner_findings", None)
         if isinstance(admitted, (list, tuple)):
             suppressed.extend(
                 f
