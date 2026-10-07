@@ -13,6 +13,7 @@ from devops_cli.k8s.configmap import (
     DEFAULT_PLACEHOLDER_ACCOUNT,
     DEFAULT_PLACEHOLDER_REPO,
     ensure_devops_configmap,
+    render_active_devops_configmap,
     render_devops_configmap_content,
 )
 
@@ -169,3 +170,29 @@ def test_render_devops_configmap_with_timeouts_and_poll() -> None:
         settings.service.drain_timeout_seconds,
         settings.service.poll_interval_seconds,
     ) == (90, 180)
+
+
+def test_render_active_devops_configmap_success(tmp_path: Path) -> None:
+    """Verify render_active_devops_configmap renders content in memory without creating files."""
+    devops_dir = tmp_path / "devops"
+    devops_dir.mkdir(parents=True)
+    (devops_dir / "configmap.example.yaml").write_text(SAMPLE_TEMPLATE, encoding="utf-8")
+
+    class DummySettings:
+        service = type("Service", (), {"repos": ["active/repo"], "machine_account": "active-bot"})()
+
+    rendered = render_active_devops_configmap(k8s_dir=tmp_path, settings=DummySettings())
+
+    assert (
+        "active/repo" in rendered,
+        "active-bot" in rendered,
+        (devops_dir / "configmap.yaml").exists(),
+    ) == (True, True, False)
+
+
+def test_render_active_devops_configmap_missing_template_raises(tmp_path: Path) -> None:
+    """Verify render_active_devops_configmap raises FileNotFoundError when template is missing."""
+    with pytest.raises(
+        FileNotFoundError, match=r"Ensure k8s/devops/configmap\.example\.yaml exists"
+    ):
+        render_active_devops_configmap(k8s_dir=tmp_path)

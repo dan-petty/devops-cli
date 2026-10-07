@@ -10,6 +10,7 @@ from devops_cli.k8s.argocd_source import (
 from devops_cli.k8s.chaos import execute_chaos_experiment
 from devops_cli.k8s.configmap import (
     ensure_devops_configmap,
+    render_active_devops_configmap,
     render_devops_configmap_content,
 )
 from devops_cli.k8s.diff import diff_helm_release
@@ -30,6 +31,7 @@ __all__ = [
     "ensure_devops_configmap",
     "execute_chaos_experiment",
     "generate_argocd_source",
+    "render_active_devops_configmap",
     "render_argocd_source_content",
     "render_devops_configmap_content",
     "render_ingress_argocd_source_content",
