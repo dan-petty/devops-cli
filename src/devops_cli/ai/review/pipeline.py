@@ -20,7 +20,6 @@ import hashlib
 import inspect
 import logging
 import os
-import random
 import re
 import time
 from collections import Counter, defaultdict
@@ -29,8 +28,6 @@ from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import Any, Literal
-
-import httpx2
 
 from devops_cli.ai.agents.pipeline import MultiAgentPipeline
 from devops_cli.ai.agents.pydantic_agent import PydanticAgent
@@ -42,7 +39,7 @@ from devops_cli.ai.analyze.symbols import (
     change_symbol_delta,
     with_symbol_delta,
 )
-from devops_cli.ai.client import AIClientError, LLMClient
+from devops_cli.ai.client import LLMClient
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.personas import PERSONAS
 from devops_cli.ai.review.calibration import calibrate_findings
@@ -125,8 +122,6 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS,
     DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
     DEFAULT_REVIEW_RETRY_ATTEMPTS,
-    DEFAULT_REVIEW_RETRY_MAX_BACKOFF,
-    DEFAULT_REVIEW_RETRY_MIN_BACKOFF,
 )
 from devops_cli.core.binaries import check_binary
 from devops_cli.exceptions import SecurityError
@@ -1626,57 +1621,24 @@ def _execute_page_review_with_backoff(
     payload: FileReviewPayload,
     max_retries: int = DEFAULT_REVIEW_RETRY_ATTEMPTS,
 ) -> int:
-    """Execute review for a single page with incremental backoff on transient errors."""
-    for attempt in range(1, max_retries + 1):
-        try:
-            return _execute_single_page_review(
-                p_idx=p_idx,
-                page_content=page_content,
-                fpath=fpath,
-                total_pages=total_pages,
-                symbols=symbols,
-                rag_context_str=rag_context_str,
-                contract_context_str=contract_context_str,
-                resolved_context=resolved_context,
-                pipeline=pipeline,
-                persona_lookup=persona_lookup,
-                thoughts=thoughts,
-                actual_servers=actual_servers,
-                file_findings=file_findings,
-                file_replies=file_replies,
-                payload=payload,
-            )
-        except (AIClientError, httpx2.HTTPError, OSError, Exception) as exc:
-            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
-                raise
-            is_transient = (
-                isinstance(exc, (AIClientError, httpx2.HTTPError, OSError))
-                or any(
-                    str(code) in str(exc)
-                    for code in (408, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524)
-                )
-                or "timeout" in str(exc).lower()
-            )
-            if not is_transient and attempt > 1:
-                raise
-            if attempt >= max_retries:
-                raise
-            backoff = min(
-                DEFAULT_REVIEW_RETRY_MIN_BACKOFF * (2 ** (attempt - 1)) + random.uniform(0.2, 0.8),
-                DEFAULT_REVIEW_RETRY_MAX_BACKOFF,
-            )
-            logger.warning(
-                "Review attempt %d/%d for %s (page %d/%d) failed with %s. Retrying in %.2fs...",
-                attempt,
-                max_retries,
-                fpath,
-                p_idx,
-                total_pages,
-                exc,
-                backoff,
-            )
-            time.sleep(backoff)
-    return 0
+    """Execute review for a single page, letting individual persona calls retry alone."""
+    return _execute_single_page_review(
+        p_idx=p_idx,
+        page_content=page_content,
+        fpath=fpath,
+        total_pages=total_pages,
+        symbols=symbols,
+        rag_context_str=rag_context_str,
+        contract_context_str=contract_context_str,
+        resolved_context=resolved_context,
+        pipeline=pipeline,
+        persona_lookup=persona_lookup,
+        thoughts=thoughts,
+        actual_servers=actual_servers,
+        file_findings=file_findings,
+        file_replies=file_replies,
+        payload=payload,
+    )
 
 
 def _log_reviewed_file_completion(

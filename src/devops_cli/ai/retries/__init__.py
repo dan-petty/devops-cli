@@ -69,6 +69,42 @@ def create_retry_config(
     return config
 
 
+class ExpiringConnectionTransport(httpx2.BaseTransport):
+    """Transport wrapper that closes expired and cut connections on each request attempt."""
+
+    def __init__(self, wrapped: httpx2.BaseTransport) -> None:
+        self.wrapped = wrapped
+
+    def handle_request(self, request: httpx2.Request) -> httpx2.Response:
+        from devops_cli.http.pool import close_expired_connections
+
+        try:
+            return self.wrapped.handle_request(request)
+        finally:
+            close_expired_connections(self.wrapped)
+
+    def close(self) -> None:
+        self.wrapped.close()
+
+
+class ExpiringAsyncConnectionTransport(httpx2.AsyncBaseTransport):
+    """Async transport wrapper that closes expired and cut connections on each request attempt."""
+
+    def __init__(self, wrapped: httpx2.AsyncBaseTransport) -> None:
+        self.wrapped = wrapped
+
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+        from devops_cli.http.pool import close_expired_connections
+
+        try:
+            return await self.wrapped.handle_async_request(request)
+        finally:
+            close_expired_connections(self.wrapped)
+
+    async def aclose(self) -> None:
+        await self.wrapped.aclose()
+
+
 def create_retry_transport(
     config: RetryConfig | None = None,
     max_attempts: int = 5,
@@ -93,10 +129,11 @@ def create_retry_transport(
             resp.raise_for_status()
 
     validator = validate_response or default_validate
+    inner_wrapped = wrapped or httpx2.HTTPTransport()
     return HTTPX2TenacityTransport(
         active_config,
         validate_response=validator,
-        wrapped=wrapped,
+        wrapped=ExpiringConnectionTransport(inner_wrapped),
     )
 
 
@@ -124,10 +161,11 @@ def create_async_retry_transport(
             resp.raise_for_status()
 
     validator = validate_response or default_validate
+    inner_wrapped = wrapped or httpx2.AsyncHTTPTransport()
     return AsyncHTTPX2TenacityTransport(
         active_config,
         validate_response=validator,
-        wrapped=wrapped,
+        wrapped=ExpiringAsyncConnectionTransport(inner_wrapped),
     )
 
 

@@ -642,10 +642,14 @@ class LLMClient(
                 # Retrying cannot fix missing or rejected credentials.
                 span_h.record_exception(exc)
                 raise
+            except AIClientError as exc:
+                # The HTTP transport is the single retry layer; do not retry dispatch exceptions.
+                span_h.record_exception(exc)
+                raise
             except Exception as exc:
-                last_exc = exc
-            if attempt < attempts:
-                time.sleep(0.5 * attempt)
+                err = self._connection_error(exc)
+                span_h.record_exception(err)
+                raise err from exc
 
         if isinstance(last_exc, AIClientError):
             span_h.record_exception(last_exc)
