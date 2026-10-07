@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
 
 from devops_cli.config.settings import Settings
-from devops_cli.exceptions.k8s import KubernetesContextError
+from devops_cli.exceptions.k8s import KubernetesContextError, KubernetesError
 from devops_cli.k8s.configmap import (
     DEFAULT_PLACEHOLDER_ACCOUNT,
     DEFAULT_PLACEHOLDER_REPO,
     ensure_devops_configmap,
+    push_devops_configmap,
     render_devops_configmap_content,
 )
 
@@ -150,3 +152,78 @@ def test_ensure_devops_configmap_missing_template_raises(tmp_path: Path) -> None
         FileNotFoundError, match=r"Ensure k8s/devops/configmap\.example\.yaml exists"
     ):
         ensure_devops_configmap(k8s_dir=tmp_path)
+
+
+def test_push_devops_configmap_dry_run(tmp_path: Path) -> None:
+    """Verify push_devops_configmap with dry_run returns rendered content without executing."""
+    k8s_dir = tmp_path / "k8s"
+    devops_dir = k8s_dir / "devops"
+    devops_dir.mkdir(parents=True)
+    (devops_dir / "configmap.yaml").write_text(SAMPLE_TEMPLATE, encoding="utf-8")
+
+    class DummySettings:
+        service = type(
+            "DummyService", (), {"repos": ["custom/repo-a"], "machine_account": "push-bot"}
+        )()
+        k8s = type("DummyK8s", (), {"github_account": None, "context": None})()
+
+    rendered = push_devops_configmap(k8s_dir=k8s_dir, settings=DummySettings(), dry_run=True)
+
+    assert (
+        "custom/repo-a" in rendered,
+        "push-bot" in rendered,
+    ) == (True, True)
+
+
+def test_push_devops_configmap_missing_template_raises(tmp_path: Path) -> None:
+    """Verify FileNotFoundError is raised if template does not exist for push."""
+    with pytest.raises(FileNotFoundError, match="DevOps ConfigMap template not found"):
+        push_devops_configmap(k8s_dir=tmp_path)
+
+
+def test_push_devops_configmap_calls_kubectl(tmp_path: Path) -> None:
+    """Verify push_devops_configmap invokes kubectl apply with rendered content on stdin."""
+    k8s_dir = tmp_path / "k8s"
+    devops_dir = k8s_dir / "devops"
+    devops_dir.mkdir(parents=True)
+    (devops_dir / "configmap.example.yaml").write_text(SAMPLE_TEMPLATE, encoding="utf-8")
+
+    class DummySettings:
+        service = type(
+            "DummyService", (), {"repos": ["custom/repo-b"], "machine_account": "k8s-bot"}
+        )()
+        k8s = type("DummyK8s", (), {"github_account": None, "context": "active-ctx"})()
+
+    fake_proc = MagicMock(
+        stdout="configmap/devops-cli-config configured\n", stderr="", returncode=0
+    )
+    with patch("devops_cli.core.process.run_subprocess", return_value=fake_proc) as mock_sub:
+        out = push_devops_configmap(k8s_dir=k8s_dir, settings=DummySettings(), context="cli-ctx")
+
+        assert (
+            out,
+            mock_sub.call_count,
+            mock_sub.call_args[0][0],
+            "custom/repo-b" in mock_sub.call_args[1]["input"],
+            "k8s-bot" in mock_sub.call_args[1]["input"],
+        ) == (
+            "configmap/devops-cli-config configured",
+            1,
+            ["kubectl", "--context", "cli-ctx", "apply", "-f", "-"],
+            True,
+            True,
+        )
+
+
+def test_push_devops_configmap_error_handling(tmp_path: Path) -> None:
+    """Verify push_devops_configmap wraps subprocess failures in KubernetesError."""
+    k8s_dir = tmp_path / "k8s"
+    devops_dir = k8s_dir / "devops"
+    devops_dir.mkdir(parents=True)
+    (devops_dir / "configmap.yaml").write_text(SAMPLE_TEMPLATE, encoding="utf-8")
+
+    with patch(
+        "devops_cli.core.process.run_subprocess", side_effect=RuntimeError("kubectl failed")
+    ):
+        with pytest.raises(KubernetesError, match="Failed to push devops-cli-config ConfigMap"):
+            push_devops_configmap(k8s_dir=k8s_dir)

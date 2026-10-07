@@ -786,6 +786,23 @@ devops k8s sync-secrets [OPTIONS]
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops k8s push-config`
+
+**Push the in-cluster devops-cli-config ConfigMap from active configuration without modifying git.**
+
+```bash
+devops k8s push-config [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--restart` / `--no-restart` | `boolean` | `True` | Restart roadmap-service deployment after applying configuration. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops k8s push-secrets`
 
 **Write the cluster's Secrets from the OS keyring (workstation keyring → cluster, the reverse of sync-secrets). Adopts live values the keyring lacks, generates the ones nobody types, and never replaces a live value without --rotate.**

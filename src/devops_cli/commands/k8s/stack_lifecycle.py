@@ -544,10 +544,13 @@ def _apply_single_manifest(
 ) -> None:
     """Apply an individual manifest file, rendering templates if a domain is available."""
     p = Path(manifest_path)
-    if p.name == "configmap.yaml" and p.parent.name == "devops" and not p.exists():
-        from devops_cli.k8s.configmap import ensure_devops_configmap
+    if p.name == "configmap.yaml" and p.parent.name == "devops":
+        from devops_cli.k8s.configmap import push_devops_configmap
 
-        ensure_devops_configmap(k8s_dir=p.parent.parent)
+        ctx = kubectl_ctx[1] if len(kubectl_ctx) > 1 and kubectl_ctx[0] == "--context" else None
+        print_info(f"[bold]Applying manifest {p.name}...[/bold]", prefix=False)
+        push_devops_configmap(k8s_dir=p.parent.parent, context=ctx)
+        return
     print_info(f"[bold]Applying manifest {p.name}...[/bold]", prefix=False)
     if domain and p.is_file():
         from devops_cli.k8s.template import render_manifest_template
@@ -763,11 +766,29 @@ def _deploy_native_manifests(
     domain: str | None,
 ) -> None:
     """Synchronize dynamically generated manifests and apply native Kubernetes resources."""
-    if "devops" in selected_stacks:
-        from devops_cli.k8s.configmap import ensure_devops_configmap
-
-        ensure_devops_configmap(k8s_dir=k8s_dir, force=True)
     _apply_manifest_files(all_manifests, kubectl_ctx, domain=domain)
+
+
+def _handle_argo_managed_deployment(
+    selected_stacks: Sequence[str],
+    effective_context: str | None,
+    k8s_dir: Path,
+    push_secrets: bool,
+) -> None:
+    """Handle deployment tasks for an Argo CD-managed cluster."""
+    if push_secrets:
+        print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
+        push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
+    if "devops" in selected_stacks:
+        from devops_cli.k8s.configmap import push_devops_configmap
+
+        print_info("Pushing devops-cli-config ConfigMap...", prefix=False)
+        push_devops_configmap(k8s_dir=k8s_dir, context=effective_context)
+    print_info(
+        "Argo CD manages the cluster (Application 'cluster' found in namespace 'argocd'). "
+        "Skipping manifest and Helm deployment; see GitOps in k8s/README.md.",
+        prefix=False,
+    )
 
 
 def deploy_stack(
@@ -858,14 +879,7 @@ def deploy_stack(
     _verify_cluster_ready(effective_context)
 
     if _is_cluster_argo_managed(effective_context):
-        if push_secrets:
-            print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
-            push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
-        print_info(
-            "Argo CD manages the cluster (Application 'cluster' found in namespace 'argocd'). "
-            "Skipping manifest and Helm deployment; see GitOps in k8s/README.md.",
-            prefix=False,
-        )
+        _handle_argo_managed_deployment(selected_stacks, effective_context, k8s_dir, push_secrets)
         return
 
     kubectl_ctx = ["--context", effective_context] if effective_context else []

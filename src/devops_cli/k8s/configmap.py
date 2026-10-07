@@ -136,3 +136,52 @@ def ensure_devops_configmap(
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     dest_path.write_text(rendered, encoding="utf-8")
     return dest_path
+
+
+def push_devops_configmap(
+    k8s_dir: Path | None = None,
+    settings: Any = None,
+    context: str | None = None,
+    dry_run: bool = False,
+) -> str:
+    """Render and apply in-cluster devops-cli-config ConfigMap from active configuration without modifying git."""
+    base_dir = k8s_dir or DEFAULT_K8S_DIR
+    template_path = base_dir / "devops" / "configmap.yaml"
+    if not template_path.is_file():
+        template_path = base_dir / "devops" / "configmap.example.yaml"
+    if not template_path.is_file():
+        raise FileNotFoundError(
+            f"DevOps ConfigMap template not found at {template_path}. "
+            "Ensure k8s/devops/configmap.yaml or configmap.example.yaml exists."
+        )
+
+    active_settings = settings if settings is not None else load_settings()
+    effective_repos = _resolve_effective_repos(active_settings, [])
+    effective_account = _resolve_effective_account(active_settings, None)
+
+    template_text = template_path.read_text(encoding="utf-8")
+    rendered = render_devops_configmap_content(
+        template_text,
+        repos=effective_repos,
+        machine_account=effective_account,
+    )
+
+    if dry_run:
+        return rendered
+
+    from devops_cli.core.process import run_subprocess
+    from devops_cli.exceptions.k8s import KubernetesError
+    from devops_cli.security.sanitizer import mask_secrets
+
+    effective_ctx = context or getattr(getattr(active_settings, "k8s", None), "context", None)
+    cmd = ["kubectl"]
+    if effective_ctx:
+        cmd.extend(["--context", str(effective_ctx)])
+    cmd.extend(["apply", "-f", "-"])
+
+    try:
+        proc = run_subprocess(cmd, input=rendered, capture_output=True, text=True, check=True)
+        return (proc.stdout or proc.stderr or "").strip()
+    except Exception as exc:
+        clean_err = mask_secrets(str(exc))[:256]
+        raise KubernetesError(f"Failed to push devops-cli-config ConfigMap: {clean_err}") from exc
