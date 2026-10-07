@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.28] - 2026-10-07
 
 ### Added
-- Every reported scanner finding and dependency advisory is admitted with its producer's anchor (`ToolAnchor` or `AdvisoryAnchor`) and a location validated against the reviewed commit in `devops_cli.review.admission.admit()`, writing `findings.sarif` and rendering introduced, pre-existing, and suppressed findings in `review.md`, one suppressed row per file and line, with admission rejections counted by type in `profile.json`; an inline marker suppresses only findings of its own tool (`nosec` for Bandit, `nosemgrep` or `no-semgrep` for Semgrep, `noqa` for Ruff), and findings from the review's models are not admitted (#871, #1295, #1341).
+- Every reported scanner finding and dependency advisory is admitted with its producer's anchor (`ToolAnchor` or `AdvisoryAnchor`) and a location validated against the reviewed commit in `devops_cli.review.admission.admit()`, writing `findings.sarif` and rendering introduced, pre-existing, and suppressed findings in `review.md`, one suppressed row per file and line (only scanner findings are compared with the base revision; every dependency advisory is listed as introduced), with admission rejections counted by type in `profile.json`; an inline marker suppresses only findings of its own tool (`nosec` for Bandit, `nosemgrep` or `no-semgrep` for Semgrep, `noqa` for Ruff), and findings from the review's models are not admitted (#871, #1295, #1341).
 - Increase in-cluster `roadmap-service` analysis task context window in `k8s/devops/configmap.example.yaml` from 16k (`16384`) to 64k (`65536`) tokens (#1271).
 
 ### Changed
@@ -38,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Route review requests through the LLM gateway with `least-busy` routing and `cancel_on_disconnect: true`, avoiding edge cut stalls and backend queue build-up on Ollama (#1069).
 - `devops ai gateway connect` automatically discovers and configures the gateway's NodePort address on the LAN, probing `/health/liveliness` and `/model/info` while bypassing edge timeouts (#1069).
 - Enforce single retry layer across LLM client transports: retryable status codes (408, 429, 5xx) retry with exponential backoff while non-retryable 4xx errors fail immediately without retry loops (#1069).
-- Bound review in-flight requests to slot concurrency from configured slots table, isolating persona retry execution and purging expired or CLOSE-WAIT connections from the HTTP connection pool (#1069).
+- Lower a gateway review's file workers from 16 to three, the sum of `DEFAULT_GATEWAY_REVIEW_SLOTS`, or to `ai.ollama_max_parallel` per `ai.ollama_urls` entry when that is more. Each file's personas still query the gateway in parallel, so requests in flight can exceed the slot count. Isolate persona retry execution, and purge expired or CLOSE-WAIT connections from the HTTP connection pool (#1069).
 - Track `main` across all Argo CD git-source `targetRevision` fields under `k8s/argocd/` while retaining the release version pin for the service image in `k8s/devops/kustomization.yaml` (#1261).
 - Fix Portkey AI Gateway liveness and readiness probe path to `/` and align GPU Feature Discovery image to `nvcr.io/nvidia/k8s-device-plugin:v0.16.2` (#1267).
 - Disable ambient Logfire pytest plugins in test runner configuration to prevent network DNS lookups in dry-run tests (#1267).
