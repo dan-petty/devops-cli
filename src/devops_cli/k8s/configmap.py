@@ -143,3 +143,29 @@ def ensure_devops_configmap(
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     dest_path.write_text(rendered, encoding="utf-8")
     return dest_path
+
+
+def render_active_devops_configmap(
+    k8s_dir: Path | None = None,
+    settings: Any = None,
+) -> str:
+    """Render devops ConfigMap with active settings without modifying tracked files on disk."""
+    base_dir = k8s_dir or DEFAULT_K8S_DIR
+    template_path = base_dir / "devops" / "configmap.example.yaml"
+
+    if not template_path.is_file():
+        raise FileNotFoundError(
+            f"DevOps ConfigMap template not found at {template_path}. "
+            "Ensure k8s/devops/configmap.example.yaml exists."
+        )
+
+    active_settings = settings if settings is not None else load_settings()
+    effective_repos = _resolve_effective_repos(active_settings, [])
+    effective_account = _resolve_effective_account(active_settings, None)
+
+    template_text = template_path.read_text(encoding="utf-8")
+    return render_devops_configmap_content(
+        template_text,
+        repos=effective_repos,
+        machine_account=effective_account,
+    )
