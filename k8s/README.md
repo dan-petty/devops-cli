@@ -161,7 +161,7 @@ Dashboards live in `monitoring/dashboards/`. Its `kustomization.yaml` generates 
 | `grafana-devops-cli-dashboards` | `devops-cli.json`, `ai-spend.json`, `project-metrics.json` |
 | `grafana-stack-dashboards` | `sre-service.json`, `ingress-tunnel.json`, `llm-stack.json`, `otel-collector.json`, `prometheus-server.json`, `pyroscope.json` |
 
-`devops k8s deploy-stack` applies them through the root kustomization, in the same run that creates the `monitoring` namespace, and `teardown-stack` removes them. Grafana holds these dashboards as provisioned and refuses to save over them, so change the JSON file and deploy again. To provision another dashboard, add it to a generator entry; each ConfigMap must stay under the 262,144 bytes kubectl's last-applied annotation allows.
+On a cluster Argo CD manages, its `monitoring` Application applies them; the root kustomization leaves them out, so the `base` Application does not own them as well. Without Argo CD, `devops k8s deploy-stack --stack infra` (or `all`) applies `monitoring/dashboards` right after the root kustomization creates the `monitoring` namespace, and `teardown-stack` removes them with that namespace. Grafana holds these dashboards as provisioned and refuses to save over them, so change the JSON file and deploy again. To provision another dashboard, add it to a generator entry; each ConfigMap must stay under the 262,144 bytes kubectl's last-applied annotation allows.
 
 The stack dashboards chart the cluster workloads and infrastructure services:
 
@@ -539,7 +539,7 @@ Expose homelab Kubernetes services securely to the internet without public ports
 
 ```
 k8s/
-├── kustomization.yaml        # Root kustomize: applies namespaces, cloudflared, registry, Grafana dashboard ConfigMaps
+├── kustomization.yaml        # Root kustomize: applies namespaces, cloudflared, registry, monitoring Service aliases
 ├── namespaces.yaml           # Namespace definitions with Prune=false,Delete=false
 ├── cloudflared/
 │   ├── kustomization.yaml    # Kustomize overlay for Cloudflare Tunnel
