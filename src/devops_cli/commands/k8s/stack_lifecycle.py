@@ -551,14 +551,23 @@ def _apply_single_manifest(
             from devops_cli.k8s.configmap import render_active_devops_configmap
 
             rendered_cm = render_active_devops_configmap(k8s_dir=p.parent.parent)
-            runtime._run_cmd(
+            res = runtime._run_cmd(
                 ["kubectl", "apply", "-f", "-"] + kubectl_ctx,
                 input=rendered_cm,
                 check=False,
             )
+            if isinstance(getattr(res, "returncode", None), int) and res.returncode != 0:
+                print_error(
+                    f"Failed to apply active devops ConfigMap: {res.stderr or res.stdout}",
+                    prefix=False,
+                )
+                raise typer.Exit(1)
             return
-        except Exception:
-            pass
+        except Exception as exc:
+            if isinstance(exc, typer.Exit):
+                raise
+            print_error(f"Failed to render active devops ConfigMap: {exc}", prefix=False)
+            raise typer.Exit(1) from exc
     if domain and p.is_file():
         from devops_cli.k8s.template import render_manifest_template
 
@@ -796,9 +805,20 @@ def _sync_argo_devops_overrides(
 
     try:
         rendered_cm = render_active_devops_configmap(k8s_dir=k8s_dir)
-        runtime._run_cmd(["kubectl", "apply", "-f", "-"] + k_ctx, input=rendered_cm, check=False)
-    except Exception:
-        pass
+        res = runtime._run_cmd(
+            ["kubectl", "apply", "-f", "-"] + k_ctx, input=rendered_cm, check=False
+        )
+        if isinstance(getattr(res, "returncode", None), int) and res.returncode != 0:
+            print_error(
+                f"Failed to apply active devops ConfigMap in Argo-managed cluster: {res.stderr or res.stdout}",
+                prefix=False,
+            )
+            raise typer.Exit(1)
+    except Exception as exc:
+        if isinstance(exc, typer.Exit):
+            raise
+        print_error(f"Failed to render active devops ConfigMap: {exc}", prefix=False)
+        raise typer.Exit(1) from exc
 
     try:
         rs_ing = k8s_dir / "devops" / "roadmap-service" / "ingress.yaml"

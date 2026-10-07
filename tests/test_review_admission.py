@@ -704,3 +704,135 @@ def test_orchestrator_static_scanners_populate_admitted_scanner_findings(
         1,
         {"LOW": 1},
     )
+
+
+def test_audit_file_dependencies_admits_with_advisory_anchor(tmp_path: Path) -> None:
+    """_audit_file_dependencies admits vulnerable dependencies with AdvisoryAnchor (#871)."""
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.models.vulnerability import (
+        DependencySpec,
+        PackageLookupResult,
+        VulnerabilityRecord,
+    )
+    from devops_cli.review.anchors import AdvisoryAnchor
+
+    src_dir = tmp_path / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    req_file = src_dir / "requirements.txt"
+    req_file.write_text("requests==2.20.0\n", encoding="utf-8")
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="test-adv-anchor", target_dir=tmp_path)
+    dep = DependencySpec(name="requests", version_range="2.20.0", ecosystem="PyPI", line_number=1)
+    vuln = VulnerabilityRecord(
+        id="GHSA-xxxx-yyyy",
+        summary="Remote Code Execution",
+        severity="CRITICAL",
+        source="OSV",
+        details_url="https://example.com/advisory",
+    )
+    dep_cache = {
+        ("requests", "2.20.0", "PyPI"): PackageLookupResult(status="ok", vulnerabilities=[vuln])
+    }
+
+    findings = orchestrator._audit_file_dependencies("src/requirements.txt", [dep], dep_cache)
+    admitted = orchestrator.admitted_scanner_findings
+
+    assert (
+        len(findings),
+        len(admitted),
+        isinstance(admitted[0].anchor, AdvisoryAnchor),
+        admitted[0].anchor.kind,
+        admitted[0].anchor.db,
+        admitted[0].anchor.advisory_id,
+        admitted[0].anchor.purl,
+        admitted[0].anchor.locked_version,
+        admitted[0].baseline_state,
+        admitted[0].introduced,
+    ) == (
+        1,
+        1,
+        True,
+        "advisory",
+        "OSV",
+        "GHSA-xxxx-yyyy",
+        "pkg:pypi/requests@2.20.0",
+        "2.20.0",
+        "new",
+        True,
+    )
+
+
+def test_base_revision_fingerprints_distinguishes_preexisting_findings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pre-existing findings in base revision are admitted as unchanged / not introduced (#871)."""
+    from typing import Any
+
+    from devops_cli.ai.analyze.symbols import BaseRevision
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+    from devops_cli.ai.review_schema import Finding as SchemaFinding
+    from devops_cli.security.base import ScanOutcome
+
+    base_content = "eval(foo)\n" + ("# padding\n" * 20)
+    head_content = base_content + "assert bar\n"
+
+    app_file = tmp_path / "app.py"
+    app_file.write_text(head_content, encoding="utf-8")
+
+    f_eval = SchemaFinding(
+        title="[B307] eval used",
+        location="app.py:1",
+        severity="HIGH",
+    )
+    f_assert = SchemaFinding(
+        title="[B101] assert used",
+        location=f"app.py:{len(base_content.splitlines()) + 1}",
+        severity="LOW",
+    )
+
+    base_rev = BaseRevision(
+        changes=(),
+        read=lambda p: base_content if p == "app.py" else None,
+    )
+
+    def mock_bandit(paths: Any, **_: Any) -> ScanOutcome:
+        p_str = str(paths[0]) if paths else ""
+        if "devops-base-rev-" in p_str:
+            return ScanOutcome("ran", [f_eval])
+        return ScanOutcome("ran", [f_eval, f_assert])
+
+    monkeypatch.setattr("devops_cli.security.bandit.run_bandit_scan", mock_bandit)
+    for scan in (
+        "_scan_kubernetes_manifests",
+        "_scan_container_and_lockfiles",
+        "_scan_secrets",
+        "_scan_semgrep",
+    ):
+        monkeypatch.setattr(f"devops_cli.ai.review.pipeline.{scan}", lambda *_, **__: [])
+
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="test-base-diff",
+        target_dir=tmp_path,
+        base_revision=base_rev,
+    )
+    orchestrator._run_static_scanners(["app.py"])
+
+    admitted = orchestrator.admitted_scanner_findings
+    by_rule = {af.rule_id: af for af in admitted}
+
+    eval_finding = by_rule["B307"]
+    assert_finding = by_rule["B101"]
+
+    assert (
+        len(admitted),
+        eval_finding.baseline_state,
+        eval_finding.introduced,
+        assert_finding.baseline_state,
+        assert_finding.introduced,
+    ) == (
+        2,
+        "unchanged",
+        False,
+        "new",
+        True,
+    )
