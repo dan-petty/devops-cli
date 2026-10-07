@@ -599,7 +599,8 @@ class DocGenerator:
 
         for tool in sorted(tools, key=lambda t: t.name):
             anchor = tool.name.replace("_", "-")
-            lines.append(f"| [`{tool.name}`](#{anchor}) | {tool.description} |")
+            summary = " ".join(tool.description.splitlines()).strip()
+            lines.append(f"| [`{tool.name}`](#{anchor}) | {summary} |")
 
         lines.append("")
         lines.append("---")

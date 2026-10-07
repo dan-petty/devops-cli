@@ -667,12 +667,7 @@ def ci_run(
         "devcontainer",
     ] = "all",
 ) -> str:
-    """Run devops-cli complete quality gate or an individual check in check-only mode without modifying files.
-
-    The complete gate runs: python version check (3.14+), pytest & coverage, ruff lint,
-    ruff format, mypy typecheck, uv audit, bandit security scan, actionlint, docs validation,
-    uv check, uv lockfile freshness, outdated package tree, and devcontainer validation.
-    """
+    """Run devops-cli complete quality gate or an individual check in check-only mode without modifying files: python version check (3.14+), pytest & coverage, ruff lint, ruff format, mypy typecheck, uv audit, bandit security scan, actionlint, docs validation, uv check, uv lockfile freshness, outdated package tree, and devcontainer validation."""
     cmd = ["uv", "run", "devops", "ci", "--check"]
     if check != "all":
         cmd.extend(["--only", check])

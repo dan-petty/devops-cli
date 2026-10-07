@@ -103,6 +103,14 @@ def test_pipeline_multi_scanner_aggregation(
         )
     ]
 
+    (tmp_path / "Dockerfile").write_text("FROM alpine\n", encoding="utf-8")
+    src_dir = tmp_path / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    (src_dir / "main.py").write_text("import os\n" * 15, encoding="utf-8")
+    k8s_dir = tmp_path / "k8s"
+    k8s_dir.mkdir(parents=True, exist_ok=True)
+    (k8s_dir / "app.yaml").write_text("apiVersion: v1\n", encoding="utf-8")
+
     orchestrator = ReviewPipelineOrchestrator(
         session_id="test-sec-tools",
         session_dir=tmp_path / "test-sec-tools",

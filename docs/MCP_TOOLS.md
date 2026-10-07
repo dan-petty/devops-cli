@@ -36,11 +36,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`argo_status`](#argo-status) | Check ArgoCD application health and sync status. |
 | [`benchmark_embeddings`](#benchmark-embeddings) | Benchmark embedding latency, dimensions, and retrieval accuracy on the configured servers. |
 | [`branches_list`](#branches-list) | List git branches across repositories with tracking status and stale detection. |
-| [`ci_run`](#ci-run) | Run devops-cli complete quality gate or an individual check in check-only mode without modifying files.
-
-The complete gate runs: python version check (3.14+), pytest & coverage, ruff lint,
-ruff format, mypy typecheck, uv audit, bandit security scan, actionlint, docs validation,
-uv check, uv lockfile freshness, outdated package tree, and devcontainer validation. |
+| [`ci_run`](#ci-run) | Run devops-cli complete quality gate or an individual check in check-only mode without modifying files: python version check (3.14+), pytest & coverage, ruff lint, ruff format, mypy typecheck, uv audit, bandit security scan, actionlint, docs validation, uv check, uv lockfile freshness, outdated package tree, and devcontainer validation. |
 | [`config_audit_keys`](#config-audit-keys) | Audit OS Keyring health, token state, and zero-plaintext secret compliance. |
 | [`config_output`](#config-output) | Output environment variables available for configuration (text or json). |
 | [`config_show`](#config-show) | Display configuration settings with masked secret tokens. |
@@ -74,24 +70,14 @@ uv check, uv lockfile freshness, outdated package tree, and devcontainer validat
 | [`gh_views_audit`](#gh-views-audit) | Audit remote project views against standardized view template specifications. |
 | [`gh_views_sync`](#gh-views-sync) | Synchronize standardized GitHub Projects v2 views with the remote repository project. |
 | [`grafana_dashboards`](#grafana-dashboards) | List Grafana dashboards, optionally filtered by search query. |
-| [`hydrate_tool_domain`](#hydrate-tool-domain) | Advertise the tools for one domain, which are withheld from the listing by default.
-
-Call this before browsing a domain's tools. Available lazy domains include `argo`,
-`benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
-`prometheus`, `rag`, `release`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`,
-`telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
-Pass the domain name alone, for example `k8s`. |
+| [`hydrate_tool_domain`](#hydrate-tool-domain) | Advertise the tools for one domain, which are withheld from the listing by default.  Call this before browsing a domain's tools. Available lazy domains include `argo`, `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`, `prometheus`, `rag`, `release`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`, `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`. Pass the domain name alone, for example `k8s`. |
 | [`k8s_audit`](#k8s-audit) | Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks. |
 | [`k8s_bootstrap`](#k8s-bootstrap) | Bootstrap minikube Kubernetes cluster and deploy infrastructure stack. |
 | [`k8s_chaos`](#k8s-chaos) | Inject or validate Kubernetes chaos engineering experiments and cluster resilience. |
 | [`k8s_create_tls_secret`](#k8s-create-tls-secret) | Create or update a kubernetes.io/tls secret in a target namespace. |
 | [`k8s_deploy_stack`](#k8s-deploy-stack) | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes cluster. |
 | [`k8s_diff_helm`](#k8s-diff-helm) | Compare local Helm values or charts against deployed cluster releases. |
-| [`k8s_doctor`](#k8s-doctor) | Diagnose Kubernetes cluster deployment health and correlate symptoms across nodes, pods, and events.
-
-Runs `devops k8s doctor --format json`. When the cluster has findings, the command exits with
-status 2, so the output begins with `Command exited with status 2:` followed by the JSON report.
-Status 1 indicates the cluster could not be read or an API call failed. |
+| [`k8s_doctor`](#k8s-doctor) | Diagnose Kubernetes cluster deployment health and correlate symptoms across nodes, pods, and events.  Runs `devops k8s doctor --format json`. When the cluster has findings, the command exits with status 2, so the output begins with `Command exited with status 2:` followed by the JSON report. Status 1 indicates the cluster could not be read or an API call failed. |
 | [`k8s_enable_tls`](#k8s-enable-tls) | Apply TLS secrets across Kubernetes cluster namespaces (argocd, monitoring, llm, otel). |
 | [`k8s_jaeger_info`](#k8s-jaeger-info) | Retrieve Jaeger distributed tracing Query UI URL and OTLP trace endpoints. |
 | [`k8s_lint`](#k8s-lint) | Lint Kubernetes manifests against security best practices and deprecated APIs. |
@@ -128,39 +114,12 @@ Status 1 indicates the cluster could not be read or an API call failed. |
 | [`review_path`](#review-path) | Run an AI code review on local files matching pattern using specified persona. |
 | [`review_pr`](#review-pr) | Fetch GitHub PR diff and review using specified persona; optionally post comment. |
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
-| [`roadmap_close`](#roadmap-close) | Preview closure: each delivered item of the current release it would close, with its
-comment, and the release cut it would make or what holds it.
-
-It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
-spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A
-person or the service runs `devops roadmap close --confirm`. |
-| [`roadmap_intake`](#roadmap-intake) | Turn candidates into roadmap items: duplicate check, type, priority, Value, Effort and
-placement, with the agent filing quota for an agent's new candidate (`title` with `body`,
-and `source`, the link it came from, which `borrow_reason` needs).
-
-`mode="plan"`, the default, previews: it reads GitHub and calls the model, writes nothing,
-and reports what it spent. `mode="dry-run"` makes no request and returns the requests a run
-makes; `mode="confirm"` makes the writes. The body is passed as text, never as a path, so
-the tool reads no file of the caller's choosing. |
-| [`roadmap_migrate`](#roadmap-migrate) | Preview the one-time move of the roadmap's source to GitHub: its plan and report.
-
-It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
-spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A
-person reviews the plan and runs `devops roadmap migrate --confirm`. |
-| [`roadmap_refine`](#roadmap-refine) | Run a dry run of item refinement: returns the refinement plan without making any writes.
-
-It never accepts a confirm argument, ensuring it is strictly read-only. |
-| [`roadmap_render`](#roadmap-render) | Render docs/ROADMAP.md from GitHub's issues, milestones and board.
-
-`mode="plan"`, the default, reads GitHub and prints the file without writing it, ending
-with the GraphQL points spent and left. `mode="dry-run"` makes no request and returns the
-requests a run makes; `mode="write"` writes the file. |
-| [`roadmap_reprioritize`](#roadmap-reprioritize) | Hold the current release to its admission rule, cap and stall window, and start the next
-release once it ships; prints each change with its reason.
-
-`mode="plan"`, the default, previews: it reads GitHub, writes nothing, and ends with the
-GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a
-run makes; `mode="confirm"` makes the changes. |
+| [`roadmap_close`](#roadmap-close) | Preview closure: each delivered item of the current release it would close, with its comment, and the release cut it would make or what holds it.  It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A person or the service runs `devops roadmap close --confirm`. |
+| [`roadmap_intake`](#roadmap-intake) | Turn candidates into roadmap items: duplicate check, type, priority, Value, Effort and placement, with the agent filing quota for an agent's new candidate (`title` with `body`, and `source`, the link it came from, which `borrow_reason` needs).  `mode="plan"`, the default, previews: it reads GitHub and calls the model, writes nothing, and reports what it spent. `mode="dry-run"` makes no request and returns the requests a run makes; `mode="confirm"` makes the writes. The body is passed as text, never as a path, so the tool reads no file of the caller's choosing. |
+| [`roadmap_migrate`](#roadmap-migrate) | Preview the one-time move of the roadmap's source to GitHub: its plan and report.  It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A person reviews the plan and runs `devops roadmap migrate --confirm`. |
+| [`roadmap_refine`](#roadmap-refine) | Run a dry run of item refinement: returns the refinement plan without making any writes.  It never accepts a confirm argument, ensuring it is strictly read-only. |
+| [`roadmap_render`](#roadmap-render) | Render docs/ROADMAP.md from GitHub's issues, milestones and board.  `mode="plan"`, the default, reads GitHub and prints the file without writing it, ending with the GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a run makes; `mode="write"` writes the file. |
+| [`roadmap_reprioritize`](#roadmap-reprioritize) | Hold the current release to its admission rule, cap and stall window, and start the next release once it ships; prints each change with its reason.  `mode="plan"`, the default, previews: it reads GitHub, writes nothing, and ends with the GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a run makes; `mode="confirm"` makes the changes. |
 | [`roadmap_run`](#roadmap-run) | Report the roadmap jobs that are due: runs nothing and returns the due tuple. |
 | [`sandbox_deploy`](#sandbox-deploy) | Deploy an isolated workload container sandbox with security containment and port allocation. |
 | [`sandbox_exec`](#sandbox-exec) | Execute a command inside an active sandbox container. |
@@ -541,11 +500,7 @@ List git branches across repositories with tracking status and stale detection.
 
 ### `ci_run`
 
-Run devops-cli complete quality gate or an individual check in check-only mode without modifying files.
-
-The complete gate runs: python version check (3.14+), pytest & coverage, ruff lint,
-ruff format, mypy typecheck, uv audit, bandit security scan, actionlint, docs validation,
-uv check, uv lockfile freshness, outdated package tree, and devcontainer validation.
+Run devops-cli complete quality gate or an individual check in check-only mode without modifying files: python version check (3.14+), pytest & coverage, ruff lint, ruff format, mypy typecheck, uv audit, bandit security scan, actionlint, docs validation, uv check, uv lockfile freshness, outdated package tree, and devcontainer validation.
 
 **Parameters:**
 
