@@ -26,8 +26,8 @@ runner = CliRunner()
 def test_normalize_domain_valid() -> None:
     """Normalize whitespace, uppercase, and leading dots on valid domains."""
     res_a = _normalize_domain("  EXAMPLE.COM  ")
-    res_b = _normalize_domain(".retric.click")
-    assert (res_a, res_b) == ("example.com", "retric.click")
+    res_b = _normalize_domain(".example.org")
+    assert (res_a, res_b) == ("example.com", "example.org")
 
 
 def test_normalize_domain_invalid_raises() -> None:

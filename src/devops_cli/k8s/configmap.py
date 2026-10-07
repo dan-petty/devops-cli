@@ -34,6 +34,8 @@ def render_devops_configmap_content(
     template_content: str,
     repos: Sequence[str] | None = None,
     machine_account: str | None = None,
+    drain_timeout_seconds: int | None = None,
+    poll_interval_seconds: int | None = None,
 ) -> str:
     """Substitute service target repositories and machine account into ConfigMap template."""
     m = _SERVICE_BLOCK_PATTERN.search(template_content)
@@ -44,7 +46,12 @@ def render_devops_configmap_content(
 
     formatted_repos = _format_repo_items(repos or [])
     account = (machine_account or "").strip() or DEFAULT_PLACEHOLDER_ACCOUNT
-    replacement = f"{m.group(1)}{formatted_repos}\n{m.group(2)}{account}"
+    extra_lines = ""
+    if drain_timeout_seconds is not None:
+        extra_lines += f"\n      drain_timeout_seconds: {drain_timeout_seconds}"
+    if poll_interval_seconds is not None:
+        extra_lines += f"\n      poll_interval_seconds: {poll_interval_seconds}"
+    replacement = f"{m.group(1)}{formatted_repos}\n{m.group(2)}{account}{extra_lines}"
     rendered = _SERVICE_BLOCK_PATTERN.sub(replacement, template_content, count=1)
 
     parsed_cm = yaml.safe_load(rendered)

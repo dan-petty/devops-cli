@@ -7,7 +7,7 @@
 **Scope**: scope/k8s, scope/telemetry
 
 ## Description
-The NVIDIA DCGM Exporter Grafana dashboard (`nvidia-dcgm-exporter-dashboard`, ID 12239) and DCGM Prometheus metrics displayed raw pod IP addresses (e.g., `10.42.0.236:9400`) instead of human-readable Kubernetes node names (`condor`, `gemini`, `hawk`, `hog`) in the `$instance` dropdown filter and panel legends.
+The NVIDIA DCGM Exporter Grafana dashboard (`nvidia-dcgm-exporter-dashboard`, ID 12239) and DCGM Prometheus metrics displayed raw pod IP addresses (e.g., `192.0.2.10:9400`) instead of human-readable Kubernetes node names (`gpu-node-1`, `gpu-node-2`, `worker-node-1`, `worker-node-2`) in the `$instance` dropdown filter and panel legends.
 
 Unlike `node-exporter`, which relabels `__meta_kubernetes_pod_node_name` to `instance`, `dcgm-exporter` had no relabelings defined in its Helm chart values (`k8s/monitoring/dcgm-exporter-values.yaml`). Upstream Grafana dashboard 12239 populates its `$instance` variable via `label_values(DCGM_FI_DEV_GPU_TEMP, instance)` and executes queries with `{instance=~"${instance}", gpu=~"${gpu}"}`. Because `instance` defaulted to the scrape target address (`pod_ip:9400`), operators had to correlate IP addresses manually to determine which physical machine hosted each GPU.
 

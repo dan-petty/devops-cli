@@ -17,8 +17,8 @@ Sanitize all references to internal systems, homelab configurations, physical no
 ## 2. Planned Changes
 
 1. **Configuration & Manifest Sanitization**:
-   - `config.yaml`: Replace internal LAN hostnames (`hog.lan`, `condor.lan`, `hawk.lan`, `workhorse.lan`) and non-standard endpoints with generic localhost defaults (`http://localhost:11434`, `http://localhost:6333`).
-   - `k8s/squid/deployment.yaml`: Replaced `condor` node affinity with generic `<storage-node>` and container image with public GHCR reference.
+   - `config.yaml`: Replace internal LAN hostnames (`<node-1>.lan`, `<node-2>.lan`, etc.) and non-standard endpoints with generic localhost defaults (`http://localhost:11434`, `http://localhost:6333`).
+   - `k8s/squid/deployment.yaml`: Replaced concrete node affinity with generic `<storage-node>` and container image with public GHCR reference.
    - `tests/test_k8s_squid.py`: Aligned node affinity assertions with generic `storage-node`.
 2. **Task Tracking & Documentation Sanitization**:
    - `docs/agent/tasks/task-141-squid-proxy-cluster-enablement.md`: Generalized cluster references and removed NodePort references.

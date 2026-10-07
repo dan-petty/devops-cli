@@ -383,6 +383,7 @@ spec:
               service:
                 name: loki
                 port:
+                  number: 3100
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

@@ -150,3 +150,22 @@ def test_ensure_devops_configmap_missing_template_raises(tmp_path: Path) -> None
         FileNotFoundError, match=r"Ensure k8s/devops/configmap\.example\.yaml exists"
     ):
         ensure_devops_configmap(k8s_dir=tmp_path)
+
+
+def test_render_devops_configmap_with_timeouts_and_poll() -> None:
+    """Verify render_devops_configmap_content formats drain_timeout_seconds and poll_interval_seconds."""
+    rendered = render_devops_configmap_content(
+        SAMPLE_TEMPLATE,
+        repos=["example/repo"],
+        machine_account="bot",
+        drain_timeout_seconds=90,
+        poll_interval_seconds=180,
+    )
+    doc = yaml.safe_load(rendered)
+    inner = yaml.safe_load(doc["data"]["devops-cli.yaml"])
+    settings = Settings.model_validate(inner)
+
+    assert (
+        settings.service.drain_timeout_seconds,
+        settings.service.poll_interval_seconds,
+    ) == (90, 180)

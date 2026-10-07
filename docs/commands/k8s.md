@@ -210,6 +210,24 @@ devops k8s sync-secrets [OPTIONS]
 
 ---
 
+## `devops k8s argocd-source`
+
+**Generate a gitignored .argocd-source.yaml file with local development parameter overrides for Argo CD.**
+
+```bash
+devops k8s argocd-source [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--k8s-dir` | `path` | `k8s` | Path to k8s/ config directory. |
+| `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
+| `--dry-run` | `boolean` | - | Print generated .argocd-source.yaml content to stdout without writing files. |
+
+---
+
 ## `devops k8s push-secrets`
 
 **Write the cluster's Secrets from the OS keyring (workstation keyring → cluster, the reverse of sync-secrets). Adopts live values the keyring lacks, generates the ones nobody types, and never replaces a live value without --rotate.**
