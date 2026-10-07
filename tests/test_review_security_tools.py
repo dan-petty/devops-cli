@@ -138,3 +138,57 @@ def test_pipeline_multi_scanner_aggregation(
     yaml_titles = [f.title for f in yaml_payload.findings]
     assert any("no-read-only-root-fs" in t for t in yaml_titles)
     assert any("Removed API" in t for t in yaml_titles)
+
+
+@patch("devops_cli.security.bandit.run_bandit_scan")
+def test_review_pipeline_admit_inline_suppression_added_by_change(
+    mock_bandit: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """Inline suppressions added by the change stay OPEN with suppressed_by_change=True."""
+    from devops_cli.review.state import FindingState
+
+    mock_bandit.return_value = [
+        Finding(
+            severity="HIGH",
+            location="src/main.py:1",
+            title="[B602] Shell injection",
+            description="Subprocess shell=True",
+            fix="Use list args",
+            confidence_score=0.95,
+        )
+    ]
+    src_dir = tmp_path / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    (src_dir / "main.py").write_text("import os  # noqa: B602\n", encoding="utf-8")
+
+    orch_added = ReviewPipelineOrchestrator(
+        session_id="test-added-supp",
+        session_dir=tmp_path / "test-added-supp",
+        target_dir=tmp_path,
+    )
+    orch_added.init_per_file_payloads(
+        file_paths=["src/main.py"],
+        metadata_by_path={},
+        added_diff_lines={("src/main.py", 1)},
+    )
+    f_added = orch_added.admitted_scanner_findings[0]
+
+    orch_base = ReviewPipelineOrchestrator(
+        session_id="test-base-supp",
+        session_dir=tmp_path / "test-base-supp",
+        target_dir=tmp_path,
+    )
+    orch_base.init_per_file_payloads(
+        file_paths=["src/main.py"],
+        metadata_by_path={},
+        added_diff_lines=set(),
+    )
+    f_base = orch_base.admitted_scanner_findings[0]
+
+    assert (
+        f_added.state,
+        f_added.suppressed_by_change,
+        f_base.state,
+        f_base.suppressed_by_change,
+    ) == (FindingState.OPEN, True, FindingState.SUPPRESSED, False)

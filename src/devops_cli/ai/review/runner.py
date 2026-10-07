@@ -2182,16 +2182,21 @@ def _run_orchestrator_review(
     stage_flags: ReviewStageFlags | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Execute orchestrator pipeline review for all files."""
+    # Each file gets the pages whose headers name it; a substring match gave `a.py` the
+    # pages of `data.py` as well.
+    diff_map = {
+        f: "\n".join(p for p in pages if f in _extract_header_filenames(p)) for f in all_files
+    }
     with review_stage("payloads"):
         payloads = orchestrator.init_per_file_payloads(
-            all_files, metadata_by_path, target_dir=target_dir, stage_flags=stage_flags
+            all_files,
+            metadata_by_path,
+            target_dir=target_dir,
+            stage_flags=stage_flags,
+            diff_text_by_file=diff_map,
+            pages=pages,
         )
     if not is_dry_run():
-        # Each file gets the pages whose headers name it; a substring match gave `a.py` the
-        # pages of `data.py` as well.
-        diff_map = {
-            f: "\n".join(p for p in pages if f in _extract_header_filenames(p)) for f in all_files
-        }
         with review_stage("persona_review"):
             orchestrator.execute_multi_persona_review(
                 payloads, diff_text_by_file=diff_map, personas=active_p, stage_flags=stage_flags

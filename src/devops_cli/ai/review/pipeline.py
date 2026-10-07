@@ -606,6 +606,7 @@ def _admit_single_candidate(
     file_content_getter: Callable[[str], str | None],
     path_classes: Mapping[str, Sequence[str]] | None = None,
     suppressions: Sequence[Any] | None = None,
+    added_diff_lines: set[tuple[str, int]] | None = None,
 ) -> tuple[Any | None, SavedFinding | None]:
     """Admit a single scanner finding candidate into a frozen finding (#871)."""
     from devops_cli.review.admission import admit
@@ -635,6 +636,7 @@ def _admit_single_candidate(
         file_content_getter=file_content_getter,
         path_classes=path_classes,
         suppressions=suppressions,
+        added_diff_lines=added_diff_lines,
     )
     if admitted is None:
         return None, None
@@ -652,6 +654,7 @@ def _admit_scanner_findings(
     resolve_file_path: Callable[[str], Path],
     path_classes: Mapping[str, Sequence[str]] | None = None,
     suppressions: Sequence[Any] | None = None,
+    added_diff_lines: set[tuple[str, int]] | None = None,
 ) -> tuple[list[Any], list[SavedFinding]]:
     """Admit static scanner candidates into frozen review findings (#871)."""
     commit_files = _collect_scanner_commit_files(
@@ -682,6 +685,7 @@ def _admit_scanner_findings(
             file_content_getter=_file_content,
             path_classes=path_classes,
             suppressions=suppressions,
+            added_diff_lines=added_diff_lines,
         )
         if frozen is not None and saved is not None:
             admitted_frozen.append(frozen)
@@ -2016,6 +2020,27 @@ def _cited_lines(text: str, findings: Sequence[Finding]) -> str:
     return "".join(f"{n}\t{lines[n - 1]}\n" for n in sorted(wanted))
 
 
+def _resolve_review_added_diff_lines(
+    existing: set[tuple[str, int]] | None,
+    added_diff_lines: set[tuple[str, int]] | None,
+    pages: Sequence[str] | None,
+    diff_text_by_file: Mapping[str, str] | None,
+) -> set[tuple[str, int]]:
+    """Determine effective set of added diff lines from arguments, pages, or diff maps."""
+    eff = set(added_diff_lines or existing or ())
+    if eff:
+        return eff
+    from devops_cli.ai.review.chunker import extract_added_diff_lines
+
+    if pages:
+        for p in pages:
+            eff |= extract_added_diff_lines(p)
+    elif diff_text_by_file:
+        for fpath, dtext in diff_text_by_file.items():
+            eff |= extract_added_diff_lines(dtext, default_path=fpath)
+    return eff
+
+
 class ReviewPipelineOrchestrator:
     """Orchestrates 6-stage multi-agent code reviews with per-file payloads and AI scratchpads."""
 
@@ -2036,10 +2061,12 @@ class ReviewPipelineOrchestrator:
         secret_scan_files: Sequence[str] = (),
         base_revision: BaseRevision | None = None,
         partial_context: bool = False,
+        added_diff_lines: set[tuple[str, int]] | None = None,
     ) -> None:
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self.base_revision = base_revision
         self.partial_context = partial_context
+        self.added_diff_lines: set[tuple[str, int]] = set(added_diff_lines or ())
         self.coverage: dict[str, dict[str, str]] = {}
         repo_root = None
         try:
@@ -2267,7 +2294,11 @@ class ReviewPipelineOrchestrator:
         return None
 
     # ── Stage 2: Per-File Review Session JSON Initialization ──────────────────
-    def _run_static_scanners(self, file_paths: list[str]) -> dict[str, list[SavedFinding]]:
+    def _run_static_scanners(
+        self,
+        file_paths: list[str],
+        added_diff_lines: set[tuple[str, int]] | None = None,
+    ) -> dict[str, list[SavedFinding]]:
         """Run Bandit, Kube-linter, Pluto, Trivy, Semgrep, and Gitleaks static analyzers."""
         static_findings_by_file: dict[str, list[SavedFinding]] = {}
         all_static_findings: list[SavedFinding] = []
@@ -2346,6 +2377,11 @@ class ReviewPipelineOrchestrator:
                         semgrep_paths, observed_outcomes, tree=reviewed_tree(self.target_dir)
                     )
                 )
+                eff_added = (
+                    added_diff_lines
+                    if added_diff_lines is not None
+                    else getattr(self, "added_diff_lines", None)
+                )
                 admitted_frozen, admitted_saved = _admit_scanner_findings(
                     all_static_findings,
                     session_id=self.session_id,
@@ -2355,6 +2391,7 @@ class ReviewPipelineOrchestrator:
                     resolve_file_path=self._resolve_file_path,
                     path_classes=self.path_classes,
                     suppressions=getattr(self, "suppressions", None),
+                    added_diff_lines=eff_added,
                 )
                 self.admitted_scanner_findings = admitted_frozen
                 all_static_findings = admitted_saved
@@ -2772,10 +2809,20 @@ class ReviewPipelineOrchestrator:
         metadata_by_path: dict[str, FileAnalysisMeta],
         target_dir: Path | None = None,
         stage_flags: ReviewStageFlags | None = None,
+        diff_text_by_file: Mapping[str, str] | None = None,
+        pages: Sequence[str] | None = None,
+        added_diff_lines: set[tuple[str, int]] | None = None,
     ) -> list[FileReviewPayload]:
         """Initialize per-file JSON payloads under session files directory."""
         if target_dir is not None:
             self.target_dir = target_dir
+
+        self.added_diff_lines = _resolve_review_added_diff_lines(
+            getattr(self, "added_diff_lines", None),
+            added_diff_lines,
+            pages,
+            diff_text_by_file,
+        )
 
         n_paths = len(file_paths)
         with trace_span("review.init_payloads", attributes={"file_count": n_paths}):
@@ -2793,7 +2840,9 @@ class ReviewPipelineOrchestrator:
                 )
                 static_findings_by_file = {f: [] for f in file_paths}
             else:
-                static_findings_by_file = self._run_static_scanners(file_paths)
+                static_findings_by_file = self._run_static_scanners(
+                    file_paths, added_diff_lines=self.added_diff_lines
+                )
 
             # Parse dependencies and network references across target files
             raw_file_data, unique_deps, unique_nets = (

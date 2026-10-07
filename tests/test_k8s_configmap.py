@@ -179,15 +179,26 @@ def test_render_active_devops_configmap_success(tmp_path: Path) -> None:
     (devops_dir / "configmap.example.yaml").write_text(SAMPLE_TEMPLATE, encoding="utf-8")
 
     class DummySettings:
-        service = type("Service", (), {"repos": ["active/repo"], "machine_account": "active-bot"})()
+        service = type(
+            "Service",
+            (),
+            {
+                "repos": ["active/repo"],
+                "machine_account": "active-bot",
+                "drain_timeout_seconds": 75,
+                "poll_interval_seconds": 150,
+            },
+        )()
 
     rendered = render_active_devops_configmap(k8s_dir=tmp_path, settings=DummySettings())
 
     assert (
         "active/repo" in rendered,
         "active-bot" in rendered,
+        "drain_timeout_seconds: 75" in rendered,
+        "poll_interval_seconds: 150" in rendered,
         (devops_dir / "configmap.yaml").exists(),
-    ) == (True, True, False)
+    ) == (True, True, True, True, False)
 
 
 def test_render_active_devops_configmap_missing_template_raises(tmp_path: Path) -> None:

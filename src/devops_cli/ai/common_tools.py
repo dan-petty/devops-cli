@@ -314,6 +314,8 @@ class UntrustedMarkdownConverter(MarkdownConverter):
         if not text:
             return ""
         code_language = self._resolve_code_language(el)
+        if any(c.isspace() or c == "`" for c in code_language):
+            code_language = ""
         text = self._strip_pre_content(text)
 
         backtick_runs = re.findall(r"`+", text)
@@ -329,10 +331,10 @@ class UntrustedMarkdownConverter(MarkdownConverter):
         if callable(cb):
             res = str(cb(el) or "")
             if res:
-                return res
+                return "" if any(c.isspace() or c == "`" for c in res) else res
         code_lang = str(options.get("code_language", "") or "")
         if code_lang:
-            return code_lang
+            return "" if any(c.isspace() or c == "`" for c in code_lang) else code_lang
         if not hasattr(el, "get"):
             return ""
 
@@ -343,7 +345,8 @@ class UntrustedMarkdownConverter(MarkdownConverter):
             classes = classes.split()
         for cls in classes:
             if cls.startswith("language-") or cls.startswith("lang-"):
-                return str(cls.split("-", 1)[1])
+                candidate = str(cls.split("-", 1)[1])
+                return "" if any(c.isspace() or c == "`" for c in candidate) else candidate
         return ""
 
     def _strip_pre_content(self, text: str) -> str:
