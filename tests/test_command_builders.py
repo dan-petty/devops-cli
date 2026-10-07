@@ -129,6 +129,7 @@ def test_command_builders() -> None:
         "--json",
         "--config",
         "p/default",
+        "--disable-nosem",
         "--exclude",
         "tests/*",
         "src",

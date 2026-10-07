@@ -201,7 +201,7 @@ def build_semgrep_cmd(
     exclude_paths: Sequence[str] | None = None,
 ) -> list[str]:
     """Build a Semgrep AST security and code quality scan command."""
-    cmd = [BIN_SEMGREP, "scan", "--json", "--config", config]
+    cmd = [BIN_SEMGREP, "scan", "--json", "--config", config, "--disable-nosem"]
     if exclude_paths:
         for p in exclude_paths:
             cmd.extend(["--exclude", p])
