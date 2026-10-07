@@ -24,6 +24,7 @@ import re
 import time
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -2080,11 +2081,32 @@ def _resolve_review_added_diff_lines(
     return eff
 
 
+@dataclass(frozen=True, slots=True)
+class ScannerFileBuckets:
+    """Classified file paths targeted by static analyzers (#871)."""
+
+    python: list[Path] = field(default_factory=list)
+    yaml: list[Path] = field(default_factory=list)
+    container: list[Path] = field(default_factory=list)
+    any_files: list[Path] = field(default_factory=list)
+    leak_targets: list[Path] = field(default_factory=list)
+
+    def as_kind_map(self) -> dict[str, list[Path]]:
+        """Map scanner domain kinds for reporting without coupling tool collections."""
+        return {
+            "python": self.python,
+            "yaml": self.yaml,
+            "container": self.container,
+            "any": self.any_files,
+            "secrets": self.leak_targets,
+        }
+
+
 def _classify_scanner_files(
     all_resolved: Sequence[Path],
-    secret_paths: Sequence[Path],
+    extra_scan_paths: Sequence[Path] = (),
     path_classes: Mapping[str, Sequence[str]] | None = None,
-) -> dict[str, list[Path]]:
+) -> ScannerFileBuckets:
     """Group resolved candidate file paths by static analyzer domain (#871)."""
     py_paths = [
         p for p in all_resolved if p.suffix == ".py" and not is_fixture_path(p, path_classes)
@@ -2109,50 +2131,45 @@ def _classify_scanner_files(
         | {p for p in lockfiles if not is_fixture_path(p, path_classes)}
     )
     semgrep_paths = [p for p in all_resolved if not is_fixture_path(p, path_classes)]
-    return {
-        "python": py_paths,
-        "yaml": yaml_paths,
-        "container": docker_lock_paths,
-        "any": semgrep_paths,
-        "secrets": list(all_resolved) + list(secret_paths),
-    }
+    return ScannerFileBuckets(
+        python=py_paths,
+        yaml=yaml_paths,
+        container=docker_lock_paths,
+        any_files=semgrep_paths,
+        leak_targets=list(all_resolved) + list(extra_scan_paths),
+    )
 
 
-def _run_scanners_for_files(
-    files_by_kind: dict[str, list[Path]],
+def _run_scanners_for_buckets(
+    buckets: ScannerFileBuckets,
     *,
     tree: Path | None = None,
     observed_outcomes: dict[str, Any] | None = None,
 ) -> list[SavedFinding]:
-    """Execute Bandit, Kube-linter/Pluto, Trivy, Secrets, and Semgrep scanners (#871)."""
+    """Execute Bandit, Kube-linter/Pluto, Trivy, Gitleaks, and Semgrep scanners (#871)."""
     from devops_cli.security.bandit import run_bandit_scan
 
     outcomes = observed_outcomes if observed_outcomes is not None else {}
     findings: list[SavedFinding] = []
-    py_paths = files_by_kind.get("python", [])
-    if py_paths:
-        bandit_res = run_bandit_scan(py_paths, isolated=True)
+    if buckets.python:
+        bandit_res = run_bandit_scan(buckets.python, isolated=True)
         if observed_outcomes is not None:
             _observe_outcome(outcomes, "Bandit", bandit_res)
         findings.extend(_wrap_static_findings(bandit_res, tool="bandit"))
 
-    yaml_paths = files_by_kind.get("yaml", [])
-    if yaml_paths:
-        findings.extend(_call_scanner_helper(_scan_kubernetes_manifests, yaml_paths, outcomes))
+    if buckets.yaml:
+        findings.extend(_call_scanner_helper(_scan_kubernetes_manifests, buckets.yaml, outcomes))
 
-    docker_lock_paths = files_by_kind.get("container", [])
-    if docker_lock_paths:
+    if buckets.container:
         findings.extend(
-            _call_scanner_helper(_scan_container_and_lockfiles, docker_lock_paths, outcomes)
+            _call_scanner_helper(_scan_container_and_lockfiles, buckets.container, outcomes)
         )
 
-    secret_paths = files_by_kind.get("secrets", [])
-    if secret_paths:
-        findings.extend(_call_scanner_helper(_scan_secrets, secret_paths, outcomes))
+    if buckets.leak_targets:
+        findings.extend(_call_scanner_helper(_scan_secrets, buckets.leak_targets, outcomes))
 
-    semgrep_paths = files_by_kind.get("any", [])
-    if semgrep_paths and tree is not None:
-        findings.extend(_scan_semgrep(semgrep_paths, outcomes, tree=tree))
+    if buckets.any_files and tree is not None:
+        findings.extend(_scan_semgrep(buckets.any_files, outcomes, tree=tree))
 
     return findings
 
@@ -2227,10 +2244,10 @@ def _collect_base_revision_fingerprints(
 
         written.extend(_write_base_revision_lockfiles(base_revision, tmp_root, written))
         base_resolved = [tmp_root / p for p in written if (tmp_root / p).is_file()]
-        base_secrets = [tmp_root / p for p in secret_scan_files if (tmp_root / p).is_file()]
+        extra_leak_files = [tmp_root / p for p in secret_scan_files if (tmp_root / p).is_file()]
 
-        files_by_kind = _classify_scanner_files(base_resolved, base_secrets, path_classes)
-        base_findings = _run_scanners_for_files(files_by_kind, tree=tmp_root)
+        buckets = _classify_scanner_files(base_resolved, extra_leak_files, path_classes)
+        base_findings = _run_scanners_for_buckets(buckets, tree=tmp_root)
 
         base_admitted, _ = _admit_scanner_findings(
             base_findings,
@@ -2558,18 +2575,18 @@ class ReviewPipelineOrchestrator:
             ) as sc_span:
                 all_resolved = [self._resolve_file_path(f) for f in file_paths]
                 observed_outcomes: dict[str, Any] = {}
-                files_by_kind = _classify_scanner_files(
+                buckets = _classify_scanner_files(
                     all_resolved,
                     [self._resolve_file_path(f) for f in self.secret_scan_files],
                     self.path_classes,
                 )
-                py_paths = files_by_kind["python"]
-                yaml_paths = files_by_kind["yaml"]
-                docker_lock_paths = files_by_kind["container"]
+                py_paths = buckets.python
+                yaml_paths = buckets.yaml
+                docker_lock_paths = buckets.container
 
                 all_static_findings.extend(
-                    _run_scanners_for_files(
-                        files_by_kind,
+                    _run_scanners_for_buckets(
+                        buckets,
                         tree=reviewed_tree(self.target_dir),
                         observed_outcomes=observed_outcomes,
                     )
@@ -2603,7 +2620,7 @@ class ReviewPipelineOrchestrator:
                 self.admitted_scanner_findings = admitted_frozen
                 all_static_findings = admitted_saved
                 self._record_static_analyzers(
-                    files_by_kind,
+                    buckets.as_kind_map(),
                     observed_outcomes=observed_outcomes,
                 )
                 self.static_severities = Counter(f.severity for f in all_static_findings)
