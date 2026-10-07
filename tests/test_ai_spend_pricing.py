@@ -279,19 +279,19 @@ def test_is_local_configured_cluster_and_gateway(
         "cloudflare:\n"
         "  domain: example.com\n"
         "ai:\n"
-        "  gateway_url: https://ai.example.com/v1\n"
-        "  api_base_url: https://ai.example.com/v1\n",
+        "  gateway_url: https://example.com/v1\n"
+        "  api_base_url: https://example.com/v1\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(custom_cfg))
 
     assert (
-        is_local("ai.example.com", "gateway"),
-        is_local("https://ai.example.com/v1", "gateway"),
-        is_local("vllm.example.com:8000", "gateway"),
+        is_local("example.com", "gateway"),
+        is_local("https://example.com/v1", "gateway"),
+        is_local("example.com:8000", "gateway"),
         is_local(None, "gateway"),
         is_local("https://api.openai.com/v1", "openai"),
-        is_local("node1.example.internal:11434, node2.example.internal:11434", "ollama"),
+        is_local("example.com:11434, example.com:11435", "ollama"),
     ) == (
         True,
         True,

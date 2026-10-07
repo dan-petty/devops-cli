@@ -761,7 +761,9 @@ def _deploy_native_manifests(
     """Synchronize dynamically generated manifests and apply native Kubernetes resources."""
     if "devops" in selected_stacks:
         from devops_cli.k8s.argocd_source import generate_argocd_source
+        from devops_cli.k8s.configmap import ensure_devops_configmap
 
+        ensure_devops_configmap(k8s_dir=k8s_dir, force=True)
         generate_argocd_source(k8s_dir=k8s_dir, domain=domain)
     _apply_manifest_files(all_manifests, kubectl_ctx, domain=domain)
 
@@ -778,9 +780,13 @@ def _handle_argo_managed_deployment(
         push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
     if "devops" in selected_stacks:
         from devops_cli.k8s.argocd_source import generate_argocd_source
+        from devops_cli.k8s.configmap import ensure_devops_configmap
 
         print_info("Generating Argo CD source parameter overrides...", prefix=False)
         generate_argocd_source(k8s_dir=k8s_dir)
+        cm_path = ensure_devops_configmap(k8s_dir=k8s_dir, force=True)
+        k_ctx = ["--context", effective_context] if effective_context else []
+        runtime._run_cmd(["kubectl", "apply", "-f", str(cm_path)] + k_ctx, check=False)
     print_info(
         "Argo CD manages the cluster (Application 'cluster' found in namespace 'argocd'). "
         "Skipping manifest and Helm deployment; see GitOps in k8s/README.md.",

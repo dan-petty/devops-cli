@@ -1085,7 +1085,7 @@ def test_python_literals_in_dict_keys_and_telemetry_calls() -> None:
 def test_deduplicate_network_references() -> None:
     """Ensure duplicate references are merged and their locations consolidated."""
     ref1 = NetworkReference(
-        target="http://service.local:8080",
+        target="http://example.com:8080",
         reference_type="url",
         source_file="src/devops_cli/config/defaults.py",
         line_number=125,
@@ -1094,7 +1094,7 @@ def test_deduplicate_network_references() -> None:
         scope="local",
     )
     ref2 = NetworkReference(
-        target="http://service.local:8080",
+        target="http://example.com:8080",
         reference_type="url",
         source_file="src/devops_cli/config/defaults.py",
         line_number=324,
@@ -1113,7 +1113,7 @@ def test_deduplicate_network_references() -> None:
     )
     deduped = deduplicate_network_references([ref1, ref2, ref3])
     assert len(deduped) == 2
-    hl_ref = next(r for r in deduped if r.target == "http://service.local:8080")
+    hl_ref = next(r for r in deduped if r.target == "http://example.com:8080")
     assert ("125" in hl_ref.location, "324" in hl_ref.location) == (True, True)
 
 
@@ -1153,7 +1153,7 @@ def test_sort_network_references_ordered() -> None:
         scope="external",
     )
     loc_url = NetworkReference(
-        target="http://argocd.service.local:8080",
+        target="http://example.com:8080/argocd",
         reference_type="url",
         source_file="src/config.py",
         line_number=15,

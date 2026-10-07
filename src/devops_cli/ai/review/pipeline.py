@@ -667,8 +667,6 @@ def _admit_scanner_findings(
                 return p.read_text(encoding="utf-8", errors="replace")
         except Exception:
             return None
-        if path_str in commit_files:
-            return "\n" * 100000
         return None
 
     admitted_frozen: list[Any] = []

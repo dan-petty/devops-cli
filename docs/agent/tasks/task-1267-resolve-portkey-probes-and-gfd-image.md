@@ -14,7 +14,6 @@ Investigate and remediate active Kubernetes pod restarts and deployment failures
 - **Portkey AI Gateway Health Probes**: Portkey in namespace `llm` continuously crashed into `CrashLoopBackOff` (33+ restarts). Kubelet liveness and readiness probes were querying `/health`, which Portkey answers with HTTP 404 Not Found, causing probe failures and `SIGTERM` restarts every 60 seconds. Portkey serves HTTP 200 OK at `/`.
 - **GPU Feature Discovery Image Tag**: In namespace `default`, the `gpu-feature-discovery` DaemonSet failed rollout with `ImagePullBackOff` on `<gpu-node-2>` because `nvcr.io/nvidia/gpu-feature-discovery:v0.20.1` does not exist in NVIDIA NGC (0.20.1 is the Helm chart version). The image was aligned to `nvcr.io/nvidia/k8s-device-plugin:v0.16.2`, which packages `/usr/bin/gpu-feature-discovery`.
 - **CLI AI Gateway Probe Routing**: Updated `_probe_gateway_http` in `src/devops_cli/ai/gateway.py` to check `/` for Portkey gateway instances.
-- **ArgoCD Automated Sync**: Patched ArgoCD applications `gpu-feature-discovery` and `llm` to disable `selfHeal` so out-of-band cluster remediations are not reverted to stale release tags.
 
 ---
 
