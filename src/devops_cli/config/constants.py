@@ -1026,6 +1026,15 @@ CONST_GH_LOGIN_ENV_VARS: Final[frozenset[str]] = frozenset(
 CONST_GITHUB_IDENTITY_DIGEST_CHARS: Final[int] = 16
 CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE = "GITHUB_UNAUTHENTICATED"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
+# GitHub's rate limit `reset` is whole epoch seconds, so a window can still be reported within the
+# second after it. A call at a reset that has passed waits until this long past it, the margin
+# PyGithub 2.10.0 adds ("plus 1s as it is not clear when in that second the reset occurs",
+# github/GithubRetry.py) (#1364).
+CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS: Final[float] = 1.0
+# How far the local clock may run past the reset GitHub has just reported before the clocks count
+# as disagreeing. The Service measured GitHub reporting an ended window 0.72 s to 2.07 s past its
+# reset (#1364); a larger gap is a clock for a person to correct, not something to pace around.
+CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS: Final[float] = 5.0
 CONST_GH_WEBHOOK_SIGNATURE_HEADER = "X-Hub-Signature-256"
 CONST_GH_WEBHOOK_EVENT_HEADER: Final[str] = "X-GitHub-Event"
 CONST_GH_WEBHOOK_DELIVERY_HEADER: Final[str] = "X-GitHub-Delivery"

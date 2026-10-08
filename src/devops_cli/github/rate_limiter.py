@@ -3,6 +3,10 @@
 Institutes a mandatory pause on gh requests calculated strictly from:
     request delay = time in seconds until next quota reset for this subcommand / remaining requests
 
+A reset that has passed ends its window. GitHub's reset is whole seconds and it may still report
+the ended window for a moment, so a request at a passed reset waits until a second past it; a
+reset GitHub reports further behind the local clock than the clocks may differ fails closed.
+
 No initial quotas, no hardcoded default windows, default request rate, or bursting.
 """
 
@@ -37,6 +41,8 @@ from devops_cli.config.constants import (
     CONST_GH_API_GRAPHQL_ENDPOINT,
     CONST_GH_CLI,
     CONST_GH_QUOTA_CACHE_FILENAME,
+    CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS,
+    CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS,
     CONST_GH_READ_VERBS,
     CONST_GITHUB_IDENTITY_DIGEST_CHARS,
     CONST_GITHUB_RATE_LIMIT_PATTERNS,
@@ -154,7 +160,8 @@ class QuotaState:
         """Return True if cached quota is active and has not expired past reset epoch or max age.
 
         Cached values that are not updated on every request or past reset epoch
-        should never be used or relied on.
+        should never be used or relied on, except that `calculate_delay` sizes the wait past a
+        reset from a window GitHub has just reported.
         """
         current_time = now if now is not None else time.time()
         if max_age is not None and self.last_updated is not None:
@@ -653,6 +660,45 @@ def _handle_retry_after_wait(
     return retry_after
 
 
+def _utc_text(epoch: float) -> str:
+    """`epoch` as a UTC timestamp to the second."""
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
+
+
+def _unreported_resource_error(
+    subcommand: str, reported_resets: dict[str, float]
+) -> GitHubRateLimitError:
+    """GitHub's rate_limit answer gave `subcommand` no `remaining` and `reset`."""
+    reported = ", ".join(sorted(reported_resets)) or "none"
+    return GitHubRateLimitError(
+        f"GitHub's rate_limit answer has no '{subcommand}' quota with remaining and reset; "
+        f"it reports: {reported}",
+        subcommand=subcommand,
+        details={"reported_resources": reported},
+    )
+
+
+def _check_clocks_agree(subcommand: str, reported_reset: float, now: float) -> None:
+    """Raise when the clock is further past the reset GitHub just reported than the clocks may
+    differ, `CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS`."""
+    gap = now - reported_reset
+    if gap <= CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS:
+        return
+    reset_text, clock_text = _utc_text(reported_reset), _utc_text(now)
+    raise GitHubRateLimitError(
+        f"The local clock and GitHub's disagree: GitHub's '{subcommand}' quota window reset at "
+        f"{reset_text} and the local clock reads {clock_text}, {gap:.2f}s past it, more than the "
+        f"{CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS:g}s they may differ. "
+        "Correct the local clock.",
+        subcommand=subcommand,
+        details={
+            "reported_reset": reset_text,
+            "local_clock": clock_text,
+            "gap_seconds": f"{gap:.2f}",
+        },
+    )
+
+
 def _is_primary_exhausted(state: QuotaState | None) -> bool:
     """Check if quota state indicates primary rate limit exhaustion (remaining == 0)."""
     return (
@@ -676,7 +722,7 @@ def _calculate_primary_delay(
         return None
     wait = float(state.reset_epoch - now)
     if max_rate_limit_wait is not None and wait > max_rate_limit_wait:
-        reset_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(state.reset_epoch))
+        reset_iso = _utc_text(state.reset_epoch)
         raise GitHubRateLimitError(
             f"Required primary rate limit wait of {wait:.1f}s (reset at {reset_iso}) exceeds max_rate_limit_wait of {max_rate_limit_wait:.1f}s",
             subcommand=subcommand,
@@ -717,6 +763,9 @@ class GitHubRateLimiter:
     Formula:
         request delay = time in seconds until next quota reset for this subcommand / remaining requests
 
+    At a reset that has passed, the delay runs until `CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS`
+    past it.
+
     No initial quotas, no hardcoded default windows, default request rate, or bursting.
     """
 
@@ -756,7 +805,6 @@ class GitHubRateLimiter:
         self._next_allowed_time: dict[str, float] = {}
         self._last_mutation_epoch: float = 0.0
         self._async_limiters: dict[str, AsyncLimiter] = {}
-        self._is_refreshing: bool = False
         self._total_requests: int = 0
         # GraphQL points the responses reported, by resource (#1125).
         self._points_charged: dict[str, int] = {}
@@ -864,43 +912,35 @@ class GitHubRateLimiter:
             }
 
     def _resolve_quota_state(self, subcommand: str) -> QuotaState:
-        """Retrieve or refresh quota state for subcommand under lock.
+        """The quota for `subcommand` under lock: the stored one while valid, else refreshed once.
 
-        Raises GitHubRateLimitError if state is broken or unknown and cannot be refreshed.
+        GitHub's fresh answer may still carry a reset at or before the clock, as it reports a
+        window for a moment after the window ends; `calculate_delay` waits that reset out.
+        Raises GitHubRateLimitError when the refresh fails, when the answer has no `remaining`
+        and `reset` for `subcommand`, or when the clock, read before the refresh so its latency
+        never counts, is further past the reset it reported than
+        `CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS`.
         """
         if self.persist_path:
             self._sync_from_disk_locked()
 
-        now = time.time()
         state = self._quotas.get(subcommand)
-        if state and state.is_valid(now, max_age=self.quota_max_age):
+        if state and state.is_valid(time.time(), max_age=self.quota_max_age):
             return state
 
-        if not self._is_refreshing:
-            self._is_refreshing = True
-            try:
-                self._refresh_from_github()
-            finally:
-                self._is_refreshing = False
-            state = self._quotas.get(subcommand)
-            if state and state.is_valid(now, max_age=self.quota_max_age):
-                return state
+        started = time.time()
+        reported_resets = self._refresh_from_github()
+        if subcommand not in reported_resets:
+            raise _unreported_resource_error(subcommand, reported_resets)
+        _check_clocks_agree(subcommand, reported_resets[subcommand], started)
+        return self._quotas[subcommand]
 
-        raise GitHubRateLimitError(
-            f"Rate limit state for subcommand '{subcommand}' is in an unknown or broken state "
-            f"and could not be refreshed from GitHub",
-            subcommand=subcommand,
-            details={
-                "subcommand": subcommand[:256],
-                "remaining": str(getattr(state, "remaining", None)),
-                "reset_epoch": str(getattr(state, "reset_epoch", None)),
-            },
-        )
+    def _refresh_from_github(self) -> dict[str, float]:
+        """Read GitHub's /rate_limit answer into the stored quotas.
 
-    def _refresh_from_github(self) -> None:
-        """Query GitHub /rate_limit endpoint to resolve unknown or broken quota state.
-
-        Raises GitHubRateLimitError if refresh fails so the underlying cause can be identified.
+        Returns the reset GitHub reported for each resource the answer gave both `remaining` and
+        `reset`. Raises GitHubRateLimitError if gh fails or the answer is empty or malformed, so
+        the underlying cause can be identified.
         """
         proc = run_subprocess(
             [CONST_GH_CLI, "api", "rate_limit"],
@@ -927,12 +967,13 @@ class GitHubRateLimiter:
                 "GitHub rate_limit API returned empty output",
                 operation="refresh_quota",
             )
-        _extract_rate_limit_endpoint_response(proc.stdout, self)
+        return _extract_rate_limit_endpoint_response(proc.stdout, self)
 
     def calculate_delay(self, subcommand: str = "core") -> float:
         """Calculate request delay = time until reset / remaining requests.
 
-        If in a broken or unknown state, attempts to refresh rate limit info,
+        At a reset that has passed, the window has ended and the delay runs until
+        `CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS` past it. Refreshes a quota that is not valid,
         or raises GitHubRateLimitError so the underlying cause can be identified.
         """
         with self._lock:
@@ -948,13 +989,6 @@ class GitHubRateLimiter:
                     f"reset_epoch is unknown for subcommand '{subcommand}'",
                     subcommand=subcommand,
                 )
-            time_left = state.reset_epoch - now
-            if time_left < 0.0:
-                raise GitHubRateLimitError(
-                    f"time until reset must be non-negative, got {time_left:.2f}s for '{subcommand}'",
-                    subcommand=subcommand,
-                    details={"subcommand": subcommand[:256], "time_left": f"{time_left:.2f}"},
-                )
             if state.remaining is None:
                 raise GitHubRateLimitError(
                     f"remaining requests is unknown for subcommand '{subcommand}'",
@@ -963,12 +997,30 @@ class GitHubRateLimiter:
             if state.remaining < 0:
                 raise ValueError(f"remaining requests must be non-negative, got {state.remaining}")
 
+            time_left = state.reset_epoch - now
+            if time_left <= 0.0:
+                return self._passed_reset_delay(subcommand, state.reset_epoch, now)
             delay = calculate_request_delay(
                 time_until_reset=time_left,
                 remaining=state.remaining,
                 limit=state.limit,
             )
             return max(self.min_interval, delay)
+
+    def _passed_reset_delay(self, subcommand: str, reset_epoch: float, now: float) -> float:
+        """The delay at a reset that has passed: until the margin past it, since GitHub's reset
+        is whole seconds and GitHub may still report the ended window. Logs one INFO record."""
+        delay = max(
+            self.min_interval, reset_epoch + CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS - now, 0.0
+        )
+        logger.info(
+            "[RateLimit] '%s' quota window reset at %s, %.2fs ago; waiting until at least %s",
+            subcommand,
+            _utc_text(reset_epoch),
+            now - reset_epoch,
+            _utc_text(reset_epoch + CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS),
+        )
+        return delay
 
     def _calculate_target_delay(self, target: str, is_mutation: bool) -> float:
         """Calculate request pacing delay strictly from tracked quota state."""
@@ -1483,9 +1535,12 @@ def _parse_resource_quota(
         ) from exc
 
 
-def _update_single_resource_quota(r_name: str, r_info: Any, limiter: GitHubRateLimiter) -> None:
+def _update_single_resource_quota(
+    r_name: str, r_info: Any, limiter: GitHubRateLimiter
+) -> float | None:
+    """Store one resource of a /rate_limit answer; the reset it reported, if any."""
     if not isinstance(r_info, dict) or r_info.get("remaining") is None:
-        return
+        return None
     rem_val, reset_epoch, limit_val, used_val = _parse_resource_quota(r_name, r_info)
     limiter.update_quota(
         r_name,
@@ -1494,10 +1549,16 @@ def _update_single_resource_quota(r_name: str, r_info: Any, limiter: GitHubRateL
         used=used_val,
         reset_epoch=reset_epoch,
     )
+    return reset_epoch
 
 
-def _extract_rate_limit_endpoint_response(output: str, limiter: GitHubRateLimiter) -> None:
-    """Update quotas directly from /rate_limit endpoint response."""
+def _extract_rate_limit_endpoint_response(
+    output: str, limiter: GitHubRateLimiter
+) -> dict[str, float]:
+    """Update quotas directly from /rate_limit endpoint response.
+
+    Returns the reset reported for each resource the answer gave both `remaining` and `reset`.
+    """
     payload = extract_json_payload(output)
     if not isinstance(payload, dict):
         raise GitHubRateLimitError(
@@ -1510,8 +1571,11 @@ def _extract_rate_limit_endpoint_response(output: str, limiter: GitHubRateLimite
             "Missing resources dictionary in rate_limit payload from GitHub API",
             operation="refresh_quota",
         )
-    for r_name, r_info in resources.items():
-        _update_single_resource_quota(r_name, r_info, limiter)
+    resets = {
+        r_name: _update_single_resource_quota(r_name, r_info, limiter)
+        for r_name, r_info in resources.items()
+    }
+    return {r_name: reset for r_name, reset in resets.items() if reset is not None}
 
 
 def _extract_page_per_page(url_or_endpoint: str) -> int:
@@ -2011,6 +2075,7 @@ def run_gh(
 
     Enforces mandatory pause calculated from:
         request delay = time in seconds until next quota reset for this subcommand / remaining requests
+    and, at a reset that has passed, until `CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS` past it.
     """
     valid_cwd = _validate_gh_cwd(cwd) if cwd is not None else None
     clean_args = _normalize_gh_args(args)
