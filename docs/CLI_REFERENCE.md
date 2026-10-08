@@ -5810,6 +5810,7 @@ devops roadmap intake [OPTIONS]
 | `--borrow-reason` | `choice (split|follow-up)` | - | Why the new candidate may open beyond the quota's allowance: a split of an item too big for one pull request, or a follow-up a reviewer or readiness check requires. Needs --source. |
 | `--source` | `string` | - | Link the new candidate came from, such as the item it splits or the review that found it; the filed body ends with it. |
 | `--filed-by` | `choice (agent|person)` | `agent` | Who files the new candidate: an agent's is labeled source/agent and counts toward the quota; a person's never does. |
+| `--limit` | `integer` | - | Decide at most this many candidates, the oldest first, and leave the rest for a later run. Without it, intake decides every candidate. It keeps no record of what it decided; the intake that devops roadmap run and the Service run keeps one, so a candidate it left undecided waits behind the fresh ones. |
 | `--dry-run` | `boolean` | - | Make no request, to GitHub or a model: print the requests a run makes, in order, with placeholders for values a read gives. |
 | `--plan` | `boolean` | - | Read GitHub and call the model, print each planned change and what the run spent, and write nothing. Intake without a mode flag does this. |
 | `--confirm` | `boolean` | - | Plan as --plan does, then make the writes on GitHub. |
@@ -5855,7 +5856,7 @@ devops roadmap refine [OPTIONS]
 
 ### `devops roadmap run`
 
-**Run roadmap jobs that are due: evaluate due criteria across landed jobs, run due jobs in order, and record last-success execution timestamps. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
+**Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then intake and refine, and record each one's last success. Reprioritize is due on a ship, a cut or an un-cut the poll reads, on a change to an item in the current release, and once a day; intake decides at most 5 candidates a run and keeps a record of those it left beside the schedule. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
 
 ```bash
 devops roadmap run [OPTIONS]

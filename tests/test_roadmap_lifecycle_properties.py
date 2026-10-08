@@ -6,13 +6,14 @@ release is cut, un-cut or ships (or merges with `release.yml` failing to publish
 published later), a day passes, or the job's next run stops part-way, at any of its gh calls: a
 field write is GitHub's two, the job record and then the field. The job first runs either
 with the first release under way, or once it has shipped. After it, the machine polls the
-store's changes as the service will (#752), and runs reprioritization when `is_due` says so. A
-run that stops part-way is run again, as the command says to: at once, or at the next poll, so
-a person can act in between. One that stops at its last write, the close of a shipped milestone,
-has made every other, so the run after it is a run of its own, checked as one. Every invariant
-is checked after every step, and each one's message starts with the CONTEXT.md term it
-enforces; while a stopped run waits for the next poll, the roadmap is half-changed, and only
-the checks of a finished run apply.
+store's changes as the service will (#752), and runs reprioritization when `is_due`, given the
+current release as the Service reads it, says so (#1360). A run that stops part-way is run
+again, as the command says to: at once, or at the next poll, so a person can act in between.
+One that stops at its last write, the close of a shipped milestone, has made every other, so
+the run after it is a run of its own, checked as one. Every invariant is checked after every
+step, and each one's message starts with the CONTEXT.md term it enforces; while a stopped run
+waits for the next poll, the roadmap is half-changed, and only the checks of a finished run
+apply.
 
 The machine keeps its own record of what happened: when the job first ran, when a release
 shipped and so when the next one started, who last placed each item, the release's size when
@@ -375,7 +376,8 @@ class RoadmapLifecycle(RuleBasedStateMachine):
         self.polled = self.now
         self.last_run = None
         waiting = self.outstanding is not None or self.closing
-        if waiting or is_due(changes, self.now, self.last_stall_check):
+        current = reprioritize.current_release(self.store.releases())
+        if waiting or is_due(changes, self.now, self.last_stall_check, current):
             self.run_job()
         else:
             self.refresh()

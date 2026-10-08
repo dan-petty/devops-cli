@@ -1050,6 +1050,12 @@ class RoadmapCommandHelp:
         "writes nothing and reports what it spent; --confirm makes the writes."
     )
     intake_issue: str = "Only this issue (repeatable)."
+    intake_limit: str = (
+        "Decide at most this many candidates, the oldest first, and leave the rest for a later "
+        "run. Without it, intake decides every candidate. It keeps no record of what it "
+        "decided; the intake that devops roadmap run and the Service run keeps one, so a "
+        "candidate it left undecided waits behind the fresh ones."
+    )
     intake_title: str = (
         "Title of a candidate that is not an issue yet; intake files it only when it is not a "
         "duplicate. Needs --body-file."
@@ -1078,9 +1084,12 @@ class RoadmapCommandHelp:
         "placeholders for values a read gives."
     )
     run: str = (
-        "Run roadmap jobs that are due: evaluate due criteria across landed jobs, run due jobs in "
-        "order, and record last-success execution timestamps. Without --confirm, or with --dry-run, "
-        "prints the due list and runs nothing."
+        "Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then "
+        "intake and refine, and record each one's last success. Reprioritize is due on a ship, "
+        "a cut or an un-cut the poll reads, on a change to an item in the current release, and "
+        "once a day; intake decides at most 5 candidates a run and keeps a record of those it "
+        "left beside the schedule. Without --confirm, or with --dry-run, prints the due list "
+        "and runs nothing."
     )
     run_confirm: str = "Execute the due roadmap jobs. Without it, run prints the due list only."
     run_dry_run: str = (

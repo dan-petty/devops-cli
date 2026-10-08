@@ -8,11 +8,13 @@ cards, which hold option ids, show after a person edits a field's options in its
 
 A person also opens, closes and merges pull requests, publishes GitHub Releases, closes and reopens
 issues and adds blocked-by links through the helpers below; each records the change a poll would
-find. A person's `archive_card` takes a card off every read with its fields and job record, and
-`add_item` restores it, marked `restored`, as GitHub's board does (#1403). `seed_evidence` makes
-a piece of evidence one GitHub confirms. Every write the store makes as a job, not as a person, is
-kept in `job_writes`, so a test can check what a job wrote and that a preview wrote nothing. The
-only draft issue the board holds is the run record card, once a job has written the run record.
+find, a ship and an un-cut with no actor, as GitHub's listings report them (#1360). Every write to
+an issue, a comment included, moves its `updated_at`, as on GitHub. A person's `archive_card`
+takes a card off every read with its fields and job record, and `add_item` restores it, marked
+`restored`, as GitHub's board does (#1403). `seed_evidence` makes a piece of evidence one GitHub
+confirms. Every write the store makes as a job, not as a person, is kept in `job_writes`, so a
+test can check what a job wrote and that a preview wrote nothing. The only draft issue the board
+holds is the run record card, once a job has written the run record.
 
 Each view holds every card as it last read it, with its own writes: a job's write of a field a
 person changed since raises before it changes anything, as the GitHub adapter's does against
@@ -74,11 +76,11 @@ from devops_cli.roadmap.store import (
     RoadmapStore,
     Workflow,
     as_utc,
+    cuts_its_release,
     field_options,
     find_release,
     in_release,
     is_release_pull_request,
-    is_release_title,
     join_items,
     parse_release_version,
     release_edits,
@@ -248,6 +250,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             pull_request=pull_request,
             author_association=author_association,
             created_at=now,
+            updated_at=now,
             closed_at=now if state is GitHubState.CLOSED else None,
         )
         if on_board:
@@ -306,21 +309,18 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Label issue `number`, as a person does on GitHub."""
         issue = self._require_issue(number, "roadmap.issue.label")
         if label not in issue.labels:
-            self._roadmap.issues[number] = issue.model_copy(
-                update={"labels": (*issue.labels, label)}
-            )
+            self._update_issue(issue, labels=(*issue.labels, label))
             self._record(ChangeKind.LABELED, number, issue.release, label=label)
 
     def reopen_issue(self, number: int) -> None:
         """Reopen a closed issue, as a person does on GitHub."""
         issue = self._require_issue(number, "roadmap.issue.reopen")
         if issue.state is GitHubState.CLOSED:
-            self._roadmap.issues[number] = issue.model_copy(
-                update={
-                    "state": GitHubState.OPEN,
-                    "state_reason": CONST_GH_ISSUE_STATE_REASON_REOPENED,
-                    "closed_at": None,
-                }
+            self._update_issue(
+                issue,
+                state=GitHubState.OPEN,
+                state_reason=CONST_GH_ISSUE_STATE_REASON_REOPENED,
+                closed_at=None,
             )
             self._closure(number, ChangeKind.REOPENED)
             self._record(ChangeKind.REOPENED, number, issue.release)
@@ -382,7 +382,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             last_commit_at=now,
         )
         self._roadmap.pull_requests[number] = opened
-        if self._is_release_pull_request(opened):
+        if cuts_its_release(opened, self._roadmap.default_branch):
             self._record(ChangeKind.RELEASE_CUT, number, release)
         return number
 
@@ -412,8 +412,8 @@ class InMemoryRoadmapStore(RoadmapStore):
             }
         )
         self._roadmap.pull_requests[number] = closed
-        if not merged and self._is_release_pull_request(closed):
-            self._record(ChangeKind.RELEASE_UNCUT, number, closed.release)
+        if not merged and cuts_its_release(closed, self._roadmap.default_branch):
+            self._record(ChangeKind.RELEASE_UNCUT, number, closed.release, attributed=False)
 
     def push_to_pull_request(self, number: int) -> None:
         """Push a commit to an open pull request, which also updates it."""
@@ -426,7 +426,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Publish GitHub Release `vX.Y.Z`; once its pull request has merged, the Release ships."""
         title = require_release(self.releases(), version, "roadmap.release.publish").title
         self._roadmap.published.add(title)
-        self._record(ChangeKind.RELEASE_SHIPPED, 0, title)
+        self._record(ChangeKind.RELEASE_SHIPPED, 0, title, attributed=False)
 
     def seed_branch(self, name: str, sha: str) -> None:
         """Push branch `name` at commit `sha`."""
@@ -501,9 +501,9 @@ class InMemoryRoadmapStore(RoadmapStore):
         deleted = require_release(self.releases(), version, "roadmap.release.delete")
         del self._roadmap.releases[deleted.number]
         self._log("delete_release", value=deleted.title)
-        for number, issue in self._roadmap.issues.items():
+        for issue in list(self._roadmap.issues.values()):
             if in_release(issue.release, deleted.version):
-                self._roadmap.issues[number] = issue.model_copy(update={"release": None})
+                self._update_issue(issue, release=None)
 
     # ── Issues ──
 
@@ -542,9 +542,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Add `label` to issue `number`, keeping its other labels."""
         issue = self._require_issue(number, "roadmap.issue.label")
         if label not in issue.labels:
-            self._roadmap.issues[number] = issue.model_copy(
-                update={"labels": (*issue.labels, label)}
-            )
+            self._update_issue(issue, labels=(*issue.labels, label))
             self._record(ChangeKind.LABELED, number, issue.release, label=label)
         self._log("label_issue", number, value=label)
 
@@ -559,6 +557,7 @@ class InMemoryRoadmapStore(RoadmapStore):
     def comment(self, number: int, body: str) -> None:
         """Comment `body` on issue `number`."""
         issue = self._require_issue(number, "roadmap.issue.comment")
+        self._update_issue(issue)
         self._roadmap.comments.setdefault(number, []).append(body)
         self._log("comment", number, value=body)
         self._record(ChangeKind.COMMENTED, number, issue.release)
@@ -590,7 +589,7 @@ class InMemoryRoadmapStore(RoadmapStore):
     def write_issue_body(self, number: int, body: str) -> None:
         """Write `body` as the body of issue `number`, raising if it is not an issue of this repository."""
         issue = self._require_issue(number, "roadmap.issue.write_body")
-        self._roadmap.issues[number] = issue.model_copy(update={"body": body})
+        self._update_issue(issue, body=body)
         self._log("write_issue_body", number, value=body)
         self._record(ChangeKind.EDITED, number, issue.release)
 
@@ -910,15 +909,20 @@ class InMemoryRoadmapStore(RoadmapStore):
         self, issue: IssueRecord, reason: CloseReason, *, duplicate_of: int | None = None
     ) -> None:
         """Close the issue for `reason` now, recording the close in its timeline and changes."""
-        self._roadmap.issues[issue.number] = issue.model_copy(
-            update={
-                "state": GitHubState.CLOSED,
-                "state_reason": reason.value,
-                "closed_at": self._roadmap.clock(),
-            }
+        self._update_issue(
+            issue,
+            state=GitHubState.CLOSED,
+            state_reason=reason.value,
+            closed_at=self._roadmap.clock(),
         )
         self._closure(issue.number, ChangeKind.CLOSED, reason.value, duplicate_of)
         self._record(ChangeKind.CLOSED, issue.number, issue.release)
+
+    def _update_issue(self, issue: IssueRecord, **changes: Any) -> None:
+        """Write `changes` to the issue, which moves its `updated_at` to now, as any write to an
+        issue on GitHub does, a comment included."""
+        update = changes | {"updated_at": self._roadmap.clock()}
+        self._roadmap.issues[issue.number] = issue.model_copy(update=update)
 
     def _closure(
         self,
@@ -1038,12 +1042,6 @@ class InMemoryRoadmapStore(RoadmapStore):
         release = self._roadmap.issues[number].release
         self._record(ChangeKind.FIELD_CHANGED, number, release, field=field, value=value)
 
-    def _is_release_pull_request(self, pull_request: PullRequest) -> bool:
-        if pull_request.release is None or not is_release_title(pull_request.release):
-            return False
-        version = parse_release_version(pull_request.release)
-        return is_release_pull_request(pull_request, version, self._roadmap.default_branch)
-
     def _require_board(self) -> Board:
         if self._roadmap.board is None:
             raise GitHubOperationError(
@@ -1125,12 +1123,15 @@ class InMemoryRoadmapStore(RoadmapStore):
         field: ItemField | None = None,
         value: str | None = None,
         label: str | None = None,
+        attributed: bool = True,
     ) -> None:
+        """Record a change as a poll reads it; an `attributed=False` one names no actor, as
+        GitHub's listings name no one for a ship or an un-cut."""
         self._roadmap.changes.append(
             Change(
                 kind=kind,
                 number=number,
-                actor=self._actor,
+                actor=self._actor if attributed else None,
                 at=self._roadmap.clock(),
                 release=release,
                 label=label,
@@ -1148,7 +1149,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             else None
         )
         if target != issue.release:
-            self._roadmap.issues[number] = issue.model_copy(update={"release": target})
+            self._update_issue(issue, release=target)
             moves = ((ChangeKind.LEFT_RELEASE, issue.release), (ChangeKind.JOINED_RELEASE, target))
             for kind, title in moves:
                 if title is not None:
@@ -1157,9 +1158,9 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     def _retitle(self, old: str, new: str) -> None:
         """Show a renamed Release's new title on its issues and pull requests."""
-        for number, issue in self._roadmap.issues.items():
+        for issue in list(self._roadmap.issues.values()):
             if issue.release == old:
-                self._roadmap.issues[number] = issue.model_copy(update={"release": new})
+                self._update_issue(issue, release=new)
         for number, pull_request in self._roadmap.pull_requests.items():
             if pull_request.release == old:
                 self._roadmap.pull_requests[number] = pull_request.model_copy(

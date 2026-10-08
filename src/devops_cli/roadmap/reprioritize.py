@@ -2385,30 +2385,38 @@ def is_own_change(change: Change) -> bool:
     return True
 
 
-def _triggers(change: Change) -> bool:
+def _triggers(change: Change, current: Version | None) -> bool:
     if change.kind in RELEASE_CHANGE_KINDS:
         return True
-    if change.release is None or is_own_change(change):
+    if current is None or not in_release(change.release, current) or is_own_change(change):
         return False
     if change.kind is ChangeKind.FIELD_CHANGED:
         return change.field in _FIELD_CHANGES
     return change.kind in _ITEM_CHANGES
 
 
-def is_due(changes: Iterable[Change], now: datetime, last_stall_check: datetime | None) -> bool:
-    """Whether reprioritization is due, from the changes since the last poll (#741, #752).
+def is_due(
+    changes: Iterable[Change],
+    now: datetime,
+    last_stall_check: datetime | None,
+    current: Release | None,
+) -> bool:
+    """Whether reprioritization is due, from the changes since it last ran (#741, #752, #1360).
 
-    It is due when a release starts, is cut, is un-cut or ships; when an item in a Release joins
-    or leaves it, closes or reopens, or its Status, Priority, labels or blocked-by links change;
-    and once a day for the stall check, counted from `last_stall_check`. A comment, an edit and
-    a job's own change (one whose value matches the Item's job record) are not triggers. With
-    no state to read, it can't tell the current release from a planned one, so a change to an
-    item in any Release counts; a run that finds nothing to do writes nothing.
+    It is due when a release is cut, is un-cut or ships; when an item in `current`, the current
+    release, joins or leaves it, closes or reopens, or its Status, Priority, labels or blocked-by
+    links change; and once a day for the stall check, counted from `last_stall_check`, or at
+    once when there is none. A change to an item in a planned release is no trigger: the job
+    leaves those items alone until their release starts, and a ship starts it. A comment, an
+    edit and a job's own change (one whose value matches the Item's job record) are not
+    triggers either. It reads nothing: a change carries the Release it concerns, and the caller
+    reads the current release.
     """
     stall_check = timedelta(hours=DEFAULT_ROADMAP_STALL_CHECK_HOURS)
     if last_stall_check is None or now - last_stall_check >= stall_check:
         return True
-    return any(_triggers(change) for change in changes)
+    version = current.version if current is not None else None
+    return any(_triggers(change, version) for change in changes)
 
 
 __all__ = [

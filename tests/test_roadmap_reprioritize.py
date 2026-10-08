@@ -38,6 +38,7 @@ from devops_cli.roadmap.reprioritize import (
     Transition,
     admission_event,
     apply_reprioritization,
+    current_release,
     decide,
     is_due,
     plan_reprioritization,
@@ -2697,12 +2698,13 @@ LAST_CHECK = NOW - timedelta(hours=1)
 
 def _due(roadmap: Roadmap, act: Callable[[Roadmap], object]) -> bool:
     """Whether the job is due after `act`, polled a minute later and an hour after the last
-    stall check."""
+    stall check, with the current release the Service reads at the poll (#1360)."""
     roadmap.now += timedelta(minutes=1)
     since = roadmap.now
     act(roadmap)
     last_check = roadmap.now - timedelta(hours=1)
-    return is_due(roadmap.store.changes_since(since), roadmap.now, last_check)
+    current = current_release(roadmap.store.releases())
+    return is_due(roadmap.store.changes_since(since), roadmap.now, last_check, current)
 
 
 def _edited(roadmap: Roadmap) -> list[Change]:
@@ -2726,7 +2728,9 @@ def test_is_due_is_false_for_comments_and_the_jobs_own_changes(
     started_with(roadmap, roadmap.file("held"))
     roadmap.set(roadmap.file("blocked"), ItemField.STATUS, "Blocked")
     roadmap.fix()
-    assert (_due(roadmap, act), is_due(_edited(roadmap), NOW, LAST_CHECK)) == (False, False)
+    current = roadmap.store.release(CURRENT)
+    edited = is_due(_edited(roadmap), NOW, LAST_CHECK, current)
+    assert (_due(roadmap, act), edited) == (False, False)
 
 
 TRIGGERS: dict[str, Callable[[Roadmap], object]] = {
@@ -2786,15 +2790,33 @@ def test_is_due_when_a_person_takes_an_admitted_item_back_to_where_a_job_last_pl
     assert (due, started.release_of(feature)) == (True, [None])
 
 
-def test_is_due_on_a_release_start_and_once_a_day_for_the_stall_check() -> None:
-    start = Change(kind=ChangeKind.RELEASE_STARTED, number=0, actor=None, at=NOW, release=NEXT)
+def test_is_due_on_a_ship_and_once_a_day_for_the_stall_check() -> None:
+    """A ship is due with no current release left; the stall check counts from the last one."""
+    ship = Change(kind=ChangeKind.RELEASE_SHIPPED, number=0, actor=None, at=NOW, release=NEXT)
     day = timedelta(days=1)
     assert (
-        is_due([start], NOW, LAST_CHECK),
-        is_due([], NOW, None),
-        is_due([], NOW, NOW - day + timedelta(seconds=1)),
-        is_due([], NOW, NOW - day),
+        is_due([ship], NOW, LAST_CHECK, None),
+        is_due([], NOW, None, None),
+        is_due([], NOW, NOW - day + timedelta(seconds=1), None),
+        is_due([], NOW, NOW - day, None),
     ) == (True, True, False, True)
+
+
+PLANNED_EDITS: dict[str, Callable[[Roadmap], object]] = {
+    "priority": lambda r: r.set(r.file("planned", release=NEXT), ItemField.PRIORITY, "P1-High"),
+    "status": lambda r: r.set(r.file("planned", release=LATER), ItemField.STATUS, "Blocked"),
+    "label": lambda r: r.person.add_label(r.file("planned", release=NEXT), "needs-split"),
+    "between-planned": lambda r: r.place(r.file("planned", release=NEXT), LATER),
+}
+
+
+@pytest.mark.parametrize("act", PLANNED_EDITS.values(), ids=PLANNED_EDITS.keys())
+def test_is_due_is_false_for_a_change_to_an_item_in_a_planned_release(
+    started: Roadmap, act: Callable[[Roadmap], object]
+) -> None:
+    """The job leaves planned-release items alone until their release starts, so a person's
+    edit there needs no run (#1360)."""
+    assert _due(started, act) is False
 
 
 # ── The command and its MCP mirror ────────────────────────────────────────────

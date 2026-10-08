@@ -7,8 +7,12 @@ last. The board comes from the store's own paged GraphQL query (`board_read`): e
 a Projects filter at the source, leaves archived items out, checks the budget first and charges
 each page's reported points, and is checked against the total for the same filter, so a short
 read is caught; a count that changes during the read is read again once before the read fails.
-Issue events are read a page at a time, newest first, so the read stops at the first event older
-than it needs.
+A poll reads three listings a page at a time, newest first, and stops after the first page that
+ends before the time it reads from (#1360): the issue events, the pull requests by their last
+update, for the cuts and un-cuts of release pull requests, and the GitHub Releases, for the
+ships, these two `DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE` at a time, since each entry is large.
+Every one is REST; the milestones are read only when a GitHub Release was published in that
+time, to find the Release its tag names.
 
 The store reads the board listing once for each filter, and the board's fields once, and keeps
 both for its life, one command or one Service round (#1361): every reader of a filter shares its
@@ -45,10 +49,9 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from collections.abc import Collection, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime
 from http import HTTPStatus
-from itertools import takewhile
 from typing import Any, Protocol
 from urllib.parse import quote, urlsplit
 
@@ -79,6 +82,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_PROJECT_WORKFLOW_LIMIT,
     DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_RELEASE_LABEL,
+    DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE,
 )
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.github.projects import check_github_rate_limit_error
@@ -104,6 +108,7 @@ from devops_cli.roadmap.board_read import (
 )
 from devops_cli.roadmap.store import (
     BOARD_FIELDS,
+    RELEASE_CHANGE_KINDS,
     AddedItem,
     Board,
     BoardEntry,
@@ -130,11 +135,13 @@ from devops_cli.roadmap.store import (
     JobRecord,
     MergedPullRequest,
     PullRequest,
+    PullRequestState,
     RefineRecordKey,
     Release,
     RoadmapStore,
     Workflow,
     as_utc,
+    cuts_its_release,
     field_options,
     find_release,
     is_release_title,
@@ -212,6 +219,7 @@ class _IssuePayload(BaseModel):
     node_id: str | None = None
     author_association: str | None = None
     created_at: datetime | None = None
+    updated_at: datetime | None = None
     closed_at: datetime | None = None
 
     def record(self) -> IssueRecord:
@@ -227,6 +235,7 @@ class _IssuePayload(BaseModel):
             pull_request=self.pull_request is not None,
             author_association=self.author_association,
             created_at=self.created_at,
+            updated_at=self.updated_at,
             closed_at=self.closed_at,
         )
 
@@ -380,6 +389,73 @@ class _RefPayload(BaseModel):
 
 class _GitHubReleasePayload(BaseModel):
     draft: bool
+
+
+class _ListedReleasePayload(BaseModel):
+    """A GitHub Release as the REST listing `repos/{repo}/releases` gives it, newest first by
+    `created_at`, its tag's time, which can be a little before it was published."""
+
+    tag_name: str
+    draft: bool
+    created_at: datetime
+    published_at: datetime | None = None
+
+    def shipped_at(self, cutoff: datetime) -> datetime | None:
+        """When it was published, if at or after `cutoff`; a draft is not published."""
+        published = None if self.draft else self.published_at
+        return published if published is not None and published >= cutoff else None
+
+
+class _UpdatedPullRequestPayload(BaseModel):
+    """A pull request as the REST listing `repos/{repo}/pulls?state=all&sort=updated` gives it,
+    with its repository's default branch, so the rule for a Release's pull request needs no
+    GraphQL read."""
+
+    number: int
+    html_url: str
+    state: PullRequestState
+    draft: bool = False
+    labels: list[_NamedPayload] = Field(default_factory=list)
+    release: str | None = Field(default=None, validation_alias=AliasPath("milestone", "title"))
+    opener: str | None = Field(default=None, validation_alias=AliasPath("user", "login"))
+    base: str = Field(validation_alias=AliasPath("base", "ref"))
+    default_branch: str = Field(validation_alias=AliasPath("base", "repo", "default_branch"))
+    head: str = Field(validation_alias=AliasPath("head", "ref"))
+    created_at: datetime
+    updated_at: datetime
+    closed_at: datetime | None = None
+    merged_at: datetime | None = None
+
+    def pull_request(self) -> PullRequest:
+        """The pull request, merged when the listing gives it a merge time."""
+        merged = self.merged_at is not None
+        return PullRequest(
+            number=self.number,
+            url=self.html_url,
+            state=PullRequestState.MERGED if merged else self.state,
+            draft=self.draft,
+            base=self.base,
+            head=self.head,
+            labels=tuple(label.name for label in self.labels),
+            release=self.release,
+            updated_at=self.updated_at,
+        )
+
+    def changes(self, cutoff: datetime) -> list[Change]:
+        """The cut its opening made and the un-cut its close unmerged made, those at or after
+        `cutoff`, when it is a Release's pull request: a cut names who opened it, and an un-cut
+        no one, as the listing names no closer."""
+        pull_request = self.pull_request()
+        if not cuts_its_release(pull_request, self.default_branch):
+            return []
+        found = [(ChangeKind.RELEASE_CUT, self.opener, self.created_at)]
+        if pull_request.state is PullRequestState.CLOSED and self.closed_at is not None:
+            found.append((ChangeKind.RELEASE_UNCUT, None, self.closed_at))
+        return [
+            Change(kind=kind, number=self.number, actor=actor, at=at, release=self.release)
+            for kind, actor, at in found
+            if at >= cutoff
+        ]
 
 
 class _PullRequestCommitPayload(BaseModel):
@@ -681,6 +757,8 @@ _DEFAULT_BRANCH = TypeAdapter(_DefaultBranchPayload)
 _IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
 _REF = TypeAdapter(_RefPayload)
 _GITHUB_RELEASE = TypeAdapter(_GitHubReleasePayload)
+_LISTED_RELEASES = TypeAdapter(list[_ListedReleasePayload])
+_UPDATED_PULL_REQUESTS = TypeAdapter(list[_UpdatedPullRequestPayload])
 _COMMENTS = TypeAdapter(list[_CommentPayload])
 _CLOSED_PULL_REQUESTS = TypeAdapter(list[_ClosedPullRequestPayload])
 _PULL_REQUEST_FILES = TypeAdapter(list[_PullRequestFilePayload])
@@ -889,10 +967,13 @@ def issues_endpoint(repo: str, query: str = "state=all") -> str:
     return f"repos/{repo}/issues?{query}"
 
 
-def listing_page_args(endpoint: str, page: int | str) -> list[str]:
-    """The `gh` arguments that read page `page` of the REST listing `endpoint`, a full page."""
+def listing_page_args(
+    endpoint: str, page: int | str, per_page: int = DEFAULT_GH_REST_PER_PAGE
+) -> list[str]:
+    """The `gh` arguments that read page `page` of the REST listing `endpoint`, `per_page`
+    entries a page, a full page by default."""
     separator = "&" if "?" in endpoint else "?"
-    return ["api", f"{endpoint}{separator}per_page={DEFAULT_GH_REST_PER_PAGE}&page={page}"]
+    return ["api", f"{endpoint}{separator}per_page={per_page}&page={page}"]
 
 
 # The argument builders below are pure: the store runs what they return, and a dry run's request
@@ -1102,9 +1183,20 @@ def issue_args(repo: str, number: Number) -> list[str]:
     return ["api", f"repos/{repo}/issues/{number}"]
 
 
-def issue_events_page_args(repo: str, page: Number) -> list[str]:
-    """A page of `repo`'s issue events, newest first."""
-    return ["api", f"repos/{repo}/issues/events?per_page={DEFAULT_GH_REST_PER_PAGE}&page={page}"]
+def repository_issue_events_endpoint(repo: str) -> str:
+    """The REST listing of every issue event of `repo`, newest first."""
+    return f"repos/{repo}/issues/events"
+
+
+def updated_pull_requests_endpoint(repo: str) -> str:
+    """The REST listing of `repo`'s pull requests, open and closed, by their last update,
+    newest first."""
+    return f"repos/{repo}/pulls?state=all&sort=updated&direction=desc"
+
+
+def github_releases_endpoint(repo: str) -> str:
+    """The REST listing of `repo`'s GitHub Releases, newest first."""
+    return f"repos/{repo}/releases"
 
 
 def issue_events_endpoint(repo: str, number: Number) -> str:
@@ -1382,29 +1474,35 @@ class GitHubRoadmapStore(RoadmapStore):
         return select_candidates(self._read_issues("state=open"), board)
 
     def changes_since(self, since: datetime, *, except_actor: str | None = None) -> list[Change]:
-        """The Item changes made at or after `since`, oldest first, read newest first; those
-        `except_actor` made are left out before any job record is read; an empty actor leaves out
-        nothing."""
+        """The changes made at or after `since`, oldest first: the Item changes the issue events
+        report, the cuts and un-cuts of release pull requests, and the ships of GitHub Releases
+        whose tag names a Release (#1360). Those `except_actor` made are left out before any job
+        record is read; an empty actor leaves out nothing, and a ship or an un-cut, which names
+        no actor, is never left out."""
         cutoff = as_utc(since)
         skipped = except_actor or None
-        changes: list[Change] = []
-        for page in range(1, DEFAULT_GH_MAX_PAGINATED_PAGES + 1):
-            events = self._read(issue_events_page_args(self._repo, page), _EVENTS, "issue events")
-            recent = list(takewhile(lambda event: event.created_at >= cutoff, events))
-            changes.extend(
-                change
-                for event in recent
-                if (change := event.change()) is not None
-                and (skipped is None or change.actor != skipped)
-            )
-            if len(recent) < len(events) or len(events) < DEFAULT_GH_REST_PER_PAGE:
-                return self._with_job_records(changes[::-1])
-        raise GitHubOperationError(
-            f"The issue events of {self._repo} since {cutoff.isoformat()} run past "
-            f"{DEFAULT_GH_MAX_PAGINATED_PAGES} pages, so the read can't complete.",
-            operation="roadmap.read",
-            details={"repo": self._repo[:256]},
+        events = self._read_listing(
+            repository_issue_events_endpoint(self._repo),
+            _EVENTS,
+            "issue events",
+            ends=lambda event: event.created_at < cutoff,
         )
+        pull_requests = self._read_listing(
+            updated_pull_requests_endpoint(self._repo),
+            _UPDATED_PULL_REQUESTS,
+            "pull requests",
+            ends=lambda pull_request: pull_request.updated_at < cutoff,
+            per_page=DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE,
+        )
+        changes = [
+            change
+            for event in reversed(events)
+            if (change := event.change()) is not None and change.at >= cutoff
+        ]
+        changes += [change for listed in pull_requests for change in listed.changes(cutoff)]
+        changes += self._ships_since(cutoff)
+        kept = [change for change in changes if skipped is None or change.actor != skipped]
+        return self._with_job_records(sorted(kept, key=lambda change: change.at))
 
     def add_item(self, number: int) -> AddedItem:
         """Put issue `number` on the board and return its Item, raising if it is not an issue
@@ -1845,13 +1943,16 @@ class GitHubRoadmapStore(RoadmapStore):
     # ── Writes ──
 
     def _with_job_records(self, changes: list[Change]) -> list[Change]:
-        """The changes, each with its Item's job record from the board, when one is configured."""
-        if self._board is None or not changes:
+        """The changes, each Item change with its Item's job record from the board, when one is
+        configured. A release change carries none, so a poll that finds only those reads no
+        board."""
+        items = [change for change in changes if change.kind not in RELEASE_CHANGE_KINDS]
+        if self._board is None or not items:
             return changes
         board = self._read_board()
         return [
             change.model_copy(update={"job_record": board[change.number].job_record})
-            if change.number in board
+            if change.kind not in RELEASE_CHANGE_KINDS and change.number in board
             else change
             for change in changes
         ]
@@ -2270,14 +2371,47 @@ class GitHubRoadmapStore(RoadmapStore):
     def _read_issue(self, number: int) -> _IssuePayload:
         return self._read(issue_args(self._repo, number), _ISSUE, f"issue #{number}")
 
+    def _ships_since(self, cutoff: datetime) -> list[Change]:
+        """A ship for each GitHub Release published at or after `cutoff` whose tag names a
+        Release. The listing is ordered by its tags' times, so every page is judged by when
+        each was published, and the milestones are read only when one was published since."""
+        listed = self._read_listing(
+            github_releases_endpoint(self._repo),
+            _LISTED_RELEASES,
+            "GitHub Releases",
+            ends=lambda release: release.created_at < cutoff,
+            per_page=DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE,
+        )
+        shipped = [
+            (published.tag_name, at)
+            for published in listed
+            if (at := published.shipped_at(cutoff)) is not None
+        ]
+        releases = self.releases() if shipped else []
+        return [
+            Change(
+                kind=ChangeKind.RELEASE_SHIPPED, number=0, actor=None, at=at, release=release.title
+            )
+            for tag, at in shipped
+            if is_release_title(tag) and (release := find_release(releases, tag)) is not None
+        ]
+
     def _read_issues(self, query: str) -> list[IssueRecord]:
         issues = self._read_listing(issues_endpoint(self._repo, query), _ISSUES, "issues")
         return [issue.record() for issue in issues]
 
     def _read_listing[EntryT](
-        self, endpoint: str, adapter: TypeAdapter[list[EntryT]], what: str
+        self,
+        endpoint: str,
+        adapter: TypeAdapter[list[EntryT]],
+        what: str,
+        *,
+        ends: Callable[[EntryT], bool] | None = None,
+        per_page: int = DEFAULT_GH_REST_PER_PAGE,
     ) -> list[EntryT]:
-        """Read every page of a REST listing, a full page at a time, until a page is short.
+        """Read every page of a REST listing, `per_page` entries at a time, until a page is
+        short, or, with `ends`, until a page whose last entry `ends` holds for: a listing read
+        newest first ends at the first page reaching back past the time it reads from (#1360).
 
         Each page must be a JSON list, or the read raises, naming it: `api --paginate` would
         end the listing at a page that is empty or not JSON, as a proxy's error page is, and
@@ -2286,10 +2420,10 @@ class GitHubRoadmapStore(RoadmapStore):
         listing: list[EntryT] = []
         for page in range(1, DEFAULT_GH_MAX_PAGINATED_PAGES + 1):
             entries = self._read(
-                listing_page_args(endpoint, page), adapter, f"{what} (page {page})"
+                listing_page_args(endpoint, page, per_page), adapter, f"{what} (page {page})"
             )
             listing.extend(entries)
-            if len(entries) < DEFAULT_GH_REST_PER_PAGE:
+            if len(entries) < per_page or (ends is not None and ends(entries[-1])):
                 return listing
         raise GitHubOperationError(
             f"The {what} of {self._repo} run past {DEFAULT_GH_MAX_PAGINATED_PAGES} pages, so "
@@ -2390,12 +2524,12 @@ __all__ = [
     "field_delete_args",
     "field_list_args",
     "field_spec_request",
+    "github_releases_endpoint",
     "graphql_request",
     "is_private_args",
     "issue_args",
     "issue_count_args",
     "issue_events_endpoint",
-    "issue_events_page_args",
     "issue_milestone_args",
     "issue_search_text",
     "issue_status_args",
@@ -2416,8 +2550,10 @@ __all__ = [
     "release_pull_requests_args",
     "release_tag_args",
     "repository_file_args",
+    "repository_issue_events_endpoint",
     "repository_query_args",
     "run_record_card_args",
+    "updated_pull_requests_endpoint",
     "workflow_run_args",
     "write_issue_body_args",
 ]

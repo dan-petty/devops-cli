@@ -305,12 +305,16 @@ def _new_candidate(
 
 
 def _intake_dry_run(
-    repo: str | None, ref: str | None, issues: Collection[int], new: NewCandidate | None
+    repo: str | None,
+    ref: str | None,
+    issues: Collection[int],
+    new: NewCandidate | None,
+    limit: int | None,
 ) -> None:
     """Print the requests an intake run makes, making none: no store opens, no model is built."""
     target = _target(repo)
     with _exit_on_failure("Could not plan intake"):
-        planned = dry_run_intake(target, ref=ref, issues=issues, new=new)
+        planned = dry_run_intake(target, ref=ref, issues=issues, new=new, limit=limit)
     render_intake_dry_run(planned, repo=target)
 
 
@@ -336,6 +340,9 @@ def intake_cmd(
     filed_by: Annotated[
         Filer, typer.Option("--filed-by", help=HELP.roadmap.intake_filed_by)
     ] = Filer.AGENT,
+    limit: Annotated[
+        int | None, typer.Option("--limit", min=1, help=HELP.roadmap.intake_limit)
+    ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.intake_dry_run)] = False,
     plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.intake_plan)] = False,
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.intake_confirm)] = False,
@@ -359,13 +366,13 @@ def intake_cmd(
         else None
     )
     if dry_run or is_dry_run():
-        _intake_dry_run(repo, ref, issue or (), new)
+        _intake_dry_run(repo, ref, issue or (), new, limit)
         return
     if not (plan_only or confirm):
         print_info(MESSAGES.roadmap.intake_plain_note)
     opened: list[RoadmapStore] = []
     with _reporting_spend(opened):
-        _intake(repo, ref, issue or (), new, confirm=confirm, opened=opened)
+        _intake(repo, ref, issue or (), new, limit, confirm=confirm, opened=opened)
 
 
 def _intake(
@@ -373,6 +380,7 @@ def _intake(
     ref: str | None,
     issues: Sequence[int],
     new: NewCandidate | None,
+    limit: int | None,
     *,
     confirm: bool,
     opened: list[RoadmapStore],
@@ -391,6 +399,7 @@ def _intake(
             ref=ref,
             issues=issues,
             new=new,
+            limit=limit,
         )
     if not confirm:
         plan = replace(plan, spend=meter.spend())
@@ -543,7 +552,8 @@ def run_cmd(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.run_dry_run)] = False,
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.run_confirm)] = False,
 ) -> None:
-    """Run roadmap jobs that are due: intake, closure, reprioritization, refinement."""
+    """Run the roadmap jobs that are due, in order: closure, reprioritization, metrics, intake
+    and refinement."""
     target, _config, store = _open_roadmap(repo, ref, CONST_ROADMAP_RUN_BOARD_FILTER)
     from devops_cli.roadmap.run import run_due_jobs
 

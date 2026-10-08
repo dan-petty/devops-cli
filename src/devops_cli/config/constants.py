@@ -2513,6 +2513,8 @@ CONST_ROADMAP_REFINE_MAX_BODY_CHARS: Final[int] = 65536
 CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES: Final[int] = 3
 CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY: Final[int] = 5
 CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
+# The Service's intake record beside schedule.json: what intake decided and left (#1360).
+CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"
 CONST_ROADMAP_RUN_CLONE_DIRNAME: Final[str] = "clone"
 CONST_ROADMAP_INTAKE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "issues", "opened"),
@@ -2521,8 +2523,10 @@ CONST_ROADMAP_INTAKE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
 CONST_ROADMAP_CLOSURE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "pull_request", "closed"),
 )
+# A milestone closing and a GitHub Release published are a ship's webhook hints (#1360).
 CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
-    ("webhook", "pull_request", "closed"),
+    ("webhook", "milestone", "closed"),
+    ("webhook", "release", "published"),
 )
 CONST_ROADMAP_DOCUMENT_PATH: Final[str] = "docs/ROADMAP.md"
 CONST_PROJECT_TEMPLATE_PATH: Final[str] = ".github/project-template.json"
