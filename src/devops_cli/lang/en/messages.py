@@ -1003,6 +1003,17 @@ class ServeMessages:
     openapi_json: str = "  [cyan]•[/cyan] OpenAPI JSON:[link=http://{host}:{port}/openapi.json]http://{host}:{port}/openapi.json[/link]"
     health_endpoint: str = "  [cyan]•[/cyan] Health:      [link=http://{host}:{port}/health]http://{host}:{port}/health[/link]"
     metrics_endpoint: str = "  [cyan]•[/cyan] Metrics:     [link=http://{host}:{port}/metrics]http://{host}:{port}/metrics[/link]\n"
+    # Logged once for each new time a failed Service round names (#1400).
+    rounds_paused: str = (
+        "No repository starts a Service round before {until}, the time the failed round for "
+        "{repo} named; the triggers that arrive until then run as one round per repository."
+    )
+    # Logged when the time a failed round names can't be read: no round waits, and the worker
+    # carries on (#1400).
+    rounds_pause_unread: str = (
+        "Could not read the time the failed Service round for {repo} names, so no round waits "
+        "for it: {kind}: {error}"
+    )
 
 
 @dataclass(frozen=True)
@@ -1139,6 +1150,20 @@ class RoadmapMessages:
     graphql_spend_since_reset: str = (
         "GraphQL: {spent} points spent since the hourly reset during the run, {remaining} left "
         "until {reset}."
+    )
+    # The line each Service round that sent GraphQL ends with (#1400). The points are the
+    # machine account's, which every repository's rounds share.
+    graphql_round_spend: str = (
+        "{repo}: GraphQL, {spent} of the account's points spent during the round, {remaining} "
+        "left until {reset}."
+    )
+    graphql_round_spend_since_reset: str = (
+        "{repo}: GraphQL, {spent} of the account's points spent since the hourly reset during "
+        "the round, {remaining} left until {reset}."
+    )
+    graphql_round_spend_unread: str = (
+        "{repo}: could not read the GraphQL budget after the round, so it has no spend line: "
+        "{kind}: {error}"
     )
     render_current: str = "## Current release: {title}"
     render_planned: str = "## Planned release: {title}"
@@ -1485,7 +1510,7 @@ class RoadmapMessages:
             "unset": "an item has the field unset",
             "not_planned": "the roadmap lists a rejected idea",
             "unfiled": "the rejected idea has no issue",
-            "done": "the run is done: it comes after any write",
+            "done": "the run is done and sent a GraphQL request: it comes after any write",
             "read_issues": (
                 "a release is current, or a closed Release's milestone counts an open issue or "
                 "pull request"

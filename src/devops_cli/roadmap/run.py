@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.constants import (
+    CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS,
     CONST_GIT_CLI,
     CONST_RELEASE_BRANCH_PREFIX,
     CONST_ROADMAP_CLOSURE_BATCH_KEYS,
@@ -41,6 +42,7 @@ from devops_cli.core.paths import (
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import GitOperationError, RoadmapRunError, SecurityError
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.board_read import refusal_reset
 from devops_cli.roadmap.reprioritize import current_release
 from devops_cli.roadmap.store import (
     RELEASE_CHANGE_KINDS,
@@ -802,6 +804,7 @@ def _execute_due_rows(
     """Execute all due jobs in order with failure tracking."""
     succeeded_jobs: list[str] = []
     failed_jobs: list[str] = []
+    resets: list[datetime] = []
     outcomes: dict[str, JobOutcome] = {}
     clone_path: Path | None = None
     clone_error: Exception | None = None
@@ -833,14 +836,17 @@ def _execute_due_rows(
             succeeded_jobs.append(row.name)
             schedule[row.name] = current_time
             _write_schedule(schedule_path, schedule)
-        except Exception:
+        except Exception as exc:
             logger.exception("Roadmap job %s failed", row.name)
             failed_jobs.append(row.name)
+            if (reset := refusal_reset(exc)) is not None:
+                resets.append(reset)
 
     if failed_jobs:
         raise RoadmapRunError(
             f"Roadmap jobs failed: {', '.join(failed_jobs)}",
             failed_jobs=failed_jobs,
+            reset_at=min(resets, default=None),
         )
     return tuple(succeeded_jobs)
 
@@ -905,11 +911,49 @@ def run_due_jobs(
     )
 
 
+def log_round_spend(repo: str, store: RoadmapStore, *, read: bool = True) -> None:
+    """Log the line a Service round of `repo` ends with: the account's GraphQL points spent
+    during the round and the points left, read from GraphQL itself, when the round's store sent
+    a GraphQL request (#1400). With `read` False, as after a budget refusal, the line comes from
+    the last budget the round's responses reported and no request is sent, so the pause starts
+    at once. Any failure here is a warning naming its class, so it never hides the round's own
+    error."""
+    try:
+        spend = store.graphql_spend(read=read)
+    except Exception as exc:
+        unread = MESSAGES.roadmap.graphql_round_spend_unread.format(
+            repo=repo, kind=type(exc).__name__, error=exc
+        )
+        logger.warning(unread, extra={"repo": repo})
+        return
+    if spend is not None:
+        logger.info(spend.round_line(repo), extra={"repo": repo})
+
+
+def _refused_reset(exc: BaseException) -> datetime | None:
+    """The reset a round's GraphQL budget refusal names: from the refusal itself, or the
+    earliest of the failed jobs' in `RoadmapRunError`; None for any other error."""
+    return exc.reset_at if isinstance(exc, RoadmapRunError) else refusal_reset(exc)
+
+
+def service_pause_until(exc: Exception) -> datetime | None:
+    """The time before which the Service starts no round after one failed with `exc`: the reset
+    a GraphQL budget refusal names plus the bound on how late GitHub still reports the window
+    that ended, so the first round after it meets the new window; None for any other error. The
+    budget is the machine account's, which every repository's rounds spend (#1400)."""
+    reset = _refused_reset(exc)
+    if reset is None:
+        return None
+    return reset + timedelta(seconds=CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS)
+
+
 def service_job(
     repo_or_batch: str | TriggerBatch,
     batch: TriggerBatch | None = None,
 ) -> None:
-    """Service mode adapter that runs due roadmap jobs for a coalesced trigger batch."""
+    """Service mode adapter that runs due roadmap jobs for a coalesced trigger batch, ending,
+    however the round ends, with its GraphQL spend line; a round a budget refusal ended reads
+    no budget for it."""
     from devops_cli.commands.roadmap import _open_roadmap
 
     if isinstance(repo_or_batch, TriggerBatch):
@@ -922,7 +966,14 @@ def service_job(
         raise RoadmapRunError("TriggerBatch is required")
 
     _target, _config, store = _open_roadmap(repo, None, CONST_ROADMAP_RUN_BOARD_FILTER)
-    run_due_jobs(repo, store, batch=active_batch)
+    refused = False
+    try:
+        run_due_jobs(repo, store, batch=active_batch)
+    except Exception as exc:
+        refused = _refused_reset(exc) is not None
+        raise
+    finally:
+        log_round_spend(repo, store, read=not refused)
 
 
 __all__ = [
@@ -931,7 +982,9 @@ __all__ = [
     "JobRow",
     "build_stub_table",
     "ensure_checkout",
+    "log_round_spend",
     "parse_due_tuple",
     "run_due_jobs",
     "service_job",
+    "service_pause_until",
 ]

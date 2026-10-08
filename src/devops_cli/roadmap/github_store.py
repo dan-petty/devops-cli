@@ -82,7 +82,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.github.projects import check_github_rate_limit_error
-from devops_cli.github.rate_limiter import run_gh
+from devops_cli.github.rate_limiter import gh_request_resource, run_gh
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.board_read import (
     BoardBudgetPayload,
@@ -1281,6 +1281,8 @@ class GitHubRoadmapStore(RoadmapStore):
         # The first and last GraphQL budgets a response reported, and what a board page cost.
         self._first_budget: GraphQLBudget | None = None
         self._last_budget: GraphQLBudget | None = None
+        # Whether the store has sent a GraphQL request, as `run_gh` paces it (#1400).
+        self._sent_graphql = False
         self._page_points = DEFAULT_GH_PROJECT_ITEM_PAGE_POINTS
         self._board: tuple[str, int] | None = (
             (board_owner, board_number) if board_owner and board_number else None
@@ -2153,8 +2155,16 @@ class GitHubRoadmapStore(RoadmapStore):
         self._first_budget = self._first_budget or budget
         self._last_budget = budget
 
-    def graphql_spend(self) -> GraphQLSpend:
-        """The GraphQL points this store's run spent and the points left, read from GraphQL."""
+    def graphql_spend(self, *, read: bool = True) -> GraphQLSpend | None:
+        """The GraphQL points this store's run spent and the points left, read from GraphQL;
+        None, with no request sent, when the store has sent no GraphQL request (#1400). With
+        `read` False, as after a budget refusal, the spend runs to the last budget a response
+        reported, and no request is sent; None when no response reported one."""
+        if not self._sent_graphql:
+            return None
+        if not read:
+            last = self._last_budget
+            return None if last is None else spend_between(self._first_budget or last, last)
         budget = self._read(graphql_budget_args(), _GRAPHQL_BUDGET, "the GraphQL budget")
         self._note_budget(budget.rate_limit)
         return spend_between(self._first_budget or budget.rate_limit, budget.rate_limit)
@@ -2315,6 +2325,7 @@ class GitHubRoadmapStore(RoadmapStore):
             )
 
     def _run(self, args: list[str], input: str | None = None) -> subprocess.CompletedProcess[str]:
+        self._sent_graphql = self._sent_graphql or gh_request_resource(args) == "graphql"
         return self._runner(args, input=input, check=False, quiet=True, use_cache=False)
 
     def _failure(

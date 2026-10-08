@@ -3,31 +3,41 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 from devops_cli.config.constants import (
     CONST_ERROR_CODE_ROADMAP_CARD_CHANGED,
     CONST_ERROR_CODE_ROADMAP_REFINE_FAILED,
+    CONST_GRAPHQL_REFUSAL_RESET_KEY,
 )
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubOperationError
 
 
 class RoadmapRunError(DevOpsCLIError):
-    """Raised when one or more roadmap jobs fail during execution."""
+    """Raised when one or more roadmap jobs fail during execution.
+
+    `reset_at` is the earliest reset a failed job's GraphQL budget refusal named, None when no
+    job was refused; the Service starts no round before it (#1400).
+    """
 
     def __init__(
         self,
         message: str,
         *,
         failed_jobs: Sequence[str] = (),
+        reset_at: datetime | None = None,
         details: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
         self.failed_jobs = tuple(failed_jobs)
+        self.reset_at = reset_at
         extra = dict(details) if details is not None else {}
         if failed_jobs and "failed_jobs" not in extra:
             extra["failed_jobs"] = list(failed_jobs)
+        if reset_at is not None:
+            extra[CONST_GRAPHQL_REFUSAL_RESET_KEY] = reset_at.isoformat()
         super().__init__(message, details=extra, **kwargs)
 
 
