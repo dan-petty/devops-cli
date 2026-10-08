@@ -5,7 +5,7 @@
 GitHub project governance in `devops-cli` standardizes repository metadata across six foundational pillars:
 1. **GitHub Pages Publishing**: Inspection of deployment health, custom domain status, HTTPS enforcement, build history, manual build dispatching, and local Jekyll `docs/github-pages.config.yaml` / `docs/` readiness verification.
 2. **GitHub Issues Lifecycle & Triage**: Intake (`devops roadmap intake`), the one way new work becomes an item, taxonomy label enforcement (`type/*`, `scope/*`, `priority/*`), and proactive triage auditing to guarantee zero unclassified open issues; a backlog item has no milestone.
-3. **GitHub Projects v2 Lifecycle**: Board creation, multi-board listing, card lifecycle reconciliation against `docs/agent/tasks/`, and automated drift auditing against standardized template schemas.
+3. **GitHub Projects v2 Lifecycle**: Board creation, multi-board listing, reconciliation of Status and Priority on the board's cards from issue and pull request state and labels, and automated drift auditing against standardized template schemas.
 4. **Standardized Projects v2 Views**: Continuous auditing and synchronization of the 4 canonical views (`Sprint Kanban`, `Roadmap Timeline`, `Triage & Quality Table`, and `Value vs Effort Priority Matrix`) ensuring full alignment across `https://github.com/dan-petty/devops-cli/projects` and `https://github.com/dan-petty/devops-cli/issues/views`.
 5. **Roadmap Milestones**: GitHub is the roadmap's source of truth (ADR 0001): milestones are its releases, with issue completion ratios, health metrics and milestone closure on release. `devops roadmap render` writes `docs/ROADMAP.md` from them.
 6. **Declarative Label Taxonomy & PR Auditing**: Repository label synchronization driven by `.github/labels.yml`, enforcing strict categorization across `type/*`, `scope/*`, `priority/*`, `status/*`, and `review/*`.
@@ -18,7 +18,7 @@ GitHub project governance in `devops-cli` standardizes repository metadata acros
 graph TD
     A[Declarative Schemas<br/>.github/labels.yml & project-template.json] -->|devops gh labels sync| B[Remote GitHub Labels]
     D[Remote GitHub Milestones] -->|devops roadmap render| C[docs/ROADMAP.md View]
-    E[docs/agent/tasks/ Lifecycles] -->|devops gh project sync| F[GitHub Projects v2 Items]
+    E[Issues placed by devops roadmap intake] -->|devops gh project sync| F[GitHub Projects v2 Items]
     G[docs/github-pages.config.yaml] -->|devops gh pages verify| H[GitHub Pages Deployment]
     I[Open Issues Queue] -->|devops gh issues triage| J[Triage Audit & Taxonomies]
     B --> K[devops gh labels audit]
@@ -84,11 +84,14 @@ devops gh project status
 # Audit project board health and alignment against standardized template
 devops gh project audit
 
-# Synchronize task tracking item cards, provision fields, and link project
+# Provision fields, link the board, and reconcile Status and Priority on its cards (adds no card)
 devops gh project sync
 
-# Preview task item synchronization into project statuses
+# Describe a sync without making any request
 devops gh project sync --dry-run
+
+# List the Status and Priority changes reconcile would make, making none
+devops gh project reconcile --plan
 
 # Link an existing project board to the repository
 devops gh project link 1
@@ -148,7 +151,7 @@ devops gh milestones close v0.2.14
     - Without a matching issue: file the task as a candidate with `devops roadmap intake --title … --body-file … --confirm` (or FastMCP `roadmap_intake` with `mode="confirm"`); intake files it unless it is a duplicate and gives it its type, Priority, Value, Effort and place.
 4. **Projects v2 Board Linkage & Real-Time Card Lifecycle Transitions**:
    - Ensure the project board is linked to the repository via `devops gh project link <number>`, surfacing the project board under `https://github.com/dan-petty/devops-cli/projects` and its 4 canonical views under `https://github.com/dan-petty/devops-cli/issues/views`.
-   - Maintain bidirectional synchronization between `docs/agent/tasks/` and GitHub Projects v2 across the 5 canonical lifecycle states:
+   - Keep each task file in `docs/agent/tasks/` and its issue's card in step across the 5 canonical lifecycle states; sync reads no task file, and the card's `In Review` comes from GitHub:
      - `Backlog`: Queued deliverables and roadmap milestones awaiting assignment.
      - `Ready`: Scoped items with concrete acceptance criteria and tests designed.
      - `In Progress (WIP)`: Active implementation. **Move card to `In Progress` BEFORE making code edits in `src/`**.
@@ -157,9 +160,10 @@ devops gh milestones close v0.2.14
    - Run `devops gh project audit` and `devops gh views audit` to detect missing fields, invalid options, or misconfigured view filters.
 5. **Custom Field Reconciliation (`devops gh project sync`, `devops gh project reconcile`)**:
    - The board owns Status: reconcile sets it only when it is unset (from an exact `status/*` label, otherwise New) or when issue or pull request state forces Done, In Review or In Progress, so manual triage is never reverted.
-   - Priority fills an unset field from its `priority/*` label, and Milestone mirrors the issue's milestone. Category, Value and Effort are never inferred; they stay as set by hand.
-   - `devops gh project reconcile --dry-run` lists every change with its old and new value and the source that decided it.
-   - Run `devops gh project sync` (or FastMCP `gh_project_sync`) after creating issues, pushing branches, or opening PRs to keep project views fully updated.
+   - Priority fills an unset field from its `priority/*` label. The board mirrors the issue's milestone itself, so reconcile never writes it, and Value and Effort are never inferred; they stay as set by hand.
+   - Reconcile and sync add no card: `devops roadmap intake` places issues, and a pull request gets no card, its progress showing on its issue's card.
+   - `devops gh project reconcile --plan` lists every change with its old and new value and the source that decided it; `--dry-run` makes no request and lists the requests a run makes. A planned value the board's field has no option for is refused before any write, naming the value and the options. A run that stops early (mutation budget, GraphQL quota or a failed write) says why and how many planned changes remain, and exits 1; running it again continues from there, after the reset for a quota stop and once the cause is fixed for a failed write.
+   - Run `devops gh project sync` (or FastMCP `gh_project_sync`) after creating issues, pushing branches, or opening PRs to keep the cards' fields up to date.
 6. **Active Milestone Resource Population & Zero-Empty Queue/Projects Policy**:
    - When initializing a new release branch or activating a milestone, AI agents must proactively author GitHub tracking issues for every planned deliverable in `docs/ROADMAP.md`.
    - The open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`), projects tab (`https://github.com/dan-petty/devops-cli/projects`), and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) must never be left empty during an active release cycle.
@@ -182,7 +186,7 @@ devops gh milestones close v0.2.14
 - **Granular Token Scopes**:
   - Labels, Milestones, Issues, and Pages require standard `repo` scope.
   - Projects v2 mutations require `project` or `read:project` scopes. When scopes are restricted, `devops gh` falls back gracefully with clear instructions (`gh auth refresh -s project,read:project`) and preserves read-only/offline functionality.
-- **Dry-Run Mode for Mutations**: Task items and project synchronization can be simulated without remote mutations using `--dry-run`.
+- **Dry-Run Mode for Mutations**: `devops gh project sync --dry-run` and `devops gh project reconcile --dry-run` make no request at all; `reconcile --plan` reads, and writes nothing.
 
 ---
 
@@ -193,7 +197,7 @@ AI coding agents have native access to GitHub project management through the Fas
 ### Registered FastMCP Tools
 - **Pages**: `gh_pages_status`, `gh_pages_build`, `gh_pages_verify`
 - **Issues**: `gh_issue_list`, `gh_issue_create`, `gh_issue_triage`, `gh_issue_status`
-- **Projects**: `gh_project_list`, `gh_project_status`, `gh_project_audit`, `gh_project_sync`
+- **Projects**: `gh_project_list`, `gh_project_status`, `gh_project_audit`, `gh_project_sync`, `gh_project_reconcile` (`mode="plan"` by default; `"write"` makes the changes and `"dry-run"` makes no request)
 - **Views**: `gh_views_audit`, `gh_views_sync`, `gh_view_spec`
 - **Milestones**: `gh_milestone_list`, `gh_milestone_close`
 - **Roadmap**: `roadmap_render` (`mode="plan"` by default; `"write"` writes the file), `roadmap_migrate` (preview only), `roadmap_close` (preview only), `roadmap_reprioritize` (`"confirm"` writes) and `roadmap_intake` (`"confirm"` writes): each takes a `mode` whose default, `"plan"`, reads GitHub and writes nothing, and whose `"dry-run"` makes no request

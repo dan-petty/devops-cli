@@ -1804,7 +1804,11 @@ def gh_milestone_edit(
 
 @mcp.tool()
 def gh_project_sync(repo: str | None = None, dry_run: bool = True) -> str:
-    """Create or update the project board, add open issues, and reconcile Status, Priority and Milestone."""
+    """Find or create the project board, link it, create its missing fields, and reconcile Status and Priority on the cards already on it.
+
+    Sync adds no issue or pull request to the board: `roadmap_intake` places issues, and a pull
+    request's progress shows on its issue's card. `dry_run`, the default, makes no request.
+    """
     cmd = ["uv", "run", "devops", "gh", "project", "sync"]
     if dry_run:
         cmd.append("--dry-run")
@@ -1957,9 +1961,15 @@ def gh_project_audit(repo: str | None = None) -> str:
 def gh_project_reconcile(
     project_number: int | None = None,
     repo: str | None = None,
-    dry_run: bool = False,
+    mode: Literal["dry-run", "plan", "write"] = "plan",
 ) -> str:
-    """Reconcile Status, Priority and Milestone on GitHub Projects v2 items, listing each change and its source."""
+    """Reconcile Status and Priority on the cards already on the project board, listing each change and its source.
+
+    `mode="plan"`, the default, reads the board and the repository and lists the changes without
+    making them. `mode="dry-run"` makes no request and returns the requests a run makes;
+    `mode="write"` makes the changes. A run that stops early says how many planned changes
+    remain and fails with exit status 1. Reconcile adds no card.
+    """
     cmd = ["uv", "run", "devops", "gh", "project", "reconcile"]
     if project_number is not None:
         _validate_mcp_int_bound("project_number", project_number, min_val=1)
@@ -1967,8 +1977,10 @@ def gh_project_reconcile(
     if repo:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])
-    if dry_run:
+    if mode == "dry-run":
         cmd.append("--dry-run")
+    elif mode == "plan":
+        cmd.append("--plan")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 

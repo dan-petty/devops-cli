@@ -153,7 +153,7 @@ class GraphQLSpend(BaseModel):
         texts = MESSAGES.roadmap
         template = texts.graphql_spend_since_reset if self.reset_during_run else texts.graphql_spend
         return template.format(
-            spent=self.spent, remaining=self.remaining, reset=_clock(self.reset_at)
+            spent=self.spent, remaining=self.remaining, reset=utc_clock(self.reset_at)
         )
 
 
@@ -247,7 +247,7 @@ def require_budget(budget: GraphQLBudget, cost: int, what: str) -> None:
         raise GitHubRateLimitError(
             MESSAGES.roadmap.graphql_budget_refused.format(
                 remaining=budget.remaining,
-                reset=_clock(budget.reset_at),
+                reset=utc_clock(budget.reset_at),
                 what=what,
                 cost=cost,
                 floor=DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
@@ -264,7 +264,7 @@ def require_floor(budget: GraphQLBudget, what: str, page: int) -> None:
         raise GitHubRateLimitError(
             MESSAGES.roadmap.graphql_budget_floor.format(
                 remaining=budget.remaining,
-                reset=_clock(budget.reset_at),
+                reset=utc_clock(budget.reset_at),
                 floor=DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
                 what=what,
                 page=page,
@@ -275,7 +275,8 @@ def require_floor(budget: GraphQLBudget, what: str, page: int) -> None:
         )
 
 
-def _clock(moment: datetime) -> str:
+def utc_clock(moment: datetime) -> str:
+    """A reset time as the budget messages name it: hours and minutes, in UTC."""
     return moment.strftime("%H:%M UTC")
 
 
@@ -300,4 +301,5 @@ __all__ = [
     "require_budget",
     "require_floor",
     "spend_between",
+    "utc_clock",
 ]

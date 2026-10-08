@@ -191,7 +191,7 @@ All work follows a test-first progressive verification strategy to optimize deve
 - **Mandatory Custom Field Reconciliation (`devops gh project sync`)**:
   - Ground all task lifecycles, issue tracking, and sprint planning in GitHub Projects v2 (`.github/project-template.json`) and roadmap milestones (`docs/ROADMAP.md`).
   - Every project item carries the board fields `.github/project-template.json` declares: `Status`, `Priority`, `Value` and `Effort`. The board mirrors each issue's milestone itself.
-  - AI agents must run `devops gh project sync` (or FastMCP `gh_project_sync`) after authoring issues, creating PRs, or updating branches to add new issues to the board and fill unset Status and Priority from `status/*` and `priority/*` labels. `Value` and `Effort` are set by hand.
+  - AI agents must run `devops gh project sync` (or FastMCP `gh_project_sync`) after authoring issues, creating PRs, or updating branches to fill unset Status and Priority on the cards already on the board from `status/*` and `priority/*` labels. Sync adds no card: new work reaches the board through `devops roadmap intake`, and a pull request gets no card, its progress showing on its issue's card. `Value` and `Effort` are set by hand.
 
 ### Knowledge Base Consultation
 Before planning, implementing, debugging, refactoring, or reviewing code, consult the **DevOps CLI Knowledge Base** under [`src/devops_cli/ai/knowledge_base/README.md`](src/devops_cli/ai/knowledge_base/README.md):
@@ -218,7 +218,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
 | **Targeted Typecheck** | `uv run mypy path/to/file.py` | Strict static type validation on modified modules. |
 | **Documentation Sync** | `devops docs generate --sync-readme` | Introspect CLI and synchronize markdown references and README. |
 | **Milestone Lifecycle** | `devops gh milestones list` / `close <ver>` | Inspect milestone completion rates and close on release merge. |
-| **Project Sync** | `devops gh project sync` | Provision the board from its template, add open issues, and reconcile Status, Priority and Milestone. |
+| **Project Sync** | `devops gh project sync` | Provision the board from its template and reconcile Status and Priority on the cards already on it; it adds no card. |
 
 ---
 
@@ -363,7 +363,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
       - Milestone linkage (`--milestone "v<version>"`).
       - Taxonomy labels matching `.github/labels.yml`: at least one `type/*`, one `scope/*`, and appropriate `priority/*` (`priority/p0-critical` through `priority/p3-low`).
       - Clear problem statement, proposed architectural solution, and acceptance criteria.
-    - Synchronize the new issues into GitHub Projects v2 (`devops gh project sync` or FastMCP `gh_project_sync`), linking card lifecycles with [`docs/agent/tasks/`](docs/agent/tasks/README.md) and PRs via closing keywords (`Closes #<issue>`).
+    - New issues reach the board through `devops roadmap intake`; `devops gh project sync` (or FastMCP `gh_project_sync`) then reconciles their Status and Priority, and card lifecycles link with [`docs/agent/tasks/`](docs/agent/tasks/README.md) and PRs via closing keywords (`Closes #<issue>`).
   - **Mandatory Defect & Warning Incident Tracking (Zero Unrecorded CLI Errors & Warnings)**:
     - Whenever an AI agent encounters an unhandled error, subcommand failure, crash, diagnostic warning, or unexpected behavior while executing `devops` CLI commands (e.g. CLI crashes, option parsing errors, unhandled exceptions, linter/scanner warnings, or unexpected non-zero exits), the agent **MUST IMMEDIATELY CREATE A FORMAL BUG/ISSUE ENTRY** in GitHub project tracking.
     - **Issue Creation Protocol**:
@@ -403,7 +403,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
       4. **Value vs Effort Priority Matrix** (`TABLE`, Group By: `Value`): Items grouped by Value and sorted by Value, then Effort.
     - **Mandatory Repository Project Linkage & Creation**: Ensure that the active GitHub Projects v2 board conforming to `.github/project-template.json` is created and linked to the repository (`devops gh project link <number>`) so that the board appears directly under `https://github.com/dan-petty/devops-cli/projects` and its views appear under `https://github.com/dan-petty/devops-cli/issues/views`. Discover existing boards via `devops gh project list` (or FastMCP `gh_project_list`). If no project board exists yet, AI agents must instruct or provision the project matching the declarative template (`.github/project-template.json`) and link it immediately.
     - **Continuous Project & Views Drift Auditing**: Routinely audit project board health and field schema alignment via `devops gh project audit` (or FastMCP `gh_project_audit`) and view configurations via `devops gh views audit` (or FastMCP `gh_views_audit`).
-    - **Continuous Custom Field & Project Item Population**: Every issue and pull request for the active milestone MUST be added as a project item and populated with custom project fields: `Status`, `Priority`, `Value`, `Effort`. Synchronize card states using `devops gh project sync` or FastMCP `gh_project_sync`.
+    - **Continuous Custom Field & Project Item Population**: Every issue for the active milestone MUST be on the board, placed there by `devops roadmap intake`, with its custom project fields populated: `Status`, `Priority`, `Value`, `Effort`. A pull request gets no card: its progress shows on its issue's card. Reconcile card states on the cards already on the board using `devops gh project sync` or FastMCP `gh_project_sync`.
     - **Strict Real-Time Kanban State Progression & WIP Movement**:
       - Manage card state transitions strictly (`New` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`; `Blocked` while waiting on something outside the roadmap). Task files in [`docs/agent/tasks/`](docs/agent/tasks/README.md) record every state except `In Review`, and call `New` `Backlog`:
         - `Backlog`: Queued items awaiting milestone assignment or scheduling.
@@ -411,7 +411,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
         - `In Progress`: Active work items currently being authored or edited. **Card MUST be transitioned to In Progress before making edits in `src/`**. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md` under `**Status**: In Progress`. If an early pull request is opened to pair or satisfy remote branch tracking, it MUST be opened as a **Draft Pull Request** (`--draft`).
         - `In Review`: an open pull request, draft or ready, links the issue. This state lives only on the card, derived from the open pull request that closes the issue. The task file is not touched: the delivering commit already set it to `**Status**: Done`, and the file carries no pull request number.
         - `Done`: Pull Request squash-merged by maintainer into release branch, remote CI verified, and issue closed. The task file reads `**Status**: Done` from the delivering commit onward.
-      - **Zero Disconnected PRs**: Every PR MUST link to an active tracking issue (`Closes #<id>`, `Fixes #<id>`), be added as a project item to the project board, and possess taxonomy labels (`type/*`, `scope/*`) so that sync fills an unset `Status` and `Priority` from them. `Value` and `Effort` are set by hand on the board; sync never infers them.
+      - **Zero Disconnected PRs**: Every PR MUST link to an active tracking issue (`Closes #<id>`, `Fixes #<id>`) and possess taxonomy labels (`type/*`, `scope/*`). A PR gets no card: an open PR moves its issue's card to `In Review`, and sync fills an unset `Status` and `Priority` on that card from the issue's labels. `Value` and `Effort` are set by hand on the board; sync never infers them.
     - **Active Triage & Quality Queue Monitoring**: AI agents must routinely inspect and populate the *Triage & Quality Table* (`type/bug`, `status/blocked`, `status/triage`) to promptly triage, remediate, and track incoming bugs, review findings, and pipeline failures.
     - **OAuth Scope Diagnostics & Offline Validation**: When the local GitHub token lacks `project` or `read:project` scopes, instruct the user to authorize via `gh auth refresh -s project,read:project`, while validating template integrity offline via `devops gh project status`, `devops gh views list`, `devops gh views spec`, and `devops gh project sync --dry-run`.
     - **Zero Empty Projects & Views State**: The repository's Projects tab (`https://github.com/dan-petty/devops-cli/projects`) and issue views queue (`https://github.com/dan-petty/devops-cli/issues/views`) must NEVER be left unlinked or empty during active release development.

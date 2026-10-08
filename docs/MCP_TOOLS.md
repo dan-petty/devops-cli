@@ -60,9 +60,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_pages_verify`](#gh-pages-verify) | Verify local repository readiness for GitHub Pages publishing. |
 | [`gh_project_audit`](#gh-project-audit) | Audit project board health and alignment against standardized template. |
 | [`gh_project_list`](#gh-project-list) | List available GitHub Projects v2 boards for user or organization. |
-| [`gh_project_reconcile`](#gh-project-reconcile) | Reconcile Status, Priority and Milestone on GitHub Projects v2 items, listing each change and its source. |
+| [`gh_project_reconcile`](#gh-project-reconcile) | Reconcile Status and Priority on the cards already on the project board, listing each change and its source.  `mode="plan"`, the default, reads the board and the repository and lists the changes without making them. `mode="dry-run"` makes no request and returns the requests a run makes; `mode="write"` makes the changes. A run that stops early says how many planned changes remain and fails with exit status 1. Reconcile adds no card. |
 | [`gh_project_status`](#gh-project-status) | Inspect GitHub Projects v2 template configuration, fields, and view definitions. |
-| [`gh_project_sync`](#gh-project-sync) | Create or update the project board, add open issues, and reconcile Status, Priority and Milestone. |
+| [`gh_project_sync`](#gh-project-sync) | Find or create the project board, link it, create its missing fields, and reconcile Status and Priority on the cards already on it.  Sync adds no issue or pull request to the board: `roadmap_intake` places issues, and a pull request's progress shows on its issue's card. `dry_run`, the default, makes no request. |
 | [`gh_rate_limit`](#gh-rate-limit) | Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 | [`gh_run_view`](#gh-run-view) | View details and diagnostic failure logs of a specific GitHub Actions workflow run. |
 | [`gh_runs_list`](#gh-runs-list) | List recent GitHub Actions CI/CD workflow runs. |
@@ -771,7 +771,12 @@ List available GitHub Projects v2 boards for user or organization.
 
 ### `gh_project_reconcile`
 
-Reconcile Status, Priority and Milestone on GitHub Projects v2 items, listing each change and its source.
+Reconcile Status and Priority on the cards already on the project board, listing each change and its source.
+
+`mode="plan"`, the default, reads the board and the repository and lists the changes without
+making them. `mode="dry-run"` makes no request and returns the requests a run makes;
+`mode="write"` makes the changes. A run that stops early says how many planned changes
+remain and fails with exit status 1. Reconcile adds no card.
 
 **Parameters:**
 
@@ -779,7 +784,7 @@ Reconcile Status, Priority and Milestone on GitHub Projects v2 items, listing ea
 |---|---|---|---|---|
 | `project_number` | `integer` | No | - | - |
 | `repo` | `string` | No | - | - |
-| `dry_run` | `boolean` | No | `False` | - |
+| `mode` | `string` | No | `plan` | - |
 
 ### `gh_project_status`
 
@@ -789,7 +794,10 @@ Inspect GitHub Projects v2 template configuration, fields, and view definitions.
 
 ### `gh_project_sync`
 
-Create or update the project board, add open issues, and reconcile Status, Priority and Milestone.
+Find or create the project board, link it, create its missing fields, and reconcile Status and Priority on the cards already on it.
+
+Sync adds no issue or pull request to the board: `roadmap_intake` places issues, and a pull
+request's progress shows on its issue's card. `dry_run`, the default, makes no request.
 
 **Parameters:**
 

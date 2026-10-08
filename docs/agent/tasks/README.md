@@ -11,7 +11,7 @@ Historically, a monolithic `docs/agent/task.md` file was used for task tracking 
 3. **Commit Context Rule**: Updates to task tracking files **MUST ONLY** occur in the commit that delivers the feature or fix, written as the file should read once merged (`**Status**: Done`). Standalone task-tracking commits, including follow-ups that only add a pull request number, are strictly prohibited. A box is ticked only for work that is done. Work that was not done is a plain bullet naming its follow-up issue. A check only a person can run is a plain bullet starting `Pending a person:`, followed by the exact commands. Verification is the PR's passing checks, which `devops pr check-readiness` reads; typed pass counts and coverage figures are not required.
 4. **Issue-Only Linking**: A task file links its GitHub issue and nothing else. The issue links the pull request that closes it (`Closes #<issue>`), and GitHub shows that pull request on the issue. Task files never carry a pull request number or a review state: the number is unknown until the pull request exists, so recording it takes a second commit that re-runs every check.
 5. **Changelog Fragments**: The same rule keeps item PRs out of shared files. A PR into a release branch adds its changelog entry as `changelog.d/<issue>.md` and does not edit `CHANGELOG.md` or `docs/ROADMAP.md`: the cut writes both, and `devops pr check-readiness` blocks a PR that changes either. The release PR (`chore/cut-vX.Y.Z` into `main`) and cycle-open PRs (`chore/open-vX.Y.Z`, optionally followed by `-<slug>`, into `release/vX.Y.Z`) are the exception.
-6. **Project Synchronization**: `devops gh project sync` (and FastMCP `gh_project_sync`) creates or updates the board from `.github/project-template.json`, adds the repository's open issues, and reconciles Status, Priority and Milestone from GitHub. It does not read task files: the board owns Status, and task files are the implementation record.
+6. **Project Synchronization**: `devops gh project sync` (and FastMCP `gh_project_sync`) creates or updates the board from `.github/project-template.json` and reconciles Status and Priority on the cards already on it from GitHub. It adds no card, since `devops roadmap intake` places issues and a pull request gets no card, and it does not read task files: the board owns Status, and task files are the implementation record.
 
 ---
 
@@ -72,4 +72,4 @@ Review is not a task-file status. A GitHub Projects v2 card shows **In Review** 
 
 ## Archival & Historical Records
 
-When a release milestone is finalized, completed task files may be compacted into `docs/agent/archive/` or retained as release artifacts. Active directory scans via `devops gh project sync` automatically exclude `README.md` and any files containing `archive`.
+When a release milestone is finalized, completed task files may be compacted into `docs/agent/archive/` or retained as release artifacts.

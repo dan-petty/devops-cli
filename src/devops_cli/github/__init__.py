@@ -96,7 +96,6 @@ from devops_cli.github.pr_threads import (
 from devops_cli.github.projects import (
     ProjectField,
     ProjectFieldOption,
-    ProjectItem,
     ProjectSyncResult,
     ProjectTemplate,
     ProjectView,
@@ -107,7 +106,6 @@ from devops_cli.github.projects import (
     link_project_to_repository,
     list_remote_projects,
     load_project_template,
-    parse_tasks_to_project_items,
     sync_remote_project,
     verify_project_auth_scopes,
 )
@@ -149,7 +147,6 @@ __all__ = [
     "PRMonitorStatus",
     "ProjectField",
     "ProjectFieldOption",
-    "ProjectItem",
     "ProjectMetricsReport",
     "ProjectSyncResult",
     "ProjectTemplate",
@@ -207,7 +204,6 @@ __all__ = [
     "load_label_specs",
     "load_project_template",
     "monitor_pr",
-    "parse_tasks_to_project_items",
     "record_project_metrics_in_registry",
     "register_key_on_github",
     "reply_pr_review_thread",

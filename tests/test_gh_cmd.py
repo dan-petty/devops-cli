@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import json
+import subprocess
+from functools import partial
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from typer.testing import CliRunner
+from fastmcp.exceptions import ToolError
+from typer.testing import CliRunner, Result
 
+from devops_cli.ai.mcp.server import gh_project_reconcile
 from devops_cli.commands.gh import app, milestones_app
+from devops_cli.github.projects import MutationBudget
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState
+from tests.project_reconcile_fake import REPO, ProjectGitHub, card, issue
 
 runner = CliRunner()
 
@@ -333,44 +339,216 @@ def test_gh_views_audit() -> None:
         assert "Project Views Compliance" in result.output
 
 
-def test_gh_project_reconcile() -> None:
-    """devops gh project reconcile lists every field change with what decided it."""
-    mock_res = {
-        "project_number": 2,
-        "items_evaluated": 10,
-        "items_reconciled": 1,
-        "dry_run": True,
-        "changes": [
-            {
-                "url": "https://github.com/dan-petty/devops-cli/issues/7",
-                "field": "Status",
-                "old": None,
-                "new": "Backlog",
-                "source": "default for an unset status",
-            }
-        ],
-    }
-    with patch(
-        "devops_cli.github.projects.reconcile_project_custom_fields",
-        return_value=mock_res,
+def _flat(output: str) -> str:
+    """CLI output with Rich's line wrapping undone."""
+    return " ".join(output.split())
+
+
+def _reconcile_cli(fake: ProjectGitHub, *args: str, limit: int = 25) -> Result:
+    """`devops gh project reconcile -n 2 --repo o/r` against `fake`, standing in for `run_gh`."""
+    with (
+        patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh),
+        patch("devops_cli.github.projects.MutationBudget", partial(MutationBudget, limit=limit)),
     ):
-        result = runner.invoke(
-            app,
-            [
-                "project",
-                "reconcile",
-                "--project-number",
-                "2",
-                "--repo",
-                "dan-petty/devops-cli",
-                "--dry-run",
-            ],
-        )
+        return runner.invoke(app, ["project", "reconcile", "-n", "2", "--repo", REPO, *args])
+
+
+def _board_with_five_changes() -> ProjectGitHub:
+    cards = [card(1), card(2), card(3, status="Ready")]
+    labelled = ("priority/p1-high",)
+    return ProjectGitHub(cards, [issue(n, labels=labelled) for n in (1, 2, 3)] + [issue(10)])
+
+
+def test_gh_project_reconcile_plan_lists_every_change_with_what_decided_it() -> None:
+    """`--plan` reads and lists the changes with their sources, makes none, and exits 0."""
+    fake = _board_with_five_changes()
+    result = _reconcile_cli(fake, "--plan")
     assert (
         result.exit_code,
-        "default for an unset status" in result.output,
-        "1 of 10 items" in result.output,
-    ) == (0, True, True)
+        "label priority/p1-high" in result.output,
+        "Would change 3 of 3 items on project #2 (5 field changes)." in _flat(result.output),
+        "1 open issue is not on the board" in _flat(result.output),
+        fake.edits,
+    ) == (0, True, True, True, [])
+
+
+def test_a_complete_live_run_prints_changed_and_exits_0() -> None:
+    fake = _board_with_five_changes()
+    result = _reconcile_cli(fake)
+    assert (
+        result.exit_code,
+        "Changed 3 of 3 items on project #2 (5 field changes)." in _flat(result.output),
+        len(fake.edits),
+    ) == (0, True, 5)
+
+
+@pytest.mark.parametrize("fail_edits", [(), (2,)])
+def test_a_run_that_stops_early_prints_the_stop_line_and_exits_1(
+    fail_edits: tuple[int, ...],
+) -> None:
+    """The mutation budget or a failed write stops the run: exit 1 and the stop line."""
+    fake = _board_with_five_changes()
+    fake.fail_edits = fail_edits
+    result = _reconcile_cli(fake, limit=3)
+    expected = (
+        "Stopped early (mutation budget of 3 reached): 2 planned changes remain."
+        if not fail_edits
+        else "4 planned changes remain."
+    )
+    assert (result.exit_code, expected in _flat(result.output), fake.adds) == (1, True, [])
+
+
+def test_a_failed_writes_error_is_printed_as_gh_wrote_it() -> None:
+    """gh's error is remote text: brackets in it are printed, not read as console markup that
+    would raise and lose the stop line."""
+    fake = _board_with_five_changes()
+    fake.fail_edits = (2,)
+    fake.write_error = "boom [/bold] [red]"
+    result = _reconcile_cli(fake)
+    assert (
+        result.exit_code,
+        "failed: boom [/bold] [red]): 4 planned changes remain." in _flat(result.output),
+        result.exception is None or isinstance(result.exception, SystemExit),
+    ) == (1, True, True)
+
+
+def test_the_mcp_tool_returns_the_stop_line_after_the_exit_status() -> None:
+    fake = _board_with_five_changes()
+    with (
+        patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh),
+        patch("devops_cli.github.projects.MutationBudget", partial(MutationBudget, limit=3)),
+        pytest.raises(ToolError) as stopped,
+    ):
+        gh_project_reconcile(project_number=2, repo=REPO, mode="write")
+    message = _flat(str(stopped.value))
+    assert (
+        message.startswith("Command exited with status 1:"),
+        "Stopped early (mutation budget of 3 reached): 2 planned changes remain." in message,
+    ) == (True, True)
+
+
+@pytest.mark.parametrize("mode", [["--plan"], []])
+def test_reconcile_below_the_floor_does_not_start_and_exits_1(mode: list[str]) -> None:
+    fake = _board_with_five_changes()
+    fake.server.remaining = 101
+    result = _reconcile_cli(fake, *mode)
+    assert (
+        result.exit_code,
+        "100 points left until 00:00 UTC" in _flat(result.output),
+        "hange" in result.output,
+        fake.edits,
+    ) == (1, True, False, [])
+
+
+def test_reconcile_exits_1_naming_the_quota_read_when_github_cant_report_it() -> None:
+    """No GraphQL entry in the ledger and `gh api rate_limit` failing: the real `run_gh` refuses
+    before sending the budget query, and the command names the read and prints no plan."""
+    from devops_cli.github import rate_limiter
+
+    failed = subprocess.CompletedProcess(["gh", "api", "rate_limit"], 1, "", "HTTP 502")
+    with (
+        patch.object(rate_limiter, "run_subprocess", return_value=failed),
+        patch.object(
+            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("sent")
+        ),
+        patch("devops_cli.github.rate_limiter.time.sleep"),
+    ):
+        result = runner.invoke(app, ["project", "reconcile", "-n", "2", "--repo", REPO, "--plan"])
+    assert (
+        result.exit_code,
+        "Failed to refresh rate limits from GitHub API: HTTP 502" in _flat(result.output),
+        "Would change" in result.output,
+        "Changed" in result.output,
+    ) == (1, True, False, False)
+
+
+@pytest.mark.parametrize("how", ["flag", "environment"])
+def test_reconcile_dry_run_makes_no_request(how: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`--dry-run`, or the dry run the environment asks for, sends nothing, reads included, and
+    lists the requests a run makes: finding the board when no number is given, the budget
+    query, the board's pages and Status options, the listings and the writes."""
+    from devops_cli.github import rate_limiter
+
+    args = ["project", "reconcile", "--repo", REPO, "--state", "open"]
+    if how == "flag":
+        args.append("--dry-run")
+    else:
+        monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
+    with (
+        patch("devops_cli.github.projects.run_gh", side_effect=AssertionError("ran gh")),
+        patch.object(rate_limiter, "run_subprocess", side_effect=AssertionError("ran gh")),
+        patch.object(
+            rate_limiter, "_burst_protected_subprocess", side_effect=AssertionError("ran gh")
+        ),
+    ):
+        result = runner.invoke(app, args)
+    text = _flat(result.output)
+    assert (
+        result.exit_code,
+        "no request was made" in text,
+        "to find the board named 'devops-cli-roadmap'" in text,
+        "RoadmapBoardBudget" in text,
+        "the next page of board <board>'s items" in text,
+        "gh project field-list '<board>' --owner o" in text,
+        "repos/o/r/issues?state=open&per_page=100" in text,
+        "repos/o/r/pulls?state=open&per_page=100" in text,
+        "gh project item-edit '<board>' --owner o --url '<item url>'" in text,
+    ) == (0, True, True, True, True, True, True, True, True)
+
+
+def test_dry_run_and_plan_together_are_refused() -> None:
+    result = runner.invoke(app, ["project", "reconcile", "-n", "2", "--dry-run", "--plan"])
+    assert (result.exit_code, "--dry-run and --plan" in result.output) == (1, True)
+
+
+def _checkout(tmp_path: Path, with_template: bool = True) -> Path:
+    """A fake checkout holding the repository's project template, and a subdirectory of it."""
+    (tmp_path / ".git").mkdir()
+    if with_template:
+        template = Path(__file__).parents[1] / ".github" / "project-template.json"
+        (tmp_path / ".github").mkdir()
+        (tmp_path / ".github" / "project-template.json").write_text(template.read_text())
+    subdirectory = tmp_path / "src" / "pkg"
+    subdirectory.mkdir(parents=True)
+    return subdirectory
+
+
+def test_project_commands_resolve_the_template_from_a_subdirectory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#1010: the template is read at the repository root, wherever the command runs."""
+    monkeypatch.chdir(_checkout(tmp_path))
+    sync = runner.invoke(app, ["project", "sync", "--dry-run", "--repo", REPO])
+    reconcile = runner.invoke(app, ["project", "reconcile", "--dry-run", "--repo", REPO])
+    assert (
+        sync.exit_code,
+        "board 'DevOps CLI — Enterprise Development & Release Roadmap'" in _flat(sync.output),
+        reconcile.exit_code,
+        "to find the board named 'devops-cli-roadmap'" in _flat(reconcile.output),
+    ) == (0, True, 0, True)
+
+
+def test_reconcile_with_a_project_number_does_not_load_the_template(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(_checkout(tmp_path, with_template=False))
+    fake = _board_with_five_changes()
+    planned = _reconcile_cli(fake, "--plan")
+    dry_run = runner.invoke(app, ["project", "reconcile", "-n", "2", "--repo", REPO, "--dry-run"])
+    assert (planned.exit_code, dry_run.exit_code) == (0, 0)
+
+
+def test_a_missing_template_is_reported_in_one_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(_checkout(tmp_path, with_template=False))
+    result = runner.invoke(app, ["project", "sync", "--dry-run", "--repo", REPO])
+    assert (
+        result.exit_code,
+        "Project template file not found" in _flat(result.output),
+        "Traceback" in result.output,
+        result.exception is None or isinstance(result.exception, SystemExit),
+    ) == (1, True, False, True)
 
 
 def test_gh_project_reconcile_refuses_a_missing_board() -> None:
