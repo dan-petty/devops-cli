@@ -11,13 +11,16 @@ import logging
 import os
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any, ClassVar
+from urllib.parse import urlsplit
 
 from devops_cli.config.constants import (
     CONST_DOCKER_BUILD_CACHE_TYPES,
     CONST_DOCKER_DF_BUILD_CACHE_KEY,
     CONST_DOCKER_HOST_ENV_VAR,
     CONST_DOCKER_NETWORK_HOST_SCHEMES,
+    CONST_DOCKER_UNIX_ADAPTER_SCHEME,
     CONST_DOCKER_UNIX_SOCKET_URL,
 )
 from devops_cli.config.defaults import (
@@ -226,14 +229,37 @@ class DockerEngineService:
 
     # -- Connection lifecycle -------------------------------------------------
 
+    @staticmethod
+    def configured_host() -> str:
+        """Return the daemon endpoint `DOCKER_HOST` names, or the default socket, unvalidated."""
+        return os.environ.get(CONST_DOCKER_HOST_ENV_VAR, "").strip() or CONST_DOCKER_UNIX_SOCKET_URL
+
     def resolve_host(self) -> str:
         """Resolve the effective daemon endpoint, validating network hosts against SSRF."""
-        docker_host = os.environ.get(CONST_DOCKER_HOST_ENV_VAR, "").strip()
-        if not docker_host:
-            return CONST_DOCKER_UNIX_SOCKET_URL
+        docker_host = self.configured_host()
         if docker_host.startswith(CONST_DOCKER_NETWORK_HOST_SCHEMES):
             self._validate_network_host(docker_host)
         return docker_host
+
+    def unix_socket_path(self) -> Path | None:
+        """Return the unix socket `DOCKER_HOST` (or the default) names, or None for a network host.
+
+        docker-py's own `parse_host` and `UnixHTTPAdapter` derive the path from that endpoint.
+        A Docker context is not followed until #1108 extends `configured_host()`. Nothing
+        connects and no request is made, so a dry run may call this.
+        """
+        from docker.errors import DockerException  # type: ignore[import-untyped]
+        from docker.transport import UnixHTTPAdapter  # type: ignore[import-untyped]
+        from docker.utils import parse_host  # type: ignore[import-untyped]
+
+        docker_host = self.configured_host()
+        try:
+            base_url = str(parse_host(docker_host))
+        except (DockerException, ValueError) as exc:
+            raise DockerEngineError(f"Unsupported Docker daemon endpoint: {exc}") from exc
+        if urlsplit(base_url).scheme != CONST_DOCKER_UNIX_ADAPTER_SCHEME:
+            return None
+        return Path(UnixHTTPAdapter(base_url).socket_path)
 
     @staticmethod
     def _validate_network_host(docker_host: str) -> None:

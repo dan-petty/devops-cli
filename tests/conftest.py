@@ -355,10 +355,24 @@ def isolate_vault_token() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
-def isolate_session_bus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Keep tests off the devcontainer's session bus, where gnome-keyring holds real secrets."""
+def isolate_session_bus(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch):
+    """Keep tests off the devcontainer's session bus, where gnome-keyring holds real secrets.
+
+    The runtime directory sits beside `tmp_path`, neither holding it nor inside it: a sandbox
+    never mounts a workspace that overlaps the runtime directory (#1115), and most sandbox tests
+    mount `tmp_path`.
+    """
     monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))  # the bus fallback is $XDG_RUNTIME_DIR/bus
+    # the bus fallback is $XDG_RUNTIME_DIR/bus
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path_factory.mktemp("run")))
+
+
+@pytest.fixture(autouse=True)
+def isolate_docker_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep tests off the developer's own engine endpoint, which the sandbox workspace check
+    reads to find the engine socket it refuses to mount (#1115). A test that needs `DOCKER_HOST`
+    sets it."""
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
 
 
 @pytest.fixture(autouse=True)
