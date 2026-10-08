@@ -9,7 +9,6 @@ from __future__ import annotations
 import ipaddress
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 from hypothesis import Phase, example, given, settings
 from hypothesis import strategies as st
@@ -30,14 +29,13 @@ from devops_cli.exceptions import (
     SecurityError,
     SSRFBlockedError,
 )
+from devops_cli.http.egress import EgressLevel, vet_addresses
 from devops_cli.sandbox.models import (
     _extract_host_or_ip,
     _resolve_local_host,
     _resolve_public_host,
     _validate_local_whitelist_item,
 )
-from devops_cli.sandbox.probe import _resolve_safe_socket_addr
-from devops_cli.telemetry.waterfall import _resolve_safe_jaeger_target
 
 # Standard derandomized settings profile for deterministic CI property runs
 _DERANDOMIZED = settings(
@@ -275,7 +273,13 @@ _METADATA_ORACLE_TARGETS = (
 @_DERANDOMIZED
 @given(target=st.sampled_from(_METADATA_ORACLE_TARGETS))
 def test_property_cloud_metadata_superset_containment_at_all_six_sites(target: str) -> None:
-    """Property: Unified cloud metadata superset is rejected with 1.0 containment across all six sites."""
+    """Property: Unified cloud metadata superset is rejected with 1.0 containment at every site.
+
+    The sandbox probe and Jaeger no longer keep checks of their own: both dial through the
+    connect-time policy (`devops_cli.http.egress`), which refuses every target here at the loopback
+    level Jaeger uses. The probe's private level admits the link-local host gateways among them,
+    as `test_link_local_host_gateways_are_admitted_only_at_the_private_level` pins.
+    """
     clean_host = target.strip("[]").rstrip(".")
     url_target = (
         f"[{clean_host}]" if ":" in clean_host and not clean_host.startswith("[") else target
@@ -293,18 +297,16 @@ def test_property_cloud_metadata_superset_containment_at_all_six_sites(target: s
         validate_url, url_str, allow_private=True, expected_exc=SSRFBlockedError
     )
 
-    # 4. sandbox/probe.py: _resolve_safe_socket_addr
-    probe_blocked, _ = _resolve_safe_socket_addr(clean_host, 80)
+    # 4. http/egress.py: the connect-time policy, at the loopback level
+    connect_blocked = _check_raises(
+        vet_addresses, clean_host, 80, EgressLevel.LOOPBACK, expected_exc=SSRFBlockedError
+    )
 
     # 5. sandbox/models.py: local whitelist and local host
     whitelist_blocked = _check_raises(
         _validate_local_whitelist_item, f"http://{url_target}:80", expected_exc=ValueError
     )
     models_host_blocked = _check_raises(_resolve_local_host, target, expected_exc=ValueError)
-
-    # 6. telemetry/waterfall.py: _resolve_safe_jaeger_target
-    parsed_endpoint = urlparse(f"http://{url_target}:14268")
-    jaeger_blocked, _ = _resolve_safe_jaeger_target(parsed_endpoint)
 
     # 7. ai/models/ollama.py: _is_cloud_metadata_host
     ollama_blocked = _ollama_is_metadata(target)
@@ -313,9 +315,8 @@ def test_property_cloud_metadata_superset_containment_at_all_six_sites(target: s
         pred_meta,
         pred_priv,
         val_url_blocked,
-        probe_blocked,
+        connect_blocked,
         whitelist_blocked,
         models_host_blocked,
-        jaeger_blocked,
         ollama_blocked,
-    ) == (True, True, True, True, True, True, True, True)
+    ) == (True, True, True, True, True, True, True)

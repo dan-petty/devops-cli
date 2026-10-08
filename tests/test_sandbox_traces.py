@@ -136,11 +136,17 @@ def test_normalize_jaeger_spans() -> None:
 
 @pytest.mark.usefixtures("public_dns")
 def test_query_jaeger_trace(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify querying Jaeger REST API with HTTP response handling."""
+    """Verify Jaeger is queried at its configured hostname, which TLS and Host carry.
+
+    The connect dials the vetted address, the TLS handshake verifies the hostname, and the
+    URL's userinfo never reaches the Host header.
+    """
+    import json
+
+    from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
+
     test_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
+    payload = {
         "data": [
             {
                 "traceID": test_trace_id,
@@ -158,30 +164,59 @@ def test_query_jaeger_trace(monkeypatch: pytest.MonkeyPatch) -> None:
             }
         ]
     }
+    scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+    recorder = record_connects(monkeypatch, [http_response(200, json.dumps(payload))])
 
-    recorded: dict[str, Any] = {}
+    spans = query_jaeger_trace(test_trace_id, jaeger_url="https://user:secret@example.com:16686")
 
-    class MockClient:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
+    assert (
+        [span["traceId"] for span in spans],
+        recorder.dialled,
+        [server_hostname for server_hostname, _ in recorder.tls],
+        recorder.requested_hosts,
+    ) == ([test_trace_id], [(PUBLIC_ADDRESS, 16686)], ["example.com"], ["example.com:16686"])
 
-        def __enter__(self) -> MockClient:
-            return self
 
-        def __exit__(self, *args: Any) -> None:
-            pass
+@pytest.mark.usefixtures("public_dns")
+def test_the_jaeger_timeout_bounds_the_connect(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Jaeger query's `timeout` bounds the connect too, not only the read."""
+    from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects
 
-        def get(self, url: str, **kwargs: Any) -> Any:
-            recorded["url"] = url
-            recorded["kwargs"] = kwargs
-            return mock_resp
+    recorder = record_connects(monkeypatch, [http_response(200, json.dumps({"data": []}))])
 
-    monkeypatch.setattr("httpx2.Client", MockClient)
-    spans = query_jaeger_trace(test_trace_id, jaeger_url="http://example.com:16686")
-    assert len(spans) == 1
-    assert spans[0]["traceId"] == test_trace_id
-    assert recorded["kwargs"].get("headers", {}).get("Host") == "example.com:16686"
-    assert "example.com" not in recorded["url"]
+    query_jaeger_trace("4bf92f3577b34da6a3ce929d0e0e4736", "http://example.com:16686", 7.0)
+
+    assert recorder.timeouts_of(PUBLIC_ADDRESS) == [7.0]
+
+
+@pytest.mark.parametrize("flag", ["false", "true"])
+def test_jaeger_admits_loopback_and_public_answers_only(
+    monkeypatch: pytest.MonkeyPatch, flag: str
+) -> None:
+    """Verify Jaeger's loopback-level client refuses RFC 1918 and link-local answers, flag or not."""
+    from tests.web_fakes import PUBLIC_ADDRESS, record_connects, scripted_resolver
+
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", flag)
+    answers = [
+        "169.254.169.254",
+        "10.0.0.1",
+        "172.16.0.1",
+        "169.254.1.2",
+        "127.0.0.1",
+        PUBLIC_ADDRESS,
+    ]
+    resolver = scripted_resolver(monkeypatch, {"example.com": [[answer] for answer in answers]})
+    recorder = record_connects(monkeypatch, [])
+
+    for _ in answers:
+        query_jaeger_trace(
+            "4bf92f3577b34da6a3ce929d0e0e4736", jaeger_url="http://example.com:16686"
+        )
+
+    assert (resolver.lookups["example.com"], recorder.dialled) == (
+        len(answers),
+        [("127.0.0.1", 16686), (PUBLIC_ADDRESS, 16686)],
+    )
 
 
 def test_query_jaeger_trace_security_validation() -> None:
@@ -380,17 +415,6 @@ def test_query_jaeger_trace_dns_metadata_blocked(monkeypatch: pytest.MonkeyPatch
         jaeger_url="http://example.com:16686",
     )
     assert spans == []
-
-
-def test_is_blocked_metadata_host() -> None:
-    """Verify _is_blocked_metadata_host flags link-local and private IPs while allowing loopback."""
-    from devops_cli.telemetry.waterfall import _is_blocked_metadata_host
-
-    assert _is_blocked_metadata_host("169.254.169.254") is True
-    assert _is_blocked_metadata_host("10.0.0.1") is True
-    assert _is_blocked_metadata_host("192.168.1.1") is True
-    assert _is_blocked_metadata_host("127.0.0.1") is False
-    assert _is_blocked_metadata_host("localhost") is False
 
 
 def test_query_jaeger_trace_error_status_and_network_failure(

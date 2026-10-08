@@ -84,8 +84,9 @@ class PydanticAIDocs(BaseCapability):
         """Attempt to fetch a documentation markdown file over HTTP."""
         try:
             from devops_cli.http.client import new_http_client
+            from devops_cli.http.egress import EgressLevel
 
-            with new_http_client(read_timeout=10.0) as client:
+            with new_http_client(level=EgressLevel.PUBLIC, read_timeout=10.0) as client:
                 resp = client.get(url)
                 if resp.status_code == 200 and resp.text:
                     return resp.text

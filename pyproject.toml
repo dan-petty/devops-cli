@@ -17,6 +17,8 @@ dependencies = [
     "gitpython==3.2.0",
     "cryptography==50.0.2",
     "httpx2==2.13.1",
+    "httpcore2==2.13.1",
+    "anyio==4.15.1",
     "keyring==25.7.0",
     "PyYAML==6.0.3",
     "jinja2==3.1.6",
@@ -80,6 +82,7 @@ dev = [
     "actionlint-py==1.7.12.25",
     "pre-commit==4.6.2",
     "hypothesis==6.168.3",
+    "h11==0.16.0",
 ]
 
 [tool.hatch.build.targets.wheel]

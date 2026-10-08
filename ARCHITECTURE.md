@@ -145,8 +145,8 @@ flowchart TD
 
 1. **Zero-Plaintext Secret Storage**:
    - Secrets are managed exclusively through OS Keyring (`keyring`), isolating API tokens and credentials from git commits, environment dumps, and config files.
-2. **SSRF Guardrails (`validate_service_url`)**:
-   - Outbound network requests evaluate resolved IP addresses against RFC 1918, loopback, and cloud metadata ranges to prevent SSRF vulnerabilities.
+2. **SSRF Guardrails (`devops_cli.http.egress`)**:
+   - HTTP clients built by `devops_cli.http.client` resolve each host once, at the connect, and dial only the addresses their egress level admits (public, loopback or private), checked against RFC 1918, loopback, link-local and cloud metadata ranges. Cloud metadata is refused at every level, and TLS still verifies the hostname.
 3. **Safe Subprocess Execution**:
    - All external binary invocations (`git`, `kubectl`, `trivy`, `docker`) use explicit argument arrays with `shell=False` and deterministic timeout boundaries.
 
@@ -190,7 +190,7 @@ The review workflow runs as `ReviewPipelineOrchestrator` methods (pre-analysis, 
 - Scratchpad buffer reasoning state handover between stages.
 
 ### 5. HTTP Connection Management & Security Broker
-`HttpClientBroker` (`devops_cli.http.broker`) serves agent tools and Vault with HTTP/2, per-request SSRF validation and W3C `traceparent` injection. LLM clients use the shared connection pool in `devops_cli.http.pool`, and the GitHub, vulnerability-lookup and Cloudflare clients create their own `httpx2` clients:
+`HttpClientBroker` (`devops_cli.http.broker`) serves agent tools and Vault with HTTP/2 and W3C `traceparent` injection. Its clients, and the shared LLM connection pool in `devops_cli.http.pool`, are built by `devops_cli.http.client`, so each address they dial is checked at the connect and on every redirect hop (see SSRF Guardrails above). The GitHub, vulnerability-lookup and Cloudflare clients still create their own `httpx2` clients until #1381 moves them:
 - Native HTTP/2 connection pooling with persistent keepalive and backoff retries where supported.
-- SSRF private-network isolation and egress endpoint validation.
+- Connect-time egress checks by level (public, loopback-allowed, private-allowed), with cloud metadata addresses refused at every level.
 - Automatic W3C `traceparent` header injection for distributed trace waterfalls.

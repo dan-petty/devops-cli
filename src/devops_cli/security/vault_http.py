@@ -1,11 +1,12 @@
 """The one HTTP path every Vault request takes.
 
-Vault is internal infrastructure, so requests go through the shared, egress-validated broker with
-private networks allowed. Each also carries a same-origin egress policy, which the broker's request
-hook applies to every redirect hop: a hop to any origin but the configured Vault address's is
-refused before it is sent. httpx2 strips only `Authorization` on a cross-origin redirect, so
-without the policy `X-Vault-Token`, and on a 307 or 308 a login body, would follow a redirect to
-another host.
+Vault is internal infrastructure, so requests go through the shared broker's private-level client,
+which the `devops_cli.http.client` factory builds: it dials every address but cloud metadata,
+checked at the connect for each redirect hop. Each request also carries a same-origin egress
+policy, which the broker's request hook applies to every redirect hop: a hop to any origin but the
+configured Vault address's is refused before it is sent. httpx2 strips only `Authorization` on a
+cross-origin redirect, so without the policy `X-Vault-Token`, and on a 307 or 308 a login body,
+would follow a redirect to another host.
 """
 
 from __future__ import annotations
@@ -68,16 +69,17 @@ def vault_request(
     redirect leaves the Vault origin or cannot be followed. The caller judges the status.
     """
     from devops_cli.http import broker as http_broker
+    from devops_cli.http.egress import EgressLevel
 
     url = vault_url(vault_addr, path)
     try:
         return http_broker.get_broker().request(
             method,
             url,
+            level=EgressLevel.PRIVATE,
             headers=headers,
             json=payload,
             timeout=timeout,
-            allow_private_network=True,
             extensions={CONST_HTTP_EGRESS_POLICY_EXTENSION: same_origin_policy(vault_addr)},
         )
     except httpx2.TransportError as exc:

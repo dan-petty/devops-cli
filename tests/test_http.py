@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from devops_cli.http.client import new_http_client, request_timeout
+from devops_cli.http.egress import EgressLevel
 from devops_cli.http.validation import validate_service_url
 
 
@@ -48,9 +49,18 @@ def test_private_ip_rejected_by_default(url: str, monkeypatch: pytest.MonkeyPatc
     "override",
     ["true", "1", "yes", "on"],
 )
-def test_private_ip_allowed_when_env_set(override: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_private_ip_is_allowed_by_the_callers_flag_not_the_environment(
+    override: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify the environment never widens a check: the caller passes the configured flag.
+
+    DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK sets `ai.allow_private_network`, which configured callers
+    pass as `allow`; a check made with `allow=False` stays public-only whatever is exported.
+    """
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", override)
-    validate_service_url("http://192.168.1.5:3000", "Grafana")
+    with pytest.raises(ValueError, match="Refusing non-public"):
+        validate_service_url("http://192.168.1.5:3000", "Grafana")
+    validate_service_url("http://192.168.1.5:3000", "Grafana", allow=True)
 
 
 @pytest.mark.parametrize(
@@ -76,19 +86,19 @@ def test_http_client_options() -> None:
     from devops_cli.config.defaults import DEFAULT_CONNECT_TIMEOUT_SECONDS
     from devops_cli.http.client import new_async_http_client
 
-    c1 = new_http_client(read_timeout=15.0)
+    c1 = new_http_client(level=EgressLevel.PUBLIC, read_timeout=15.0)
     assert c1.timeout.read == 15.0
     assert c1.timeout.connect == DEFAULT_CONNECT_TIMEOUT_SECONDS
 
-    c2 = new_http_client(timeout=10.0)
+    c2 = new_http_client(level=EgressLevel.PUBLIC, timeout=10.0)
     assert c2.timeout.read == 10.0
     assert c2.timeout.connect == DEFAULT_CONNECT_TIMEOUT_SECONDS
 
-    c3 = new_http_client(timeout=t1)
+    c3 = new_http_client(level=EgressLevel.PUBLIC, timeout=t1)
     assert c3.timeout.read == 30.0
     assert c3.timeout.connect == DEFAULT_CONNECT_TIMEOUT_SECONDS
 
-    ac1 = new_async_http_client(timeout=12.0)
+    ac1 = new_async_http_client(level=EgressLevel.PUBLIC, timeout=12.0)
     assert ac1.timeout.read == 12.0
     assert ac1.timeout.connect == DEFAULT_CONNECT_TIMEOUT_SECONDS
 
@@ -99,11 +109,11 @@ def test_http_client_invalid_timeout_type() -> None:
     from devops_cli.http.client import HTTPTimeoutTypeError
 
     with pytest.raises(HTTPTimeoutTypeError, match="timeout must be") as exc_info1:
-        new_http_client(timeout="invalid-string")  # type: ignore[arg-type]
+        new_http_client(level=EgressLevel.PUBLIC, timeout="invalid-string")  # type: ignore[arg-type]
     assert isinstance(exc_info1.value, TypeError)
     assert isinstance(exc_info1.value, ValidationError)
 
     with pytest.raises(HTTPTimeoutTypeError, match="read_timeout must be") as exc_info2:
-        new_http_client(read_timeout="invalid-string")  # type: ignore[arg-type]
+        new_http_client(level=EgressLevel.PUBLIC, read_timeout="invalid-string")  # type: ignore[arg-type]
     assert isinstance(exc_info2.value, TypeError)
     assert isinstance(exc_info2.value, ValidationError)

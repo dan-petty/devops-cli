@@ -127,13 +127,22 @@ def test_provider_http_error_informative_formatting() -> None:
 
 
 def test_provider_uses_shared_client_and_retry_transport() -> None:
-    """Verify provider creates shared client with native retry transport."""
-    client = LLMClient(AIConfig(provider="openai", api_key="sk-test", max_retries=3))
-    transport = client._create_retry_transport()
-    assert transport is not None
+    """Verify the shared client retries through tenacity over the configured-level transport."""
+    from pydantic_ai.retries import HTTPX2TenacityTransport
 
+    from devops_cli.http.egress import EgressLevel
+    from tests.web_fakes import egress_level_of
+
+    client = LLMClient(
+        AIConfig(provider="openai", api_key="sk-test", max_retries=3, allow_private_network=False)
+    )
     shared = client._shared_client()
-    assert (shared is not None, hasattr(shared, "post")) == (True, True)
+
+    assert (
+        shared is client._shared_client(),
+        isinstance(shared._transport, HTTPX2TenacityTransport),
+        egress_level_of(shared._transport),
+    ) == (True, True, EgressLevel.LOOPBACK)
 
 
 def test_provider_http_error_sanitizes_html_error_response() -> None:
@@ -181,6 +190,7 @@ def test_request_timeout_reads_the_configured_timeout(
     assert client._request_timeout().read == expected_read
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_a_configured_timeout_reaches_the_request(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify an Ollama chat request is sent with the task's configured read timeout."""
     config = AIConfig(

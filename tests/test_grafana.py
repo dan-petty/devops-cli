@@ -275,6 +275,7 @@ def test_grafana_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         ) == (0, 0, True, 0, 0, 0, 0)
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_grafana_client_args_masked_token_fallback() -> None:
     from devops_cli.commands.grafana import _client_args
 

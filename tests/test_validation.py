@@ -522,7 +522,7 @@ def test_widened_metadata_denials_core_and_probe() -> None:
     """Verify core validation and sandbox probe deny unified metadata superset."""
     from devops_cli.core.validation import is_loopback_or_private_host, validate_url
     from devops_cli.exceptions import SSRFBlockedError
-    from devops_cli.sandbox.probe import _resolve_safe_socket_addr
+    from devops_cli.http.egress import EgressLevel, vet_addresses
 
     assert (
         is_loopback_or_private_host("metadata", resolve_dns=False),
@@ -539,20 +539,22 @@ def test_widened_metadata_denials_core_and_probe() -> None:
     )
     assert blocked_count == len(targets)
 
-    assert (
-        _resolve_safe_socket_addr("metadata", 80)[0],
-        _resolve_safe_socket_addr("metadata.", 80)[0],
-        _resolve_safe_socket_addr("fd00:ec2::254", 80)[0],
-    ) == (True, True, True)
+    connect_blocked = sum(
+        1
+        for host in ("metadata", "metadata.", "fd00:ec2::254")
+        if _is_target_blocked(
+            vet_addresses, host, SSRFBlockedError, port=80, level=EgressLevel.PRIVATE
+        )
+    )
+    assert connect_blocked == 3
 
 
 def test_widened_metadata_denials_models_telemetry_ollama() -> None:
     """Verify sandbox models, telemetry waterfall, and ollama deny unified metadata superset."""
-    from urllib.parse import urlparse
-
     from devops_cli.ai.models.ollama import _is_cloud_metadata_host as ollama_is_metadata
+    from devops_cli.exceptions import SSRFBlockedError
+    from devops_cli.http.egress import EgressLevel, vet_addresses
     from devops_cli.sandbox.models import _resolve_local_host, _validate_local_whitelist_item
-    from devops_cli.telemetry.waterfall import _resolve_safe_jaeger_target
 
     endpoints = ("http://metadata:8080", "http://metadata.:8080", "http://[fd00:ec2::254]:8080")
     items_blocked = sum(
@@ -562,11 +564,14 @@ def test_widened_metadata_denials_models_telemetry_ollama() -> None:
     hosts_blocked = sum(1 for h in hosts if _is_target_blocked(_resolve_local_host, h, ValueError))
     assert (items_blocked, hosts_blocked) == (len(endpoints), len(hosts))
 
-    assert (
-        _resolve_safe_jaeger_target(urlparse("http://metadata:14268"))[0],
-        _resolve_safe_jaeger_target(urlparse("http://metadata.:14268"))[0],
-        _resolve_safe_jaeger_target(urlparse("http://[fd00:ec2::254]:14268"))[0],
-    ) == (True, True, True)
+    jaeger_level_blocked = sum(
+        1
+        for host in hosts
+        if _is_target_blocked(
+            vet_addresses, host, SSRFBlockedError, port=14268, level=EgressLevel.LOOPBACK
+        )
+    )
+    assert jaeger_level_blocked == len(hosts)
 
     assert (
         ollama_is_metadata("metadata"),

@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import ipaddress
 import logging
 import re
-import socket
-import urllib.parse
 from typing import Any
 
 import httpx2
 
-from devops_cli.core.validation import validate_url
+from devops_cli.exceptions import SSRFBlockedError
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import EgressLevel
 from devops_cli.telemetry.tracer import SpanWaterfallNode
 
 logger = logging.getLogger(__name__)
@@ -108,96 +107,30 @@ def normalize_jaeger_spans(jaeger_data: dict[str, Any]) -> list[dict[str, Any]]:
     return spans_out
 
 
-def _is_unsafe_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Check whether an IP address targets link-local, cloud metadata, or non-loopback private networks."""
-    return (
-        ip.is_link_local or str(ip).startswith("169.254.") or (ip.is_private and not ip.is_loopback)
-    )
-
-
-def _resolve_safe_jaeger_target(
-    parsed: urllib.parse.ParseResult,
-) -> tuple[bool, str | None]:
-    """Resolve Jaeger hostname and verify destination does not target metadata services.
-
-    Returns (is_blocked, vetted_ip).
-    """
-    host = parsed.hostname or ""
-    from devops_cli.core.validation import is_cloud_metadata_host
-
-    if is_cloud_metadata_host(host, resolve_dns=False):
-        return True, None
-    clean = host.strip("[]").rstrip(".").lower()
-    try:
-        ip = ipaddress.ip_address(clean)
-        if _is_unsafe_ip(ip) or is_cloud_metadata_host(ip, resolve_dns=False):
-            return True, None
-        return False, str(ip)
-    except ValueError:
-        pass
-
-    default_port = 443 if parsed.scheme == "https" else 80
-    port = parsed.port or default_port
-    try:
-        addr_info = socket.getaddrinfo(clean, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
-        for _, _, _, _, sockaddr in addr_info:
-            ip_str = sockaddr[0] if isinstance(sockaddr[0], str) else ""
-            if ip_str:
-                resolved_ip = ipaddress.ip_address(ip_str)
-                if _is_unsafe_ip(resolved_ip) or is_cloud_metadata_host(
-                    resolved_ip, resolve_dns=False
-                ):
-                    return True, None
-        if addr_info and isinstance(addr_info[0][4][0], str):
-            return False, addr_info[0][4][0]
-    except socket.gaierror, OSError, ValueError:
-        pass
-    return False, None
-
-
-def _is_blocked_metadata_host(host: str) -> bool:
-    """Return True if host targets link-local or cloud metadata services."""
-    parsed = urllib.parse.urlparse(f"http://{host}")
-    is_blocked, _ = _resolve_safe_jaeger_target(parsed)
-    return is_blocked
-
-
 def query_jaeger_trace(
     trace_id: str,
     jaeger_url: str | None = None,
     timeout: float = 5.0,
 ) -> list[dict[str, Any]]:
-    """Fetch trace spans from Jaeger REST API (/api/traces/{trace_id})."""
+    """Fetch trace spans from Jaeger REST API (/api/traces/{trace_id}).
+
+    Jaeger is reached at its configured hostname through a loopback-level client, so the connect
+    admits a public or loopback address and refuses private, link-local and metadata ones, whatever
+    `ai.allow_private_network` says. TLS and the Host header carry the hostname. `timeout` bounds
+    every phase of the request, the connect included.
+    """
     clean_id = trace_id.strip() if trace_id else ""
     if not clean_id or not _TRACE_ID_RE.fullmatch(clean_id):
         return []
-    url = (jaeger_url or "http://localhost:16686").rstrip("/")
+    api_url = f"{(jaeger_url or 'http://localhost:16686').rstrip('/')}/api/traces/{clean_id}"
     try:
-        validated_url = validate_url(url, purpose="jaeger", allow_private=True)
-        parsed = urllib.parse.urlparse(validated_url)
-        if not parsed.hostname:
-            return []
-        is_blocked, vetted_ip = _resolve_safe_jaeger_target(parsed)
-        if is_blocked or not vetted_ip:
-            return []
-    except Exception as exc:
-        logger.debug("Jaeger URL validation failed for %s: %s", url, exc)
-        return []
-
-    target_host = f"[{vetted_ip}]" if ":" in vetted_ip else vetted_ip
-    target_netloc = f"{target_host}:{parsed.port}" if parsed.port else target_host
-    base_path = parsed.path.rstrip("/")
-    api_url = f"{parsed.scheme}://{target_netloc}{base_path}/api/traces/{clean_id}"
-    req_headers = {"Host": parsed.netloc}
-
-    try:
-        with httpx2.Client(timeout=timeout) as client:
-            resp = client.get(api_url, headers=req_headers)
+        with new_http_client(level=EgressLevel.LOOPBACK, timeout=httpx2.Timeout(timeout)) as client:
+            resp = client.get(api_url)
             if resp.status_code != 200:
                 return []
             return normalize_jaeger_spans(resp.json())
-    except (httpx2.RequestError, ValueError, OSError) as exc:
-        logger.warning("Failed to query Jaeger trace %s from %s: %s", clean_id, api_url, exc)
+    except (httpx2.RequestError, httpx2.InvalidURL, SSRFBlockedError, ValueError) as exc:
+        logger.warning("Failed to query Jaeger trace %s: %s", clean_id, exc)
         return []
 
 

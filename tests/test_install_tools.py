@@ -18,6 +18,7 @@ from devops_cli.commands.install_tools import (
     _OS,
     TOOLS,
     _current_version,
+    _download,
     _install_argo,
     _install_argocd,
     _install_helm,
@@ -35,7 +36,9 @@ from devops_cli.commands.install_tools import (
     is_tool_installed,
 )
 from devops_cli.commands.install_tools import app as install_tools_app
+from devops_cli.exceptions import SSRFBlockedError, ToolDownloadError
 from devops_cli.main import app as main_app
+from tests.web_fakes import StubWeb
 
 runner = CliRunner()
 
@@ -422,3 +425,47 @@ def test_install_managed_tools_programmatic(tmp_path: Path) -> None:
         assert len(actions) == 2
         assert "Installed mock-tool-ok v1.0.0" in actions[0]
         assert "Warning: Failed to install mock-tool-fail (disk full)" in actions[1]
+
+
+# ── Download egress ───────────────────────────────────────────────────────────
+
+
+def test_download_follows_an_https_redirect(stub_web: StubWeb) -> None:
+    """A release asset redirected to another https URL is fetched from there."""
+    stub_web.redirect("https://example.com/tool.tar.gz", "https://example.org/asset")
+    stub_web.page("https://example.org/asset", "binary")
+
+    assert (_download("https://example.com/tool.tar.gz"), stub_web.requested) == (
+        b"binary",
+        ["https://example.com/tool.tar.gz", "https://example.org/asset"],
+    )
+
+
+@pytest.mark.parametrize(
+    "url", ["http://example.com/tool.tar.gz", "https://example.com/tool.tar.gz"]
+)
+def test_download_refuses_any_hop_that_is_not_https(stub_web: StubWeb, url: str) -> None:
+    """An http first URL, or an https URL redirecting to http, is refused before that hop is sent."""
+    stub_web.redirect("https://example.com/tool.tar.gz", "http://example.com/tool.tar.gz")
+    stub_web.page("http://example.com/tool.tar.gz", "binary")
+
+    with pytest.raises(ToolDownloadError, match="Only HTTPS"):
+        _download(url)
+
+    assert [hop for hop in stub_web.requested if hop.startswith("http://")] == []
+
+
+def test_download_refuses_a_private_answer_whatever_the_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tool hosts are public: the flag that once widened this check no longer does."""
+    from tests.web_fakes import record_connects, scripted_resolver
+
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
+    scripted_resolver(monkeypatch, {"example.com": [["10.0.0.1"]]})
+    recorder = record_connects(monkeypatch, [])
+
+    with pytest.raises(SSRFBlockedError):
+        _download("https://example.com/tool.tar.gz")
+
+    assert recorder.dialled == []

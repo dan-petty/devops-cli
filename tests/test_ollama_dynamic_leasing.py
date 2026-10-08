@@ -87,11 +87,9 @@ def test_acquire_ollama_slot_config_defaults() -> None:
 
     from devops_cli.ai.client import network
     from devops_cli.ai.client.network import (
-        ALLOW_PRIVATE_NETWORK_ENV,
         acquire_ollama_slot,
         track_ollama_url,
     )
-    from devops_cli.config.constants import CONST_AI_ALLOW_PRIVATE_NETWORK_ENV
     from devops_cli.config.defaults import (
         DEFAULT_AI_MAX_RESPONSE_BYTES,
         DEFAULT_OLLAMA_MAX_PARALLEL,
@@ -104,12 +102,10 @@ def test_acquire_ollama_slot_config_defaults() -> None:
         sig_acquire.parameters["max_parallel"].default,
         sig_track.parameters["max_parallel"].default,
         network.DEFAULT_AI_MAX_RESPONSE_BYTES,
-        ALLOW_PRIVATE_NETWORK_ENV,
     ) == (
         DEFAULT_OLLAMA_MAX_PARALLEL,
         DEFAULT_OLLAMA_MAX_PARALLEL,
         DEFAULT_AI_MAX_RESPONSE_BYTES,
-        CONST_AI_ALLOW_PRIVATE_NETWORK_ENV,
     )
 
 
