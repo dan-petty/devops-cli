@@ -853,6 +853,22 @@ def keyring_write(key: str, value: str) -> None:
         raise SecretStorageError(f"Cannot store {key}: {type(exc).__name__}") from exc
 
 
+def keyring_delete(key: str) -> bool:
+    """Delete a keyring entry from the OS keyring itself, returning False when there was none."""
+    import keyring
+    from keyring.errors import KeyringError, KeyringLocked, PasswordDeleteError
+
+    try:
+        keyring.get_keyring().delete_password(KEYRING_SERVICE, key)
+    except PasswordDeleteError:
+        return False
+    except KeyringLocked as exc:
+        raise KeyringLockedError(f"Cannot delete {key}: {_KEYRING_LOCKED_HINT}") from exc
+    except KeyringError as exc:
+        raise SecretStorageError(f"Cannot delete {key}: {type(exc).__name__}") from exc
+    return True
+
+
 def get_keyring_secret(key: str) -> str | None:
     """Public helper to retrieve a secret from OS Keyring or ephemeral store."""
     return _keyring_get(key)

@@ -124,9 +124,10 @@ names the class each row describes. One code never maps to two exit statuses.
 | `ValkeyConnectionError` | `VALKEY_CONNECTION_ERROR` | `1` | Valkey | Raised when connection to Valkey instance fails, times out, or drops. |
 | `ValkeyError` | `VALKEY_ERROR` | `1` | Valkey | Base exception for Valkey workstation and caching operations. |
 | `ValkeyTimeoutError` | `VALKEY_TIMEOUT_ERROR` | `1` | Valkey | Raised when a Valkey socket operation exceeds timeout. |
-| `VaultAuthenticationError` | `VAULT_AUTH_ERROR` | `1` | Vault | Raised when a Vault login method fails to issue a client token. |
+| `VaultAuthenticationError` | `VAULT_AUTH_ERROR` | `1` | Vault | Raised when Vault issues or accepts no token: a failed login, none usable, or one refused. |
 | `VaultConfigurationError` | `VAULT_CONFIGURATION_ERROR` | `1` | Vault | Raised when Vault environment or connection settings are missing or invalid. |
 | `VaultError` | `VAULT_ERROR` | `1` | Vault | Base exception for HashiCorp Vault operations. |
 | `VaultKeyError` | `VAULT_KEY_ERROR` | `1` | Vault | Raised when a secret key or field is not found in Vault. |
-| `VaultLeaseError` | `VAULT_LEASE_ERROR` | `1` | Vault | Raised when a dynamic secret lease cannot be renewed or revoked. |
+| `VaultLeaseError` | `VAULT_LEASE_ERROR` | `1` | Vault | Raised when a Vault lease, login, token or Transit call fails, with Vault's HTTP status. |
 | `VaultOperationError` | `VAULT_OPERATION_ERROR` | `1` | Vault | Raised when an API request to Vault fails or returns an error response. |
+| `VaultUnreachableError` | `VAULT_OPERATION_ERROR` | `1` | Vault | Raised when no reply came back from Vault: the connection failed or timed out. |

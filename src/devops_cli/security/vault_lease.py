@@ -16,12 +16,12 @@ from typing import Any
 
 from devops_cli.config.constants import (
     CONST_KUBERNETES_SA_TOKEN_PATH,
-    CONST_VAULT_API_PREFIX,
     CONST_VAULT_PATH_APPROLE_LOGIN,
     CONST_VAULT_PATH_KUBERNETES_LOGIN,
     CONST_VAULT_PATH_LEASE_RENEW,
     CONST_VAULT_PATH_LEASE_REVOKE,
     CONST_VAULT_PATH_TOKEN_RENEW_SELF,
+    CONST_VAULT_PATH_TOKEN_REVOKE_SELF,
     CONST_VAULT_PATH_TRANSIT_DECRYPT,
     CONST_VAULT_PATH_TRANSIT_ENCRYPT,
 )
@@ -32,6 +32,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.exceptions.vault import VaultAuthenticationError, VaultLeaseError
 from devops_cli.models.vault import VaultAuthResult, VaultLease, VaultLeaseReport
+from devops_cli.security.vault_http import vault_request
 
 logger = logging.getLogger(__name__)
 
@@ -43,26 +44,32 @@ def _post(
     headers: dict[str, str],
     timeout: float = DEFAULT_VAULT_REQUEST_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    """Issue a Vault HTTP API POST through the shared, egress-validated broker."""
-    from devops_cli.http.broker import get_broker
+    """Issue a Vault HTTP API POST, every hop held to the origin of `vault_addr`.
 
-    url = f"{vault_addr.rstrip('/')}{CONST_VAULT_API_PREFIX}/{path.lstrip('/')}"
-    response = get_broker().request(
-        "POST",
-        url,
-        json=payload,
-        headers=headers,
-        timeout=timeout,
-        allow_private_network=True,
+    A refusing status raises `VaultLeaseError` carrying it; `vault_request` raises when Vault
+    does not answer or redirects elsewhere.
+    """
+    response = vault_request(
+        "POST", vault_addr, path, headers=headers, payload=payload, timeout=timeout
     )
     if response.status_code >= 400:
         raise VaultLeaseError(
-            f"Vault API call to '{path}' failed with status {response.status_code}"
+            f"Vault API call to '{path}' failed with status {response.status_code}",
+            vault_addr=vault_addr,
+            status_code=response.status_code,
         )
     if not response.content:
         return {}
     parsed = response.json()
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _token_headers(token: str, namespace: str | None) -> dict[str, str]:
+    """Build authenticated request headers; the token is always sent."""
+    headers = {"Content-Type": "application/json", "X-Vault-Token": token}
+    if namespace:
+        headers["X-Vault-Namespace"] = namespace
+    return headers
 
 
 # =============================================================================
@@ -153,6 +160,11 @@ def login_kubernetes(
     return _project_auth(payload, "kubernetes")
 
 
+def revoke_self(vault_addr: str, token: str, namespace: str | None = None) -> None:
+    """Revoke `token` itself at the Vault that issued it, raising when Vault refuses."""
+    _post(vault_addr, CONST_VAULT_PATH_TOKEN_REVOKE_SELF, {}, _token_headers(token, namespace))
+
+
 # =============================================================================
 # Lease Lifecycle
 # =============================================================================
@@ -163,7 +175,7 @@ class LeaseRegistry:
     """Tracks issued Vault leases and renews them before they lapse."""
 
     vault_addr: str
-    token: str | None = None
+    token: str
     namespace: str | None = None
     renew_threshold: float = DEFAULT_VAULT_LEASE_RENEW_THRESHOLD
     renew_increment: int = DEFAULT_VAULT_LEASE_RENEW_INCREMENT_SECONDS
@@ -173,12 +185,7 @@ class LeaseRegistry:
 
     def _headers(self) -> dict[str, str]:
         """Build authenticated Vault request headers."""
-        headers = {"Content-Type": "application/json"}
-        if self.token:
-            headers["X-Vault-Token"] = self.token
-        if self.namespace:
-            headers["X-Vault-Namespace"] = self.namespace
-        return headers
+        return _token_headers(self.token, self.namespace)
 
     def track(
         self, lease_id: str, duration: int, renewable: bool, secret_path: str = ""
@@ -254,8 +261,11 @@ class LeaseRegistry:
         auth = payload.get("auth") or {}
         return int(auth.get("lease_duration", 0) or 0) if isinstance(auth, dict) else 0
 
-    def revoke(self, lease_id: str) -> bool:
-        """Revoke a lease and stop tracking it."""
+    def revoke(self, lease_id: str) -> None:
+        """Revoke a lease and stop tracking it, whether or not Vault accepts the revocation.
+
+        Raises `VaultLeaseError` with the status Vault answered when it refuses.
+        """
         try:
             _post(
                 self.vault_addr,
@@ -263,16 +273,21 @@ class LeaseRegistry:
                 {"lease_id": lease_id},
                 self._headers(),
             )
-        except VaultLeaseError as exc:
-            logger.debug("Lease %s revocation failed: %s", lease_id, exc)
-            return False
         finally:
             self._leases.pop(lease_id, None)
-        return True
 
-    def revoke_all(self) -> int:
-        """Revoke every tracked lease, returning how many were revoked."""
-        return sum(1 for lease_id in list(self._leases) if self.revoke(lease_id))
+    def revoke_all(self) -> list[str]:
+        """Revoke every tracked lease, returning the ids Vault refused to revoke.
+
+        Every lease stops being tracked either way.
+        """
+        refused: list[str] = []
+        for lease_id in list(self._leases):
+            try:
+                self.revoke(lease_id)
+            except VaultLeaseError:
+                refused.append(lease_id)
+        return refused
 
     def renew_expiring(self, now: float | None = None) -> VaultLeaseReport:
         """Renew every tracked lease close to expiry, reporting the outcome.
@@ -312,7 +327,8 @@ def transit_encrypt(
     vault_addr: str,
     key_name: str,
     plaintext: str,
-    token: str | None = None,
+    *,
+    token: str,
     namespace: str | None = None,
 ) -> str:
     """Encrypt a value with Vault's Transit engine, which never exposes the key.
@@ -322,18 +338,12 @@ def transit_encrypt(
     """
     import base64
 
-    headers = {"Content-Type": "application/json"}
-    if token:
-        headers["X-Vault-Token"] = token
-    if namespace:
-        headers["X-Vault-Namespace"] = namespace
-
     encoded = base64.b64encode(plaintext.encode("utf-8")).decode("ascii")
     payload = _post(
         vault_addr,
         f"{CONST_VAULT_PATH_TRANSIT_ENCRYPT}/{key_name}",
         {"plaintext": encoded},
-        headers,
+        _token_headers(token, namespace),
     )
     ciphertext = (payload.get("data") or {}).get("ciphertext")
     if not ciphertext:
@@ -345,23 +355,18 @@ def transit_decrypt(
     vault_addr: str,
     key_name: str,
     ciphertext: str,
-    token: str | None = None,
+    *,
+    token: str,
     namespace: str | None = None,
 ) -> str:
     """Decrypt a Transit-encrypted value back to plaintext."""
     import base64
 
-    headers = {"Content-Type": "application/json"}
-    if token:
-        headers["X-Vault-Token"] = token
-    if namespace:
-        headers["X-Vault-Namespace"] = namespace
-
     payload = _post(
         vault_addr,
         f"{CONST_VAULT_PATH_TRANSIT_DECRYPT}/{key_name}",
         {"ciphertext": ciphertext},
-        headers,
+        _token_headers(token, namespace),
     )
     encoded = (payload.get("data") or {}).get("plaintext")
     if not encoded:
@@ -374,6 +379,7 @@ __all__ = [
     "login_approle",
     "login_kubernetes",
     "read_service_account_token",
+    "revoke_self",
     "transit_decrypt",
     "transit_encrypt",
 ]

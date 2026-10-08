@@ -424,10 +424,11 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops test profile-memory [OPTIONS] <target>` | Deterministic async memory and connection pool profiler using tracemalloc. |
 | **pipeline** | `devops pipeline [OPTIONS] <pipeline_path>` | Execute reproducible, containerized developer pipelines with Dagger. |
 | **vault** | `devops vault status [OPTIONS]` | Inspect HashiCorp Vault cluster health and initialization status. |
-|  | `devops vault get [OPTIONS] <path>` | Fetch secret value from Vault or OS Keyring fallback. |
+|  | `devops vault get [OPTIONS] <path>` | Fetch a secret from Vault, or from the OS keyring when Vault cannot answer. |
 |  | `devops vault set [OPTIONS] <path> <key_values>` | Store secret key-value pairs in HashiCorp Vault KV-v2 engine. |
 |  | `devops vault sync [OPTIONS] <path>` | Synchronize secrets from Vault into OS Keyring for offline/local CLI operations. |
 |  | `devops vault login [OPTIONS]` | Authenticate with Vault natively via AppRole or the in-cluster ServiceAccount. |
+|  | `devops vault logout` | Revoke the token `devops vault login` stored, at the Vault that issued it, and delete it. |
 |  | `devops vault leases [OPTIONS]` | Inspect, renew, or revoke tracked Vault dynamic secret leases. |
 |  | `devops vault audit [OPTIONS]` | Show which provider satisfied each credential lookup in this session. |
 | **valkey** | `devops valkey ping [OPTIONS]` | Test connection and measure round-trip latency to the Valkey server. |
