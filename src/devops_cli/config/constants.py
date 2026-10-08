@@ -707,6 +707,14 @@ CONST_GIT_NONINTERACTIVE_ENV: Final[dict[str, str]] = {
     "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
 }
 """Environment that makes git fail instead of prompting for credentials or a passphrase."""
+CONST_GIT_NO_TERMINAL_PROMPT_ENV: Final[dict[str, str]] = {"GIT_TERMINAL_PROMPT": "0"}
+"""Environment that stops git from asking for a username or password on the terminal.
+
+An askpass program the person configured (`GIT_ASKPASS`, `core.askPass` or `SSH_ASKPASS`, such as
+VS Code's) still runs. Only when none is set, or it answers nothing, does git fail with "terminal
+prompts disabled". It leaves ssh alone, unlike `CONST_GIT_NONINTERACTIVE_ENV`, so a person's own
+`core.sshCommand` still applies to the git devops-cli runs against their remote (#1124).
+"""
 CONST_K8S_TEMPLATE_EXTENSIONS: Final[tuple[str, ...]] = (".yaml", ".yml")
 # Where each workload kind keeps its pod spec: Pod; PodTemplate; Deployment, ReplicaSet,
 # StatefulSet, DaemonSet, Job and ReplicationController; CronJob.

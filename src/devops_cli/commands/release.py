@@ -23,7 +23,9 @@ from devops_cli.config.constants import (
     CONST_CONVENTIONAL_COMMIT_CATEGORY_ORDER,
     CONST_DOCS_DIR_NAME,
     CONST_GH_CLI,
+    CONST_GIT_CLI,
     CONST_GIT_MAIN_BRANCH,
+    CONST_GIT_NO_TERMINAL_PROMPT_ENV,
     CONST_GITHUB_HTTPS_PREFIX,
     CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS,
     CONST_GITHUB_RELEASE_BODY_MAX_CHARS,
@@ -1094,15 +1096,36 @@ def _verify_clean_tree(root: Path) -> None:
         raise typer.Exit(1)
 
 
-def _fetch_remote_release_tip(root: Path, release_branch: str) -> None:
-    """Fetch remote release branch from origin and verify its existence."""
-    remote_ref = f"origin/{release_branch}"
-    _get("run_subprocess")(
-        ["git", "fetch", "origin", release_branch],
+def _run_remote_git_or_exit(root: Path, failure: str, *git_args: str) -> None:
+    """Run a git command that reaches origin in the person's own environment, or exit 1 (#1124).
+
+    The sanitized environment drops what credential helpers need: a helper set in `GIT_CONFIG_*`,
+    VS Code's IPC socket, the keyring's session bus, an SSH agent. Git gets the whole
+    environment instead, as the person's own `git push` does, with the session's GitHub token
+    pinned (#767) and no terminal prompt. When git fails, `failure` is printed with git's reason,
+    credentials masked and its text shown as written, and the command exits 1.
+    """
+    from devops_cli.security.sanitizer import mask_secrets
+
+    proc = _get("run_subprocess")(
+        [CONST_GIT_CLI, *git_args],
         cwd=root,
         capture_output=True,
         check=False,
-        quiet=True,
+        isolate_env=False,
+        env=CONST_GIT_NO_TERMINAL_PROMPT_ENV,
+    )
+    if proc.returncode != 0:
+        reason = str(proc.stderr).strip() or str(proc.stdout).strip()
+        _get("print_error")(f"{failure}: {mask_secrets(reason)}", prefix=False, safe=True)
+        raise typer.Exit(1)
+
+
+def _fetch_remote_release_tip(root: Path, release_branch: str) -> None:
+    """Fetch remote release branch from origin and verify its existence."""
+    remote_ref = f"origin/{release_branch}"
+    _run_remote_git_or_exit(
+        root, f"Failed to fetch {remote_ref}", "fetch", "origin", release_branch
     )
     rev_proc = _get("run_subprocess")(
         ["git", "rev-parse", "--verify", "--quiet", remote_ref],
@@ -1186,16 +1209,15 @@ def _commit_and_push_cut_branch(
             )
             raise typer.Exit(1)
 
-    push_proc = _get("run_subprocess")(
-        ["git", "push", "--force-with-lease", "-u", "origin", cut_branch],
-        cwd=root,
-        capture_output=True,
-        check=False,
+    _run_remote_git_or_exit(
+        root,
+        f"Failed to push {cut_branch} to origin",
+        "push",
+        "--force-with-lease",
+        "-u",
+        "origin",
+        cut_branch,
     )
-    if push_proc.returncode != 0:
-        err = str(push_proc.stderr).strip() or str(push_proc.stdout).strip()
-        _get("print_error")(f"Failed to push {cut_branch} to origin: {err}", prefix=False)
-        raise typer.Exit(1)
 
 
 def milestone_issues_args(milestone_tag: str) -> list[str]:
@@ -1970,13 +1992,14 @@ def _commit_release_tag_changes(repo_root: Path, release_title: str) -> None:
 
 
 def _push_git_tag(repo_root: Path, tag_name: str, target_ver: str) -> None:
-    """Push annotated tag to origin and close release milestone."""
-    push_proc = _get("run_subprocess")(["git", "push", "origin", "--tags"], cwd=repo_root)
-    if push_proc.returncode != 0:
-        _get("print_error")(
-            f"Failed to push tag {tag_name} to origin: {push_proc.stderr}", prefix=False
-        )
-        raise typer.Exit(1)
+    """Push the annotated release tag, and no other, to origin and close release milestone."""
+    _run_remote_git_or_exit(
+        repo_root,
+        f"Failed to push tag {tag_name} to origin",
+        "push",
+        "origin",
+        f"refs/tags/{tag_name}",
+    )
     _get("print_success")(MESSAGES.release.tag_pushed.format(tag=tag_name), prefix=False)
     _close_release_milestone_safe(repo_root, target_ver)
 
