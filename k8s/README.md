@@ -345,7 +345,7 @@ kubectl -n devops logs -f job/<name>
 
 1. `uv run devops config set service.repos <owner/name>` (each repository the service works for), then `uv run devops config set service.webhook_secrets` (hidden prompt; a JSON object mapping `owner/name` to its secret). deploy-stack refuses the devops stack until `service.repos` and the machine account (step 2) are set.
 2. `uv run devops k8s push-secrets --stack devops`, with the machine account's login in `k8s.github_account` (#741). deploy-stack also pushes it once namespace `devops` exists.
-3. Invite the machine account as a Write collaborator on each repo and board.
+3. Invite the machine account as a Write collaborator on each repo and board. In **Settings → Rules → Rulesets**, open the ruleset covering release branches (ruleset 23059172) and add a bypass entry for the repository role the machine account holds (**Write**), mode **Always**. Automated release cuts push directly to `release/vX.Y.Z`, which GitHub refuses with `GH013` without this bypass (#1280).
 4. Check that the GHCR `service` package is public (#741 made it so): `DOCKER_CONFIG=$(mktemp -d) docker pull ghcr.io/dan-petty/devops-cli/service:<tag>`.
 5. `devops cloudflare tunnel routes`. If no route covers the webhook host, add one in the dashboard, not with `tunnel sync` (#794).
 6. `devops cloudflare access status`, then add a Bypass application for `hooks.<domain>/webhooks/github`.

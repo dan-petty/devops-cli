@@ -11,7 +11,7 @@ import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, NamedTuple
+from typing import Annotated, Any, NamedTuple, NoReturn
 
 import typer
 
@@ -43,6 +43,16 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.exceptions import (
+    DevOpsCLIError,
+    GitOperationError,
+    ReleaseBranchMissingError,
+    ReleasePRCreationError,
+    ReleasePushError,
+    ReleasePushRefusedError,
+    ReleaseRemoteFetchError,
+    ReleaseWorkingTreeDirtyError,
+)
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.release.changelog_fragments import (
@@ -87,7 +97,7 @@ def _get(name: str) -> Any:
     return getattr(sys.modules[__name__], name)
 
 
-app = new_typer(help=HELP.release.app)
+app = new_typer(help=HELP.release.app, exit_on=DevOpsCLIError)
 
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
 
@@ -1089,24 +1099,46 @@ def _validate_release_version(version: str | None, repo_root: Path) -> str:
 def _verify_clean_tree(root: Path) -> None:
     """Ensure working directory has no uncommitted changes before cutting release."""
     if not _is_git_clean(root):
-        _get("print_error")(
-            "Working directory has uncommitted changes. Stash or commit them before cutting a release.",
-            prefix=False,
+        raise ReleaseWorkingTreeDirtyError(
+            "Working directory has uncommitted changes. Stash or commit them before cutting a release."
         )
-        raise typer.Exit(1)
+
+
+def _is_ruleset_refusal(raw_output: str) -> bool:
+    """Return True if git output indicates push refusal by a repository ruleset."""
+    text = raw_output.lower()
+    return "gh013" in text or "repository rule violations found" in text
+
+
+def _raise_remote_git_failure(failure: str, reason: str, git_args: tuple[str, ...]) -> NoReturn:
+    """Raise the appropriate typed GitOperationError subclass for a failed remote git command."""
+    from devops_cli.security.sanitizer import mask_secrets
+
+    clean_reason = mask_secrets(reason)
+    if "fetch" in git_args:
+        raise ReleaseRemoteFetchError(f"{failure}: {clean_reason}")
+    if "push" in git_args:
+        if _is_ruleset_refusal(reason):
+            msg = (
+                f"{failure}: push refused by repository ruleset (GH013). "
+                "Direct pushes to release branches require Write role bypass on the "
+                "release ruleset (ruleset 23059172 in Settings → Rules → Rulesets). "
+                f"Git output: {clean_reason}"
+            )
+            raise ReleasePushRefusedError(msg, details={"git_output": clean_reason})
+        raise ReleasePushError(f"{failure}: {clean_reason}", details={"git_output": clean_reason})
+    raise GitOperationError(f"{failure}: {clean_reason}")
 
 
 def _run_remote_git_or_exit(root: Path, failure: str, *git_args: str) -> None:
-    """Run a git command that reaches origin in the person's own environment, or exit 1 (#1124).
+    """Run a git command that reaches origin in the person's own environment, or raise typed error (#1124, #1280).
 
     The sanitized environment drops what credential helpers need: a helper set in `GIT_CONFIG_*`,
     VS Code's IPC socket, the keyring's session bus, an SSH agent. Git gets the whole
     environment instead, as the person's own `git push` does, with the session's GitHub token
-    pinned (#767) and no terminal prompt. When git fails, `failure` is printed with git's reason,
-    credentials masked and its text shown as written, and the command exits 1.
+    pinned (#767) and no terminal prompt. When git fails, the command raises a typed error
+    naming its cause, credentials masked and its text shown as written (#1280).
     """
-    from devops_cli.security.sanitizer import mask_secrets
-
     proc = _get("run_subprocess")(
         [CONST_GIT_CLI, *git_args],
         cwd=root,
@@ -1117,8 +1149,7 @@ def _run_remote_git_or_exit(root: Path, failure: str, *git_args: str) -> None:
     )
     if proc.returncode != 0:
         reason = str(proc.stderr).strip() or str(proc.stdout).strip()
-        _get("print_error")(f"{failure}: {mask_secrets(reason)}", prefix=False, safe=True)
-        raise typer.Exit(1)
+        _raise_remote_git_failure(failure, reason, git_args)
 
 
 def _fetch_remote_release_tip(root: Path, release_branch: str) -> None:
@@ -1135,11 +1166,10 @@ def _fetch_remote_release_tip(root: Path, release_branch: str) -> None:
         quiet=True,
     )
     if rev_proc.returncode != 0:
-        _get("print_error")(
+        raise ReleaseBranchMissingError(
             f"Remote release branch '{remote_ref}' does not exist.",
-            prefix=False,
+            remote_ref=remote_ref,
         )
-        raise typer.Exit(1)
 
 
 def _checkout_cut_branch(root: Path, cut_branch: str, remote_ref: str) -> None:
@@ -1155,11 +1185,10 @@ def _checkout_cut_branch(root: Path, cut_branch: str, remote_ref: str) -> None:
         check=False,
     )
     if proc.returncode != 0:
-        _get("print_error")(
+        raise GitOperationError(
             f"Failed to create release branch {cut_branch}: {proc.stderr}",
-            prefix=False,
+            operation="checkout_release_branch",
         )
-        raise typer.Exit(1)
     _get("print_success")(
         MESSAGES.release.branch_created.format(branch=cut_branch),
         prefix=False,
@@ -1203,11 +1232,10 @@ def _commit_and_push_cut_branch(
             check=False,
         )
         if commit_proc.returncode != 0 and "nothing to commit" not in str(commit_proc.stdout):
-            _get("print_error")(
+            raise GitOperationError(
                 f"Failed to create release commit: {commit_proc.stderr or commit_proc.stdout}",
-                prefix=False,
+                operation="create_release_commit",
             )
-            raise typer.Exit(1)
 
     _run_remote_git_or_exit(
         root,
@@ -1452,7 +1480,7 @@ def _build_release_pr_command(
 
 
 def _execute_release_pr(pr_cmd: list[str], repo_root: Path) -> None:
-    """Execute gh pr create, exiting non-zero if pull request creation fails."""
+    """Execute gh pr create, raising ReleasePRCreationError if pull request creation fails."""
     run_gh_fn = _get("run_gh")
     pr_proc = run_gh_fn(pr_cmd, cwd=repo_root)
     if pr_proc.returncode == 0:
@@ -1461,8 +1489,8 @@ def _execute_release_pr(pr_cmd: list[str], repo_root: Path) -> None:
         return
 
     err = str(pr_proc.stderr).strip() or str(pr_proc.stdout).strip()
-    _get("print_error")(MESSAGES.release.pr_failed.format(error=err), prefix=False)
-    raise typer.Exit(1)
+    msg = MESSAGES.release.pr_failed.format(error=err)
+    raise ReleasePRCreationError(msg, details={"command": pr_cmd, "error": err})
 
 
 def cut_release(

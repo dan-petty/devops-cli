@@ -1015,8 +1015,9 @@ class RoadmapCommandHelp:
         "changed and how it was verified (check runs and the task file's Acceptance Criteria). "
         "Once the release has no open item, one item closed as completed and no release pull "
         "request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the "
-        "version, pushes, and opens the release pull request into the default branch. Lists "
-        "completed items with no changelog fragment. Writes only with --confirm."
+        "version, pushes to release/vX.Y.Z (requiring Write role bypass on release ruleset 23059172), "
+        "and opens the release pull request into the default branch. Lists completed items with no "
+        "changelog fragment. Writes only with --confirm."
     )
     close_confirm: str = (
         "Close the issues and make the cut. Without it, close prints its plan only."
