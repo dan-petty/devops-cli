@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import threading
 from typing import Any
 
@@ -13,36 +12,31 @@ except ImportError:
 
 from devops_cli.config.constants import CONST_HTTP_EGRESS_POLICY_EXTENSION
 from devops_cli.config.defaults import DEFAULT_HTTP_MAX_REDIRECTS, DEFAULT_HTTP_TIMEOUT_SECONDS
-from devops_cli.http.validation import validate_service_url
+from devops_cli.exceptions import InvalidURLError
+from devops_cli.http.client import new_async_http_client, new_http_client
+from devops_cli.http.egress import EgressLevel
 from devops_cli.telemetry.context import inject_traceparent_headers
 
 
 class HttpClientBroker:
-    """Thread-safe connection pool broker managing persistent HTTP/2 clients."""
+    """Thread-safe broker keeping one persistent HTTP/2 client per egress level.
+
+    Each client dials only the addresses its level allows, checked at the connect for every
+    redirect hop (`devops_cli.http.egress`). A connection one level opened is never reused by
+    another, because each level has a client, and so a connection pool, of its own.
+    """
 
     def __init__(
         self,
         *,
         timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
-        allow_private_networks: bool | None = None,
         enable_http2: bool = True,
     ) -> None:
         self.timeout = timeout
-        self.allow_private_networks = (
-            allow_private_networks
-            if allow_private_networks is not None
-            else os.environ.get("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "").lower() in ("true", "1")
-        )
         self.enable_http2 = enable_http2
         self._lock = threading.Lock()
-        self._sync_client: httpx.Client | None = None
-        self._async_client: httpx.AsyncClient | None = None
-
-    def validate_url(self, url: str, allow: bool | None = None) -> str:
-        """Validate destination URL against SSRF and private network policies."""
-        allow_dest = allow if allow is not None else self.allow_private_networks
-        validate_service_url(url, allow=allow_dest)
-        return url
+        self._sync_clients: dict[EgressLevel, httpx.Client] = {}
+        self._async_clients: dict[EgressLevel, httpx.AsyncClient] = {}
 
     def build_headers(self, headers: dict[str, str] | None = None) -> dict[str, str]:
         """Construct request headers with OpenTelemetry traceparent context propagation."""
@@ -50,26 +44,29 @@ class HttpClientBroker:
         base_headers.setdefault("User-Agent", "devops-cli/0.2.9")
         return inject_traceparent_headers(base_headers)
 
-    def _validate_request(self, request: httpx.Request) -> None:
-        """Veto the request and each redirect hop against SSRF policies before it is sent.
+    @staticmethod
+    def _validate_request(request: httpx.Request) -> None:
+        """Veto the request and each redirect hop before it is sent.
 
-        A request carrying its own egress policy is held to that policy first, then to the
-        broker's own check, so a policy can narrow what the broker admits but never widen it.
+        A request carrying its own egress policy is held to that policy, and every hop must be
+        http or https. Which addresses a hop may reach is the connect's decision, made for the
+        address dialled, so the hook does no lookup.
         """
         if policy := request.extensions.get(CONST_HTTP_EGRESS_POLICY_EXTENSION):
             policy(str(request.url))
-        allow = request.extensions.get("allow_private_network")
-        if allow is None:
-            allow = self.allow_private_networks
-        validate_service_url(str(request.url), purpose="http", allow=bool(allow))
+        if request.url.scheme not in ("http", "https"):
+            raise InvalidURLError(
+                str(request.url)[:256], reason="Only http and https URLs may be requested"
+            )
 
-    def new_client(self) -> httpx.Client:
-        """Return a synchronous client of its own, which the caller closes.
+    def new_client(self, level: EgressLevel) -> httpx.Client:
+        """Return a synchronous client of its own at `level`, which the caller closes.
 
-        It follows the broker's redirect limit and vetoes each hop as the shared client does, but
-        shares no connection pool or cookie jar with it.
+        It follows the broker's redirect limit and vetoes each hop as the shared clients do, but
+        shares no connection pool or cookie jar with them.
         """
-        return httpx.Client(
+        return new_http_client(
+            level=level,
             timeout=self.timeout,
             http2=self.enable_http2,
             follow_redirects=True,
@@ -77,54 +74,52 @@ class HttpClientBroker:
             event_hooks={"request": [self._validate_request]},
         )
 
-    def get_client(self) -> httpx.Client:
-        """Return thread-safe shared synchronous HTTP client."""
+    def get_client(self, level: EgressLevel) -> httpx.Client:
+        """Return the thread-safe shared synchronous client for `level`."""
         with self._lock:
-            if self._sync_client is None or self._sync_client.is_closed:
-                self._sync_client = self.new_client()
-            return self._sync_client
+            client = self._sync_clients.get(level)
+            if client is None or client.is_closed:
+                client = self._sync_clients[level] = self.new_client(level)
+            return client
 
     async def _async_validate_request(self, request: httpx.Request) -> None:
-        """Validate request and redirect URLs against SSRF policies asynchronously."""
+        """Veto each async request and redirect hop; like the sync hook, it does no lookup."""
         self._validate_request(request)
 
-    async def get_async_client(self) -> httpx.AsyncClient:
-        """Return shared asynchronous HTTP client."""
+    async def get_async_client(self, level: EgressLevel) -> httpx.AsyncClient:
+        """Return the shared asynchronous client for `level`."""
         with self._lock:
-            if self._async_client is None or self._async_client.is_closed:
-                self._async_client = httpx.AsyncClient(
+            client = self._async_clients.get(level)
+            if client is None or client.is_closed:
+                client = self._async_clients[level] = new_async_http_client(
+                    level=level,
                     timeout=self.timeout,
                     http2=self.enable_http2,
                     follow_redirects=True,
                     max_redirects=DEFAULT_HTTP_MAX_REDIRECTS,
                     event_hooks={"request": [self._async_validate_request]},
                 )
-            return self._async_client
+            return client
 
     def request(
         self,
         method: str,
         url: str,
         *,
+        level: EgressLevel,
         headers: dict[str, str] | None = None,
         timeout: float | None = None,
-        allow_private_network: bool | None = None,
         **kwargs: Any,
     ) -> httpx.Response:
-        """Perform a synchronous HTTP request via the managed connection pool."""
-        allow = (
-            allow_private_network
-            if allow_private_network is not None
-            else self.allow_private_networks
-        )
-        self.validate_url(url, allow=allow)
-        client = self.get_client()
-        call_headers = self.build_headers(headers)
+        """Perform a synchronous HTTP request through the shared client for `level`."""
+        client = self.get_client(level)
         req = client.build_request(
-            method, url, headers=call_headers, timeout=timeout or self.timeout, **kwargs
+            method,
+            url,
+            headers=self.build_headers(headers),
+            timeout=timeout or self.timeout,
+            **kwargs,
         )
-        if allow_private_network is not None:
-            req.extensions["allow_private_network"] = allow_private_network
         return client.send(req)
 
     async def arequest(
@@ -132,41 +127,38 @@ class HttpClientBroker:
         method: str,
         url: str,
         *,
+        level: EgressLevel,
         headers: dict[str, str] | None = None,
         timeout: float | None = None,
-        allow_private_network: bool | None = None,
         **kwargs: Any,
     ) -> httpx.Response:
-        """Perform an asynchronous HTTP request via the managed connection pool."""
-        allow = (
-            allow_private_network
-            if allow_private_network is not None
-            else self.allow_private_networks
-        )
-        self.validate_url(url, allow=allow)
-        client = await self.get_async_client()
-        call_headers = self.build_headers(headers)
+        """Perform an asynchronous HTTP request through the shared client for `level`."""
+        client = await self.get_async_client(level)
         req = client.build_request(
-            method, url, headers=call_headers, timeout=timeout or self.timeout, **kwargs
+            method,
+            url,
+            headers=self.build_headers(headers),
+            timeout=timeout or self.timeout,
+            **kwargs,
         )
-        if allow_private_network is not None:
-            req.extensions["allow_private_network"] = allow_private_network
         return await client.send(req)
 
     def close(self) -> None:
-        """Close synchronous client connections."""
+        """Close the synchronous clients' connections."""
         with self._lock:
-            client = self._sync_client
-            self._sync_client = None
-            if client is not None and not client.is_closed:
+            clients = list(self._sync_clients.values())
+            self._sync_clients.clear()
+        for client in clients:
+            if not client.is_closed:
                 client.close()
 
     async def aclose(self) -> None:
-        """Close asynchronous client connections."""
+        """Close the asynchronous clients' connections."""
         with self._lock:
-            client = self._async_client
-            self._async_client = None
-            if client is not None and not client.is_closed:
+            clients = list(self._async_clients.values())
+            self._async_clients.clear()
+        for client in clients:
+            if not client.is_closed:
                 await client.aclose()
 
     def __enter__(self) -> HttpClientBroker:

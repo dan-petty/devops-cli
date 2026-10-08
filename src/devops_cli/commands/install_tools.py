@@ -44,6 +44,8 @@ from devops_cli.exceptions import (
     ToolExecutionError,
     ValidationError,
 )
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import EgressLevel
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
@@ -80,8 +82,29 @@ _EXE = ".exe" if _OS == "windows" else ""
 # ── Download helpers ──────────────────────────────────────────────────────────
 
 
+def _require_https(request: httpx2.Request) -> None:
+    """Refuse a tool download hop, the first request or a redirect, that is not https."""
+    if request.url.scheme != "https":
+        raise ToolDownloadError(
+            str(request.url)[:256], reason="Only HTTPS URLs are permitted for tool downloads"
+        )
+
+
+def _download_client() -> httpx2.Client:
+    """A public-only client that follows redirects and refuses every hop that is not https.
+
+    The tool hosts are public, so a name answering a private, loopback or metadata address is
+    refused at the connect, whatever `ai.allow_private_network` says.
+    """
+    return new_http_client(
+        level=EgressLevel.PUBLIC,
+        follow_redirects=True,
+        event_hooks={"request": [_require_https]},
+    )
+
+
 def _gh_latest(repo: str) -> str:
-    with httpx2.Client(follow_redirects=True) as c:
+    with _download_client() as c:
         r = c.get(
             f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/releases/latest",
             headers={"Accept": "application/vnd.github+json"},
@@ -92,12 +115,7 @@ def _gh_latest(repo: str) -> str:
 
 
 def _download(url: str) -> bytes:
-    from devops_cli.http.validation import validate_service_url
-
-    if not url.startswith("https://"):
-        raise ToolDownloadError(url, reason="Only HTTPS URLs are permitted for tool downloads")
-    validate_service_url(url, purpose="tool download")
-    with httpx2.Client(follow_redirects=True) as c:
+    with _download_client() as c:
         r = c.get(url, timeout=DEFAULT_HTTP_TIMEOUT_SECONDS)
         r.raise_for_status()
         return r.content
@@ -187,7 +205,7 @@ def _install_kubectl(version: str, target_dir: Path) -> None:
 
 
 def _latest_kubectl() -> str:
-    with httpx2.Client(follow_redirects=True) as c:
+    with _download_client() as c:
         r = c.get(
             f"{CONST_URL_K8S_DOWNLOAD_BASE}/release/stable.txt",
             timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,

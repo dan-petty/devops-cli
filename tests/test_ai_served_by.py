@@ -46,8 +46,8 @@ CREATE TABLE ai_spend_records (
 
 
 @pytest.fixture(autouse=True)
-def _allow_private_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
+def _public_endpoints(public_dns: str) -> None:
+    """The configured endpoints are example.com URLs, which resolve to a public address."""
 
 
 def _gateway_client() -> LLMClient:

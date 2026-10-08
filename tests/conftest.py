@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import ipaddress
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -75,11 +76,15 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
-def _is_ip_literal(host: str) -> bool:
-    """Report whether a host is an IP address, which resolves without a DNS query."""
+def _is_numeric_host(host: Any, resolve: Callable[..., Any]) -> bool:
+    """Report whether a host is numeric in any spelling glibc accepts, which needs no DNS query.
+
+    `2852039166` and `0xa9fea9fe` are 169.254.169.254 to glibc, so they resolve in tests as they
+    do in production. `resolve` is the unguarded `socket.getaddrinfo`.
+    """
     try:
-        ipaddress.ip_address(host)
-    except ValueError:
+        resolve(host, None, flags=socket.AI_NUMERICHOST)
+    except OSError, UnicodeError:
         return False
     return True
 
@@ -130,7 +135,7 @@ def prevent_external_network_calls() -> None:
             host is None
             or bool(flags & socket.AI_NUMERICHOST)
             or _is_loopback(name)
-            or _is_ip_literal(name)
+            or _is_numeric_host(host, orig_getaddrinfo)
         ):
             return orig_getaddrinfo(host, *args, **kwargs)
         raise socket.gaierror(
@@ -208,25 +213,33 @@ def stub_web(monkeypatch: pytest.MonkeyPatch, public_dns: str) -> Iterator[StubW
     Clients keep the broker's own redirect limit and request hooks; only their transport is the
     stub's. They stay classes, so code that subclasses them or checks isinstance still works.
     External names resolve to a public address, as `public_dns` does.
+
+    A canned page never reaches a connect, so a client the factory built at an egress level has
+    each request's host vetted with `vet_addresses` at that level before the stub answers it, as
+    its backend would before dialling.
     """
     import httpx2
 
     from devops_cli.http import broker
-    from tests.web_fakes import StubWeb
+    from tests.web_fakes import StubWeb, egress_level_of
 
     web = StubWeb()
-    transport = httpx2.MockTransport(web.handle)
+
+    def stub_transport(factory_transport: Any) -> httpx2.MockTransport:
+        return httpx2.MockTransport(web.vetting_handler(egress_level_of(factory_transport)))
 
     class StubClient(httpx2.Client):
         """An httpx2.Client whose transport is always the stub's."""
 
         def __init__(self, **kwargs: Any) -> None:
+            transport = stub_transport(kwargs.get("transport"))
             super().__init__(**{**kwargs, "transport": transport})
 
     class StubAsyncClient(httpx2.AsyncClient):
         """An httpx2.AsyncClient whose transport is always the stub's."""
 
         def __init__(self, **kwargs: Any) -> None:
+            transport = stub_transport(kwargs.get("transport"))
             super().__init__(**{**kwargs, "transport": transport})
 
     monkeypatch.setattr(httpx2, "Client", StubClient)

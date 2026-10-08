@@ -249,6 +249,7 @@ async def _exercise_http_pool(iterations: int) -> None:
     except ImportError:
         import httpx  # type: ignore[no-redef]
     from devops_cli.http.broker import HttpClientBroker
+    from devops_cli.http.egress import EgressLevel
 
     async def _dummy_app(scope: Any, receive: Any, send: Any) -> None:
         await send(
@@ -260,13 +261,15 @@ async def _exercise_http_pool(iterations: int) -> None:
         )
         await send({"type": "http.response.body", "body": b"OK"})
 
-    broker = HttpClientBroker(allow_private_networks=True)
+    broker = HttpClientBroker()
     try:
-        client = await broker.get_async_client()
+        client = await broker.get_async_client(EgressLevel.PRIVATE)
         client._transport = httpx.ASGITransport(app=cast(Any, _dummy_app))
 
         for _ in range(iterations):
-            resp = await broker.arequest("GET", "http://localhost:8080/health")
+            resp = await broker.arequest(
+                "GET", "http://localhost:8080/health", level=EgressLevel.PRIVATE
+            )
             _ = resp.status_code
     finally:
         await broker.aclose()

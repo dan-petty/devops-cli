@@ -5,7 +5,6 @@ from __future__ import annotations
 import concurrent.futures
 import ipaddress
 import logging
-import os
 import re
 import socket
 from pathlib import Path
@@ -22,7 +21,6 @@ from pydantic_ai._ssrf import (
 )
 
 from devops_cli.config.constants import (
-    CONST_AI_ALLOW_PRIVATE_NETWORK_ENV,
     CONST_CLOUD_METADATA_DNS_HOSTNAMES,
     CONST_K8S_LABEL_RE,
     CONST_K8S_SUBDOMAIN_RE,
@@ -39,8 +37,6 @@ from devops_cli.lang import MESSAGES
 from devops_cli.output import print_error
 
 logger = logging.getLogger(__name__)
-
-_ALLOW_PRIVATE_NETWORK_ENV = CONST_AI_ALLOW_PRIVATE_NETWORK_ENV
 
 PathKind = Literal["any", "dir", "file", "key"]
 
@@ -124,6 +120,17 @@ def _check_numeric_metadata(host: str) -> bool | None:
         return None
 
 
+def is_cloud_metadata_name(host: str) -> bool:
+    """Whether `host` names a cloud metadata service, compared as DNS compares names.
+
+    Case and a trailing dot do not matter. A host that is not a DNS name is not one of them.
+    """
+    try:
+        return dns.name.from_text(host) in _CLOUD_METADATA_DNS_NAMES
+    except dns.exception.DNSException:
+        return False
+
+
 def is_cloud_metadata_host(
     host_or_ip: (
         str
@@ -157,11 +164,11 @@ def is_cloud_metadata_host(
         return numeric_res
 
     try:
-        dns_name = dns.name.from_text(clean)
+        dns.name.from_text(clean)
     except dns.exception.DNSException:
         return True
 
-    if dns_name in _CLOUD_METADATA_DNS_NAMES:
+    if is_cloud_metadata_name(clean):
         return True
 
     if not resolve_dns:
@@ -462,14 +469,6 @@ def validate_url(
             clean_url, reason=f"{purpose.capitalize()} URL '{url}' missing valid hostname"
         )
 
-    allow_env = os.environ.get(_ALLOW_PRIVATE_NETWORK_ENV, "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    permitted_private = allow_private or allow_env
-
     if parsed.host:
         host = parsed.host
         _validate_dns_name_syntax(host, clean_url, purpose, InvalidURLError)
@@ -479,7 +478,7 @@ def validate_url(
                 clean_url,
                 reason=f"Access to link-local or cloud metadata services ({host}) is prohibited.",
             )
-        if not permitted_private:
+        if not allow_private:
             _enforce_non_private_ssrf(clean_url, host, parsed.scheme, parsed.port, purpose)
 
     return clean_url
@@ -488,8 +487,9 @@ def validate_url(
 def validate_service_url(url: str, purpose: str = "service", *, allow: bool = False) -> None:
     """Raise ValidationError for non-http/https or unauthorized private-network URLs.
 
-    Private-network targets are permitted when allow=True or
-    DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true is set in the environment.
+    Private-network targets are permitted when `allow` is True. A caller whose URL comes from the
+    user's configuration passes `ai.allow_private_network`, which DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK
+    sets; nothing here reads the environment.
     """
     validate_url(url, purpose=purpose, allow_private=allow)
 
@@ -502,10 +502,9 @@ def validate_configured_service_url(
     Loopback (`localhost`, 127.0.0.0/8, ::1) is the workstation itself, so a configured local
     service, such as the example config's Qdrant and Ollama, is reached without
     `allow_private_network`. Every other non-public host, private ranges among them, is refused
-    as `validate_service_url` refuses it unless `allow_private` or
-    DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK permits it, and cloud metadata hosts always are. URLs
-    that do not come from configuration, as the HTTP broker's and tool downloads', keep
-    `validate_service_url`.
+    as `validate_service_url` refuses it unless `allow_private` permits it, and cloud metadata
+    hosts always are. A client built by `devops_cli.http.client` makes the same decision at the
+    connect, for the address it dials, at `devops_cli.http.egress.configured_level`.
     """
     clean_url = str(url).strip()
     try:

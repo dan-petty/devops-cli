@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Generator, Sequence
@@ -23,10 +22,7 @@ from devops_cli.ai.client.models import (
     _is_json_error_payload,
     genai_provider_name,
 )
-from devops_cli.ai.client.network import (
-    ALLOW_PRIVATE_NETWORK_ENV,
-    validate_base_url,
-)
+from devops_cli.ai.client.network import validate_base_url
 from devops_cli.ai.client.ollama import OllamaProviderMixin
 from devops_cli.ai.client.openai import OpenAICompatProviderMixin
 from devops_cli.ai.client.structured import StructuredOutputMixin
@@ -160,8 +156,6 @@ class LLMClient(
     StructuredOutputMixin,
 ):
     """Unified client for interacting with AI models across different providers."""
-
-    _ALLOW_PRIVATE_NETWORK_ENV = ALLOW_PRIVATE_NETWORK_ENV
 
     @classmethod
     def _load_and_increment_rr_index(cls, n: int) -> int:
@@ -342,19 +336,9 @@ class LLMClient(
             connect=DEFAULT_AI_CONNECT_TIMEOUT_SECONDS,
         )
 
-    def _allow_private_network(self) -> bool:
-        if self._config.allow_private_network:
-            return True
-        return os.environ.get(self._ALLOW_PRIVATE_NETWORK_ENV, "").strip().lower() in (
-            "1",
-            "true",
-            "yes",
-            "on",
-        )
-
     def _validate_base_url(self, base_url: str, purpose: str = "API") -> str:
         return validate_base_url(
-            base_url, purpose=purpose, allow_private_network=self._allow_private_network()
+            base_url, purpose=purpose, allow_private_network=self._config.allow_private_network
         )
 
     def _dispatch_messages(

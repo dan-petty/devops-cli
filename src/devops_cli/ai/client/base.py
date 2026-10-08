@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
 import httpx2
 
 from devops_cli.ai.client.models import AIClientError
 from devops_cli.config.settings import AIConfig
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import EgressLevel, configured_level
+from devops_cli.http.pool import get_shared_client
 
 
 def _clean_http_error_body(raw_body: str) -> str:
@@ -50,28 +52,28 @@ class BaseLLMProviderMixin:
     def _request_timeout(self) -> httpx2.Timeout:
         raise NotImplementedError
 
-    def _create_retry_transport(self) -> Any:
-        """Create a native HTTPX2TenacityTransport with exponential backoff and Retry-After support."""
-        from devops_cli.ai.retries import create_retry_transport
-        from devops_cli.http.pool import connection_limits
-
+    def _max_attempts(self) -> int:
+        """Attempts per request: the configured `max_retries` plus the first, or five."""
         cfg = getattr(self, "_config", None)
         retries = getattr(cfg, "max_retries", None) if cfg is not None else None
-        max_attempts = int(retries) + 1 if retries is not None and int(retries) >= 0 else 5
-        try:
-            wrapped = httpx2.HTTPTransport(limits=connection_limits(), http2=True)
-            return create_retry_transport(max_attempts=max_attempts, wrapped=wrapped)
-        except Exception:
-            return create_retry_transport(max_attempts=max_attempts)
+        return int(retries) + 1 if retries is not None and int(retries) >= 0 else 5
+
+    def _egress_level(self) -> EgressLevel:
+        """The provider's URL comes from configuration: loopback, or private with the flag."""
+        return configured_level(self._config)
 
     def _create_http_client(self, timeout: httpx2.Timeout | None = None) -> httpx2.Client:
-        """Create an httpx2.Client with standard timeout and native retry transport."""
-        req_timeout = timeout or self._request_timeout()
-        try:
-            transport = self._create_retry_transport()
-            return httpx2.Client(timeout=req_timeout, transport=transport)
-        except Exception:
-            return httpx2.Client(timeout=req_timeout)
+        """Create a client of its own with the standard timeout and the native retry transport.
+
+        The factory builds it at the configured egress level; an error building it is raised,
+        never answered with a client that skips the check.
+        """
+        return new_http_client(
+            level=self._egress_level(),
+            timeout=timeout or self._request_timeout(),
+            http2=True,
+            retries=self._max_attempts(),
+        )
 
     def _shared_client(self) -> httpx2.Client:
         """Return the pooled HTTP client for this provider.
@@ -83,18 +85,12 @@ class BaseLLMProviderMixin:
         The client is shared and deliberately never closed by the caller; per-request
         concerns such as timeouts are passed to the request itself.
         """
-        from devops_cli.http.pool import get_shared_client
-
         try:
             b_type = self.backend_type
         except Exception:
             b_type = "default"
         key = f"llm:{type(self).__name__}:{b_type}"
-        try:
-            transport = self._create_retry_transport()
-            return get_shared_client(key, transport=transport)
-        except Exception:
-            return get_shared_client(key)
+        return get_shared_client(key, self._egress_level(), retries=self._max_attempts())
 
     def _format_status_error(self, exc: httpx2.HTTPError, status: int) -> AIClientError:
         """Extract response body preview for HTTP status errors."""

@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import json
 import re
-import socket
 import time
 import urllib.parse
 from typing import Any
 
+import httpcore2
 import httpx2
 
+from devops_cli.exceptions import SSRFBlockedError
+from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import EgressLevel, VettingBackend
 from devops_cli.sandbox.models import (
     EndpointProbeResult,
     ProbeProtocol,
@@ -45,96 +48,41 @@ def _truncate(text: Any, max_len: int = _MAX_ERROR_LEN) -> str:
     return s if len(s) <= max_len else s[: max_len - 3] + "..."
 
 
-def _resolve_safe_socket_addr(
-    host: str, port: int
-) -> tuple[bool, tuple[int, int, int, str, tuple[Any, ...]] | None]:
-    """Resolve host and verify no resolved IP is link-local or cloud metadata.
-    Returns (is_blocked, vetted_addrinfo)."""
-    from devops_cli.core.validation import is_cloud_metadata_host
-
-    if is_cloud_metadata_host(host, resolve_dns=False):
-        return True, None
-    clean = host.strip("[]").rstrip(".").lower()
-    try:
-        addr_info = socket.getaddrinfo(clean, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
-        for _, _, _, _, sockaddr in addr_info:
-            ip_str = sockaddr[0] if isinstance(sockaddr[0], str) else ""
-            if ip_str and is_cloud_metadata_host(ip_str, resolve_dns=False):
-                return True, None
-        if addr_info:
-            return False, addr_info[0]
-    except socket.gaierror, OSError, ValueError:
-        pass
-    return False, None
-
-
-def _is_blocked_metadata_host(host: str) -> bool:
-    """Return True if host targets link-local or cloud metadata services."""
-    is_blocked, _ = _resolve_safe_socket_addr(host, 80)
-    return is_blocked
+def _tcp_result(
+    host: str, port: int, status: ProbeStatus, latency_ms: float, message: str
+) -> EndpointProbeResult:
+    """A TCP probe result for `host:port`."""
+    return EndpointProbeResult(
+        protocol=ProbeProtocol.TCP,
+        target=f"{host}:{port}",
+        status=status,
+        latency_ms=round(latency_ms, 2),
+        message=_truncate(message),
+        details={"host": host, "port": port},
+    )
 
 
 def probe_tcp(host: str, port: int, timeout: float = 5.0) -> EndpointProbeResult:
-    """Probe TCP socket listener reachability and measure connection latency."""
-    target = f"{host}:{port}"
-    is_blocked, vetted_info = _resolve_safe_socket_addr(host, port)
-    if is_blocked:
-        return EndpointProbeResult(
-            protocol=ProbeProtocol.TCP,
-            target=target,
-            status=ProbeStatus.FAIL,
-            latency_ms=0.0,
-            message="Access to link-local or cloud metadata services is prohibited.",
-            details={"host": host, "port": port},
-        )
-    if not vetted_info:
-        return EndpointProbeResult(
-            protocol=ProbeProtocol.TCP,
-            target=target,
-            status=ProbeStatus.FAIL,
-            latency_ms=0.0,
-            message=f"Failed to resolve host '{host}'",
-            details={"host": host, "port": port},
-        )
+    """Probe TCP socket listener reachability and measure connection latency.
 
-    family, socktype, proto, _, sockaddr = vetted_info
+    The host is resolved once and every answer vetted at the private egress level, which refuses
+    cloud metadata addresses; each vetted address is then dialled in turn, never the name.
+    """
+    backend = VettingBackend(EgressLevel.PRIVATE)
     start = time.perf_counter()
-    sock = socket.socket(family, socktype, proto)
-    sock.settimeout(timeout)
-
     try:
-        sock.connect(sockaddr)
-        latency = (time.perf_counter() - start) * 1000.0
-        return EndpointProbeResult(
-            protocol=ProbeProtocol.TCP,
-            target=target,
-            status=ProbeStatus.PASS,
-            latency_ms=round(latency, 2),
-            message="TCP connection established",
-            details={"host": host, "port": port},
-        )
-    except TimeoutError as exc:
-        latency = (time.perf_counter() - start) * 1000.0
-        return EndpointProbeResult(
-            protocol=ProbeProtocol.TCP,
-            target=target,
-            status=ProbeStatus.TIMEOUT,
-            latency_ms=round(latency, 2),
-            message=_truncate(f"TCP connection timeout after {timeout}s: {exc}"),
-            details={"host": host, "port": port},
-        )
-    except OSError as exc:
-        latency = (time.perf_counter() - start) * 1000.0
-        return EndpointProbeResult(
-            protocol=ProbeProtocol.TCP,
-            target=target,
-            status=ProbeStatus.FAIL,
-            latency_ms=round(latency, 2),
-            message=_truncate(f"TCP connection failed: {exc}"),
-            details={"host": host, "port": port},
-        )
-    finally:
-        sock.close()
+        backend.connect_tcp(host, port, timeout=timeout).close()
+    except SSRFBlockedError as exc:
+        return _tcp_result(host, port, ProbeStatus.FAIL, 0.0, exc.message)
+    except httpcore2.ConnectTimeout as exc:
+        elapsed = (time.perf_counter() - start) * 1000.0
+        message = f"TCP connection timeout after {timeout}s: {exc}"
+        return _tcp_result(host, port, ProbeStatus.TIMEOUT, elapsed, message)
+    except httpcore2.ConnectError as exc:
+        elapsed = (time.perf_counter() - start) * 1000.0
+        return _tcp_result(host, port, ProbeStatus.FAIL, elapsed, f"TCP connection failed: {exc}")
+    latency = (time.perf_counter() - start) * 1000.0
+    return _tcp_result(host, port, ProbeStatus.PASS, latency, "TCP connection established")
 
 
 def probe_http(
@@ -144,7 +92,10 @@ def probe_http(
     timeout: float = 5.0,
     latency_budget_ms: float | None = None,
 ) -> EndpointProbeResult:
-    """Probe HTTP/REST endpoint asserting status code, regex response, and latency budget."""
+    """Probe HTTP/REST endpoint asserting status code, regex response, and latency budget.
+
+    `timeout` bounds every phase of the request, the connect included, as it bounds `probe_tcp`.
+    """
     expected = expected_statuses or [200]
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ("http", "https"):
@@ -154,30 +105,6 @@ def probe_http(
             status=ProbeStatus.FAIL,
             latency_ms=0.0,
             message=_truncate(f"Invalid URL scheme '{parsed.scheme}'; expected http or https"),
-        )
-
-    from devops_cli.core.validation import validate_url
-
-    try:
-        validate_url(url, purpose="probe", allow_private=True)
-    except Exception as exc:
-        return EndpointProbeResult(
-            protocol=ProbeProtocol.HTTP,
-            target=url,
-            status=ProbeStatus.FAIL,
-            latency_ms=0.0,
-            message=_truncate(f"Invalid probe target: {exc}"),
-        )
-
-    hostname = parsed.hostname or ""
-    if _is_blocked_metadata_host(hostname):
-        return EndpointProbeResult(
-            protocol=ProbeProtocol.HTTP,
-            target=url,
-            status=ProbeStatus.FAIL,
-            latency_ms=0.0,
-            message="Access to link-local or cloud metadata services is prohibited.",
-            details={"host": hostname, "port": parsed.port},
         )
 
     start = time.perf_counter()
@@ -194,7 +121,7 @@ def probe_http(
         trace_details["span_id"] = trace_info.get("parent_span_id")
 
     try:
-        with httpx2.Client(timeout=timeout) as client:
+        with new_http_client(level=EgressLevel.PRIVATE, timeout=httpx2.Timeout(timeout)) as client:
             resp = client.get(url, headers=req_headers)
             latency = (time.perf_counter() - start) * 1000.0
             return _evaluate_http_response(
@@ -207,6 +134,24 @@ def probe_http(
                 latency_budget_ms=latency_budget_ms,
                 trace_details=trace_details,
             )
+    except SSRFBlockedError as exc:
+        return EndpointProbeResult(
+            protocol=ProbeProtocol.HTTP,
+            target=url,
+            status=ProbeStatus.FAIL,
+            latency_ms=0.0,
+            message=_truncate(exc.message),
+            details=trace_details,
+        )
+    except httpx2.InvalidURL as exc:
+        return EndpointProbeResult(
+            protocol=ProbeProtocol.HTTP,
+            target=url,
+            status=ProbeStatus.FAIL,
+            latency_ms=0.0,
+            message=_truncate(f"Invalid probe target: {exc}"),
+            details=trace_details,
+        )
     except httpx2.TimeoutException as exc:
         latency = (time.perf_counter() - start) * 1000.0
         return EndpointProbeResult(
@@ -343,7 +288,7 @@ def _extract_safe_openapi_endpoints(
 ) -> list[tuple[str, str]]:
     """Parse OpenAPI schema and select safe, parameter-free GET endpoints."""
     try:
-        with httpx2.Client(timeout=timeout) as client:
+        with new_http_client(level=EgressLevel.PRIVATE, timeout=httpx2.Timeout(timeout)) as client:
             resp = client.get(schema_url, headers={"User-Agent": "devops-cli-prober"})
             if resp.status_code != 200:
                 return []

@@ -18,7 +18,6 @@ from urllib.parse import urlparse
 import httpx2
 
 from devops_cli.ai.client.models import AIClientError, RequestPriority
-from devops_cli.config.constants import CONST_AI_ALLOW_PRIVATE_NETWORK_ENV
 from devops_cli.config.defaults import (
     DEFAULT_AI_MAX_RESPONSE_BYTES,
     DEFAULT_OLLAMA_MAX_PARALLEL,
@@ -31,7 +30,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-ALLOW_PRIVATE_NETWORK_ENV = CONST_AI_ALLOW_PRIVATE_NETWORK_ENV
 active_ollama_requests: dict[str, int] = {}
 ollama_active_lock = threading.Lock()
 ollama_semaphores: dict[str, threading.Semaphore] = {}

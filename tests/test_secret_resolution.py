@@ -730,6 +730,7 @@ def _broker_response(status: int = 200, payload: Any = None, content: bytes = b"
 
 def test_post_routes_through_the_egress_validated_broker() -> None:
     """Vault calls go through the shared broker, which enforces egress validation."""
+    from devops_cli.http.egress import EgressLevel
     from devops_cli.security.vault_lease import _post
 
     mock_broker = MagicMock()
@@ -740,8 +741,12 @@ def test_post_routes_through_the_egress_validated_broker() -> None:
 
     assert result == {"ok": True}
     method, url = mock_broker.request.call_args[0]
-    assert (method, url) == ("POST", "http://example.com:8200/v1/sys/leases/renew")
-    assert mock_broker.request.call_args.kwargs["allow_private_network"] is True
+    level = mock_broker.request.call_args.kwargs["level"]
+    assert (method, url, level) == (
+        "POST",
+        "http://example.com:8200/v1/sys/leases/renew",
+        EgressLevel.PRIVATE,
+    )
     policy = mock_broker.request.call_args.kwargs["extensions"][CONST_HTTP_EGRESS_POLICY_EXTENSION]
     policy("http://example.com:8200/v1/sys/leases/renew")
     with pytest.raises(VaultOperationError, match=re.escape("https://example.com")):

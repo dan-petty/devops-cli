@@ -42,11 +42,25 @@ def test_a_cloud_metadata_api_base_is_refused_even_when_private_hosts_are_allowe
         client._api_base()
 
 
-def test_private_api_base_can_be_enabled_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
-    client = LLMClient(AIConfig(provider="openai", api_base_url="http://10.0.0.10:9000"))
+def test_private_api_base_is_allowed_only_by_the_clients_own_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a private API base needs `allow_private_network` on the config the client is given.
 
-    assert client._api_base() == "http://10.0.0.10:9000"
+    DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK reaches a client only through the settings it sets, so a
+    config built without the flag is refused even while the variable is exported.
+    """
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
+    without_flag = LLMClient(AIConfig(provider="openai", api_base_url="http://10.0.0.10:9000"))
+    with_flag = LLMClient(
+        AIConfig(
+            provider="openai", api_base_url="http://10.0.0.10:9000", allow_private_network=True
+        )
+    )
+
+    with pytest.raises(AIClientError, match="Refusing non-public provider API URL"):
+        without_flag._api_base()
+    assert with_flag._api_base() == "http://10.0.0.10:9000"
 
 
 def test_configured_loopback_endpoints_need_no_env_override(

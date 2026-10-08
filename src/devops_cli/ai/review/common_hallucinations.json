@@ -508,14 +508,17 @@
     "id": "HALLUCINATION-INTERNAL-SERVICE-PRIVATE-NETWORK",
     "name": "Internal Service Connector Private Network False SSRF Claim",
     "category": "boundary_errors",
-    "description": "Flagging allow_private_network=True on internal infrastructure service connectors (such as Valkey, Vault broker, Kubernetes cluster API, Prometheus, Grafana, or local Ollama) as an SSRF vulnerability.",
+    "description": "Flagging an internal infrastructure service connector (such as Valkey, the Vault broker, the Kubernetes cluster API, Loki, Prometheus, Grafana, or a local Ollama) as an SSRF vulnerability because it reaches private addresses by design: with allow_private_network, at the private egress level (EgressLevel.PRIVATE), or at the configured level that ai.allow_private_network widens to private. Clients built by the devops_cli.http client factory refuse cloud metadata at every level, at the connect.",
     "signature_patterns": [
       "allow_private_network.*(?:ssrf|vulnerability|private\\s+ip)",
       "ssrf.*allow_private_network",
-      "ssrf.*(?:valkey|vault|prometheus|grafana|k8s|kubernetes)"
+      "(?:egresslevel\\.private|private\\s+egress\\s+level).*(?:ssrf|vulnerability)",
+      "ssrf.*(?:egresslevel\\.private|private\\s+egress\\s+level)",
+      "ssrf.*(?:valkey|vault|prometheus|grafana|loki|k8s|kubernetes)"
     ],
     "pattern_keywords": [
       "allow_private_network",
+      "EgressLevel.PRIVATE",
       "internal_connector_ssrf",
       "valkey_ssrf",
       "vault_ssrf"
@@ -527,7 +530,7 @@
       "*grafana*.py",
       "*k8s*.py"
     ],
-    "resolution": "Internal infrastructure connectors intentionally permit private network connectivity to reach local/homelab services. SSRF applies strictly to arbitrary user-supplied external URLs.",
+    "resolution": "Internal infrastructure connectors intentionally reach private networks to serve local/homelab services, and their clients still refuse cloud metadata at the connect. SSRF findings apply to public-level callers and to arbitrary user-supplied external URLs: one fetched below the public level, or dialled outside the devops_cli.http client factory, is a finding.",
     "occurrence_count": 1,
     "last_seen": "2026-09-18T00:00:00",
     "source": "builtin"

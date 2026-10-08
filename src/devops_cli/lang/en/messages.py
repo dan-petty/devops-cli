@@ -201,8 +201,9 @@ class GeneralMessages:
     vscode_cli_unavailable: str = "Workspace updated, but VS Code CLI is not available to reload."
     invalid_url_scheme: str = "Invalid {purpose} URL: must use http:// or https:// with a hostname."
     refusing_non_public_url: str = (
-        "Refusing non-public {purpose} URL. "
-        "Set DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true to override."
+        "Refusing non-public {purpose} URL. A service URL from your configuration may name a "
+        "private address once ai.allow_private_network is true "
+        "(DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true); other URLs must be public."
     )
     elapsed_time: str = "Elapsed: {elapsed}"
 

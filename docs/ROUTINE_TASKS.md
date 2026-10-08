@@ -306,7 +306,7 @@ Executed weekly, prior to major releases, or when dependencies are updated.
   ```
 
 #### 4. SSRF Guardrails & OS Keyring Audit
-- **Methodology**: Outbound requests must pass through `validate_service_url()` to reject private IPs (RFC 1918) and loopbacks unless `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` is set; link-local/cloud metadata endpoints are always rejected.
+- **Methodology**: An HTTP client built by the `devops_cli.http.client` factory has an egress level, which checks every address it dials: untrusted URLs at the public level, configured services at loopback (private once `ai.allow_private_network` is set), internal infrastructure at private. Cloud metadata endpoints are always rejected; other link-local addresses only at the public and loopback levels. A client not built by the factory that reaches a configured or caller-supplied URL must pass `validate_service_url()` (or `validate_url_egress()`) before the request.
 
 #### 5. AI Code Review Verification, Feedback Export & Self-Improvement Loop
 - **Frequency**: After running AI code reviews or before PR approval.

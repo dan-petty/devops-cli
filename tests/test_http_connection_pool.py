@@ -14,9 +14,9 @@ from devops_cli.config.defaults import (
     DEFAULT_HTTP_MAX_CONNECTIONS,
     DEFAULT_HTTP_MAX_KEEPALIVE_CONNECTIONS,
 )
+from devops_cli.http.egress import EgressLevel
 from devops_cli.http.pool import (
     close_shared_clients,
-    connection_limits,
     get_shared_async_client,
     get_shared_client,
 )
@@ -41,26 +41,30 @@ def test_the_same_key_returns_the_same_client() -> None:
     Measured against a remote endpoint: 247 ms per request building a client per call,
     against 61 ms once the connection is reused.
     """
-    assert get_shared_client("profile-a") is get_shared_client("profile-a")
+    assert get_shared_client("profile-a", EgressLevel.PUBLIC) is get_shared_client(
+        "profile-a", EgressLevel.PUBLIC
+    )
 
 
 def test_different_keys_get_different_clients() -> None:
     """Endpoints with different transport settings cannot share a connection."""
-    assert get_shared_client("profile-a") is not get_shared_client("profile-b")
+    assert get_shared_client("profile-a", EgressLevel.PUBLIC) is not get_shared_client(
+        "profile-b", EgressLevel.PUBLIC
+    )
 
 
 def test_a_closed_client_is_rebuilt_rather_than_handed_back() -> None:
     """A client closed elsewhere is unusable; returning it would fail every later call."""
-    first = get_shared_client("profile-a")
+    first = get_shared_client("profile-a", EgressLevel.PUBLIC)
     first.close()
-    second = get_shared_client("profile-a")
+    second = get_shared_client("profile-a", EgressLevel.PUBLIC)
     assert (second is not first, second.is_closed) == (True, False)
 
 
 def test_async_clients_are_shared_separately_from_sync_ones() -> None:
     """The two kinds are not interchangeable, so one key must not collide across them."""
-    sync_client = get_shared_client("profile-a")
-    async_client = get_shared_async_client("profile-a")
+    sync_client = get_shared_client("profile-a", EgressLevel.PUBLIC)
+    async_client = get_shared_async_client("profile-a", EgressLevel.PUBLIC)
     assert isinstance(sync_client, httpx2.Client)
     assert isinstance(async_client, httpx2.AsyncClient)
 
@@ -72,7 +76,7 @@ def test_concurrent_callers_receive_one_client() -> None:
 
     def grab() -> None:
         barrier.wait(timeout=10)
-        clients.append(get_shared_client("racy"))
+        clients.append(get_shared_client("racy", EgressLevel.PUBLIC))
 
     threads = [threading.Thread(target=grab) for _ in range(8)]
     for thread in threads:
@@ -88,11 +92,15 @@ def test_concurrent_callers_receive_one_client() -> None:
 # =============================================================================
 
 
-def test_a_shared_client_negotiates_http2() -> None:
+def _shared_pool(**overrides: Any) -> Any:
+    """The httpcore2 connection pool under one shared client, as the factory built it."""
+    return get_shared_client("profile-a", EgressLevel.PRIVATE, **overrides)._transport._pool
+
+
+def test_a_shared_client_negotiates_http2_at_its_level() -> None:
     """Multiplexing is what lets concurrent requests share one connection."""
-    with patch("httpx2.Client") as constructor:
-        get_shared_client("profile-a")
-    assert constructor.call_args.kwargs["http2"] is True
+    pool = _shared_pool()
+    assert (pool._http2, pool._network_backend.level) == (True, EgressLevel.PRIVATE)
 
 
 def test_a_shared_client_bounds_its_connections() -> None:
@@ -100,10 +108,8 @@ def test_a_shared_client_bounds_its_connections() -> None:
 
     That is the failure this pooling exists to prevent, not to cause.
     """
-    with patch("httpx2.Client") as constructor:
-        get_shared_client("profile-a")
-    limits = constructor.call_args.kwargs["limits"]
-    assert (limits.max_connections, limits.max_keepalive_connections) == (
+    pool = _shared_pool()
+    assert (pool._max_connections, pool._max_keepalive_connections) == (
         DEFAULT_HTTP_MAX_CONNECTIONS,
         DEFAULT_HTTP_MAX_KEEPALIVE_CONNECTIONS,
     )
@@ -111,23 +117,28 @@ def test_a_shared_client_bounds_its_connections() -> None:
 
 def test_idle_connections_expire() -> None:
     """An endpoint that restarts must not leave the pool holding dead sockets."""
-    assert connection_limits().keepalive_expiry == DEFAULT_HTTP_KEEPALIVE_EXPIRY_SECONDS
+    assert _shared_pool()._keepalive_expiry == DEFAULT_HTTP_KEEPALIVE_EXPIRY_SECONDS
 
 
 def test_a_caller_can_override_transport_settings() -> None:
     """A cluster API needs its own TLS material; the defaults must not fix that."""
-    sentinel = object()
-    with patch("httpx2.Client") as constructor:
-        get_shared_client("profile-a", verify=sentinel)
-    assert constructor.call_args.kwargs["verify"] is sentinel
+    import ssl
+
+    context = ssl.create_default_context()
+    assert _shared_pool(verify=context)._ssl_context is context
 
 
 def test_defaults_apply_when_not_overridden() -> None:
     """An override of one setting must not discard the rest."""
-    with patch("httpx2.Client") as constructor:
-        get_shared_client("profile-a", verify=False)
-    kwargs = constructor.call_args.kwargs
-    assert (kwargs["http2"], kwargs["follow_redirects"]) == (True, True)
+    import ssl
+
+    client = get_shared_client("profile-a", EgressLevel.PRIVATE, verify=False)
+    pool = client._transport._pool
+    assert (pool._ssl_context.verify_mode, pool._http2, client.follow_redirects) == (
+        ssl.CERT_NONE,
+        True,
+        True,
+    )
 
 
 # =============================================================================
@@ -137,17 +148,17 @@ def test_defaults_apply_when_not_overridden() -> None:
 
 def test_closing_releases_every_client() -> None:
     """A pool that outlives its process leaks sockets."""
-    first = get_shared_client("profile-a")
-    second = get_shared_client("profile-b")
+    first = get_shared_client("profile-a", EgressLevel.PUBLIC)
+    second = get_shared_client("profile-b", EgressLevel.PUBLIC)
     close_shared_clients()
     assert (first.is_closed, second.is_closed) == (True, True)
 
 
 def test_closing_clears_the_registry() -> None:
     """A closed client must not be handed to the next caller."""
-    first = get_shared_client("profile-a")
+    first = get_shared_client("profile-a", EgressLevel.PUBLIC)
     close_shared_clients()
-    assert get_shared_client("profile-a") is not first
+    assert get_shared_client("profile-a", EgressLevel.PUBLIC) is not first
 
 
 def test_a_failing_close_does_not_abandon_the_rest() -> None:
@@ -157,7 +168,7 @@ def test_a_failing_close_does_not_abandon_the_rest() -> None:
     from devops_cli.http import pool
 
     pool._CLIENTS["broken"] = broken
-    healthy = get_shared_client("healthy")
+    healthy = get_shared_client("healthy", EgressLevel.PUBLIC)
     close_shared_clients()
     assert healthy.is_closed is True
 
@@ -237,9 +248,10 @@ def test_the_proxy_client_key_separates_hosts() -> None:
 def test_llm_providers_share_a_client_per_provider() -> None:
     """Inference calls were building a pool each; that is the churn this removes."""
     from devops_cli.ai.client.base import BaseLLMProviderMixin
+    from devops_cli.config.settings import AIConfig
 
     class Provider(BaseLLMProviderMixin):
-        pass
+        _config = AIConfig()
 
     provider = Provider()
     assert provider._shared_client() is provider._shared_client()
@@ -339,7 +351,7 @@ def test_an_edited_configuration_changes_the_context() -> None:
 
 
 def test_http_client_broker_close_resets_client_references() -> None:
-    """Verify HttpClientBroker resets _sync_client and _async_client to None on close/aclose."""
+    """Verify HttpClientBroker forgets and closes its per-level clients on close/aclose."""
     import asyncio
 
     from devops_cli.http.broker import HttpClientBroker
@@ -349,14 +361,14 @@ def test_http_client_broker_close_resets_client_references() -> None:
     mock_async = MagicMock(is_closed=False)
     mock_async.aclose = MagicMock(return_value=asyncio.sleep(0))
 
-    broker._sync_client = mock_sync
-    broker._async_client = mock_async
+    broker._sync_clients[EgressLevel.PUBLIC] = mock_sync
+    broker._async_clients[EgressLevel.PRIVATE] = mock_async
 
     broker.close()
-    assert (broker._sync_client, mock_sync.close.call_count) == (None, 1)
+    assert (broker._sync_clients, mock_sync.close.call_count) == ({}, 1)
 
     asyncio.run(broker.aclose())
-    assert (broker._async_client, mock_async.aclose.call_count) == (None, 1)
+    assert (broker._async_clients, mock_async.aclose.call_count) == ({}, 1)
 
 
 def test_aclose_shared_clients_releases_async_pool() -> None:

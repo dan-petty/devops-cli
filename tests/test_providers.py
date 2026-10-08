@@ -55,6 +55,7 @@ def test_mock_provider_execution() -> None:
     assert provider.invocations[0] == messages
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_anthropic_provider() -> None:
     """Test AnthropicProvider generation and availability."""
     config = AIConfig(
@@ -143,6 +144,7 @@ def test_ollama_provider_takes_the_configured_url_policy(monkeypatch: pytest.Mon
         ) == ("sent", "sent", "SSRFBlockedError", "sent")
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_openai_provider() -> None:
     """Test OpenAIProvider generation and availability."""
     config = AIConfig(

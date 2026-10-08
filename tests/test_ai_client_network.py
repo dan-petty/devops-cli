@@ -50,6 +50,7 @@ def _answer(handler: Callable[[httpx2.Request], httpx2.Response]) -> httpx2.Clie
 
 
 @pytest.mark.parametrize("call", list(_PROVIDER_CALLS))
+@pytest.mark.usefixtures("public_dns")
 def test_post_limited_json_stops_reading_past_limit(
     call: str, small_limit: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
