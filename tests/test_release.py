@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from collections.abc import Callable
@@ -34,11 +35,13 @@ from devops_cli.commands.release import (
 )
 from devops_cli.config.constants import (
     CONST_GH_CLI,
+    CONST_GIT_NO_TERMINAL_PROMPT_ENV,
     CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS,
     CONST_GITHUB_RELEASE_BODY_MAX_CHARS,
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState
+from tests.conftest import PINNED_GITHUB_TOKEN, fail_the_github_lookup
 from tests.release_notes_examples import (
     SYNTHETIC_CATEGORIES,
     SYNTHETIC_ENTRY_COUNT,
@@ -547,6 +550,16 @@ def test_release_pr_command(sample_project_dir: Path) -> None:
         create_args = create_calls[0]
         body_idx = create_args.index("--body") + 1
         assert "- #99" in create_args[body_idx]
+        # Only the git calls that reach origin get the person's environment (#1124).
+        git_calls = [(c.args[0][1], c.kwargs) for c in mock_sub.call_args_list]
+        person_env_calls = [
+            subcommand
+            for subcommand, kwargs in git_calls
+            if (kwargs.get("isolate_env"), kwargs.get("env"))
+            == (False, CONST_GIT_NO_TERMINAL_PROMPT_ENV)
+        ]
+        isolate_flags = [kwargs.get("isolate_env", True) for _, kwargs in git_calls]
+        assert (person_env_calls, isolate_flags.count(False)) == (["fetch", "push"], 2)
 
 
 def test_format_release_title() -> None:
@@ -701,6 +714,34 @@ def test_release_tag_push_and_errors(
         app, ["tag", "--version", "not-a-semver", "--root", str(sample_project_dir)]
     )
     assert res_inv.exit_code == 1
+
+    # A refused push exits 1 with git's reason, credentials masked, and closes no Release.
+    # The remote's text is shown as written: a stray Rich closing tag in it raises nothing.
+    leaked_token = "ghp_" + "b2" * 18
+
+    def refuse_the_push(
+        cmd: list[str], *args: Any, **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        refused = "push" in cmd
+        reason = f"remote: refused [/bold] for {leaked_token}" if refused else ""
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=int(refused), stdout="", stderr=reason
+        )
+
+    with patch("devops_cli.commands.release.run_subprocess", side_effect=refuse_the_push):
+        res_refused = runner.invoke(
+            app,
+            ["tag", "--version", "0.1.7", "--push", "--root", str(sample_project_dir)],
+        )
+    refused_output = " ".join(res_refused.output.split())
+    still_open = roadmap_store.release("0.1.7")
+    assert (
+        res_refused.exit_code,
+        "Failed to push tag v0.1.7 to origin: remote: refused [/bold] for" in refused_output,
+        leaked_token in refused_output,
+        still_open.state if still_open else None,
+        roadmap_store_repos,
+    ) == (1, True, False, GitHubState.OPEN, [])
 
     # Push tags success
     mock_ok = subprocess.CompletedProcess(args=["git"], returncode=0, stdout="", stderr="")
@@ -941,10 +982,12 @@ def test_release_notes_tag_and_check_extended(
         assert res_tag_dry.exit_code == 0
 
     # 3. release tag execution and push
-    called_cmds = []
+    called: list[tuple[list[str], dict[str, Any]]] = []
 
-    def mock_tag_subproc(cmd, *args, **kwargs):
-        called_cmds.append(cmd)
+    def mock_tag_subproc(
+        cmd: list[str], *args: Any, **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        called.append((cmd, kwargs))
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     with patch("devops_cli.commands.release.run_subprocess", side_effect=mock_tag_subproc):
@@ -953,8 +996,24 @@ def test_release_notes_tag_and_check_extended(
             ["tag", "--version", "0.1.8", "--push", "--root", str(sample_project_dir)],
         )
         assert res_tag_ok.exit_code == 0
-        assert any("tag" in c and "-a" in c and "v0.1.8" in c for c in called_cmds)
-        assert any("push" in c and "--tags" in c for c in called_cmds)
+        assert any("tag" in c and "-a" in c and "v0.1.8" in c for c, _ in called)
+        # The push names the release tag alone, in the person's environment (#1124).
+        pushes = [
+            (cmd, kwargs.get("isolate_env"), kwargs.get("env"))
+            for cmd, kwargs in called
+            if "push" in cmd
+        ]
+        isolate_flags = [kwargs.get("isolate_env", True) for _, kwargs in called]
+        assert (pushes, isolate_flags.count(False)) == (
+            [
+                (
+                    ["git", "push", "origin", "refs/tags/v0.1.8"],
+                    False,
+                    CONST_GIT_NO_TERMINAL_PROMPT_ENV,
+                )
+            ],
+            1,
+        )
         # No Release v0.1.8 exists, so the pushed tag only warns that it closed none.
         assert "Could not close milestone for v0.1.8: No Release '0.1.8'" in res_tag_ok.output
 
@@ -2199,6 +2258,73 @@ def test_release_cut_fails_when_origin_release_branch_absent(
     ) == (1, True, "", "")
 
 
+def test_release_cut_stops_when_the_release_branch_fetch_fails(
+    git_release_repo: tuple[Path, Path],
+) -> None:
+    """A failed fetch stops the cut with git's reason, so a stale tracking ref is never cut (#1124).
+
+    The remote deleted `release/v0.2.26`, but the clone still holds `origin/release/v0.2.26`.
+    """
+    origin, clone = git_release_repo
+    for repo in (origin, clone):
+        subprocess.run(
+            ["git", "branch", "-D", "release/v0.2.26"], cwd=repo, check=True, capture_output=True
+        )
+    gh_calls: list[list[str]] = []
+
+    def mock_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        gh_calls.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    with patch("devops_cli.commands.release.run_gh", side_effect=mock_gh):
+        res = runner.invoke(app, ["pr", "--version", "0.2.26", "--root", str(clone)])
+
+    output = " ".join(res.output.split())
+    branches = subprocess.run(
+        ["git", "branch", "--list", "release/v0.2.26"],
+        cwd=clone,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    head = subprocess.run(
+        ["git", "branch", "--show-current"], cwd=clone, capture_output=True, text=True
+    ).stdout.strip()
+    assert (
+        res.exit_code,
+        "Failed to fetch origin/release/v0.2.26" in output,
+        "couldn't find remote ref release/v0.2.26" in output,
+        branches,
+        head,
+        gh_calls,
+    ) == (1, True, True, "", "feature/my-work", [])
+
+
+def test_release_cut_stops_when_the_fetch_writes_no_tracking_ref(
+    git_release_repo: tuple[Path, Path],
+) -> None:
+    """A clone that fetches only `main` gets no `origin/release/v<version>`, and the cut stops."""
+    _, clone = git_release_repo
+    for git_args in (
+        ["config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main"],
+        ["update-ref", "-d", "refs/remotes/origin/release/v0.2.26"],
+    ):
+        subprocess.run(["git", *git_args], cwd=clone, check=True, capture_output=True)
+    gh_calls: list[list[str]] = []
+
+    def mock_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        gh_calls.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    with patch("devops_cli.commands.release.run_gh", side_effect=mock_gh):
+        res = runner.invoke(app, ["pr", "--version", "0.2.26", "--root", str(clone)])
+
+    assert (
+        res.exit_code,
+        "Remote release branch 'origin/release/v0.2.26' does not exist." in res.output,
+        gh_calls,
+    ) == (1, True, [])
+
+
 def test_release_cut_rebuilds_on_new_remote_tip(
     git_release_repo: tuple[Path, Path],
 ) -> None:
@@ -2362,16 +2488,34 @@ def test_release_cut_without_uv_lock(git_release_repo: tuple[Path, Path]) -> Non
     )
 
 
-def test_release_pr_pre_receive_hook_rejection(
-    git_release_repo: tuple[Path, Path],
+@pytest.mark.parametrize(
+    ("command", "hook", "git_says"),
+    [
+        (
+            ["prepare", "0.2.26", "--create-pr", "--no-sync-docs"],
+            "pre-receive",
+            "[remote rejected]",
+        ),
+        # `release pr` pushes the unchanged remote tip, so only the clone's own hook can refuse.
+        (["pr", "--version", "0.2.26"], "pre-push", "failed to push some refs"),
+    ],
+    ids=["prepare-create-pr", "pr"],
+)
+def test_release_cut_rejected_push_stops_before_gh(
+    git_release_repo: tuple[Path, Path], command: list[str], hook: str, git_says: str
 ) -> None:
-    """Push failure via remote hook exits non-zero and suppresses PR creation."""
+    """A rejected push exits non-zero and opens no pull request.
+
+    The error carries git's reason as written, brackets included, with any credential in it
+    masked (#1124).
+    """
     origin, clone = git_release_repo
-    hooks_dir = origin / "hooks"
-    hooks_dir.mkdir(exist_ok=True)
-    hook_file = hooks_dir / "pre-receive"
+    leaked_token = "ghp_" + "a1" * 18
+    hook_file = {"pre-receive": origin / "hooks", "pre-push": clone / ".git" / "hooks"}[hook] / hook
+    hook_file.parent.mkdir(exist_ok=True)
     hook_file.write_text(
-        "#!/bin/sh\necho 'rejected by pre-receive hook' >&2\nexit 1\n", encoding="utf-8"
+        f"#!/bin/sh\necho 'rejected by {hook} hook for {leaked_token}' >&2\nexit 1\n",
+        encoding="utf-8",
     )
     hook_file.chmod(0o755)
 
@@ -2383,19 +2527,112 @@ def test_release_pr_pre_receive_hook_rejection(
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     with patch("devops_cli.commands.release.run_gh", side_effect=mock_gh):
-        res = runner.invoke(
-            app,
-            [
-                "prepare",
-                "0.2.26",
-                "--create-pr",
-                "--no-sync-docs",
-                "--root",
-                str(clone),
-            ],
-        )
+        res = runner.invoke(app, [*command, "--root", str(clone)])
 
-    assert (res.exit_code, gh_called) == (1, False)
+    output = " ".join(res.output.split())
+    assert (
+        res.exit_code,
+        gh_called,
+        "Failed to push release/v0.2.26 to origin" in output,
+        f"rejected by {hook} hook" in output,
+        git_says in output,
+        leaked_token in output,
+    ) == (1, False, True, True, True, False)
+
+
+def _give_git_a_persons_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> dict[str, str]:
+    """Set what a person's credential helper reads, as the devcontainer does, and return it.
+
+    The helper lives in `GIT_CONFIG_*`, and VS Code's socket, the keyring's session bus and an
+    SSH agent are what helpers reach. Both GitHub token variables are set too, as a person's
+    shell may set them. `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` name an empty file, so no
+    helper of the developer's own answers.
+    """
+    empty_config = tmp_path / "empty.gitconfig"
+    empty_config.write_text("", encoding="utf-8")
+    persons = {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "credential.https://example.com.helper",
+        "GIT_CONFIG_VALUE_0": "!fake-helper",
+        "DBUS_SESSION_BUS_ADDRESS": f"unix:path={tmp_path / 'bus'}",
+        "REMOTE_CONTAINERS_IPC": str(tmp_path / "vscode-ipc.sock"),
+        "SSH_AUTH_SOCK": str(tmp_path / "ssh-agent.sock"),
+    }
+    ambient = {
+        "GIT_CONFIG_GLOBAL": str(empty_config),
+        "GIT_CONFIG_SYSTEM": str(empty_config),
+        "GH_TOKEN": "ambient-token",
+        "GITHUB_TOKEN": "other-token",
+    }
+    for name, value in {**persons, **ambient}.items():
+        monkeypatch.setenv(name, value)
+    return persons
+
+
+def _record_what_pre_push_sees(clone: Path, record: Path, names: list[str]) -> None:
+    """Make `clone`'s pre-push hook write the variables `names` and git's example.com helper.
+
+    Only those variables are written, so the rest of the environment never reaches the disk.
+    """
+    hook = clone / ".git" / "hooks" / "pre-push"
+    only_names = shlex.quote(f"^({'|'.join(names)})=")
+    hook.write_text(
+        "#!/bin/sh\n"
+        f"env | grep -E {only_names} > {shlex.quote(str(record / 'env'))}\n"
+        "git config --get-all credential.https://example.com.helper"
+        f" > {shlex.quote(str(record / 'helper'))}\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    hook.chmod(0o755)
+
+
+@pytest.mark.parametrize("has_github_login", [True, False], ids=["gh-login", "no-gh-login"])
+def test_release_pr_pushes_in_the_persons_git_environment(
+    git_release_repo: tuple[Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    has_github_login: bool,
+) -> None:
+    """The push sees the person's credential helper and what it reaches, with no prompt (#1124).
+
+    GitHub's token stays the session's (#767): the push gets it as GH_TOKEN and no other, and
+    without a gh login it gets no token at all.
+    """
+    _, clone = git_release_repo
+    persons = _give_git_a_persons_environment(tmp_path, monkeypatch)
+    if not has_github_login:
+        fail_the_github_lookup(monkeypatch)
+    record = tmp_path / "pre-push"
+    record.mkdir()
+    shown = [*persons, "GIT_TERMINAL_PROMPT", "GH_TOKEN", "GITHUB_TOKEN"]
+    _record_what_pre_push_sees(clone, record, shown)
+
+    def mock_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        created = "https://github.com/example/repo/pull/7\n" if "create" in cmd else "[]"
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=created, stderr="")
+
+    with patch("devops_cli.commands.release.run_gh", side_effect=mock_gh):
+        res = runner.invoke(app, ["pr", "--version", "0.2.26", "--root", str(clone)])
+
+    env_lines = (record / "env").read_text(encoding="utf-8").splitlines()
+    seen = dict(line.partition("=")[::2] for line in env_lines)
+    assert (
+        res.exit_code,
+        (record / "helper").read_text(encoding="utf-8").strip(),
+        {name: seen.get(name) for name in shown},
+    ) == (
+        0,
+        "!fake-helper",
+        {
+            **persons,
+            "GIT_TERMINAL_PROMPT": "0",
+            "GH_TOKEN": PINNED_GITHUB_TOKEN if has_github_login else None,
+            "GITHUB_TOKEN": None,
+        },
+    )
 
 
 def test_release_pr_alone_pushes_remote_tip_and_resolves_tip_version(
