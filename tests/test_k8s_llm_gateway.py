@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import copy
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 import yaml
@@ -582,33 +585,244 @@ class TestK8sLLMGatewayManifests:
         )
 
     def test_gateway_egress_admits_all_backends_in_configmap(self) -> None:
-        """Verify the gateway's network policy admits egress to all backends configured in configmap."""
-        netpol = _load_kind(GATEWAY_DIR / "networkpolicy.yaml", "NetworkPolicy")
+        """Verify the gateway policy admits every backend the gateway calls (#795).
 
-        egress_selectors = [
-            peer["podSelector"]["matchLabels"]
-            for rule in netpol["spec"]["egress"]
-            if "to" in rule
-            for peer in rule["to"]
-            if "podSelector" in peer
-        ]
-        allowed_names = {
-            sel["app.kubernetes.io/name"]
-            for sel in egress_selectors
-            if "app.kubernetes.io/name" in sel
-        }
-        allowed_providers = {
-            sel["llm.devops.io/provider"]
-            for sel in egress_selectors
-            if "llm.devops.io/provider" in sel
-        }
+        The backends are read from the manifests: each ConfigMap `api_base` and the Deployment's
+        Valkey host. Each must be a Service under k8s/llm with a selector, and some egress rule
+        must select a subset of that selector on the Service's numeric targetPort. The test used
+        to pin four selector names, two of which match no pod, and never read the ConfigMap.
+        """
+        policy = _load_kind(GATEWAY_DIR / "networkpolicy.yaml", "NetworkPolicy")
+        backends = _gateway_backends()
 
         assert (
-            "ollama-volta-1" in allowed_names,
-            "ollama" in allowed_names,
-            "vllm" in allowed_names,
-            "vllm-single" in allowed_names,
-            "valkey" in allowed_names,
-            "ollama" in allowed_providers,
-            "vllm" in allowed_providers,
-        ) == (True, True, True, True, True, True, True)
+            sorted(address for address, target in backends.items() if target is None),
+            sorted(
+                address
+                for address, target in backends.items()
+                if target is not None and not _admits(policy, *target)
+            ),
+        ) == ([], [])
+
+
+# The gateway policy's vLLM rule matches no deployed pod; #820 deletes the rule and this constant.
+_VLLM_SELECTORS: tuple[dict[str, str], ...] = (
+    {"app.kubernetes.io/name": "vllm"},
+    {"app.kubernetes.io/name": "vllm-single"},
+    {"llm.devops.io/provider": "vllm"},
+)
+_VLLM_PORTS = frozenset({("TCP", 8000, None)})
+_DNS_PEER = {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}}}
+_DNS_PORTS = frozenset({("UDP", 53, None), ("TCP", 53, None)})
+_OLLAMA_PEER = {"podSelector": {"matchLabels": {"llm.devops.io/provider": "ollama"}}}
+
+EgressPort = tuple[str, object, object]
+BackendTarget = tuple[dict[str, str], int]
+
+
+def _llm_services() -> dict[str, dict[str, Any]]:
+    """Return every Service under k8s/llm by its cluster DNS name."""
+    return {
+        f"{doc['metadata']['name']}.{doc['metadata']['namespace']}.svc.cluster.local": doc
+        for path in sorted(Path("k8s/llm").rglob("*.yaml"))
+        for doc in yaml.load_all(path.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
+        if isinstance(doc, dict) and doc.get("kind") == "Service"
+    }
+
+
+def _service_target(service: dict[str, Any] | None, port: int | None) -> BackendTarget | None:
+    """Return a Service's selector and the numeric targetPort behind `port`, if it has both."""
+    if service is None:
+        return None
+    selector = service["spec"].get("selector")
+    targets = [
+        p.get("targetPort", p["port"]) for p in service["spec"]["ports"] if p["port"] == port
+    ]
+    return (selector, targets[0]) if selector and targets and isinstance(targets[0], int) else None
+
+
+def _gateway_backends() -> dict[str, BackendTarget | None]:
+    """Map each backend the gateway calls to its Service's selector and targetPort, or None.
+
+    The backends are every `api_base` in the gateway ConfigMap and the Deployment's
+    LITELLM_REDIS_HOST and LITELLM_REDIS_PORT. A backend maps to None unless its host names a
+    Service under k8s/llm that has a selector and a numeric targetPort on the port it calls.
+    """
+    deployment = _load_kind(GATEWAY_DIR / "deployment.yaml", "Deployment")
+    env = {
+        variable["name"]: variable.get("value")
+        for variable in deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+    }
+    api_bases = {
+        urlsplit(model["litellm_params"].get("api_base", ""))
+        for model in _gateway_config()["model_list"]
+    }
+    addresses = {(url.hostname, url.port) for url in api_bases} | {
+        (env["LITELLM_REDIS_HOST"], int(env["LITELLM_REDIS_PORT"]))
+    }
+    services = _llm_services()
+    return {
+        f"{host}:{port}": _service_target(services.get(host or ""), port)
+        for host, port in addresses
+    }
+
+
+def _ports(rule: dict[str, Any]) -> set[EgressPort]:
+    """Return each (protocol, port, endPort) an egress rule admits."""
+    return {
+        (port.get("protocol", "TCP"), port.get("port"), port.get("endPort"))
+        for port in rule.get("ports") or []
+    }
+
+
+def _pod_labels(peer: dict[str, Any]) -> dict[str, str]:
+    """Return a same-namespace podSelector peer's matchLabels, or {} for any other peer."""
+    selector = peer.get("podSelector")
+    if set(peer) != {"podSelector"} or not isinstance(selector, dict):
+        return {}
+    return {} if "matchExpressions" in selector else dict(selector.get("matchLabels") or {})
+
+
+def _admits(policy: dict[str, Any], selector: dict[str, str], target_port: int) -> bool:
+    """Whether an egress rule selects a subset of `selector` on TCP `target_port`."""
+    return any(
+        ("TCP", target_port, None) in _ports(rule)
+        and any(
+            labels and labels.items() <= selector.items()
+            for labels in map(_pod_labels, rule.get("to") or [])
+        )
+        for rule in policy["spec"].get("egress") or []
+    )
+
+
+def _peer_violation(
+    peer: dict[str, Any], ports: set[EgressPort], backends: list[BackendTarget]
+) -> str | None:
+    """Return how a peer admits more than a backend or DNS on these ports, or None."""
+    if peer == _DNS_PEER:
+        return None if ports == _DNS_PORTS else f"the DNS peer admits {sorted(map(str, ports))}"
+    labels = _pod_labels(peer)
+    if not labels:
+        return f"{peer} is not a same-namespace podSelector with matchLabels alone"
+    if labels in _VLLM_SELECTORS:
+        return None if ports == _VLLM_PORTS else f"vLLM selector {labels} admits other ports"
+    allowed = {
+        ("TCP", target, None) for selector, target in backends if labels.items() <= selector.items()
+    }
+    if allowed and ports <= allowed:
+        return None
+    return f"{labels} on {sorted(map(str, ports))} is not a backend's selector and targetPort"
+
+
+def _rule_violations(rule: dict[str, Any], backends: list[BackendTarget]) -> list[str]:
+    """Return how one egress rule admits more than the gateway's backends and DNS."""
+    peers, ports = rule.get("to") or [], _ports(rule)
+    if not peers or not ports:
+        return [f"{rule} admits every destination or every port"]
+    return [
+        problem for peer in peers if (problem := _peer_violation(peer, ports, backends)) is not None
+    ]
+
+
+def _egress_violations(
+    policy: dict[str, Any], backends: list[BackendTarget], gateway_labels: dict[str, str]
+) -> list[str]:
+    """Return every way the gateway policy lets the gateway reach more than it needs (#795).
+
+    The policy must select the gateway's pods and enforce Egress. Each rule needs a non-empty
+    `to` and `ports`. A peer is the kube-system DNS peer on UDP and TCP 53, one of the vLLM
+    selectors on TCP 8000, or a same-namespace podSelector whose labels are a subset of some
+    backend Service's selector, on those backends' targetPorts alone. No ipBlock passes.
+    """
+    spec = policy["spec"]
+    selected = (spec.get("podSelector") or {}).get("matchLabels") or {}
+    return [
+        *([] if selected and selected.items() <= gateway_labels.items() else ["not the gateway"]),
+        *([] if "Egress" in spec.get("policyTypes", []) else ["Egress is not enforced"]),
+        *(
+            problem
+            for rule in spec.get("egress") or []
+            for problem in _rule_violations(rule, backends)
+        ),
+    ]
+
+
+def _ollama_rule(spec: dict[str, Any]) -> dict[str, Any]:
+    """Return the egress rule that admits the Ollama tiers."""
+    return next(rule for rule in spec["egress"] if _OLLAMA_PEER in rule["to"])
+
+
+@pytest.fixture(scope="module")
+def gateway_egress() -> tuple[dict[str, Any], list[BackendTarget], dict[str, str]]:
+    """Return the gateway policy, its resolved backends and the gateway's pod labels."""
+    deployment = _load_kind(GATEWAY_DIR / "deployment.yaml", "Deployment")
+    backends = [target for target in _gateway_backends().values() if target is not None]
+    return (
+        _load_kind(GATEWAY_DIR / "networkpolicy.yaml", "NetworkPolicy"),
+        backends,
+        deployment["spec"]["template"]["metadata"]["labels"],
+    )
+
+
+def test_gateway_egress_admits_nothing_else(
+    gateway_egress: tuple[dict[str, Any], list[BackendTarget], dict[str, str]],
+) -> None:
+    """The gateway reaches its backends, DNS and the vLLM rule #820 removes, and nothing else.
+
+    The policy carried an ipBlock rule for every private address on 11434 and 8000, which
+    kube-router matches against pod addresses, so every pod on those ports was reachable (#795).
+    """
+    assert _egress_violations(*gateway_egress) == []
+
+
+@pytest.mark.parametrize(
+    "widen",
+    [
+        pytest.param(
+            lambda spec: spec["egress"].append(
+                {
+                    "to": [{"ipBlock": {"cidr": "192.0.2.0/24"}}],
+                    "ports": [{"protocol": "TCP", "port": 11434}],
+                }
+            ),
+            id="ip-block",
+        ),
+        pytest.param(
+            lambda spec: _ollama_rule(spec)["to"].append({"podSelector": {}}), id="any-pod"
+        ),
+        pytest.param(
+            lambda spec: _ollama_rule(spec)["to"].append(
+                {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "ollama"}}}
+            ),
+            id="selector-matching-no-backend",
+        ),
+        pytest.param(
+            lambda spec: _ollama_rule(spec)["to"].append({"namespaceSelector": {}}),
+            id="any-namespace",
+        ),
+        pytest.param(
+            lambda spec: spec["egress"].append(
+                {"to": [{"podSelector": {"matchLabels": {"app.kubernetes.io/name": "valkey"}}}]}
+            ),
+            id="rule-without-ports",
+        ),
+        pytest.param(
+            lambda spec: _ollama_rule(spec)["ports"].append({"protocol": "TCP", "port": 6379}),
+            id="valkey-port-on-the-ollama-rule",
+        ),
+        pytest.param(lambda spec: spec["policyTypes"].remove("Egress"), id="egress-not-enforced"),
+    ],
+)
+def test_each_widening_edit_is_a_violation(
+    widen: Callable[[dict[str, Any]], None],
+    gateway_egress: tuple[dict[str, Any], list[BackendTarget], dict[str, str]],
+) -> None:
+    """Each way back to a wider egress fails the check, the removed ipBlock rule first (#795).
+
+    Any ipBlock is a violation, so a documentation range stands in for the private ones.
+    """
+    policy, backends, gateway_labels = gateway_egress
+    widened = copy.deepcopy(policy)
+    widen(widened["spec"])
+
+    assert _egress_violations(widened, backends, gateway_labels) != []
