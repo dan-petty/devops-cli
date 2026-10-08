@@ -22,7 +22,7 @@ The owner reduced this item's scope on 2026-10-08, and this change delivers the 
   - the vLLM rule, which #820 deletes.
 
   Ingress is unchanged: TCP 4000 from any source. A comment in the policy says why it names no ipBlock. Every gateway backend is an in-cluster Service: the four Ollama alias Services the ConfigMap names (`ollama-16gib-fast`, `ollama-48gib-fast`, `ollama-48gib-slow`, `ollama-64gib-standard`) and `valkey`. No Ollama tier uses the host network.
-- **Coordination with #913.** #913's guard test exempts `("llm", "llm-gateway-perimeter")` under #795. Whichever of the two merges second deletes that exemption. This branch does not have #913's test.
+- **Coordination with #913.** #913's guard test exempted `("llm", "llm-gateway-perimeter")` under #795. #913 merged second and kept the exemption, so it was deleted on `release/v0.2.29` once both had landed, and the guard test now checks that deploy-stack applies the policy.
 
 ## Acceptance Criteria
 - [x] `_MANIFESTS_BY_STACK["llm"]` lists `k8s/llm/gateway/networkpolicy.yaml` before `gateway/deployment.yaml`, and `teardown-stack` deletes it. `tests/test_k8s.py::test_llm_stack_applies_the_gateway_policy_before_the_gateway_and_deletes_it` runs both dry runs under `forbid_requests` and asserts the `manifests` order, the `manifest_deletes` entry, and that no request is made. On the base revision it fails with `(0, 0, False, False, []) != (0, 0, True, True, [])`.
