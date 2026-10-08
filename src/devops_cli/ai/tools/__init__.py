@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -262,7 +262,7 @@ class DeferredToolRequests(NativeDeferredToolRequests):
     def build_results(
         self,
         *,
-        approvals: dict[str, Any] | None = None,
+        approvals: Mapping[str, Any] | None = None,
         calls: dict[str, Any] | None = None,
         metadata: dict[str, dict[str, Any]] | None = None,
         approve_all: bool = False,

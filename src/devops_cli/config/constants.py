@@ -2389,7 +2389,7 @@ CONST_AI_PROVIDER_IDS: Final[tuple[str, ...]] = (
 # Response header in which the LiteLLM gateway names the backend (api_base) that served a call.
 CONST_AI_GATEWAY_SERVED_BY_HEADER: Final[str] = "x-litellm-model-api-base"
 # Why a provider says a reply ended, as pydantic-ai's FinishReason. The OpenAI-compatible and
-# Anthropic tables copy pydantic-ai 2.35.0's private maps (models/openai.py, models/anthropic.py),
+# Anthropic tables copy pydantic-ai 2.54.0's private maps (models/openai.py, models/anthropic.py),
 # which are not imported because they are private. A value absent from a table, or mapped to
 # None, is unknown: truncation is never guessed.
 CONST_OPENAI_FINISH_REASONS: Final[dict[str, FinishReason]] = {

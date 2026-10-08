@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from pydantic import BaseModel
+from pydantic_ai import RunContext as NativeRunContext
 
 from devops_cli.ai.agents.pydantic_agent import (
     AgentTool,
@@ -239,7 +240,7 @@ def test_pydantic_agent_pydantic_ai_enhancements() -> None:
 
     # 2. Tool with RunContext injection
     @agent.tool
-    def analyze_ctx(ctx: RunContext[dict[str, str]], target: str) -> str:
+    def analyze_ctx(ctx: NativeRunContext[dict[str, str]], target: str) -> str:
         env = ctx.deps.get("env") if ctx and ctx.deps else "unknown"
         return f"Target {target} analyzed in {env}"
 
@@ -753,8 +754,9 @@ def test_deferred_tools_approval_required_and_handler() -> None:
         return f"Cluster {cluster_name} deleted"
 
     # 2. Tool requiring dynamic approval via exception
-    def modify_config(ctx: RunContext[Any], key: str, value: str) -> str:
-        if key == "secret" and not ctx.tool_call_approved:
+    def modify_config(ctx: NativeRunContext[Any], key: str, value: str) -> str:
+        approved = isinstance(ctx, RunContext) and ctx.tool_call_approved
+        if key == "secret" and not approved:
             raise ApprovalRequired("Modifying secret requires approval", metadata={"risk": "high"})
         return f"Config {key}={value} applied"
 

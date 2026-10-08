@@ -2,27 +2,28 @@
 
 from __future__ import annotations
 
-import inspect
 import json
 import re
 import sqlite3
 import time
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.agent import EventStreamHandler
-from pydantic_ai.agent.abstract import AbstractAgent
 from pydantic_ai.capabilities.abstract import AbstractCapability
-from pydantic_ai.durable_exec._base import BaseDurabilityCapability
-from pydantic_ai.durable_exec._runtime_toolsets import RuntimeToolsetKind
-from pydantic_ai.messages import AgentStreamEvent
+from pydantic_ai.durable_exec import (
+    BaseDurabilityCapability,
+    DurabilityEngineSpec,
+    DurableOperationId,
+    JournalCallableOperationBackend,
+    RoleBasedOperationConfig,
+)
 from pydantic_ai.models import KnownModelName, Model, ModelRequestContext, ModelResolutionContext
 from pydantic_ai.tools import AgentDepsT, RunContext
-from pydantic_ai.toolsets import AbstractToolset, WrapperToolset
 
 from devops_cli.config.defaults import (
     DEFAULT_AI_DURABLE_AGENT_NAME,
@@ -314,17 +315,43 @@ def get_available_durable_engines() -> dict[str, bool]:
 # ── Local Durability Capability ───────────────────────────────────────────────
 
 
-class LocalDurabilityCapability(BaseDurabilityCapability[AgentDepsT]):
-    """Local, workstation-ready durability capability adhering to BaseDurabilityCapability.
+class _LocalOperationBackend(JournalCallableOperationBackend[None]):
+    """Runs each durable operation in this process; the capability's hooks record the steps."""
 
-    Provides step-by-step recording, model resolution, tool execution tracking, and checkpointing
-    backed by SQLite or In-Memory step stores without requiring external server orchestration.
+    def __init__(self, agent_name: str, default_model_id: str | None) -> None:
+        super().__init__(
+            agent_name=agent_name,
+            default_model_id=default_model_id,
+            config=RoleBasedOperationConfig(model=None, event=None, capability=None, tool=None),
+        )
+
+    async def execute(
+        self,
+        *,
+        operation_id: DurableOperationId,
+        name: str,
+        body: Callable[[], Awaitable[object]],
+        cache_key: tuple[object, ...],
+        config: None,
+    ) -> object:
+        """Run the operation's body in place."""
+        return await body()
+
+
+class LocalDurabilityCapability(BaseDurabilityCapability[AgentDepsT]):
+    """Local, workstation-ready durability engine built on pydantic-ai's durable engine API.
+
+    Operations run in this process (`_LocalOperationBackend`), and the lifecycle hooks record
+    each run, model request and tool call as steps in a SQLite or in-memory step store, with
+    checkpointing, without external server orchestration. Toolsets pass through unwrapped.
     """
 
-    engine_name: ClassVar[str] = "Local"
-    _unsupported_runtime_toolset_kinds: ClassVar[frozenset[RuntimeToolsetKind]] = frozenset()
-    _durable_unit_noun: ClassVar[str] = "step"
-    _durable_container_noun: ClassVar[str] = "run"
+    engine_spec: ClassVar[DurabilityEngineSpec] = DurabilityEngineSpec(
+        engine_name="Local",
+        durable_unit_noun="step",
+        durable_container_noun="run",
+        wrapped_toolset_kinds=frozenset(),
+    )
 
     def __init__(
         self,
@@ -348,24 +375,9 @@ class LocalDurabilityCapability(BaseDurabilityCapability[AgentDepsT]):
         """Whether execution is currently inside the local durable container."""
         return True
 
-    def _bind_to_agent(self, agent: AbstractAgent[AgentDepsT, Any]) -> None:
-        """Register local durability units on this bound capability."""
-        self._agent = agent
-
-    def _wrap_leaf_toolset(
-        self, ts: AbstractToolset[AgentDepsT]
-    ) -> WrapperToolset[AgentDepsT] | None:
-        """Wrap dynamic or leaf toolsets with durability tracking if needed."""
-        return None
-
-    async def _dispatch_event_stream_event(
-        self, ctx: RunContext[AgentDepsT], event: AgentStreamEvent
-    ) -> None:
-        """Deliver one workflow-side event inside the local durable boundary."""
-        if self._event_stream_handler is not None:
-            res = self._event_stream_handler(ctx, self._single_event_stream(event))
-            if inspect.isawaitable(res):
-                await res
+    def get_durable_operation_backend(self) -> _LocalOperationBackend:
+        """Return the in-process backend that runs this capability's durable operations."""
+        return _LocalOperationBackend(self.name, self.default_model_id)
 
     def resolve_model_id_sync(
         self,
@@ -424,7 +436,7 @@ class LocalDurabilityCapability(BaseDurabilityCapability[AgentDepsT]):
         """Lifecycle hook recording model invocation parameters."""
         model_repr = getattr(request_context.model, "model_id", str(request_context.model))
         self.save_step("model_request", {"model": model_repr})
-        return request_context
+        return await super().before_model_request(ctx, request_context)
 
     async def after_model_request(
         self,

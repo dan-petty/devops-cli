@@ -116,7 +116,7 @@ from devops_cli.ai.review_schema import Finding
 ### 3. Agentic AI, LLM Client & Semantic Search
 
 #### `pydantic-ai` ([Dedicated Manual](libraries/pydantic_ai.md))
-- **Pinned Version**: `pydantic-ai==2.35.0`
+- **Pinned Version**: `pydantic-ai==2.54.0`
 - **Ecosystem Role**: Multi-agent framework enabling type-safe tool execution, dynamic instructions, structured output validation, model overrides, and sub-agent delegation.
 - **Codebase Integration**:
   - `devops_cli.ai.agents.agent.PydanticAgent`: High-level agent abstraction managing toolsets, usage tracking (`AgentUsage`), and async lifecycles (`async with agent:`).
