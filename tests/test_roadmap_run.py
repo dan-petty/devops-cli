@@ -1,17 +1,20 @@
 """Tests for `devops roadmap run` and due table execution (#981).
 
 All tests run in-memory without network or cluster access, testing due evaluation,
-schedule persistence, clone management, service wiring, and MCP integration. The last cases run
-the GitHub store over `GitHubFake`, a fake at the `gh` process edge, to count a round's board
-reads (#1361).
+schedule persistence, clone management, service wiring, and MCP integration. The clone cases run
+real `git` against bare remotes in `tmp_path`, with the session's `gh api user` login answered
+at the process edge (#1366). The last cases run the GitHub store over `GitHubFake`, a fake at
+the `gh` process edge, to count a round's board reads (#1361).
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import subprocess
-from collections.abc import Callable, Sequence
+import time
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -24,10 +27,12 @@ from devops_cli.ai.mcp.server import roadmap_run
 from devops_cli.commands.roadmap import app as roadmap_app
 from devops_cli.commands.serve import app as serve_app
 from devops_cli.config.constants import (
+    CONST_GH_CLI,
     CONST_ROADMAP_CLOSURE_BATCH_KEYS,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
 )
 from devops_cli.exceptions import GitOperationError, RoadmapRunError
+from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.board_read import BOARD_BUDGET_OPERATION, BOARD_ITEMS_OPERATION
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -39,12 +44,15 @@ from devops_cli.roadmap.run import (
     run_due_jobs,
     service_job,
 )
-from devops_cli.roadmap.store import Change, ChangeKind, CloseReason, GitHubState
+from devops_cli.roadmap.store import Change, ChangeKind, CloseReason, GitHubState, Release
 from devops_cli.server.service import TriggerBatch
 from tests.roadmap_board_fake import GitHubFake
 
 REPO = "example/roadmap"
 RELEASE = "v0.2.26"
+RELEASE_BRANCH = f"release/{RELEASE}"
+SESSION_LOGIN_ARGV = [CONST_GH_CLI, "api", "user", "--jq", ".login"]
+COMMIT_IDENTITY = ("-c", "user.name=Test", "-c", "user.email=test@example.com")
 NOW = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
 runner = CliRunner()
 
@@ -80,61 +88,94 @@ class StoreSpy:
         return attr
 
 
-def _make_bare_remote(tmp_path: Path) -> Path:
-    """Create a temporary bare git repo with a commit on release/v0.2.26."""
+def _git(cwd: Path, *args: str) -> str:
+    """Run git in `cwd` and return its output; an error fails the test."""
+    return subprocess.run(
+        ["git", "-C", str(cwd), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _advance_bare_remote(bare: Path, branch: str, *, onto: str = "main") -> str:
+    """Commit on top of `onto` in the bare remote, point `branch` at that commit, and return its
+    hash."""
+    commit = _git(
+        bare, *COMMIT_IDENTITY, "commit-tree", f"{onto}^{{tree}}", "-p", onto, "-m", branch
+    )
+    _git(bare, "update-ref", f"refs/heads/{branch}", commit)
+    return commit
+
+
+def _make_bare_remote(tmp_path: Path, *, with_release_branch: bool = True) -> Path:
+    """A bare remote whose HEAD names `main`, with one commit on `main` and, unless told otherwise,
+    a later one on release/v0.2.26."""
     bare = tmp_path / "remote.git"
-    work = tmp_path / "work"
-    subprocess.run(["git", "init", "--bare", str(bare)], check=True, capture_output=True)
-    subprocess.run(["git", "clone", str(bare), str(work)], check=True, capture_output=True)
-    subprocess.run(
-        ["git", "checkout", "-b", f"release/{RELEASE}"],
-        cwd=str(work),
-        check=True,
-        capture_output=True,
+    _git(tmp_path, "init", "--bare", "--initial-branch=main", str(bare))
+    empty_tree = subprocess.run(
+        ["git", "-C", str(bare), "mktree"], input="", capture_output=True, text=True, check=True
+    ).stdout.strip()
+    _git(
+        bare,
+        "update-ref",
+        "refs/heads/main",
+        _git(bare, *COMMIT_IDENTITY, "commit-tree", empty_tree, "-m", "init"),
     )
-    (work / "file.txt").write_text("initial", encoding="utf-8")
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(work), check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(work), check=True)
-    subprocess.run(["git", "add", "."], cwd=str(work), check=True)
-    subprocess.run(
-        ["git", "commit", "-m", "init"],
-        cwd=str(work),
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "push", "origin", f"release/{RELEASE}"],
-        cwd=str(work),
-        check=True,
-        capture_output=True,
-    )
+    if with_release_branch:
+        _advance_bare_remote(bare, RELEASE_BRANCH)
     return bare
 
 
-def _advance_bare_remote(tmp_path: Path) -> str:
-    """Add another commit to the bare remote and return its commit hash."""
-    work = tmp_path / "work"
-    (work / "file.txt").write_text("updated", encoding="utf-8")
-    subprocess.run(
-        ["git", "commit", "-am", "second"],
-        cwd=str(work),
-        check=True,
-        capture_output=True,
+def _clone_head(clone_path: Path) -> tuple[str, str]:
+    """The clone's HEAD commit and the branch name HEAD points at (`HEAD` when detached)."""
+    commit, branch = _git(clone_path, "rev-parse", "HEAD", "--abbrev-ref", "HEAD").splitlines()
+    return commit, branch
+
+
+@pytest.fixture
+def release_remote(tmp_path: Path) -> Path:
+    """A bare remote holding `main` and a later commit on the current release's branch."""
+    return _make_bare_remote(tmp_path)
+
+
+@pytest.fixture
+def main_only_remote(tmp_path: Path) -> Path:
+    """A bare remote holding only `main`, as between a ship and the next release's start."""
+    return _make_bare_remote(tmp_path, with_release_branch=False)
+
+
+@pytest.fixture
+def dangling_head_remote(release_remote: Path) -> Path:
+    """A bare remote whose HEAD names `main`, which it lacks: it holds only the release branch."""
+    _git(release_remote, "update-ref", "-d", "refs/heads/main")
+    return release_remote
+
+
+@pytest.fixture
+def child_argvs(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[list[str]]]:
+    """Run git for real and answer the session's login lookup at the process edge.
+
+    Every child's argv is recorded. `gh api user --jq .login` prints `test-bot`, and any other gh
+    command fails the test instead of reaching GitHub. The core quota is seeded, so the lookup sends
+    no `gh api rate_limit` first, and a lookup that failed would show as the `devops-cli` fallback.
+    """
+    get_github_rate_limiter().update_quota(
+        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
     )
-    subprocess.run(
-        ["git", "push", "origin", f"release/{RELEASE}"],
-        cwd=str(work),
-        check=True,
-        capture_output=True,
-    )
-    rev = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=str(work),
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return rev.stdout.strip()
+    real_run = subprocess.run
+    argvs: list[list[str]] = []
+
+    def run(argv: Sequence[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+        argvs.append(list(argv))
+        if argv[0] != CONST_GH_CLI:
+            return real_run(argv, *args, **kwargs)
+        if list(argv) != SESSION_LOGIN_ARGV:
+            raise AssertionError(f"A clone test ran {argv}, which would reach GitHub")
+        return subprocess.CompletedProcess(argv, 0, stdout="test-bot\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    yield argvs
 
 
 def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path) -> None:
@@ -564,44 +605,31 @@ def test_release_read_failure_propagates_closed(
         )
 
 
+def _current_release(store: InMemoryRoadmapStore) -> Release:
+    """The seeded store's current release, v0.2.26."""
+    return next(r for r in store.releases() if r.title == RELEASE)
+
+
 def test_checkouts_git_management(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    release_remote: Path,
+    child_argvs: list[list[str]],
 ) -> None:
     """Clones to expected path, tracks remote tip, sets identity, fails clone-dependent jobs."""
-    bare = _make_bare_remote(tmp_path)
+    bare = release_remote
     data_dir = tmp_path / "data"
 
-    fake_session = type("FakeSession", (), {"login": "test-bot"})()
-    monkeypatch.setattr("devops_cli.github.session.get_github_session", lambda: fake_session)
-
-    cur = next(r for r in seeded_store.releases() if r.title == RELEASE)
+    cur = _current_release(seeded_store)
     clone_path = ensure_checkout(REPO, data_dir, remote_url=str(bare), current_rel=cur)
 
     expected_clone = data_dir / "roadmap" / "example" / "roadmap" / "clone"
-    user_name = subprocess.run(
-        ["git", "config", "user.name"],
-        cwd=str(clone_path),
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    user_email = subprocess.run(
-        ["git", "config", "user.email"],
-        cwd=str(clone_path),
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
+    user_name = _git(clone_path, "config", "user.name")
+    user_email = _git(clone_path, "config", "user.email")
 
-    new_rev = _advance_bare_remote(tmp_path)
+    new_rev = _advance_bare_remote(bare, RELEASE_BRANCH, onto=RELEASE_BRANCH)
     ensure_checkout(REPO, data_dir, remote_url=str(bare), current_rel=cur)
-    head_rev = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=str(clone_path),
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
+    head = _clone_head(clone_path)
 
     shutil.rmtree(bare)
     shutil.rmtree(clone_path)
@@ -660,7 +688,7 @@ def test_checkouts_git_management(
         clone_path == expected_clone,
         user_name,
         user_email,
-        head_rev == new_rev,
+        head,
         ran_intake,
         ran_reprio,
         called_close,
@@ -670,12 +698,262 @@ def test_checkouts_git_management(
         True,
         "test-bot",
         "test-bot@users.noreply.github.com",
-        True,
+        (new_rev, RELEASE_BRANCH),
         True,
         True,
         False,
         False,
         ("close", "refine"),
+    )
+
+
+def _checkout_info_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """The INFO lines the checkout logged."""
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "devops_cli.roadmap.run" and record.levelno == logging.INFO
+    ]
+
+
+def test_checkout_tracks_the_default_branch_until_the_release_branch_exists(
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    main_only_remote: Path,
+    child_argvs: list[list[str]],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A current release with no branch on origin gets `main` and one INFO line; once origin has
+    the release branch, the next checkout tracks it (#1366)."""
+    data_dir = tmp_path / "data"
+    cur = _current_release(seeded_store)
+    main_tip = _git(main_only_remote, "rev-parse", "main")
+
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
+        clone_path = ensure_checkout(
+            REPO, data_dir, remote_url=str(main_only_remote), current_rel=cur
+        )
+        before_branch = _clone_head(clone_path)
+        release_tip = _advance_bare_remote(main_only_remote, RELEASE_BRANCH)
+        ensure_checkout(REPO, data_dir, remote_url=str(main_only_remote), current_rel=cur)
+
+    names_release_and_default = [
+        all(name in line for name in (REPO, RELEASE, "main"))
+        for line in _checkout_info_lines(caplog)
+    ]
+    assert (
+        before_branch,
+        _clone_head(clone_path),
+        names_release_and_default,
+        _git(clone_path, "config", "user.name"),
+    ) == ((main_tip, "main"), (release_tip, RELEASE_BRANCH), [True], "test-bot")
+
+
+def test_checkout_returns_to_the_default_branch_when_origin_deletes_the_release_branch(
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    release_remote: Path,
+    child_argvs: list[list[str]],
+) -> None:
+    """A ship deletes the release branch while its release is still current: the pruning fetch
+    drops the stale remote-tracking ref and the clone tracks `main` (#1366)."""
+    data_dir = tmp_path / "data"
+    cur = _current_release(seeded_store)
+    main_tip, release_tip = _git(release_remote, "rev-parse", "main", RELEASE_BRANCH).splitlines()
+
+    clone_path = ensure_checkout(REPO, data_dir, remote_url=str(release_remote), current_rel=cur)
+    on_release = _clone_head(clone_path)
+    _git(release_remote, "update-ref", "-d", f"refs/heads/{RELEASE_BRANCH}")
+    ensure_checkout(REPO, data_dir, remote_url=str(release_remote), current_rel=cur)
+    stale_ref = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{RELEASE_BRANCH}"],
+        cwd=clone_path,
+        capture_output=True,
+        check=False,
+    )
+
+    assert (on_release, _clone_head(clone_path), stale_ref.returncode) == (
+        (release_tip, RELEASE_BRANCH),
+        (main_tip, "main"),
+        1,
+    )
+
+
+def test_checkout_follows_the_default_branch_while_no_release_is_open(
+    tmp_path: Path,
+    main_only_remote: Path,
+    child_argvs: list[list[str]],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """With no open release the clone tracks `main` as it moves, and logs nothing (#1366)."""
+    data_dir = tmp_path / "data"
+    first_tip = _git(main_only_remote, "rev-parse", "main")
+
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
+        clone_path = ensure_checkout(REPO, data_dir, remote_url=str(main_only_remote))
+        first = _clone_head(clone_path)
+        new_tip = _advance_bare_remote(main_only_remote, "main")
+        ensure_checkout(REPO, data_dir, remote_url=str(main_only_remote))
+
+    assert (first, _clone_head(clone_path), _checkout_info_lines(caplog)) == (
+        (first_tip, "main"),
+        (new_tip, "main"),
+        [],
+    )
+
+
+def test_checkout_raises_when_the_fetch_fails_and_keeps_the_branch_it_had(
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    release_remote: Path,
+    child_argvs: list[list[str]],
+) -> None:
+    """An unreachable origin raises GitOperationError with git's reason; the clone does not fall
+    back to the default branch (#1366)."""
+    data_dir = tmp_path / "data"
+    cur = _current_release(seeded_store)
+    clone_path = ensure_checkout(REPO, data_dir, remote_url=str(release_remote), current_rel=cur)
+    on_release = _clone_head(clone_path)
+    shutil.rmtree(release_remote)
+
+    with pytest.raises(GitOperationError) as raised:
+        ensure_checkout(REPO, data_dir, remote_url=str(release_remote), current_rel=cur)
+
+    message = str(raised.value)
+    assert (
+        "git fetch --prune origin failed" in message,
+        "does not appear to be a git repository" in message,
+        _clone_head(clone_path),
+    ) == (True, True, on_release)
+
+
+def _commit_file(bare: Path, branch: str, content: str, *, parent: str | None = None) -> str:
+    """Point `branch` in the bare remote at a commit whose tree holds one file, `f.txt`, with
+    `content`, and return the commit's hash."""
+    blob = subprocess.run(
+        ["git", "-C", str(bare), "hash-object", "-w", "--stdin"],
+        input=content,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    tree = subprocess.run(
+        ["git", "-C", str(bare), "mktree"],
+        input=f"100644 blob {blob}\tf.txt\n",
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    parents = ("-p", parent) if parent else ()
+    commit = _git(bare, *COMMIT_IDENTITY, "commit-tree", tree, *parents, "-m", branch)
+    _git(bare, "update-ref", f"refs/heads/{branch}", commit)
+    return commit
+
+
+def test_checkout_discards_a_tracked_change_a_failed_job_left_in_the_clone(
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    child_argvs: list[list[str]],
+) -> None:
+    """A cut that fails after writing its files leaves a tracked change in the clone. The next
+    checkout still moves to origin's tip and drops the change, instead of failing every later
+    round until a person cleans the clone (#1366)."""
+    bare = tmp_path / "remote.git"
+    _git(tmp_path, "init", "--bare", "--initial-branch=main", str(bare))
+    main_tip = _commit_file(bare, "main", "main\n")
+    _commit_file(bare, RELEASE_BRANCH, "release\n", parent=main_tip)
+    data_dir = tmp_path / "data"
+    cur = _current_release(seeded_store)
+    clone_path = ensure_checkout(REPO, data_dir, remote_url=str(bare), current_rel=cur)
+    (clone_path / "f.txt").write_text("left by a failed cut\n")
+    _git(bare, "update-ref", "-d", f"refs/heads/{RELEASE_BRANCH}")
+
+    ensure_checkout(REPO, data_dir, remote_url=str(bare), current_rel=cur)
+
+    assert (
+        _clone_head(clone_path),
+        (clone_path / "f.txt").read_text(),
+        _git(clone_path, "status", "--porcelain"),
+    ) == ((main_tip, "main"), "main\n", "")
+
+
+def test_checkout_raises_when_origin_head_names_no_branch(
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    dangling_head_remote: Path,
+    child_argvs: list[list[str]],
+) -> None:
+    """A remote whose HEAD names a branch it lacks has no default branch to fall back to, so the
+    checkout raises GitOperationError with git's reason instead of guessing one (#1366)."""
+    with pytest.raises(GitOperationError) as raised:
+        ensure_checkout(
+            REPO,
+            tmp_path / "data",
+            remote_url=str(dangling_head_remote),
+            current_rel=_current_release(seeded_store),
+        )
+
+    message = str(raised.value)
+    assert (
+        "git remote set-head origin --auto failed" in message,
+        "Cannot determine remote HEAD" in message,
+    ) == (True, True)
+
+
+def test_a_round_after_a_ship_runs_its_clone_jobs_on_the_default_branch(
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    main_only_remote: Path,
+    child_argvs: list[list[str]],
+) -> None:
+    """The round that sees a ship runs close before reprioritize starts the release, so the
+    release has no branch yet: close and refine share one clone on `main`, and nothing fails.
+    The dry run of the same round starts no git command (#1366)."""
+    data_dir = tmp_path / "data"
+    main_tip = _git(main_only_remote, "rev-parse", "main")
+    seen: dict[str, tuple[Path | None, tuple[str, str]]] = {}
+
+    def record(job: str) -> Callable[..., JobOutcome]:
+        def run_job(*, clone_path: Path | None = None, **_: Any) -> JobOutcome:
+            assert clone_path is not None
+            seen[job] = (clone_path, _clone_head(clone_path))
+            return JobOutcome()
+
+        return run_job
+
+    def start_release(**_: Any) -> JobOutcome:
+        _git(main_only_remote, "update-ref", f"refs/heads/{RELEASE_BRANCH}", "main")
+        return JobOutcome()
+
+    table = build_stub_table(
+        {"close": record("close"), "reprioritize": start_release, "refine": record("refine")},
+        needs_clone=True,
+    )
+    ship_batch = {("webhook", "pull_request", "closed"): 1, ("webhook", "milestone", "closed"): 1}
+
+    def run_round(*, dry_run: bool) -> tuple[str, ...]:
+        return run_due_jobs(
+            REPO,
+            seeded_store,
+            batch=ship_batch,
+            table=table,
+            data_dir=data_dir,
+            remote_url=str(main_only_remote),
+            dry_run=dry_run,
+            now=NOW,
+        )
+
+    before_dry_run = len(child_argvs)
+    planned = run_round(dry_run=True)
+    dry_run_git = [argv for argv in child_argvs[before_dry_run:] if argv[0] == "git"]
+    ran = run_round(dry_run=False)
+
+    clone = data_dir / "roadmap" / "example" / "roadmap" / "clone"
+    assert (planned, dry_run_git, ran, seen) == (
+        ("intake", "close", "reprioritize", "refine"),
+        [],
+        ("intake", "close", "reprioritize", "refine"),
+        {"close": (clone, (main_tip, "main")), "refine": (clone, (main_tip, "main"))},
     )
 
 

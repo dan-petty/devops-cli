@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shlex
+import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -12,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.constants import (
+    CONST_GIT_CLI,
     CONST_RELEASE_BRANCH_PREFIX,
     CONST_ROADMAP_CLOSURE_BATCH_KEYS,
     CONST_ROADMAP_CRITICAL_PRIORITY,
@@ -46,6 +49,7 @@ from devops_cli.roadmap.store import (
     RoadmapStore,
     in_release,
 )
+from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.server.service import TriggerBatch
 
 if TYPE_CHECKING:
@@ -181,73 +185,103 @@ def _resolve_roadmap_repo_path(
     return target
 
 
+def _select_tracked_branch(clone_dir: Path, repo: str, current_rel: Release | None) -> str:
+    """Fetch origin with pruning and return the branch the clone tracks (#1366).
+
+    That is the current release's `release/<v>` while origin has it, and origin's default branch
+    otherwise, including when no release is open. The default branch is origin's HEAD as git
+    reports it. A release branch counts as absent only when `rev-parse --verify` exits 1 after the
+    pruning fetch, which a ship's deleted branch and a release not yet started both do; that case
+    logs one INFO line. Any other git failure raises `subprocess.CalledProcessError`.
+    """
+    for step in (("fetch", "--prune", "origin"), ("remote", "set-head", "origin", "--auto")):
+        run_subprocess([CONST_GIT_CLI, *step], cwd=clone_dir, check=True, quiet=True)
+    default_branch = (
+        run_subprocess(
+            [CONST_GIT_CLI, "symbolic-ref", "refs/remotes/origin/HEAD"],
+            cwd=clone_dir,
+            check=True,
+            quiet=True,
+        )
+        .stdout.strip()
+        .removeprefix("refs/remotes/origin/")
+    )
+    if current_rel is None:
+        return default_branch
+    title = current_rel.title if current_rel.title.startswith("v") else f"v{current_rel.version}"
+    release_branch = f"{CONST_RELEASE_BRANCH_PREFIX}{title}"
+    probe = run_subprocess(
+        [
+            CONST_GIT_CLI,
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            f"refs/remotes/origin/{release_branch}",
+        ],
+        cwd=clone_dir,
+        check=False,
+        quiet=True,
+    )
+    if probe.returncode == 1:
+        logger.info(
+            "Roadmap clone of %s tracks %s: release %s has no %s on origin",
+            repo,
+            default_branch,
+            title,
+            release_branch,
+        )
+        return default_branch
+    probe.check_returncode()
+    return release_branch
+
+
 def ensure_checkout(
     repo: str,
     data_dir: Path,
     remote_url: str | None = None,
     current_rel: Release | None = None,
 ) -> Path:
-    """Ensure clone exists at <data dir>/roadmap/<owner>/<name>/clone and is up-to-date."""
+    """Clone the repository to <data dir>/roadmap/<owner>/<name>/clone, update it, return its path.
+
+    The clone rows (`needs_clone`) rely on this contract:
+
+    - Origin is fetched with `--prune`, so the remote-tracking branches are origin's branches and
+      no others. Tags follow git's defaults: the clone takes every tag, a later fetch takes each
+      tag on a commit the clone then has, and the prune removes none.
+    - HEAD is a named local branch, never detached, reset hard to origin's tip of the tracked
+      branch; a tracked change a failed job left in the clone is discarded (`checkout --force`).
+      Branches and origin's HEAD are read as full ref names, so no tag can shadow them. That is the current release's `release/<v>` while origin has it, and origin's
+      default branch (its HEAD, re-read with `remote set-head --auto`) otherwise (#1366): when
+      `current_rel` is None, and when the release has no branch, because a ship deleted it or
+      reprioritize has not created it yet. The last case logs one INFO line.
+    - `user.name` and `user.email` are the session's login.
+    - A git command that exits non-zero raises `GitOperationError` naming the command and git's
+      reason, credentials masked. Only a release branch `rev-parse --verify` finds absent after
+      a successful pruning fetch selects the default branch. A timeout or a missing `git` binary
+      propagates as `run_subprocess` raises it.
+    """
     clone_dir = _resolve_roadmap_repo_path(
         data_dir, repo, CONST_ROADMAP_RUN_CLONE_DIRNAME, error_cls=GitOperationError
     )
     clone_dir.parent.mkdir(parents=True, exist_ok=True)
     url = remote_url or f"https://github.com/{repo}.git"
-
-    if not (clone_dir / ".git").exists():
-        res = run_subprocess(
-            ["git", "clone", url, str(clone_dir)],
-            check=False,
-            quiet=True,
-        )
-        if res.returncode != 0:
-            raise GitOperationError(f"git clone failed: {res.stderr.strip()}")
-
-    res = run_subprocess(
-        ["git", "fetch", "origin"],
-        cwd=clone_dir,
-        check=False,
-        quiet=True,
-    )
-    if res.returncode != 0:
-        raise GitOperationError(f"git fetch failed: {res.stderr.strip()}")
-
-    if current_rel is not None:
-        rel_title = (
-            current_rel.title if current_rel.title.startswith("v") else f"v{current_rel.version}"
-        )
-        branch_name = f"{CONST_RELEASE_BRANCH_PREFIX}{rel_title}"
-        target_ref = f"origin/{branch_name}"
-        res = run_subprocess(
-            ["git", "checkout", "-B", branch_name, target_ref],
-            cwd=clone_dir,
-            check=False,
-            quiet=True,
-        )
-        if res.returncode != 0:
-            raise GitOperationError(f"git checkout failed: {res.stderr.strip()}")
-        res = run_subprocess(
-            ["git", "reset", "--hard", target_ref],
-            cwd=clone_dir,
-            check=False,
-            quiet=True,
-        )
-        if res.returncode != 0:
-            raise GitOperationError(f"git reset failed: {res.stderr.strip()}")
-
-    login = _get_session_login()
-    run_subprocess(
-        ["git", "config", "user.name", login],
-        cwd=clone_dir,
-        check=True,
-        quiet=True,
-    )
-    run_subprocess(
-        ["git", "config", "user.email", f"{login}@users.noreply.github.com"],
-        cwd=clone_dir,
-        check=True,
-        quiet=True,
-    )
+    try:
+        if not (clone_dir / ".git").exists():
+            run_subprocess([CONST_GIT_CLI, "clone", url, str(clone_dir)], check=True, quiet=True)
+        branch = _select_tracked_branch(clone_dir, repo, current_rel)
+        login = _get_session_login()
+        for step in (
+            ("checkout", "--force", "-B", branch, f"refs/remotes/origin/{branch}"),
+            ("reset", "--hard", f"refs/remotes/origin/{branch}"),
+            ("config", "user.name", login),
+            ("config", "user.email", f"{login}@users.noreply.github.com"),
+        ):
+            run_subprocess([CONST_GIT_CLI, *step], cwd=clone_dir, check=True, quiet=True)
+    except subprocess.CalledProcessError as exc:
+        reason = str(exc.stderr or exc.stdout or "").strip()
+        raise GitOperationError(
+            mask_secrets(f"{shlex.join(exc.cmd)} failed: {reason}"), operation=exc.cmd[1]
+        ) from exc
     return clone_dir
 
 
