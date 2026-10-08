@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterable
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext
 from pydantic_ai.capabilities.abstract import AbstractCapability
-from pydantic_ai.durable_exec._base import BaseDurabilityCapability
+from pydantic_ai.durable_exec import BaseDurabilityCapability
+from pydantic_ai.messages import AgentStreamEvent, FunctionToolCallEvent, FunctionToolResultEvent
 from pydantic_ai.models.test import TestModel
 
 from devops_cli.ai.agents.persistence import InMemoryStepStore, SqliteStepStore, StepPersistence
@@ -305,38 +307,28 @@ async def test_local_durability_capability_tool_execution() -> None:
 
 
 @pytest.mark.asyncio
-async def test_local_durability_event_stream_dispatch_and_leaf_toolset() -> None:
-    """Verify event stream dispatching for sync and async handlers and leaf toolset wrapper."""
-    events_received: list[Any] = []
+async def test_local_durability_delivers_run_events_and_leaves_toolsets_unwrapped() -> None:
+    """Verify a run hands its tool events to the async handler and calls the tool unwrapped."""
+    events: list[AgentStreamEvent] = []
 
-    def sync_handler(ctx: Any, event: Any) -> None:
-        events_received.append(("sync", event))
+    async def handler(ctx: RunContext[Any], stream: AsyncIterable[AgentStreamEvent]) -> None:
+        async for event in stream:
+            events.append(event)
 
-    async def async_handler(ctx: Any, event: Any) -> None:
-        events_received.append(("async", event))
+    cap = LocalDurabilityCapability(name="streamer", event_stream_handler=handler)
+    agent = Agent(model=TestModel(), name="stream_worker", capabilities=[cap])
 
-    cap_sync = LocalDurabilityCapability(
-        name="sync_streamer", event_stream_handler=cast(Any, sync_handler)
-    )
-    cap_async = LocalDurabilityCapability(
-        name="async_streamer", event_stream_handler=cast(Any, async_handler)
-    )
+    @agent.tool_plain
+    def calculate_sum(a: int, b: int) -> int:
+        return a + b
 
-    from types import SimpleNamespace
+    await agent.run("Add two numbers")
+    bound = LocalDurabilityCapability.from_agent(agent)
 
-    dummy_ctx = SimpleNamespace()
-    dummy_event = SimpleNamespace(type="test_event")
-
-    await cap_sync._dispatch_event_stream_event(dummy_ctx, dummy_event)  # type: ignore[arg-type]
-    assert len(events_received) == 1
-    assert events_received[0][0] == "sync"
-
-    await cap_async._dispatch_event_stream_event(dummy_ctx, dummy_event)  # type: ignore[arg-type]
-    assert len(events_received) == 2
-    assert events_received[1][0] == "async"
-
-    # Leaf toolset returns None
-    assert cap_sync._wrap_leaf_toolset(dummy_ctx) is None  # type: ignore[arg-type]
+    assert bound is not None
+    assert {type(e) for e in events} >= {FunctionToolCallEvent, FunctionToolResultEvent}
+    assert all(bound.get_wrapper_toolset(ts) is None for ts in agent.toolsets)
+    assert {"tool_call", "tool_result"} <= {s.kind for s in cap.get_steps()}
 
 
 def test_resolve_durability_capability_mocked_external_engines(
@@ -382,7 +374,7 @@ def test_resolve_durability_capability_mocked_external_engines(
 
 def test_create_durable_pydantic_agent_extended_options() -> None:
     """Verify create_durable_pydantic_agent with string model, custom capabilities, and system prompt."""
-    extra_cap = LocalDurabilityCapability(name="extra_cap")
+    extra_cap = StepPersistence(name="extra_persistence")
     agent = create_durable_pydantic_agent(
         model="test",
         name="configured_worker",

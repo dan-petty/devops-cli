@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from types import SimpleNamespace
 from typing import Any
@@ -9,7 +10,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devops_cli.exceptions.vault import VaultAuthenticationError, VaultLeaseError
+from devops_cli.config.constants import CONST_HTTP_EGRESS_POLICY_EXTENSION
+from devops_cli.exceptions.vault import (
+    VaultAuthenticationError,
+    VaultLeaseError,
+    VaultOperationError,
+    VaultUnreachableError,
+)
 from devops_cli.models.vault import VaultAuthResult, VaultLease
 from devops_cli.security.secrets import (
     CallableProvider,
@@ -169,6 +176,69 @@ def test_cached_resolver_never_serves_a_stale_settings_snapshot() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+@pytest.fixture
+def _no_vault_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Leave the broker no token from the developer's shell."""
+    for name in ("VAULT_TOKEN", "DEVOPS_CLI_VAULT_TOKEN", "VAULT_ADDR", "VAULT_NAMESPACE"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.usefixtures("_no_vault_token")
+def test_vault_provider_without_a_token_makes_no_request() -> None:
+    """With no usable token, the chain's Vault provider asks nothing of Vault or the keyring."""
+    with (
+        patch("devops_cli.http.broker.HttpClientBroker.request") as mock_request,
+        patch("devops_cli.security.vault_broker.get_keyring_secret") as keyring_fallback,
+    ):
+        assert VaultProvider().get(_ref()) is None
+
+    mock_request.assert_not_called()
+    keyring_fallback.assert_not_called()
+
+
+@pytest.mark.usefixtures("_no_vault_token")
+def test_vault_provider_with_a_rejected_token_answers_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 403 leaves the provider unable to supply, and the keyring is not read in its place."""
+    import httpx2
+
+    monkeypatch.setenv("VAULT_TOKEN", "s.expired")
+    with (
+        patch(
+            "devops_cli.http.broker.HttpClientBroker.request",
+            return_value=httpx2.Response(403, json={}),
+        ) as mock_request,
+        patch("devops_cli.security.vault_broker.get_keyring_secret") as keyring_fallback,
+    ):
+        assert VaultProvider().get(_ref()) is None
+
+    assert mock_request.call_count == 1
+    keyring_fallback.assert_not_called()
+
+
+@pytest.mark.usefixtures("_no_vault_token")
+def test_resolving_the_broker_token_builds_no_second_broker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The broker's token lookups carry no Vault path, so the chain never recurses into Vault."""
+    from devops_cli.security import vault_broker
+
+    built: list[object] = []
+    original_init = vault_broker.VaultSecretBroker.__init__
+
+    def counting_init(self: Any, *args: Any, **kwargs: Any) -> None:
+        built.append(self)
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(vault_broker.VaultSecretBroker, "__init__", counting_init)
+    with patch.object(KeyringProvider, "get", return_value=None):
+        assert get_resolver().resolve(_ref(env_vars=(), settings_path=None)) is None
+
+    names = [entry.credential_id for entry in get_resolver().audit.entries()]
+    assert (len(built), names) == (1, ["vault.login", "vault.token", "test.secret"])
+
+
 def test_providers_skip_references_they_cannot_serve() -> None:
     """A provider with no configured source for a secret declines rather than guessing."""
     bare = SecretRef(name="bare")
@@ -206,17 +276,17 @@ def test_settings_provider_tolerates_unloadable_settings() -> None:
 def test_vault_provider_rejects_structured_values() -> None:
     """A Vault path returning a map is not a single credential value."""
     broker = MagicMock()
-    broker.get_secret.return_value = {"nested": "structure"}
+    broker.read_secret.return_value = {"nested": "structure"}
     assert VaultProvider(broker=broker).get(_ref()) is None
 
-    broker.get_secret.return_value = "  vault-value  "
+    broker.read_secret.return_value = "  vault-value  "
     assert VaultProvider(broker=broker).get(_ref()) == "vault-value"
 
 
 def test_provider_failures_are_contained() -> None:
     """A provider that raises is treated as unable to supply, not as fatal."""
     broker = MagicMock()
-    broker.get_secret.side_effect = RuntimeError("vault unreachable")
+    broker.read_secret.side_effect = VaultUnreachableError("vault unreachable")
     assert VaultProvider(broker=broker).get(_ref()) is None
 
     with patch("devops_cli.config.settings.get_keyring_secret", side_effect=RuntimeError("locked")):
@@ -564,27 +634,34 @@ def test_renew_expiring_sweeps_every_lease_despite_a_failure() -> None:
     assert report.all_renewed is False
 
 
-def test_revoke_stops_tracking_even_when_vault_refuses() -> None:
-    """A lease is dropped from tracking whether or not Vault accepted the revocation."""
+def test_revoke_reports_the_refusal_and_stops_tracking() -> None:
+    """A refused revocation raises with Vault's status; the lease is dropped from tracking."""
     registry = _registry()
     registry.track("lease-1", 100, renewable=True)
+    refusal = VaultLeaseError("Vault API call failed with status 400", status_code=400)
 
-    with patch("devops_cli.security.vault_lease._post", side_effect=VaultLeaseError("nope")):
-        revoked = registry.revoke("lease-1")
+    with patch("devops_cli.security.vault_lease._post", side_effect=refusal):
+        with pytest.raises(VaultLeaseError) as raised:
+            registry.revoke("lease-1")
 
-    assert (revoked, registry.leases()) == (False, [])
+    assert (raised.value.status_code, registry.leases()) == (400, [])
 
 
-def test_revoke_all_clears_the_registry() -> None:
-    """Every tracked lease can be revoked in one sweep."""
+def test_revoke_all_clears_the_registry_and_names_the_refusals() -> None:
+    """Every tracked lease is revoked in one sweep; the ones Vault refused are returned."""
     registry = _registry()
     for lease_id in ("a", "b"):
         registry.track(lease_id, 100, renewable=True)
 
-    with patch("devops_cli.security.vault_lease._post", return_value={}):
-        count = registry.revoke_all()
+    def _revoke(addr: str, path: str, payload: dict[str, Any], headers: dict[str, str]) -> Any:
+        if payload["lease_id"] == "b":
+            raise VaultLeaseError("refused", status_code=403)
+        return {}
 
-    assert (count, registry.leases()) == (2, [])
+    with patch("devops_cli.security.vault_lease._post", side_effect=_revoke):
+        refused = registry.revoke_all()
+
+    assert (refused, registry.leases()) == (["b"], [])
 
 
 def test_renew_token_returns_new_lifetime() -> None:
@@ -608,10 +685,13 @@ def test_transit_encrypt_sends_base64_and_returns_ciphertext() -> None:
         "devops_cli.security.vault_lease._post",
         return_value={"data": {"ciphertext": "vault:v1:abcd"}},
     ) as mock_post:
-        ciphertext = transit_encrypt("http://example.com:8200", "devops", "secret-value")
+        ciphertext = transit_encrypt(
+            "http://example.com:8200", "devops", "secret-value", token="s.token"
+        )
 
     assert ciphertext == "vault:v1:abcd"
     assert mock_post.call_args[0][2]["plaintext"] == "c2VjcmV0LXZhbHVl"
+    assert mock_post.call_args[0][3]["X-Vault-Token"] == "s.token"
 
 
 def test_transit_decrypt_returns_plaintext() -> None:
@@ -620,18 +700,18 @@ def test_transit_decrypt_returns_plaintext() -> None:
         "devops_cli.security.vault_lease._post",
         return_value={"data": {"plaintext": "c2VjcmV0LXZhbHVl"}},
     ):
-        assert transit_decrypt("http://example.com:8200", "devops", "vault:v1:abcd") == (
-            "secret-value"
-        )
+        assert transit_decrypt(
+            "http://example.com:8200", "devops", "vault:v1:abcd", token="s.token"
+        ) == ("secret-value")
 
 
 def test_transit_failures_are_typed() -> None:
     """A Transit response missing its payload is an error, not a silent empty value."""
     with patch("devops_cli.security.vault_lease._post", return_value={"data": {}}):
         with pytest.raises(VaultLeaseError, match="no ciphertext"):
-            transit_encrypt("http://example.com:8200", "devops", "value")
+            transit_encrypt("http://example.com:8200", "devops", "value", token="s.token")
         with pytest.raises(VaultLeaseError, match="no plaintext"):
-            transit_decrypt("http://example.com:8200", "devops", "vault:v1:abcd")
+            transit_decrypt("http://example.com:8200", "devops", "vault:v1:abcd", token="s.token")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -650,6 +730,7 @@ def _broker_response(status: int = 200, payload: Any = None, content: bytes = b"
 
 def test_post_routes_through_the_egress_validated_broker() -> None:
     """Vault calls go through the shared broker, which enforces egress validation."""
+    from devops_cli.http.egress import EgressLevel
     from devops_cli.security.vault_lease import _post
 
     mock_broker = MagicMock()
@@ -660,8 +741,30 @@ def test_post_routes_through_the_egress_validated_broker() -> None:
 
     assert result == {"ok": True}
     method, url = mock_broker.request.call_args[0]
-    assert (method, url) == ("POST", "http://example.com:8200/v1/sys/leases/renew")
-    assert mock_broker.request.call_args.kwargs["allow_private_network"] is True
+    level = mock_broker.request.call_args.kwargs["level"]
+    assert (method, url, level) == (
+        "POST",
+        "http://example.com:8200/v1/sys/leases/renew",
+        EgressLevel.PRIVATE,
+    )
+    policy = mock_broker.request.call_args.kwargs["extensions"][CONST_HTTP_EGRESS_POLICY_EXTENSION]
+    policy("http://example.com:8200/v1/sys/leases/renew")
+    with pytest.raises(VaultOperationError, match=re.escape("https://example.com")):
+        policy("https://example.com/v1/sys/leases/renew")
+
+
+def test_post_reports_an_unreachable_vault() -> None:
+    """A transport failure becomes a typed error rather than a raw httpx2 exception."""
+    import httpx2
+
+    from devops_cli.security.vault_lease import _post
+
+    mock_broker = MagicMock()
+    mock_broker.request.side_effect = httpx2.ConnectTimeout("timed out")
+
+    with patch("devops_cli.http.broker.get_broker", return_value=mock_broker):
+        with pytest.raises(VaultUnreachableError, match="did not answer: ConnectTimeout"):
+            _post("http://example.com:8200", "sys/leases/renew", {}, {})
 
 
 def test_post_raises_on_error_status() -> None:
@@ -672,8 +775,9 @@ def test_post_raises_on_error_status() -> None:
     mock_broker.request.return_value = _broker_response(status=403)
 
     with patch("devops_cli.http.broker.get_broker", return_value=mock_broker):
-        with pytest.raises(VaultLeaseError, match="status 403"):
+        with pytest.raises(VaultLeaseError, match="status 403") as raised:
             _post("http://example.com:8200", "sys/leases/renew", {}, {})
+    assert raised.value.status_code == 403
 
 
 def test_post_tolerates_an_empty_body() -> None:
@@ -708,8 +812,19 @@ def test_registry_headers_carry_token_and_namespace() -> None:
     assert (headers["X-Vault-Token"], headers["X-Vault-Namespace"]) == ("s.token", "team-a")
 
 
-def test_registry_headers_omit_absent_credentials() -> None:
-    """An unauthenticated registry sends no token or namespace header."""
-    headers = LeaseRegistry(vault_addr="http://example.com:8200")._headers()
-    assert "X-Vault-Token" not in headers
-    assert "X-Vault-Namespace" not in headers
+def test_registry_headers_always_carry_the_token() -> None:
+    """A registry cannot exist without a token, so every call it makes sends one."""
+    headers = LeaseRegistry(vault_addr="http://example.com:8200", token="s.token")._headers()
+    assert (headers["X-Vault-Token"], "X-Vault-Namespace" in headers) == ("s.token", False)
+
+
+def test_revoke_self_sends_the_token_to_its_own_vault() -> None:
+    """Logout's revoke-self call carries the stored token and namespace."""
+    from devops_cli.security.vault_lease import revoke_self
+
+    with patch("devops_cli.security.vault_lease._post", return_value={}) as mock_post:
+        revoke_self("http://example.com:8200", "s.token", "team-a")
+
+    addr, path, payload, headers = mock_post.call_args[0]
+    assert (addr, path, payload) == ("http://example.com:8200", "auth/token/revoke-self", {})
+    assert (headers["X-Vault-Token"], headers["X-Vault-Namespace"]) == ("s.token", "team-a")

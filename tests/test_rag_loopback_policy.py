@@ -20,7 +20,7 @@ from devops_cli.ai.client import LLMClient
 from devops_cli.ai.providers.ollama import OllamaProvider
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.rag.qdrant import QdrantClient
-from devops_cli.config.constants import CONST_AI_ALLOW_PRIVATE_NETWORK_ENV
+from devops_cli.config.env import ENV_AI_ALLOW_PRIVATE_NETWORK
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions import SSRFBlockedError
 from devops_cli.models.ai import ChatMessage
@@ -31,7 +31,7 @@ EXAMPLE_CONFIG = Path(__file__).resolve().parents[1] / "config.example.yaml"
 @pytest.fixture
 def example_settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
     """Settings loaded from `config.example.yaml`, with no private-network override set."""
-    monkeypatch.delenv(CONST_AI_ALLOW_PRIVATE_NETWORK_ENV, raising=False)
+    monkeypatch.delenv(ENV_AI_ALLOW_PRIVATE_NETWORK, raising=False)
     return Settings.model_validate(yaml.safe_load(EXAMPLE_CONFIG.read_text(encoding="utf-8")))
 
 

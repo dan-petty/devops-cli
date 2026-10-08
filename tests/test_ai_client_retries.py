@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import httpx2
 import pytest
 
-from devops_cli.ai.client import AIClientError, LLMClient, LLMResponse
+from devops_cli.ai.client import AIClientError, LLMClient, LLMResponse, ReplyRejectedError
 from devops_cli.config.defaults import DEFAULT_AI_MAX_RETRIES, DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import AIConfig, AITaskOverride
 from devops_cli.models.ai import ChatMessage
@@ -88,6 +88,59 @@ def test_llm_client_chat_exhausts_retries_and_raises(
     assert mock_dispatch.call_count == 2  # initial + 1 retry
 
 
+@pytest.mark.parametrize(
+    ("content", "rejection"),
+    [
+        ("plain prose", ReplyRejectedError),
+        ("", AIClientError),
+        ('{"error": "down"}', AIClientError),
+    ],
+)
+def test_a_reply_the_validator_refuses_comes_back_on_the_error(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, content: str, rejection: type[Exception]
+) -> None:
+    """Verify a reply the caller's validator refuses raises ReplyRejectedError carrying it, with
+    the message callers already match, while an empty reply or an error payload, which no
+    validator saw, stays a plain AIClientError; none of them is cached."""
+    client = LLMClient(
+        AIConfig(provider="gateway", model="demo-model", gateway_url="http://example.com:4000/v1")
+    )
+    route_client(
+        client,
+        monkeypatch,
+        lambda request: httpx2.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": content}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        ),
+    )
+
+    key = client.cache.generate_key(
+        "gateway",
+        "demo-model",
+        "sys",
+        [ChatMessage(role="user", content="user")],
+        {"enable_thinking": True},
+    )
+
+    with pytest.raises(AIClientError) as raised:
+        client.chat("sys", "user", validator=lambda text: text.startswith("{"), max_retries=0)
+
+    assert (
+        type(raised.value),
+        str(raised.value),
+        getattr(raised.value, "reply", None),
+        client.cache.get(key),
+    ) == (
+        rejection,
+        "Response validation failed for model 'demo-model' (attempt 1/1).",
+        content if rejection is ReplyRejectedError else None,
+        None,
+    )
+
+
 def test_provider_http_error_informative_formatting() -> None:
     """Verify _provider_http_error distinguishes credentials, HTTP status codes, and network errors."""
     client = LLMClient(AIConfig(provider="openai", api_key="sk-test"))
@@ -127,13 +180,22 @@ def test_provider_http_error_informative_formatting() -> None:
 
 
 def test_provider_uses_shared_client_and_retry_transport() -> None:
-    """Verify provider creates shared client with native retry transport."""
-    client = LLMClient(AIConfig(provider="openai", api_key="sk-test", max_retries=3))
-    transport = client._create_retry_transport()
-    assert transport is not None
+    """Verify the shared client retries through tenacity over the configured-level transport."""
+    from pydantic_ai.retries import HTTPX2TenacityTransport
 
+    from devops_cli.http.egress import EgressLevel
+    from tests.web_fakes import egress_level_of
+
+    client = LLMClient(
+        AIConfig(provider="openai", api_key="sk-test", max_retries=3, allow_private_network=False)
+    )
     shared = client._shared_client()
-    assert (shared is not None, hasattr(shared, "post")) == (True, True)
+
+    assert (
+        shared is client._shared_client(),
+        isinstance(shared._transport, HTTPX2TenacityTransport),
+        egress_level_of(shared._transport),
+    ) == (True, True, EgressLevel.LOOPBACK)
 
 
 def test_provider_http_error_sanitizes_html_error_response() -> None:
@@ -181,6 +243,7 @@ def test_request_timeout_reads_the_configured_timeout(
     assert client._request_timeout().read == expected_read
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_a_configured_timeout_reaches_the_request(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify an Ollama chat request is sent with the task's configured read timeout."""
     config = AIConfig(

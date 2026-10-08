@@ -91,7 +91,16 @@ names the class each row describes. One code never maps to two exit statuses.
 | `PersonaExecutionError` | `PERSONA_EXECUTION_ERROR` | `13` | Ai | Raised when an AI reviewer persona fails during diff analysis. |
 | `PoolLoadError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.pool_load | Prometheus could not answer a pool load query. |
 | `QdrantClientError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.rag.qdrant | Raised when an interaction with Qdrant fails. |
+| `ReleaseBranchMissingError` | `RELEASE_BRANCH_MISSING` | `1` | Git | Raised when the remote release branch tracking ref does not exist. |
+| `ReleasePRCreationError` | `RELEASE_PR_CREATION_FAILED` | `1` | Git | Raised when creating a release pull request via GitHub CLI fails. |
+| `ReleasePushError` | `RELEASE_PUSH_FAILED` | `1` | Git | Raised when pushing a release cut branch or tag to origin fails. |
+| `ReleasePushRefusedError` | `RELEASE_PUSH_REFUSED_RULESET` | `1` | Git | Raised when git push to a release branch is refused by a repository ruleset (GH013). |
+| `ReleaseRemoteFetchError` | `RELEASE_REMOTE_FETCH_FAILED` | `1` | Git | Raised when fetching the remote release branch tip fails. |
+| `ReleaseWorkingTreeDirtyError` | `RELEASE_WORKING_TREE_DIRTY` | `1` | Git | Raised when the working tree has uncommitted changes before cutting a release. |
+| `ReplyRejectedError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when the caller's validator refused a reply; it carries the reply, never cached. |
 | `ReviewPoolError` | `REVIEW_POOL_ERROR` | `1` | Ai | Raised when an error occurs during parallel review worker pool execution. |
+| `RoadmapCardChangedError` | `ROADMAP_CARD_CHANGED` | `1` | Roadmap | Raised before a job's board write that would revert a change made since it read the card. |
+| `RoadmapRefineError` | `ROADMAP_REFINE_FAILED` | `1` | Roadmap | Raised after a refine run in which the model call failed for one or more items. |
 | `RoadmapRunError` | `DEVOPS_CLI_ERROR` | `1` | Roadmap | Raised when one or more roadmap jobs fail during execution. |
 | `RunCancelled` | `RUN_CANCELLED` | `26` | Ai | Raised when an agent run was cancelled by the application or timeout. |
 | `RunIndexNotConfiguredError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.run_store | No shared run index is configured. |
@@ -124,9 +133,10 @@ names the class each row describes. One code never maps to two exit statuses.
 | `ValkeyConnectionError` | `VALKEY_CONNECTION_ERROR` | `1` | Valkey | Raised when connection to Valkey instance fails, times out, or drops. |
 | `ValkeyError` | `VALKEY_ERROR` | `1` | Valkey | Base exception for Valkey workstation and caching operations. |
 | `ValkeyTimeoutError` | `VALKEY_TIMEOUT_ERROR` | `1` | Valkey | Raised when a Valkey socket operation exceeds timeout. |
-| `VaultAuthenticationError` | `VAULT_AUTH_ERROR` | `1` | Vault | Raised when a Vault login method fails to issue a client token. |
+| `VaultAuthenticationError` | `VAULT_AUTH_ERROR` | `1` | Vault | Raised when Vault issues or accepts no token: a failed login, none usable, or one refused. |
 | `VaultConfigurationError` | `VAULT_CONFIGURATION_ERROR` | `1` | Vault | Raised when Vault environment or connection settings are missing or invalid. |
 | `VaultError` | `VAULT_ERROR` | `1` | Vault | Base exception for HashiCorp Vault operations. |
 | `VaultKeyError` | `VAULT_KEY_ERROR` | `1` | Vault | Raised when a secret key or field is not found in Vault. |
-| `VaultLeaseError` | `VAULT_LEASE_ERROR` | `1` | Vault | Raised when a dynamic secret lease cannot be renewed or revoked. |
+| `VaultLeaseError` | `VAULT_LEASE_ERROR` | `1` | Vault | Raised when a Vault lease, login, token or Transit call fails, with Vault's HTTP status. |
 | `VaultOperationError` | `VAULT_OPERATION_ERROR` | `1` | Vault | Raised when an API request to Vault fails or returns an error response. |
+| `VaultUnreachableError` | `VAULT_OPERATION_ERROR` | `1` | Vault | Raised when no reply came back from Vault: the connection failed or timed out. |

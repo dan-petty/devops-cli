@@ -262,8 +262,7 @@ def index_kb_cmd(
 
     if not qdrant.is_alive():
         print_error(
-            f"Cannot connect to Qdrant at [bold]{qdrant.base_url}[/bold]\n"
-            "Tip: Deploy or start Qdrant via 'devops k8s deploy-stack llm'",
+            MESSAGES.rag.cannot_connect_qdrant.format(url=qdrant.base_url),
             prefix=False,
         )
         raise typer.Exit(1)

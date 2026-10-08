@@ -1155,16 +1155,17 @@ class DocGenerator:
     def check_docs(
         self, output_dir: Path, check_readme_table: bool = True
     ) -> tuple[bool, list[str]]:
-        """Verify on-disk docs match the generated docs and every MCP and markdown argv resolves."""
+        """Verify on-disk docs match the generated docs and every devops argv in src and in
+        markdown resolves."""
         from devops_cli.docs.markdown_argv_collector import (
             check_handwritten_docs_argv,
             check_knowledge_base_argv,
         )
-        from devops_cli.docs.mcp_argv_collector import check_mcp_server_argv
+        from devops_cli.docs.source_argv_collector import check_source_argv
 
         docs = self.generate_all_docs(output_dir)
         errors: list[str] = [
-            *check_mcp_server_argv(),
+            *check_source_argv(),
             *check_knowledge_base_argv(self.root_dir),
             *check_handwritten_docs_argv(self.root_dir),
         ]

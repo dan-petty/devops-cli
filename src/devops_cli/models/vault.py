@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import time
+from typing import Any
 
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 class VaultAuthResult(BaseModel):
@@ -25,6 +26,70 @@ class VaultAuthResult(BaseModel):
         itself must not travel with it.
         """
         return "<masked-vault-token>" if value else ""
+
+
+class VaultStoredLogin(BaseModel):
+    """The record `devops vault login` keeps in the OS keyring: a token and the Vault it is for.
+
+    The token is sent only to the address and namespace stored with it. Unlike
+    `VaultAuthResult`, this model serializes the raw token, because the keyring is where it is
+    kept; `repr=False` keeps it out of reprs and log lines.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    token: str = Field(..., min_length=1, repr=False, description="Issued Vault client token")
+    vault_addr: str = Field(..., min_length=1, description="Vault address that issued the token")
+    namespace: str | None = Field(default=None, description="Vault namespace, or None")
+
+    def issuer(self) -> str:
+        """Name the address, and namespace when there is one, the token was issued for."""
+        if self.namespace:
+            return f"{self.vault_addr} (namespace {self.namespace})"
+        return self.vault_addr
+
+
+class VaultTokenSource(BaseModel):
+    """Where a broker's token came from, and why a stored login was passed over; never the token.
+
+    `source` is `argument`, `keyring`, `environment`, or `none`. `stored_login_skipped` says why
+    the token `devops vault login` stored was not used, when there was one.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source: str
+    stored_login_skipped: str | None = None
+
+    def describe(self) -> str:
+        """Render the source for a status row or an error message."""
+        if self.stored_login_skipped:
+            return f"{self.source} (stored token not used: {self.stored_login_skipped})"
+        return self.source
+
+
+class VaultSecretLookup(BaseModel):
+    """The answer to a `vault get`: the value, the source that gave it, and what was checked."""
+
+    value: Any = None
+    source: str | None = Field(default=None, description="Source that answered, or None")
+    checked: list[str] = Field(default_factory=list, description="Sources consulted, in order")
+    fallback_reason: str | None = Field(
+        default=None, description="Why the OS keyring was consulted instead of Vault"
+    )
+
+
+class VaultSyncReport(BaseModel):
+    """Outcome of copying one Vault secret's fields into the OS keyring."""
+
+    synced: list[str] = Field(default_factory=list, description="Fields stored in the keyring")
+    skipped: list[str] = Field(
+        default_factory=list, description="Fields never written: the `vault login` record's name"
+    )
+    missing: list[str] = Field(
+        default_factory=list, description="Requested fields Vault has no value for"
+    )
+    failed: list[str] = Field(default_factory=list, description="Fields the keyring refused")
 
 
 class VaultLease(BaseModel):

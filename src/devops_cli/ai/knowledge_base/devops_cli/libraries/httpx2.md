@@ -42,6 +42,7 @@ In `devops-cli`:
    timeout = httpx2.Timeout(60.0, connect=10.0, read=45.0)
    ```
 4. **Transport Layer Security (TLS)**: Integrates with homelab root CAs for local Minikube mTLS communication.
+5. **Egress-Checked Clients**: In `devops-cli`, a new client comes from `devops_cli.http.client.new_http_client(level=EgressLevel.PUBLIC)` (or `new_async_http_client`) rather than `httpx2.Client(...)`; some older clients still build `httpx2.Client` directly, without the connect-time check. The factory replaces the transport's connection pool with an `httpcore2` pool whose network backend resolves each host once and dials only the addresses the egress level admits, redirect hops included; TLS still verifies the hostname. Factory clients ignore proxy environment variables, and retries are opt-in (`retries=`).
 
 ---
 

@@ -305,12 +305,16 @@ def _new_candidate(
 
 
 def _intake_dry_run(
-    repo: str | None, ref: str | None, issues: Collection[int], new: NewCandidate | None
+    repo: str | None,
+    ref: str | None,
+    issues: Collection[int],
+    new: NewCandidate | None,
+    limit: int | None,
 ) -> None:
     """Print the requests an intake run makes, making none: no store opens, no model is built."""
     target = _target(repo)
     with _exit_on_failure("Could not plan intake"):
-        planned = dry_run_intake(target, ref=ref, issues=issues, new=new)
+        planned = dry_run_intake(target, ref=ref, issues=issues, new=new, limit=limit)
     render_intake_dry_run(planned, repo=target)
 
 
@@ -336,6 +340,9 @@ def intake_cmd(
     filed_by: Annotated[
         Filer, typer.Option("--filed-by", help=HELP.roadmap.intake_filed_by)
     ] = Filer.AGENT,
+    limit: Annotated[
+        int | None, typer.Option("--limit", min=1, help=HELP.roadmap.intake_limit)
+    ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.intake_dry_run)] = False,
     plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.intake_plan)] = False,
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.intake_confirm)] = False,
@@ -359,13 +366,13 @@ def intake_cmd(
         else None
     )
     if dry_run or is_dry_run():
-        _intake_dry_run(repo, ref, issue or (), new)
+        _intake_dry_run(repo, ref, issue or (), new, limit)
         return
     if not (plan_only or confirm):
         print_info(MESSAGES.roadmap.intake_plain_note)
     opened: list[RoadmapStore] = []
     with _reporting_spend(opened):
-        _intake(repo, ref, issue or (), new, confirm=confirm, opened=opened)
+        _intake(repo, ref, issue or (), new, limit, confirm=confirm, opened=opened)
 
 
 def _intake(
@@ -373,6 +380,7 @@ def _intake(
     ref: str | None,
     issues: Sequence[int],
     new: NewCandidate | None,
+    limit: int | None,
     *,
     confirm: bool,
     opened: list[RoadmapStore],
@@ -385,11 +393,13 @@ def _intake(
         opened.append(store)
         plan = plan_intake(
             store,
+            repo=target,
             config=config,
             model=meter.model(build_intake_model()),
             ref=ref,
             issues=issues,
             new=new,
+            limit=limit,
         )
     if not confirm:
         plan = replace(plan, spend=meter.spend())
@@ -406,6 +416,8 @@ def _intake(
     )
     for number in applied.filed:
         print_info(MESSAGES.roadmap.intake_filed.format(number=number))
+    for number in applied.finished:
+        print_info(MESSAGES.roadmap.intake_finished.format(number=number))
 
 
 @app.command("close", help=HELP.roadmap.close)
@@ -493,7 +505,12 @@ def refine_cmd(
 ) -> None:
     """Refine roadmap items to Ready with proposed design, tasks and acceptance criteria."""
     _one_mode(dry_run=dry_run, confirm=confirm)
-    from devops_cli.roadmap.refine import apply_refine, plan_refine, render_refine_plan
+    from devops_cli.roadmap.refine import (
+        apply_refine,
+        plan_refine,
+        raise_for_failed_items,
+        render_refine_plan,
+    )
 
     target_repo = repo or get_repo_origin_name(source)
     if not target_repo or "/" not in target_repo:
@@ -517,15 +534,15 @@ def refine_cmd(
         write_stdout(render_refine_plan(plan) + "\n")
         if dry_run or not confirm or is_dry_run():
             print_info(MESSAGES.roadmap.preview_only)
-            return
-        if not plan.has_writes:
-            return
-        with _exit_on_failure("Could not apply refinement"):
-            applied = apply_refine(store, plan)
-            print_success(
-                f"Refined {applied.refined_count} item(s): {applied.readied_count} set to Ready, "
-                f"{applied.split_count} marked for split."
-            )
+        elif plan.has_writes:
+            with _exit_on_failure("Could not apply refinement"):
+                applied = apply_refine(store, plan)
+                print_success(
+                    f"Refined {applied.refined_count} item(s): {applied.readied_count} set to "
+                    f"Ready, {applied.split_count} marked for split."
+                )
+        with _exit_on_failure("Refinement incomplete"):
+            raise_for_failed_items(plan)
 
 
 @app.command("run", help=HELP.roadmap.run)
@@ -535,7 +552,8 @@ def run_cmd(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.run_dry_run)] = False,
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.run_confirm)] = False,
 ) -> None:
-    """Run roadmap jobs that are due: intake, closure, reprioritization, refinement."""
+    """Run the roadmap jobs that are due, in order: closure, reprioritization, metrics, intake
+    and refinement."""
     target, _config, store = _open_roadmap(repo, ref, CONST_ROADMAP_RUN_BOARD_FILTER)
     from devops_cli.roadmap.run import run_due_jobs
 

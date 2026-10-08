@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from devops_cli.ai.providers.anthropic import AnthropicProvider
 from devops_cli.ai.providers.openai import OpenAIProvider
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_openai_provider_injects_authorization_header() -> None:
     """Verify OpenAIProvider sends Authorization: Bearer header when api_key is provided."""
     config = AIConfig(provider="openai", model="gpt-4o", api_base_url="https://api.openai.com/v1")
@@ -31,6 +34,7 @@ def test_openai_provider_injects_authorization_header() -> None:
         assert headers["Authorization"] == "Bearer sk-test-secret-key-1234567890abcdef"
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_openai_provider_falls_back_to_keyring_or_env() -> None:
     """Verify OpenAIProvider falls back to environment or keyring when not passed explicitly."""
     config = AIConfig(provider="openai", model="gpt-4o", api_base_url="https://api.openai.com/v1")
@@ -55,6 +59,7 @@ def test_openai_provider_falls_back_to_keyring_or_env() -> None:
         assert headers.get("Authorization") == "Bearer sk-from-keyring-12345678"
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_anthropic_provider_injects_x_api_key_header() -> None:
     """Verify AnthropicProvider sends x-api-key header when api_key is provided."""
     config = AIConfig(

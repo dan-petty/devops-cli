@@ -120,6 +120,20 @@ def _validate_mcp_arg(name: str, value: str) -> None:
         )
 
 
+def _validate_mcp_sandbox_workspace(workspace: str) -> None:
+    """Refuse a sandbox workspace through the commands' shared check before any command runs.
+
+    The client gets the refusal as a tool error; no command line is built and nothing runs.
+    """
+    from pathlib import Path
+
+    from devops_cli.config.settings import load_settings
+    from devops_cli.sandbox.engine import validate_sandbox_workspace
+
+    exclude_home_dir = load_settings().sandbox.exclude_home_dir
+    validate_sandbox_workspace(Path(workspace), exclude_home_dir=exclude_home_dir)
+
+
 def _validate_mcp_whitelist(name: str, items: list[str] | None) -> None:
     """Reject whitelist items that start with a hyphen or contain forbidden characters."""
     if not items:
@@ -642,9 +656,15 @@ def config_show() -> str:
 @mcp.tool()
 def config_output(output_format: str = "json") -> str:
     """Output environment variables available for configuration (text or json)."""
-    flag = "--json" if output_format == "json" else "--export"
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "config", "output", flag],
+        [
+            "uv",
+            "run",
+            "devops",
+            "config",
+            "output",
+            "--json" if output_format == "json" else "--export",
+        ],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 
@@ -739,12 +759,14 @@ def roadmap_close(
     ref: str | None = None,
     mode: Literal["dry-run", "plan"] = "plan",
 ) -> str:
-    """Preview closure: each delivered item of the current release it would close, with its
-    comment, and the release cut it would make or what holds it.
+    """Preview closure: each delivered item it would close, with its comment, first in each
+    closed release that still holds an open issue and then in the current release, and the
+    current release's cut it would make or what holds it.
 
     It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
-    spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A
-    person or the service runs `devops roadmap close --confirm`.
+    spent and left once its store has sent a GraphQL request; `mode="dry-run"` makes no request
+    and returns the requests a run makes. A person or the service runs
+    `devops roadmap close --confirm`.
     """
     return _run_mcp_cmd(
         _roadmap_cmd(["uv", "run", "devops", "roadmap", "close"], repo, ref, mode),
@@ -795,13 +817,19 @@ def roadmap_refine(
 ) -> str:
     """Run a dry run of item refinement: returns the refinement plan without making any writes.
 
-    It never accepts a confirm argument, ensuring it is strictly read-only.
+    It never accepts a confirm argument, ensuring it is strictly read-only. When the model call
+    fails for an item, the tool fails, and its error still carries the plan naming that item.
     """
     cmd = ["uv", "run", "devops", "roadmap", "refine"]
-    for name, value in (("repo", repo), ("ref", ref), ("source", source)):
-        if value:
-            _validate_mcp_arg(name, value)
-            cmd.extend([f"--{name}", value])
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    if ref:
+        _validate_mcp_arg("ref", ref)
+        cmd.extend(["--ref", ref])
+    if source:
+        _validate_mcp_arg("source", source)
+        cmd.extend(["--source", source])
     if item is not None:
         cmd.extend(["--item", str(item)])
     if limit is not None:
@@ -831,16 +859,24 @@ def roadmap_intake(
     the tool reads no file of the caller's choosing.
     """
     cmd = ["uv", "run", "devops", "roadmap", "intake"]
-    for name, value in (("repo", repo), ("ref", ref), ("title", title), ("source", source)):
-        if value:
-            _validate_mcp_arg(name, value)
-            cmd.extend([f"--{name}", value])
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    if ref:
+        _validate_mcp_arg("ref", ref)
+        cmd.extend(["--ref", ref])
+    if title:
+        _validate_mcp_arg("title", title)
+        cmd.extend(["--title", title])
+    if source:
+        _validate_mcp_arg("source", source)
+        cmd.extend(["--source", source])
     for number in issues or ():
         _validate_mcp_int_bound("issues", number)
         cmd.extend(["--issue", str(number)])
     if borrow_reason:
         cmd.extend(["--borrow-reason", borrow_reason])
-    cmd.append(f"--{mode}")
+    cmd.append("--confirm" if mode == "confirm" else "--plan" if mode == "plan" else "--dry-run")
     if body is None:
         return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
     # The file is created owner-only (0600) and removed when the command ends.
@@ -1518,6 +1554,7 @@ def docker_sandbox(
     """Execute command inside an isolated Docker container sandbox."""
     _validate_mcp_arg("image", image)
     _validate_mcp_arg("workspace", workspace)
+    _validate_mcp_sandbox_workspace(workspace)
     _validate_mcp_arg("network", network)
     if network_mode:
         _validate_mcp_arg("network_mode", network_mode)
@@ -1569,6 +1606,7 @@ def sandbox_deploy(  # noqa: C901
     """Deploy an isolated workload container sandbox with security containment and port allocation."""
     _validate_mcp_arg("image", image)
     _validate_mcp_arg("workspace", workspace)
+    _validate_mcp_sandbox_workspace(workspace)
     _validate_mcp_arg("network", network)
     if network_mode:
         _validate_mcp_arg("network_mode", network_mode)
@@ -1804,7 +1842,11 @@ def gh_milestone_edit(
 
 @mcp.tool()
 def gh_project_sync(repo: str | None = None, dry_run: bool = True) -> str:
-    """Create or update the project board, add open issues, and reconcile Status, Priority and Milestone."""
+    """Find or create the project board, link it, create its missing fields, and reconcile Status and Priority on the cards already on it.
+
+    Sync adds no issue or pull request to the board: `roadmap_intake` places issues, and a pull
+    request's progress shows on its issue's card. `dry_run`, the default, makes no request.
+    """
     cmd = ["uv", "run", "devops", "gh", "project", "sync"]
     if dry_run:
         cmd.append("--dry-run")
@@ -1957,9 +1999,15 @@ def gh_project_audit(repo: str | None = None) -> str:
 def gh_project_reconcile(
     project_number: int | None = None,
     repo: str | None = None,
-    dry_run: bool = False,
+    mode: Literal["dry-run", "plan", "write"] = "plan",
 ) -> str:
-    """Reconcile Status, Priority and Milestone on GitHub Projects v2 items, listing each change and its source."""
+    """Reconcile Status and Priority on the cards already on the project board, listing each change and its source.
+
+    `mode="plan"`, the default, reads the board and the repository and lists the changes without
+    making them. `mode="dry-run"` makes no request and returns the requests a run makes;
+    `mode="write"` makes the changes. A run that stops early says how many planned changes
+    remain and fails with exit status 1. Reconcile adds no card.
+    """
     cmd = ["uv", "run", "devops", "gh", "project", "reconcile"]
     if project_number is not None:
         _validate_mcp_int_bound("project_number", project_number, min_val=1)
@@ -1967,8 +2015,10 @@ def gh_project_reconcile(
     if repo:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])
-    if dry_run:
+    if mode == "dry-run":
         cmd.append("--dry-run")
+    elif mode == "plan":
+        cmd.append("--plan")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 

@@ -234,7 +234,6 @@ class PrometheusErrorMessages:
 
 @dataclass(frozen=True)
 class RAGErrorMessages:
-    cannot_connect: str = "Cannot connect to Qdrant at [bold]{url}[/bold]\nTip: Deploy or start Qdrant via 'devops k8s deploy-stack llm'"
     cannot_connect_store: str = "Cannot connect to Qdrant vector store at {url}"
     path_not_found: str = "Path not found: {path}"
     fetch_details_failed: str = "Could not fetch collection details: {exc}"

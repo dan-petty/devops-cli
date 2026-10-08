@@ -60,9 +60,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_pages_verify`](#gh-pages-verify) | Verify local repository readiness for GitHub Pages publishing. |
 | [`gh_project_audit`](#gh-project-audit) | Audit project board health and alignment against standardized template. |
 | [`gh_project_list`](#gh-project-list) | List available GitHub Projects v2 boards for user or organization. |
-| [`gh_project_reconcile`](#gh-project-reconcile) | Reconcile Status, Priority and Milestone on GitHub Projects v2 items, listing each change and its source. |
+| [`gh_project_reconcile`](#gh-project-reconcile) | Reconcile Status and Priority on the cards already on the project board, listing each change and its source.  `mode="plan"`, the default, reads the board and the repository and lists the changes without making them. `mode="dry-run"` makes no request and returns the requests a run makes; `mode="write"` makes the changes. A run that stops early says how many planned changes remain and fails with exit status 1. Reconcile adds no card. |
 | [`gh_project_status`](#gh-project-status) | Inspect GitHub Projects v2 template configuration, fields, and view definitions. |
-| [`gh_project_sync`](#gh-project-sync) | Create or update the project board, add open issues, and reconcile Status, Priority and Milestone. |
+| [`gh_project_sync`](#gh-project-sync) | Find or create the project board, link it, create its missing fields, and reconcile Status and Priority on the cards already on it.  Sync adds no issue or pull request to the board: `roadmap_intake` places issues, and a pull request's progress shows on its issue's card. `dry_run`, the default, makes no request. |
 | [`gh_rate_limit`](#gh-rate-limit) | Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 | [`gh_run_view`](#gh-run-view) | View details and diagnostic failure logs of a specific GitHub Actions workflow run. |
 | [`gh_runs_list`](#gh-runs-list) | List recent GitHub Actions CI/CD workflow runs. |
@@ -114,10 +114,10 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`review_path`](#review-path) | Run an AI code review on local files matching pattern using specified persona. |
 | [`review_pr`](#review-pr) | Fetch GitHub PR diff and review using specified persona; optionally post comment. |
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
-| [`roadmap_close`](#roadmap-close) | Preview closure: each delivered item of the current release it would close, with its comment, and the release cut it would make or what holds it.  It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A person or the service runs `devops roadmap close --confirm`. |
+| [`roadmap_close`](#roadmap-close) | Preview closure: each delivered item it would close, with its comment, first in each closed release that still holds an open issue and then in the current release, and the current release's cut it would make or what holds it.  It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points spent and left once its store has sent a GraphQL request; `mode="dry-run"` makes no request and returns the requests a run makes. A person or the service runs `devops roadmap close --confirm`. |
 | [`roadmap_intake`](#roadmap-intake) | Turn candidates into roadmap items: duplicate check, type, priority, Value, Effort and placement, with the agent filing quota for an agent's new candidate (`title` with `body`, and `source`, the link it came from, which `borrow_reason` needs).  `mode="plan"`, the default, previews: it reads GitHub and calls the model, writes nothing, and reports what it spent. `mode="dry-run"` makes no request and returns the requests a run makes; `mode="confirm"` makes the writes. The body is passed as text, never as a path, so the tool reads no file of the caller's choosing. |
 | [`roadmap_migrate`](#roadmap-migrate) | Preview the one-time move of the roadmap's source to GitHub: its plan and report.  It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A person reviews the plan and runs `devops roadmap migrate --confirm`. |
-| [`roadmap_refine`](#roadmap-refine) | Run a dry run of item refinement: returns the refinement plan without making any writes.  It never accepts a confirm argument, ensuring it is strictly read-only. |
+| [`roadmap_refine`](#roadmap-refine) | Run a dry run of item refinement: returns the refinement plan without making any writes.  It never accepts a confirm argument, ensuring it is strictly read-only. When the model call fails for an item, the tool fails, and its error still carries the plan naming that item. |
 | [`roadmap_render`](#roadmap-render) | Render docs/ROADMAP.md from GitHub's issues, milestones and board.  `mode="plan"`, the default, reads GitHub and prints the file without writing it, ending with the GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a run makes; `mode="write"` writes the file. |
 | [`roadmap_reprioritize`](#roadmap-reprioritize) | Hold the current release to its admission rule, cap and stall window, and start the next release once it ships; prints each change with its reason.  `mode="plan"`, the default, previews: it reads GitHub, writes nothing, and ends with the GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a run makes; `mode="confirm"` makes the changes. |
 | [`roadmap_run`](#roadmap-run) | Report the roadmap jobs that are due: runs nothing and returns the due tuple. |
@@ -771,7 +771,12 @@ List available GitHub Projects v2 boards for user or organization.
 
 ### `gh_project_reconcile`
 
-Reconcile Status, Priority and Milestone on GitHub Projects v2 items, listing each change and its source.
+Reconcile Status and Priority on the cards already on the project board, listing each change and its source.
+
+`mode="plan"`, the default, reads the board and the repository and lists the changes without
+making them. `mode="dry-run"` makes no request and returns the requests a run makes;
+`mode="write"` makes the changes. A run that stops early says how many planned changes
+remain and fails with exit status 1. Reconcile adds no card.
 
 **Parameters:**
 
@@ -779,7 +784,7 @@ Reconcile Status, Priority and Milestone on GitHub Projects v2 items, listing ea
 |---|---|---|---|---|
 | `project_number` | `integer` | No | - | - |
 | `repo` | `string` | No | - | - |
-| `dry_run` | `boolean` | No | `False` | - |
+| `mode` | `string` | No | `plan` | - |
 
 ### `gh_project_status`
 
@@ -789,7 +794,10 @@ Inspect GitHub Projects v2 template configuration, fields, and view definitions.
 
 ### `gh_project_sync`
 
-Create or update the project board, add open issues, and reconcile Status, Priority and Milestone.
+Find or create the project board, link it, create its missing fields, and reconcile Status and Priority on the cards already on it.
+
+Sync adds no issue or pull request to the board: `roadmap_intake` places issues, and a pull
+request's progress shows on its issue's card. `dry_run`, the default, makes no request.
 
 **Parameters:**
 
@@ -1348,12 +1356,14 @@ View accuracy metrics and false-positive rates per reviewer persona.
 
 ### `roadmap_close`
 
-Preview closure: each delivered item of the current release it would close, with its
-comment, and the release cut it would make or what holds it.
+Preview closure: each delivered item it would close, with its comment, first in each
+closed release that still holds an open issue and then in the current release, and the
+current release's cut it would make or what holds it.
 
 It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
-spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A
-person or the service runs `devops roadmap close --confirm`.
+spent and left once its store has sent a GraphQL request; `mode="dry-run"` makes no request
+and returns the requests a run makes. A person or the service runs
+`devops roadmap close --confirm`.
 
 **Parameters:**
 
@@ -1407,7 +1417,8 @@ person reviews the plan and runs `devops roadmap migrate --confirm`.
 
 Run a dry run of item refinement: returns the refinement plan without making any writes.
 
-It never accepts a confirm argument, ensuring it is strictly read-only.
+It never accepts a confirm argument, ensuring it is strictly read-only. When the model call
+fails for an item, the tool fails, and its error still carries the plan naming that item.
 
 **Parameters:**
 

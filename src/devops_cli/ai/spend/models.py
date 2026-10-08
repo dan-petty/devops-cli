@@ -75,6 +75,8 @@ class ModelSpendSummary(BaseModel):
     model: str
     provider: str
     request_count: int = 0
+    # The requests the response cache answered, counted in `request_count` (#816).
+    cached_requests: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0

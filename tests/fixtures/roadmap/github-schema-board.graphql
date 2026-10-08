@@ -1,4 +1,4 @@
-# The types of GitHub's public GraphQL schema that the roadmap board reads use (#1125),
+# The types of GitHub's public GraphQL schema that the roadmap board reads use (#1125, #1361),
 # cut from https://docs.github.com/public/fpt/schema.docs.graphql (downloaded 2026-10-04):
 # each type keeps the fields the documents in devops_cli.roadmap.board_read select, the
 # fields of the interfaces it implements, and the input types and enums their arguments take.
@@ -18,6 +18,10 @@ type Issue implements ProjectV2Owner {
   repository: Repository!
   title: String!
   url: URI!
+}
+
+interface Node {
+  id: ID!
 }
 
 enum OrderDirection {
@@ -50,10 +54,11 @@ interface ProjectV2FieldCommon {
 
 union ProjectV2FieldConfiguration = ProjectV2Field | ProjectV2IterationField | ProjectV2MultiSelectField | ProjectV2SingleSelectField
 
-type ProjectV2Item {
+type ProjectV2Item implements Node {
   content: ProjectV2ItemContent
   fieldValues(after: String, before: String, first: Int, last: Int, orderBy: ProjectV2ItemFieldValueOrder = { field: POSITION, direction: ASC }): ProjectV2ItemFieldValueConnection!
   id: ID!
+  isArchived: Boolean!
 }
 
 enum ProjectV2ItemArchivedState {
@@ -136,6 +141,7 @@ type PullRequest implements ProjectV2Owner {
 }
 
 type Query {
+  node(id: ID!): Node
   rateLimit(dryRun: Boolean = false): RateLimit
   repositoryOwner(login: String!): RepositoryOwner
 }

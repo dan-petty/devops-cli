@@ -108,11 +108,98 @@ def test_resolve_secret_keyring(mock_keyring: MagicMock) -> None:
 @patch("devops_cli.security.vault_broker.VaultSecretBroker")
 def test_resolve_secret_vault(mock_broker_cls: MagicMock) -> None:
     mock_broker = MagicMock()
-    mock_broker.get_secret.return_value = "vault-val"
+    mock_broker.read_secret.return_value = "vault-val"
     mock_broker_cls.return_value = mock_broker
     res = _resolve_secret_from_source("api_key", source="vault", vault_path="secret/my-app")
     assert res == "vault-val"
-    mock_broker.get_secret.assert_called_once_with("secret/my-app", key="api_key")
+    mock_broker.read_secret.assert_called_once_with("secret/my-app", key="api_key")
+
+
+@pytest.fixture
+def vault_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give the Vault broker a token from the environment, and nothing else from the shell."""
+    from devops_cli.security.secrets import reset_resolver
+
+    for name in ("VAULT_ADDR", "VAULT_NAMESPACE", "DEVOPS_CLI_VAULT_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("VAULT_TOKEN", "s.env-token")
+    reset_resolver()
+
+
+@pytest.mark.usefixtures("vault_token")
+@patch("devops_cli.github.secrets._upload_encrypted_secret")
+@patch("devops_cli.github.secrets.get_repository_public_key")
+def test_vault_source_with_a_rejected_token_uploads_nothing(
+    mock_pk: MagicMock, mock_upload: MagicMock
+) -> None:
+    """A 403 from Vault fails the sync through the command's handler; nothing reaches GitHub."""
+    import httpx2
+
+    with (
+        patch(
+            "devops_cli.http.broker.HttpClientBroker.request",
+            return_value=httpx2.Response(403, json={}),
+        ),
+        patch("devops_cli.security.vault_broker.get_keyring_secret") as keyring_fallback,
+    ):
+        res = runner.invoke(
+            app,
+            ["secrets", "sync", "-n", "A,B", "--repo", "dan-petty/devops-cli", "--source", "vault"],
+        )
+
+    assert res.exit_code == 1
+    assert "Vault rejected the token from the environment (HTTP 403)" in res.output
+    mock_upload.assert_not_called()
+    keyring_fallback.assert_not_called()
+
+
+@pytest.mark.usefixtures("vault_token")
+def test_vault_source_reports_an_absent_key_missing_without_reading_the_keyring() -> None:
+    """A field Vault lacks is missing; the keyring entry of that name is never uploaded."""
+    import httpx2
+
+    reply = httpx2.Response(200, json={"data": {"data": {"OTHER": "x"}}})
+    with (
+        patch("devops_cli.http.broker.HttpClientBroker.request", return_value=reply),
+        patch("devops_cli.security.vault_broker.get_keyring_secret") as keyring_fallback,
+    ):
+        result = sync_repository_secrets(
+            "dan-petty/devops-cli", secret_names=["ABSENT"], source="vault"
+        )
+
+    assert (result.missing_secrets, result.synced_secrets) == (["ABSENT"], [])
+    keyring_fallback.assert_not_called()
+
+
+@pytest.mark.usefixtures("vault_token")
+def test_vault_source_dry_run_sends_no_request() -> None:
+    """A dry run names what it would read from Vault and asks Vault nothing."""
+    with patch("devops_cli.http.broker.HttpClientBroker.request") as mock_request:
+        result = sync_repository_secrets(
+            "dan-petty/devops-cli", secret_names=["A"], source="vault", dry_run=True
+        )
+
+    assert (result.synced_secrets, "Would read from Vault" in result.items[0].message) == (
+        ["A"],
+        True,
+    )
+    mock_request.assert_not_called()
+
+
+def test_vault_source_without_a_token_raises_before_any_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no usable token the Vault source names the token sources and asks nothing."""
+    from devops_cli.exceptions.vault import VaultAuthenticationError
+    from devops_cli.security.secrets import reset_resolver
+
+    for name in ("VAULT_ADDR", "VAULT_TOKEN", "DEVOPS_CLI_VAULT_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    reset_resolver()
+    with patch("devops_cli.http.broker.HttpClientBroker.request") as mock_request:
+        with pytest.raises(VaultAuthenticationError, match="devops vault login"):
+            _resolve_secret_from_source("A", source="vault")
+    mock_request.assert_not_called()
 
 
 def test_resolve_secret_unsupported_source() -> None:

@@ -87,7 +87,10 @@ class VaultOperationError(VaultError, RuntimeError):
 
 
 class VaultAuthenticationError(VaultError):
-    """Raised when a Vault login method fails to issue a client token."""
+    """Raised when Vault issues or accepts no token: a failed login, none usable, or one refused.
+
+    A refused token is one Vault answered with HTTP 401 or 403.
+    """
 
     def __init__(
         self,
@@ -112,7 +115,10 @@ class VaultAuthenticationError(VaultError):
 
 
 class VaultLeaseError(VaultError):
-    """Raised when a dynamic secret lease cannot be renewed or revoked."""
+    """Raised when a Vault lease, login, token or Transit call fails, with Vault's HTTP status.
+
+    `status_code` is the status Vault answered with, or None when the call failed before that.
+    """
 
     def __init__(
         self,
@@ -120,11 +126,13 @@ class VaultLeaseError(VaultError):
         *,
         vault_addr: str | None = None,
         lease_id: str | None = None,
+        status_code: int | None = None,
         exit_code: int = CONST_EXIT_FAILURE,
         error_code: str = CONST_ERROR_CODE_VAULT_LEASE,
         details: dict[str, Any] | None = None,
     ) -> None:
-        err_details = {"lease_id": lease_id}
+        self.status_code = status_code
+        err_details: dict[str, Any] = {"lease_id": lease_id, "status_code": status_code}
         if details:
             err_details.update(details)
         super().__init__(
@@ -136,6 +144,10 @@ class VaultLeaseError(VaultError):
         )
 
 
+class VaultUnreachableError(VaultOperationError):
+    """Raised when no reply came back from Vault: the connection failed or timed out."""
+
+
 __all__ = [
     "VaultAuthenticationError",
     "VaultConfigurationError",
@@ -143,4 +155,5 @@ __all__ = [
     "VaultKeyError",
     "VaultLeaseError",
     "VaultOperationError",
+    "VaultUnreachableError",
 ]

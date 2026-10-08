@@ -1381,6 +1381,85 @@ class TestPrCommands:
                 "satisfies merge readiness" not in res.output,
             ) == (1, True, True)
 
+    def test_check_readiness_fails_closed_when_second_page_check_runs_malformed(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A check-run listing whose second page is malformed makes pr check-readiness fail closed."""
+        monkeypatch.setattr(time, "sleep", lambda _s: None)
+        from devops_cli.github.rate_limiter import run_gh as real_run_gh
+
+        mock_pr = json.dumps(
+            {
+                "draft": False,
+                "mergeable": True,
+                "mergeable_state": "clean",
+                "base": {"ref": "release/v0.2.17"},
+                "head": {"sha": "abcdef1234567890abcdef1234567890abcdef12"},
+            }
+        )
+        base_router = _readiness_gh(mock_pr)
+        page1 = {
+            "total_count": 200,
+            "check_runs": [
+                {"name": f"check-{i}", "status": "completed", "conclusion": "success"}
+                for i in range(100)
+            ],
+        }
+
+        def mock_sub(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            cmd_str = " ".join(cmd)
+            if "rate_limit" in cmd_str:
+                return subprocess.CompletedProcess(
+                    args=cmd,
+                    returncode=0,
+                    stdout=json.dumps(
+                        {
+                            "resources": {
+                                "core": {
+                                    "limit": 5000,
+                                    "remaining": 4999,
+                                    "reset": int(time.time()) + 60,
+                                    "used": 1,
+                                }
+                            }
+                        }
+                    ),
+                    stderr="",
+                )
+            if "page=2" in cmd_str:
+                return subprocess.CompletedProcess(
+                    args=cmd,
+                    returncode=0,
+                    stdout="<html>upstream 502 Bad Gateway</html>",
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=json.dumps(page1),
+                stderr="",
+            )
+
+        def selective_gh(args: list[str], **kwargs: object) -> object:
+            if any("check-runs" in arg for arg in args):
+                with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_sub):
+                    return real_run_gh(args, **kwargs)
+            return base_router(args, **kwargs)
+
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch("devops_cli.commands.pr.run_gh", side_effect=selective_gh),
+            patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
+        ):
+            res = runner.invoke(app, ["check-readiness", "187"])
+            assert (
+                res.exit_code,
+                "check verification failed closed" in res.output,
+                "page 2" in res.output,
+                "satisfies merge readiness" not in res.output,
+            ) == (1, True, True, True)
+
     def test_pr_diff_mask_secrets(self, runner: CliRunner) -> None:
         """devops pr diff masks secret tokens in output."""
         with (

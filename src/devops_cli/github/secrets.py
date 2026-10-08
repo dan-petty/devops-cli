@@ -107,22 +107,30 @@ def list_repository_secrets(repo: str) -> list[str]:
             return []
 
 
+def _is_vault_source(source: str) -> bool:
+    """Report whether `source` names Vault, as `_resolve_secret_from_source` reads it."""
+    return source.strip().lower() == "vault"
+
+
 def _resolve_secret_from_source(
     name: str,
     source: str,
     vault_path: str = "secret/devops",
 ) -> str | None:
-    """Retrieve secret value from specified source store without exposing it in logs."""
+    """Retrieve secret value from specified source store without exposing it in logs.
+
+    The Vault source reads Vault alone: a field Vault lacks is missing, never filled from the
+    keyring, and a missing or rejected token raises `VaultAuthenticationError`.
+    """
     clean_source = source.strip().lower()
     if clean_source == "keyring":
         val = get_keyring_secret(name)
         return str(val) if val is not None else None
 
-    if clean_source == "vault":
+    if _is_vault_source(clean_source):
         from devops_cli.security.vault_broker import VaultSecretBroker
 
-        broker = VaultSecretBroker()
-        val = broker.get_secret(vault_path, key=name)
+        val = VaultSecretBroker().read_secret(vault_path, key=name)
         return str(val) if val is not None else None
 
     raise GitHubOperationError(
@@ -163,7 +171,11 @@ def sync_repository_secrets(
     vault_path: str = "secret/devops",
     dry_run: bool = False,
 ) -> SecretSyncResult:
-    """Synchronize secrets from source (OS Keyring or Vault) to GitHub repository secrets."""
+    """Synchronize secrets from source (OS Keyring or Vault) to GitHub repository secrets.
+
+    A dry run reads the local keyring but never Vault, so it sends no request: each Vault secret
+    is reported as one the run would read, seal and upload.
+    """
     synced: list[str] = []
     skipped: list[str] = []
     failed: list[str] = []
@@ -181,6 +193,20 @@ def sync_repository_secrets(
         attributes={"repo": repo, "source": source, "dry_run": dry_run, "count": len(unique_names)},
     ):
         for name in unique_names:
+            if dry_run and _is_vault_source(source):
+                synced.append(name)
+                items.append(
+                    SecretSyncItem(
+                        name=name,
+                        source=source,
+                        status="synced",
+                        message=(
+                            f"Would read from Vault at '{vault_path}', seal with libsodium and "
+                            "upload (dry-run)"
+                        ),
+                    )
+                )
+                continue
             secret_value = _resolve_secret_from_source(name, source=source, vault_path=vault_path)
             if not secret_value:
                 missing.append(name)

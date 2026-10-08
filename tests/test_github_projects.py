@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from typer.testing import CliRunner, Result
+
+import devops_cli.github.projects as projects_mod
 from devops_cli.github.projects import (
     ProjectTemplate,
     load_project_template,
-    parse_tasks_to_project_items,
 )
+from tests.project_reconcile_fake import BOARD_TITLE, REPO, ProjectGitHub, card, issue, pull
 
 
 def test_load_project_template() -> None:
@@ -27,102 +31,6 @@ def test_load_project_template() -> None:
     assert "Roadmap Timeline" in view_names
     assert "Triage & Quality Table" in view_names
     assert "Value vs Effort Priority Matrix" in view_names
-
-
-def test_parse_tasks_to_project_items(tmp_path: Path) -> None:
-    """parse_tasks_to_project_items converts task markdown lines into ProjectItem models."""
-    sample_task_file = tmp_path / "task-100-sample.md"
-    sample_task_file.write_text(
-        "# Task Tracking\n\n"
-        "### Completed Tasks\n"
-        "- [x] Phase 1: Baseline CI run\n\n"
-        "### In-Progress Tasks (WIP)\n"
-        "- [ ] Phase 2: Active feature work\n\n"
-        "### Pending Tasks\n"
-        "- [ ] Phase 3: Future item\n",
-        encoding="utf-8",
-    )
-
-    items = parse_tasks_to_project_items(sample_task_file)
-    assert len(items) == 3
-    assert items[0].title == "Phase 1: Baseline CI run"
-    assert items[0].status == "Done"
-
-    assert items[1].title == "Phase 2: Active feature work"
-    assert items[1].status == "In Progress"
-
-    assert items[2].title == "Phase 3: Future item"
-    assert items[2].status == "Backlog"
-
-
-def test_parse_tasks_to_project_items_from_directory(tmp_path: Path) -> None:
-    """parse_tasks_to_project_items parses tasks across multiple modular task files in a directory."""
-    tasks_dir = tmp_path / "tasks"
-    tasks_dir.mkdir()
-
-    # Task file 1: Completed task
-    task1 = tasks_dir / "task-001-setup.md"
-    task1.write_text(
-        "# Task: Setup Environment\n\n"
-        "- **Status**: Done\n\n"
-        "### Completed Tasks\n"
-        "- [x] Provision cluster nodes\n"
-        "- [x] Install Helm controllers\n",
-        encoding="utf-8",
-    )
-
-    # Task file 2: In-progress task
-    task2 = tasks_dir / "task-002-feature.md"
-    task2.write_text(
-        "# Task: Add Ingress Gateway\n\n"
-        "### In-Progress Tasks (WIP)\n"
-        "- [ ] Configure Envoy mesh\n"
-        "- [x] Generate TLS certificates\n",
-        encoding="utf-8",
-    )
-
-    # Task file 3: Standalone task without checklist (metadata-based)
-    task3 = tasks_dir / "task-003-audit.md"
-    task3.write_text(
-        "# Task: Security Egress Audit\n\n"
-        "- **Status**: Ready\n"
-        "- **Issue**: #105\n\n"
-        "Performing security audit.\n",
-        encoding="utf-8",
-    )
-
-    # README and archive files in tasks dir should be ignored
-    readme = tasks_dir / "README.md"
-    readme.write_text("# Tasks Directory\nDocumentation only.", encoding="utf-8")
-    archive_file = tasks_dir / "archive-phases-old.md"
-    archive_file.write_text("# Old Archive\n- [x] Old task\n", encoding="utf-8")
-
-    items = parse_tasks_to_project_items(tasks_dir)
-    assert len(items) == 5
-    # From task1
-    assert items[0].title == "Provision cluster nodes"
-    assert items[0].status == "Done"
-    assert items[1].title == "Install Helm controllers"
-    assert items[1].status == "Done"
-    # From task2
-    assert items[2].title == "Configure Envoy mesh"
-    assert items[2].status == "In Progress"
-    assert items[3].title == "Generate TLS certificates"
-    assert items[3].status == "Done"
-    # From task3
-    assert items[4].title == "Security Egress Audit"
-    assert items[4].status == "Ready"
-
-
-def test_parse_tasks_to_project_items_nonexistent_raises(tmp_path: Path) -> None:
-    """parse_tasks_to_project_items raises GitHubOperationError when path does not exist."""
-    import pytest
-
-    from devops_cli.exceptions.git import GitHubOperationError
-
-    with pytest.raises(GitHubOperationError) as exc_info:
-        parse_tasks_to_project_items(tmp_path / "nonexistent_tasks_path")
-    assert "Task path not found" in str(exc_info.value)
 
 
 def test_verify_project_auth_scopes_insufficient_scope() -> None:
@@ -166,30 +74,22 @@ def test_verify_project_auth_scopes_unrelated_error_ignored() -> None:
         verify_project_auth_scopes()
 
 
-def test_sync_remote_project_dry_run() -> None:
-    """sync_remote_project in dry_run mode returns preview without mutations."""
+def test_sync_dry_run_makes_no_request_and_reports_no_board() -> None:
+    """A dry run calls no `run_gh` and reports no board number or count it did not read."""
     from unittest.mock import patch
 
-    from devops_cli.github.projects import (
-        ProjectItem,
-        load_project_template,
-        sync_remote_project,
-    )
+    from devops_cli.github.projects import sync_remote_project
 
     template = load_project_template(Path(".github/project-template.json"))
-    items = [ProjectItem(title="Task A", status="Done")]
-
-    with patch("devops_cli.github.projects.verify_project_auth_scopes"):
-        res = sync_remote_project(
-            owner="dan-petty",
-            repo="dan-petty/devops-cli",
-            template=template,
-            items=items,
-            dry_run=True,
-        )
-        assert res.dry_run is True
-        assert res.items_synced == 1
-        assert res.project_title == template.name
+    with patch("devops_cli.github.projects.run_gh", side_effect=AssertionError("ran gh")):
+        res = sync_remote_project("dan-petty", "dan-petty/devops-cli", template, dry_run=True)
+    assert (
+        res.dry_run,
+        res.project_number,
+        res.fields_provisioned,
+        res.reconcile,
+        res.project_title,
+    ) == (True, None, [], None, template.name)
 
 
 def test_cli_project_link_command() -> None:
@@ -292,37 +192,105 @@ def test_cli_project_status_and_template_commands() -> None:
     assert "DevOps CLI" in res_tpl.output
 
 
-def test_cli_project_sync_command() -> None:
-    """CLI devops gh project sync parses local tasks and outputs sync summary."""
+def test_cli_project_sync_dry_run_names_no_board_number() -> None:
+    """`project sync --dry-run` reads nothing, so it prints no board number and says it adds no
+    card."""
     from unittest.mock import patch
 
     from typer.testing import CliRunner
 
     from devops_cli.commands.gh import project_app
-    from devops_cli.github.projects import ProjectSyncResult
 
-    runner = CliRunner()
-    mock_res = ProjectSyncResult(
-        project_number=2,
-        project_title="DevOps CLI Roadmap",
-        owner="dan-petty",
-        repo="dan-petty/devops-cli",
-        fields_provisioned=["Status"],
-        items_synced=5,
-        dry_run=True,
-        linked=True,
+    with patch("devops_cli.github.projects.run_gh", side_effect=AssertionError("ran gh")):
+        res = CliRunner().invoke(project_app, ["sync", "--dry-run", "--repo", "o/r"])
+    assert (res.exit_code, "No request was made" in res.output, "#" in res.output) == (
+        0,
+        True,
+        False,
     )
-    with patch("devops_cli.commands.gh.sync_remote_project", return_value=mock_res):
-        res = runner.invoke(project_app, ["sync", "--dry-run", "--repo", "dan-petty/devops-cli"])
-        assert res.exit_code == 0
-        assert "DRY RUN" in res.output
-        assert "synchronized 5 items" in res.output
 
-    # Error handling branch
-    with patch("devops_cli.commands.gh.sync_remote_project", side_effect=RuntimeError("API error")):
-        res_err = runner.invoke(project_app, ["sync", "--repo", "dan-petty/devops-cli"])
-        assert res_err.exit_code == 0
-        assert "Remote project sync skipped or failed" in res_err.output
+
+def _sync_cli(fake: ProjectGitHub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Result:
+    """`devops gh project sync --repo o/r` against `fake`, which stands in for `run_gh` only,
+    with a template naming the fake's board and the fields it already has."""
+    import json
+    from unittest.mock import patch
+
+    from devops_cli.commands.gh import project_app
+
+    template = tmp_path / "project-template.json"
+    fields = [
+        {"name": name, "type": "single_select", "options": [{"name": option}]}
+        for name, option in (("Status", "New"), ("Priority", "P1-High"))
+    ]
+    template.write_text(json.dumps({"name": BOARD_TITLE, "fields": fields}))
+    monkeypatch.setattr(projects_mod, "_CURRENT_USER_CACHE", None)
+    monkeypatch.setattr(projects_mod, "_PROJECT_OWNER_ARG_CACHE", {})
+    with patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh):
+        return CliRunner().invoke(
+            project_app, ["sync", "--repo", REPO, "--template", str(template)]
+        )
+
+
+def _board_with_five_changes(
+    *, fail_edits: tuple[int, ...] = (), remaining: int = 5000
+) -> ProjectGitHub:
+    """Three cards needing five changes, one open issue and one open pull request off the
+    board."""
+    labelled = ("priority/p1-high",)
+    issues = [issue(n, labels=labelled) for n in (1, 2, 3)] + [issue(10)]
+    cards = [card(1), card(2), card(3, status="Ready")]
+    return ProjectGitHub(cards, issues, [pull(11)], fail_edits=fail_edits, remaining=remaining)
+
+
+def test_sync_adds_no_card_and_exits_0_when_reconcile_completes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A live sync against a board missing an open issue and an open pull request links the
+    board, creates no field, makes every planned change and no `item-add`: intake places
+    issues, and a pull request gets no card."""
+    fake = _board_with_five_changes()
+    result = _sync_cli(fake, tmp_path, monkeypatch)
+    text = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        fake.adds,
+        len(fake.links),
+        len(fake.edits),
+        "Provisioned fields: all up-to-date." in text,
+        "1 open issue is not on the board (awaiting intake: devops roadmap intake)." in text,
+        "Changed 3 of 3 items on project #2 (5 field changes)." in text,
+    ) == (0, [], 1, 5, True, True, True)
+
+
+def test_sync_reports_reconciles_stop_and_exits_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A live sync whose reconcile stops at a failed write prints reconcile's stop line and
+    exits 1."""
+    fake = _board_with_five_changes(fail_edits=(2,))
+    result = _sync_cli(fake, tmp_path, monkeypatch)
+    assert (
+        result.exit_code,
+        "Stopped early (the write of Priority on #1 failed: GraphQL: the write failed): "
+        "4 planned changes remain." in " ".join(result.output.split()),
+        fake.adds,
+    ) == (1, True, [])
+
+
+def test_sync_whose_reconcile_does_not_start_exits_1_with_reconciles_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reconcile's refusal, here a low GraphQL budget, is sync's error too: one line, exit 1,
+    no write and no warning that hides it."""
+    fake = _board_with_five_changes(remaining=101)
+    result = _sync_cli(fake, tmp_path, monkeypatch)
+    assert (
+        result.exit_code,
+        "100 points left until 00:00 UTC" in " ".join(result.output.split()),
+        "Traceback" in result.output,
+        fake.edits,
+    ) == (1, True, False, [])
 
 
 def test_cli_project_link_failure() -> None:
@@ -610,28 +578,6 @@ def test_audit_project_drift() -> None:
         assert res["views_compliant"] is True
 
 
-def test_parse_tasks_to_project_items_wip_checked_marks_done(tmp_path: Path) -> None:
-    """parse_tasks_to_project_items marks [x] items as Done even under In-Progress section."""
-    sample_task_file = tmp_path / "task-100-sample.md"
-    sample_task_file.write_text(
-        "# Task Tracking\n\n"
-        "### In-Progress Tasks (WIP)\n"
-        "- [x] Phase 2.1: Completed sub-step in WIP\n"
-        "- [ ] Phase 2.2: Ongoing sub-step\n\n"
-        "### Pending Tasks\n"
-        "- [ ] Phase 3: Future item\n",
-        encoding="utf-8",
-    )
-    items = parse_tasks_to_project_items(sample_task_file)
-    assert len(items) == 3
-    assert items[0].title == "Phase 2.1: Completed sub-step in WIP"
-    assert items[0].status == "Done"
-    assert items[1].title == "Phase 2.2: Ongoing sub-step"
-    assert items[1].status == "In Progress"
-    assert items[2].title == "Phase 3: Future item"
-    assert items[2].status == "Backlog"
-
-
 def test_check_github_rate_limit_error() -> None:
     """check_github_rate_limit_error detects rate limit indicators and raises GitHubOperationError."""
     import pytest
@@ -687,41 +633,6 @@ def test_find_remote_project_via_rest() -> None:
         assert res is not None
         assert res["number"] == 2
         assert res["id"] == "PVT_123"
-
-
-def test_sync_repository_issues_to_project() -> None:
-    """sync_repository_issues_to_project adds missing repository issues to project."""
-    import json
-    from unittest.mock import MagicMock, patch
-
-    from devops_cli.github.projects import sync_repository_issues_to_project
-    from tests.roadmap_board_fake import board_page_reply
-
-    existing_items = [
-        {"id": "PVTI_75", "content": {"url": "https://example.com/owner/repo/issues/75"}}
-    ]
-    repo_issues = [
-        {"html_url": "https://example.com/owner/repo/issues/75", "number": 75},
-        {"html_url": "https://example.com/owner/repo/issues/78", "number": 78},
-    ]
-
-    mock_proc = MagicMock(
-        side_effect=[
-            MagicMock(returncode=0, stdout=board_page_reply(existing_items), stderr=""),
-            MagicMock(returncode=0, stdout=json.dumps(repo_issues), stderr=""),
-            MagicMock(returncode=0, stdout="{}", stderr=""),
-        ]
-    )
-    with (
-        patch("devops_cli.github.projects._resolve_project_owner_arg", return_value="owner"),
-        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
-        patch("devops_cli.github.projects.run_gh", mock_proc),
-    ):
-        added = sync_repository_issues_to_project("owner", "owner/repo", 2, dry_run=False)
-        assert added == 1
-
-    # Dry run should immediately return 0
-    assert sync_repository_issues_to_project("owner", "owner/repo", 2, dry_run=True) == 0
 
 
 def test_resolve_project_owner_arg() -> None:
@@ -798,11 +709,10 @@ def test_project_sync_sends_no_option_update_when_the_template_options_differ() 
         patch("devops_cli.github.projects.verify_project_auth_scopes"),
         patch("devops_cli.github.projects.find_remote_project", return_value={"number": 2}),
         patch("devops_cli.github.projects.link_project_to_repository", return_value=True),
-        patch("devops_cli.github.projects.sync_repository_issues_to_project", return_value=0),
         patch("devops_cli.github.projects._get_authenticated_user", return_value="someone"),
         patch("devops_cli.github.projects.run_gh", run_gh),
     ):
-        result = sync_remote_project("owner", "owner/repo", template, [], reconcile_fields=False)
+        result = sync_remote_project("owner", "owner/repo", template, reconcile_fields=False)
     commands = [call.args[0] for call in run_gh.call_args_list]
     assert (
         result.fields_provisioned,
@@ -859,75 +769,6 @@ def test_paginated_project_fetch_helpers() -> None:
         assert prs[1]["number"] == 4
 
 
-def test_reconcile_single_item_skips_matching_fields() -> None:
-    """_reconcile_single_item makes zero edit calls if fields already match remote state."""
-    from unittest.mock import patch
-
-    from devops_cli.github.projects import _reconcile_single_item
-
-    item = {
-        "html_url": "https://example.com/owner/repo/issues/10",
-        "title": "feat: test feature",
-        "state": "CLOSED",
-        "labels": [{"name": "priority/p1-high"}, {"name": "type/feature"}],
-    }
-    current_matching = {
-        "status": "Done",
-        "priority": "P1-High",
-        "value": "High",
-        "effort": "High",
-    }
-    with patch("devops_cli.github.projects._edit_project_item_field") as mock_edit:
-        reconciled = _reconcile_single_item(
-            "owner", 2, item, dry_run=False, current_fields=current_matching
-        )
-        assert reconciled == []
-        mock_edit.assert_not_called()
-
-
-def test_reconcile_single_item_edits_only_drifted_fields() -> None:
-    """_reconcile_single_item edits only fields that need it; a set Priority stands."""
-    from unittest.mock import patch
-
-    from devops_cli.github.projects import FieldChange, _reconcile_single_item
-
-    item = {
-        "html_url": "https://example.com/owner/repo/issues/10",
-        "title": "feat: test feature",
-        "state": "CLOSED",
-        "labels": [{"name": "priority/p1-high"}, {"name": "type/feature"}],
-    }
-    # The issue closed, so Status is forced to Done; the board's P2 priority is a person's call.
-    current_with_drift = {
-        "status": "In Progress",
-        "priority": "P2-Medium",
-        "value": "High",
-        "effort": "High",
-    }
-    with (
-        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
-        patch(
-            "devops_cli.github.projects._edit_project_item_field", return_value=True
-        ) as mock_edit,
-    ):
-        reconciled = _reconcile_single_item(
-            "owner", 2, item, dry_run=False, current_fields=current_with_drift
-        )
-        assert (reconciled, mock_edit.call_args[0][3:], current_with_drift["status"]) == (
-            [
-                FieldChange(
-                    url="https://example.com/owner/repo/issues/10",
-                    field="Status",
-                    old="In Progress",
-                    new="Done",
-                    source="issue closed",
-                )
-            ],
-            ("Status", "Done"),
-            "Done",
-        )
-
-
 def test_extract_item_fields_case_insensitive() -> None:
     """_extract_item_fields extracts custom fields regardless of casing or dict formatting."""
     from devops_cli.github.projects import _extract_item_fields
@@ -978,84 +819,6 @@ def test_mutation_budget_lifecycle() -> None:
         2,
         True,
     )
-
-
-def test_apply_field_updates_respects_mutation_budget() -> None:
-    """_apply_field_updates stops editing fields once mutation budget is exhausted."""
-    from unittest.mock import patch
-
-    from devops_cli.github.projects import FieldChange, MutationBudget, _apply_field_updates
-
-    budget = MutationBudget(limit=2)
-    url = "https://example.com/1"
-    changes = [
-        FieldChange(url=url, field="Status", old="New", new="Done", source="issue closed"),
-        FieldChange(url=url, field="Priority", old=None, new="P1-High", source="label"),
-        FieldChange(url=url, field="Effort", old=None, new="Low", source="a person"),
-    ]
-    current = {"status": "New", "priority": None, "effort": None}
-
-    with (
-        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
-        patch(
-            "devops_cli.github.projects._edit_project_item_field", return_value=True
-        ) as mock_edit,
-    ):
-        applied = _apply_field_updates("owner", 1, changes, current, budget=budget)
-        assert (applied, mock_edit.call_count, budget.total_mutations, budget.is_exhausted) == (
-            changes[:2],
-            2,
-            2,
-            True,
-        )
-
-
-def test_provision_and_reconcile_share_mutation_budget() -> None:
-    """_provision_missing_candidates and _reconcile_candidate_items share a single MutationBudget."""
-    from unittest.mock import patch
-
-    from devops_cli.github.projects import (
-        MutationBudget,
-        _provision_missing_candidates,
-        _reconcile_candidate_items,
-    )
-
-    budget = MutationBudget(limit=2)
-    candidates = [
-        {
-            "html_url": "https://example.com/owner/repo/issues/1",
-            "title": "issue 1",
-            "state": "OPEN",
-            "labels": [{"name": "priority/p1-high"}],
-        },
-        {
-            "html_url": "https://example.com/owner/repo/issues/2",
-            "title": "issue 2",
-            "state": "OPEN",
-            "labels": [{"name": "priority/p1-high"}],
-        },
-    ]
-    items_data: dict[str, dict[str, str | None]] = {}
-
-    with (
-        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
-        patch("devops_cli.github.projects._resolve_project_owner_arg", return_value="owner"),
-        patch(
-            "devops_cli.github.projects._add_project_item_with_fallback", return_value=True
-        ) as mock_add,
-        patch(
-            "devops_cli.github.projects._edit_project_item_field", return_value=True
-        ) as mock_edit,
-    ):
-        # 1. Provision candidates: consumes 2 mutations, exhausting budget
-        _provision_missing_candidates("owner", 1, candidates, items_data, budget=budget)
-        assert (mock_add.call_count, budget.remaining, budget.is_exhausted) == (2, 0, True)
-
-        # 2. Reconcile candidates: should perform 0 edits because budget is exhausted
-        reconciled = _reconcile_candidate_items(
-            "owner", 1, candidates, items_data, set(), dry_run=False, budget=budget
-        )
-        assert (reconciled, mock_edit.call_count) == ([], 0)
 
 
 def test_the_board_template_follows_adr_0001() -> None:
@@ -1133,7 +896,7 @@ def test_project_sync_reads_the_board_a_charged_graphql_page_at_a_time() -> None
     from unittest.mock import patch
 
     from devops_cli.github import rate_limiter
-    from devops_cli.github.projects import _fetch_project_items_data
+    from devops_cli.github.projects import _read_board
     from tests.roadmap_board_fake import BoardServer
 
     def entry(n: int, **extra: Any) -> dict[str, Any]:
@@ -1157,13 +920,12 @@ def test_project_sync_reads_the_board_a_charged_graphql_page_at_a_time() -> None
         patch.object(rate_limiter, "_burst_protected_subprocess", side_effect=gh),
         patch.object(rate_limiter, "run_subprocess", side_effect=AssertionError("ran gh")),
         patch("devops_cli.github.rate_limiter.time.sleep"),
-        patch("devops_cli.github.projects._get_authenticated_user", return_value="me"),
     ):
-        found = _fetch_project_items_data("o", 2)
+        found = _read_board("o", 2)
     assert (
         len(found),
         found["https://github.com/o/r/issues/7"]["status"],
         "https://github.com/o/r/issues/151" in found,
         [cmd[1:3] for cmd in sent],
         limiter.points_charged("graphql") - before,
-    ) == (150, "Ready", False, [["api", "graphql"]] * 2, 4)
+    ) == (150, "Ready", False, [["api", "graphql"]] * 3, 5)

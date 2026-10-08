@@ -2,47 +2,75 @@
 
 # Roadmap — dan-petty/devops-cli
 
-## Current release: v0.2.28 — MCP Tool Safety, Web Fetch Hardening, Alerting & Supply-Chain Truth
+## Current release: v0.2.29 — Pre-v0.3.0 hardening: web fetch connection safety, deploy-stack perimeters and gateway policy, and CLI correctness. Holds P1 work due before v0.3.0, with two of its 12 slots kept for P1 items that surface during v0.2.25-v0.2.29.
 
-- [x] #519 fix(ui): dashboard refresh races panel mounting and fails the worker — Status: Done · Priority: P1-High · Value: High · Effort: Low
-- [x] #608 feat(review): order-independent review finding consolidation with a permutation test — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #769 refactor(github): read a pull request's checks once, fail-closed, for wait, monitor and readiness — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #780 fix(security): the async process runner redacts telemetry and kills the process group on timeout — Status: Done · Priority: P1-High · Value: Medium · Effort: Low
-- [x] #839 fix(ai): mcp command tools return the failing output and never write to the protocol stream — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #871 feat(review): every reported finding is admitted with its producer's anchor and a location that exists in the reviewed commit, the review writes findings.sarif, and review.md shows findings and suppressions — Status: Done · Priority: P1-High · Value: High · Effort: High
-- [x] #894 fix(ai): web_fetch reports a failed fetch as a tool failure, not as page text — Status: Done · Priority: P1-High · Value: Medium · Effort: Low
-- [x] #896 feat(ai): web_fetch renders pages as untrusted, escaped markdown within a budget — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #921 docs: hand-written docs name only commands, options and components that exist — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #1047 fix(review): a review scans a worktree of the reviewed commit, never hands a deleted file to a tool, and reports which files each tool scanned — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #1059 fix(review): a verdict that both confirms and refutes its finding stays unverified with a contradiction note, even when its reason repeats the title — Status: Done · Priority: P1-High · Value: High · Effort: Low
-- [x] #1065 fix(ai): a failing embedding model pauses rag lookups instead of ending rag for the run, and each embedding model gets its own prompts, cache keys, dimension and bounded chunks — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #1069 fix(ai): review calls through the gateway no longer stall for about 190 s on ollama, with the cause measured first — Status: Done · Priority: P1-High · Value: High · Effort: Medium
-- [x] #1267 fix(k8s): resolve portkey probe path and gpu-feature-discovery image tag — Status: Done · Priority: P1-High · Value: High · Effort: Low
-- [x] #908 Release Epic: v0.2.28 — MCP Tool Safety, Web Fetch Hardening, Alerting & Supply-Chain Truth — Status: Done · Priority: — · Value: — · Effort: —
-- [x] #1261 fix(k8s): argo cd git-source targetRevision tracks main while service image pin tracks release — Status: Done · Priority: — · Value: — · Effort: —
-
-## Planned release: v0.2.29 — Pre-v0.3.0 hardening: web fetch connection safety, deploy-stack perimeters and gateway policy, and CLI correctness. Holds P1 work due before v0.3.0, with two of its 12 slots kept for P1 items that surface during v0.2.25-v0.2.29.
-
-- [ ] #709 feat(security): vault commands use the token `devops vault login` stores — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
-- [ ] #795 fix(k8s): deploy-stack never applies the gateway policy and ollama tiers need an undocumented label — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #816 fix(ai): response-cache hits are counted as cached requests — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
-- [ ] #864 fix(k8s): pod logs reach callers as whole lines, with and without --follow — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
-- [ ] #868 fix(cli): devcontainer auto-deploy calls deploy-stack without --stack, and docs check resolves every devops argv in src — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
-- [ ] #892 fix(github): project reconcile reads an unknown quota, fixes existing cards first, and says when it stopped early — Status: Ready · Priority: P1-High · Value: Medium · Effort: Medium
-- [ ] #898 fix(security): every HTTP client dials only addresses its egress level allows, checked at the connect and on every redirect — Status: Ready · Priority: P1-High · Value: High · Effort: High
-- [ ] #900 fix(cli): `devops branches create` creates the branch instead of failing on `checkout -b --` — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
-- [ ] #913 fix(k8s): deploy-stack applies the monitoring namespace perimeter — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #1013 fix(review): the response cache stores and serves only replies the review can use, and a schema echo no longer reads as a clean file — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #1021 fix(review): a correct refutation stands when the guard's evidence is a path token, a citation inside the finding's own lines, or generic scanner wording — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #1034 fix(github): a paginated gh api read fails closed on a page that is not the expected json, instead of returning a short listing — Status: Ready · Priority: P1-High · Value: High · Effort: Low
+- [x] #1337 fix(ci): the live bubblewrap tests run wherever bwrap is installed and skip only where it is missing — Status: Done · Priority: P0-Critical · Value: Medium · Effort: Low
+- [x] #709 feat(security): vault commands use the token `devops vault login` stores — Status: Done · Priority: P1-High · Value: Medium · Effort: Low
+- [x] #795 fix(k8s): deploy-stack applies the llm gateway policy and narrows its egress — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #816 fix(ai): response-cache hits are counted as cached requests — Status: Done · Priority: P1-High · Value: Medium · Effort: Low
+- [x] #864 fix(k8s): pod logs reach callers as whole lines, with and without --follow — Status: Done · Priority: P1-High · Value: Medium · Effort: Low
+- [x] #868 fix(cli): docs check resolves every devops argv in src — Status: Done · Priority: P1-High · Value: Medium · Effort: Low
+- [x] #892 fix(github): project reconcile reads an unknown quota, fixes existing cards first, and says when it stopped early — Status: Done · Priority: P1-High · Value: Medium · Effort: Medium
+- [x] #898 fix(security): every HTTP client dials only addresses its egress level allows, checked at the connect and on every redirect — Status: Done · Priority: P1-High · Value: High · Effort: High
+- [x] #913 fix(k8s): deploy-stack applies the monitoring namespace perimeter — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #1034 fix(github): a paginated gh api read fails closed on a page that is not the expected json, instead of returning a short listing — Status: Done · Priority: P1-High · Value: High · Effort: Low
+- [x] #1115 fix(security): a sandbox workspace can never expose the container engine socket or the user's runtime directory and its session bus — Status: Done · Priority: P1-High · Value: High · Effort: Low
+- [x] #1124 fix(release): release pushes run git with the person's environment, so the configured credential helper answers instead of "could not read Username", and a failed push stops `release pr` before it opens a PR — Status: Done · Priority: P1-High · Value: High · Effort: Low
+- [x] #1294 fix(roadmap): a critical fix joins the current release while its release pull request is open, so the release branch holds every change before it merges — Status: Done · Priority: P1-High · Value: — · Effort: —
+- [x] #1360 fix(roadmap): a shipped release starts the next one without a person: the poll reports the ship, and close and reprioritize run before a capped intake batch — Status: Done · Priority: P1-High · Value: High · Effort: High
+- [x] #1361 fix(roadmap): board writes go to the card by node id and read only that card, so intake keeps the card it added and a write costs a few GraphQL points instead of about 320 — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #1363 fix(roadmap): refine sends the model the proposal schema and never caches a reply that fails it, and one failed item skips only that item — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #1366 fix(roadmap): the job clone tracks the current release's branch while origin has it and the default branch otherwise, so close, refine and metrics run between a ship and the next release's start — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #1400 fix(roadmap): a GraphQL budget refusal pauses every Service worker until the reset, and each Service round ends with its spend line — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #1446 fix(security): upgrade pydantic-ai past 2.35.0, whose three advisories fail the devops ci audit — Status: Done · Priority: P1-High · Value: High · Effort: Medium
+- [x] #1280 fix(roadmap): roadmap-service automated release cutting fails on protected release branch — Status: Done · Priority: P2-Medium · Value: High · Effort: Medium
+- [x] #1349 fix(roadmap): an item a person places in a release stays there, and the roadmap jobs comment on a rule it breaks instead of moving it out — Status: Done · Priority: P2-Medium · Value: High · Effort: Medium
+- [x] #1358 fix(roadmap): the metrics job walks release tags in each repository's own clone, and a missing or type-less labels.yml stops intake as a configuration error before any model call — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Low
+- [x] #1362 fix(roadmap): closure closes the items delivered into a release whose milestone has already closed — Status: Done · Priority: P2-Medium · Value: High · Effort: Medium
+- [x] #1364 fix(github): a gh call at a quota window's reset waits out the reset second instead of failing as unknown or broken state — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [x] #1403 fix(roadmap): intake places an issue whose board card is archived by restoring the card, instead of failing every round — Status: Done · Priority: P2-Medium · Value: Medium · Effort: Low
+- [x] #1451 fix(release): the Service image a release pins is published before main pins it, so Argo CD never rolls the roadmap Service onto a missing image — Status: Done · Priority: P2-Medium · Value: High · Effort: Medium
 
 ## Planned release: v0.2.30
 
-No items.
+- [ ] #702 feat(telemetry): sandbox egress port scoping, collector lane & in-container trace context — Status: Ready · Priority: P1-High · Value: Medium · Effort: Medium
+- [ ] #900 fix(cli): `devops branches create` creates the branch instead of failing on `checkout -b --` — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
+- [ ] #1138 feat(review): devops review score scores saved review sessions against a label file offline and reproduces the S11 and loop baselines — Status: Ready · Priority: P1-High · Value: High · Effort: High
+- [ ] #1142 feat(review): review tools install from a tools lock with exact versions, binary checksums and hashed Python requirements, and every review records them — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #1384 fix(security): a sandbox workspace never holds the user's ssh agent or X11 socket — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #1398 fix(security): mask_secrets masks every GitHub token prefix, ghu_, ghs_ and ghr_ included — Status: Ready · Priority: P1-High · Value: High · Effort: Low
+- [ ] #773 refactor(ci): one nesting metric module shared by the pre-commit hook and the scanner — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #899 fix(mcp): fastmcp's debug log of tool calls never records argument values — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1022 fix(config): the secrets audit never prints a config line it cannot parse, and an unparsable file is not reported clean — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1045 fix(security): kube-linter findings carry their own check, message and manifest file, and scan reports keep each one — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1338 perf(ci): the gate's test workers start at least 15% faster, and the full test run keeps at least half of that saving — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1383 fix(cli): docker sandbox and test sandbox dry runs check the workspace as the real run does — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 
 ## Planned release: v0.2.31
 
-No items.
+- [ ] #1109 fix(security): URL credential masking uses urllib and httpx2, so passwords containing '@' and non-http schemes are masked and IPv6 hosts stay intact — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #1141 fix(security): each finding keeps its own fingerprint across unrelated edits, and deduplication and correlation give one result in every input order, in devops scan and in reviews — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #855 test(security): pin the finding fingerprint and run-store digest to literal values — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1036 fix(ai): the durable-run store resolves under the data directory, so tests never write .data/durable_runs.db into the checkout — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1041 fix(ci): tests render CLI help at the same width locally and in github ci, so the gate catches width-dependent failures — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1108 fix(docker): the Docker endpoint check covers the endpoint the SDK dials, including contexts and the TUI, and pushes accept registry ports — Status: Ready · Priority: P2-Medium · Value: High · Effort: Medium
+- [ ] #1120 fix(deps): pyproject.toml declares every package src imports, and a deptry step in devops ci keeps it that way — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1122 fix(security): the devcontainer no longer starts the git daemon stub meant for argo cd, which served every clone under repos/ without authentication on port 9418 — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1311 fix(ci): tests touch no state outside their temporary directories — Status: Ready · Priority: P2-Medium · Value: — · Effort: —
+- [ ] #1371 fix(k8s): the argocd and otel perimeters admit 0.0.0.0/0 ingress and deploy-stack applies neither — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
+
+## Planned release: v0.2.32
+
+- [ ] #850 feat(ci): changed-line coverage on pull requests (diff-cover) — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #852 feat(ci): shuffled repeat runs of a pull request's changed test files — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #965 fix(ci): review workflow tests start the logfire SDK's credential check, which the network guard blocks — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1060 fix(k8s): the ollama tier DaemonSets drop privilege escalation and capabilities, use RuntimeDefault seccomp and a read-only root filesystem, and run as non-root where the model directory allows — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1111 fix(k8s): service URLs bracket IPv6 hosts, k8s:// addresses reach only their Service, and https probe targets are probed over https — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1112 fix(security): URL and host:port reads use the sending client's parser, so key trust, crawls, probes and settings act on the host actually dialled — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1114 fix(git): GitHub clones trust GitHub's published host keys through OpenSSH, so junk known_hosts lines and a failed key scan no longer skip pinning — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #798 fix(security): the host sandbox declares a noexec /tmp it never applies — Status: Ready · Priority: P3-Low · Value: Low · Effort: Low
+- [ ] #853 feat(ci): on-demand mutation testing of changed functions (`devops ci mutate`) — Status: Ready · Priority: P3-Low · Value: Low · Effort: Medium
+- [ ] #884 fix(ci): coverage index treats module-level and import-time changes as unindexed — Status: Ready · Priority: P3-Low · Value: Medium · Effort: Medium
 
 ## Backlog
 
@@ -58,7 +86,6 @@ No items.
 - [ ] #697 feat(github): defect prs carry their hardening readiness blocker and post-merge audit — Status: New · Priority: P1-High · Value: Medium · Effort: High
 - [ ] #698 feat(cli): sandbox enforcement audit declared vs engine vs enforced (`devops sandbox audit`) — Status: New · Priority: P1-High · Value: Medium · Effort: High
 - [ ] #700 feat(cli): worktree inventory & safe orphan reclamation (`devops repos worktrees`) — Status: New · Priority: P1-High · Value: Medium · Effort: Medium
-- [ ] #702 feat(telemetry): sandbox egress port scoping, collector lane & in-container trace context — Status: Ready · Priority: P1-High · Value: Medium · Effort: Medium
 - [ ] #770 refactor(review): one rulebook for known false positives — Status: New · Priority: P1-High · Value: Medium · Effort: High
 - [ ] #771 refactor(review): review session store that owns layout, fingerprints and verdicts — Status: New · Priority: P1-High · Value: Medium · Effort: High
 - [ ] #772 feat(review): review tools run through one injectable executor in a network-less sandbox with CPU, memory and time limits — Status: Ready · Priority: P1-High · Value: High · Effort: High
@@ -70,21 +97,17 @@ No items.
 - [ ] #861 fix(github): supply-chain claims made true — live Dependabot, zizmor and workflow invocation contracts — Status: New · Priority: P1-High · Value: High · Effort: High
 - [ ] #873 feat(review): ruff and mypy run as review evidence with the project's settings, advisory rules report only on changed lines, and changed functions show complexity before and after — Status: Ready · Priority: P1-High · Value: Medium · Effort: Medium
 - [ ] #983 refactor(github): the github session owns transport, ledger, error classes and link pagination — Status: New · Priority: P1-High · Value: — · Effort: —
+- [ ] #1013 fix(review): the response cache stores and serves only replies the review can use, and a schema echo no longer reads as a clean file — Status: Blocked · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #1021 fix(review): a correct refutation stands when the guard's evidence is a path token, a citation inside the finding's own lines, or generic scanner wording — Status: Blocked · Priority: P1-High · Value: High · Effort: Medium
 - [ ] #1066 fix(ai): a rag collection records its embedding model, a mismatch fails instead of wiping the collection, and ranking keeps the cosine score — Status: Ready · Priority: P1-High · Value: Medium · Effort: Medium
 - [ ] #1103 refactor(docs): no documentation-only pull requests: release artifacts are made as the release merges, and every kept doc changes with its code or is deleted — Status: New · Priority: P1-High · Value: High · Effort: Medium
 - [ ] #1104 fix(k8s): the pyroscope Service alias collides with the pyroscope Helm release's own Service, so a fresh deploy-stack can't install Pyroscope — Status: Ready · Priority: P1-High · Value: Medium · Effort: Low
 - [ ] #1107 feat(ci): hand-rolled URL and address parsing fails `devops ci`, AGENTS.md makes the library the rule, and reviews stop discarding the findings — Status: New · Priority: P1-High · Value: High · Effort: High
-- [ ] #1109 fix(security): URL credential masking uses urllib and httpx2, so passwords containing '@' and non-http schemes are masked and IPv6 hosts stay intact — Status: New · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #1115 fix(security): a sandbox workspace can never expose the container engine socket or the user's runtime directory and its session bus — Status: Ready · Priority: P1-High · Value: High · Effort: Low
-- [ ] #1124 fix(release): release pushes run git with the person's environment, so the configured credential helper answers instead of "could not read Username", and a failed push stops `release pr` before it opens a PR — Status: Ready · Priority: P1-High · Value: High · Effort: Low
 - [ ] #1128 refactor(k8s): the monitoring stack runs on k8s-monitoring and chart features, with no duplicate collection, dead defaults or leftovers — Status: New · Priority: P1-High · Value: High · Effort: High
 - [ ] #1129 fix(k8s): k8s-monitoring collectors run in the chart's preset shapes, and node-exporter keeps the series the node dashboards read — Status: Ready · Priority: P1-High · Value: High · Effort: Low
 - [ ] #1130 fix(k8s): the prometheus server scrapes only itself and the otel collector, and k8s-monitoring discovers every other target — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
 - [ ] #1137 feat(review): evidence-first code review — tools find, version-pinned facts ground, models explain and plan, fixes are re-checked — Status: New · Priority: P1-High · Value: High · Effort: High
-- [ ] #1138 feat(review): devops review score scores saved review sessions against a label file offline and reproduces the S11 and loop baselines — Status: Ready · Priority: P1-High · Value: High · Effort: High
 - [ ] #1139 fix(ai): the knowledge base is re-indexed whenever the installed knowledge base differs from what its collection holds, and rag status and drift read Qdrant instead of the local cache — Status: Ready · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #1141 fix(security): each finding keeps its own fingerprint across unrelated edits, and deduplication and correlation give one result in every input order, in devops scan and in reviews — Status: New · Priority: P1-High · Value: High · Effort: Medium
-- [ ] #1142 feat(review): review tools install from a tools lock with exact versions, binary checksums and hashed Python requirements, and every review records them — Status: New · Priority: P1-High · Value: High · Effort: Medium
 - [ ] #1143 feat(review): review tools run at the project's declared language and platform versions, and count only after their output on a canary matches the recorded expected output — Status: New · Priority: P1-High · Value: High · Effort: Medium
 - [ ] #1144 fix(review): Semgrep runs pinned and offline with metrics off, from a cached registry ruleset plus devops-cli's tested rule pack — Status: New · Priority: P1-High · Value: High · Effort: Medium
 - [ ] #1145 feat(review): devops-cli's rule pack turns the recall set's network-exposure entries into tested Semgrep rules, and CI runs the pack's tests when a rule changes — Status: New · Priority: P1-High · Value: Medium · Effort: Low
@@ -96,6 +119,14 @@ No items.
 - [ ] #1151 refactor(review): the persona review stage, the legacy segment engine and review-time RAG are deleted, and devops review builds a model client only for the explanation stages — Status: New · Priority: P1-High · Value: High · Effort: High
 - [ ] #1154 feat(agent): `devops agent env` gives an agent session its own expiring gateway key, run-index access and a read-only kube identity, written to its settings file or a child process and never printed, with `--revoke` and an audit of every grant — Status: New · Priority: P1-High · Value: High · Effort: High
 - [ ] #1174 fix(security): reference_extractor classifies addresses with ipaddress, and the sandbox local whitelist stops mapping host.docker.internal to pod loopback — Status: New · Priority: P1-High · Value: Medium · Effort: Medium
+- [ ] #1388 fix(ai): the rag index keeps each project's chunks apart, deletes a removed file's points before forgetting it, and refills a project its collection lost — Status: New · Priority: P1-High · Value: High · Effort: High
+- [ ] #1392 feat(k8s): alertmanager posts critical and warning alerts to mattermost's alerts channel, and a roadmap service repository whose rounds all fail for an hour alerts — Status: New · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #1428 fix(ai): the claude provider sends what current Claude models accept, built by the anthropic SDK — Status: New · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #1429 fix(security): cloudflare radar lookups use the documented radar api with the configured token, and a failed lookup is reported as unavailable, never as verified — Status: New · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #1431 fix(k8s): devops k8s logs sends the user's LogQL to Loki unchanged, and the kubectl fallback refuses what it cannot evaluate — Status: New · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #1432 fix(k8s): k8s:// service requests authenticate with the Kubernetes client's own auth settings, and the pod informer watches through the typed list call — Status: New · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #1435 fix(security): the agent scan tools run the scanner adapters and report a missing or failed scan as such, not as clean — Status: New · Priority: P1-High · Value: High · Effort: Medium
+- [ ] #1450 fix(release): the release merge collects the changelog fragments, so a release publishes without a person's pull request — Status: New · Priority: P1-High · Value: High · Effort: Medium
 - [ ] #410 feat(cli): local-path provisioner volume reclaim failures — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #411 feat(cli): output format adoption across the command surface — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
 - [ ] #414 feat(cli): generator-side rule pruning measured against verifier overlap — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
@@ -115,7 +146,6 @@ No items.
 - [ ] #595 feat(cli): measured per-deployment capability probes replacing parameter-count failover floors — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
 - [ ] #596 feat(cli): recovery transitions for adaptive knobs coalesced decrease, valkey breaker, failback — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #598 feat(ai): ollama model residency per-pod model budget, keep-alive, ms/token — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [ ] #602 feat(ai): ai review honours an inline intent marker with a quoted reason — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #603 feat(review): golangci-lint sarif adapter for go in scan and review — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #606 feat(ai): model prompt and reply text kept out of telemetry by default — Status: New · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #617 Checkouts and Worktrees Below Another Repository Resolve to Their Own Repository — Status: New · Priority: P2-Medium · Value: Low · Effort: Medium
@@ -128,8 +158,6 @@ No items.
 - [ ] #694 feat(cli): universal terminal command palette & fuzzy action launcher — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
 - [ ] #711 feat(ai): pinned image tags and bounded shared valkey in the llm stack — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #745 feat(ai): roadmap discovery from advisories, alerts, repo signals and web research (`devops roadmap discover`) — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
-- [ ] #750 fix(review): reference extraction checks the disk once per directory, not once per token — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #773 refactor(ci): one nesting metric module shared by the pre-commit hook and the scanner — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #774 refactor(docs): writing and checking docs consume a generated doc set instead of regenerating it — Status: Ready · Priority: P2-Medium · Value: Low · Effort: Medium
 - [ ] #775 refactor(cli): one process runner owns execution, process groups and dry-run — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
 - [ ] #779 fix(review): the tenacity and async-pool known false positives never fire — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
@@ -143,13 +171,9 @@ No items.
 - [ ] #841 docs(agents): AGENTS.md fits a context budget and Claude Code loads it — Status: Ready · Priority: P2-Medium · Value: High · Effort: High
 - [ ] #848 test(cli): whole-tree import-cycle and interface-layer invariants — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #849 test(cli): suppression comments may not grow unnoticed — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #850 feat(ci): changed-line coverage on pull requests (diff-cover) — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #851 test(cli): retire the tuple-assert mandate and detect opaque tuple asserts and presence-only tests — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [ ] #852 feat(ci): shuffled repeat runs of a pull request's changed test files — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #854 fix(docs): generated reference docs fail closed and describe the real surface — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [ ] #855 test(security): pin the finding fingerprint and run-store digest to literal values — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #856 fix(ai): `devops ai test-gen` stops reporting presence-only tests as synthesized unit tests — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #863 fix(release): release prepare folds [Unreleased] into an existing version section instead of leaving it behind — Status: Ready · Priority: P2-Medium · Value: Low · Effort: Low
 - [ ] #872 fix(review): a dry-run review writes no session directory or findings — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #875 feat(ai): one json repair seam that counts repairs per entry point — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #876 feat(review): cut persona replies are marked, lose their cut finding and are re-chunked — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
@@ -163,8 +187,6 @@ No items.
 - [ ] #890 feat(k8s): alert when pod logs stop reaching loki — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #891 refactor(github): pull request, repository and ssh key calls move from pygithub onto the github session — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: High
 - [ ] #895 fix(ai): web_fetch decodes pages by their BOM and declared charset — Status: Ready · Priority: P2-Medium · Value: Low · Effort: Low
-- [ ] #899 fix(mcp): fastmcp's debug log of tool calls never records argument values — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #965 fix(ci): review workflow tests start the logfire SDK's credential check, which the network guard blocks — Status: New · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #970 fix(telemetry): grafana aggregate lines sum and average the lines shown, read as dashed reference lines, and reach calls in flight — Status: New · Priority: P2-Medium · Value: — · Effort: —
 - [ ] #974 fix(telemetry): project metrics are gauges emitted when devops gh or pr is used, and the velocity dashboard reads the latest snapshot — Status: New · Priority: P2-Medium · Value: — · Effort: —
 - [ ] #988 fix(cli): devops argo workflows logs finds no pod and names no container on a real argo install — Status: New · Priority: P2-Medium · Value: Medium · Effort: Low
@@ -185,16 +207,9 @@ No items.
 - [ ] #1018 fix(review): a finding that cites a removed symbol keeps its mark, the verifier sees the removed lines, and a refutation of it stands — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #1019 fix(ai): the spend ledger records every attempt the gateway failed, including the retry transport's, and its gap to the gateway's count is measured first — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #1020 fix(release): the release pr lists every issue in its release, read through the roadmap store, and stops when the read fails — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #1022 fix(config): the secrets audit never prints a config line it cannot parse, and an unparsable file is not reported clean — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #1024 fix(review): the review's scanner config drops the rules that never produced a valid finding on this repository — Status: Ready · Priority: P2-Medium · Value: Low · Effort: Low
-- [ ] #1036 fix(ai): the durable-run store resolves under the data directory, so tests never write .data/durable_runs.db into the checkout — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #1041 fix(ci): tests render CLI help at the same width locally and in github ci, so the gate catches width-dependent failures — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #1045 fix(security): kube-linter findings carry their own check, message and manifest file, and scan reports keep each one — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #1046 fix(review): review.md says why each finding is unverified and what severity it was raised with, and the profile counts the findings the report holds — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #1051 fix(review): the severity cap for unverified findings does not depend on whether the title happens to hedge — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #1052 fix(review): the devsecops persona does not treat a function parameter as untrusted until it quotes where an untrusted value enters it — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #1053 fix(review): a model verdict that rests on a criterion with no command is not a confirmation — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #1060 fix(k8s): the ollama tier DaemonSets drop privilege escalation and capabilities, use RuntimeDefault seccomp and a read-only root filesystem, and run as non-root where the model directory allows — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #1067 fix(review): `review path --watch` reviews only the files that changed — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #1068 fix(ai): `analyze --enhanced` and `ai agents` use the `ai.tasks.metadata` model — Status: Ready · Priority: P2-Medium · Value: Low · Effort: Low
 - [ ] #1070 fix(ai): sampling settings reach the model or are refused, review sessions record them, and the reply cache key includes them — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
@@ -203,18 +218,12 @@ No items.
 - [ ] #1085 fix(github): a rerun that reverts a stall change counts its own Status write as a person's activity, so a stall descope is quietly undone — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #1090 feat(repos): every clone under repos/ keeps a gitea remote at https://git.<domain> next to origin, created on gitea when missing, with github's main and release branches carried over by devops repos sync — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #1105 fix(release): compact release notes list plain entry titles, and fragments keep one short house shape so a release's notes stay readable — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
-- [ ] #1108 fix(docker): the Docker endpoint check covers the endpoint the SDK dials, including contexts and the TUI, and pushes accept registry ports — Status: Ready · Priority: P2-Medium · Value: High · Effort: Medium
 - [ ] #1110 fix(ai): replies carry their server as an httpx2 origin, so a password in an AI URL stays out of output, the spend ledger, metrics, spans and cache — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [ ] #1111 fix(k8s): service URLs bracket IPv6 hosts, k8s:// addresses reach only their Service, and https probe targets are probed over https — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [ ] #1112 fix(security): URL and host:port reads use the sending client's parser, so key trust, crawls, probes and settings act on the host actually dialled — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #1113 fix(valkey): every Valkey endpoint is one validated URL opened by the Valkey project's GLIDE client, and the hand-written RESP stack is deleted — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: High
-- [ ] #1114 fix(git): GitHub clones trust GitHub's published host keys through OpenSSH, so junk known_hosts lines and a failed key scan no longer skip pinning — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #1116 fix(cli): `devops docker prune` removes stopped containers, unused networks and dangling images instead of failing on every engine — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #1117 feat(docker): container commands find a Podman engine before Docker's default socket, and rootless sandboxes run as the host user — Status: Ready · Priority: P2-Medium · Value: High · Effort: Medium
 - [ ] #1118 fix(github): gh calls no longer stall silently for up to a minute behind a fixed 60-call window, and the unmaintained `ratelimit` package is removed — Status: New · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #1119 chore(deps): actionlint comes from the actionlint project's own digest-pinned image, not a third-party PyPI repackaging — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [ ] #1120 fix(deps): pyproject.toml declares every package src imports, and a deptry step in devops ci keeps it that way — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Medium
-- [ ] #1122 fix(security): the devcontainer no longer starts the git daemon stub meant for argo cd, which served every clone under repos/ without authentication on port 9418 — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #1123 fix(github): the release-start trim and the cap descope pass over an item that a staying item depends on, so the job never keeps an item whose dependency it moved — Status: Ready · Priority: P2-Medium · Value: High · Effort: Medium
 - [ ] #1126 feat(roadmap): the roadmap job tallies each release's joins, descopes and trims by reason, and reports them in its plan and as gauges — Status: Ready · Priority: P2-Medium · Value: High · Effort: Medium
 - [ ] #1127 feat(roadmap): a consolidation job proposes one task for open items that share a root cause or change surface, and a person applies it (`devops roadmap consolidate`) — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
@@ -225,14 +234,67 @@ No items.
 - [ ] #1135 feat(telemetry): traces are stored in tempo on a volume, and grafana and devops-cli read them, linked to logs and profiles — Status: Ready · Priority: P2-Medium · Value: High · Effort: High
 - [ ] #1140 fix(review): a branch review leaves the files it deletes out of persona pages and scanners, and a file a scanner cannot read does not mark the scanner failed — Status: Ready · Priority: P2-Medium · Value: Medium · Effort: Low
 - [ ] #1165 fix(config): service clients use only configured urls and never fall back to an unconfigured localhost default — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1291 feat(k8s): argo cd reads the homelab's private configuration from the in-cluster gitea, and the deploy-time application overrides retire — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1331 test(ai): the remaining ai modules are tested through their public interfaces on edge fakes, and the legacy provider layer leaves src — Status: New · Priority: P2-Medium · Value: High · Effort: High
+- [ ] #1332 test(security): scanner, secret and crypto tests run on the executor, process, http and keyring fakes, and scanners stop looking for mocks — Status: New · Priority: P2-Medium · Value: High · Effort: High
+- [ ] #1333 test(cli): core, config, git, dry-run and http tests run on edge fakes and real git, and no source module keeps a hook for tests to rebind — Status: New · Priority: P2-Medium · Value: High · Effort: High
+- [ ] #1334 test(telemetry): telemetry, server, ui, output and docs tests run on edge fakes, and the dashboard suite splits by behaviour — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
+- [ ] #1335 test(infra): infrastructure and planning-package tests run on edge fakes, and the in-memory roadmap store leaves src as the store fake — Status: New · Priority: P2-Medium · Value: High · Effort: High
+- [ ] #1336 test(cli): the test ratchets become bans, invariant tests merge into subject files, and AGENTS.md defers to TESTING.md — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
+- [ ] #1339 perf(cli): the dashboard's reactive tests run in half today's time and still check every behaviour — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1343 feat(release): a release is cut only after every argo cd application builds at the release head and its live changes are shown — Status: New · Priority: P2-Medium · Value: High · Effort: Medium
+- [ ] #1344 fix(github): pr readiness exempts a chore/open release-process pull request only when it changes release-process files — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1345 feat(github): a release pull request gets a set number of copilot passes, and later review threads become follow-up issues — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1346 fix(release): the release pull request's description is regenerated whenever its release branch changes — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1347 test(cli): swallowed failures may not grow: blind excepts, except-pass, except-continue and unread check=False are held at their ceilings — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1348 docs(agents): an agent that finds an item cannot be built as specified stops and returns it to refinement with evidence, instead of adding code — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1351 fix(ai): a transient rag lookup failure is not cached, so the same query recovers as soon as the backend answers — Status: New · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1352 fix(review): a scanner finding that names a kubernetes object the reviewed commit lacks is rejected as object-not-in-commit — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1353 fix(review): a dependency advisory the base revision's pins already have is listed as pre-existing — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1354 fix(ai): gateway reviews keep requests in flight at the backend slot count, however many ai.ollama_urls are configured — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1356 fix(mcp): an mcp tool stops at its timeout, also when its command runs in-process — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1357 feat(k8s): the sre service dashboard shows warnings and errors in a log panel above all logs, and choosing a pod narrows both — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1359 feat(roadmap): `devops roadmap onboard` checks a repository against what the roadmap jobs need and sets up what is missing — Status: New · Priority: P2-Medium · Value: High · Effort: High
+- [ ] #1365 fix(roadmap): the roadmap service logs each failed job's own error with its repository, and a configuration error without a traceback — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1367 fix(k8s): deploy-stack warns about GPU nodes no Ollama tier accepts, k8s/README.md documents GPU placement, and the gateway's ServiceMonitor moves to the llm stack — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1368 fix(cli): devcontainer auto-deploy reaches the keyring and the Minikube it started, or is dropped for a printed deploy-stack command — Status: New · Priority: P2-Medium · Value: High · Effort: Medium
+- [ ] #1372 fix(github): devops pr check-readiness on a branch with no open pull request exits with a traceback — Status: New · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1373 fix(security): `vault leases` listing and `--renew` do nothing: the lease registry has no producer and lives for one process — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1374 fix(ai): SqliteStepStore raises a bare AssertionError after close() — Status: New · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1376 fix(github): project sync's board lookup and field provisioning fail closed on a failed read — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1386 feat(service): one webhook router verifies each provider its own way, parses a typed payload and delivers each event only to the consumers subscribed to it — Status: New · Priority: P2-Medium · Value: High · Effort: High
+- [ ] #1387 feat(k8s): argo cd reports each application's deploy outcome to the service inside the cluster, and the service records it as a github deployment on the synced commit — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
+- [ ] #1389 feat(rag): the roadmap service keeps a rag index of every managed repository's default branch, updated on each default-branch push and each poll — Status: New · Priority: P2-Medium · Value: High · Effort: High
+- [ ] #1390 feat(k8s): the homelab hosts mattermost, and the cluster's alerts, argo cd deploys and roadmap releases post to its channels — Status: New · Priority: P2-Medium · Value: High · Effort: High
+- [ ] #1391 feat(k8s): mattermost team edition runs under argo cd from the mattermost operator, on a cloudnativepg database and a protected volume, at https://mattermost.<domain> through the tunnel — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
+- [ ] #1393 feat(k8s): argo cd's notifications controller posts the devops application's deploys and every failed sync to mattermost's deploys channel — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1394 feat(roadmap): the roadmap service posts each release cut, ship and start to mattermost's releases channel — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1395 feat(roadmap): a /roadmap slash command in mattermost shows each repository's roadmap service state, answered in-cluster through the service's webhook router — Status: New · Priority: P2-Medium · Value: Medium · Effort: High
+- [ ] #1397 fix(release): an exported GIT_DIR never redirects the release command's push and fetch — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1399 fix(cli): repos sync and branches sync report a failed fetch or pull instead of printing success — Status: New · Priority: P2-Medium · Value: High · Effort: Medium
+- [ ] #1401 perf(roadmap): a Service poll with no event newer than the last round's sends no GraphQL request — Status: New · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1404 fix(roadmap): intake keeps the fields a person set on a card added during its planning, and its refine hook stops swallowing errors — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1409 fix(roadmap): the job clone and the change filter fail closed when the session login lookup fails, instead of falling back to a made-up devops-cli identity — Status: New · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1419 feat(ai): constrain structured replies on the claude, openai and copilot providers — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1420 perf(ai): resolve settings once per LLM request in spend pricing — Status: New · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1421 fix(ai): the context-budget tokenizer downloads its encoding on first use and silently falls back to a heuristic — Status: New · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1425 fix(release): a release pull request's check fails while its release's milestone holds an open item — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1430 fix(review): the review dry run shows the request the model client would send, built by that client — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1433 fix(k8s): argo cd sync honours --prune and --force, rollout promote and abort reach the status subresource, and teardown's argo check fails closed — Status: New · Priority: P2-Medium · Value: High · Effort: Medium
+- [ ] #1434 fix(security): the pluto, popeye, kubeconform, gitleaks and checkov adapters read what those tools actually write — Status: New · Priority: P2-Medium · Value: High · Effort: Medium
+- [ ] #1436 fix(infra): cloudflare access sync reads every page of applications and policies and retries rate-limited requests — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1437 fix(terraform): drift reads state through tofu show -json, so encrypted state and module resources are no longer misreported — Status: New · Priority: P2-Medium · Value: High · Effort: Medium
+- [ ] #1438 fix(k8s): deploy-stack decides helm recovery from helm's json status and adopts existing resources with --take-ownership — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
+- [ ] #1439 fix(security): devops scan sbom is produced by trivy's cyclonedx and spdx writers — Status: New · Priority: P2-Medium · Value: High · Effort: Medium
+- [ ] #1440 fix(git): git output the code parses is read NUL-separated, and git outcomes come from exit codes — Status: New · Priority: P2-Medium · Value: High · Effort: Medium
+- [ ] #1441 fix(github): devops gh rate-limit reads only the free /rate_limit endpoint — Status: New · Priority: P2-Medium · Value: Medium · Effort: Low
+- [ ] #1443 fix(roadmap): an intake placement that fails stops only its own candidate, and the round still reports the failure and exits non-zero — Status: New · Priority: P2-Medium · Value: Medium · Effort: Medium
 - [ ] #409 feat(telemetry): startup dependency ordering for the telemetry stack — Status: New · Priority: P3-Low · Value: Low · Effort: Low
 - [ ] #477 feat(ai): llm gateway tuning cost from real traffic and no-load capacity estimates — Status: New · Priority: P3-Low · Value: Low · Effort: Medium
 - [ ] #479 feat(ai): reasoning budget tuning for the review pool — Status: New · Priority: P3-Low · Value: Low · Effort: Medium
 - [ ] #481 feat(ai): embeddings through the llm gateway, with embedding model evaluation — Status: New · Priority: P3-Low · Value: Low · Effort: Medium
 - [ ] #541 contradict-documented-default cannot be judged without the code it contradicts — Status: New · Priority: P3-Low · Value: Low · Effort: Low
-- [ ] #695 feat(mcp): fastmcp tui management tools & dynamic dashboard resources — Status: New · Priority: P3-Low · Value: Low · Effort: Medium
 - [ ] #776 refactor(config): single-use constants live with their consumer and the config barrel goes — Status: New · Priority: P3-Low · Value: Low · Effort: Medium
-- [ ] #798 fix(security): the host sandbox declares a noexec /tmp it never applies — Status: New · Priority: P3-Low · Value: Low · Effort: Low
 - [ ] #805 feat(github): release board view in the dashboard's github tab (current-release items by board status) — Status: Ready · Priority: P3-Low · Value: Medium · Effort: Medium
 - [ ] #807 feat(k8s): node capacity and GPU allocation in the dashboard's Kubernetes tab — Status: Ready · Priority: P3-Low · Value: Medium · Effort: Medium
 - [ ] #808 feat(k8s): pod manifest view with masked env values in the dashboard — Status: Ready · Priority: P3-Low · Value: Low · Effort: Low
@@ -244,10 +306,8 @@ No items.
 - [ ] #817 feat(rag): embedding-cache hits and misses as counters — Status: Ready · Priority: P3-Low · Value: Low · Effort: Low
 - [ ] #821 feat(k8s): gpu throttling, power limit, pcie and allocation panels over captured dcgm and kube-state-metrics series — Status: New · Priority: P3-Low · Value: Low · Effort: Medium
 - [ ] #822 feat(k8s): coredns metrics and a coredns dashboard — Status: Ready · Priority: P3-Low · Value: Low · Effort: Medium
-- [ ] #853 feat(ci): on-demand mutation testing of changed functions (`devops ci mutate`) — Status: Ready · Priority: P3-Low · Value: Low · Effort: Medium
 - [ ] #870 feat(review): order-swap probe for verification verdicts — Status: Ready · Priority: P3-Low · Value: Low · Effort: Medium
 - [ ] #881 chore(docs): remove docs/RELEASE_NOTES.md and `devops docs compact` — Status: Ready · Priority: P3-Low · Value: Low · Effort: Low
-- [ ] #884 fix(ci): coverage index treats module-level and import-time changes as unindexed — Status: Ready · Priority: P3-Low · Value: Medium · Effort: Medium
 - [ ] #886 feat(cli): commands with no dry-run preview: read-only ones run, mutators gain one — Status: New · Priority: P3-Low · Value: Medium · Effort: High
 - [ ] #889 fix(security): secret masking tells code from literals by the file's syntax, not by receiver names — Status: Ready · Priority: P3-Low · Value: Low · Effort: Medium
 - [ ] #909 test(ai): the gateway sweep script imports only the standard library — Status: Ready · Priority: P3-Low · Value: Low · Effort: Low
@@ -271,3 +331,7 @@ No items.
 - [ ] #1086 test(github): the roadmap lifecycle machine reaches a ship or cut that lands while a stopped run waits — Status: New · Priority: P3-Low · Value: Low · Effort: Low
 - [ ] #1121 refactor(ai): the durable resolver offers only the engines that work, and the unread `ai.durable` settings are removed — Status: New · Priority: P3-Low · Value: Low · Effort: Low
 - [ ] #1136 fix(k8s): the kubernetes, node and ingress dashboards query only series something serves, checked against captured exporter families and the chart allow lists — Status: Ready · Priority: P3-Low · Value: Medium · Effort: Medium
+- [ ] #1303 docs(agent): pending-a-person steps name only manifests that exist in the repository — Status: New · Priority: P3-Low · Value: — · Effort: —
+- [ ] #1350 fix(github): the commit-status read fails closed when the runner raises, and check_verdict no longer swallows StopIteration from under-scripted test mocks — Status: New · Priority: P3-Low · Value: Medium · Effort: Low
+- [ ] #1418 fix(telemetry): building the tracer starts uname -p through platform.platform(), so tests fail when they run first in their process — Status: New · Priority: — · Value: — · Effort: —
+- [ ] #1427 fix(ai): the openai provider without ai.api_base_url calls the OpenAI API's /v1 routes, built by the openai SDK — Status: New · Priority: — · Value: High · Effort: —

@@ -1,4 +1,9 @@
-"""GitHub Projects v2 declarative template schemas, view definitions, and task tracking sync."""
+"""GitHub Projects v2: the board template, its views, and reconciling Status and Priority on its cards.
+
+Neither `devops gh project sync` nor `devops gh project reconcile` adds a card: intake
+(`devops roadmap intake`) is the one way an issue reaches the board, and a pull request gets no
+card, its progress showing on its issue's (#892).
+"""
 
 from __future__ import annotations
 
@@ -7,19 +12,23 @@ import logging
 import re
 import subprocess
 from collections.abc import Collection, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.constants import CONST_GH_CLI, CONST_PROJECT_TEMPLATE_PATH
 from devops_cli.config.defaults import (
     DEFAULT_GH_CACHE_TTL_SECONDS,
-    DEFAULT_GH_GRAPHQL_SAFETY_THRESHOLD,
+    DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
     DEFAULT_GH_MAX_PAGINATED_PAGES,
     DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC,
+    DEFAULT_GH_PROJECT_ITEM_PAGE_POINTS,
     DEFAULT_GH_PROJECT_OPTION_COLOR,
 )
+from devops_cli.core.repo import find_repo_root
+from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.github.client import parse_paginated_json
 from devops_cli.github.rate_limiter import (
@@ -27,12 +36,19 @@ from devops_cli.github.rate_limiter import (
     get_github_rate_limiter,
     run_gh,
 )
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.board_read import (
+    BoardBudgetPayload,
     BoardItemsPage,
     GraphQLBudget,
+    board_budget_args,
     board_items_args,
+    read_cost,
+    require_budget,
     require_floor,
+    utc_clock,
 )
+from devops_cli.roadmap.store import ItemField, require_option
 
 logger = logging.getLogger(__name__)
 
@@ -86,16 +102,8 @@ class ProjectTemplate(BaseModel):
     views: list[ProjectView] = Field(default_factory=list)
 
 
-class ProjectItem(BaseModel):
-    """Item or card in a GitHub Projects v2 board."""
-
-    title: str
-    status: str = "Backlog"
-    priority: str | None = None
-
-
 class MutationBudget:
-    """Tracks and bounds the aggregate count of GraphQL write mutations across sync phases."""
+    """Bounds the card field writes one reconcile run makes (`DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC`)."""
 
     def __init__(self, limit: int = DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC) -> None:
         self.limit = max(0, limit)
@@ -116,194 +124,31 @@ class MutationBudget:
         return True
 
 
-def load_project_template(
-    template_path: Path = Path(".github/project-template.json"),
-) -> ProjectTemplate:
+def project_template_path(template_path: Path | None = None) -> Path:
+    """The template file given, or `.github/project-template.json` at the root of the checkout
+    the command runs in, from any of its subdirectories (#1010)."""
+    return template_path or find_repo_root() / CONST_PROJECT_TEMPLATE_PATH
+
+
+def load_project_template(template_path: Path | None = None) -> ProjectTemplate:
     """Load and validate declarative GitHub Projects v2 template from JSON."""
-    if not template_path.is_file():
+    path = project_template_path(template_path)
+    if not path.is_file():
         raise GitHubOperationError(
-            f"Project template file not found: {template_path}",
+            f"Project template file not found: {path}",
             operation="load_project_template",
-            details={"path": str(template_path)},
+            details={"path": str(path)},
         )
 
     try:
-        content = template_path.read_text(encoding="utf-8")
+        content = path.read_text(encoding="utf-8")
         return ProjectTemplate.model_validate_json(content)
     except Exception as exc:
         raise GitHubOperationError(
-            f"Failed to load project template {template_path}: {exc}",
+            f"Failed to load project template {path}: {exc}",
             operation="load_project_template",
-            details={"path": str(template_path), "error": str(exc)},
+            details={"path": str(path), "error": str(exc)},
         ) from exc
-
-
-def _determine_section_status(heading: str) -> str | None:
-    """Map a task markdown section heading to a standardized project status.
-
-    Task files carry no review state: a project card takes `In Review` from the pull request
-    that closes its issue (`plan_item_changes`), never from the file.
-    """
-    clean = heading.lower().replace("-", " ")
-    if "completed" in clean or "done" in clean:
-        return "Done"
-    if "in progress" in clean or "wip" in clean:
-        return "In Progress"
-    if "pending" in clean or "backlog" in clean:
-        return "Backlog"
-    if "ready" in clean:
-        return "Ready"
-    return None
-
-
-def _is_task_markdown(path: Path) -> bool:
-    """Check whether path is an active task markdown file (excluding READMEs and archives)."""
-    return (
-        path.is_file()
-        and not path.is_symlink()
-        and path.name != "README.md"
-        and "archive" not in path.parts
-        and not path.name.startswith("archive")
-    )
-
-
-def _find_active_task_files_in_dir(task_dir: Path) -> list[Path]:
-    """Find all active task markdown files in a directory, falling back to README.md if present."""
-    active_files = [p for p in sorted(task_dir.glob("**/*.md")) if _is_task_markdown(p)]
-    if active_files:
-        return active_files
-    readme = task_dir / "README.md"
-    return [readme] if readme.is_file() and not readme.is_symlink() else []
-
-
-def _resolve_default_task_fallbacks(task_path: Path) -> list[Path] | None:
-    """Resolve standard fallback locations when default task path is requested."""
-    if task_path != Path("docs/agent/tasks"):
-        return None
-    tasks_dir = Path("docs/agent/tasks")
-    if tasks_dir.is_dir():
-        files = _find_active_task_files_in_dir(tasks_dir)
-        if files:
-            return files
-    return None
-
-
-def _resolve_task_files(task_path: Path) -> list[Path]:
-    """Resolve task_path (file or directory) to a list of existing markdown task files."""
-    from devops_cli.core.paths import validate_no_path_traversal
-
-    validate_no_path_traversal(task_path, label="Task path")
-    if task_path.is_dir():
-        return _find_active_task_files_in_dir(task_path)
-
-    if task_path.is_file() and not task_path.is_symlink():
-        return [task_path]
-
-    fallback = _resolve_default_task_fallbacks(task_path)
-    if fallback:
-        return fallback
-
-    raise GitHubOperationError(
-        f"Task path not found: {task_path}",
-        operation="parse_tasks_to_project_items",
-        details={"path": str(task_path)},
-    )
-
-
-_HEADING_REGEX = re.compile(r"^#{1,4}\s+(.+)$")
-_ITEM_REGEX = re.compile(r"^\s*[-*]\s+\[([ xX])\]\s+(.+)$")
-_STATUS_META_REGEX = re.compile(r"^(?:\*\*status\*\*|status)\s*:\s*(\w[\w\s-]+)", re.IGNORECASE)
-
-
-def _extract_line_status(line: str) -> str | None:
-    """Extract updated status from heading or metadata key in task markdown."""
-    h_match = _HEADING_REGEX.match(line)
-    if h_match:
-        return _determine_section_status(h_match.group(1))
-    s_match = _STATUS_META_REGEX.match(line)
-    if s_match:
-        return _determine_section_status(s_match.group(1))
-    return None
-
-
-def _parse_checklist_items(lines: list[str]) -> list[ProjectItem]:
-    """Parse checkbox items from markdown lines with current section status."""
-    items: list[ProjectItem] = []
-    current_status = "Backlog"
-
-    for line in lines:
-        stripped = line.strip()
-        status = _extract_line_status(stripped)
-        if status:
-            current_status = status
-            continue
-
-        item_match = _ITEM_REGEX.match(stripped)
-        if item_match:
-            title = item_match.group(2).strip()
-            item_status = "Done" if item_match.group(1).lower() == "x" else current_status
-            items.append(ProjectItem(title=title, status=item_status))
-
-    return items
-
-
-def _parse_standalone_task_metadata(lines: list[str]) -> ProjectItem | None:
-    """Parse single task item from a markdown document without checklist items."""
-    title: str | None = None
-    file_status = "Backlog"
-
-    for line in lines:
-        stripped = line.strip()
-        if not title:
-            h_match = _HEADING_REGEX.match(stripped)
-            if h_match and not any(
-                kw in stripped.lower() for kw in ("readme", "tracking", "tasks")
-            ):
-                raw = h_match.group(1).strip()
-                title = re.sub(r"^task:\s*", "", raw, flags=re.IGNORECASE)
-        status_match = re.search(
-            r"(?:status|\*\*status\*\*)\s*:\s*(\w[\w\s-]+)", stripped, re.IGNORECASE
-        )
-        if status_match:
-            parsed_status = _determine_section_status(status_match.group(1))
-            if parsed_status:
-                file_status = parsed_status
-
-    return ProjectItem(title=title, status=file_status) if title else None
-
-
-def _parse_single_task_file(file_path: Path) -> list[ProjectItem]:
-    """Parse tasks from a single markdown task document."""
-    lines = file_path.read_text(encoding="utf-8").splitlines()
-    items = _parse_checklist_items(lines)
-    if items:
-        return items
-    standalone = _parse_standalone_task_metadata(lines)
-    return [standalone] if standalone else []
-
-
-def parse_tasks_to_project_items(
-    task_path: Path = Path("docs/agent/tasks"),
-) -> list[ProjectItem]:
-    """Parse tasks from markdown task tracking directory or document into ProjectItem models."""
-    resolved_files = _resolve_task_files(task_path)
-    items: list[ProjectItem] = []
-    for f in resolved_files:
-        items.extend(_parse_single_task_file(f))
-    return items
-
-
-class ProjectSyncResult(BaseModel):
-    """Result of a GitHub Projects v2 synchronization operation."""
-
-    project_number: int | None = None
-    project_title: str
-    owner: str
-    repo: str
-    fields_provisioned: list[str] = Field(default_factory=list)
-    items_synced: int = 0
-    dry_run: bool = False
-    linked: bool = False
 
 
 def check_github_rate_limit_error(output: str, operation: str = "github_operation") -> None:
@@ -368,11 +213,47 @@ def _find_project_in_list(projects: list[Any], target: str) -> dict[str, Any] | 
     return None
 
 
+# The argument builders below are what the reads run and what `reconcile_dry_run` lists, so the
+# request plan cannot drift from the run.
+_USER_LOGIN_ARGS: tuple[str, ...] = ("api", "user", "--jq", ".login")
+_OWNER_BOARD_ENDPOINTS: tuple[str, ...] = ("users/{owner}/projectsV2", "orgs/{owner}/projectsV2")
+_REPOSITORY_BOARDS_QUERY = (
+    "query($owner: String!, $repo: String!) { "
+    "repository(owner: $owner, name: $repo) { "
+    "projectsV2(first: 20) { nodes { number title id url } } } }"
+)
+
+
+def _owner_boards_args(endpoint: str, owner: str) -> list[str]:
+    """The REST read of `owner`'s boards from one of `_OWNER_BOARD_ENDPOINTS`."""
+    return ["api", endpoint.format(owner=owner), "-H", "Accept: application/vnd.github+json"]
+
+
+def _project_list_args(owner_arg: str) -> list[str]:
+    """`gh project list` of `owner_arg`'s boards."""
+    return ["project", "list", "--owner", owner_arg, "--format", "json"]
+
+
+def _repository_boards_args(owner: str, repo: str) -> list[str]:
+    """The GraphQL read of the boards linked to `repo`."""
+    clean_repo = repo.split("/")[-1] if "/" in repo else repo
+    clean_owner = owner.split("/")[0] if "/" in owner else owner
+    return [
+        "api",
+        "graphql",
+        "-f",
+        f"query={_REPOSITORY_BOARDS_QUERY}",
+        "-F",
+        f"owner={clean_owner}",
+        "-F",
+        f"repo={clean_repo}",
+    ]
+
+
 def _find_project_via_rest(owner: str, name_or_short: str) -> dict[str, Any] | None:
     """Attempt to locate a remote project via GitHub REST API."""
-    for endpoint in (f"users/{owner}/projectsV2", f"orgs/{owner}/projectsV2"):
-        cmd = [CONST_GH_CLI, "api", endpoint, "-H", "Accept: application/vnd.github+json"]
-        proc = run_gh(cmd, check=False, quiet=True)
+    for endpoint in _OWNER_BOARD_ENDPOINTS:
+        proc = run_gh([CONST_GH_CLI, *_owner_boards_args(endpoint, owner)], check=False, quiet=True)
         if proc.returncode != 0 or not proc.stdout.strip():
             continue
         data = extract_json_payload(proc.stdout)
@@ -392,7 +273,7 @@ def _get_authenticated_user() -> str | None:
     global _CURRENT_USER_CACHE
     if _CURRENT_USER_CACHE is not None:
         return _CURRENT_USER_CACHE
-    proc = run_gh([CONST_GH_CLI, "api", "user", "--jq", ".login"], check=False, quiet=True)
+    proc = run_gh([CONST_GH_CLI, *_USER_LOGIN_ARGS], check=False, quiet=True)
     if proc.returncode == 0 and proc.stdout.strip():
         _CURRENT_USER_CACHE = proc.stdout.strip().lower()
         return _CURRENT_USER_CACHE
@@ -435,10 +316,7 @@ def _run_project_cli(
 def _find_project_via_cli(owner: str, name_or_short: str) -> dict[str, Any] | None:
     """Fallback to searching projects via gh project list CLI."""
     owner_arg = _resolve_project_owner_arg(owner)
-    proc = _run_project_cli(
-        [CONST_GH_CLI, "project", "list", "--owner", owner_arg, "--format", "json"],
-        owner_arg=owner_arg,
-    )
+    proc = _run_project_cli([CONST_GH_CLI, *_project_list_args(owner_arg)], owner_arg=owner_arg)
     if proc.returncode != 0:
         err = f"{proc.stderr or ''} {proc.stdout or ''}"
         check_github_rate_limit_error(err, operation="find_remote_project")
@@ -454,28 +332,7 @@ def _find_project_via_cli(owner: str, name_or_short: str) -> dict[str, Any] | No
 
 def _find_project_via_repo(owner: str, repo: str, name_or_short: str) -> dict[str, Any] | None:
     """Locate an existing remote project linked to the target repository."""
-    clean_repo = repo.split("/")[-1] if "/" in repo else repo
-    clean_owner = owner.split("/")[0] if "/" in owner else owner
-    query = (
-        "query($owner: String!, $repo: String!) { "
-        "repository(owner: $owner, name: $repo) { "
-        "projectsV2(first: 20) { nodes { number title id url } } } }"
-    )
-    proc = run_gh(
-        [
-            CONST_GH_CLI,
-            "api",
-            "graphql",
-            "-f",
-            f"query={query}",
-            "-F",
-            f"owner={clean_owner}",
-            "-F",
-            f"repo={clean_repo}",
-        ],
-        check=False,
-        quiet=True,
-    )
+    proc = run_gh([CONST_GH_CLI, *_repository_boards_args(owner, repo)], check=False, quiet=True)
     if proc.returncode != 0 or not proc.stdout.strip():
         return None
     data = extract_json_payload(proc.stdout)
@@ -496,6 +353,20 @@ def find_remote_project(
     return _find_project_via_rest(owner, name_or_short) or _find_project_via_cli(
         owner, name_or_short
     )
+
+
+def find_project_by_template(owner: str, repo: str, template: ProjectTemplate) -> int | None:
+    """The number of `owner`'s board named as `template` names it, by title, then short name."""
+    for name in _template_names(template):
+        matched = find_remote_project(owner, name, repo=repo)
+        if matched and matched.get("number"):
+            return int(matched["number"])
+    return None
+
+
+def _template_names(template: ProjectTemplate) -> list[str]:
+    """The names a board made from `template` goes by: its title, then its short name."""
+    return [template.name, *([template.short_name] if template.short_name else [])]
 
 
 def create_remote_project(owner: str, title: str) -> dict[str, Any]:
@@ -718,93 +589,161 @@ def _extract_item_fields(it: dict[str, Any]) -> dict[str, str | None]:
     }
 
 
-def _fetch_project_items_data(owner: str, project_number: int) -> dict[str, dict[str, str | None]]:
-    """Retrieve items and current custom field values from the project board.
-
-    The board is read with the roadmap store's paged GraphQL query (#1125), every item not
-    archived, a page at a time; each page reports the points it cost, which `run_gh` charges,
-    and the read stops before a page while fewer than the floor are left. `gh project
-    item-list` paged the board unseen and reported no cost. Raises when the board cannot be
-    read whole, so a failed read never looks like an empty board.
-    """
+def _project_login(owner: str) -> str:
+    """The login a board read names its owner by; `@me` is the signed-in user's."""
     login = owner.strip()
-    if login == "@me":
-        login = _get_authenticated_user() or login
+    return (_get_authenticated_user() or login) if login == "@me" else login
+
+
+def _read_failure(proc: subprocess.CompletedProcess[str], what: str, operation: str) -> Exception:
+    """The error a read of `what` that exited non-zero raises: the rate limit's when its output
+    names one."""
+    err_output = f"{proc.stderr or ''} {proc.stdout or ''}".strip()
+    check_github_rate_limit_error(err_output, operation=operation)
+    return GitHubOperationError(
+        f"Failed to read {what} (exit {proc.returncode}): {err_output[:256]}",
+        operation=operation,
+        details={"read": what[:256]},
+    )
+
+
+def _gh_read[Payload: BaseModel](
+    args: list[str], model: type[Payload], what: str, operation: str = "fetch_project_items"
+) -> Payload:
+    """One read through `run_gh`, which charges a GraphQL reply the points its `rateLimit`
+    reports; raises when GitHub can't be read or answers malformed."""
+    proc = run_gh([CONST_GH_CLI, *args], check=False, quiet=True, use_cache=False)
+    if proc.returncode != 0:
+        raise _read_failure(proc, what, operation)
+    try:
+        return model.model_validate_json(proc.stdout or "")
+    except ValueError as exc:
+        raise GitHubOperationError(
+            f"GitHub returned malformed {what}: {str(exc)[:256]}",
+            operation=operation,
+            details={"read": what[:256]},
+        ) from exc
+
+
+def _read_board(login: str, project_number: int) -> dict[str, dict[str, str | None]]:
+    """Every card on the board not archived, by its issue or pull request URL, with its fields.
+
+    The read starts with the roadmap store's budget query (#1125), whose reply reports GraphQL's
+    own count of the points left: a read that would leave fewer than the floor refuses there,
+    having spent nothing on pages. When the ledger holds no GraphQL entry, or one past its
+    reset, `run_gh` refreshes it before sending the query, so an unknown quota is read rather
+    than taken as spent. The board is then read a page at a time, each page charging the points
+    it cost, and the read stops before a page while fewer than the floor are left. Raises when
+    the board cannot be read whole, so a failed read never looks like an empty board.
+    """
     what = f"project #{project_number} items"
+    probe = _gh_read(
+        board_budget_args(login, project_number, ""),
+        BoardBudgetPayload,
+        MESSAGES.project.budget_read.format(what=what),
+    )
+    require_budget(
+        probe.rate_limit,
+        read_cost(probe.items.total_count, DEFAULT_GH_PROJECT_ITEM_PAGE_POINTS),
+        what,
+    )
     listing: dict[str, dict[str, Any]] = {}
-    total = 0
+    total = probe.items.total_count
     after: str | None = None
-    budget: GraphQLBudget | None = None
+    budget: GraphQLBudget = probe.rate_limit
     for page in range(1, DEFAULT_GH_MAX_PAGINATED_PAGES + 1):
-        if budget is not None:
+        if page > 1:
             require_floor(budget, what, page)
-        read = _read_project_items_page(login, project_number, after)
+        read = _gh_read(
+            board_items_args(login, project_number, "", after=after), BoardItemsPage, what
+        )
         budget = read.rate_limit
         total = read.items.total_count
         listing.update((entry["id"], entry) for entry in read.listed())
         after = read.next_cursor()
         if after is None:
             break
-    if after is not None or len(listing) < total:
-        raise GitHubOperationError(
-            f"Read {len(listing)} of {total} {what}, so the read is incomplete.",
-            operation="fetch_project_items",
-            details={"project_number": project_number, "received": len(listing), "total": total},
-        )
-    items_data: dict[str, dict[str, str | None]] = {}
-    for entry in listing.values():
-        url = _extract_item_url(entry)
-        if url:
-            items_data[url] = _extract_item_fields(entry)
-    return items_data
-
-
-def _read_project_items_page(owner: str, project_number: int, after: str | None) -> BoardItemsPage:
-    """One page of the board's items, raising when GitHub can't be read or answers malformed."""
-    args = board_items_args(owner, project_number, "", after=after)
-    proc = run_gh([CONST_GH_CLI, *args], check=False, quiet=True, use_cache=False)
-    if proc.returncode == 0:
-        try:
-            return BoardItemsPage.model_validate_json(proc.stdout or "")
-        except ValueError as exc:
-            raise GitHubOperationError(
-                f"GitHub returned malformed project #{project_number} items: {str(exc)[:256]}",
-                operation="fetch_project_items",
-                details={"project_number": project_number},
-            ) from exc
-    err_output = f"{proc.stderr or ''} {proc.stdout or ''}".strip()
-    check_github_rate_limit_error(err_output, operation="fetch_project_items")
-    raise GitHubOperationError(
-        f"Failed to read project #{project_number} items (exit {proc.returncode}): {err_output[:256]}",
-        operation="fetch_project_items",
-        details={"project_number": project_number},
+    _require_whole(
+        project_number,
+        len(listing),
+        total,
+        what,
+        "fetch_project_items",
+        incomplete=after is not None,
     )
+    return {
+        url: _extract_item_fields(entry)
+        for entry in listing.values()
+        if (url := _extract_item_url(entry))
+    }
+
+
+def _require_whole(
+    project_number: int,
+    received: int,
+    total: int,
+    what: str,
+    operation: str,
+    *,
+    incomplete: bool = False,
+) -> None:
+    """Raise when a read of `what` got fewer than its `total`, or stopped with a page left, so
+    a partial read never looks whole."""
+    if incomplete or received < total:
+        raise GitHubOperationError(
+            f"Read {received} of {total} {what}, so the read is incomplete.",
+            operation=operation,
+            details={"project_number": project_number, "received": received, "total": total},
+        )
+
+
+def _read_field_options(login: str, project_number: int) -> dict[str, tuple[str, ...]]:
+    """The board's own fields' options by field name, which are the values a write can set.
+
+    Raises when the fields can't be read whole or the board has no Status options, so an unread
+    field never lets every unset card default to New over its `status/*` label.
+    """
+    from devops_cli.roadmap.github_store import FieldListingPayload, field_list_args
+
+    what = f"project #{project_number} fields"
+    listing = _gh_read(
+        field_list_args(login, project_number), FieldListingPayload, what, "fetch_project_fields"
+    )
+    _require_whole(
+        project_number, len(listing.fields), listing.total_count, what, "fetch_project_fields"
+    )
+    options = listing.options()
+    if not options.get(ItemField.STATUS):
+        raise GitHubOperationError(
+            MESSAGES.project.no_status_options.format(number=project_number),
+            operation="fetch_project_fields",
+            details={"project_number": project_number},
+        )
+    return options
+
+
+def _repository_list_args(repo: str, kind: str, state: str) -> list[str]:
+    """Every page of `repo`'s issues or pull requests in `state`, as one `gh api --paginate`."""
+    return [
+        "api",
+        "--paginate",
+        f"repos/{repo}/{kind}?state={state}&per_page=100",
+        "-H",
+        "Accept: application/vnd.github+json",
+    ]
 
 
 def _fetch_repository_list(repo: str, kind: str, state: str) -> list[dict[str, Any]]:
     """Fetch every page of a repository's issues or pull requests, raising if GitHub can't be read."""
     res = run_gh(
-        [
-            CONST_GH_CLI,
-            "api",
-            "--paginate",
-            f"repos/{repo}/{kind}?state={state}&per_page=100",
-            "-H",
-            "Accept: application/vnd.github+json",
-        ],
+        [CONST_GH_CLI, *_repository_list_args(repo, kind, state)],
         check=False,
         quiet=True,
         use_cache=True,
         cache_ttl=DEFAULT_GH_CACHE_TTL_SECONDS,
     )
     if res.returncode != 0:
-        err_output = f"{res.stderr or ''} {res.stdout or ''}".strip()
-        check_github_rate_limit_error(err_output, operation=f"fetch_{kind}")
-        raise GitHubOperationError(
-            f"Failed to read {kind} for {repo} (exit {res.returncode}): {err_output[:256]}",
-            operation=f"fetch_{kind}",
-            details={"repo": repo, "state": state},
-        )
+        raise _read_failure(res, f"{kind} for {repo}", f"fetch_{kind}")
     return parse_paginated_json(res.stdout or "")
 
 
@@ -817,75 +756,6 @@ def _fetch_repository_issues(repo: str, state: str = "open") -> list[dict[str, A
     return [it for it in _fetch_repository_list(repo, "issues", state) if "pull_request" not in it]
 
 
-def _add_project_item_with_fallback(
-    owner_arg: str,
-    project_number: int,
-    url: str,
-) -> bool:
-    """Add item to project via CLI with owner fallback."""
-    cmd = [
-        CONST_GH_CLI,
-        "project",
-        "item-add",
-        str(project_number),
-        "--owner",
-        owner_arg,
-        "--url",
-        url,
-    ]
-    proc = _run_project_cli(cmd, owner_arg=owner_arg)
-    return proc.returncode == 0
-
-
-def _sync_single_issue_item(
-    owner_arg: str,
-    project_number: int,
-    iss: dict[str, Any],
-    existing_urls: set[str],
-    budget: MutationBudget,
-) -> bool:
-    """Add a single issue to project if not already present."""
-    url = iss.get("html_url") or iss.get("url")
-    if not url or url in existing_urls:
-        return False
-    if _add_project_item_with_fallback(owner_arg, project_number, url):
-        existing_urls.add(url)
-        budget.record_mutation()
-        return True
-    return False
-
-
-def sync_repository_issues_to_project(
-    owner: str,
-    repo: str,
-    project_number: int,
-    dry_run: bool = False,
-    state: str = "open",
-    budget: MutationBudget | None = None,
-) -> int:
-    """Synchronize open and active repository issues to the project board."""
-    if dry_run or _is_graphql_quota_exhausted():
-        return 0
-
-    mutation_budget = budget or MutationBudget(limit=DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC)
-    owner_arg = _resolve_project_owner_arg(owner)
-    existing_items = _fetch_project_items_data(owner, project_number)
-    existing_urls = set(existing_items.keys())
-    issues = _fetch_repository_issues(repo, state=state)
-    added = 0
-
-    for iss in issues:
-        if mutation_budget.is_exhausted or _is_graphql_quota_exhausted():
-            logger.warning(
-                "GraphQL quota critically low or reached mutation budget. Halting issue sync."
-            )
-            break
-        if _sync_single_issue_item(owner_arg, project_number, iss, existing_urls, mutation_budget):
-            added += 1
-
-    return added
-
-
 class FieldChange(BaseModel):
     """One board field change that reconcile plans or makes, and what decided it."""
 
@@ -894,6 +764,11 @@ class FieldChange(BaseModel):
     old: str | None
     new: str
     source: str
+
+    @property
+    def item(self) -> str:
+        """The item as a change table names it: `#` and its number."""
+        return "#" + self.url.rstrip("/").rsplit("/", 1)[-1]
 
 
 # Labels match exactly: `status/ready-to-merge` is not `status/ready`.
@@ -994,80 +869,6 @@ def _fetch_repository_prs(repo: str, state: str = "open") -> list[dict[str, Any]
     return _fetch_repository_list(repo, "pulls", state)
 
 
-def _edit_project_item_field(
-    owner: str, project_number: int, url: str, field_name: str, field_val: str
-) -> bool:
-    """Update a single custom field value on a project item."""
-    owner_arg = _resolve_project_owner_arg(owner)
-    edit_cmd = [
-        CONST_GH_CLI,
-        "project",
-        "item-edit",
-        str(project_number),
-        "--owner",
-        owner_arg,
-        "--url",
-        url,
-        "--field",
-        field_name,
-        "--value",
-        field_val,
-    ]
-    proc = _run_project_cli(edit_cmd, owner_arg=owner_arg, check=False, quiet=True)
-    return proc.returncode == 0
-
-
-def _reconcile_single_item(
-    owner: str,
-    project_number: int,
-    item: dict[str, Any],
-    dry_run: bool,
-    has_open_pr: bool = False,
-    current_fields: Mapping[str, str | None] | None = None,
-    budget: MutationBudget | None = None,
-    status_options: Collection[str] = (),
-) -> list[FieldChange]:
-    """Plan an item's field changes and, unless dry-running, apply them.
-
-    Returns the planned changes in a dry run, and the changes actually applied otherwise.
-    """
-    if not (item.get("html_url") or item.get("url")):
-        return []
-    changes = plan_item_changes(
-        item,
-        current_fields or {},
-        has_open_pr=has_open_pr,
-        status_options=status_options,
-    )
-    if dry_run or not changes:
-        return changes
-    return _apply_field_updates(owner, project_number, changes, current_fields, budget=budget)
-
-
-def _apply_field_updates(
-    owner: str,
-    project_number: int,
-    changes: list[FieldChange],
-    current_fields: Mapping[str, str | None] | None,
-    budget: MutationBudget | None = None,
-) -> list[FieldChange]:
-    """Apply field changes via gh project CLI, stopping early if quota runs out."""
-    applied: list[FieldChange] = []
-    for change in changes:
-        if (budget is not None and budget.is_exhausted) or _is_graphql_quota_exhausted():
-            logger.warning(
-                "GraphQL quota critically low or reached mutation budget. Halting field update."
-            )
-            break
-        if _edit_project_item_field(owner, project_number, change.url, change.field, change.new):
-            applied.append(change)
-            if budget is not None:
-                budget.record_mutation()
-            if isinstance(current_fields, dict):
-                current_fields[change.field.lower()] = change.new
-    return applied
-
-
 def _extract_linked_issue_numbers(prs: list[dict[str, Any]]) -> set[int]:
     """Extract linked issue numbers from open pull requests."""
     linked_numbers: set[int] = set()
@@ -1091,217 +892,376 @@ def _extract_linked_issue_numbers(prs: list[dict[str, Any]]) -> set[int]:
     return linked_numbers
 
 
-def _is_graphql_quota_exhausted(
-    threshold: int = DEFAULT_GH_GRAPHQL_SAFETY_THRESHOLD,
-) -> bool:
-    """Check if the tracked GraphQL quota is below safety threshold or unknown."""
-    limiter = get_github_rate_limiter()
-    quota = limiter.get_quota("graphql")
-    if quota.remaining is None or not quota.is_valid():
-        return True
-    return quota.remaining < threshold
+ReconcileMode = Literal["dry-run", "plan", "write"]
+"""`dry-run` makes no request and lists the requests a run makes; `plan` reads the board and the
+repository and lists the changes; `write` makes them."""
 
 
-def _provision_missing_candidates(
-    owner: str,
-    project_number: int,
-    candidates: list[dict[str, Any]],
-    items_data: dict[str, dict[str, str | None]],
-    budget: MutationBudget | None = None,
-) -> None:
-    """Add any missing candidate issues/PRs to the remote project board."""
-    owner_arg = _resolve_project_owner_arg(owner)
-    existing_urls = set(items_data.keys())
-    mutation_budget = budget or MutationBudget(limit=DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC)
-    for it in candidates:
-        if mutation_budget.is_exhausted or _is_graphql_quota_exhausted():
-            logger.warning(
-                "GraphQL quota critically low or reached mutation budget. Halting candidate provisioning."
-            )
-            break
-        url = it.get("html_url") or it.get("url")
-        if (
-            url
-            and url not in existing_urls
-            and _add_project_item_with_fallback(owner_arg, project_number, url)
-        ):
-            existing_urls.add(url)
-            items_data[url] = {}
-            mutation_budget.record_mutation()
+class ReconcileResult(BaseModel):
+    """What a reconcile run planned and made, what it left, and why it stopped early.
 
+    Changes are applied in the order planned and the run stops at the first it can't make, so
+    the planned changes are always the applied ones followed by the remaining ones.
+    """
 
-def _can_continue_reconciliation(
-    dry_run: bool,
-    budget: MutationBudget | None = None,
-) -> bool:
-    """Predicate determining if candidate reconciliation may continue."""
-    if dry_run:
-        return True
-    if _is_graphql_quota_exhausted():
-        logger.warning("GraphQL quota critically low or unknown. Halting candidate reconciliation.")
-        return False
-    if budget is not None and budget.is_exhausted:
-        logger.info(
-            "Reached maximum mutations per sync budget (%d). Pausing reconciliation.",
-            budget.limit,
+    model_config = ConfigDict(frozen=True)
+
+    project_number: int | None
+    mode: ReconcileMode
+    items_evaluated: int = 0
+    planned: list[FieldChange] = Field(default_factory=list)
+    applied: list[FieldChange] = Field(default_factory=list)
+    stop: str | None = None
+    awaiting_intake: int | None = None
+    requests: tuple[PlannedRequest, ...] = ()
+
+    @property
+    def remaining(self) -> list[FieldChange]:
+        """The planned changes a write run did not make."""
+        return self.planned[len(self.applied) :] if self.mode == "write" else []
+
+    @property
+    def shown(self) -> list[FieldChange]:
+        """The changes the run reports: those it plans, or those it made."""
+        return self.applied if self.mode == "write" else self.planned
+
+    def summary(self) -> str:
+        """The run's last line when it planned or made every change."""
+        texts = MESSAGES.project
+        template = texts.summary_write if self.mode == "write" else texts.summary_plan
+        return template.format(
+            items=len({change.url for change in self.shown}),
+            evaluated=self.items_evaluated,
+            number=self.project_number,
+            changes=len(self.shown),
         )
-        return False
-    return True
+
+    def stop_line(self) -> str | None:
+        """Why a write run stopped before making every planned change, and what it left."""
+        if self.stop is None:
+            return None
+        texts = MESSAGES.project
+        count = len(self.remaining)
+        remaining = texts.remaining[count != 1].format(count=count)
+        return texts.stopped.format(reason=self.stop, remaining=remaining)
+
+    def intake_line(self) -> str | None:
+        """How many open issues wait for intake, when the run listed open issues and found any."""
+        count = self.awaiting_intake
+        if not count:
+            return None
+        return MESSAGES.project.awaiting_intake[count != 1].format(count=count)
 
 
-def _reconcile_candidate_items(
-    owner: str,
-    project_number: int,
+def _item_url(item: Mapping[str, Any]) -> str:
+    return str(item.get("html_url") or item.get("url") or "")
+
+
+def _awaiting_intake(
+    issues: list[dict[str, Any]], board: Collection[str], state: str
+) -> int | None:
+    """The open issues not on the board; None when the run listed no open issue."""
+    if state == "closed":
+        return None
+    return sum(
+        1
+        for issue in issues
+        if str(issue.get("state", "")).lower() == "open" and _item_url(issue) not in board
+    )
+
+
+def _stop_before_write(budget: MutationBudget) -> str | None:
+    """Why the next write must not run: the mutation budget is spent, or the ledger, which
+    the board's pages and the other runs sharing the identity keep, holds fewer GraphQL points
+    than the floor. An entry that is unknown or past its reset is left to `run_gh`, whose
+    `acquire` refreshes it before the write."""
+    texts = MESSAGES.project
+    if budget.is_exhausted:
+        return texts.stop_budget.format(limit=budget.limit)
+    quota = get_github_rate_limiter().get_quota("graphql")
+    if quota.is_valid() and (quota.remaining or 0) < DEFAULT_GH_GRAPHQL_BUDGET_FLOOR:
+        return texts.stop_quota.format(
+            remaining=quota.remaining,
+            reset=utc_clock(datetime.fromtimestamp(quota.reset_epoch or 0, UTC)),
+            floor=DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
+        )
+    return None
+
+
+def _item_edit_args(login: str, project_number: int | str, change: FieldChange) -> list[str]:
+    from devops_cli.roadmap.github_store import item_edit_args
+
+    return item_edit_args(login, project_number, change.url, change.field, ["--value", change.new])
+
+
+def _write_change(login: str, project_number: int, change: FieldChange) -> str | None:
+    """Make one planned change; None when it was made, else why it failed."""
+    proc = run_gh(
+        [CONST_GH_CLI, *_item_edit_args(login, project_number, change)], check=False, quiet=True
+    )
+    if proc.returncode == 0:
+        return None
+    error = f"{proc.stderr or ''} {proc.stdout or ''}".strip() or f"exit {proc.returncode}"
+    return MESSAGES.project.stop_write_failed.format(
+        field=change.field, item=change.item, error=error[:256]
+    )
+
+
+def _apply_changes(
+    login: str, project_number: int, planned: list[FieldChange], budget: MutationBudget
+) -> tuple[list[FieldChange], str | None]:
+    """Make the planned changes in order, stopping at the first that can't be made: the
+    changes made, and why the run stopped, or None when it made them all."""
+    applied: list[FieldChange] = []
+    for change in planned:
+        stop = _stop_before_write(budget) or _write_change(login, project_number, change)
+        if stop is not None:
+            return applied, stop
+        budget.record_mutation()
+        applied.append(change)
+    return applied, None
+
+
+def _plan_changes(
     candidates: list[dict[str, Any]],
-    items_data: dict[str, dict[str, str | None]],
-    open_pr_issue_numbers: set[int],
-    dry_run: bool,
-    budget: MutationBudget | None = None,
-    status_options: Collection[str] = (),
+    board: Mapping[str, Mapping[str, str | None]],
+    linked: set[int],
+    status_options: Collection[str],
 ) -> list[FieldChange]:
-    """Reconcile each candidate's fields, returning every change planned or applied."""
-    changes: list[FieldChange] = []
-    for it in candidates:
-        if not _can_continue_reconciliation(dry_run, budget=budget):
-            break
-        url = it.get("html_url") or it.get("url") or ""
-        if dry_run and url not in items_data:
-            continue
-        changes.extend(
-            _reconcile_single_item(
-                owner,
-                project_number,
-                it,
-                dry_run,
-                has_open_pr=(int(it.get("number", 0)) in open_pr_issue_numbers),
-                current_fields=items_data.get(url),
-                budget=budget,
-                status_options=status_options,
-            )
+    """Every change the cards already on the board need, in the order the candidates came."""
+    return [
+        change
+        for item in candidates
+        for change in plan_item_changes(
+            item,
+            board[_item_url(item)],
+            has_open_pr=int(item.get("number", 0)) in linked,
+            status_options=status_options,
         )
-    return changes
-
-
-def _status_options(template: ProjectTemplate) -> list[str]:
-    """Return the Status options a project template declares."""
-    return [opt.name for fld in template.fields if fld.name == "Status" for opt in fld.options]
+    ]
 
 
 def reconcile_project_custom_fields(
     owner: str,
     repo: str,
     project_number: int,
-    dry_run: bool = False,
+    *,
+    mode: Literal["plan", "write"] = "write",
     state: str = "open",
     budget: MutationBudget | None = None,
-    template: ProjectTemplate | None = None,
-) -> dict[str, Any]:
-    """Reconcile Status and Priority on project items, listing every change.
+) -> ReconcileResult:
+    """Reconcile Status and Priority on the cards already on the board, listing every change.
 
-    The result's ``changes`` holds each field change with its old and new value and the
-    source that decided it: the planned changes in a dry run, the applied ones otherwise.
+    Reconcile adds no card: an issue off the board waits for intake, and a pull request gets no
+    card. It reads the board (refusing to start when GraphQL's budget can't cover the read), the
+    board's field options and the repository's issues and pull requests in `state`, then plans
+    every change before making any, so `plan` and `write` evaluate the same cards and plan the
+    same changes. A planned value the board's field has no option for refuses the run before
+    any write, naming the value, so a write that would fail on every run never blocks the
+    changes after it. `write` makes the changes in order until the mutation budget is spent,
+    GraphQL's points fall below the floor or a write fails, and the result says which.
     """
-    result: dict[str, Any] = {
-        "project_number": project_number,
-        "owner": owner,
-        "repo": repo,
-        "items_evaluated": 0,
-        "items_reconciled": 0,
-        "dry_run": dry_run,
-        "changes": [],
-    }
-    if _is_graphql_quota_exhausted():
-        logger.warning(
-            "GraphQL quota critically low or unknown. Skipping project custom field reconciliation."
-        )
-        return result
-
-    status_options = _status_options(template or load_project_template())
-    active_items = _fetch_project_items_data(owner, project_number)
-    mutation_budget = budget or MutationBudget(limit=DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC)
+    login = _project_login(owner)
+    board = _read_board(login, project_number)
+    options = _read_field_options(login, project_number)
     issues = _fetch_repository_issues(repo, state=state)
     prs = _fetch_repository_prs(repo, state=state)
-    candidates = issues + prs
+    on_board = [item for item in issues + prs if _item_url(item) in board]
+    linked = _extract_linked_issue_numbers(prs)
+    planned = _plan_changes(on_board, board, linked, options[ItemField.STATUS])
+    for change in planned:
+        require_option(options, ItemField(change.field), change.new)
+    result = ReconcileResult(
+        project_number=project_number,
+        mode=mode,
+        items_evaluated=len(on_board),
+        planned=planned,
+        awaiting_intake=_awaiting_intake(issues, board, state),
+    )
+    if mode == "plan":
+        return result
+    applied, stop = _apply_changes(login, project_number, planned, budget or MutationBudget())
+    return result.model_copy(update={"applied": applied, "stop": stop})
 
-    if not dry_run:
-        _provision_missing_candidates(
-            owner, project_number, candidates, active_items, budget=mutation_budget
+
+def reconcile_dry_run(
+    owner: str,
+    repo: str,
+    project_number: int | None,
+    *,
+    state: str = "open",
+    template: ProjectTemplate | None = None,
+    writes: bool = True,
+) -> ReconcileResult:
+    """The requests a reconcile run makes, in order, none of them made (#412).
+
+    Without a board number the run first finds the board `template` names. `writes` False
+    lists a `plan` run, which stops before the writes.
+    """
+    from devops_cli.roadmap.github_store import field_list_args
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    texts = MESSAGES.project
+    targets, placeholders = texts.request_targets, texts.request_placeholders
+    board = str(project_number) if project_number else placeholders["board"]
+    login = placeholders["login"] if owner.strip() == "@me" else owner.strip()
+    requests: list[PlannedRequest] = []
+    if project_number is None and template is not None:
+        requests.extend(_find_board_requests(owner, repo, _template_names(template)))
+    if owner.strip() == "@me":
+        requests.append(planned_gh(list(_USER_LOGIN_ARGS), targets["login"]))
+    requests.extend(
+        [
+            planned_gh(board_budget_args(login, board, ""), targets["budget"].format(board=board)),
+            planned_gh(board_items_args(login, board, ""), targets["first"].format(board=board)),
+            planned_gh(
+                board_items_args(login, board, "", after=placeholders["cursor"]),
+                targets["page"].format(board=board),
+                repeat=MESSAGES.roadmap.plan_repeat_board_page,
+            ),
+            planned_gh(field_list_args(login, board), targets["fields"].format(board=board)),
+            planned_gh(
+                _repository_list_args(repo, "issues", state),
+                targets["issues"].format(state=state, repo=repo),
+            ),
+            planned_gh(
+                _repository_list_args(repo, "pulls", state),
+                targets["pulls"].format(state=state, repo=repo),
+            ),
+        ]
+    )
+    if writes:
+        change = FieldChange(
+            url=placeholders["url"],
+            field=placeholders["field"],
+            old=None,
+            new=placeholders["value"],
+            source="",
         )
+        requests.append(
+            planned_gh(
+                _item_edit_args(login, board, change),
+                targets["edit"].format(board=board),
+                repeat=texts.request_repeat_edit.format(
+                    limit=DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC,
+                    floor=DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
+                ),
+            )
+        )
+    return ReconcileResult(
+        project_number=project_number,
+        mode="dry-run",
+        requests=tuple(requests),
+    )
 
-    eval_candidates = (
-        [it for it in candidates if (it.get("html_url") or it.get("url") or "") in active_items]
-        if dry_run
-        else candidates
-    )
-    changes = _reconcile_candidate_items(
-        owner,
-        project_number,
-        eval_candidates,
-        active_items,
-        _extract_linked_issue_numbers(prs),
-        dry_run,
-        budget=mutation_budget,
-        status_options=status_options,
-    )
-    result.update(
-        items_evaluated=len(eval_candidates),
-        items_reconciled=len({change.url for change in changes}),
-        changes=[change.model_dump() for change in changes],
-    )
-    return result
+
+def _find_board_requests(owner: str, repo: str, names: list[str]) -> list[PlannedRequest]:
+    """What `find_project_by_template` reads: for each name, until a board answers to it, the
+    repository's linked boards, then the owner's by REST, then by `gh project list`."""
+    from devops_cli.roadmap.request_plan import planned_gh
+
+    texts = MESSAGES.project
+    targets, conditions = texts.request_targets, texts.request_conditions
+    owner_arg = texts.request_placeholders["owner_arg"].format(owner=owner)
+    requests: list[PlannedRequest] = []
+    for index, name in enumerate(names):
+        earlier = conditions["not_found"].format(names=" or ".join(f"'{n}'" for n in names[:index]))
+        unmatched = conditions["not_found"].format(
+            names=" or ".join(f"'{n}'" for n in names[: index + 1])
+        )
+        found = targets["find"].format(name=name)
+        requests.append(
+            planned_gh(
+                _repository_boards_args(owner, repo),
+                targets["repo_boards"].format(repo=repo, found=found),
+                condition=earlier if index else "",
+            )
+        )
+        requests.extend(
+            planned_gh(
+                _owner_boards_args(endpoint, owner),
+                targets["owner_boards"].format(owner=owner, found=found),
+                condition=unmatched,
+            )
+            for endpoint in _OWNER_BOARD_ENDPOINTS
+        )
+        requests.append(
+            planned_gh(
+                list(_USER_LOGIN_ARGS),
+                targets["login"],
+                condition=f"{unmatched}{conditions['login_unread']}",
+            )
+        )
+        requests.append(
+            planned_gh(
+                _project_list_args(owner_arg),
+                targets["project_list"].format(owner=owner, found=found),
+                condition=unmatched,
+                repeat=texts.request_repeat_owner_fallback,
+            )
+        )
+    return requests
+
+
+class ProjectSyncResult(BaseModel):
+    """What `devops gh project sync` did: the board it found or made, the fields it created,
+    and reconcile's outcome. A dry run reads nothing, so it reports no board."""
+
+    project_number: int | None = None
+    project_title: str
+    owner: str
+    repo: str
+    fields_provisioned: list[str] = Field(default_factory=list)
+    dry_run: bool = False
+    linked: bool = False
+    reconcile: ReconcileResult | None = None
+
+
+def _find_or_create_board(owner: str, repo: str, template: ProjectTemplate) -> int:
+    """The number of the board `template` names, created when there is none."""
+    number = find_project_by_template(owner, repo, template)
+    if number is not None:
+        return number
+    created = create_remote_project(owner, template.name).get("number")
+    if not created:
+        raise GitHubOperationError(
+            f"GitHub created board '{template.name}' but returned no number for it.",
+            operation="create_remote_project",
+            details={"owner": owner[:256], "title": template.name[:256]},
+        )
+    return int(created)
 
 
 def sync_remote_project(
     owner: str,
     repo: str,
     template: ProjectTemplate,
-    items: list[ProjectItem],
     dry_run: bool = False,
     reconcile_fields: bool = True,
 ) -> ProjectSyncResult:
-    """Reconcile remote GitHub Projects v2 board with declarative template and local tasks."""
+    """Find or create the template's board, link it, create the template fields it lacks, and
+    reconcile Status and Priority on the cards already on it. Sync adds no card. A dry run
+    makes no request."""
+    result = ProjectSyncResult(project_title=template.name, owner=owner, repo=repo, dry_run=dry_run)
     if dry_run:
-        return ProjectSyncResult(
-            project_number=1,
-            project_title=template.name,
-            owner=owner,
-            repo=repo,
-            fields_provisioned=[f.name for f in template.fields],
-            items_synced=len(items),
-            dry_run=True,
-            linked=True,
-        )
+        return result
 
     verify_project_auth_scopes()
-
-    matched = find_remote_project(owner, template.name, repo=repo)
-    if not matched and template.short_name:
-        matched = find_remote_project(owner, template.short_name, repo=repo)
-
-    if not matched:
-        matched = create_remote_project(owner, template.name)
-
-    proj_num = int(matched.get("number", 1))
-    linked = link_project_to_repository(proj_num, owner, repo)
-    provisioned = provision_remote_project_fields(proj_num, owner, template.fields)
-    mutation_budget = MutationBudget(limit=DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC)
-    items_added = sync_repository_issues_to_project(
-        owner, repo, proj_num, dry_run=False, budget=mutation_budget
+    number = _find_or_create_board(owner, repo, template)
+    linked = link_project_to_repository(number, owner, repo)
+    provisioned = provision_remote_project_fields(number, owner, template.fields)
+    reconciled = (
+        reconcile_project_custom_fields(owner, repo, number, mode="write")
+        if reconcile_fields
+        else None
     )
-    if reconcile_fields:
-        reconcile_project_custom_fields(
-            owner, repo, proj_num, dry_run=False, budget=mutation_budget, template=template
-        )
-
-    return ProjectSyncResult(
-        project_number=proj_num,
-        project_title=template.name,
-        owner=owner,
-        repo=repo,
-        fields_provisioned=provisioned,
-        items_synced=len(items) + items_added,
-        dry_run=False,
-        linked=linked,
+    return result.model_copy(
+        update={
+            "project_number": number,
+            "fields_provisioned": provisioned,
+            "linked": linked,
+            "reconcile": reconciled,
+        }
     )
 
 

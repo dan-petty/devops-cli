@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import sqlite3
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -12,10 +13,16 @@ from unittest.mock import MagicMock
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.ai import personas
+from devops_cli.ai import context_budget, personas
+from devops_cli.ai.client import LLMClient, LLMResponse
 from devops_cli.ai.personas import review_prompt_digest
+from devops_cli.ai.rag import investigator
+from devops_cli.ai.response_cache import LLMResponseCache
+from devops_cli.ai.review import pipeline as pipeline_module
 from devops_cli.ai.review import profile as profile_module
 from devops_cli.ai.review import runner
+from devops_cli.ai.review.flags import ReviewStageFlags
+from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review.profile import (
     BenchmarkSummary,
     ReviewProfile,
@@ -33,10 +40,13 @@ from devops_cli.ai.review.runner import (
     _run_orchestrator_review,
     _write_review_profile,
 )
+from devops_cli.ai.review.verification import _VALIDATION_SYSTEM
 from devops_cli.ai.spend.ledger import SpendLedger, observe_llm_calls, track_request_spend
 from devops_cli.commands import review as review_commands
 from devops_cli.commands.review import _backend_host
+from devops_cli.config.settings import AIConfig
 from devops_cli.main import app
+from devops_cli.models.ai import ChatMessage, FileAnalysisMeta
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
@@ -443,3 +453,121 @@ def test_a_profile_records_the_digest_of_the_prompts_it_ran_with() -> None:
     profile = ReviewProfiler().build(session_id="s", target="t")
 
     assert profile.prompt_digest == review_prompt_digest()
+
+
+# ── A review whose replies the response cache answered (#816) ─────────────────────────────────
+
+_REVIEWED = "deploy.yaml"
+_REVIEWED_TEXT = "".join(f"key_{line}: value_{line}\n" for line in range(40))
+_PERSONA_REPLY = (
+    "```json\n"
+    + json.dumps(
+        {
+            "findings": [
+                {
+                    "title": "Plaintext value",
+                    "severity": "HIGH",
+                    "location": f"{_REVIEWED}:3",
+                    "description": "value_2 is stored in plain text.",
+                    "category": "security",
+                }
+            ]
+        }
+    )
+    + "\n```"
+)
+_VERDICT = json.dumps(
+    [
+        {
+            "finding_id": 1,
+            "status": "VERIFIED",
+            "verified": True,
+            "citation_line": 3,
+            "reason": "Line 3 holds value_2.",
+        }
+    ]
+)
+
+
+def _review_in_two_pages(client: LLMClient, target: Path) -> None:
+    """Review one file in two pages with one persona, then verify its finding, stage by stage.
+
+    No static scanner runs, and the file is no Python source, so no check starts a process.
+    """
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="s", llm_client=client, verification_client=client, target_dir=target
+    )
+    flags = ReviewStageFlags(static_scan=False)
+    meta = {_REVIEWED: FileAnalysisMeta(path=_REVIEWED, key_symbols=[], dependencies=[])}
+    payloads = orchestrator.init_per_file_payloads([_REVIEWED], meta, stage_flags=flags)
+    diffs = {_REVIEWED: _REVIEWED_TEXT}
+    with review_stage("persona_review"):
+        orchestrator.execute_multi_persona_review(
+            payloads, diff_text_by_file=diffs, personas=["devsecops"], stage_flags=flags
+        )
+    with review_stage("verification"):
+        orchestrator.execute_finding_verification(
+            payloads, stage_flags=flags, diff_text_by_file=diffs
+        )
+
+
+@pytest.mark.usefixtures("fixed_prompt_digest")
+def test_a_profiled_review_counts_cached_persona_pages_and_verifier_replies_apart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
+    """Verify a reply the response cache answers, to a persona page or to the verifier, is a
+    cached call of its stage and its spend stage, and no LLM call (#816).
+
+    A first review records each request's cache key; the cache then keeps page 1's reply and
+    the verifier's, so the profiled review sends only page 2 to the model.
+    """
+    target = tmp_path / "repo"
+    target.mkdir()
+    (target / _REVIEWED).write_text(_REVIEWED_TEXT, encoding="utf-8")
+    # Payloads probe the working directory for manifests, which is otherwise this repository.
+    monkeypatch.chdir(target)
+    # Persona agents count tokens; loading the tokenizer is not under test.
+    monkeypatch.setattr(context_budget, "_get_tiktoken_encoding", lambda *_args: None)
+    monkeypatch.setattr(pipeline_module, "review_page_chars", lambda _window: 400)
+    monkeypatch.setattr(investigator, "investigate_rag_context", lambda *_a, **_k: None)
+    keys: list[str] = []
+
+    def model(
+        _self: LLMClient, system: str, messages: list[ChatMessage], **options: Any
+    ) -> LLMResponse:
+        keys.append(
+            LLMResponseCache.generate_key(
+                "ollama",
+                "llama3:8b",
+                system,
+                messages,
+                {"enable_thinking": options["enable_thinking"]},
+            )
+        )
+        return LLMResponse(_VERDICT if system == _VALIDATION_SYSTEM else _PERSONA_REPLY)
+
+    monkeypatch.setattr(LLMClient, "_ollama_messages", model)
+    client = LLMClient(AIConfig(provider="ollama", model="llama3:8b"))
+    _review_in_two_pages(client, target)
+    # The first review sent page 1, page 2 and then the verifier's request.
+    client.cache.clear()
+    for key, reply in ((keys[0], _PERSONA_REPLY), (keys[2], _VERDICT)):
+        client.cache.set(key, "ollama", "llama3:8b", "", "", reply)
+    spend_ledger.reset()
+
+    with profiling() as profiler:
+        _review_in_two_pages(client, target)
+        profiler.build(session_id="s", target="t").write(tmp_path)
+
+    profile = ReviewProfile.load(tmp_path)
+    with sqlite3.connect(spend_ledger.db_path) as conn:
+        rows = conn.execute("SELECT stage, cached FROM ai_spend_records").fetchall()
+    assert (
+        len(keys),
+        [(s.name, s.llm_calls, s.cached_calls) for s in profile.stages] if profile else [],
+        sorted(rows),
+    ) == (
+        4,
+        [("persona_review", 1, 1), ("verification", 0, 1)],
+        [("review.file_review", 0), ("review.file_review", 1), ("review.verification", 1)],
+    )

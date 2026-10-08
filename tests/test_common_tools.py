@@ -18,7 +18,15 @@ from devops_cli.ai.common_tools import (
 from devops_cli.config.defaults import DEFAULT_TRUNCATION_SUFFIX
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.http.broker import get_broker
-from tests.web_fakes import StubWeb
+from devops_cli.http.egress import EgressLevel
+from tests.web_fakes import (
+    PUBLIC_ADDRESS,
+    StubWeb,
+    http_response,
+    rebinding,
+    record_connects,
+    scripted_resolver,
+)
 
 
 def test_render_untrusted_page_basic() -> None:
@@ -274,7 +282,7 @@ def test_web_fetch_tool_never_requests_a_private_redirect_hop(
 ) -> None:
     """A public, then private, then public 3xx chain stops before the private hop is sent.
 
-    The environment admits private networks, so only the tool's own per-hop policy can refuse it.
+    The environment admits private networks, which web_fetch's public-only client ignores.
     """
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
     stub_web.redirect("https://example.com/start", hop)
@@ -331,7 +339,8 @@ def test_web_fetch_tool_keeps_no_cookie_between_fetches(stub_web: StubWeb) -> No
     web_fetch_tool().execute(url="https://example.com/set")
     web_fetch_tool().execute(url="https://example.com/docs")
 
-    sent, shared_jar = stub_web.sent[1].headers, get_broker().get_client().cookies.jar
+    sent = stub_web.sent[1].headers
+    shared_jar = get_broker().get_client(EgressLevel.PUBLIC).cookies.jar
     assert ("cookie" in sent, len(shared_jar)) == (False, 0)
 
 
@@ -347,12 +356,112 @@ def test_web_fetch_tool_sends_its_own_headers_without_trace_context(stub_web: St
     assert (sent.get("accept-language"), "traceparent" in sent) == ("en", False)
 
 
-def test_web_fetch_tool_blocks_dns_rebinding() -> None:
-    """Verify web_fetch_tool raises SSRFBlockedError if DNS resolves to a private IP (DNS rebinding)."""
-    tool = web_fetch_tool()
-    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", ("10.0.0.1", 443))]):
-        with pytest.raises(SSRFBlockedError):
-            tool.execute(url="https://example.com/sensitive")
+_REBIND_ANSWERS = ["169.254.169.254", "127.0.0.1", "10.0.0.1"]
+
+
+def _fetch_outcome(url: str) -> str:
+    """Fetch `url` with web_fetch: "fetched", or the name of the exception it raised."""
+    try:
+        web_fetch_tool().execute(url=url)
+    except Exception as exc:
+        return type(exc).__name__
+    return "fetched"
+
+
+@pytest.mark.parametrize("then", _REBIND_ANSWERS, ids=["metadata", "loopback", "rfc1918"])
+@pytest.mark.parametrize("k", range(5))
+def test_web_fetch_never_dials_a_rebound_answer(
+    monkeypatch: pytest.MonkeyPatch, k: int, then: str
+) -> None:
+    """A name answering public for its first k lookups, then private, is never dialled privately.
+
+    The hop is resolved once, where it is dialled, so whatever that one lookup answers is what
+    the socket receives: an IP literal, never the hostname. Before #898 web_fetch made three
+    checking lookups and the dial a fourth, so k = 3 reached the private answer. The
+    environment's private-network flag is set, and web_fetch ignores it.
+    """
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
+    resolver = scripted_resolver(monkeypatch, {"example.com": rebinding(k, then)})
+    recorder = record_connects(monkeypatch, [http_response(200, "<h1>Docs</h1>")])
+
+    outcome = _fetch_outcome("https://example.com/")
+
+    assert (outcome, recorder.dialled, resolver.lookups["example.com"]) == (
+        ("SSRFBlockedError", [], 1) if k == 0 else ("fetched", [(PUBLIC_ADDRESS, 443)], 1)
+    )
+
+
+@pytest.mark.parametrize("then", _REBIND_ANSWERS, ids=["metadata", "loopback", "rfc1918"])
+@pytest.mark.parametrize("k", range(5))
+def test_web_fetch_never_dials_a_rebound_redirect_hop(
+    monkeypatch: pytest.MonkeyPatch, k: int, then: str
+) -> None:
+    """A redirect to a second hostname is resolved and vetted at its own connect, for every k."""
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
+    scripted_resolver(
+        monkeypatch, {"example.com": [[PUBLIC_ADDRESS]], "example.org": rebinding(k, then)}
+    )
+    recorder = record_connects(
+        monkeypatch,
+        [
+            http_response(302, headers={"Location": "https://example.org/"}),
+            http_response(200, "<h1>Docs</h1>"),
+        ],
+    )
+
+    outcome = _fetch_outcome("https://example.com/start")
+
+    assert (outcome, recorder.dialled) == (
+        ("SSRFBlockedError", [(PUBLIC_ADDRESS, 443)])
+        if k == 0
+        else ("fetched", [(PUBLIC_ADDRESS, 443), (PUBLIC_ADDRESS, 443)])
+    )
+
+
+@pytest.mark.usefixtures("public_dns")
+def test_web_fetch_opens_one_connection_per_hostname_with_its_own_tls_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two names on one address get two connections, each verified against its own name."""
+    recorder = record_connects(
+        monkeypatch,
+        [
+            http_response(302, headers={"Location": "https://example.org/"}),
+            http_response(200, "<h1>Docs</h1>"),
+        ],
+    )
+
+    page = web_fetch_tool().execute(url="https://example.com/")
+
+    assert (
+        recorder.dialled,
+        [server_hostname for server_hostname, _ in recorder.tls],
+        recorder.requested_hosts,
+        page.startswith("Provenance: https://example.org/"),
+    ) == (
+        [(PUBLIC_ADDRESS, 443), (PUBLIC_ADDRESS, 443)],
+        ["example.com", "example.org"],
+        ["example.com", "example.org"],
+        True,
+    )
+
+
+def test_web_fetch_refusal_reaches_the_runner_error_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A rebound name is refused at the connect, and the runner reports an error, not page text.
+
+    With one lookup per hop, the refusal comes at k = 0; at k = 3 the single lookup answers the
+    public address, which is the address dialled.
+    """
+    from devops_cli.ai.agents.runner import _execute_single_tool
+
+    scripted_resolver(monkeypatch, {"example.com": rebinding(0, "169.254.169.254")})
+    recorder = record_connects(monkeypatch, [])
+
+    status, _, result = _execute_single_tool(
+        web_fetch_tool(), "web_fetch", {"url": "https://example.com/"}, []
+    )
+
+    assert (status, "SSRF blocked" in str(result), recorder.dialled) == ("error", True, [])
 
 
 def test_web_fetch_tool_non_2xx_raises_tool_failed(stub_web: StubWeb) -> None:

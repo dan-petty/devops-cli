@@ -20,22 +20,26 @@ from typer.testing import CliRunner
 from devops_cli.commands.roadmap import app
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.close import (
     ClosePlan,
     Cut,
     Hold,
+    ShippedClosure,
     apply_close,
     dry_run_close,
     plan_close,
     render_close,
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.store import CloseReason, GitHubState, MergedPullRequest
+from devops_cli.roadmap.store import CloseReason, GitHubState, IssueRecord, MergedPullRequest
 
 REPO = "example/roadmap"
 RELEASE = "v0.2.26"
 BRANCH = f"release/{RELEASE}"
 CUT_BRANCH = f"release/{RELEASE}"
+SHIPPED = "v0.2.25"
+SHIPPED_BRANCH = f"release/{SHIPPED}"
 runner = CliRunner()
 
 CHECKS = CheckVerdictSummary(
@@ -87,12 +91,14 @@ def _deliver(
     body: str | None = None,
     paths: tuple[str, ...] = ("src/thing.py",),
     task: str | None = None,
+    base: str = BRANCH,
 ) -> MergedPullRequest:
-    """Merge a pull request into the release branch closing `number`, with its task file."""
+    """Merge a pull request into `base`, the release branch, closing `number`, with its task
+    file."""
     paths = (*paths, f"docs/agent/tasks/task-{number}-thing.md") if task else paths
     text = body if body is not None else f"Closes #{number}\n\nAdds the thing.\n\n## Tests\nAll."
-    pr = store.merge_pull_request(f"feat: #{number}", base=BRANCH, body=text, changed_paths=paths)
-    merged = next(p for p in store.merged_pull_requests(BRANCH) if p.number == pr)
+    pr = store.merge_pull_request(f"feat: #{number}", base=base, body=text, changed_paths=paths)
+    merged = next(p for p in store.merged_pull_requests(base) if p.number == pr)
     if task:
         store.seed_file(f"docs/agent/tasks/task-{number}-thing.md", task, ref=merged.merge_commit)
     return merged
@@ -323,6 +329,189 @@ def test_no_open_release_holds_with_no_release(roadmap_store: InMemoryRoadmapSto
     assert (plan.hold, cuts) == (Hold.NO_RELEASE, [])
 
 
+# ── A shipped release that still holds an open item (#1362) ──
+
+
+def _issue_of(store: InMemoryRoadmapStore, number: int) -> IssueRecord:
+    return next(issue for issue in store.issues() if issue.number == number)
+
+
+def _close_release(store: InMemoryRoadmapStore, version: str) -> None:
+    store.close_release(version)
+
+
+def _close_by_edit(store: InMemoryRoadmapStore, version: str) -> None:
+    store.edit_release(version, state=GitHubState.CLOSED)
+
+
+@pytest.mark.parametrize(
+    "close_milestone", [_close_release, _close_by_edit], ids=["close-release", "edit-release"]
+)
+def test_an_item_delivered_into_a_shipped_release_closes_before_the_current_releases(
+    roadmap: InMemoryRoadmapStore, close_milestone: Callable[[InMemoryRoadmapStore, str], None]
+) -> None:
+    person = roadmap.as_actor("alice")
+    person.edit_release(SHIPPED, state=GitHubState.OPEN)
+    late = _issue(roadmap, "delivered after the cut", release=SHIPPED)
+    merged = _deliver(roadmap, late, base=SHIPPED_BRANCH)
+    close_milestone(person, SHIPPED)
+    current = _issue(roadmap, "current work")
+    _deliver(roadmap, current)
+    plan, cuts = _run(roadmap)
+    first = roadmap.job_writes()
+    again, _ = _run(roadmap)
+    (comment,) = roadmap.comments_on(late)
+    assert (
+        [closing.number for closing in plan.closings],
+        [shipped.release for shipped in plan.shipped],
+        f"{merged.url}, merged into `{SHIPPED_BRANCH}` as {merged.merge_commit}." in comment,
+        (_issue_of(roadmap, late).state, _issue_of(roadmap, current).state),
+        (plan.release, len(cuts)),
+        (again.closings, again.shipped, roadmap.job_writes() == first),
+    ) == (
+        [late, current],
+        [SHIPPED],
+        True,
+        (GitHubState.CLOSED, GitHubState.CLOSED),
+        (RELEASE, 1),
+        ((), (), True),
+    )
+
+
+def test_an_open_item_of_a_shipped_release_no_pull_request_delivers_stays_open_and_named(
+    roadmap: InMemoryRoadmapStore,
+) -> None:
+    left = _issue(roadmap, "left open on purpose", release=SHIPPED)
+    _deliver(roadmap, _issue(roadmap, "current work"))
+    plan, cuts = _run(roadmap)
+    text = render_close(plan)
+    named = [
+        text.find(line)
+        for line in (f"## {SHIPPED}", f"- #{left} left open on purpose", f"Cut: push {CUT_BRANCH}")
+    ]
+    assert (
+        plan.shipped,
+        _issue_of(roadmap, left).state,
+        (plan.hold, len(cuts)),
+        -1 not in named and named == sorted(named),
+    ) == (
+        (ShippedClosure(release=SHIPPED, open_items=(_issue_of(roadmap, left),)),),
+        GitHubState.OPEN,
+        (None, 1),
+        True,
+    ), text
+
+
+def test_a_shipped_pull_request_with_unreadable_checks_fails_the_run_and_holds_no_cut(
+    roadmap: InMemoryRoadmapStore,
+) -> None:
+    late = _issue(roadmap, "delivered after the cut", release=SHIPPED)
+    shipped = _deliver(roadmap, late, base=SHIPPED_BRANCH)
+    _deliver(roadmap, _issue(roadmap, "current work"))
+    unread = CheckVerdictSummary(unread_reason="checks failed (HTTP 502)")
+
+    def verdicts(number: int, **_: object) -> CheckVerdictSummary:
+        return unread if number == shipped.number else CHECKS
+
+    with patch("devops_cli.github.check_verdict.fetch_pr_check_verdicts", side_effect=verdicts):
+        result = runner.invoke(app, ["close", "--repo", REPO])
+    assert (
+        result.exit_code,
+        f"Pull request #{shipped.number} closes #{late}, which stay open" in result.output,
+        f"Cut: push {CUT_BRANCH}" in result.output,
+        _issue_of(roadmap, late).state,
+        roadmap.job_writes(),
+    ) == (1, True, True, GitHubState.OPEN, []), result.output
+
+
+def test_a_shipped_pull_request_closes_no_item_of_another_release(
+    roadmap: InMemoryRoadmapStore,
+) -> None:
+    """A person reopened the item and moved it to a later release: the shipped release's pull
+    request no longer closes it."""
+    _issue(roadmap, "left open on purpose", release=SHIPPED)
+    moved = _issue(roadmap, "reopened and moved", release="v0.2.27")
+    _deliver(roadmap, moved, base=SHIPPED_BRANCH)
+    plan, _ = _run(roadmap)
+    assert (plan.closings, [s.release for s in plan.shipped], _issue_of(roadmap, moved).state) == (
+        (),
+        [SHIPPED],
+        GitHubState.OPEN,
+    )
+
+
+def test_a_shipped_item_a_current_pull_request_closes_is_not_also_named_still_open(
+    roadmap: InMemoryRoadmapStore,
+) -> None:
+    """The pull request that delivers it merged into the current release's branch: the item is
+    a closing, and its shipped release no longer lists it as still open."""
+    late = _issue(roadmap, "finished in the next release", release=SHIPPED)
+    _deliver(roadmap, late)
+    plan, _ = _run(roadmap)
+    text = render_close(plan)
+    assert (
+        [closing.number for closing in plan.closings],
+        plan.shipped,
+        MESSAGES.roadmap.close_shipped_open.format(release=SHIPPED) in text,
+        f"- #{late} finished in the next release" in text,
+        _issue_of(roadmap, late).state,
+    ) == ([late], (ShippedClosure(release=SHIPPED),), False, False, GitHubState.CLOSED), text
+
+
+def test_a_shipped_item_a_person_reopened_stays_open_and_is_named(
+    roadmap: InMemoryRoadmapStore,
+) -> None:
+    """A job never reverts a person's change (ADR 0002): the pull request that delivered the
+    item does not close it again once a person reopens it in its shipped release."""
+    person = roadmap.as_actor("alice")
+    person.edit_release(SHIPPED, state=GitHubState.OPEN)
+    item = _issue(roadmap, "not done after all", release=SHIPPED)
+    _deliver(roadmap, item, base=SHIPPED_BRANCH)
+    _run(roadmap)
+    person.close_release(SHIPPED)
+    person.reopen_issue(item)
+    writes = roadmap.job_writes()
+    plan, _ = _run(roadmap)
+    text = render_close(plan)
+    named = [
+        text.find(line)
+        for line in (
+            MESSAGES.roadmap.close_shipped_reopened.format(release=SHIPPED),
+            f"- #{item} not done after all",
+        )
+    ]
+    assert (
+        plan.closings,
+        plan.shipped,
+        _issue_of(roadmap, item).state,
+        roadmap.job_writes() == writes,
+        -1 not in named and named == sorted(named),
+    ) == (
+        (),
+        (ShippedClosure(release=SHIPPED, reopened=(_issue_of(roadmap, item),)),),
+        GitHubState.OPEN,
+        True,
+        True,
+    ), text
+
+
+def test_with_no_open_release_a_shipped_releases_delivered_item_still_closes(
+    roadmap_store: InMemoryRoadmapStore,
+) -> None:
+    roadmap_store.as_actor("alice").create_release(SHIPPED, state=GitHubState.CLOSED)
+    late = _issue(roadmap_store, "delivered after the cut", release=SHIPPED)
+    _deliver(roadmap_store, late, base=SHIPPED_BRANCH)
+    plan, cuts = _run(roadmap_store)
+    text = render_close(plan)
+    assert (
+        [closing.number for closing in plan.closings],
+        (plan.hold, cuts),
+        _issue_of(roadmap_store, late).state,
+        (f"## {SHIPPED}" in text, "the current release" in text, "No open issue" in text),
+        text.rstrip().endswith("No cut: there is no open Release."),
+    ) == ([late], (Hold.NO_RELEASE, []), GitHubState.CLOSED, (True, False, False), True), text
+
+
 # ── Cut mechanics ──
 
 
@@ -493,6 +682,22 @@ def test_the_dry_run_lists_the_closes_and_the_cut_without_a_request() -> None:
     ):
         assert any(expected in line for line in lines), (expected, lines)
     assert not any("--draft" in line for line in lines)
+
+
+def test_the_dry_run_lists_a_shipped_releases_reads_before_the_current_releases() -> None:
+    texts = MESSAGES.roadmap
+    cond, rep = texts.plan_conditions, texts.plan_repeat
+    reads = dry_run_close(REPO, ref=None).requests
+    issues, shipped, current = (
+        next(i for i, r in enumerate(reads) if needle in r.line())
+        for needle in ("issues?state=all", "%3Cshipped%20release%3E", "%3Crelease%3E&sort")
+    )
+    assert (
+        issues < shipped < current,
+        reads[issues].condition,
+        (reads[shipped].condition, rep["shipped"] in reads[shipped].repeat),
+        reads[current].condition,
+    ) == (True, cond["read_issues"], (cond["shipped"], True), cond["current"])
 
 
 def test_the_dry_run_command_makes_no_request_and_names_the_cut_files(

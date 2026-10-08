@@ -15,7 +15,10 @@ from devops_cli.docs.markdown_argv_collector import (
     collect_knowledge_base_argv_references,
     collect_markdown_argv_references,
 )
-from devops_cli.docs.mcp_argv_collector import DevopsArgvReference, describe_unresolved_references
+from devops_cli.docs.source_argv_collector import (
+    DevopsArgvReference,
+    describe_unresolved_references,
+)
 from devops_cli.main import _COMMAND_SPECS
 
 FIXTURE_MARKDOWN = """\
@@ -78,7 +81,7 @@ def test_docs_check_reports_an_unresolved_knowledge_base_argv(tmp_path: Path) ->
     with (
         patch.object(DocGenerator, "generate_all_docs", return_value={}),
         patch(
-            "devops_cli.docs.mcp_argv_collector.collect_mcp_server_argv_references",
+            "devops_cli.docs.source_argv_collector.collect_source_argv_references",
             return_value=[],
         ),
         patch(
@@ -149,7 +152,7 @@ def test_docs_check_reports_an_unresolved_handwritten_doc_argv(tmp_path: Path) -
     with (
         patch.object(DocGenerator, "generate_all_docs", return_value={}),
         patch(
-            "devops_cli.docs.mcp_argv_collector.collect_mcp_server_argv_references",
+            "devops_cli.docs.source_argv_collector.collect_source_argv_references",
             return_value=[],
         ),
         patch(

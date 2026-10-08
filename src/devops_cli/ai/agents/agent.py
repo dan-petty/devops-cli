@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from devops_cli.ai.concurrency import AbstractConcurrencyLimiter, AnyConcurrencyLimit
     from devops_cli.ai.function_signature import FunctionSignature
 
+from pydantic_ai.tools import RunContext as NativeRunContext
 from pydantic_ai.toolsets import AbstractToolset as PyAIAbstractToolset
 
 from devops_cli.ai.agents.capabilities import (
@@ -336,7 +337,7 @@ class PydanticAgent[T, DepsT = Any]:
             self._register_load_capability_tool()
 
     def _register_load_capability_tool(self) -> None:
-        def load_capability(ctx: RunContext[Any], capability_id: str) -> str:
+        def load_capability(ctx: NativeRunContext[Any], capability_id: str) -> str:
             """Load an on-demand capability by ID, unlocking its tools, instructions, and hooks."""
             matching = next(
                 (c for c in self.capabilities if c.id == capability_id and c.defer_loading), None
@@ -344,7 +345,9 @@ class PydanticAgent[T, DepsT = Any]:
             if not matching:
                 avail = [c.id for c in self.capabilities if c.defer_loading]
                 return f"Capability '{capability_id}' not found. Available on-demand: {avail}"
-            ctx.loaded_capability_ids.add(capability_id)
+            run_ctx = ctx if isinstance(ctx, RunContext) else None
+            if run_ctx is not None:
+                run_ctx.loaded_capability_ids.add(capability_id)
             for t in matching.get_tools():
                 self.add_tool(t)
             cap_hooks = matching.get_hooks()
@@ -354,7 +357,7 @@ class PydanticAgent[T, DepsT = Any]:
                 self.hooks.before_tool_execute.extend(cap_hooks.before_tool_execute)
                 self.hooks.after_tool_execute.extend(cap_hooks.after_tool_execute)
                 self.hooks.on_tool_error.extend(cap_hooks.on_tool_error)
-            additions = matching.get_system_prompt_additions(ctx=ctx)
+            additions = matching.get_system_prompt_additions(ctx=run_ctx)
             inst = (" " + " ".join(additions)) if additions else ""
             return f"Capability '{capability_id}' loaded successfully.{inst}"
 

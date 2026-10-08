@@ -175,6 +175,7 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         DEFAULT_K8S_DIR / "llm" / "profiles" / "services.yaml",
         DEFAULT_K8S_DIR / "llm" / "profiles" / "ollama-profiles.yaml",
         DEFAULT_K8S_DIR / "llm" / "gateway" / "configmap.yaml",
+        DEFAULT_K8S_DIR / "llm" / "gateway" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "llm" / "gateway" / "deployment.yaml",
         DEFAULT_K8S_DIR / "llm" / "gateway" / "service.yaml",
     ],
@@ -193,11 +194,12 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     ],
 }
 
-# Kustomizations under --k8s-dir that a native deploy applies with `kubectl apply -k` after the
-# root one. The root leaves the dashboards out so that Argo CD's `monitoring` Application alone
-# owns their ConfigMaps (#1279); a cluster without Argo CD gets them from here (#1297).
+# Kustomizations under --k8s-dir that a native deploy applies with `kubectl apply -k` right after
+# the root one, before any Secret or chart. The root leaves `monitoring` out so that Argo CD's
+# `monitoring` Application alone owns its objects (#1279); a cluster without Argo CD gets the same
+# kustomization from here: the namespace's perimeter (#913) and the Grafana dashboards (#1297).
 _KUSTOMIZATIONS_BY_STACK: dict[str, tuple[Path, ...]] = {
-    "infra": (Path("monitoring", "dashboards"),),
+    "infra": (Path("monitoring"),),
 }
 
 VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "devops", "all")

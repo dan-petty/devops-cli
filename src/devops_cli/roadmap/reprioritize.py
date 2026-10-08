@@ -3,12 +3,15 @@ and the start of each release (#740).
 
 The current release is the open Release with the lowest version (`current_release`). Its state
 comes from its release pull request (`is_release_pull_request`): it is cut from the moment one
-is opened, draft or not, until that one is closed unmerged, and shipped once one has merged and
-GitHub Release vX.Y.Z is published; merged and not yet published, it is still cut
-(`release_state`). Every decision about an item reads one table, `TRANSITIONS`, which maps the
-state of a release and what happened to the item (an `Event`) to a `Transition`: an action and
-the reason the item's comment gives. A cut release follows the started release's rows except
-where it has its own (`INHERITS`), so the cut lock is one row.
+is opened, draft or not, until that one is closed unmerged, merged once one has merged, and
+shipped once GitHub Release vX.Y.Z is published too (`release_state`). Every decision about an
+item reads one table, `TRANSITIONS`, which maps the state of a release and what happened to the
+item (an `Event`) to a `Transition`: an action and the reason the item's comment gives. A cut
+release follows the started release's rows, and a merged one the cut release's, except where
+each has its own (`INHERITS`). While its release pull request is open, a cut release still
+admits a critical fix, whose own pull request then merges into the release branch before the
+release's does (#1294); once that pull request has merged, a critical fix goes first into the
+next release, the merged release's one row.
 
 Intake (#742) asks the same table what an item joining the current release meets: it finds the
 release with `current_release`, its state with `release_state`, the item's event with
@@ -43,7 +46,7 @@ holds it to the rules as the current release, in its own state, so an item a per
 since is judged now, and closes the shipped ones last; once its milestone is closed without it
 shipping, the closes are all that is left. One the run record names that has shipped since, its
 milestone closed or not, is skipped like the others, and the release after it starts. A release
-a person cut before any run started it takes no item at its start: nothing joins a cut release.
+a person cut before any run started it takes no item at its start, its pull request open or merged.
 A current release older than the one the run record names, such as a hotfix milestone opened
 later, never started: the job holds it to no rule and moves nothing until it ships or closes.
 The run record's `Size` is the commit point of a start or a first run: written after every other
@@ -119,7 +122,7 @@ have landed, a person who moved the item back there would read as that job, and 
 pull in the item they had just taken out of it. When no field is a person's or unproven, and the
 change is about the release this run judges, the run decides the item afresh as it was before
 the change began, and finishes the change only when it decides the same again; else it puts the
-item back and decides anew, so a release cut since the change began sends a fix on. Its Status
+item back and decides anew, so a release merged since the change began sends a fix on. Its Status
 clock is the one the change found only when the change began its Status write, the job's own
 write being no activity; a change that never began it leaves the clock as it is, since a person
 who set the Status since, even to what the change found, worked on the item. A change about
@@ -219,11 +222,14 @@ from devops_cli.roadmap.store import (
 
 
 class ReleaseState(StrEnum):
-    """Where a release is: planned, started (the current one), cut, or shipped."""
+    """Where a release is: planned, started (the current one), cut (its release pull request
+    is open), merged (that pull request merged, and the release is not published yet), or
+    shipped."""
 
     PLANNED = "planned"
     STARTED = "started"
     CUT = "cut"
+    MERGED = "merged"
     SHIPPED = "shipped"
 
 
@@ -285,6 +291,7 @@ class Reason(StrEnum):
     ADMISSION = "admission"
     P0_FEATURE = "p0_feature"
     CUT = "cut"
+    MERGED = "merged"
     CAP = "cap"
     OVER_SIZE = "over_size"
     BLOCKED = "blocked"
@@ -311,10 +318,11 @@ class Transition:
     reason: Reason
 
 
-_S, _P, _C, _X = (
+_S, _P, _C, _M, _X = (
     ReleaseState.STARTED,
     ReleaseState.PLANNED,
     ReleaseState.CUT,
+    ReleaseState.MERGED,
     ReleaseState.SHIPPED,
 )
 
@@ -328,9 +336,13 @@ TRANSITIONS: Mapping[tuple[ReleaseState, Event], Transition] = MappingProxyType(
         (_S, Event.PR_JOINED): Transition(Action.ADMIT, Reason.PULL_REQUEST),
         (_S, Event.P0_FEATURE_JOINED): Transition(Action.TO_NEXT, Reason.P0_FEATURE),
         (_S, Event.ITEM_JOINED): Transition(Action.TO_BACKLOG, Reason.ADMISSION),
-        # The cut lock: nothing joins a cut release, and a critical fix goes first into the next.
-        (_C, Event.FIX_JOINED): Transition(Action.TO_NEXT, Reason.CUT),
+        # The cut: while the release pull request is open, a critical fix still joins, and its
+        # own pull request merges into the release branch before the release's does.
+        (_C, Event.FIX_JOINED): Transition(Action.ADMIT, Reason.CUT),
         (_C, Event.PR_JOINED): Transition(Action.ADMIT, Reason.PULL_REQUEST),
+        # The lock: once the release pull request has merged, a critical fix goes first into
+        # the next release.
+        (_M, Event.FIX_JOINED): Transition(Action.TO_NEXT, Reason.MERGED),
         # The cap: an admitted critical fix that takes the release over it descopes one item.
         (_S, Event.OVER_CAP): Transition(Action.TO_NEXT, Reason.CAP),
         (_S, Event.OVER_SIZE): Transition(Action.TO_NEXT, Reason.OVER_SIZE),
@@ -359,7 +371,7 @@ TRANSITIONS: Mapping[tuple[ReleaseState, Event], Transition] = MappingProxyType(
     }
 )
 # A state without a row of its own for an event takes the row of the state it inherits from.
-INHERITS: Mapping[ReleaseState, ReleaseState] = MappingProxyType({_C: _S})
+INHERITS: Mapping[ReleaseState, ReleaseState] = MappingProxyType({_C: _S, _M: _C})
 
 _LEAVING = frozenset({Action.TO_BACKLOG, Action.TO_NEXT, Action.READY_TO_NEXT})
 _TO_TARGET = frozenset({Action.TO_NEXT, Action.READY_TO_NEXT, Action.PULL_IN})
@@ -435,6 +447,12 @@ def admitted_to(item: Item) -> int | None:
     return _milestone(item.job_record.get(JobMark.ADMITTED))
 
 
+def joined_release(item: Item) -> int | None:
+    """The milestone number of the Release the item entered as a person's join after the start
+    or while cut, if any."""
+    return _milestone(item.job_record.get(JobMark.JOINED))
+
+
 def current_release(releases: Iterable[Release]) -> Release | None:
     """The current release: the open Release with the lowest version, or None when none is open."""
     opened = (release for release in releases if release.state is GitHubState.OPEN)
@@ -457,8 +475,8 @@ def size_at_start(run_record: JobRecord) -> int | None:
 def release_state(store: RoadmapStore, release: Release, default_branch: str) -> ReleaseState:
     """The release's state, from its release pull requests and its GitHub Release.
 
-    It is shipped once one has merged and GitHub Release vX.Y.Z is published, and cut while one
-    is open or has merged without the release being published yet.
+    It is shipped once one has merged and GitHub Release vX.Y.Z is published, merged while one
+    has merged without the release being published yet, and cut while one is open.
     """
     pull_requests = [
         pull_request
@@ -468,7 +486,7 @@ def release_state(store: RoadmapStore, release: Release, default_branch: str) ->
     states = {pull_request.state for pull_request in pull_requests}
     if PullRequestState.MERGED in states:
         published = store.release_published(release.title)
-        return ReleaseState.SHIPPED if published else ReleaseState.CUT
+        return ReleaseState.SHIPPED if published else ReleaseState.MERGED
     return ReleaseState.CUT if PullRequestState.OPEN in states else ReleaseState.STARTED
 
 
@@ -503,6 +521,7 @@ class Decision:
     by_person: frozenset[ItemField] = frozenset()
     unlanded: frozenset[ItemField] = frozenset()
     admits: bool = False
+    joined: bool = False
 
     @property
     def resumed(self) -> bool:
@@ -593,6 +612,7 @@ class _Pending(BaseModel):
     written_moves: int | None = None
     written_status_at: datetime | None = None
     stays: bool = False
+    joined: bool = False
 
     def begin(self, item_field: ItemField) -> _Pending:
         """The mark with `item_field` among its begun fields."""
@@ -936,6 +956,28 @@ class _Run:
         note = self.note(transition, release, goes_to, detail)
         return Decision(item, event, transition, release, goes_to, note)
 
+    def admission_decision(
+        self,
+        state: ReleaseState,
+        event: Event,
+        item: Item,
+        release: str,
+        target: str | None,
+        *,
+        person: bool,
+    ) -> Decision:
+        """The admission decision about `item` joining after start or into a cut release.
+        If placed by a person, the item is admitted, naming the rule it bypassed.
+        """
+        transition = decide(state, event)
+        if person and transition.action is not Action.ADMIT and state != "merged":
+            transition = Transition(Action.ADMIT, transition.reason)
+            note = self.note(transition, release, target, "")
+            return Decision(item, event, transition, release, None, note, joined=True)
+        goes_to = target if transition.action in _TO_TARGET else None
+        note = self.note(transition, release, goes_to, "")
+        return Decision(item, event, transition, release, goes_to, note, joined=False)
+
 
 def _require_migrated(options: Mapping[str, Sequence[str]], items: Iterable[Item]) -> None:
     """Refuse a board #739's migrate has not finished. Without the New and Blocked Status
@@ -1147,6 +1189,7 @@ def _resumed(store: RoadmapStore, item: Item, titles: Mapping[int, str]) -> _Res
         pending.note,
         begun=pending,
         admits=pending.admits,
+        joined=pending.joined,
     )
     was = {
         ItemField.RELEASE: titles[pending.was_in] if pending.was_in is not None else None,
@@ -1406,6 +1449,7 @@ def _cap_decisions(
     target: str,
     remaining: list[Item],
     admitted_now: list[Item],
+    joined_now: Container[int] = frozenset(),
 ) -> list[Decision]:
     """The items descoped to hold the release to its size, lowest-ranked first.
 
@@ -1416,13 +1460,18 @@ def _cap_decisions(
     Ready after a fix had joined makes room then.
     """
     cap, title = run.config.release_cap, current.title
-    for_fixes = max(0, min(len(remaining) - cap, len(admitted_now)))
+    planned_remaining = [
+        item
+        for item in remaining
+        if item.number not in joined_now and joined_release(item) != current.number
+    ]
+    for_fixes = max(0, min(len(planned_remaining) - cap, len(admitted_now)))
     known = run.size_at_start is not None and run.started == current.number
-    over = len(remaining) - max(cap, run.size_at_start or 0) if known else 0
+    over = len(planned_remaining) - max(cap, run.size_at_start or 0) if known else 0
     candidates = sorted(
         (
             item
-            for item in remaining
+            for item in planned_remaining
             if not is_started(item)
             and not is_critical_fix(item)
             and not run.linked_pull_requests(item.number)
@@ -1526,12 +1575,13 @@ def _plan_rules(run: _Run, current: Release, state: ReleaseState) -> Reprioritiz
     """
     target, creates = _next_release(run, current)
     joined = {
-        item.number: run.decision(
+        item.number: run.admission_decision(
             state,
             admission_event(item, has_pr=bool(run.linked_pull_requests(item.number))),
             item,
             current.title,
             target,
+            person=placed_by_person(item, _history(run, item)),
         )
         for item in run.members(current.title)
         if admitted_to(item) != current.number
@@ -1546,14 +1596,15 @@ def _plan_rules(run: _Run, current: Release, state: ReleaseState) -> Reprioritiz
         if d.action is Action.ADMIT and is_critical_fix(d.item) and n not in leaving
     ]
     remaining = [item for item in run.members(current.title) if item.number not in leaving]
-    for victim in _cap_decisions(run, state, current, target, remaining, admitted_now):
+    joined_now = {n for n, d in joined.items() if d.joined}
+    for victim in _cap_decisions(run, state, current, target, remaining, admitted_now, joined_now):
         decisions[victim.item.number] = victim
     # A fix the run admits that a rule also readies or nudges keeps that rule's decision, which
     # carries the admission.
     for number, joining in joined.items():
         last = decisions[number]
         if joining.action is Action.ADMIT and last.action is not Action.ADMIT and not last.leaves:
-            decisions[number] = replace(last, admits=True)
+            decisions[number] = replace(last, admits=True, joined=joining.joined)
     ordered = tuple(decisions[number] for number in sorted(decisions))
     return ReprioritizationPlan(
         repo=run.repo,
@@ -1648,12 +1699,13 @@ def _branch_writes(run: _Run, starting: str) -> list[ReleaseWrite]:
 
 
 def _is_cut(run: _Run, title: str) -> bool:
-    """Whether the Release titled `title` is cut: its release pull request is open, or merged
-    with the release not yet published. False for one the run creates."""
+    """Whether the Release titled `title` is cut or merged: its release pull request is open, or
+    merged with the release not yet published. False for one the run creates."""
     release = find_release(run.releases, title)
     if release is None:
         return False
-    return release_state(run.store, release, run.default_branch.name) is ReleaseState.CUT
+    state = release_state(run.store, release, run.default_branch.name)
+    return state in (ReleaseState.CUT, ReleaseState.MERGED)
 
 
 def _fill_or_trim(
@@ -1661,7 +1713,7 @@ def _fill_or_trim(
 ) -> tuple[list[Decision], list[tuple[Item, str]]]:
     """Top the starting release up to the cap, or trim it down to it; with the backlog items a
     person took out of a Release, which stay out (`_candidates`). A release a person cut before
-    any run started it is topped up with nothing: nothing joins a cut release."""
+    any run started it, its release pull request open or merged, is topped up with nothing."""
     cap = run.config.release_cap
     if len(kept) < cap and _is_cut(run, starting):
         return [], []
@@ -2002,7 +2054,7 @@ def _admits(decision: Decision) -> bool:
     """Whether the decision's last write admits the item to its release: an admission, a pull
     in at a start, or a change that `admits` the fix it readies or nudges, once its comment is
     posted or while the item is still a critical fix."""
-    joins = decision.admits and (decision.done or is_critical_fix(decision.item))
+    joins = decision.admits and (decision.done or is_critical_fix(decision.item) or decision.joined)
     return joins or decision.action in (Action.ADMIT, Action.PULL_IN)
 
 
@@ -2025,6 +2077,8 @@ def _final_marks(
     announced = decision.done and not (decision.begun is not None and decision.begun.stays)
     if _admits(decision):
         marks[JobMark.ADMITTED] = str(release)
+        if decision.joined:
+            marks[JobMark.JOINED] = str(release)
     elif (
         decision.leaves
         and release is not None
@@ -2036,6 +2090,7 @@ def _final_marks(
         )
     ):
         marks[JobMark.ADMITTED] = None
+        marks[JobMark.JOINED] = None
     if _sets_release(decision, decision.by_person) and decision.item.job_record.get(JobMark.LEFT):
         marks[JobMark.LEFT] = None
     if decision.action is Action.NUDGE:
@@ -2093,6 +2148,7 @@ def _pending(store: RoadmapStore, decision: Decision, numbers: Mapping[str, int]
         target_title=decision.target,
         note=decision.note,
         admits=decision.admits,
+        joined=decision.joined,
         comment=decision.comment,
         posted=store.comments_on(item.number).count(decision.comment),
         was_in=numbers.get(item.release) if item.release is not None else None,
@@ -2372,30 +2428,38 @@ def is_own_change(change: Change) -> bool:
     return True
 
 
-def _triggers(change: Change) -> bool:
+def _triggers(change: Change, current: Version | None) -> bool:
     if change.kind in RELEASE_CHANGE_KINDS:
         return True
-    if change.release is None or is_own_change(change):
+    if current is None or not in_release(change.release, current) or is_own_change(change):
         return False
     if change.kind is ChangeKind.FIELD_CHANGED:
         return change.field in _FIELD_CHANGES
     return change.kind in _ITEM_CHANGES
 
 
-def is_due(changes: Iterable[Change], now: datetime, last_stall_check: datetime | None) -> bool:
-    """Whether reprioritization is due, from the changes since the last poll (#741, #752).
+def is_due(
+    changes: Iterable[Change],
+    now: datetime,
+    last_stall_check: datetime | None,
+    current: Release | None,
+) -> bool:
+    """Whether reprioritization is due, from the changes since it last ran (#741, #752, #1360).
 
-    It is due when a release starts, is cut, is un-cut or ships; when an item in a Release joins
-    or leaves it, closes or reopens, or its Status, Priority, labels or blocked-by links change;
-    and once a day for the stall check, counted from `last_stall_check`. A comment, an edit and
-    a job's own change (one whose value matches the Item's job record) are not triggers. With
-    no state to read, it can't tell the current release from a planned one, so a change to an
-    item in any Release counts; a run that finds nothing to do writes nothing.
+    It is due when a release is cut, is un-cut or ships; when an item in `current`, the current
+    release, joins or leaves it, closes or reopens, or its Status, Priority, labels or blocked-by
+    links change; and once a day for the stall check, counted from `last_stall_check`, or at
+    once when there is none. A change to an item in a planned release is no trigger: the job
+    leaves those items alone until their release starts, and a ship starts it. A comment, an
+    edit and a job's own change (one whose value matches the Item's job record) are not
+    triggers either. It reads nothing: a change carries the Release it concerns, and the caller
+    reads the current release.
     """
     stall_check = timedelta(hours=DEFAULT_ROADMAP_STALL_CHECK_HOURS)
     if last_stall_check is None or now - last_stall_check >= stall_check:
         return True
-    return any(_triggers(change) for change in changes)
+    version = current.version if current is not None else None
+    return any(_triggers(change, version) for change in changes)
 
 
 __all__ = [

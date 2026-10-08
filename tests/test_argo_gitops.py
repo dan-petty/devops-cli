@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.argo import app
@@ -125,6 +126,7 @@ def test_trigger_argocd_sync_dry_run() -> None:
     assert "Simulated" in result.message
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_trigger_argocd_sync_api_success() -> None:
     """Ensure API sync succeeds with valid mock ArgoCD endpoint."""
     from devops_cli.argo.gitops import trigger_argocd_sync
@@ -162,6 +164,7 @@ def test_trigger_argocd_sync_api_success() -> None:
         assert call_args[1]["headers"]["Authorization"] == "Bearer test-token"
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_trigger_argocd_sync_webhook_success() -> None:
     """Ensure webhook sync succeeds with valid mock ArgoCD endpoint."""
     from devops_cli.argo.gitops import trigger_argocd_sync
@@ -194,6 +197,7 @@ def test_trigger_argocd_sync_webhook_success() -> None:
         assert "/api/webhook" in sync_calls[0][0][0]
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_trigger_argocd_sync_failure() -> None:
     """Ensure network failure is captured gracefully with status Failed."""
     from devops_cli.argo.gitops import trigger_argocd_sync
@@ -424,6 +428,7 @@ def test_cli_gitops_invalid_app_name() -> None:
     assert result.exit_code != 0
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_trigger_argocd_sync_secret_masking() -> None:
     """Ensure sensitive credentials and URLs in error messages are masked."""
     from devops_cli.argo.gitops import trigger_argocd_sync

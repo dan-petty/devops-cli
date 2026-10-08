@@ -22,19 +22,27 @@ import pytest
 from packaging.version import Version
 
 from devops_cli.config.constants import CONST_ROADMAP_RUN_RECORD_BODY
+from devops_cli.config.defaults import (
+    DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
+    DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE,
+)
 from devops_cli.exceptions.git import (
     GitHubFileNotFoundError,
     GitHubOperationError,
     GitHubRateLimitError,
 )
+from devops_cli.exceptions.roadmap import RoadmapCardChangedError
 from devops_cli.github.rate_limiter import GitHubRateLimiter, reset_github_rate_limiter
+from devops_cli.roadmap.board_read import GRAPHQL_BUDGET_OPERATION
 from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.github_store import (
     GitHubRoadmapStore,
+    card_edit_args,
     is_private_args,
     option_update_request,
     write_issue_body_args,
 )
+from devops_cli.roadmap.render import render_roadmap
 from devops_cli.roadmap.reprioritize import plan_reprioritization
 from devops_cli.roadmap.store import (
     Card,
@@ -53,7 +61,13 @@ from devops_cli.roadmap.store import (
     PullRequestState,
     RoadmapStore,
 )
-from tests.roadmap_board_fake import BOARD_READ, BoardServer
+from tests.roadmap_board_fake import (
+    BOARD_READ,
+    BoardServer,
+    GitHubFake,
+    budget_reply,
+    gh_variables,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "roadmap"
 REPO = "dan-petty/devops-cli"
@@ -73,15 +87,49 @@ EVENTS = recorded("issue-events.json")
 
 LISTING_MILESTONES = f"repos/{REPO}/milestones?state=all&per_page=100"
 LISTING_IN_RELEASE = f"repos/{REPO}/issues?milestone=43&state=all&per_page=100"
+LISTING_PULLS = "pulls?state=all&sort=updated&direction=desc"
+POLL_PAGE = DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE
+LISTING_RELEASES = f"releases?per_page={POLL_PAGE}"
+# A poll's pull request and GitHub Release listings with nothing in them (#1360).
+NO_RELEASE_CHANGES: dict[str, Any] = {LISTING_PULLS: [], LISTING_RELEASES: []}
+
+
+# The board's node id, as the recorded board listing (`project list`) gives it.
+BOARD_ID = "PVT_kwHOAHXnKc4Biwcg"
+CARD_737 = BOARD["items"][0]["id"]
+JOB_RECORD_ID = "PVTF_jobrecord"
 
 
 def fields_with_job_record() -> dict[str, Any]:
     listing: dict[str, Any] = deepcopy(FIELDS)
-    listing["fields"].append(
-        {"id": "PVTF_jobrecord", "name": "Job record", "type": "ProjectV2Field"}
-    )
+    listing["fields"].append({"id": JOB_RECORD_ID, "name": "Job record", "type": "ProjectV2Field"})
     listing["totalCount"] += 1
     return listing
+
+
+def graphql_fields(listing: dict[str, Any]) -> dict[str, Any]:
+    """The recorded field listing as the store's GraphQL fields query answers it, with the
+    board's node id."""
+    nodes = [
+        {
+            "id": board_field["id"],
+            "name": board_field["name"],
+            "dataType": (
+                "SINGLE_SELECT" if board_field["type"] == "ProjectV2SingleSelectField" else "TEXT"
+            ),
+            "options": board_field.get("options", []),
+        }
+        for board_field in listing["fields"]
+    ]
+    connection = {"totalCount": len(nodes), "nodes": nodes}
+    return {"data": {"repositoryOwner": {"projectV2": {"id": BOARD_ID, "fields": connection}}}}
+
+
+ITEM_FIELDS = graphql_fields(fields_with_job_record())
+FIELD_IDS = {f["name"]: f["id"] for f in fields_with_job_record()["fields"]}
+OPTION_IDS = {
+    (f["name"], o["name"]): o["id"] for f in FIELDS["fields"] for o in f.get("options", [])
+}
 
 
 def created_milestone(number: int, title: str, **changes: Any) -> dict[str, Any]:
@@ -123,6 +171,7 @@ class RecordedGh:
             "item-add",
             "item-create",
             "item-delete",
+            "item-archive",
             "field-delete",
             "create",
             "link",
@@ -141,7 +190,38 @@ def board_store(replies: dict[str, Any]) -> tuple[GitHubRoadmapStore, RecordedGh
 
 
 def board_item(number: int, **fields: Any) -> Item:
-    return Item(number=number, title=f"#{number}", url=f"{ISSUE_URL}/{number}", **fields)
+    """Issue `number` as an Item read from the board: #737's card is the recorded one, with its
+    Status and Priority, the others are `on_board`'s `PVTI_<number>`."""
+    card = CARD_737 if number == 737 else f"PVTI_{number}"
+    recorded = {"status": "Done", "priority": "P1-High"} if number == 737 else {}
+    return Item.model_validate(
+        {"number": number, "title": f"#{number}", "url": f"{ISSUE_URL}/{number}", "card_id": card}
+        | recorded
+        | fields
+    )
+
+
+def card_edit(card: str, field_name: str, *change: str) -> list[str]:
+    """The id-addressed `item-edit` of `field_name` on `card`."""
+    return card_edit_args(card, BOARD_ID, FIELD_IDS[field_name], list(change))
+
+
+def graphql_kinds(runner: RecordedGh) -> list[str]:
+    """Each GraphQL-class command the store sent, by what it is: a board read, a card read, the
+    fields, an id-addressed edit, or anything else by its first two arguments."""
+    kinds = []
+    for args, _ in runner.calls:
+        query = gh_variables(args).get("query", "") if args[:2] == ["api", "graphql"] else ""
+        if args[0] == "project":
+            kinds.append(f"{args[1]} by id" if "--id" in args else args[1])
+        elif query:
+            kinds.append(
+                next(
+                    (name for name in ("RoadmapBoardCard", "RoadmapBoard") if name in query),
+                    "fields" if "fields(first" in query else query[:40],
+                )
+            )
+    return kinds
 
 
 # ── Releases ──────────────────────────────────────────────────────────────────
@@ -379,29 +459,31 @@ def test_a_job_record_that_cannot_be_decoded_fails_the_read_and_names_its_card(
 # ── Item writes ───────────────────────────────────────────────────────────────
 
 
-def test_a_value_that_is_not_a_board_option_raises_without_writing() -> None:
-    store, runner = board_store(
-        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(BOARD)}
-    )
+def test_a_value_that_is_not_a_board_option_raises_without_reading_the_card() -> None:
+    store, runner = board_store({"fields(first": ITEM_FIELDS, BOARD_READ: BoardServer(BOARD)})
     with pytest.raises(GitHubOperationError, match="not a Priority option"):
         store.set_field(board_item(737), ItemField.PRIORITY, "P9-Someday")
-    assert runner.writes == []
+    assert (runner.writes, graphql_kinds(runner)) == ([], ["fields"])
 
 
-def test_setting_priority_records_it_in_the_job_record_then_edits_the_field() -> None:
-    # The Item was read before its Status was recorded; the record merges into the board's.
+def test_setting_priority_records_it_in_the_job_record_then_edits_the_field_by_ids() -> None:
+    # The Item was read before its Status was recorded; the record merges into the card's.
     board = on_board()
     board["items"][0]["job record"] = '{"Status": "Done"}'
     store, runner = board_store(
-        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(board), "item-edit": ""}
+        {"fields(first": ITEM_FIELDS, BOARD_READ: BoardServer(board), "item-edit": ""}
     )
     store.set_field(board_item(737, status="Done"), ItemField.PRIORITY, "P2-Medium")
-    edit = ["project", "item-edit", "2", "--owner", "dan-petty", "--url", f"{ISSUE_URL}/737"]
     record = runner.writes[0][-1]
     assert (runner.writes, json.loads(record)) == (
         [
-            [*edit, "--field", "Job record", "--text", record],
-            [*edit, "--field", "Priority", "--value", "P2-Medium"],
+            card_edit(CARD_737, "Job record", "--text", record),
+            card_edit(
+                CARD_737,
+                "Priority",
+                "--single-select-option-id",
+                OPTION_IDS["Priority", "P2-Medium"],
+            ),
         ],
         {"Priority": "P2-Medium", "Status": "Done"},
     )
@@ -411,12 +493,12 @@ def test_a_field_write_sets_marks_in_the_write_that_records_its_value() -> None:
     """The record of the value and the marks go in one write, before the field: a job that
     stops after it finds both, and one that stops before it finds neither."""
     store, runner = board_store(
-        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(BOARD), "item-edit": ""}
+        {"fields(first": ITEM_FIELDS, BOARD_READ: BoardServer(BOARD), "item-edit": ""}
     )
     store.set_field(board_item(737), ItemField.STATUS, "Ready", marks={JobMark.PENDING: "{}"})
-    assert [(args[8], args[9:]) for args in runner.writes] == [
-        ("Job record", ["--text", '{"Pending": "{}", "Status": "Ready"}']),
-        ("Status", ["--value", "Ready"]),
+    assert [args[7:] for args in runner.writes] == [
+        [JOB_RECORD_ID, "--text", '{"Pending": "{}", "Status": "Ready"}'],
+        [FIELD_IDS["Status"], "--single-select-option-id", OPTION_IDS["Status", "Ready"]],
     ]
 
 
@@ -424,13 +506,13 @@ def test_two_writes_from_one_read_keep_both_fields_in_the_job_record() -> None:
     board = on_board()
 
     def edit_board(args: list[str]) -> str:
-        if "Job record" in args:
+        if JOB_RECORD_ID in args:
             board["items"][0]["job record"] = args[-1]
         return ""
 
     store, runner = board_store(
         {
-            "field-list": fields_with_job_record(),
+            "fields(first": ITEM_FIELDS,
             BOARD_READ: BoardServer(board),
             "item-edit": edit_board,
             f"api repos/{REPO}/issues/737": ISSUES_IN_RELEASE[2],
@@ -440,68 +522,513 @@ def test_two_writes_from_one_read_keep_both_fields_in_the_job_record() -> None:
     assert item is not None
     store.set_field(item, ItemField.PRIORITY, "P2-Medium")
     store.set_field(item, ItemField.STATUS, "Ready")
-    assert [json.loads(args[-1]) for args in runner.writes if "Job record" in args] == [
-        {"Priority": "P2-Medium"},
-        {"Priority": "P2-Medium", "Status": "Ready"},
-    ]
+    assert (
+        item.card_id,
+        [json.loads(args[-1]) for args in runner.writes if JOB_RECORD_ID in args],
+    ) == (CARD_737, [{"Priority": "P2-Medium"}, {"Priority": "P2-Medium", "Status": "Ready"}])
 
 
 def test_writing_an_item_that_is_not_on_the_board_raises_without_writing() -> None:
-    store, runner = board_store(
-        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(BOARD)}
-    )
+    store, runner = board_store({"fields(first": ITEM_FIELDS, BOARD_READ: BoardServer(BOARD)})
     with pytest.raises(GitHubOperationError, match="#739 is not on the board"):
         store.set_field(board_item(739), ItemField.STATUS, "Ready")
     assert runner.writes == []
 
 
+def test_an_item_whose_card_holds_another_issue_raises_without_writing() -> None:
+    """A card id names one card: an Item whose card id is another issue's is not on the board."""
+    store, runner = board_store({"fields(first": ITEM_FIELDS, BOARD_READ: BoardServer(BOARD)})
+    with pytest.raises(GitHubOperationError, match="#739 is not on the board"):
+        store.set_field(board_item(739, card_id=CARD_737), ItemField.STATUS, "Ready")
+    assert runner.writes == []
+
+
 def test_clearing_a_field_sends_clear_and_records_null() -> None:
     store, runner = board_store(
-        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(BOARD), "item-edit": ""}
+        {"fields(first": ITEM_FIELDS, BOARD_READ: BoardServer(BOARD), "item-edit": ""}
     )
     store.set_field(board_item(737), ItemField.EFFORT, None)
-    assert [args[8:] for args in runner.writes] == [
-        ["Job record", "--text", '{"Effort": null}'],
-        ["Effort", "--clear"],
+    assert [args[7:] for args in runner.writes] == [
+        [JOB_RECORD_ID, "--text", '{"Effort": null}'],
+        [FIELD_IDS["Effort"], "--clear"],
     ]
 
 
 def test_a_board_without_a_job_record_field_raises_before_any_write() -> None:
-    store, runner = board_store({"field-list": FIELDS})
+    store, runner = board_store({"fields(first": graphql_fields(FIELDS)})
     with pytest.raises(GitHubOperationError, match="Job record"):
         store.set_field(board_item(737), ItemField.PRIORITY, "P2-Medium")
-    assert (runner.writes, [args[:2] for args, _ in runner.calls]) == (
-        [],
-        [["project", "field-list"]],
-    )
+    assert (runner.writes, graphql_kinds(runner)) == ([], ["fields"])
 
 
 def test_placing_an_item_in_a_release_records_it_then_sets_its_milestone() -> None:
+    current_issue = {**ISSUES_IN_RELEASE[1], "milestone": None}
+
+    def patch_or_read(args: list[str]) -> dict[str, Any]:
+        if "-X" in args and "PATCH" in args:
+            for arg in args:
+                if "milestone=" in arg:
+                    val = arg.split("milestone=")[1]
+                    current_issue["milestone"] = (
+                        None if val == "null" else ISSUES_IN_RELEASE[1]["milestone"]
+                    )
+        return current_issue
+
     store, runner = board_store(
         {
-            "field-list": fields_with_job_record(),
+            "fields(first": ITEM_FIELDS,
             BOARD_READ: BoardServer(on_board(739)),
             "milestones?state=all": MILESTONES,
-            "-X PATCH": ISSUES_IN_RELEASE[1],
+            "-X PATCH": patch_or_read,
+            "issues/739": lambda _: current_issue,
             "item-edit": "",
         }
     )
     store.set_field(board_item(739), ItemField.RELEASE, "0.2.25")
-    store.set_field(board_item(739), ItemField.RELEASE, None)
-    assert [args[3:] if args[0] == "api" else args[8:] for args in runner.writes] == [
-        ["Job record", "--text", '{"Release": "v0.2.25"}'],
+    store.set_field(board_item(739, release="v0.2.25"), ItemField.RELEASE, None)
+    assert [args[3:] if args[0] == "api" else args[7:] for args in runner.writes] == [
+        [JOB_RECORD_ID, "--text", '{"Release": "v0.2.25"}'],
         [f"repos/{REPO}/issues/739", "-F", "milestone=43"],
-        ["Job record", "--text", '{"Release": null}'],
+        [JOB_RECORD_ID, "--text", '{"Release": null}'],
         [f"repos/{REPO}/issues/739", "-F", "milestone=null"],
     ]
 
 
-def test_add_item_adds_the_issue_by_its_url() -> None:
-    store, runner = board_store({"issues/917": OPEN_ISSUES[1], "item-add": ""})
+def _read_board_and_fields(replies: dict[str, Any]) -> tuple[GitHubRoadmapStore, RecordedGh]:
+    """A store that has read the board, its issues and its fields, its calls then cleared."""
+    store, runner = board_store(
+        {
+            "fields(first": ITEM_FIELDS,
+            "issues?state=all": ISSUES_IN_RELEASE,
+            "item-edit": "",
+            **replies,
+        }
+    )
+    store.items()
+    store.board_fields()
+    runner.calls.clear()
+    return store, runner
+
+
+def test_a_value_write_sends_one_card_read_and_two_id_addressed_edits_and_no_board_read() -> None:
+    """Once the store has read the board and its fields, a write reads only its card: no
+    `field-list`, no budget probe, no board page, and no edit that names a card by URL or a
+    field by name, which gh resolves by reading the board's first 100 items (#1361)."""
+    store, runner = _read_board_and_fields({BOARD_READ: BoardServer(BOARD)})
+    store.set_field(board_item(737), ItemField.VALUE, "High")
+    assert (
+        graphql_kinds(runner),
+        [args for args, _ in runner.calls if "--url" in args or "--field" in args],
+    ) == (["RoadmapBoardCard", "item-edit by id", "item-edit by id"], [])
+
+
+def test_a_release_write_sends_one_card_read_one_edit_and_one_milestone_write() -> None:
+    store, runner = _read_board_and_fields(
+        {
+            BOARD_READ: BoardServer(BOARD),
+            "milestones?state=all": MILESTONES,
+            "-X PATCH": ISSUES_IN_RELEASE[2],
+            "issues/737": ISSUES_IN_RELEASE[2],
+        }
+    )
+    store.set_field(board_item(737), ItemField.RELEASE, "v0.2.25")
+    assert (graphql_kinds(runner), [args[:3] for args in runner.writes if args[0] == "api"]) == (
+        ["RoadmapBoardCard", "item-edit by id"],
+        [["api", "-X", "PATCH"]],
+    )
+
+
+def test_a_write_to_a_card_another_process_archived_raises_before_any_edit() -> None:
+    board = on_board()
+    store, runner = _read_board_and_fields({BOARD_READ: BoardServer(board)})
+    board["items"][0]["isArchived"] = True
+    with pytest.raises(GitHubOperationError, match="#737 is not on the board"):
+        store.set_field(board_item(737), ItemField.VALUE, "High")
+    assert (runner.writes, graphql_kinds(runner)) == ([], ["RoadmapBoardCard"])
+
+
+def test_a_mark_another_process_wrote_after_the_listing_was_read_is_kept() -> None:
+    """The record a write joins is the one the card holds when it is written, not the one the
+    listing held (ADR 0002's last-set compare)."""
+    board = on_board()
+    store, runner = _read_board_and_fields({BOARD_READ: BoardServer(board)})
+    (item,) = store.items()
+    board["items"][0]["job record"] = '{"Nudged": "2026-10-08T00:00:00+00:00"}'
+    store.set_marks(item, {JobMark.ADMITTED: "43"})
+    assert json.loads(runner.writes[-1][-1]) == {
+        "Admitted": "43",
+        "Nudged": "2026-10-08T00:00:00+00:00",
+    }
+
+
+def _person_edits_after_the_read(
+    **card: str,
+) -> tuple[GitHubFake, GitHubRoadmapStore, Item]:
+    """A store that read #7 with `card`'s fields, after which a person set Priority P1-High."""
+    github = GitHubFake(REPO)
+    github.seed_issue(7, card=card)
+    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    (item,) = store.items()
+    (github.card(7) or {})["priority"] = "P1-High"
+    return github, store, item
+
+
+def _item_edits(github: GitHubFake, start: int) -> list[list[str]]:
+    return [args for args in github.calls[start:] if args[:2] == ["project", "item-edit"]]
+
+
+def test_a_field_a_person_changed_after_the_listing_was_read_raises_before_any_edit() -> None:
+    """The store read the board, then a person set Priority: the job's Priority write, planned
+    from the listing, raises before any edit and the person's value stays (ADR 0002)."""
+    github, store, item = _person_edits_after_the_read(priority="P2-Medium")
+    start = len(github.calls)
+    with pytest.raises(RoadmapCardChangedError, match="#7's Priority") as raised:
+        store.set_field(item, ItemField.PRIORITY, "P3-Low")
+    assert (
+        _item_edits(github, start),
+        (github.card(7) or {})["priority"],
+        {key: raised.value.details[key] for key in ("field", "read", "now")},
+    ) == ([], "P1-High", {"field": "Priority", "read": "P2-Medium", "now": "P1-High"})
+
+
+def test_a_release_a_person_changed_after_the_listing_was_read_raises_before_any_edit() -> None:
+    github = GitHubFake(
+        REPO,
+        milestones=[
+            {"title": "v0.2.25", "number": 1, "state": "open"},
+            {"title": "v0.2.26", "number": 2, "state": "open"},
+        ],
+    )
+    github.seed_issue(7, card={})
+    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    (item,) = store.items()
+    github.issues[7]["milestone"] = {"title": "v0.2.25", "number": 1, "state": "open"}
+    start = len(github.calls)
+    with pytest.raises(RoadmapCardChangedError, match="#7's Release") as raised:
+        store.set_field(item, ItemField.RELEASE, "v0.2.26")
+    assert (
+        _item_edits(github, start),
+        (github.card(7) or {}).get("release"),
+        {key: raised.value.details[key] for key in ("field", "read", "now")},
+    ) == ([], None, {"field": "Release", "read": None, "now": "v0.2.25"})
+
+
+def test_a_persons_change_stays_caught_after_the_store_wrote_another_field_of_its_card() -> None:
+    """A write that reads the card takes only its job record into the listing, so a person's
+    Priority it saw while writing Effort still stops the Priority write that follows."""
+    github, store, item = _person_edits_after_the_read(priority="P2-Medium")
+    store.set_field(item, ItemField.EFFORT, "Low")
+    start = len(github.calls)
+    with pytest.raises(RoadmapCardChangedError):
+        store.set_field(item, ItemField.PRIORITY, "P3-Low")
+    assert (_item_edits(github, start), (github.card(7) or {})["effort"]) == ([], "Low")
+
+
+def test_a_write_of_the_value_the_card_holds_now_goes_ahead() -> None:
+    """Writing the value someone else already set reverts nothing: the board's own "Item
+    added" workflow sets Status New on a new card, and intake writes the same New."""
+    github, store, item = _person_edits_after_the_read()
+    store.set_field(item, ItemField.PRIORITY, "P1-High")
+    card = github.card(7) or {}
+    assert (card["priority"], json.loads(card["job record"])) == (
+        "P1-High",
+        {"Priority": "P1-High"},
+    )
+
+
+def test_the_stores_own_write_is_the_value_its_next_write_of_that_field_compares() -> None:
+    """A reprioritize apply reverts a field, then writes its decision to it, both from the Item
+    it planned with: the second write compares the card with the first write's value."""
+    github = GitHubFake(REPO)
+    github.seed_issue(7, card={"priority": "P2-Medium"})
+    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    (item,) = store.items()
+    store.set_field(item, ItemField.PRIORITY, "P1-High")
+    store.set_field(item, ItemField.PRIORITY, "P0-Critical")
+    assert (github.card(7) or {})["priority"] == "P0-Critical"
+
+
+def test_a_card_field_a_person_changed_after_the_listing_was_read_raises_before_any_edit() -> None:
+    github = GitHubFake(REPO)
+    github.seed_issue(7, card={"status": "Ready"})
+    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    (card,) = store.cards()
+    (github.card(7) or {})["status"] = "Blocked"
+    start = len(github.calls)
+    with pytest.raises(RoadmapCardChangedError, match="Status"):
+        store.set_card_field(card, ItemField.STATUS, "Done")
+    assert (_item_edits(github, start), (github.card(7) or {})["status"]) == ([], "Blocked")
+
+
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_a_render_after_a_close_in_the_same_store_shows_the_status_the_board_set(
+    duplicate: bool,
+) -> None:
+    """A close lets the board's "Item closed" workflow set the card's Status to Done, so the
+    store drops the listings it read: the cut a close round renders through the same store
+    writes Done, not the Status the store read before the close."""
+    github = GitHubFake(REPO, milestones=[{"number": 43, "title": "v0.2.25", "state": "open"}])
+    github.seed_issue(7, "feat: shipped", milestone="v0.2.25", card={"status": "In Review"})
+    github.seed_issue(8, "feat: the original", milestone="v0.2.25", card={"status": "Ready"})
+    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    config = RoadmapConfig(board=2)
+    before = render_roadmap(store, repo=REPO, config=config)
+    if duplicate:
+        store.close_as_duplicate(7, 8, None)
+    else:
+        store.close_issue(7, CloseReason.COMPLETED, "Delivered.")
+    after = render_roadmap(store, repo=REPO, config=config)
+    assert (
+        next(line for line in before.splitlines() if "#7 " in line),
+        next(line for line in after.splitlines() if "#7 " in line),
+    ) == (
+        "- [ ] #7 feat: shipped — Status: In Review · Priority: — · Value: — · Effort: —",
+        "- [x] #7 feat: shipped — Status: Done · Priority: — · Value: — · Effort: —",
+    )
+
+
+def test_a_write_refuses_before_it_starts_while_the_points_left_are_below_the_reserve() -> None:
+    """The card read reports the points left; below the reserve the write never starts."""
+    server = BoardServer(BOARD, remaining=DEFAULT_GH_GRAPHQL_BUDGET_FLOOR)
+    store, runner = board_store({"fields(first": ITEM_FIELDS, BOARD_READ: server})
+    with pytest.raises(GitHubRateLimitError, match="stopped before writing #737"):
+        store.set_marks(board_item(737), {JobMark.ADMITTED: "43"})
+    assert runner.writes == []
+
+
+def test_the_store_reads_the_board_once_and_its_own_writes_keep_that_listing_current() -> None:
+    """Every reader of one filter shares one listing per store; a write updates the card in it
+    with the values it sent, so a later read of the same store sees them without a re-read."""
+    board = on_board()
+    store, runner = board_store(
+        {
+            "fields(first": ITEM_FIELDS,
+            BOARD_READ: BoardServer(board),
+            "issues?state=all": ISSUES_IN_RELEASE,
+            "item-edit": "",
+            f"api repos/{REPO}/issues/737": ISSUES_IN_RELEASE[2],
+        }
+    )
+    (before,) = store.items()
+    store.set_field(before, ItemField.VALUE, "Low")
+    after = store.item(737)
+    probes = [args for args in graphql_kinds(runner) if args == "RoadmapBoard"]
+    assert (
+        after is not None and (after.value, after.job_record),
+        len(probes),
+        len(store.cards()),
+    ) == ((("Low", {ItemField.VALUE: "Low"})), 2, 4)
+
+
+@pytest.mark.parametrize("size", [120, 1_080])
+def test_a_job_record_mark_costs_three_graphql_points_whatever_the_boards_size(size: int) -> None:
+    """The store's fields (once a run), the one card and one edit by node ids: 3 points on a
+    board of 120 cards or of 1,080, board #2's size on 2026-10-08, where the same mark through
+    `field-list`, a whole-board read and a name-addressed `item-edit` cost about 215 (#1361)."""
+    github = GitHubFake(REPO)
+    for number in range(1, size + 1):
+        github.seed_issue(number, card={"status": "Ready"})
+    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    item = board_item(7, card_id=github.card_id(7))
+    store.set_marks(item, {JobMark.NUDGED: "2026-10-08T02:20:00+00:00"})
+    card = github.card(7) or {}
+    assert (github.points, json.loads(card["job record"])) == (
+        3,
+        {"Nudged": "2026-10-08T02:20:00+00:00"},
+    )
+
+
+def test_add_item_adds_the_issue_by_its_url_and_returns_the_card_it_added() -> None:
+    """`item-add --format json` names the card; its fields come from one read of that card,
+    never from the board listing, which may not show a new card for minutes (#1361)."""
+    board = on_board(917)
+    board["items"][-1]["status"] = "New"
+    store, runner = board_store(
+        {
+            "item-add": {"id": "PVTI_917", "title": OPEN_ISSUES[1]["title"], "type": "Issue"},
+            "issues/917": OPEN_ISSUES[1],
+            BOARD_READ: BoardServer(board),
+        }
+    )
+    added = store.add_item(917)
+    assert (
+        runner.writes,
+        graphql_kinds(runner),
+        (added.number, added.card_id, added.status, added.title, added.state),
+    ) == (
+        [
+            [
+                "project",
+                "item-add",
+                "2",
+                "--owner",
+                "dan-petty",
+                "--url",
+                f"{ISSUE_URL}/917",
+                "--format",
+                "json",
+            ]
+        ],
+        ["item-add", "RoadmapBoardCard"],
+        (917, "PVTI_917", "New", OPEN_ISSUES[1]["title"], GitHubState.OPEN),
+    )
+
+
+def test_adding_an_issue_already_on_the_board_returns_its_existing_card() -> None:
+    """GitHub's add answers with the card the issue already has, so it keeps its fields."""
+    store, _ = board_store(
+        {
+            "item-add": {"id": CARD_737, "type": "Issue"},
+            "issues/737": ISSUES_IN_RELEASE[2],
+            BOARD_READ: BoardServer(BOARD),
+        }
+    )
+    added = store.add_item(737)
+    assert (added.card_id, added.status, added.priority) == (CARD_737, "Done", "P1-High")
+
+
+def _archived_card(**card: str) -> tuple[GitHubFake, GitHubRoadmapStore]:
+    """Open issue #7, whose card a person archived holding `card`'s fields, and a store over
+    it; the board's listing leaves the card out, so #7 is a candidate."""
+    github = GitHubFake(REPO)
+    github.seed_issue(7, "feat: archived by a person", card=card)
+    (github.card(7) or {})["isArchived"] = True
+    return github, GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+
+
+def _project_commands(github: GitHubFake) -> list[list[str]]:
+    return [args[1:] for args in github.calls if args[0] == "project"]
+
+
+def test_adding_an_issue_whose_card_is_archived_restores_that_card_with_its_fields() -> None:
+    """`item-add` names the archived card. The store reads it once, restores it with one
+    `item-archive --undo` by its node id, and returns it with the fields it holds; a later store
+    lists it, so the issue is no longer a candidate (#1403). Without the restore, every round
+    raised "Board #2 does not hold card PVTI_7 that #7 was just added as."."""
+    github, store = _archived_card(status="Ready", value="High")
+    candidates = [candidate.number for candidate in store.candidates()]
+    added = store.add_item(7)
+    later = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    assert (
+        candidates,
+        _project_commands(github),
+        sum("RoadmapBoardCard" in " ".join(args) for args in github.calls),
+        (added.restored, added.card_id, added.status, added.value),
+        [candidate.number for candidate in later.candidates()],
+        [(item.number, item.status, item.value) for item in later.items()],
+    ) == (
+        [7],
+        [
+            [
+                "item-add",
+                "2",
+                "--owner",
+                "dan-petty",
+                "--url",
+                f"{ISSUE_URL}/7",
+                "--format",
+                "json",
+            ],
+            [
+                "item-archive",
+                "2",
+                "--owner",
+                "dan-petty",
+                "--id",
+                "PVTI_7",
+                "--undo",
+                "--format",
+                "json",
+            ],
+        ],
+        1,
+        (True, "PVTI_7", "Ready", "High"),
+        [],
+        [(7, "Ready", "High")],
+    )
+
+
+def test_adding_an_issue_whose_card_is_on_the_board_restores_nothing() -> None:
+    github = GitHubFake(REPO)
+    github.seed_issue(7, card={"status": "Ready"})
+    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    added = store.add_item(7)
+    assert ([args[0] for args in _project_commands(github)], added.status, added.restored) == (
+        ["item-add"],
+        "Ready",
+        False,
+    )
+
+
+def test_a_restore_that_answers_with_another_card_raises_before_any_edit() -> None:
+    """Fail closed: the store returns the card it restored only when gh names that card."""
+    github, store = _archived_card(status="Ready")
+    other = {"id": "PVTI_other", "title": "Issue 8", "type": "Issue"}
+    with patch.object(github, "_unarchive", return_value=other):
+        with pytest.raises(GitHubOperationError, match="answered with card PVTI_other"):
+            store.add_item(7)
+    assert [args[0] for args in _project_commands(github)] == ["item-add", "item-archive"]
+
+
+def test_a_restore_refuses_while_the_card_read_leaves_fewer_points_than_the_reserve() -> None:
+    """`item-add` is sent, and GitHub answers it with the card the issue has; the card read then
+    reports fewer points than the reserve, so the restore is refused and the card stays
+    archived."""
+    github, store = _archived_card(status="Ready")
+    github.board.remaining = DEFAULT_GH_GRAPHQL_BUDGET_FLOOR
+    with pytest.raises(GitHubRateLimitError, match="stopped before writing #7"):
+        store.add_item(7)
+    assert (
+        [args[0] for args in _project_commands(github)],
+        (github.card(7) or {}).get("isArchived"),
+    ) == (["item-add"], True)
+
+
+def test_an_added_card_joins_the_listing_the_store_already_read() -> None:
+    """A later read of the same store holds the card it added, though GitHub's listing may
+    not list it yet."""
+    board = on_board()
+    added = deepcopy(board["items"][0])
+    added.update(id="PVTI_917", content={**added["content"], "number": 917})
+    server = BoardServer(board)
+
+    def add(_: list[str]) -> dict[str, str]:
+        board["items"].append(added)
+        return {"id": "PVTI_917"}
+
+    store, _ = board_store(
+        {
+            "item-add": add,
+            "issues/917": OPEN_ISSUES[1],
+            "issues?state=all": [*ISSUES_IN_RELEASE, OPEN_ISSUES[1]],
+            BOARD_READ: server,
+        }
+    )
+    store.items()
+    server.lagging["PVTI_917"] = 3
     store.add_item(917)
-    assert runner.writes == [
-        ["project", "item-add", "2", "--owner", "dan-petty", "--url", f"{ISSUE_URL}/917"]
-    ]
+    assert ([item.number for item in store.items()], server.pages) == ([737, 917], 1)
+
+
+def test_an_added_open_card_joins_the_open_items_listing_without_a_read() -> None:
+    """Intake reads the open items for its candidates, then adds one: the open items' listing
+    keeps the card the add returned, so the backlog shows it with no read that GitHub's lag
+    could leave it out of."""
+    github = GitHubFake(REPO, lag=3)
+    github.seed_issue(5, "feat: new")
+    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    before = [candidate.number for candidate in store.candidates()]
+    start = len(github.calls)
+    store.add_item(5)
+    read_after = len(github.calls)
+    assert (
+        before,
+        [candidate.number for candidate in store.candidates()],
+        [item.number for item in store.backlog()],
+        [args for args in github.calls[read_after:] if "RoadmapBoard" in " ".join(args)],
+        github.board.lagging,
+        start < read_after,
+    ) == ([5], [], [5], [], {"PVTI_5": 3}, True)
 
 
 def test_add_item_refuses_a_pull_request() -> None:
@@ -560,14 +1087,46 @@ def test_a_failed_write_raises() -> None:
     """The job record goes first, so when its write fails the field is never written."""
     store, runner = board_store(
         {
-            "field-list": fields_with_job_record(),
+            "fields(first": ITEM_FIELDS,
             BOARD_READ: BoardServer(BOARD),
             "item-edit": (1, "GraphQL: Could not resolve"),
         }
     )
     with pytest.raises(GitHubOperationError, match="Could not set Job record on #737"):
         store.set_field(board_item(737), ItemField.STATUS, "Ready")
-    assert [args[8] for args in runner.writes] == ["Job record"]
+    assert [args[7] for args in runner.writes] == [JOB_RECORD_ID]
+
+
+# ── The run's spend (#1400) ───────────────────────────────────────────────────
+
+
+def test_the_spend_reads_no_budget_until_the_store_sends_a_graphql_request() -> None:
+    """A store that has sent only REST requests has no spend to report, so it reads no budget;
+    once it reads the board, the spend is read from GraphQL's own budget, as the run's last
+    request. Without the read, as after a refusal, it comes from the last budget the board read
+    reported, and nothing is sent."""
+    server = BoardServer(BOARD, remaining=4000)
+    store, runner = board_store(
+        {
+            "milestones?state=all": MILESTONES,
+            GRAPHQL_BUDGET_OPERATION: budget_reply(3990),
+            BOARD_READ: server,
+        }
+    )
+    store.releases()
+    rest_only = (store.graphql_spend(read=False), store.graphql_spend(), len(runner.calls))
+    store.cards()
+    sent = len(runner.calls)
+    held = store.graphql_spend(read=False)
+    unsent = len(runner.calls) - sent
+    spend = store.graphql_spend()
+    last = gh_variables(runner.calls[-1][0])["query"]
+    assert (
+        rest_only,
+        (unsent, held is not None and held.remaining == server.remaining),
+        GRAPHQL_BUDGET_OPERATION in last,
+        spend is not None,
+    ) == ((None, None, 1), (0, True), True, True)
 
 
 # ── Paging and caching ────────────────────────────────────────────────────────
@@ -726,11 +1285,12 @@ def test_every_read_passes_use_cache_false() -> None:
         {
             "milestones?state=all": MILESTONES,
             BOARD_READ: BoardServer(BOARD),
-            "field-list": FIELDS,
+            "fields(first": graphql_fields(FIELDS),
             "issues?milestone=43": ISSUES_IN_RELEASE,
             "issues/737": ISSUES_IN_RELEASE[2],
             "issues?state=open": OPEN_ISSUES,
             "issues/events": EVENTS,
+            **NO_RELEASE_CHANGES,
         }
     )
     store.items(release="0.2.25")
@@ -740,8 +1300,8 @@ def test_every_read_passes_use_cache_false() -> None:
     with pytest.raises(GitHubOperationError, match="Job record"):
         store.set_field(board_item(737), ItemField.STATUS, "Ready")
     assert ([kwargs["use_cache"] for _, kwargs in runner.calls], len(runner.calls)) == (
-        [False] * 14,
-        14,
+        [False] * 12,
+        12,
     )
 
 
@@ -759,10 +1319,11 @@ def test_changes_since_pages_newest_first_and_stops_at_the_first_older_event() -
     ]
     store, runner = board_store(
         {
-            "&page=1": newer_page,
-            "&page=2": EVENTS + older_padding,
-            "&page=3": (1, "page 3 must not be read"),
+            "events?per_page=100&page=1": newer_page,
+            "events?per_page=100&page=2": EVENTS + older_padding,
+            "events?per_page=100&page=3": (1, "page 3 must not be read"),
             BOARD_READ: BoardServer(BOARD),
+            **NO_RELEASE_CHANGES,
         }
     )
     changes = store.changes_since(datetime(2026, 10, 1, 22, 0, tzinfo=UTC))
@@ -785,7 +1346,9 @@ def test_changes_since_pages_newest_first_and_stops_at_the_first_older_event() -
 def test_changes_since_keeps_issue_release_label_and_state_events_only() -> None:
     closed = next(e for e in EVENTS if e["event"] == "closed" and "pull_request" not in e["issue"])
     reopened = {**closed, "event": "reopened", "created_at": "2026-10-02T01:00:00Z"}
-    store, _ = board_store({"issues/events": [reopened, *EVENTS], BOARD_READ: BoardServer(BOARD)})
+    store, _ = board_store(
+        {"issues/events": [reopened, *EVENTS], BOARD_READ: BoardServer(BOARD), **NO_RELEASE_CHANGES}
+    )
     changes = store.changes_since(datetime(2026, 10, 1))
     assert [
         (change.kind, change.number, change.actor, change.release or change.label)
@@ -800,6 +1363,40 @@ def test_changes_since_keeps_issue_release_label_and_state_events_only() -> None
     ]
 
 
+def test_changes_since_drops_an_actors_own_changes_before_it_reads_the_board() -> None:
+    """A run's own events read no job record, so a round whose events are all its own sends
+    no GraphQL request (#1361); the others' changes still carry theirs."""
+    closed = next(e for e in EVENTS if e["event"] == "closed" and "pull_request" not in e["issue"])
+    own = {**closed, "actor": {"login": "roadmap-bot"}, "created_at": "2026-10-02T01:00:00Z"}
+    store, runner = board_store(
+        {"issues/events": [own], BOARD_READ: BoardServer(BOARD), **NO_RELEASE_CHANGES}
+    )
+    alone = store.changes_since(datetime(2026, 10, 1, tzinfo=UTC), except_actor="roadmap-bot")
+    sent_alone = graphql_kinds(runner)
+    runner.replies["issues/events"] = [own, *EVENTS]
+    mixed = store.changes_since(datetime(2026, 10, 1, tzinfo=UTC), except_actor="roadmap-bot")
+    assert (alone, sent_alone, {change.actor for change in mixed}, len(mixed)) == (
+        [],
+        [],
+        {"dan-petty"},
+        5,
+    )
+
+
+def test_changes_since_with_an_empty_actor_leaves_out_nothing() -> None:
+    """An empty session login names no actor, so no change is left out, not even one GitHub
+    reports with an empty login."""
+    closed = next(e for e in EVENTS if e["event"] == "closed" and "pull_request" not in e["issue"])
+    nameless = {**closed, "actor": {"login": ""}, "created_at": "2026-10-02T01:00:00Z"}
+    store, _ = board_store(
+        {"issues/events": [nameless], BOARD_READ: BoardServer(BOARD), **NO_RELEASE_CHANGES}
+    )
+    changes = store.changes_since(datetime(2026, 10, 1, tzinfo=UTC), except_actor="")
+    assert [(change.number, change.actor) for change in changes] == [
+        (closed["issue"]["number"], "")
+    ]
+
+
 def test_changes_since_raises_when_the_events_outrun_the_page_cap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -808,9 +1405,176 @@ def test_changes_since_raises_when_the_events_outrun_the_page_cap(
     full_page = [event_at(referenced, start - timedelta(minutes=n)) for n in range(100)]
     monkeypatch.setattr("devops_cli.roadmap.github_store.DEFAULT_GH_MAX_PAGINATED_PAGES", 2)
     store, runner = board_store({"issues/events": full_page})
-    with pytest.raises(GitHubOperationError, match="run past 2 pages"):
+    with pytest.raises(GitHubOperationError, match=r"issue events .* run past 2 pages"):
         store.changes_since(datetime(2026, 10, 1, tzinfo=UTC))
     assert len(runner.calls) == 2
+
+
+# ── What a poll reports of a Release: its cut, its un-cut and its ship (#1360) ──
+
+# v0.2.28's release pull request and its GitHub Release, and v0.2.27's Release, as the live pull
+# request and release listings gave them on 2026-10-08.
+(RELEASE_PR,) = recorded("pulls-release-1283.json")
+RELEASES = recorded("releases-v0.2.28.json")
+# Between v0.2.28's tag, created at 23:44:06Z, and its GitHub Release, published at 23:44:16Z.
+CUTOFF = datetime(2026, 10, 7, 23, 44, 10, tzinfo=UTC)
+SHIPPED = datetime(2026, 10, 7, 23, 44, 16, tzinfo=UTC)
+
+
+def _at(moment: datetime) -> str:
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def github_release(tag: str, created: datetime, published: datetime | None, **changes: Any) -> Any:
+    """The recorded v0.2.28 GitHub Release, retagged and retimed; a draft when `published` is
+    None."""
+    return {
+        **deepcopy(RELEASES[0]),
+        "tag_name": tag,
+        "name": tag,
+        "draft": published is None,
+        "created_at": _at(created),
+        "published_at": _at(published) if published else None,
+        **changes,
+    }
+
+
+def listed_pull(number: int, opened: datetime, **changes: Any) -> dict[str, Any]:
+    """The recorded release pull request #1283, renumbered and opened at `opened`, still open
+    unless `changes` say otherwise."""
+    return {
+        **deepcopy(RELEASE_PR),
+        "number": number,
+        "html_url": f"https://github.com/{REPO}/pull/{number}",
+        "state": "open",
+        "created_at": _at(opened),
+        "updated_at": _at(opened),
+        "closed_at": None,
+        "merged_at": None,
+        **changes,
+    }
+
+
+def _release_changes(
+    replies: dict[str, Any], except_actor: str | None = None, since: datetime = CUTOFF
+) -> list[Any]:
+    store, _ = board_store({"issues/events": [], **NO_RELEASE_CHANGES, **replies})
+    changes = store.changes_since(since, except_actor=except_actor)
+    return [(c.kind, c.number, c.actor, c.at, c.release) for c in changes]
+
+
+def test_a_published_github_release_is_a_ship_of_the_release_its_tag_names() -> None:
+    """The recorded v0.2.28 tag was created before the cutoff and its Release published after
+    it: the page is judged by when each was published. A draft, the recorded v0.2.27 published
+    the day before, a tag that is no version and one that names no Release give nothing."""
+    later = CUTOFF + timedelta(hours=2)
+    listing = [
+        github_release("v0.3.0", later, None),
+        github_release("v9.9.9", later, later),
+        github_release("nightly", later, later),
+        *RELEASES,
+    ]
+    ships = _release_changes({LISTING_RELEASES: listing, "milestones?state=all": MILESTONES})
+    assert ships == [(ChangeKind.RELEASE_SHIPPED, 0, None, SHIPPED, "v0.2.28")]
+
+
+def test_a_release_pull_request_opened_then_closed_unmerged_is_a_cut_then_an_un_cut() -> None:
+    """From the morning v0.2.28 was cut, the recorded #1283 is a cut naming who opened it, and
+    its merge is no un-cut. A release pull request closed unmerged is a cut then an un-cut that
+    names no one; a topic pull request and one into a release branch give nothing."""
+    morning = datetime(2026, 10, 7, 12, 0, tzinfo=UTC)
+    opened, closed = morning + timedelta(hours=1), morning + timedelta(hours=1, minutes=30)
+    listing = [
+        RELEASE_PR,
+        listed_pull(1290, opened, state="closed", closed_at=_at(closed), updated_at=_at(closed)),
+        listed_pull(1291, opened, labels=[], head={"ref": "fix/topic"}),
+        listed_pull(
+            1293, opened, base={"ref": "release/v0.2.28", "repo": {"default_branch": "main"}}
+        ),
+    ]
+    changes = _release_changes({LISTING_PULLS: listing}, since=morning)
+    assert changes == [
+        (
+            ChangeKind.RELEASE_CUT,
+            1283,
+            "dan-petty",
+            datetime.fromisoformat(RELEASE_PR["created_at"]),
+            "v0.2.28",
+        ),
+        (ChangeKind.RELEASE_CUT, 1290, "dan-petty", opened, "v0.2.28"),
+        (ChangeKind.RELEASE_UNCUT, 1290, None, closed, "v0.2.28"),
+    ]
+
+
+def test_a_ship_is_reported_whoever_the_poll_leaves_out_and_the_jobs_own_cut_is_not() -> None:
+    """A ship names no actor, so a poll leaving out the Service's own changes still reports one
+    the Service's login published; the cut it opened itself is its own."""
+    shipped = CUTOFF + timedelta(minutes=1)
+    replies = {
+        LISTING_RELEASES: [
+            github_release("v0.2.28", shipped, shipped, author={"login": "roadmap-bot"})
+        ],
+        "milestones?state=all": MILESTONES,
+        LISTING_PULLS: [listed_pull(1300, shipped, user={"login": "roadmap-bot"})],
+    }
+    assert [kind for kind, *_ in _release_changes(replies, "roadmap-bot")] == [
+        ChangeKind.RELEASE_SHIPPED
+    ]
+
+
+def test_release_changes_sort_with_the_issue_changes_and_read_no_board() -> None:
+    """A poll whose only changes are release changes sends no GraphQL request: a release change
+    carries no job record."""
+    closed = next(e for e in EVENTS if e["event"] == "closed" and "pull_request" not in e["issue"])
+    event = {**closed, "created_at": _at(CUTOFF + timedelta(minutes=2))}
+    shipped, opened = CUTOFF + timedelta(minutes=3), CUTOFF + timedelta(minutes=1)
+    replies = {
+        LISTING_RELEASES: [github_release("v0.2.28", shipped, shipped)],
+        LISTING_PULLS: [listed_pull(1300, opened)],
+        "milestones?state=all": MILESTONES,
+        BOARD_READ: BoardServer(BOARD),
+    }
+    alone, runner = board_store({"issues/events": [], **replies})
+    release_only = alone.changes_since(CUTOFF)
+    mixed, _ = board_store({"issues/events": [event], **replies})
+    assert (
+        [change.kind for change in release_only],
+        graphql_kinds(runner),
+        [change.kind for change in mixed.changes_since(CUTOFF)],
+    ) == (
+        [ChangeKind.RELEASE_CUT, ChangeKind.RELEASE_SHIPPED],
+        [],
+        [ChangeKind.RELEASE_CUT, ChangeKind.CLOSED, ChangeKind.RELEASE_SHIPPED],
+    )
+
+
+def test_the_release_listings_read_on_only_while_a_full_page_ends_after_the_cutoff() -> None:
+    """The pull request and GitHub Release listings are read a small page at a time, and each
+    stops after the first page that ends before the cutoff; the milestones are read only when a
+    GitHub Release was published since."""
+    newer = [
+        listed_pull(2000 + n, CUTOFF + timedelta(minutes=n), labels=[]) for n in range(POLL_PAGE)
+    ]
+    older = [
+        github_release(f"v0.1.{n}", CUTOFF - timedelta(days=n + 1), None) for n in range(POLL_PAGE)
+    ]
+    store, runner = board_store(
+        {
+            "issues/events": [],
+            f"{LISTING_PULLS}&per_page={POLL_PAGE}&page=1": newer,
+            f"{LISTING_PULLS}&per_page={POLL_PAGE}&page=2": [],
+            f"{LISTING_RELEASES}&page=1": older,
+            f"{LISTING_RELEASES}&page=2": (1, "page 2 must not be read"),
+        }
+    )
+    store.changes_since(CUTOFF)
+    read = [args[1].split("/", 3)[-1] for args, _ in runner.calls]
+    assert read == [
+        "issues/events?per_page=100&page=1",
+        f"{LISTING_PULLS}&per_page={POLL_PAGE}&page=1",
+        f"{LISTING_PULLS}&per_page={POLL_PAGE}&page=2",
+        f"{LISTING_RELEASES}&page=1",
+    ]
 
 
 def test_the_factory_opens_the_github_adapter_without_reading(
@@ -889,7 +1653,7 @@ PROJECTS = {
 
 def owned_board(selection: str, nodes: list[Any]) -> dict[str, Any]:
     connection = {"totalCount": len(nodes), "nodes": nodes}
-    return {"data": {"repositoryOwner": {"projectV2": {selection: connection}}}}
+    return {"data": {"repositoryOwner": {"projectV2": {"id": BOARD_ID, selection: connection}}}}
 
 
 def updated_field(node: dict[str, Any]) -> dict[str, Any]:
@@ -974,20 +1738,19 @@ def test_cards_are_everything_on_the_board() -> None:
 
 def test_a_card_field_is_set_by_node_ids_then_recorded() -> None:
     store, runner = board_store(
-        {
-            "project list": PROJECTS,
-            "fields(first": FIELDS_REPLY,
-            BOARD_READ: BoardServer(BOARD),
-            "item-edit": "",
-        }
+        {"fields(first": FIELDS_REPLY, BOARD_READ: BoardServer(BOARD), "item-edit": ""}
     )
     draft = next(card for card in store.cards() if card.kind is CardKind.DRAFT_ISSUE)
+    runner.calls.clear()
     store.set_card_field(draft, ItemField.STATUS, "Ready")
-    edit = ["project", "item-edit", "--id", draft.id, "--project-id", "PVT_kwHOAHXnKc4Biwcg"]
-    assert runner.writes == [
-        [*edit, "--field-id", STATUS_NODE["id"], "--single-select-option-id", "89415499"],
-        [*edit, "--field-id", "PVTF_jobrecord", "--text", '{"Status": "Ready"}'],
-    ]
+    edit = ["project", "item-edit", "--id", draft.id, "--project-id", BOARD_ID]
+    assert (runner.writes, graphql_kinds(runner)[:2]) == (
+        [
+            [*edit, "--field-id", STATUS_NODE["id"], "--single-select-option-id", "89415499"],
+            [*edit, "--field-id", "PVTF_jobrecord", "--text", '{"Status": "Ready"}'],
+        ],
+        ["fields", "RoadmapBoardCard"],
+    )
 
 
 def test_a_card_write_to_the_release_raises_before_any_read() -> None:
@@ -998,15 +1761,18 @@ def test_a_card_write_to_the_release_raises_before_any_read() -> None:
     assert runner.calls == []
 
 
-def test_remove_card_deletes_the_board_item_by_id() -> None:
+def test_remove_card_reads_the_card_then_deletes_it_by_id() -> None:
     store, runner = board_store({BOARD_READ: BoardServer(BOARD), "item-delete": ""})
     card = store.cards()[0]
+    runner.calls.clear()
     store.remove_card(card)
     with pytest.raises(GitHubOperationError, match="not on the board"):
         store.remove_card(card.model_copy(update={"id": "PVTI_gone"}))
-    assert runner.writes == [
-        ["project", "item-delete", "2", "--owner", "dan-petty", "--id", card.id]
-    ]
+    assert (runner.writes, graphql_kinds(runner), [c.id for c in store.cards()][:1]) == (
+        [["project", "item-delete", "2", "--owner", "dan-petty", "--id", card.id]],
+        ["RoadmapBoardCard", "item-delete by id", "RoadmapBoardCard"],
+        [BOARD["items"][1]["id"]],
+    )
 
 
 def test_board_finds_the_number_among_the_owners_boards() -> None:
@@ -1494,15 +2260,15 @@ def test_comment_posts_one_comment() -> None:
     ]
 
 
-def test_set_marks_merges_the_marks_into_the_job_record_the_board_holds_in_one_write() -> None:
+def test_set_marks_merges_the_marks_into_the_job_record_the_card_holds_in_one_write() -> None:
     board = on_board()
     board["items"][0]["job record"] = '{"Pending": "{}", "Release": "v0.2.25"}'
     store, runner = board_store(
-        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(board), "item-edit": ""}
+        {"fields(first": ITEM_FIELDS, BOARD_READ: BoardServer(board), "item-edit": ""}
     )
     store.set_marks(board_item(737), {JobMark.ADMITTED: "v0.2.25", JobMark.PENDING: None})
-    assert [(args[8:10], json.loads(args[-1])) for args in runner.writes] == [
-        (["Job record", "--text"], {"Admitted": "v0.2.25", "Pending": None, "Release": "v0.2.25"})
+    assert [(args[7:9], json.loads(args[-1])) for args in runner.writes] == [
+        ([JOB_RECORD_ID, "--text"], {"Admitted": "v0.2.25", "Pending": None, "Release": "v0.2.25"})
     ]
 
 
@@ -1514,7 +2280,7 @@ def test_set_marks_records_and_forgets_field_values_in_the_same_write() -> None:
         '{"NeedsSplit": "yes", "Pending": "{}", "Release": "v0.2.26", "Status": "Ready"}'
     )
     store, runner = board_store(
-        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(board), "item-edit": ""}
+        {"fields(first": ITEM_FIELDS, BOARD_READ: BoardServer(board), "item-edit": ""}
     )
     store.set_marks(
         board_item(737),
@@ -1522,47 +2288,43 @@ def test_set_marks_records_and_forgets_field_values_in_the_same_write() -> None:
         recorded={ItemField.STATUS: "In Progress"},
         forgotten=(ItemField.RELEASE,),
     )
-    assert [(args[8:10], json.loads(args[-1])) for args in runner.writes] == [
-        (["Job record", "--text"], {"NeedsSplit": "yes", "Pending": None, "Status": "In Progress"})
+    assert [(args[7:9], json.loads(args[-1])) for args in runner.writes] == [
+        ([JOB_RECORD_ID, "--text"], {"NeedsSplit": "yes", "Pending": None, "Status": "In Progress"})
     ]
 
 
 def test_every_job_record_write_keeps_the_keys_this_version_does_not_know() -> None:
     """A newer version's key survives this version's writes: none rebuilds the record from
     only the keys it read."""
-    board = on_board()
+    board = with_run_record('{"Started": "v0.2.25", "Cadence": "weekly"}')
     board["items"][0]["job record"] = '{"Admitted": "v0.2.25", "NeedsSplit": "yes"}'
-    run_record = with_run_record('{"Started": "v0.2.25", "Cadence": "weekly"}')
     store, runner = board_store(
-        {
-            "project list": PROJECTS,
-            "fields(first": FIELDS_REPLY,
-            "field-list": fields_with_job_record(),
-            BOARD_READ: BoardServer(board),
-            "item-edit": "",
-        }
+        {"fields(first": ITEM_FIELDS, BOARD_READ: BoardServer(board), "item-edit": ""}
     )
     store.set_marks(board_item(737), {JobMark.PENDING: "{}"})
     store.set_field(board_item(737), ItemField.PRIORITY, "P1-High")
-    marks_and_field = [json.loads(args[-1]) for args in runner.writes if args[-2] == "--text"]
-    runner.replies[BOARD_READ] = BoardServer(run_record)
     store.set_run_record({JobMark.STARTED: "v0.2.26"})
-    assert (marks_and_field, json.loads(runner.writes[-1][-1])) == (
-        [
-            {"Admitted": "v0.2.25", "NeedsSplit": "yes", "Pending": "{}"},
-            {"Admitted": "v0.2.25", "NeedsSplit": "yes", "Priority": "P1-High"},
-        ],
+    assert [json.loads(args[-1]) for args in runner.writes if args[-2] == "--text"] == [
+        {"Admitted": "v0.2.25", "NeedsSplit": "yes", "Pending": "{}"},
+        {"Admitted": "v0.2.25", "NeedsSplit": "yes", "Priority": "P1-High"},
         {"Cadence": "weekly", "Started": "v0.2.26"},
-    )
+    ]
 
 
 def test_set_marks_raises_before_any_write_for_an_item_off_the_board() -> None:
-    store, runner = board_store(
-        {"field-list": fields_with_job_record(), BOARD_READ: BoardServer(BOARD)}
-    )
+    store, runner = board_store({"fields(first": ITEM_FIELDS, BOARD_READ: BoardServer(BOARD)})
     with pytest.raises(GitHubOperationError, match="#739 is not on the board"):
         store.set_marks(board_item(739), {JobMark.NUDGED: "2026-10-02T00:00:00+00:00"})
     assert runner.writes == []
+
+
+def test_an_item_no_store_read_has_no_card_to_write_and_raises_before_any_write() -> None:
+    """An Item built as a probe, not read from a store, carries no card id."""
+    store, runner = board_store({"fields(first": ITEM_FIELDS})
+    probe = Item(number=737, title="#737", url=f"{ISSUE_URL}/737")
+    with pytest.raises(GitHubOperationError, match="#737 is not on the board"):
+        store.set_marks(probe, {JobMark.NUDGED: "2026-10-02T00:00:00+00:00"})
+    assert (runner.writes, graphql_kinds(runner)) == ([], ["fields"])
 
 
 def with_run_record(record: str | None) -> dict[str, Any]:
@@ -1588,60 +2350,65 @@ def test_the_run_record_is_the_job_record_of_the_draft_card_titled_for_it() -> N
 
 
 def test_set_run_record_creates_its_card_once_then_edits_its_job_record_by_node_id() -> None:
-    listings = iter([BOARD, with_run_record(None), with_run_record('{"Started": "v0.2.25"}')])
-    replies = {
-        "project list": PROJECTS,
-        "fields(first": FIELDS_REPLY,
-        BOARD_READ: BoardServer(lambda: next(listings)),
-        "item-create": "",
-        "item-edit": "",
-    }
-    store, runner = board_store(replies)
-    store.set_run_record({JobMark.STARTED: "v0.2.25"})
-    store.set_run_record({JobMark.STARTED: "v0.2.26"})
-    edit = ["project", "item-edit", "--id", "PVTI_runrecord", "--project-id"]
-    assert runner.writes == [
-        [
-            "project",
-            "item-create",
-            "2",
-            "--owner",
-            "dan-petty",
-            "--title",
-            "Roadmap run record",
-            "--body",
-            CONST_ROADMAP_RUN_RECORD_BODY,
-        ],
-        [
-            *edit,
-            "PVT_kwHOAHXnKc4Biwcg",
-            "--field-id",
-            "PVTF_jobrecord",
-            "--text",
-            '{"Started": "v0.2.25"}',
-        ],
-        [
-            *edit,
-            "PVT_kwHOAHXnKc4Biwcg",
-            "--field-id",
-            "PVTF_jobrecord",
-            "--text",
-            '{"Started": "v0.2.26"}',
-        ],
-    ]
+    """The card is written by the id `item-create --format json` returns, with no read after
+    the create; the next write reads that card, and the board listing is read once."""
+    board = deepcopy(BOARD)
+    run_record = with_run_record(None)["items"][-1]
 
+    def create(_: list[str]) -> dict[str, Any]:
+        board["items"].append(run_record)
+        return {"id": run_record["id"], "title": "Roadmap run record", "type": "DraftIssue"}
 
-def test_set_run_record_raises_when_the_card_it_created_is_not_listed() -> None:
-    store, _ = board_store(
+    def edit(args: list[str]) -> str:
+        run_record["job record"] = args[-1]
+        return ""
+
+    store, runner = board_store(
         {
-            "project list": PROJECTS,
             "fields(first": FIELDS_REPLY,
-            BOARD_READ: BoardServer(BOARD),
-            "item-create": "",
+            BOARD_READ: BoardServer(board),
+            "item-create": create,
+            "item-edit": edit,
         }
     )
-    with pytest.raises(GitHubOperationError, match="does not list the run record card"):
-        store.set_run_record({JobMark.STARTED: "v0.2.25"})
+    store.set_run_record({JobMark.STARTED: "v0.2.25"})
+    store.set_run_record({JobMark.SIZE: "7"})
+    edit_args = ["project", "item-edit", "--id", "PVTI_runrecord", "--project-id", BOARD_ID]
+    assert (runner.writes, graphql_kinds(runner), store.run_record()) == (
+        [
+            [
+                "project",
+                "item-create",
+                "2",
+                "--owner",
+                "dan-petty",
+                "--title",
+                "Roadmap run record",
+                "--body",
+                CONST_ROADMAP_RUN_RECORD_BODY,
+                "--format",
+                "json",
+            ],
+            [*edit_args, "--field-id", JOB_RECORD_ID, "--text", '{"Started": "v0.2.25"}'],
+            [
+                *edit_args,
+                "--field-id",
+                JOB_RECORD_ID,
+                "--text",
+                '{"Size": "7", "Started": "v0.2.25"}',
+            ],
+        ],
+        [
+            "fields",
+            "RoadmapBoard",
+            "RoadmapBoard",
+            "item-create",
+            "item-edit by id",
+            "RoadmapBoardCard",
+            "item-edit by id",
+        ],
+        {JobMark.STARTED: "v0.2.25", JobMark.SIZE: "7"},
+    )
 
 
 def test_release_changes_read_one_issues_events_for_its_joins_and_leaves() -> None:
@@ -1680,7 +2447,9 @@ def test_a_milestone_change_carries_the_release_now_and_the_items_job_record() -
     joined["issue"]["milestone"] = {"title": "v0.2.24"}
     board = on_board(912)
     board["items"][-1]["job record"] = '{"Release": "v0.2.24"}'
-    store, _ = board_store({"issues/events": [joined], BOARD_READ: BoardServer(board)})
+    store, _ = board_store(
+        {"issues/events": [joined], BOARD_READ: BoardServer(board), **NO_RELEASE_CHANGES}
+    )
     (change,) = store.changes_since(datetime(2026, 10, 1, tzinfo=UTC))
     assert (change.kind, change.release, change.field, change.value, change.job_record) == (
         ChangeKind.JOINED_RELEASE,
@@ -1861,6 +2630,7 @@ def test_issue_records_and_releases_carry_author_and_close_times() -> None:
                     950,
                     author_association="COLLABORATOR",
                     created_at="2026-10-04T01:00:00Z",
+                    updated_at="2026-10-04T02:30:00Z",
                     closed_at=None,
                 )
             ],
@@ -1871,10 +2641,12 @@ def test_issue_records_and_releases_carry_author_and_close_times() -> None:
     assert (
         issue.author_association,
         issue.created_at,
+        issue.updated_at,
         release.closed_at,
     ) == (
         "COLLABORATOR",
         datetime(2026, 10, 4, 1, tzinfo=UTC),
+        datetime(2026, 10, 4, 2, 30, tzinfo=UTC),
         datetime(2026, 10, 3, 20, 37, 25, tzinfo=UTC),
     )
 

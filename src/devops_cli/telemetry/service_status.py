@@ -21,6 +21,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.exceptions.telemetry import ServiceStatusError
 from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import EgressLevel
 from devops_cli.models.statuspage import StatuspageComponent, StatuspageSummary
 from devops_cli.telemetry.instruments import (
     UPSTREAM_COMPONENT_STATUS,
@@ -37,7 +38,7 @@ def fetch_statuspage_summary(
 ) -> StatuspageSummary:
     """Fetch and parse Atlassian Statuspage v2 summary from target endpoint."""
     try:
-        with new_http_client(timeout=timeout) as client:
+        with new_http_client(level=EgressLevel.PUBLIC, timeout=timeout) as client:
             resp = client.get(url, headers={"User-Agent": "devops-cli"})
             resp.raise_for_status()
             payload = resp.json()

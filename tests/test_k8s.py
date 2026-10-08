@@ -251,6 +251,32 @@ def test_k8s_teardown_stack_llm_dry_run() -> None:
         set_dry_run(False)
 
 
+def test_llm_stack_applies_the_gateway_policy_before_the_gateway_and_deletes_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """deploy-stack --stack llm applies llm-gateway-perimeter before the gateway's Deployment,
+    and teardown-stack deletes it (#795). Without Argo CD the gateway ran with no policy, so its
+    egress was unrestricted. Neither dry run makes a request."""
+    from tests.cluster_secret_fakes import forbid_requests
+
+    attempted = forbid_requests(monkeypatch)
+    policy, gateway = (
+        str(Path("k8s", "llm", "gateway", name))
+        for name in ("networkpolicy.yaml", "deployment.yaml")
+    )
+    deploy = runner.invoke(app, ["deploy-stack", "--stack", "llm", "--dry-run"])
+    teardown = runner.invoke(app, ["teardown-stack", "--stack", "llm", "--dry-run"])
+    manifests = _dry_run_details(deploy.output)["manifests"]
+
+    assert (
+        deploy.exit_code,
+        teardown.exit_code,
+        policy in manifests and manifests.index(policy) < manifests.index(gateway),
+        policy in _dry_run_details(teardown.output)["manifest_deletes"],
+        attempted,
+    ) == (0, 0, True, True, [])
+
+
 def test_k8s_deploy_stack_invalid_stack() -> None:
     """k8s deploy-stack with invalid stack option must exit code 1."""
     set_dry_run(True)
@@ -2051,11 +2077,12 @@ def test_k8s_helm_upgrade_command_includes_pinned_version() -> None:
             assert "--version" in cmd
 
 
-def test_native_deploy_stack_infra_applies_the_grafana_dashboards() -> None:
-    """Without Argo CD, deploy-stack applies `monitoring/dashboards` after the root kustomization.
+def test_native_deploy_stack_infra_applies_the_monitoring_kustomization() -> None:
+    """Without Argo CD, deploy-stack applies `monitoring` right after the root kustomization.
 
-    The root leaves the dashboards to Argo CD's `monitoring` Application (#1279), so nothing else
-    creates the Grafana dashboard ConfigMaps on a natively deployed cluster (#1297).
+    The root leaves the `monitoring` kustomization to Argo CD's `monitoring` Application (#1279),
+    so nothing else creates the namespace's perimeter (#913) or the Grafana dashboard ConfigMaps
+    (#1297) on a natively deployed cluster.
     """
     with (
         patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
@@ -2075,17 +2102,14 @@ def test_native_deploy_stack_infra_applies_the_grafana_dashboards() -> None:
         for cmd in (call.args[0] for call in mock_cmd.call_args_list)
         if cmd[:3] == ["kubectl", "apply", "-k"]
     ]
-    assert (res.exit_code, kustomize_targets) == (
-        0,
-        [Path("k8s"), Path("k8s", "monitoring", "dashboards")],
-    )
+    assert (res.exit_code, kustomize_targets) == (0, [Path("k8s"), Path("k8s", "monitoring")])
 
 
 @pytest.mark.parametrize(
     ("stack", "kustomizations"),
     [
-        ("infra", [str(Path("k8s", "monitoring", "dashboards"))]),
-        ("all", [str(Path("k8s", "monitoring", "dashboards"))]),
+        ("infra", [str(Path("k8s", "monitoring"))]),
+        ("all", [str(Path("k8s", "monitoring"))]),
         ("llm", []),
     ],
 )
@@ -2102,3 +2126,38 @@ def test_deploy_stack_dry_run_lists_the_kustomizations_its_stacks_apply(
         0,
         kustomizations,
     )
+
+
+@pytest.mark.parametrize(
+    ("stack", "removal"),
+    [
+        ("all", ("kubectl", "delete", "-k", "k8s", "--ignore-not-found")),
+        ("infra", ("kubectl", "delete", "namespace", "monitoring", "--ignore-not-found")),
+    ],
+)
+def test_teardown_stack_removes_the_monitoring_perimeter_with_its_namespace(
+    stack: str, removal: tuple[str, ...]
+) -> None:
+    """teardown-stack removes `monitoring-default-perimeter` with namespace `monitoring` (#913).
+
+    `--stack all` deletes the root kustomization's objects, namespace `monitoring` among them, and
+    `--stack infra` deletes that namespace; either takes the namespace's NetworkPolicy with it.
+    """
+    with (
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle.runtime._cluster_reachable",
+            return_value=True,
+        ),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed", return_value=False
+        ),
+        patch(
+            "devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd",
+            return_value=_mock_proc(0),
+        ) as mock_run,
+    ):
+        res = runner.invoke(
+            app, ["teardown-stack", "--stack", stack, "--k8s-dir", "k8s", *_CONTEXT]
+        )
+    commands = [tuple(call.args[0]) for call in mock_run.call_args_list]
+    assert (res.exit_code, (*removal, *_CONTEXT) in commands) == (0, True)

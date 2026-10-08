@@ -5,11 +5,12 @@ from __future__ import annotations
 import pytest
 
 from devops_cli.http.client import new_async_http_client
+from devops_cli.http.egress import EgressLevel
 
 
 @pytest.mark.asyncio
 async def test_async_http_client() -> None:
     """Verify creation and configuration of async HTTP client."""
-    client = new_async_http_client(read_timeout=5.0)
+    client = new_async_http_client(level=EgressLevel.PUBLIC, read_timeout=5.0)
     assert client.timeout.read == 5.0
     await client.aclose()

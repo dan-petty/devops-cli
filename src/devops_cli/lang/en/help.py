@@ -833,22 +833,43 @@ class GHCommandHelp:
         "Edit a release milestone's title, description, state, or due date; "
         "fields left out stay as they are."
     )
-    project_app: str = "Manage GitHub Projects v2 templates and task item synchronization."
+    project_app: str = (
+        "Manage the GitHub Projects v2 board: its template, fields, views and card fields."
+    )
     project_list: str = "List available GitHub Projects v2 boards for user or organization."
     project_status: str = "Inspect project template structure and configured views."
-    project_sync: str = (
-        "Create or update the project board from its template, add open issues, and reconcile "
-        "Status, Priority and Milestone; task files are not read."
+    project_template_file: str = (
+        "Path to the project template JSON; defaults to .github/project-template.json at the "
+        "repository root."
     )
+    project_sync: str = (
+        "Find or create the project board from its template, link it, create the fields it "
+        "lacks, and reconcile Status and Priority on the cards already on it. Sync adds no issue "
+        "or pull request to the board: devops roadmap intake places issues, and a pull request's "
+        "progress shows on its issue's card. Exits 1 when reconcile stops early."
+    )
+    project_sync_dry_run: str = "Make no request and describe what a sync does."
     project_reconcile: str = (
-        "Reconcile Status, Priority and Milestone on project items, listing each change and "
-        "its source; the board owns Status."
+        "Reconcile Status and Priority on the cards already on the board, listing each change "
+        "and its source; the board owns Status, and reconcile never writes Milestone, Value or "
+        "Effort or adds a card. A planned value the board's field has no option for is refused "
+        "before any write. A run that stops early (mutation budget, GraphQL quota or a failed "
+        "write) says why and how many planned changes remain, and exits 1. Running it again "
+        "continues from there: after the reset when the quota stopped it, and once the cause "
+        "is fixed when a write failed."
+    )
+    project_reconcile_plan: str = (
+        "Read the board and the repository and list the changes a run makes, making none."
+    )
+    project_reconcile_dry_run: str = (
+        "Make no request, reads included, and list the requests a run makes."
     )
     reconcile_fields: str = (
-        "Also reconcile Status, Priority and Milestone from issue state and labels."
+        "Also reconcile Status and Priority on the cards already on the board, from issue and "
+        "pull request state and labels."
     )
     project_link: str = "Link a GitHub Project v2 board to the repository."
-    project_audit: str = "Audit project board items and fields against local tasks and template."
+    project_audit: str = "Audit the project board's views against the template."
     project_template: str = "Display the declarative GitHub Projects v2 JSON template."
     project_workflows_app: str = (
         "Inspect and audit GitHub Projects v2 built-in workflows and automations."
@@ -992,10 +1013,14 @@ class RoadmapCommandHelp:
         "no open item. Reads every pull request merged into release/vX.Y.Z and closes as "
         "completed each open issue a body closes with a closing keyword, commenting what "
         "changed and how it was verified (check runs and the task file's Acceptance Criteria). "
-        "Once the release has no open item, one item closed as completed and no release pull "
-        "request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the "
-        "version, pushes, and opens the release pull request into the default branch. Lists "
-        "completed items with no changelog fragment. Writes only with --confirm."
+        "Reads each closed Release that still holds an open issue the same way first, closing "
+        "the items of that Release its pull requests deliver, except one a person reopened, and "
+        "naming the rest, which hold no cut. Once the release has no open item, one item closed "
+        "as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in "
+        "the clone at --root, bumps the version, pushes to release/vX.Y.Z (requiring Write role "
+        "bypass on release ruleset 23059172), and opens the release pull request into the "
+        "default branch. Lists completed items with no changelog fragment. Writes only with "
+        "--confirm."
     )
     close_confirm: str = (
         "Close the issues and make the cut. Without it, close prints its plan only."
@@ -1006,8 +1031,8 @@ class RoadmapCommandHelp:
     )
     close_plan: str = (
         "Read GitHub, print each issue the run closes with its comment and the cut or what "
-        "holds it, write nothing, and end with the GraphQL points spent and left. Close "
-        "without a mode flag does this."
+        "holds it, write nothing, and end with the GraphQL points spent and left once its store "
+        "has sent a GraphQL request. Close without a mode flag does this."
     )
     close_root: str = "The clone the cut runs git in (default: the current directory)."
     intake: str = (
@@ -1015,13 +1040,22 @@ class RoadmapCommandHelp:
         "intake left without a Priority. Each is checked for a duplicate among the board's "
         "items and the issues closed as not planned, gets a type, a priority, Value and Effort "
         "from the model with a reason comment, and goes to the backlog, or a critical fix to "
-        "the release #740's admission rule allows. A candidate an agent files with --title "
+        "the release #740's admission rule allows. An open issue whose board card a person "
+        "archived is a candidate too: intake restores the card, which keeps its values and "
+        "milestone; close the issue as not planned to keep it off the roadmap. A candidate an "
+        "agent files with --title "
         "and --body-file is labeled source/agent and held to the agent filing quota; a text "
         "that looks like it holds a secret is refused. --dry-run makes no request and prints "
         "the requests a run makes; --plan, the default, reads GitHub and calls the model, "
         "writes nothing and reports what it spent; --confirm makes the writes."
     )
     intake_issue: str = "Only this issue (repeatable)."
+    intake_limit: str = (
+        "Decide at most this many candidates, the oldest first, and leave the rest for a later "
+        "run. Without it, intake decides every candidate. It keeps no record of what it "
+        "decided; the intake that devops roadmap run and the Service run keeps one, so a "
+        "candidate it left undecided waits behind the fresh ones."
+    )
     intake_title: str = (
         "Title of a candidate that is not an issue yet; intake files it only when it is not a "
         "duplicate. Needs --body-file."
@@ -1050,9 +1084,12 @@ class RoadmapCommandHelp:
         "placeholders for values a read gives."
     )
     run: str = (
-        "Run roadmap jobs that are due: evaluate due criteria across landed jobs, run due jobs in "
-        "order, and record last-success execution timestamps. Without --confirm, or with --dry-run, "
-        "prints the due list and runs nothing."
+        "Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then "
+        "intake and refine, and record each one's last success. Reprioritize is due on a ship, "
+        "a cut or an un-cut the poll reads, on a change to an item in the current release, and "
+        "once a day; intake decides at most 5 candidates a run and keeps a record of those it "
+        "left beside the schedule. Without --confirm, or with --dry-run, prints the due list "
+        "and runs nothing."
     )
     run_confirm: str = "Execute the due roadmap jobs. Without it, run prints the due list only."
     run_dry_run: str = (
@@ -1060,7 +1097,9 @@ class RoadmapCommandHelp:
     )
     refine: str = (
         "Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria. "
-        "Evaluates Next-release and Backlog New items using code, documentation, and external research."
+        "Evaluates Next-release and Backlog New items using code, documentation, and external research. "
+        "An item whose model call fails is skipped and reported; the others are still refined, "
+        "and refine then exits 1."
     )
     refine_item: str = "Specific issue number to refine instead of selecting by priority."
     refine_limit: str = "Maximum number of New items to refine in this run (default 3)."

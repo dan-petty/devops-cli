@@ -38,6 +38,7 @@ from devops_cli.roadmap.reprioritize import (
     Transition,
     admission_event,
     apply_reprioritization,
+    current_release,
     decide,
     is_due,
     plan_reprioritization,
@@ -240,9 +241,9 @@ def test_after_the_start_a_p2_feature_added_moves_to_the_backlog_with_a_reason(
     added = started.file("late feature")
     started.run()
     assert (started.release_of(added), started.comments(added)) == (
-        [None],
+        [CURRENT],
         [
-            "Moved to the backlog: after v0.2.25 started, only a critical fix can join it. A "
+            "Admitted to v0.2.25: after v0.2.25 started, only a critical fix can join it. A "
             "person can place it in a planned release, and that placement stands."
         ],
     )
@@ -260,13 +261,13 @@ def test_a_p0_feature_added_after_the_start_moves_to_the_next_release_and_goes_f
     started.run()
     assert (moved, started.release_of(feature, others[-1]), started.size(NEXT)) == (
         (
-            [NEXT],
+            [CURRENT],
             [
-                "Moved to v0.2.26: a P0 feature waits for the next release once v0.2.25 has "
+                "Admitted to v0.2.25: a P0 feature waits for the next release once v0.2.25 has "
                 "started, and goes first when v0.2.26 starts."
             ],
         ),
-        [NEXT, LATER],
+        [CURRENT, NEXT],
         12,
     )
 
@@ -293,7 +294,7 @@ def test_an_item_added_between_runs_with_no_change_recorded_is_found_through_the
     slipped = started.store.seed_issue("slipped in", release=CURRENT, on_board=True)
     changes = started.store.changes_since(since)
     started.run()
-    assert (changes, started.release_of(slipped)) == ([], [None])
+    assert (changes, started.release_of(slipped)) == ([], [CURRENT])
 
 
 def test_an_item_with_an_open_pull_request_added_after_start_is_admitted_and_stays(
@@ -340,10 +341,10 @@ def test_an_item_with_a_closed_unmerged_pull_request_is_moved_to_backlog(
     started.run()
     found = started.item(item)
     assert (found.release, started.admitted(item), started.comments(item)) == (
-        None,
-        None,
+        CURRENT,
+        CURRENT,
         [
-            "Moved to the backlog: after v0.2.25 started, only a critical fix can join it. "
+            "Admitted to v0.2.25: after v0.2.25 started, only a critical fix can join it. "
             "A person can place it in a planned release, and that placement stands."
         ],
     )
@@ -466,33 +467,90 @@ def test_an_item_moved_back_to_ready_once_a_fix_filled_the_release_makes_room(
 # ── The cut ───────────────────────────────────────────────────────────────────
 
 
-def test_a_draft_release_pull_request_sends_a_fix_on_until_it_is_closed_unmerged(
+CUT_ADMISSION = (
+    "Admitted to v0.2.25: v0.2.25 is cut, and a critical fix still joins it while its release "
+    "pull request is open, so the fix merges into the release branch before the release pull "
+    "request does."
+)
+MERGED_LOCK = (
+    "Moved to v0.2.26: the release pull request of v0.2.25 has merged, so a critical fix can no "
+    "longer ship in it and goes first into the next release."
+)
+
+
+@pytest.mark.parametrize(
+    ("state", "event", "transition"),
+    [
+        (ReleaseState.CUT, Event.FIX_JOINED, Transition(Action.ADMIT, Reason.CUT)),
+        (ReleaseState.CUT, Event.PR_JOINED, Transition(Action.ADMIT, Reason.PULL_REQUEST)),
+        (ReleaseState.CUT, Event.OVER_CAP, Transition(Action.TO_NEXT, Reason.CAP)),
+        (ReleaseState.MERGED, Event.FIX_JOINED, Transition(Action.TO_NEXT, Reason.MERGED)),
+        (ReleaseState.MERGED, Event.PR_JOINED, Transition(Action.ADMIT, Reason.PULL_REQUEST)),
+        (ReleaseState.MERGED, Event.OVER_CAP, Transition(Action.TO_NEXT, Reason.CAP)),
+    ],
+    ids=[
+        "cut-fix",
+        "cut-pull-request",
+        "cut-over-cap",
+        "merged-fix",
+        "merged-pull-request",
+        "merged-over-cap",
+    ],
+)
+def test_a_critical_fix_joins_a_cut_release_until_its_release_pull_request_merges(
+    state: ReleaseState, event: Event, transition: Transition
+) -> None:
+    """While the release pull request is open, a critical fix joins, so its own pull request
+    merges into the release branch first (#1294); once that pull request has merged, the fix
+    goes on to the next release. An item with a pull request in flight joins either, and the
+    cap binds both, as it binds a started release."""
+    assert decide(state, event) == transition
+
+
+def test_a_fix_filed_while_a_draft_release_pull_request_is_open_joins_and_stays_when_uncut(
     started: Roadmap,
 ) -> None:
     release_pr = started.release_pull_request(draft=True)
     fix = started.fix()
+    plan = started.plan()
     started.run()
-    while_cut = (started.release_of(fix), started.comments(fix))
+    while_cut = (plan.state, started.release_of(fix), started.admitted(fix), started.comments(fix))
     started.person.close_pull_request(release_pr)
-    started.place(fix, CURRENT)
-    started.run()
-    assert (while_cut, started.release_of(fix), started.admitted(fix)) == (
-        (
-            [NEXT],
-            [
-                "Moved to v0.2.26: v0.2.25 is cut, so nothing joins it until its release pull "
-                "request is closed; a critical fix goes first into the next release."
-            ],
-        ),
+    writes = started.run()
+    assert (while_cut, writes, started.release_of(fix), started.admitted(fix)) == (
+        (ReleaseState.CUT, [CURRENT], CURRENT, [CUT_ADMISSION]),
+        [],
         [CURRENT],
         CURRENT,
     )
 
 
-def test_a_merged_release_pull_request_keeps_the_release_cut_until_it_is_published(
+def test_a_fix_that_takes_a_cut_release_over_its_cap_descopes_its_lowest_ranked_unstarted_item(
+    roadmap: Roadmap,
+) -> None:
+    """The cap binds a cut release as a started one: an admitted fix that takes it over the cap
+    sends its lowest-ranked unstarted item on, which would otherwise ship unfinished."""
+    held = [roadmap.file(f"held {n}", priority="P1-High") for n in range(11)]
+    lowest = roadmap.file("lowest", priority="P3-Low")
+    started_with(roadmap, *held, lowest)
+    roadmap.release_pull_request()
+    fix = roadmap.fix()
+    roadmap.run()
+    assert (roadmap.release_of(fix, lowest), roadmap.comments(lowest), roadmap.size()) == (
+        [CURRENT, NEXT],
+        [
+            f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its size of 12 items, and "
+            "this was its lowest-ranked unstarted item."
+        ],
+        12,
+    )
+
+
+def test_a_merged_release_pull_request_locks_the_release_until_it_is_published(
     started: Roadmap,
 ) -> None:
-    """Its code is in `main` already; if `release.yml` fails to publish, the release stays cut."""
+    """Its code is in `main` already, so a critical fix filed while `release.yml` has not
+    published it, or failed to, goes on to the next release."""
     started.person.close_pull_request(started.release_pull_request(), merged=True)
     fix = started.fix()
     plan = started.plan()
@@ -503,15 +561,7 @@ def test_a_merged_release_pull_request_keeps_the_release_cut_until_it_is_publish
         started.release_of(fix),
         started.comments(fix),
         started.plan().state,
-    ) == (
-        ReleaseState.CUT,
-        [NEXT],
-        [
-            "Moved to v0.2.26: v0.2.25 is cut, so nothing joins it until its release pull "
-            "request is closed; a critical fix goes first into the next release."
-        ],
-        ReleaseState.SHIPPED,
-    )
+    ) == (ReleaseState.MERGED, [NEXT], [MERGED_LOCK], ReleaseState.SHIPPED)
 
 
 # ── The first run ─────────────────────────────────────────────────────────────
@@ -572,7 +622,7 @@ def test_a_first_run_on_an_empty_release_records_it_so_the_next_run_holds_it_to_
         ],
         False,
         {JobMark.STARTED: CURRENT, JobMark.SIZE: "0"},
-        [None],
+        [CURRENT],
     )
 
 
@@ -600,7 +650,7 @@ def test_a_started_release_whose_admitted_items_all_left_is_never_started_again(
     started.run()
     assert (plan.starting, started.release_of(feature), len(started.comments(feature))) == (
         None,
-        [None],
+        [CURRENT],
         1,
     )
 
@@ -618,7 +668,7 @@ def test_a_release_that_started_empty_holds_its_admission_rule(started: Roadmap)
         plan.starting,
         started.run_record(),
         started.release_of(feature),
-    ) == (None, {JobMark.STARTED: NEXT, JobMark.SIZE: "0"}, [None])
+    ) == (None, {JobMark.STARTED: NEXT, JobMark.SIZE: "0"}, [NEXT])
 
 
 # ── Release start ─────────────────────────────────────────────────────────────
@@ -925,8 +975,8 @@ def test_a_first_run_at_a_ship_records_the_release_under_way_whatever_the_milest
     ("first_run", "kind", "expected"),
     [
         (False, "bug", ("admit", NEXT, NEXT)),
-        (False, "feature", ("to_backlog", None, None)),
-        (True, "feature", ("to_backlog", None, None)),
+        (False, "feature", ("admit", NEXT, NEXT)),
+        (True, "feature", ("admit", NEXT, NEXT)),
     ],
     ids=["start-then-fix", "start-then-p2-feature", "first-run-then-p2-feature"],
 )
@@ -1094,9 +1144,9 @@ def test_a_run_record_naming_a_release_shipped_and_closed_since_starts_the_one_a
         [f"close Release {CURRENT}"],
         LATER,
         [(CURRENT, GitHubState.CLOSED), (NEXT, GitHubState.CLOSED), (LATER, GitHubState.OPEN)],
-        [None],
+        [LATER],
         [
-            "Moved to the backlog: after v0.2.27 started, only a critical fix can join it. A "
+            "Admitted to v0.2.27: after v0.2.27 started, only a critical fix can join it. A "
             "person can place it in a planned release, and that placement stands."
         ],
     )
@@ -1108,9 +1158,10 @@ def test_a_release_cut_before_its_start_is_topped_up_with_nothing(
 ) -> None:
     """The twelfth round's reviewers' replay: v0.2.25 ships, and before any run starts v0.2.26
     a person opens its release pull request, which may merge before its release is published.
-    v0.2.26's start keeps and admits its own item and pulls nothing in: nothing joins a cut
-    release. It used to top it up from the backlog, and once v0.2.26 shipped, the feature sat
-    Ready in its closed milestone, where no later start looks. v0.2.27's start pulls it in."""
+    v0.2.26's start keeps and admits its own item and pulls nothing in, its release pull
+    request open or merged. It used to top it up from the backlog, and once v0.2.26 shipped, the
+    feature sat Ready in its closed milestone, where no later start looks. v0.2.27's start pulls
+    it in."""
     kept = started.file("next", release=NEXT)
     feature = started.file("backlog feature", release=None)
     started.ship(close_milestone=True)
@@ -1658,7 +1709,7 @@ def test_a_run_that_stops_after_a_comment_finishes_the_change_without_a_second_o
     """The move, the mark that records it as written, and its comment are made, then the write
     that clears `Pending` fails: the next run finds the comment already posted, and only clears
     the mark."""
-    feature = started.file("late feature")
+    feature = started.file("blocked feature", status="Blocked")
     called = stop_at(started.store, 5)
     with pytest.raises(GitHubOperationError, match="HTTP 502"):
         started.run()
@@ -1673,7 +1724,7 @@ def test_a_run_that_stops_after_a_comment_finishes_the_change_without_a_second_o
     ) == (
         (["set_marks", "set_field", "set_marks", "comment", "set_marks"], True),
         [JobWrite("set_mark", feature, "Pending", None)],
-        [None],
+        [NEXT],
         1,
         None,
     )
@@ -1693,7 +1744,7 @@ def test_a_job_move_whose_job_record_landed_without_its_milestone_is_finished(
     is still in v0.2.25, and its issue shows no Release change since the move began, so the
     next run knows the job never moved it and no person did: it finishes the move, with its
     one comment, and the item reads as the job's placement."""
-    feature = started.file("late feature")
+    feature = started.file("blocked feature", status="Blocked")
     started.stopped_at(Fault(1, applied=applied, write=write, item=feature))
     stopped = (
         started.release_of(feature),
@@ -1711,15 +1762,12 @@ def test_a_job_move_whose_job_record_landed_without_its_milestone_is_finished(
         started.comments(feature),
         started.plan().has_writes,
     ) == (
-        ([CURRENT], None),
+        ([CURRENT], NEXT),
         True,
+        NEXT,
+        NEXT,
         None,
-        None,
-        None,
-        [
-            "Moved to the backlog: after v0.2.25 started, only a critical fix can join it. A "
-            "person can place it in a planned release, and that placement stands."
-        ],
+        ["Moved to v0.2.26: it is Blocked and had not started."],
         False,
     )
 
@@ -1865,19 +1913,19 @@ def test_a_top_up_a_person_overruled_before_the_rerun_is_not_finished(started: R
 def test_an_admission_a_person_overruled_before_the_rerun_is_not_finished(
     started: Roadmap,
 ) -> None:
-    """The reviewers' replay (b): the run that sends a late P2 feature to the backlog stops at
-    its Release write, and a person then places it in v0.2.26. That placement stands."""
-    feature = started.file("late feature")
+    """The reviewers' replay (b): the run that descopes a Blocked item stops at its Release
+    write, and a person then places it in v0.2.27. That placement stands."""
+    feature = started.file("blocked feature", status="Blocked")
     started.stopped("set_field")
-    started.place(feature, NEXT)
+    started.place(feature, LATER)
     report = render_plan(started.plan())
     started.run()
     assert (
         started.release_of(feature),
         started.comments(feature),
         started.item(feature).job_record.get(JobMark.PENDING),
-        f"#{feature} late feature: not finishing what an earlier run began" in report,
-    ) == ([NEXT], [], None, True)
+        f"#{feature} blocked feature: not finishing what an earlier run began" in report,
+    ) == ([LATER], [], None, True)
 
 
 @pytest.mark.parametrize("nth", [1, 2], ids=["at-its-move", "after-its-move"])
@@ -1992,23 +2040,28 @@ def test_a_stall_about_a_release_that_shipped_since_gives_way_to_the_status_a_pe
     ) == (NEXT, (CURRENT, "In Progress"), [], None)
 
 
-def test_a_fix_whose_release_was_cut_before_the_rerun_goes_to_the_next_release(
-    started: Roadmap,
+@pytest.mark.parametrize("merged", [False, True], ids=["cut", "merged"])
+def test_a_fix_whose_release_was_cut_before_the_rerun_is_admitted_until_its_pull_request_merges(
+    started: Roadmap, merged: bool
 ) -> None:
     """The reviewers' replay (d): the run that admits a New critical fix stops at its comment,
-    and a person then opens a draft release pull request. The rerun sends the fix on, as a run
-    after the cut would have."""
+    and a person then opens a draft release pull request. The cut still admits the fix, so the
+    rerun finishes the admission; once that pull request has merged, the rerun sends the fix
+    on, as a run after the merge would have."""
     fix = started.fix(status="New")
     started.stopped("comment")
-    started.release_pull_request(draft=True)
+    release_pr = started.release_pull_request(draft=True)
+    if merged:
+        started.person.close_pull_request(release_pr, merged=True)
     started.run()
     assert (started.release_of(fix), started.admitted(fix), started.comments(fix)) == (
-        [NEXT],
-        None,
-        [
-            "Moved to v0.2.26: v0.2.25 is cut, so nothing joins it until its release pull "
-            "request is closed; a critical fix goes first into the next release."
-        ],
+        ([NEXT], None, [MERGED_LOCK])
+        if merged
+        else (
+            [CURRENT],
+            CURRENT,
+            ["Admitted to v0.2.25: a critical fix can join v0.2.25 after it starts."],
+        )
     )
 
 
@@ -2103,28 +2156,6 @@ def _at_its_milestone_call(roadmap: Roadmap, number: int) -> None:
 Stop = Callable[[Roadmap, int], None]
 
 
-def _late_feature_sent_back_by_hand(roadmap: Roadmap, stop: Stop) -> int:
-    """S1: the run that sends a late P2 feature to the backlog stops at that write; a person
-    moves it to the backlog and makes it P0."""
-    started_with(roadmap, roadmap.file("held"))
-    feature = roadmap.file("late feature")
-    stop(roadmap, feature)
-    roadmap.place(feature, None)
-    roadmap.set(feature, ItemField.PRIORITY, "P0-Critical")
-    return feature
-
-
-def _p0_feature_placed_by_hand(roadmap: Roadmap, stop: Stop) -> int:
-    """S5: the run that sends a late P0 feature to v0.2.26 stops at that write; a person
-    places it in v0.2.26 and makes it P2."""
-    started_with(roadmap, roadmap.file("held"))
-    feature = roadmap.file("p0 feature", priority="P0-Critical")
-    stop(roadmap, feature)
-    roadmap.place(feature, NEXT)
-    roadmap.set(feature, ItemField.PRIORITY, "P2-Medium")
-    return feature
-
-
 def _blocked_item_descoped_by_hand(roadmap: Roadmap, stop: Stop) -> int:
     """S7: the run that descopes a Blocked item stops at its Release write; a person moves it
     to v0.2.26 and sets it Ready."""
@@ -2165,13 +2196,11 @@ def _new_item_sent_back_at_the_start_by_hand(roadmap: Roadmap, stop: Stop) -> in
 S_SCENARIOS = pytest.mark.parametrize(
     ("scenario", "place", "status"),
     [
-        (_late_feature_sent_back_by_hand, None, "Ready"),
-        (_p0_feature_placed_by_hand, NEXT, "Ready"),
         (_blocked_item_descoped_by_hand, NEXT, "Ready"),
         (_stalled_item_moved_on_by_hand, NEXT, "In Review"),
         (_new_item_sent_back_at_the_start_by_hand, None, "Ready"),
     ],
-    ids=["s1-to-backlog", "s5-to-next", "s7-blocked", "s8-stall", "s10-new-at-start"],
+    ids=["s7-blocked", "s8-stall", "s10-new-at-start"],
 )
 
 
@@ -2348,18 +2377,21 @@ def test_a_release_write_after_a_person_moved_the_item_out_and_back_is_the_jobs(
 def test_a_finished_move_a_person_changed_before_the_rerun_records_where_they_put_it(
     started: Roadmap,
 ) -> None:
-    """The reviewers' replay: the run that sends a late feature to the backlog posts its
+    """The reviewers' replay: the run that sends a new item at start to the backlog posts its
     comment and stops at its last write; a person then places the feature in v0.2.27. The
     rerun only finishes the marks, and records that a person took the item out of the backlog
     where the job placed it, so the next run has nothing to do, and once the person puts it
     back in the backlog the next start leaves it there."""
-    late = started.file("late feature")
+    started.file("held")
+    late = started.file("new", status="New", release=NEXT)
+    started.file("next", release=NEXT)
+    started.ship(close_milestone=True)
     started.stopped("set_marks", nth=3, when=lambda item, *_: item.number == late)
     started.place(late, LATER)
     started.run()
     settled = (started.item(late).job_record.get(JobMark.LEFT), started.plan().has_writes)
     started.place(late, None)
-    started.ship(close_milestone=True)
+    started.ship(NEXT, close_milestone=True)
     started.run()
     assert (settled, started.release_of(late), started.item(late).job_record.get(JobMark.LEFT)) == (
         ("backlog", False),
@@ -2369,25 +2401,28 @@ def test_a_finished_move_a_person_changed_before_the_rerun_records_where_they_pu
 
 
 def _a_top_up_moved_back_by_hand(at: int, write: str) -> tuple[Roadmap, tuple[object, ...]]:
-    """The job sends a late feature to the backlog; v0.2.26's start pulls it in, and that
+    """The start sends a new item to the backlog; v0.2.27's start pulls it in, and that
     move's `at`-th `write` fails; a person then moves it back to the backlog, and the job runs
     again."""
     roadmap = Roadmap()
     started_with(roadmap, roadmap.file("held"))
-    late = roadmap.file("late feature")
-    roadmap.run()
+    new = roadmap.file("new", status="New", release=NEXT)
+    roadmap.file("next", release=NEXT)
     roadmap.ship(close_milestone=True)
-    stopping = roadmap.stopped_at(Fault(at, write=write, item=late))
-    roadmap.place(late, None)
     roadmap.run()
-    found = roadmap.item(late)
+    roadmap.set(new, ItemField.STATUS, "Ready")
+    roadmap.ship(NEXT, close_milestone=True)
+    stopping = roadmap.stopped_at(Fault(at, write=write, item=new))
+    roadmap.place(new, None)
+    roadmap.run()
+    found = roadmap.item(new)
     return roadmap, (
         stopping.writes[-1],
         found.release,
         roadmap.titled(found.job_record.get(JobMark.LEFT)),
         found.job_record.get(ItemField.RELEASE, "none"),
-        len(roadmap.comments(late)),
-        roadmap.admitted(late),
+        len(roadmap.comments(new)),
+        roadmap.admitted(new),
         roadmap.plan().has_writes,
     )
 
@@ -2398,15 +2433,15 @@ def test_a_top_up_a_person_undid_after_its_milestone_landed_leaves_the_item_wher
     """The top-up's milestone call lands and its written mark fails, or its comment fails one
     write later, and a person moves the item back to the backlog before the rerun. Either way
     the person's placement stands: the rerun drops the move, marks the item as taken out of
-    v0.2.26, and pulls nothing back in. The written mark's failure leaves no proof the job set
+    v0.2.27, and pulls nothing back in. The written mark's failure leaves no proof the job set
     the Release, so the item's job record keeps none for it: had it put back the record from
     before the move, which named the backlog where the job had sent the item, the person's
     placement would read as the job's, and the same start would pull the item in again."""
     unconfirmed, unconfirmed_outcome = _a_top_up_moved_back_by_hand(2, "set_marks")
     commented, commented_outcome = _a_top_up_moved_back_by_hand(1, "comment")
     assert (unconfirmed_outcome, commented_outcome, outcome(unconfirmed) == outcome(commented)) == (
-        ("set_marks", None, NEXT, "none", 1, None, False),
-        ("comment", None, NEXT, NEXT, 1, None, False),
+        ("set_marks", None, LATER, "none", 1, None, False),
+        ("comment", None, LATER, LATER, 1, None, False),
         True,
     )
 
@@ -2435,10 +2470,10 @@ def test_a_renamed_release_is_not_started_again_and_its_items_stay_admitted(
         roadmap.store.branch("release/v0.3.0"),
     ) == (
         ("v0.3.0", None),
-        ["v0.3.0"] * 4 + [None, None],
+        ["v0.3.0"] * 5 + [None],
         ["v0.3.0"] * 4,
         [
-            "Moved to the backlog: after v0.3.0 started, only a critical fix can join it. A "
+            "Admitted to v0.3.0: after v0.3.0 started, only a critical fix can join it. A "
             "person can place it in a planned release, and that placement stands."
         ],
         {JobMark.STARTED: "v0.3.0", JobMark.SIZE: "4"},
@@ -2508,8 +2543,8 @@ def test_a_closed_admitted_item_taken_out_and_put_back_is_judged_again_once_reop
     roadmap.run()
     assert (cleared, roadmap.release_of(done), roadmap.admitted(done)) == (
         (None, CURRENT),
-        [None],
-        None,
+        [CURRENT],
+        CURRENT,
     )
 
 
@@ -2535,7 +2570,7 @@ def test_a_first_run_that_stopped_after_its_marks_clears_the_mark_of_an_item_mov
     assert (cleared, roadmap.run_record()[JobMark.SIZE], roadmap.release_of(moved)) == (
         None,
         "1",
-        [None],
+        [CURRENT],
     )
 
 
@@ -2554,7 +2589,7 @@ def test_a_start_that_stopped_after_its_marks_clears_the_mark_of_an_item_moved_o
     assert (cleared, started.run_record()[JobMark.SIZE], started.release_of(moved)) == (
         None,
         "1",
-        [None],
+        [NEXT],
     )
 
 
@@ -2611,7 +2646,7 @@ def test_a_pending_mark_this_version_cannot_read_is_dropped(started: Roadmap) ->
         f"#{feature} late feature: an earlier run left a change this run can't read" in report,
         started.item(feature).job_record.get(JobMark.PENDING),
         started.release_of(feature),
-    ) == (True, None, [None])
+    ) == (True, None, [CURRENT])
 
 
 def test_a_milestone_older_than_the_started_release_is_held_to_no_rule(started: Roadmap) -> None:
@@ -2642,12 +2677,13 @@ LAST_CHECK = NOW - timedelta(hours=1)
 
 def _due(roadmap: Roadmap, act: Callable[[Roadmap], object]) -> bool:
     """Whether the job is due after `act`, polled a minute later and an hour after the last
-    stall check."""
+    stall check, with the current release the Service reads at the poll (#1360)."""
     roadmap.now += timedelta(minutes=1)
     since = roadmap.now
     act(roadmap)
     last_check = roadmap.now - timedelta(hours=1)
-    return is_due(roadmap.store.changes_since(since), roadmap.now, last_check)
+    current = current_release(roadmap.store.releases())
+    return is_due(roadmap.store.changes_since(since), roadmap.now, last_check, current)
 
 
 def _edited(roadmap: Roadmap) -> list[Change]:
@@ -2671,7 +2707,9 @@ def test_is_due_is_false_for_comments_and_the_jobs_own_changes(
     started_with(roadmap, roadmap.file("held"))
     roadmap.set(roadmap.file("blocked"), ItemField.STATUS, "Blocked")
     roadmap.fix()
-    assert (_due(roadmap, act), is_due(_edited(roadmap), NOW, LAST_CHECK)) == (False, False)
+    current = roadmap.store.release(CURRENT)
+    edited = is_due(_edited(roadmap), NOW, LAST_CHECK, current)
+    assert (_due(roadmap, act), edited) == (False, False)
 
 
 TRIGGERS: dict[str, Callable[[Roadmap], object]] = {
@@ -2728,18 +2766,36 @@ def test_is_due_when_a_person_takes_an_admitted_item_back_to_where_a_job_last_pl
         started.run()
     started.place(feature, NEXT)
     started.run()
-    assert (due, started.release_of(feature)) == (True, [None])
+    assert (due, started.release_of(feature)) == (True, [NEXT])
 
 
-def test_is_due_on_a_release_start_and_once_a_day_for_the_stall_check() -> None:
-    start = Change(kind=ChangeKind.RELEASE_STARTED, number=0, actor=None, at=NOW, release=NEXT)
+def test_is_due_on_a_ship_and_once_a_day_for_the_stall_check() -> None:
+    """A ship is due with no current release left; the stall check counts from the last one."""
+    ship = Change(kind=ChangeKind.RELEASE_SHIPPED, number=0, actor=None, at=NOW, release=NEXT)
     day = timedelta(days=1)
     assert (
-        is_due([start], NOW, LAST_CHECK),
-        is_due([], NOW, None),
-        is_due([], NOW, NOW - day + timedelta(seconds=1)),
-        is_due([], NOW, NOW - day),
+        is_due([ship], NOW, LAST_CHECK, None),
+        is_due([], NOW, None, None),
+        is_due([], NOW, NOW - day + timedelta(seconds=1), None),
+        is_due([], NOW, NOW - day, None),
     ) == (True, True, False, True)
+
+
+PLANNED_EDITS: dict[str, Callable[[Roadmap], object]] = {
+    "priority": lambda r: r.set(r.file("planned", release=NEXT), ItemField.PRIORITY, "P1-High"),
+    "status": lambda r: r.set(r.file("planned", release=LATER), ItemField.STATUS, "Blocked"),
+    "label": lambda r: r.person.add_label(r.file("planned", release=NEXT), "needs-split"),
+    "between-planned": lambda r: r.place(r.file("planned", release=NEXT), LATER),
+}
+
+
+@pytest.mark.parametrize("act", PLANNED_EDITS.values(), ids=PLANNED_EDITS.keys())
+def test_is_due_is_false_for_a_change_to_an_item_in_a_planned_release(
+    started: Roadmap, act: Callable[[Roadmap], object]
+) -> None:
+    """The job leaves planned-release items alone until their release starts, so a person's
+    edit there needs no run (#1360)."""
+    assert _due(started, act) is False
 
 
 # ── The command and its MCP mirror ────────────────────────────────────────────
@@ -2779,8 +2835,8 @@ def test_plan_lists_each_change_with_its_reason_and_writes_nothing(board: Roadma
     unchanged = _snapshot(board.store) == before
     applied = _reprioritize("--confirm")
     change = (
-        f"#{late} late feature: Moved to the backlog: after v0.2.25 started, only a critical "
-        "fix can join it."
+        f"#{late} late feature: Admitted to v0.2.25: after v0.2.25 started, only a critical "
+        "fix can join it. A person can place it in a planned release, and that placement stands."
     )
     assert (
         f"records the admitted set of {CURRENT}" in first,
@@ -2788,7 +2844,7 @@ def test_plan_lists_each_change_with_its_reason_and_writes_nothing(board: Roadma
         unchanged,
         "Made 1 change(s)" in applied,
         board.release_of(held, late),
-    ) == (True, [True, True], True, True, [CURRENT, None])
+    ) == (True, [True, True], True, True, [CURRENT, CURRENT])
 
 
 def test_the_mcp_mirror_previews_unless_its_mode_is_confirm(board: Roadmap) -> None:

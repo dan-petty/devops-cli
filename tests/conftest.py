@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import ipaddress
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -18,6 +19,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 if TYPE_CHECKING:
+    from devops_cli.ai.spend.ledger import SpendLedger
     from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
     from devops_cli.roadmap.store import RoadmapStore
     from tests.web_fakes import StubWeb
@@ -74,11 +76,15 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
-def _is_ip_literal(host: str) -> bool:
-    """Report whether a host is an IP address, which resolves without a DNS query."""
+def _is_numeric_host(host: Any, resolve: Callable[..., Any]) -> bool:
+    """Report whether a host is numeric in any spelling glibc accepts, which needs no DNS query.
+
+    `2852039166` and `0xa9fea9fe` are 169.254.169.254 to glibc, so they resolve in tests as they
+    do in production. `resolve` is the unguarded `socket.getaddrinfo`.
+    """
     try:
-        ipaddress.ip_address(host)
-    except ValueError:
+        resolve(host, None, flags=socket.AI_NUMERICHOST)
+    except OSError, UnicodeError:
         return False
     return True
 
@@ -129,7 +135,7 @@ def prevent_external_network_calls() -> None:
             host is None
             or bool(flags & socket.AI_NUMERICHOST)
             or _is_loopback(name)
-            or _is_ip_literal(name)
+            or _is_numeric_host(host, orig_getaddrinfo)
         ):
             return orig_getaddrinfo(host, *args, **kwargs)
         raise socket.gaierror(
@@ -207,25 +213,33 @@ def stub_web(monkeypatch: pytest.MonkeyPatch, public_dns: str) -> Iterator[StubW
     Clients keep the broker's own redirect limit and request hooks; only their transport is the
     stub's. They stay classes, so code that subclasses them or checks isinstance still works.
     External names resolve to a public address, as `public_dns` does.
+
+    A canned page never reaches a connect, so a client the factory built at an egress level has
+    each request's host vetted with `vet_addresses` at that level before the stub answers it, as
+    its backend would before dialling.
     """
     import httpx2
 
     from devops_cli.http import broker
-    from tests.web_fakes import StubWeb
+    from tests.web_fakes import StubWeb, egress_level_of
 
     web = StubWeb()
-    transport = httpx2.MockTransport(web.handle)
+
+    def stub_transport(factory_transport: Any) -> httpx2.MockTransport:
+        return httpx2.MockTransport(web.vetting_handler(egress_level_of(factory_transport)))
 
     class StubClient(httpx2.Client):
         """An httpx2.Client whose transport is always the stub's."""
 
         def __init__(self, **kwargs: Any) -> None:
+            transport = stub_transport(kwargs.get("transport"))
             super().__init__(**{**kwargs, "transport": transport})
 
     class StubAsyncClient(httpx2.AsyncClient):
         """An httpx2.AsyncClient whose transport is always the stub's."""
 
         def __init__(self, **kwargs: Any) -> None:
+            transport = stub_transport(kwargs.get("transport"))
             super().__init__(**{**kwargs, "transport": transport})
 
     monkeypatch.setattr(httpx2, "Client", StubClient)
@@ -287,6 +301,16 @@ def isolate_llm_response_cache(tmp_path: Path):
     reset_llm_response_cache()
 
 
+@pytest.fixture
+def spend_ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SpendLedger:
+    """A fresh ledger that every recorded call in the test writes to."""
+    from devops_cli.ai.spend import ledger as ledger_module
+
+    ledger = ledger_module.SpendLedger(db_path=tmp_path / "spend.db")
+    monkeypatch.setattr(ledger_module, "_GLOBAL_LEDGER", ledger)
+    return ledger
+
+
 @pytest.fixture(autouse=True)
 def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """Ensure tests run against an isolated temporary .data/ directory to protect user reviews."""
@@ -322,10 +346,46 @@ def isolate_own_source_repository(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def isolate_session_bus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Keep tests off the devcontainer's session bus, where gnome-keyring holds real secrets."""
+def isolate_vault_token() -> Iterator[None]:
+    """Keep a Vault token from outliving the test that left it (#709).
+
+    Brokers read the `devops vault login` record from the in-process secret store, the
+    process-wide resolver's `VaultProvider` keeps the broker it built, token and all, and `vault
+    leases` keeps its session registry. Each would let a later test reach Vault with a token. The
+    store is cleared in place, since tests hold the dict itself; the registry is dropped only once
+    something has imported the command.
+    """
+    yield
+    from devops_cli.config.constants import CONST_VAULT_LOGIN_KEYRING_KEY
+    from devops_cli.config.settings import _EPHEMERAL_CI_SECRETS
+    from devops_cli.security.secrets import reset_resolver
+
+    _EPHEMERAL_CI_SECRETS.pop(CONST_VAULT_LOGIN_KEYRING_KEY, None)
+    reset_resolver()
+    vault_commands = sys.modules.get("devops_cli.commands.vault")
+    if vault_commands is not None:
+        vault_commands.reset_lease_registry()
+
+
+@pytest.fixture(autouse=True)
+def isolate_session_bus(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch):
+    """Keep tests off the devcontainer's session bus, where gnome-keyring holds real secrets.
+
+    The runtime directory sits beside `tmp_path`, neither holding it nor inside it: a sandbox
+    never mounts a workspace that overlaps the runtime directory (#1115), and most sandbox tests
+    mount `tmp_path`.
+    """
     monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))  # the bus fallback is $XDG_RUNTIME_DIR/bus
+    # the bus fallback is $XDG_RUNTIME_DIR/bus
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path_factory.mktemp("run")))
+
+
+@pytest.fixture(autouse=True)
+def isolate_docker_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep tests off the developer's own engine endpoint, which the sandbox workspace check
+    reads to find the engine socket it refuses to mount (#1115). A test that needs `DOCKER_HOST`
+    sets it."""
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -868,9 +928,10 @@ def _evaluate_workspace_tripwire(snapshot: dict[str, Any]) -> list[str]:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Skip live bubblewrap tests where bubblewrap is not installed on the host (#832)."""
+    """Skip live bubblewrap tests where bubblewrap is not installed on the host (#832, #1337)."""
+    from devops_cli.sandbox.host import HostSandbox
 
-    if True:
+    if not HostSandbox().is_available():
         skip_bwrap = pytest.mark.skip(reason="bubblewrap is not installed")
         for item in items:
             if "bwrap" in item.keywords:

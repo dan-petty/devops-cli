@@ -498,8 +498,14 @@ def collect_project_metrics_report(
     ci_limit: int = 50,
     milestone_filter: str | None = None,
 ) -> ProjectMetricsReport:
-    """Aggregate complete project metrics across releases, CI checks, and milestones."""
-    project_root = find_worktree_root(root)
+    """Aggregate complete project metrics across releases, CI checks, and milestones.
+
+    The releases are the `v*` tags of the git repository at `root`, taken as it is, so a clone
+    nested in another checkout, as the roadmap jobs keep under the data directory, reports its
+    own tags (#1358). Without `root` they are the tags of the working tree around the current
+    directory (`find_worktree_root`).
+    """
+    project_root = root if root is not None else find_worktree_root()
     target_repo = repo or get_repo_origin_name(project_root) or "repository"
     now_str = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 

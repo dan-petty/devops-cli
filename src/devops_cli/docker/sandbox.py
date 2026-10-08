@@ -6,13 +6,12 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from devops_cli.config.constants import (
     CONST_SANDBOX_DOCKER_INTERNAL_NET,
-    CONST_SANDBOX_SENSITIVE_SUBPATHS,
     CONST_SANDBOX_TIMEOUT_EXIT_CODE,
 )
 from devops_cli.config.defaults import (
@@ -26,7 +25,8 @@ from devops_cli.config.defaults import (
 from devops_cli.docker.engine import decode_stream as _decode_logs
 from devops_cli.docker.engine import get_engine
 from devops_cli.exceptions.docker import DockerSandboxError
-from devops_cli.sandbox.engine import is_home_or_subpath
+from devops_cli.exceptions.sandbox import SandboxValidationError
+from devops_cli.sandbox.engine import validate_sandbox_workspace
 from devops_cli.sandbox.models import (
     DEFAULT_SANDBOX_POLICY,
     SandboxNetworkConfig,
@@ -123,20 +123,6 @@ class WorkloadSandboxResult(BaseModel):
         return mask_secrets(str(v))
 
 
-def _check_home_boundary(resolved: Path, exclude_home_dir: bool) -> None:
-    """Validate home directory boundaries based on user preference."""
-    if exclude_home_dir and is_home_or_subpath(resolved):
-        raise DockerSandboxError(f"Sandbox access to user home directory is excluded: {resolved}")
-    if not exclude_home_dir:
-        try:
-            if resolved == Path.home().resolve():
-                raise DockerSandboxError(
-                    f"Mounting user home directory into sandbox is forbidden: {resolved}"
-                )
-        except RuntimeError:
-            pass
-
-
 class WorkloadSandboxRunner:
     """Orchestrator for managing the lifecycle of disposable sandbox containers."""
 
@@ -176,44 +162,14 @@ class WorkloadSandboxRunner:
             "user": user_str,
         }
 
-    _FORBIDDEN_ROOTS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "/",
-            "/etc",
-            "/usr",
-            "/bin",
-            "/sbin",
-            "/boot",
-            "/sys",
-            "/proc",
-            "/dev",
-            "/var",
-        }
-    )
-
     def _validate_workspace_dir(self) -> Path:
-        ws = self.config.workspace_dir
-        if ws.is_symlink():
-            raise DockerSandboxError(f"Workspace directory cannot be a symbolic link: {ws}")
-        resolved = ws.resolve()
-        if str(resolved) in self._FORBIDDEN_ROOTS or resolved == Path(resolved.anchor):
-            raise DockerSandboxError(
-                f"Mounting sensitive root system directory into sandbox is forbidden: {resolved}"
+        """Resolve the workspace through the shared sandbox workspace check."""
+        try:
+            return validate_sandbox_workspace(
+                self.config.workspace_dir, exclude_home_dir=self.exclude_home_dir
             )
-        _check_home_boundary(resolved, self.exclude_home_dir)
-
-        if resolved.name in CONST_SANDBOX_SENSITIVE_SUBPATHS or any(
-            p in CONST_SANDBOX_SENSITIVE_SUBPATHS for p in resolved.parts
-        ):
-            raise DockerSandboxError(
-                f"Mounting sensitive credential or repository metadata directory into sandbox is forbidden: {resolved}"
-            )
-
-        if "docker.sock" in str(resolved):
-            raise DockerSandboxError(
-                f"Mounting Docker socket into sandbox is forbidden: {resolved}"
-            )
-        return resolved
+        except SandboxValidationError as exc:
+            raise DockerSandboxError(exc.message, details=exc.details) from exc
 
     _INTERNAL_NETWORK_MODES: frozenset[SandboxNetworkMode] = frozenset(
         {

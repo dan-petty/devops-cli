@@ -10,6 +10,8 @@ import asyncio
 from typing import Any
 from unittest.mock import MagicMock
 
+from pydantic_ai import RunContext as NativeRunContext
+
 from devops_cli.ai.agents.context import RunContext
 from devops_cli.ai.tools import Tool
 from devops_cli.ai.toolsets import (
@@ -83,7 +85,7 @@ class TestPydanticAIToolsetsSubsystem:
         ts = FunctionToolset()
 
         @ts.tool
-        def inspect_cluster(ctx: RunContext[Any], namespace: str) -> str:
+        def inspect_cluster(ctx: NativeRunContext[Any], namespace: str) -> str:
             """Inspect cluster namespace."""
             return f"Cluster namespace: {namespace}"
 

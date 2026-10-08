@@ -17,10 +17,16 @@ The shared review prompts stay project-agnostic; see `docs/SELF_IMPROVEMENT.md`.
 A DevOps CLI reaches internal infrastructure and prints what it is working on. Both are its
 purpose, not defects.
 
-- **Internal connectors**: SSRF claims against infrastructure connectors that set
-  `allow_private_network=True` (Valkey, the Vault broker, the Kubernetes API, Prometheus, Grafana,
-  a local Ollama) are not defects. SSRF applies to user-supplied external URLs: web fetchers,
-  document retrievers, user webhooks.
+- **Internal connectors**: SSRF claims against infrastructure connectors that reach private
+  networks are not defects. Valkey, the Vault broker, the Kubernetes API, Loki, Prometheus,
+  Grafana and a configured Ollama or gateway reach them by design. HTTP clients built by the
+  `devops_cli.http.client` factory are checked at the connect at their egress level: the Vault
+  broker, the Kubernetes clients and the sandbox probe at private (`EgressLevel.PRIVATE`), the
+  LLM client base at the configured level, which `ai.allow_private_network` widens to private.
+  Every level refuses cloud metadata. The other connectors are not checked at the connect yet
+  and validate their URL before the request with `allow_private_network`. SSRF still applies to
+  public-level callers and user-supplied external URLs (web fetchers, document retrievers, user
+  webhooks): one fetched below the public level, or dialled outside the factory, is a finding.
 - **Internal HTTP**: the model backends (`http://ollama:*`, `http://vllm:*`, `http://qdrant:*`)
   and the loopback defaults (`http://localhost:*`, `127.0.0.1`) are plain HTTP by design.
 - **Console output**: information-exposure (CWE-200) claims about terminal output, debug logging

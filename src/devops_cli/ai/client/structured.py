@@ -14,13 +14,16 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from devops_cli.ai.client.models import (
     LLMResponse,
+    ReplyRejectedError,
     StructuredOutputValidationError,
     genai_provider_name,
 )
+from devops_cli.ai.client.network import ReplySchema, constrain_reply
 from devops_cli.ai.schema_reflection import (
     SchemaReflectionReport,
-    format_schema_validation_error,
+    extract_schema_reflection,
 )
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.ai.thinking_stream import strip_think_blocks
 from devops_cli.config.constants import (
     CONST_MAX_ERROR_DETAIL_LENGTH,
@@ -41,6 +44,10 @@ from devops_cli.telemetry import record_metric, trace_span
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+# Why a reply failed: the schema's report when it held JSON that broke the schema, else a sentence
+# saying why no JSON was read from it.
+SchemaFailure = SchemaReflectionReport | str
 
 __all__ = [
     "StructuredOutputMixin",
@@ -91,14 +98,14 @@ def _parse_json_payload(candidate: str, cleaned: str) -> tuple[Any, bool, str | 
 def _validate_schema_payload[T: BaseModel](
     json_data: Any,
     schema: type[T],
-) -> tuple[T | None, str | None]:
+) -> tuple[T | None, SchemaFailure | None]:
     """Validate parsed JSON data against Pydantic schema with lossless structured reflection."""
     try:
         if hasattr(schema, "model_validate"):
             return schema.model_validate(json_data), None
         return TypeAdapter(schema).validate_python(json_data), None
     except ValidationError as exc:
-        return None, format_schema_validation_error(exc)
+        return None, extract_schema_reflection(exc, max_errors=exc.error_count())
     except Exception as exc:
         err_msg = str(exc)
         if len(err_msg) > CONST_MAX_ERROR_DETAIL_LENGTH:
@@ -109,7 +116,7 @@ def _validate_schema_payload[T: BaseModel](
 def _repair_and_validate_payload[T: BaseModel](
     raw_text: str,
     schema: type[T],
-) -> tuple[T | None, bool, str | None]:
+) -> tuple[T | None, bool, SchemaFailure | None]:
     """Extract, repair, and validate raw model text against target schema."""
     cleaned = strip_think_blocks(raw_text).strip()
     candidate = _extract_candidate_json(raw_text)
@@ -122,6 +129,39 @@ def _repair_and_validate_payload[T: BaseModel](
         return None, was_repaired, schema_err
 
     return model_inst, was_repaired, None
+
+
+def _failure_summary(failure: SchemaFailure) -> str:
+    """What the last reply's failure was, holding none of the reply: its violation count and their
+    pydantic error types, never a field path, since a path can be a key the model invented."""
+    if isinstance(failure, SchemaReflectionReport):
+        types = ", ".join(sorted({violation.error_type for violation in failure.violations}))
+        return f"{failure.total_errors} schema violation(s) ({types})"
+    return "no JSON object the schema could validate"
+
+
+def _validation_failure(
+    model_name: str, attempts: int, failure: SchemaFailure
+) -> StructuredOutputValidationError:
+    """The error for a call whose every reply failed, counting the last one's violations.
+
+    Its message reaches spans, logs and intake's skip reason, so it carries no model text; the
+    full report went to the model in the reflection prompt.
+    """
+    violations = failure.total_errors if isinstance(failure, SchemaReflectionReport) else 0
+    return StructuredOutputValidationError(
+        f"Response validation failed for model '{model_name}' after {attempts} attempts: "
+        f"the last reply had {_failure_summary(failure)}.",
+        violations=violations,
+    )
+
+
+def _with_reply_schema(system: str, json_schema: dict[str, Any]) -> str:
+    """The caller's system prompt, then the instruction to answer with one JSON object that
+    validates against `json_schema`, then that schema."""
+    instruction = load_task_prompt("structured_output_schema.md")
+    parts = (system, instruction, json.dumps(json_schema, ensure_ascii=False))
+    return "\n\n".join(part for part in parts if part)
 
 
 def _build_reflection_message(error_details: str | SchemaReflectionReport) -> ChatMessage:
@@ -183,25 +223,34 @@ class StructuredOutputMixin:
         enable_thinking: bool,
         use_cache: bool,
         context_tag: str | None,
-    ) -> tuple[T | None, bool, str | None, str]:
-        """Dispatch a single chat request and evaluate parsed schema outcome."""
-        res = self.chat_messages(
-            system,
-            messages,
-            enable_thinking=enable_thinking,
-            use_cache=use_cache,
-            context_tag=context_tag,
-            max_retries=0,
-        )
+    ) -> tuple[T | None, bool, SchemaFailure | None, str]:
+        """Dispatch a single chat request and evaluate parsed schema outcome.
+
+        The schema check is the request's validator, so a reply that fails it is neither served
+        from the response cache nor written to it, and comes back on `ReplyRejectedError` for
+        the reflection.
+        """
+        try:
+            res = self.chat_messages(
+                system,
+                messages,
+                enable_thinking=enable_thinking,
+                use_cache=use_cache,
+                context_tag=context_tag,
+                max_retries=0,
+                validator=lambda text: _repair_and_validate_payload(text, schema)[0] is not None,
+            )
+        except ReplyRejectedError as rejected:
+            res = LLMResponse(rejected.reply)
         raw_text = res.text if hasattr(res, "text") else str(res)
-        model_inst, was_repaired, err_msg = _repair_and_validate_payload(raw_text, schema)
-        return model_inst, was_repaired, err_msg, raw_text
+        model_inst, was_repaired, failure = _repair_and_validate_payload(raw_text, schema)
+        return model_inst, was_repaired, failure, raw_text
 
     def _handle_structured_retry(
         self,
         messages: list[ChatMessage],
         raw_text: str,
-        err_msg: str,
+        failure: SchemaFailure,
         attempt: int,
         backoff_seconds: float,
         model_name: str,
@@ -214,7 +263,7 @@ class StructuredOutputMixin:
         )
         time.sleep(backoff_seconds * (2 ** (attempt - 1)))
         messages.append(ChatMessage(role="assistant", content=raw_text))
-        messages.append(_build_reflection_message(err_msg))
+        messages.append(_build_reflection_message(failure))
 
     def chat_structured[T: BaseModel](
         self,
@@ -229,29 +278,41 @@ class StructuredOutputMixin:
         use_cache: bool = True,
         context_tag: str | None = None,
     ) -> T:
-        """Send chat request and guarantee validated structured Pydantic output with repair and retry."""
+        """Send chat request and guarantee validated structured Pydantic output with repair and retry.
+
+        The system message ends with the schema's JSON Schema, introduced by
+        `structured_output_schema.md`, for every provider; the gateway and ollama providers also
+        get it as their request's constraint (`constrain_reply`). Only the first attempt reads
+        and writes the response cache, and only a reply that validates is written or served.
+        """
         if schema is None:
             raise StructuredOutputSchemaError("A schema model class must be provided.")
 
         messages = _prepare_structured_messages(prompt, user)
         model_name = str(getattr(self._config, "model", "default"))
         provider_name = str(getattr(self._config, "provider", "unknown"))
+        schema_name = getattr(schema, "__name__", str(schema))
+        json_schema = schema.model_json_schema()
+        structured_system = _with_reply_schema(system, json_schema)
         max_attempts = max(1, max_retries + 1)
-        last_error = "Unknown schema error"
+        last_error: SchemaFailure = "Unknown schema error"
 
-        with trace_span(
-            "ai.client.chat_structured",
-            attributes={
-                "gen_ai.provider.name": genai_provider_name(provider_name),
-                "gen_ai.request.model": model_name,
-                "schema.name": getattr(schema, "__name__", str(schema)),
-                "max_retries": max_retries,
-            },
-        ) as span_h:
+        with (
+            trace_span(
+                "ai.client.chat_structured",
+                attributes={
+                    "gen_ai.provider.name": genai_provider_name(provider_name),
+                    "gen_ai.request.model": model_name,
+                    "schema.name": schema_name,
+                    "max_retries": max_retries,
+                },
+            ) as span_h,
+            constrain_reply(ReplySchema(schema_name, json_schema)),
+        ):
             for attempt in range(1, max_attempts + 1):
                 attempt_cache = use_cache if attempt == 1 else False
-                model_inst, was_repaired, err_msg, raw_text = self._execute_structured_step(
-                    system,
+                model_inst, was_repaired, failure, raw_text = self._execute_structured_step(
+                    structured_system,
                     messages,
                     schema,
                     enable_thinking=enable_thinking,
@@ -274,7 +335,7 @@ class StructuredOutputMixin:
                     span_h.set_attribute("structured.was_repaired", was_repaired)
                     return model_inst
 
-                last_error = err_msg or "Failed to validate schema."
+                last_error = failure or "Failed to validate schema."
                 record_metric(
                     CONST_METRIC_AI_STRUCTURED_VALIDATION_FAILURE,
                     1.0,
@@ -285,10 +346,6 @@ class StructuredOutputMixin:
                         messages, raw_text, last_error, attempt, backoff_seconds, model_name
                     )
 
-            fail_msg = (
-                f"Response validation failed for model '{model_name}' "
-                f"after {max_attempts} attempts. Last error: {last_error}"
-            )
-            exc = StructuredOutputValidationError(fail_msg)
+            exc = _validation_failure(model_name, max_attempts, last_error)
             span_h.record_exception(exc)
             raise exc

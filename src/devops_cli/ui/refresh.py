@@ -129,8 +129,6 @@ class PodLogSource:
             tail_lines=self.tail_lines,
             follow=True,
         )
-        if isinstance(stream, str):
-            return stream.splitlines()
         with self._lock:
             self._stream, closed = stream, self._closed
         if closed:

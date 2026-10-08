@@ -9,17 +9,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic_ai._enqueue import (
-    EnqueueContent,
-    PendingMessage,
-    PendingMessagePriority,
-)
-from pydantic_ai._instrumentation import current_otel_traceparent
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 from pydantic_ai.run import (
     AgentRun,
     AgentRunResult,
     AgentRunResultEvent,
+    EnqueueContent,
+    PendingMessage,
+    PendingMessagePriority,
 )
 from pydantic_graph import (
     BaseNode,
@@ -53,21 +51,10 @@ def create_pending_message(
 
 
 def get_active_traceparent() -> str | None:
-    """Resolve the active OpenTelemetry W3C traceparent string using native Pydantic AI instrumentation."""
-    traceparent = current_otel_traceparent()
-    if traceparent:
-        return traceparent
-
-    try:
-        from opentelemetry import trace
-
-        span = trace.get_current_span()
-        ctx = span.get_span_context()
-        if ctx.is_valid:
-            return f"00-{ctx.trace_id:032x}-{ctx.span_id:016x}-{ctx.trace_flags:02x}"
-    except Exception:
-        pass
-    return None
+    """Return the W3C traceparent of the active OpenTelemetry span, or None when no span is valid."""
+    carrier: dict[str, str] = {}
+    TraceContextTextMapPropagator().inject(carrier)
+    return carrier.get("traceparent")
 
 
 def format_run_summary(result: AgentRunResult[Any] | Any) -> dict[str, Any]:
@@ -139,7 +126,6 @@ __all__ = [
     "PendingMessage",
     "PendingMessagePriority",
     "create_pending_message",
-    "current_otel_traceparent",
     "format_run_summary",
     "get_active_traceparent",
 ]

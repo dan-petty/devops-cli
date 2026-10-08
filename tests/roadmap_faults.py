@@ -19,7 +19,7 @@ from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import Item, ItemField, JobMark, RoadmapStore
 
 # The store's writes, any of which a gh call can fail part-way through a run, and the two
-# calls GitHub takes a field write as.
+# calls GitHub takes a field write as. `label_issue` is intake's first write (#1360).
 WRITES = frozenset(
     {
         "create_release",
@@ -29,6 +29,7 @@ WRITES = frozenset(
         "set_marks",
         "comment",
         "set_run_record",
+        "label_issue",
     }
 )
 RECORD, FIELD = "record", "field"

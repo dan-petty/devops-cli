@@ -18,7 +18,10 @@ from devops_cli.config.constants import (
 )
 from devops_cli.core.repo import find_repo_root
 from devops_cli.docs.command_resolver import ArgvPlaceholder, ArgvToken
-from devops_cli.docs.mcp_argv_collector import DevopsArgvReference, describe_unresolved_references
+from devops_cli.docs.source_argv_collector import (
+    DevopsArgvReference,
+    describe_unresolved_references,
+)
 
 _PREFIX_RE = re.compile(r"^\s*\$?\s*(?:uv\s+run\s+)?devops(?:\s+(.*)|$)")
 _INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")

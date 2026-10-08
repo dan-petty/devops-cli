@@ -1447,6 +1447,56 @@ def test_roadmap_refine_contract_and_argv() -> None:
     )
 
 
+def test_roadmap_intake_argv_keeps_its_order_and_writes_only_on_confirm() -> None:
+    """Verify roadmap_intake names each option and mode flag as written, in the CLI's order.
+
+    A mode outside the three the tool declares falls back to `--dry-run`, which makes no
+    request, so only `mode="confirm"` writes.
+    """
+    from typing import Any
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import roadmap_intake
+
+    unknown_mode: Any = "write"
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
+        roadmap_intake(
+            repo="dan-petty/devops-cli",
+            ref="release/v0.2.29",
+            issues=[868],
+            title="fix: example",
+            source="https://example.com",
+            borrow_reason="split",
+            mode="confirm",
+        )
+        roadmap_intake()
+        roadmap_intake(mode="dry-run")
+        roadmap_intake(mode=unknown_mode)
+
+    head = ["uv", "run", "devops", "roadmap", "intake"]
+    assert [call.args[0] for call in run.call_args_list] == [
+        [
+            *head,
+            "--repo",
+            "dan-petty/devops-cli",
+            "--ref",
+            "release/v0.2.29",
+            "--title",
+            "fix: example",
+            "--source",
+            "https://example.com",
+            "--issue",
+            "868",
+            "--borrow-reason",
+            "split",
+            "--confirm",
+        ],
+        [*head, "--plan"],
+        [*head, "--dry-run"],
+        [*head, "--dry-run"],
+    ]
+
+
 # =============================================================================
 # telemetry_profile names a trace and runs nothing (#980)
 # =============================================================================
@@ -1504,7 +1554,7 @@ def test_telemetry_profile_reads_the_named_trace() -> None:
     ]
 
 
-def test_docker_sandbox_hands_its_command_over_after_the_options_end() -> None:
+def test_docker_sandbox_hands_its_command_over_after_the_options_end(tmp_path) -> None:
     """`docker_sandbox` appended `command` straight after its own options (#980).
 
     `devops docker sandbox` parsed a leading `--root` or `--cpus 64` in that list as its own
@@ -1516,7 +1566,7 @@ def test_docker_sandbox_hands_its_command_over_after_the_options_end() -> None:
     from devops_cli.ai.mcp.server import docker_sandbox
 
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
-        docker_sandbox(command=["--root", "id"])
+        docker_sandbox(command=["--root", "id"], workspace=str(tmp_path))
     assert run.call_args.args[0][-3:] == ["--", "--root", "id"]
 
 
@@ -1539,3 +1589,22 @@ def test_a_delegated_command_receives_the_end_of_options_marker(monkeypatch) -> 
         main_module.app, ["sandbox", "exec", "abc", "--", "--workdir", "/", "id"]
     )
     assert (result.exit_code, delegated) == (0, ["exec", "abc", "--", "--workdir", "/", "id"])
+
+
+def test_the_token_carrying_vault_tools_take_no_address() -> None:
+    """`vault_get`, `vault_set` and `vault_sync` act with the user's Vault token, so a client
+    must never choose where it is sent; only `vault_status`, which sends no token, takes one."""
+    import inspect
+
+    from devops_cli.ai.mcp import server
+
+    parameters = {
+        name: set(inspect.signature(getattr(server, name)).parameters)
+        for name in ("vault_get", "vault_set", "vault_sync", "vault_status")
+    }
+    assert parameters == {
+        "vault_get": {"path", "key"},
+        "vault_set": {"path", "key_values"},
+        "vault_sync": {"path", "keys"},
+        "vault_status": {"vault_addr"},
+    }

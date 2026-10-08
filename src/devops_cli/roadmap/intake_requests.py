@@ -6,10 +6,11 @@ A dry run makes no request at all. It returns the requests a run makes, in order
 call and the model calls. `method` names the transport and whether it reads or writes, and
 `target` what it reads or writes. Every `gh` command shows its exact argv and stdin, built by
 the store's own argument builders (`roadmap/request_plan.py`, #1125), one line per command, so a
-board write shows the board reads it makes first. A value that needs a read is a placeholder in
-angle brackets, a request that runs only when an earlier one returns something names that in
-`condition`, and a listing read a page at a time, or a request made for each candidate, says so
-in `repeat`. The reads end with the GraphQL budget read the run's spend line comes from.
+board write shows the read of its one card it makes first (#1361). A value that needs a read is
+a placeholder in angle brackets, a request that runs only when an earlier one returns something
+names that in `condition`, and a listing read a page at a time, or a request made for each
+candidate, says so in `repeat`. The reads end with the GraphQL budget read the run's spend line
+comes from.
 
 A `--plan` run makes the reads and the model calls, writes nothing, and reports what it spent:
 each `gh` command by the rate-limit resource it spends, as `run_gh` classifies it, and each
@@ -143,11 +144,13 @@ class _Steps:
     def decisions(self, subjects: Sequence[str], *, new: bool, repeat: str) -> list[PlannedRequest]:
         """The reads and model calls that decide each candidate, in the order a run makes them."""
         store = self.store
-        planned: list[PlannedRequest] = []
+        candidate = "" if new else MESSAGES.roadmap.intake_request_conditions["candidate"]
+        planned = self.step(
+            "labels", store.file(CONST_ROADMAP_LABELS_PATH, self.ref), when=candidate
+        )
         for s in [] if new else subjects:
             planned += self.step("closures", store.closures(s), subject=s, repeat=repeat)
         planned.append(self.call("embed_new" if new else "embed", _Via.EMBEDDING))
-        planned += self.step("labels", store.file(CONST_ROADMAP_LABELS_PATH, self.ref))
         for index, subject in enumerate(subjects):
             planned.append(self.call("propose", _Via.MODEL, subject=subject, repeat=repeat))
             planned += self.step(
@@ -192,7 +195,6 @@ class _Steps:
         steps: list[tuple[str, list[PlannedRequest], dict[str, str]]] = [
             ("label", store.label_issue(subject), {}),
             ("add", store.add_item(subject), {}),
-            ("item", store.item(subject), {}),
             ("release", store.set_field(subject, "Release"), {}),
             *(
                 ("field", store.set_field(subject, name), {"field": shown})
@@ -227,14 +229,22 @@ class _Steps:
 
 
 def planned_requests(
-    subjects: Sequence[str], *, repo: str, ref: str | None, new: bool, each: bool = False
+    subjects: Sequence[str],
+    *,
+    repo: str,
+    ref: str | None,
+    new: bool,
+    each: bool = False,
+    limit: int | None = None,
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """The requests a run over `subjects` makes, as reads and model calls ending with the
     closing GraphQL budget read, then the writes `--confirm` adds before that read; `new` when
     the one subject is a candidate that is not an issue yet, and `each` when the one subject
-    stands for every candidate, its requests repeated for each."""
+    stands for every candidate, its requests repeated for each, or for the `limit` oldest."""
     steps = _Steps(repo=repo, ref=ref)
-    repeat = MESSAGES.roadmap.intake_repeat_candidate if each else ""
+    texts = MESSAGES.roadmap
+    limited = texts.intake_repeat_limited.format(limit=limit) if limit is not None else ""
+    repeat = (limited or texts.intake_repeat_candidate) if each else ""
     reads = steps.reads() + steps.decisions(subjects, new=new, repeat=repeat)
     reads += steps.store.budget()
     return tuple(reads), tuple(steps.writes(subjects, new=new, repeat=repeat))

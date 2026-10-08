@@ -26,8 +26,10 @@ from typer.testing import CliRunner
 from devops_cli.commands.roadmap import app
 from devops_cli.config.constants import CONST_ROADMAP_RENDER_BOARD_FILTER
 from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.board_read import board_budget_args, board_items_args
+from devops_cli.roadmap.close import ClosePlan, dry_run_close, plan_close
 from devops_cli.roadmap.config import open_roadmap
 from devops_cli.roadmap.github_store import (
     board_fields_args,
@@ -42,7 +44,14 @@ from devops_cli.roadmap.reprioritize import (
     dry_run_reprioritization,
     plan_reprioritization,
 )
-from devops_cli.roadmap.request_plan import is_page_repeat
+from devops_cli.roadmap.request_plan import (
+    StoreRequests,
+    close_requests,
+    is_page_repeat,
+    migrate_requests,
+    render_requests,
+    reprioritize_requests,
+)
 from tests.roadmap_board_fake import BOARD_READ, BoardServer, budget_reply
 from tests.test_roadmap_board_read import _fields_reply, _rest_pages, board_of, issues_of
 
@@ -148,10 +157,148 @@ def test_a_plan_is_built_by_the_stores_own_argument_builders() -> None:
     assert all(tuple(args) in planned for args in expected)
 
 
+def _shape(request: PlannedRequest) -> str:
+    """What a planned `gh` command is: a board, card or fields read, an edit by ids, or its
+    first arguments."""
+    args = list(request.argv[1:])
+    query = next((a for a in args if a.startswith("query=")), "")
+    names = ("RoadmapBoardCard", "RoadmapBoardBudget", "RoadmapBoardItems", "fields(first")
+    found = next((name for name in names if name in query), None)
+    if found:
+        return found
+    if args[:2] == ["project", "item-edit"]:
+        return "item-edit by id" if "--id" in args else "item-edit by name"
+    return " ".join(args[:2]) if args[0] == "project" else " ".join(args[:3])
+
+
+def test_a_board_write_plans_its_card_read_and_an_edit_by_node_ids() -> None:
+    """A write lists the fields read it makes once a run, then its one card and the edits by
+    node ids; never `field-list`, a board page or an edit by URL or field name (#1361)."""
+    store = StoreRequests(REPO)
+    plans = {
+        "set_field": store.set_field("#7", "Value"),
+        "release": store.set_field("#7", "Release"),
+        "set_marks": store.set_marks("#7"),
+        "add_item": store.add_item("#7"),
+        "set_card_field": store.set_card_field(),
+        "remove_card": store.remove_card(),
+    }
+    assert {name: [_shape(r) for r in plan] for name, plan in plans.items()} == {
+        "set_field": ["fields(first", "RoadmapBoardCard", "item-edit by id", "item-edit by id"],
+        "release": [
+            "fields(first",
+            "api repos/dan-petty/devops-cli/milestones?state=all&per_page=100&page=<n>",
+            "RoadmapBoardCard",
+            "item-edit by id",
+            "api -X PATCH",
+        ],
+        "set_marks": ["fields(first", "RoadmapBoardCard", "item-edit by id"],
+        "add_item": [
+            "api repos/dan-petty/devops-cli/issues/7",
+            "project item-add",
+            "RoadmapBoardCard",
+            "project item-archive",
+        ],
+        "set_card_field": [
+            "fields(first",
+            "RoadmapBoardCard",
+            "item-edit by id",
+            "item-edit by id",
+        ],
+        "remove_card": ["RoadmapBoardCard", "project item-delete"],
+    }
+
+
+def test_an_add_plans_the_restore_of_the_card_it_names_only_when_that_card_is_archived(
+    no_requests: None,
+) -> None:
+    """The restore is `item-archive --undo` of the card the add names, a GraphQL write under
+    its own condition; intake's placement lists it under its add, and the dry run that lists it
+    makes no request (#1403)."""
+    from devops_cli.roadmap.intake import dry_run_intake
+
+    restore = StoreRequests(REPO).add_item("#7")[-1]
+    writes = dry_run_intake(REPO, ref="main", issues=(7,)).writes
+    added = next(i for i, r in enumerate(writes) if "item-add" in r.argv)
+    archived = MESSAGES.roadmap.plan_conditions["card_archived"]
+    assert (
+        restore.argv[1:],
+        (restore.method, restore.condition),
+        _shape(writes[added + 2]),
+        archived in writes[added + 2].condition,
+        writes[added + 2].target == writes[added].target,
+    ) == (
+        ("project", "item-archive", "<board>", "--owner", "dan-petty", "--id", "<card id>")
+        + ("--undo", "--format", "json"),
+        ("GraphQL write", archived),
+        "project item-archive",
+        True,
+        True,
+    )
+
+
+def test_the_run_record_card_a_run_creates_is_written_with_no_read_after_its_create() -> None:
+    plan = StoreRequests(REPO).set_run_record()
+    create = next(i for i, r in enumerate(plan) if "item-create" in r.argv)
+    assert (
+        [_shape(r) for r in plan[create:]],
+        plan[create].argv[-2:],
+        [bool(r.condition) for r in plan[: create + 1]],
+    ) == (
+        ["project item-create", "item-edit by id"],
+        ("--format", "json"),
+        [True] * (create + 1),
+    )
+
+
+def test_no_roadmap_plan_lists_a_board_command_gh_resolves_by_reading_the_board_first() -> None:
+    """Every job's plan: no `field-list`, and every `item-edit` by node ids."""
+    from devops_cli.roadmap.intake import dry_run_intake
+
+    intake = dry_run_intake(REPO, ref="main")
+    plans = [
+        *render_requests(REPO, None),
+        *(
+            r
+            for pair in (reprioritize_requests(REPO, None), migrate_requests(REPO, None))
+            for r in (*pair[0], *pair[1])
+        ),
+        *(r for r in (*close_requests(REPO, None)[0], *close_requests(REPO, None)[1])),
+        *intake.requests,
+        *intake.writes,
+    ]
+    shapes = {_shape(request) for request in plans if request.argv}
+    assert (
+        "project field-list" in shapes,
+        "item-edit by name" in shapes,
+        "item-edit by id" in shapes,
+    ) == (
+        False,
+        False,
+        True,
+    )
+
+
+def test_intakes_placement_plans_no_board_read_after_its_add() -> None:
+    """A placement writes to the card the add names: after the add, its plan lists that card's
+    read, then for each field the card and the edits, and no board page or budget probe."""
+    from devops_cli.roadmap.intake import dry_run_intake
+
+    writes = dry_run_intake(REPO, ref="main", issues=(7,)).writes
+    added = next(i for i, r in enumerate(writes) if "item-add" in r.argv)
+    after = [_shape(r) for r in writes[added:] if r.argv and r.argv[1] in ("api", "project")]
+    assert (
+        after.count("RoadmapBoardCard"),
+        {"RoadmapBoardBudget", "RoadmapBoardItems"} & set(after),
+        [t for t in MESSAGES.roadmap.intake_requests if t == "item"],
+    ) == (6, set(), [])
+
+
 # ── A real run's argv is its plan ─────────────────────────────────────────────
 
 _REQUEST, _ARG, _BODY = "\x1e", "\x1f", "\x1d"
-_PLACEHOLDER = re.compile(r"<[^<>]+>")
+_PLACEHOLDER = re.compile(r"<[^<>]+>|%3C.+?%3E")
+"""A placeholder, as written or URL-quoted in a REST path."""
 
 
 def _template(text: str) -> str:
@@ -250,6 +397,140 @@ def test_a_render_runs_gh_argv_sequence_is_its_plan(github_stores: None) -> None
     ) == (
         False,
         True,
+        True,
+    )
+
+
+_SHIPPED_LISTING = "pulls?state=closed&base=release%2Fv0.2.25"
+
+
+def _close_github(*, current: bool, holds: bool, reopened: bool = False, prefix: str = "v") -> _Gh:
+    """Closed v0.2.25, holding open #1 when `holds`, reopened by a person when `reopened`, its
+    pull request #3 closing it, and when `current` the open v0.2.26 holding open #2, which holds
+    its cut. Each milestone's title is its version after `prefix`."""
+    late, work = (
+        {
+            "number": number,
+            "title": title,
+            "html_url": f"https://github.com/{REPO}/issues/{number}",
+            "state": "open",
+            "state_reason": reason,
+            "milestone": {"title": f"{prefix}{version}"},
+        }
+        for number, title, version, reason in (
+            (1, "late", "0.2.25", "reopened" if reopened else None),
+            (2, "work", "0.2.26", None),
+        )
+    )
+    pull = {
+        "number": 3,
+        "html_url": f"https://github.com/{REPO}/pull/3",
+        "body": "Closes #1",
+        "merged_at": "2026-10-07T21:41:20Z",
+        "merge_commit_sha": "f" * 40,
+        "head": {"sha": "e" * 40},
+    }
+    shipped = {
+        "number": 43,
+        "title": f"{prefix}0.2.25",
+        "state": "closed",
+        "open_issues": int(holds),
+    }
+    now = {"number": 44, "title": f"{prefix}0.2.26", "state": "open", "open_issues": 1}
+    return _Gh(
+        {
+            "contents/.github/roadmap.toml": "board = 2\n",
+            "milestones?state=all": [shipped, *([now] if current else [])],
+            "issues?": [*([late] if holds else []), *([work] if current else [])],
+            _SHIPPED_LISTING: [pull],
+            "pulls?state=closed&base=release%2Fv0.2.26": [],
+            "/files?": [{"filename": "src/devops_cli/roadmap/close.py"}],
+        }
+    )
+
+
+def _plan_close_over(gh: _Gh) -> tuple[ClosePlan, list[str]]:
+    """The close plan a run over `gh` makes, and the commands it ran."""
+    from devops_cli.github.check_verdict import CheckVerdictSummary
+
+    _, store = open_roadmap(
+        REPO, ref=None, runner=gh, board_filter=CONST_ROADMAP_RENDER_BOARD_FILTER
+    )
+    plan = plan_close(store, repo=REPO, checks=lambda _: CheckVerdictSummary())
+    return plan, [" ".join(args) for args, _ in gh.calls]
+
+
+@pytest.mark.parametrize(
+    ("current", "holds", "reopened"),
+    [
+        (True, False, False),
+        (True, True, False),
+        (False, False, False),
+        (False, True, False),
+        (True, True, True),
+    ],
+    ids=["current", "current-and-shipped", "no-release", "shipped-only", "shipped-reopened"],
+)
+def test_a_close_runs_gh_argv_sequence_is_its_plan(
+    github_stores: None, current: bool, holds: bool, reopened: bool
+) -> None:
+    """A closed release that holds an open issue no person reopened costs its listing once,
+    before the current release's reads; with none, the run makes the requests it made before
+    #1362."""
+    gh = _close_github(current=current, holds=holds, reopened=reopened)
+    plan, commands = _plan_close_over(gh)
+    closable = holds and not reopened
+    assert (
+        sum(_SHIPPED_LISTING in command for command in commands),
+        any("issues?" in command for command in commands),
+        [closing.number for closing in plan.closings],
+        follows(dry_run_close(REPO, ref=None).requests, gh.calls),
+    ) == (int(closable), current or holds, [1] if closable else [], True), commands
+
+
+def test_closure_reads_the_cut_branch_of_a_release_titled_without_its_v(
+    github_stores: None,
+) -> None:
+    """A person titled the milestones `0.2.25` and `0.2.26`: closure still reads the branches
+    the cut makes, `release/v0.2.25` and `release/v0.2.26`."""
+    plan, commands = _plan_close_over(_close_github(current=True, holds=True, prefix=""))
+    (closing,) = plan.closings
+    assert (
+        sum(_SHIPPED_LISTING in command for command in commands),
+        sum("pulls?state=closed&base=release%2Fv0.2.26" in command for command in commands),
+        closing.number,
+        "merged into `release/v0.2.25`" in closing.comment,
+    ) == (1, 1, 1, True), commands
+
+
+def test_a_close_with_no_open_release_sends_no_graphql_and_skips_its_plans_budget_read(
+    github_stores: None,
+) -> None:
+    """With no open release, close reads its configuration and the milestones over REST and
+    nothing else, so it makes no closing budget read, which its plan lists only for a run that
+    sent a GraphQL request (#1400)."""
+    from devops_cli.github.rate_limiter import gh_request_resource
+    from devops_cli.roadmap.close import Hold, plan_close
+
+    shipped = {"number": 4, "title": "v0.2.25", "state": "closed"}
+    gh = _github(board_of(3, 0), [shipped])
+    _config, store = open_roadmap(REPO, ref="main", runner=gh)
+    plan = plan_close(store, repo=REPO, checks=lambda pr: pytest.fail(f"read checks of {pr}"))
+    spend = store.graphql_spend()
+    reads, _writes = close_requests(REPO, "main")
+    assert (
+        plan.hold,
+        spend,
+        [args for args, _ in gh.calls if gh_request_resource(args) == "graphql"],
+        "RoadmapGraphQLBudget" in " ".join(reads[-1].argv),
+        reads[-1].condition,
+        follows(reads, gh.calls),
+    ) == (
+        Hold.NO_RELEASE,
+        None,
+        [],
+        True,
+        MESSAGES.roadmap.plan_conditions["done"],
         True,
     )
 

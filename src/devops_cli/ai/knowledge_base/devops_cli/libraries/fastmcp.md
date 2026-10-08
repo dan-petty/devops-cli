@@ -41,7 +41,7 @@ In `devops-cli`:
    mcp = FastMCP("devops-cli")
    ```
 2. **`@mcp.tool` Decorator**: Registers typed Python functions as MCP tools, automatically extracting argument descriptions from docstrings and Pydantic schemas.
-3. **Tools Run the `devops` CLI**: A tool validates its arguments with `_validate_mcp_arg`, which refuses a value starting with `-`, then passes a `["uv", "run", "devops", ...]` argv to `_run_mcp_cmd`. That runs the command in process through the MCP dispatcher, or as a subprocess, with a timeout, and returns its output with secrets masked. `devops docs check` resolves every such argv against the real CLI.
+3. **Tools Run the `devops` CLI**: A tool validates its arguments with `_validate_mcp_arg`, which refuses a value starting with `-`, then passes a `["uv", "run", "devops", ...]` argv to `_run_mcp_cmd`. That runs the command in process through the MCP dispatcher, or as a subprocess, with a timeout, and returns its output with secrets masked. `devops docs check` resolves every such argv against the real CLI, as it does every `devops` argv under `src/devops_cli`. A computed element counts as one token, and one the command does not take is reported, so an option name is written as a literal or as a conditional between literals.
 4. **Transport Protocols**:
    - `mcp.run(transport="stdio")`: Standard I/O for IDE subprocess launch.
    - `mcp.run(transport="sse", host="127.0.0.1", port=8000)`: HTTP/SSE for remote networks.

@@ -212,6 +212,7 @@ class TestPydanticAIProviders:
         ollama_inst = infer_provider("ollama")
         assert isinstance(ollama_inst, NativeOllamaProvider)
 
+    @pytest.mark.usefixtures("public_dns")
     def test_create_pydantic_ai_provider_factory(self) -> None:
         """Test unified create_pydantic_ai_provider factory."""
         ollama_p = create_pydantic_ai_provider("ollama", base_url="http://localhost:11434")
@@ -331,8 +332,11 @@ _EXAMPLE_OLLAMA = "http://example.com:11434"
 
 
 @pytest.fixture
-def remote_bridge(monkeypatch: pytest.MonkeyPatch) -> Any:
-    """The bridge with model requests allowed and the AI key fixed, so nothing reads a keyring."""
+def remote_bridge(monkeypatch: pytest.MonkeyPatch, public_dns: str) -> Any:
+    """The bridge with model requests allowed and the AI key fixed, so nothing reads a keyring.
+
+    The example.com endpoints resolve to a public address, as they do outside tests.
+    """
     from devops_cli.ai import pydantic_ai_bridge
 
     monkeypatch.setattr(pydantic_ai_bridge, "_is_testing_mode_active", lambda: False)

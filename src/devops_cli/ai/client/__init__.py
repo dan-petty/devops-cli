@@ -9,13 +9,13 @@ from devops_cli.ai.client.models import (
     AIClientError,
     AICredentialsError,
     LLMResponse,
+    ReplyRejectedError,
     RequestPriority,
     StructuredOutputValidationError,
     _is_json_error_payload,
     is_reasoning_model,
 )
 from devops_cli.ai.client.network import (
-    ALLOW_PRIVATE_NETWORK_ENV,
     acquire_ollama_slot,
     current_request_priority,
     get_ollama_active_leases,
@@ -37,12 +37,12 @@ from devops_cli.ai.client.unified import (
 )
 
 __all__ = [
-    "ALLOW_PRIVATE_NETWORK_ENV",
     "MAX_STREAM_BYTES",
     "AIClientError",
     "AICredentialsError",
     "LLMClient",
     "LLMResponse",
+    "ReplyRejectedError",
     "RequestPriority",
     "StreamingReasoningSanitizer",
     "StreamingTokenProcessor",

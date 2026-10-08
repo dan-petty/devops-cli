@@ -127,10 +127,15 @@ CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
 CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
     CONST_MCP_EAGER_DOMAINS | CONST_MCP_LAZY_DOMAINS | {"github", "secrets", "benchmarks"}
 )
-# The module whose tools and resources shell out to `devops`, and the argv head that marks
-# such a call. `devops docs check` resolves every list that starts with it.
-CONST_MCP_SERVER_MODULE = "devops_cli.ai.mcp.server"
-CONST_DEVOPS_ARGV_PREFIX: Final[tuple[str, ...]] = ("uv", "run", "devops")
+# The argv heads that run the devops CLI, directly or through `uv run`. `devops docs check`
+# resolves every list literal under src/devops_cli that starts with one (#868). Such a list
+# spells the command word as a quoted literal in one of Python's two quote characters, so a
+# module holding neither spelling is not parsed.
+CONST_DEVOPS_ARGV_PREFIXES: Final[tuple[tuple[str, ...], ...]] = (
+    ("devops",),
+    ("uv", "run", "devops"),
+)
+CONST_DEVOPS_ARGV_QUOTED_COMMAND: Final[tuple[str, ...]] = ('"devops"', "'devops'")
 # Well-known placeholder tokens and handwritten documentation files checked for command argv resolution (#921).
 CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
     {"...", "COMMAND", "ARGS", "OPTIONS", "SUBCOMMAND", "PARAMS"}
@@ -144,7 +149,7 @@ CONST_HANDWRITTEN_DOCS_PATHS: Final[tuple[Path, ...]] = (
     Path("docs/DEVCONTAINER_USAGE.md"),
     Path("docs/VISION.md"),
 )
-# The list methods that add tokens to an argv the MCP server builds up in a variable.
+# The list methods that add tokens to a `devops` argv built up in a variable.
 CONST_ARGV_EXTENDING_METHODS: Final[frozenset[str]] = frozenset({"append", "extend"})
 # Bound on the length of command output returned to an MCP client.
 CONST_MCP_MAX_COMMAND_OUTPUT_CHARS: Final[int] = 4000
@@ -592,6 +597,9 @@ CONST_AI_PROVIDER_API_BASES: Final[dict[str, str]] = {
 # What `backend_host` reports for a provider with no configured or default endpoint. It names
 # no server, so LLM spans write no `server.address` for it.
 CONST_AI_BACKEND_HOST_UNKNOWN = "unknown"
+# The `backend_info` of a reply the response cache answered, and the server its spend-ledger row
+# names: no backend served it, so spend reports leave it out of their server counts (#816).
+CONST_RESPONSE_CACHE_SERVER: Final[str] = "cache"
 CONST_URL_GITHUB_API_BASE = "https://api.github.com"
 CONST_URL_CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 CONST_CLOUDFLARE_CFARGOTUNNEL_SUFFIX = ".cfargotunnel.com"
@@ -699,6 +707,14 @@ CONST_GIT_NONINTERACTIVE_ENV: Final[dict[str, str]] = {
     "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
 }
 """Environment that makes git fail instead of prompting for credentials or a passphrase."""
+CONST_GIT_NO_TERMINAL_PROMPT_ENV: Final[dict[str, str]] = {"GIT_TERMINAL_PROMPT": "0"}
+"""Environment that stops git from asking for a username or password on the terminal.
+
+An askpass program the person configured (`GIT_ASKPASS`, `core.askPass` or `SSH_ASKPASS`, such as
+VS Code's) still runs. Only when none is set, or it answers nothing, does git fail with "terminal
+prompts disabled". It leaves ssh alone, unlike `CONST_GIT_NONINTERACTIVE_ENV`, so a person's own
+`core.sshCommand` still applies to the git devops-cli runs against their remote (#1124).
+"""
 CONST_K8S_TEMPLATE_EXTENSIONS: Final[tuple[str, ...]] = (".yaml", ".yml")
 # Where each workload kind keeps its pod spec: Pod; PodTemplate; Deployment, ReplicaSet,
 # StatefulSet, DaemonSet, Job and ReplicationController; CronJob.
@@ -1010,6 +1026,20 @@ CONST_GH_LOGIN_ENV_VARS: Final[frozenset[str]] = frozenset(
 CONST_GITHUB_IDENTITY_DIGEST_CHARS: Final[int] = 16
 CONST_GITHUB_UNAUTHENTICATED_ERROR_CODE = "GITHUB_UNAUTHENTICATED"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
+# GitHub's rate limit `reset` is whole epoch seconds, so a window can still be reported within the
+# second after it. A call at a reset that has passed waits until this long past it, the margin
+# PyGithub 2.10.0 adds ("plus 1s as it is not clear when in that second the reset occurs",
+# github/GithubRetry.py) (#1364).
+CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS: Final[float] = 1.0
+# How far the local clock may run past the reset GitHub has just reported before the clocks count
+# as disagreeing. The Service measured GitHub reporting an ended window 0.72 s to 2.07 s past its
+# reset (#1364); a larger gap is a clock for a person to correct, not something to pace around.
+CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS: Final[float] = 5.0
+# The details key of a roadmap GraphQL budget refusal's reset, ISO 8601, which the Service reads
+# to hold every repository's rounds until then (#1400). The rate limiter's own errors carry
+# `reset_epoch`, `reported_reset`, `local_clock`, `gap_seconds` or `reported_resources` instead,
+# so none of them reads as a refusal.
+CONST_GRAPHQL_REFUSAL_RESET_KEY: Final[str] = "reset_at"
 CONST_GH_WEBHOOK_SIGNATURE_HEADER = "X-Hub-Signature-256"
 CONST_GH_WEBHOOK_EVENT_HEADER: Final[str] = "X-GitHub-Event"
 CONST_GH_WEBHOOK_DELIVERY_HEADER: Final[str] = "X-GitHub-Delivery"
@@ -1075,6 +1105,9 @@ CONST_GH_ISSUE_EVENT_CHANGE_KINDS: Final[dict[str, str]] = {
     "closed": "closed",
     "reopened": "reopened",
 }
+CONST_GH_ISSUE_STATE_REASON_REOPENED: Final[str] = "reopened"
+"""GitHub's `state_reason` on an issue someone reopened, which it keeps while the issue is open.
+No roadmap job reopens an issue, so it marks a person's reopen (ADR 0002)."""
 
 # ── Exception & Domain Error Codes ────────────────────────────────────────────
 CONST_ERROR_CODE_DEVOPS_CLI = "DEVOPS_CLI_ERROR"
@@ -1107,6 +1140,8 @@ CONST_ERROR_CODE_REVIEW_POOL = "REVIEW_POOL_ERROR"
 CONST_ERROR_CODE_TELEMETRY = "TELEMETRY_ERROR"
 CONST_ERROR_CODE_LOGFIRE = "LOGFIRE_CONFIG_ERROR"
 CONST_ERROR_CODE_SERVICE_STATUS = "SERVICE_STATUS_ERROR"
+CONST_ERROR_CODE_ROADMAP_CARD_CHANGED = "ROADMAP_CARD_CHANGED"
+CONST_ERROR_CODE_ROADMAP_REFINE_FAILED = "ROADMAP_REFINE_FAILED"
 CONST_ERROR_CODE_LIBRARY_INGESTION = "LIBRARY_INGESTION_ERROR"
 CONST_ERROR_CODE_LIBRARY_NOT_FOUND = "LIBRARY_NOT_FOUND_ERROR"
 CONST_ERROR_CODE_DOCS_INGESTION = "DOCS_INGESTION_ERROR"
@@ -1888,10 +1923,29 @@ CONST_VAULT_PATH_KUBERNETES_LOGIN: Final[str] = "auth/kubernetes/login"
 CONST_VAULT_AUTH_METHODS: Final[frozenset[str]] = frozenset({"approle", "kubernetes"})
 CONST_VAULT_PATH_TOKEN_LOOKUP_SELF: Final[str] = "auth/token/lookup-self"
 CONST_VAULT_PATH_TOKEN_RENEW_SELF: Final[str] = "auth/token/renew-self"
+CONST_VAULT_PATH_TOKEN_REVOKE_SELF: Final[str] = "auth/token/revoke-self"
+CONST_VAULT_PATH_HEALTH: Final[str] = "sys/health"
 CONST_VAULT_PATH_LEASE_RENEW: Final[str] = "sys/leases/renew"
 CONST_VAULT_PATH_LEASE_REVOKE: Final[str] = "sys/leases/revoke"
 CONST_VAULT_PATH_TRANSIT_ENCRYPT: Final[str] = "transit/encrypt"
 CONST_VAULT_PATH_TRANSIT_DECRYPT: Final[str] = "transit/decrypt"
+
+# The keyring entry `devops vault login` writes: one record holding the token and the address
+# and namespace that issued it. It keeps the name a bare token was stored under before the
+# record existed, so such an entry is found and reported as unusable rather than ignored.
+CONST_VAULT_LOGIN_KEYRING_KEY: Final[str] = "vault_token"
+# Environment variables a Vault token is read from, in order, after the stored login.
+CONST_VAULT_TOKEN_ENV_VARS: Final[tuple[str, ...]] = ("VAULT_TOKEN", "DEVOPS_CLI_VAULT_TOKEN")
+# Credential ids the broker's two token lookups are audited under.
+CONST_VAULT_LOGIN_CREDENTIAL_ID: Final[str] = "vault.login"
+CONST_VAULT_TOKEN_CREDENTIAL_ID: Final[str] = "vault.token"
+# Where the broker's token came from, beside the keyring and environment provider names. The
+# set is closed: a token is passed in, read from one of the two providers, or absent.
+CONST_VAULT_TOKEN_SOURCE_ARGUMENT: Final[str] = "argument"
+CONST_VAULT_TOKEN_SOURCE_NONE: Final[str] = "none"
+# Statuses with which Vault refuses the token a request carried: missing, expired, revoked, or
+# without a policy for the path. Fixed by the Vault HTTP API.
+CONST_VAULT_TOKEN_REJECTED_STATUSES: Final[frozenset[int]] = frozenset({401, 403})
 
 # Default in-cluster ServiceAccount token projected into every Kubernetes pod.
 CONST_KUBERNETES_SA_TOKEN_PATH: Final[str] = "/var/run/secrets/kubernetes.io/serviceaccount/token"
@@ -2074,6 +2128,9 @@ CONST_DOCKER_HOST_ENV_VAR: Final[str] = "DOCKER_HOST"
 # validation before the Engine API client is constructed. Closed, exhaustive set
 # defined by the Docker Engine daemon socket grammar (`dockerd -H`).
 CONST_DOCKER_NETWORK_HOST_SCHEMES: Final[tuple[str, ...]] = ("tcp://", "http://", "https://")
+# The scheme docker-py's `parse_host` gives a unix socket endpoint; its client then speaks over
+# the socket its `UnixHTTPAdapter` derives from that URL.
+CONST_DOCKER_UNIX_ADAPTER_SCHEME: Final[str] = "http+unix"
 
 # `GET /system/df` object types returned by the Engine API disk-usage endpoint.
 CONST_DOCKER_DF_BUILD_CACHE_KEY: Final[str] = "BuildCache"
@@ -2103,6 +2160,12 @@ CONST_SANDBOX_SENSITIVE_SUBPATHS: Final[frozenset[str]] = frozenset(
         ".git",
     }
 )
+# The system runtime root, where rootful engine sockets and each user's runtime directory
+# (`/run/user/<uid>`, with its session bus) live. A sandbox workspace never overlaps it, nor
+# $XDG_RUNTIME_DIR, nor the engine socket's directory (#1115). Only the sandbox check refuses it:
+# subprocess working directories and every other `CONST_FORBIDDEN_SYSTEM_DIRS` caller do not.
+CONST_SANDBOX_RUNTIME_ROOT: Final[Path] = Path("/run")
+CONST_XDG_RUNTIME_DIR_ENV_VAR: Final[str] = "XDG_RUNTIME_DIR"
 
 # Multi-tier sandbox networking mode constants
 CONST_SANDBOX_NETWORK_ISOLATED: Final[str] = "isolated"
@@ -2331,7 +2394,7 @@ CONST_AI_PROVIDER_IDS: Final[tuple[str, ...]] = (
 # Response header in which the LiteLLM gateway names the backend (api_base) that served a call.
 CONST_AI_GATEWAY_SERVED_BY_HEADER: Final[str] = "x-litellm-model-api-base"
 # Why a provider says a reply ended, as pydantic-ai's FinishReason. The OpenAI-compatible and
-# Anthropic tables copy pydantic-ai 2.35.0's private maps (models/openai.py, models/anthropic.py),
+# Anthropic tables copy pydantic-ai 2.54.0's private maps (models/openai.py, models/anthropic.py),
 # which are not imported because they are private. A value absent from a table, or mapped to
 # None, is unknown: truncation is never guessed.
 CONST_OPENAI_FINISH_REASONS: Final[dict[str, FinishReason]] = {
@@ -2401,7 +2464,6 @@ CONST_AI_DEFAULT_CACHE_MARKER_KIND: Final[str] = "cache-point"
 CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX: Final[str] = (
     "\n...[stage output truncated to the stage context budget]"
 )
-CONST_AI_ALLOW_PRIVATE_NETWORK_ENV: Final[str] = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
 # The loopback host name (RFC 6761). With the loopback addresses, which `ipaddress` recognises,
 # it names the workstation itself, so a configured service URL may use it without
 # `ai.allow_private_network` (`validate_configured_service_url`).
@@ -2451,6 +2513,8 @@ CONST_ROADMAP_REFINE_MAX_BODY_CHARS: Final[int] = 65536
 CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES: Final[int] = 3
 CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY: Final[int] = 5
 CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
+# The Service's intake record beside schedule.json: what intake decided and left (#1360).
+CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"
 CONST_ROADMAP_RUN_CLONE_DIRNAME: Final[str] = "clone"
 CONST_ROADMAP_INTAKE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "issues", "opened"),
@@ -2459,8 +2523,10 @@ CONST_ROADMAP_INTAKE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
 CONST_ROADMAP_CLOSURE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "pull_request", "closed"),
 )
+# A milestone closing and a GitHub Release published are a ship's webhook hints (#1360).
 CONST_ROADMAP_REPRIORITIZE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
-    ("webhook", "pull_request", "closed"),
+    ("webhook", "milestone", "closed"),
+    ("webhook", "release", "published"),
 )
 CONST_ROADMAP_DOCUMENT_PATH: Final[str] = "docs/ROADMAP.md"
 CONST_PROJECT_TEMPLATE_PATH: Final[str] = ".github/project-template.json"

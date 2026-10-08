@@ -201,8 +201,9 @@ class GeneralMessages:
     vscode_cli_unavailable: str = "Workspace updated, but VS Code CLI is not available to reload."
     invalid_url_scheme: str = "Invalid {purpose} URL: must use http:// or https:// with a hostname."
     refusing_non_public_url: str = (
-        "Refusing non-public {purpose} URL. "
-        "Set DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true to override."
+        "Refusing non-public {purpose} URL. A service URL from your configuration may name a "
+        "private address once ai.allow_private_network is true "
+        "(DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true); other URLs must be public."
     )
     elapsed_time: str = "Elapsed: {elapsed}"
 
@@ -470,6 +471,11 @@ class ReleaseMessages:
     ci_gate_failed: str = "CI Quality Gate checks failed. Resolve errors before releasing."
     cannot_determine_version: str = "Could not determine target release version."
     push_branch_failed: str = "Warning: Could not push branch to remote: {stderr}"
+    push_refused_ruleset: str = (
+        "Push refused by repository ruleset (GH013). "
+        "Direct pushes to release branches require Write role bypass on the release ruleset "
+        "(ruleset 23059172 in Settings → Rules → Rulesets). Git output: {reason}"
+    )
 
 
 @dataclass(frozen=True)
@@ -700,7 +706,7 @@ class RAGMessages:
     reset_cache_success: str = "Reset local indexing cache"
     cannot_connect_qdrant: str = (
         "Cannot connect to Qdrant at [bold]{url}[/bold]\n"
-        "Tip: Deploy or start Qdrant via 'devops k8s deploy-stack llm'"
+        "Tip: Deploy or start Qdrant via 'devops k8s deploy-stack --stack llm'"
     )
     searching_qdrant: str = "Searching Qdrant ({coll}) for query: '{query}' (limit: {limit})..."
     indexing_complete: str = (
@@ -997,6 +1003,17 @@ class ServeMessages:
     openapi_json: str = "  [cyan]•[/cyan] OpenAPI JSON:[link=http://{host}:{port}/openapi.json]http://{host}:{port}/openapi.json[/link]"
     health_endpoint: str = "  [cyan]•[/cyan] Health:      [link=http://{host}:{port}/health]http://{host}:{port}/health[/link]"
     metrics_endpoint: str = "  [cyan]•[/cyan] Metrics:     [link=http://{host}:{port}/metrics]http://{host}:{port}/metrics[/link]\n"
+    # Logged once for each new time a failed Service round names (#1400).
+    rounds_paused: str = (
+        "No repository starts a Service round before {until}, the time the failed round for "
+        "{repo} named; the triggers that arrive until then run as one round per repository."
+    )
+    # Logged when the time a failed round names can't be read: no round waits, and the worker
+    # carries on (#1400).
+    rounds_pause_unread: str = (
+        "Could not read the time the failed Service round for {repo} names, so no round waits "
+        "for it: {kind}: {error}"
+    )
 
 
 @dataclass(frozen=True)
@@ -1112,6 +1129,16 @@ class RoadmapMessages:
         "GraphQL has {remaining} points left until {reset}, below the {floor} kept in reserve, "
         "so the read of {what} stopped before page {page}. Run it again after {reset}."
     )
+    graphql_budget_write_floor: str = (
+        "GraphQL has {remaining} points left until {reset}, below the {floor} kept in reserve, "
+        "so the run stopped before writing {what}. Run it again after {reset}."
+    )
+    card_changed: str = (
+        "{card}'s {field} is {now} on the board but was {read} when this run read it, so "
+        "someone changed it since and the run stopped before writing it. Nothing was written; "
+        "the next run reads the board again and plans with that change."
+    )
+    card_value_unset: str = "unset"
     board_count_changed: str = (
         "The {what} changed while they were read ({counts}), and again on a second read, so "
         "the read is incomplete. Run it again once the board is still."
@@ -1123,6 +1150,20 @@ class RoadmapMessages:
     graphql_spend_since_reset: str = (
         "GraphQL: {spent} points spent since the hourly reset during the run, {remaining} left "
         "until {reset}."
+    )
+    # The line each Service round that sent GraphQL ends with (#1400). The points are the
+    # machine account's, which every repository's rounds share.
+    graphql_round_spend: str = (
+        "{repo}: GraphQL, {spent} of the account's points spent during the round, {remaining} "
+        "left until {reset}."
+    )
+    graphql_round_spend_since_reset: str = (
+        "{repo}: GraphQL, {spent} of the account's points spent since the hourly reset during "
+        "the round, {remaining} left until {reset}."
+    )
+    graphql_round_spend_unread: str = (
+        "{repo}: could not read the GraphQL budget after the round, so it has no spend line: "
+        "{kind}: {error}"
     )
     render_current: str = "## Current release: {title}"
     render_planned: str = "## Planned release: {title}"
@@ -1143,8 +1184,13 @@ class RoadmapMessages:
                 "first when {next} starts."
             ),
             "cut": (
-                "{release} is cut, so nothing joins it until its release pull request is "
-                "closed; a critical fix goes first into the next release."
+                "{release} is cut, and a critical fix still joins it while its release pull "
+                "request is open, so the fix merges into the release branch before the release "
+                "pull request does."
+            ),
+            "merged": (
+                "the release pull request of {release} has merged, so a critical fix can no "
+                "longer ship in it and goes first into the next release."
             ),
             "cap": (
                 "critical fix {detail} took {release} over its size of {cap} items, and this "
@@ -1278,6 +1324,15 @@ class RoadmapMessages:
     )
     refine_title: str = "# Refinement plan for {repo}"
     refine_none: str = "No items to refine."
+    refine_failed_heading: str = "## Failed Items"
+    refine_failed_line: str = (
+        "- #{number} {title}: skipped, its model call failed ({error}, {violations} schema "
+        "violation(s))"
+    )
+    refine_failed: str = (
+        "the model call failed for {count} item(s), and refine skipped them: {items}"
+    )
+    refine_failed_item: str = "#{number} ({error}, {violations} schema violation(s))"
     reprioritize_kept_out: str = (
         "- #{number} was taken out of {release} by a person, as its issue's events show, so it "
         "stays in the backlog: a person's placement stands."
@@ -1353,6 +1408,7 @@ class RoadmapMessages:
             "card": "<card>",
             "new_board": "<new board>",
             "since": "<since>",
+            "shipped": "<shipped release>",
         }
     )
     plan_targets: dict[str, str] = field(
@@ -1366,8 +1422,12 @@ class RoadmapMessages:
             ),
             "board_first": "the first page of board {board}'s items{matching}",
             "board_page": "the next page of board {board}'s items{matching}",
-            "fields": "board {board}'s fields, with their options",
-            "field_options": "board {board}'s field options",
+            "fields": "board {board}'s node id and fields, with their options",
+            "card": (
+                "the card of {subject}: its fields, its job record and GraphQL's points left; a "
+                "write stops here when the points are below the reserve, or when someone changed "
+                "the field it writes since the run read it"
+            ),
             "workflows": "board {board}'s workflows",
             "boards": "{owner}'s boards, to find board {board}",
             "default_branch": "the default branch and its head",
@@ -1396,6 +1456,7 @@ class RoadmapMessages:
             "comment": "comment on {subject}",
             "label": "label {subject}",
             "add_item": "add {subject} to board {board}",
+            "unarchive_card": "restore {subject}'s archived card on board {board}",
             "close_issue": "close {subject}",
             "close_duplicate": "close {subject} as a duplicate",
             "create_issue": "open an issue for {subject}",
@@ -1431,6 +1492,13 @@ class RoadmapMessages:
             "posted": "the change posts a comment",
             "record": "the run records its release or size",
             "no_card": "the board has no run record card yet",
+            "run_card": "the board has the run record card",
+            "board_unread": (
+                "the run has not read these items of the board since it began or last closed an "
+                "issue"
+            ),
+            "fields_unread": "the run has not read the board's fields yet",
+            "card_archived": "the card the add names is archived",
             "closing": "a shipped release's milestone is still open",
             "release_named": "the value is a Release",
             "board": "the configured board exists",
@@ -1442,7 +1510,12 @@ class RoadmapMessages:
             "unset": "an item has the field unset",
             "not_planned": "the roadmap lists a rejected idea",
             "unfiled": "the rejected idea has no issue",
-            "done": "the run is done: it comes after any write",
+            "done": "the run is done and sent a GraphQL request: it comes after any write",
+            "read_issues": (
+                "a release is current, or a closed Release's milestone counts an open issue or "
+                "pull request"
+            ),
+            "shipped": "a closed Release holds an open issue no person reopened",
             "closes": "a merged pull request closes an open issue",
             "task_file": "the pull request changed a task file of the issue",
             "no_open": "the release holds no open item",
@@ -1460,6 +1533,9 @@ class RoadmapMessages:
             "merged": "for each merged pull request",
             "closing": "for each issue the run closes",
             "completed": "for each item closed as completed",
+            "shipped": (
+                "for each closed Release that holds an open issue no person reopened, oldest first"
+            ),
         }
     )
     # `devops roadmap close` (#743).
@@ -1487,6 +1563,14 @@ class RoadmapMessages:
         }
     )
     close_open_item: str = "- #{number} {title}"
+    close_shipped_heading: str = (
+        "## {release}, shipped: its milestone is closed and it still holds an open issue"
+    )
+    close_shipped_open: str = "Still open in {release}, holding no cut:"
+    close_shipped_reopened: str = (
+        "Reopened by a person in {release}, so closure leaves it open, holding no cut:"
+    )
+    close_current_heading: str = "## {release}, the current release"
     close_cut: str = "Cut: push {branch} and open the release pull request into {base}, '{title}'."
     close_cut_files: str = "The cut commit changes {files}."
     close_cut_fragments: str = (
@@ -1656,6 +1740,11 @@ class RoadmapMessages:
     intake_repeat_candidate: str = (
         "for each candidate: an open issue off the board or an item without a Priority"
     )
+    intake_repeat_limited: str = (
+        "for each of the {limit} oldest candidates: an open issue off the board or an item "
+        "without a Priority"
+    )
+    intake_left: str = "Left for a later run, beyond the limit of {limit}: {left}."
     intake_placeholder_default_branch: str = "the default branch"
     intake_placeholder_board: str = "<the board .github/roadmap.toml names>"
     intake_placeholder_since: str = "<the previous release's close>"
@@ -1703,20 +1792,20 @@ class RoadmapMessages:
                 "label {subject} with its type/* label when it has none, and budget/borrowed "
                 "when it borrows"
             ),
-            "add": "read {subject}, then add it to board {board}",
-            "item": "board {board} and {subject}, to find its item",
+            "add": "read {subject}, add it to board {board}, then read the card the add names",
             "release": (
-                "set the milestone of {subject} to <the placement>: the board's fields and "
-                "items, every milestone, the job record (GraphQL), then the milestone (REST)"
+                "set the milestone of {subject} to <the placement>: the board's fields once a "
+                "run, every milestone, its card, the job record (GraphQL), then the milestone "
+                "(REST)"
             ),
             "field": (
-                "set {field} on {subject}: the board's fields and items, the job record, then "
-                "the field"
+                "set {field} on {subject}: the board's fields once a run, its card, the job "
+                "record, then the field"
             ),
             "comment": "the reason comment on {subject}",
             "priority": (
-                "set Priority <the proposed Priority> on {subject}: the board's fields and "
-                "items, the job record, then the field"
+                "set Priority <the proposed Priority> on {subject}: the board's fields once a "
+                "run, its card, the job record, then the field"
             ),
             "duplicate_read": "{subject} and <the original>",
             "duplicate_comment": "the duplicate comment on {subject}",
@@ -1725,6 +1814,7 @@ class RoadmapMessages:
     )
     intake_request_conditions: dict[str, str] = field(
         default_factory=lambda: {
+            "candidate": "the run has a candidate",
             "closures": "{subject} is not on the board",
             "embed": "a candidate is off the board",
             "evidence": "the model cites any",
@@ -1737,12 +1827,17 @@ class RoadmapMessages:
             "release": "the placement changes it",
             "field": "it has none",
             "comment": "intake's is not there",
+            "priority": "it has none",
             "duplicate": "{subject} is a duplicate instead of placed",
             "duplicate_comment": "intake's is not there",
         }
     )
     intake_applied: str = "Intake placed {placed} item(s) and closed {closed} duplicate(s)."
     intake_filed: str = "Filed #{number}."
+    intake_finished: str = (
+        "#{number}'s card holds a Priority, so it was already placed: the add restored the "
+        "card if a person had archived it, and intake wrote nothing else to it."
+    )
     triage_no_board: str = (
         "This repository has no .github/roadmap.toml, so issues awaiting intake are not reported."
     )
@@ -1758,6 +1853,24 @@ class RoadmapMessages:
         "The candidate's {part} holds what looks like a secret, so intake sent it to no model "
         "and filed nothing. Remove it and run again."
     )
+    intake_labels_unreadable: str = "{repo}'s {path} can't be read as label specs: {error}"
+    intake_labels_missing: str = (
+        "{repo} has no {path} at {ref}. Intake decides no candidate without it: the file must "
+        "declare the type/* labels intake may assign."
+    )
+    intake_labels_untyped: str = (
+        "{repo}'s {path} at {ref} declares no type/* label other than type/epic. Intake decides "
+        "no candidate without one: the file must declare the type/* labels intake may assign."
+    )
+    run_job_needs_clone: str = (
+        "The roadmap {job} job reads its repository's clone and was given none: its row in the "
+        "due table must set needs_clone."
+    )
+    run_intake_record_unreadable: str = (
+        "The intake record {path} can't be read ({reason}), so intake does not run. Repair it, "
+        "or remove it: the next intake then starts a new record and takes every candidate as "
+        "never decided."
+    )
     intake_borrow_needs_title: str = (
         "--borrow-reason applies to a new candidate; pass it with --title and --body-file."
     )
@@ -1765,6 +1878,95 @@ class RoadmapMessages:
         "Pass --issue for existing issues, or --title and --body-file for a new candidate, "
         "not both."
     )
+
+
+@dataclass(frozen=True)
+class ProjectMessages:
+    """`devops gh project sync` and `devops gh project reconcile` (#892)."""
+
+    budget_read: str = "the GraphQL budget for reading {what}"
+    no_status_options: str = (
+        "Project #{number} has no Status field with options, so reconcile can't tell which "
+        "status/* labels it may set. Create the field with `devops gh project sync`."
+    )
+    changes_title: str = "Project #{number} Field Changes"
+    summary_plan: str = (
+        "Would change {items} of {evaluated} items on project #{number} ({changes} field changes)."
+    )
+    summary_write: str = (
+        "Changed {items} of {evaluated} items on project #{number} ({changes} field changes)."
+    )
+    stopped: str = "Stopped early ({reason}): {remaining}."
+    # Indexed by whether the count is other than one.
+    remaining: tuple[str, str] = (
+        "{count} planned change remains",
+        "{count} planned changes remain",
+    )
+    stop_budget: str = "mutation budget of {limit} reached"
+    stop_quota: str = (
+        "GraphQL has {remaining} points left until {reset}, below the {floor} kept in reserve"
+    )
+    stop_write_failed: str = "the write of {field} on {item} failed: {error}"
+    awaiting_intake: tuple[str, str] = (
+        "{count} open issue is not on the board (awaiting intake: devops roadmap intake).",
+        "{count} open issues are not on the board (awaiting intake: devops roadmap intake).",
+    )
+    dry_run_title: str = "# devops gh project reconcile for {repo}"
+    dry_run_notes: tuple[str, ...] = (
+        "run_gh may read `gh api rate_limit` to pace a request; that read costs no quota.",
+    )
+    request_placeholders: dict[str, str] = field(
+        default_factory=lambda: {
+            "board": "<board>",
+            "login": "<login>",
+            "cursor": "<cursor>",
+            "url": "<item url>",
+            "field": "<field>",
+            "value": "<value>",
+            "owner_arg": "<{owner} or @me>",
+        }
+    )
+    request_targets: dict[str, str] = field(
+        default_factory=lambda: {
+            "repo_boards": "the boards linked to {repo}, {found}",
+            "owner_boards": "{owner}'s boards, {found}",
+            "project_list": "{owner}'s boards through gh project list, {found}",
+            "find": "to find the board named '{name}'",
+            "login": "the signed-in login",
+            "budget": (
+                "GraphQL's points left and the total of board {board}'s items; the run stops here "
+                "when the points can't cover the read"
+            ),
+            "first": "the first page of board {board}'s items",
+            "page": "the next page of board {board}'s items",
+            "fields": "board {board}'s fields, for the options a change may set",
+            "issues": "the issues of {repo} in state {state}, every page",
+            "pulls": "the pull requests of {repo} in state {state}, every page",
+            "edit": "set a planned field change on a card of board {board}",
+        }
+    )
+    request_conditions: dict[str, str] = field(
+        default_factory=lambda: {
+            "not_found": "no board named {names} was found",
+            "login_unread": ", and the login was not read earlier in the run",
+        }
+    )
+    request_repeat_edit: str = (
+        "for each planned change, in order, until {limit} are made, GraphQL keeps fewer than "
+        "{floor} points, or a write fails"
+    )
+    request_repeat_owner_fallback: str = (
+        "once more with --owner @me when GitHub answers 'unknown owner type'"
+    )
+    sync_done: str = "Project '{title}' (#{number}){linked}. Provisioned fields: {fields}."
+    sync_linked: str = " linked to {repo}"
+    sync_fields_current: str = "all up-to-date"
+    sync_dry_run: str = (
+        "[DRY RUN] No request was made. A sync finds board '{title}' of {owner}, or creates it, "
+        "links it to {repo}, creates the template fields it lacks ({fields}){reconcile}. It "
+        "adds no issue or pull request to the board."
+    )
+    sync_dry_run_reconcile: str = ", and reconciles Status and Priority on the cards already on it"
 
 
 @dataclass(frozen=True)
@@ -1808,6 +2010,7 @@ class LanguageCatalog:
     pipeline: PipelineMessages = field(default_factory=PipelineMessages)
     test: TestMessages = field(default_factory=TestMessages)
     roadmap: RoadmapMessages = field(default_factory=RoadmapMessages)
+    project: ProjectMessages = field(default_factory=ProjectMessages)
 
 
 MESSAGES = LanguageCatalog()

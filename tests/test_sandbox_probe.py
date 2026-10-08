@@ -573,25 +573,26 @@ def test_run_sandbox_probes_generates_and_links_trace_id() -> None:
 
 
 def test_probe_tcp_metadata_endpoint_blocked() -> None:
-    """Verify probe_tcp refuses link-local and cloud metadata addresses."""
-    res1 = probe_tcp("169.254.169.254", 80)
-    assert res1.status == ProbeStatus.FAIL
-    assert "prohibited" in res1.message.lower()
+    """Verify probe_tcp refuses cloud metadata addresses and names, with no connect."""
+    results = [probe_tcp("169.254.169.254", 80), probe_tcp("metadata.google.internal", 80)]
 
-    res2 = probe_tcp("metadata.google.internal", 80)
-    assert res2.status == ProbeStatus.FAIL
-    assert "prohibited" in res2.message.lower()
+    assert [(result.status, "cloud metadata" in result.message) for result in results] == [
+        (ProbeStatus.FAIL, True),
+        (ProbeStatus.FAIL, True),
+    ]
 
 
 def test_probe_http_metadata_endpoint_blocked() -> None:
-    """Verify probe_http refuses link-local and cloud metadata addresses."""
-    res1 = probe_http("http://169.254.169.254/latest/meta-data")
-    assert res1.status == ProbeStatus.FAIL
-    assert "prohibited" in res1.message.lower()
+    """Verify probe_http refuses cloud metadata addresses and names, with no connect."""
+    results = [
+        probe_http("http://169.254.169.254/latest/meta-data"),
+        probe_http("http://metadata.google.internal/computeMetadata/v1"),
+    ]
 
-    res2 = probe_http("http://metadata.google.internal/computeMetadata/v1")
-    assert res2.status == ProbeStatus.FAIL
-    assert "prohibited" in res2.message.lower()
+    assert [(result.status, "cloud metadata" in result.message) for result in results] == [
+        (ProbeStatus.FAIL, True),
+        (ProbeStatus.FAIL, True),
+    ]
 
 
 def test_probe_http_regex_safety() -> None:
@@ -627,18 +628,22 @@ def test_probe_http_regex_safety() -> None:
 
 
 def test_probe_tcp_metadata_trailing_dot_and_dns_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify probe_tcp refuses metadata targets with trailing dots and resolved link-local IPs."""
-    res = probe_tcp("169.254.169.254.", 80)
-    assert res.status == ProbeStatus.FAIL
-    assert "prohibited" in res.message.lower()
+    """Verify probe_tcp refuses a name that answers a metadata address, trailing dot or not.
+
+    `169.254.169.254.` is a DNS name to glibc, not an address, so its answers are vetted like
+    any other name's.
+    """
 
     def mock_getaddrinfo(host, port, *args, **kwargs):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 80))]
 
     monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
-    res_dns = probe_tcp("example.com", 80)
-    assert res_dns.status == ProbeStatus.FAIL
-    assert "prohibited" in res_dns.message.lower()
+    results = [probe_tcp("169.254.169.254.", 80), probe_tcp("example.com", 80)]
+
+    assert [(result.status, "cloud metadata" in result.message) for result in results] == [
+        (ProbeStatus.FAIL, True),
+        (ProbeStatus.FAIL, True),
+    ]
 
 
 def test_endpoint_probe_result_recursive_sanitizer() -> None:
@@ -683,15 +688,43 @@ def test_probe_tcp_connects_to_vetted_sockaddr(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_probe_http_metadata_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify probe_http rejects cloud metadata endpoints even when allow_private=True."""
-    res_ip = probe_http("http://169.254.169.254/latest/meta-data")
-    assert res_ip.status == ProbeStatus.FAIL
-    assert "prohibited" in res_ip.message.lower()
+    """Verify probe_http refuses cloud metadata at the private level, by address or by answer."""
+    literal = probe_http("http://169.254.169.254/latest/meta-data")
 
     def mock_getaddrinfo(host, port, *args, **kwargs):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 80))]
 
     monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
-    res_dns = probe_http("http://example.com/computeMetadata/v1")
-    assert res_dns.status == ProbeStatus.FAIL
-    assert "prohibited" in res_dns.message.lower()
+    answered = probe_http("http://example.com/computeMetadata/v1")
+
+    assert [
+        (result.status, "cloud metadata" in result.message) for result in (literal, answered)
+    ] == [
+        (ProbeStatus.FAIL, True),
+        (ProbeStatus.FAIL, True),
+    ]
+
+
+@pytest.mark.usefixtures("public_dns")
+def test_the_probe_timeout_bounds_every_connect(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`devops sandbox probe --timeout N` bounds each connect by N, for HTTP and OpenAPI as for TCP.
+
+    A factory client given a bare number reads it as the read timeout and keeps a 1 s connect, so a
+    probe whose first SYN was dropped would report a timeout 'after N s' it never waited.
+    """
+    from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects
+
+    schema = json.dumps({"paths": {"/healthz": {"get": {}}}})
+    recorder = record_connects(
+        monkeypatch,
+        [http_response(200, schema), http_response(200, schema), http_response(200, "ok")],
+    )
+
+    results = probe_openapi("http://example.com", timeout=7.0)
+    tcp = probe_tcp("example.com", 80, timeout=7.0)
+
+    assert (
+        [result.status for result in results],
+        tcp.status,
+        recorder.timeouts_of(PUBLIC_ADDRESS),
+    ) == ([ProbeStatus.PASS, ProbeStatus.PASS], ProbeStatus.PASS, [7.0, 7.0, 7.0, 7.0])

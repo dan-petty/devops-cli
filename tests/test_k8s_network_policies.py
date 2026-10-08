@@ -8,10 +8,41 @@ from pathlib import Path
 import pytest
 import yaml
 
-from devops_cli.commands.k8s.networking import _PROXY_TARGETS_INFRA
+from devops_cli.commands.k8s.networking import _PROXY_TARGETS_INFRA, _resolve_stacks
+from devops_cli.commands.k8s.stack_lifecycle import _KUSTOMIZATIONS_BY_STACK, _MANIFESTS_BY_STACK
+from tests.k8s_manifests import kustomized_objects, manifest_objects
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
+
+# The NetworkPolicies `devops k8s deploy-stack` does not apply: (namespace, name) to the file that
+# declares the policy and the issue that owns its deploy path, or the path that applies it instead.
+# An Argo CD Application is such a path, never a deploy-stack one: a cluster without Argo CD gets
+# only what deploy-stack applies (#913). Delete an entry once its policy gains a deploy-stack path
+# or leaves its file; the guard below fails until then.
+UNDEPLOYED_NETWORK_POLICIES: dict[tuple[str, str], tuple[str, str]] = {
+    ("argocd", "argocd-default-perimeter"): (
+        "k8s/argocd/networkpolicy.yaml",
+        "#1371: as written it cuts Argo CD off from the API server",
+    ),
+    ("otel", "otel-default-perimeter"): (
+        "k8s/otel/networkpolicy.yaml",
+        "Argo CD's otel Application; deploy-stack in #1371, as its 8888 rule "
+        "would break the otel-metrics route",
+    ),
+    ("llm", "vllm-profiles-perimeter"): (
+        "k8s/llm/profiles/networkpolicy.yaml",
+        "#820, which deletes it with the vLLM leftovers",
+    ),
+    ("llm", "portkey-perimeter"): (
+        "k8s/llm/portkey/networkpolicy.yaml",
+        "Argo CD's llm Application; deploy-stack does not deploy Portkey",
+    ),
+    ("llm", "valkey-runs-perimeter"): (
+        "k8s/llm/valkey-runs.yaml",
+        "Argo CD's llm Application; a person applies the file for `devops ai runs` (k8s/README.md)",
+    ),
+}
 
 TARGET_NAMESPACES = ("monitoring", "argocd", "llm", "otel", "devops")
 METADATA_SSRF_IP = "169.254.169.254/32"
@@ -41,6 +72,51 @@ def test_kustomization_includes_networkpolicy(namespace: str) -> None:
     assert "networkpolicy.yaml" in resources, (
         f"k8s/{namespace}/kustomization.yaml must include networkpolicy.yaml in resources"
     )
+
+
+def _deploy_stack_network_policies() -> set[tuple[str, str]]:
+    """(namespace, name) of every NetworkPolicy `deploy-stack --stack all` applies without Argo CD.
+
+    It applies the root kustomization, then each stack's kustomizations, then its manifest files.
+    """
+    stacks = _resolve_stacks("all")
+    kustomizations = [
+        K8S_DIR,
+        *(K8S_DIR / entry for stack in stacks for entry in _KUSTOMIZATIONS_BY_STACK.get(stack, ())),
+    ]
+    manifests = [
+        REPO_ROOT / path for stack in stacks for path in _MANIFESTS_BY_STACK.get(stack, [])
+    ]
+    return {
+        policy
+        for kustomization in kustomizations
+        for policy in kustomized_objects(kustomization, "NetworkPolicy")
+    } | {policy for manifest in manifests for policy in manifest_objects(manifest, "NetworkPolicy")}
+
+
+def test_every_network_policy_has_a_deploy_stack_path_or_an_owned_exemption() -> None:
+    """deploy-stack applies every NetworkPolicy under k8s/, or an exemption names its owner (#913).
+
+    Each namespace's kustomization lists its policy, yet a native deploy never applied
+    `monitoring-default-perimeter`: nothing deploy-stack applies named the file. An exemption fails
+    once its policy gains a deploy-stack path or leaves the file it names, so the list only shrinks.
+    """
+    declared = {
+        policy
+        for path in K8S_DIR.rglob("*.y*ml")
+        for policy in manifest_objects(path, "NetworkPolicy")
+    }
+    applied = _deploy_stack_network_policies()
+    exempted = set(UNDEPLOYED_NETWORK_POLICIES)
+    assert (
+        sorted(declared - applied - exempted),
+        sorted(exempted & applied),
+        sorted(
+            policy
+            for policy, (path, _owner) in UNDEPLOYED_NETWORK_POLICIES.items()
+            if policy not in manifest_objects(REPO_ROOT / path, "NetworkPolicy")
+        ),
+    ) == ([], [], [])
 
 
 @pytest.mark.parametrize("namespace", TARGET_NAMESPACES)

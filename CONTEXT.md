@@ -17,7 +17,7 @@ The in-repo implementation record of one item, written in the pull request that 
 _Avoid_: task, task item
 
 **Changelog fragment**:
-One item's changelog entries, written as `changelog.d/<issue>.md` in the pull request that delivers it and merged into the release's section of `CHANGELOG.md` at the cut.
+One item's changelog entries, written as `changelog.d/<issue>.md` in the pull request that delivers it and collected into the release's section of `CHANGELOG.md` by a person before the release's pull request merges; the automatic cut collects none. One left behind, such as a late critical fix's, goes into the next release's section.
 _Avoid_: news fragment, changelog snippet
 
 **Priority**:
@@ -65,7 +65,7 @@ A numbered version that ships a fixed set of items.
 _Avoid_: milestone, sprint
 
 **Current release**:
-The one release being worked toward now: the lowest-numbered release that hasn't shipped. Its scope is fixed when work on it starts; after that, only a critical fix can join it.
+The one release being worked toward now: the lowest-numbered release that hasn't shipped. Its scope is fixed when work on it starts; after that, only a critical fix can join it on the jobs' own placement, and an item a person places in it stays with a comment naming the rule it breaks.
 _Avoid_: active milestone, air-locked milestone
 
 **Planned release**:
@@ -85,7 +85,7 @@ To move an item that hasn't started out of the current release into the next pla
 _Avoid_: rollover, defer
 
 **Cut**:
-Opening a release's pull request. From then on the release accepts no more items. Closing that pull request without merging it un-cuts the release.
+Opening a release's pull request. A critical fix still joins the release until that pull request merges; after that, it goes first into the next release. Closing that pull request without merging it un-cuts the release.
 _Avoid_: freeze, air-lock
 
 **Ship**:
@@ -95,7 +95,7 @@ _Avoid_: publish, deliver
 ## Roadmap jobs
 
 **Candidate**:
-Something that surfaced (from a person, a review of merged code, an agent or discovery) and may become an item. An open issue that intake has not yet placed on the roadmap is a candidate.
+Something that surfaced (from a person, a review of merged code, an agent or discovery) and may become an item. An open issue that intake has not yet placed on the roadmap, or whose card a person archived, is a candidate.
 _Avoid_: proposal, suggestion
 
 **Intake**:
@@ -111,7 +111,7 @@ Answering an item's key questions until it is ready.
 _Avoid_: grooming, triage
 
 **Reprioritization**:
-Re-ranking items, moving them between planned releases and the backlog, starting each release by filling it to size, and holding the current release to its admission rule and size. A person's ranking and placement stand; the admission rule, the cut and the size bind everyone.
+Re-ranking items, moving them between planned releases and the backlog, starting each release by filling it to size, and holding the current release to its admission rule and size. A person's ranking and placement stand: an item a person places in a release stays there, and the jobs comment on a rule it breaks rather than moving it out. The admission rule and the cut bind everyone else, and the merged release's lock binds everyone.
 _Avoid_: guard, governor, scope governor
 
 **Closure**:

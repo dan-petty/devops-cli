@@ -1,10 +1,10 @@
 """`devops roadmap intake`: the single way new work becomes an item (#742).
 
-A candidate is an open issue not on the board, a board item intake left without a Priority (an
-unfinished item), or a candidate that is not an issue yet (`NewCandidate`), which `--title` and
-`--body-file` and the Python entry point `intake_candidate` take. Intake plans every candidate
-before it writes anything, model calls included, so a model gateway that does not answer
-(`ModelGatewayUnreachableError`) leaves GitHub as it was.
+A candidate is an open issue not on the board (an archived card is not on it), a board item intake
+left without a Priority (an unfinished item), or a candidate that is not an issue yet
+(`NewCandidate`), which `--title` and `--body-file` and the Python entry point `intake_candidate`
+take. Intake plans every candidate before it writes anything, model calls included, so a model
+gateway that does not answer (`ModelGatewayUnreachableError`) leaves GitHub as it was.
 
 **Duplicates.** A candidate is compared with every item on the board, open or closed, and every
 issue closed as not planned, plus the candidates this run placed before it; a new candidate is
@@ -17,9 +17,13 @@ that a person reversed by reopening it, skip the check. A new candidate whose te
 looks like a secret is refused before it reaches a model or GitHub.
 
 **The proposal.** The model returns a type, a Priority from P1 to P3, Value and Effort, each
-with a one-line reason, and optionally one piece of evidence. The candidate's text is untrusted:
-code checks every value against its list, a `duplicate_of` outside the shortlist is rejected,
-and a proposal with a value off its list, or an answer that never fits the schema, is skipped.
+with a one-line reason, and optionally one piece of evidence. The types it may pick are the
+`type/*` labels `.github/labels.yml` declares, `type/epic` aside; a run reads the file at its
+first candidate, before any timeline read or model call, and stops with a `ConfigurationError`
+naming the repository when the file is missing or declares none (#1358). The candidate's text
+is untrusted: code checks every value against its list, a `duplicate_of` outside the shortlist
+is rejected, and a proposal with a value off its list, or an answer that never fits the
+schema, is skipped.
 P0 needs evidence whose value is a whole word of the candidate's text or was attached by the
 entry point's caller, that GitHub confirms (`RoadmapStore.evidence_holds`), from a trusted
 source: an author with write access, on an issue no agent filed, or the caller that attached it.
@@ -28,25 +32,47 @@ The comment shows each of the model's reasons as inline code, so no `#N` or `@na
 or notifies.
 
 **Placement.** A critical fix (P0 with `type/bug` or `type/security`) goes where #740's table
-admits a fix joining the current release (`decide`): into the current release, or into the
-next planned one once the current one is cut. Everything else, a P0 feature included, goes to
-the backlog. A planned release a person set stands; the current release goes through the same
-table. An unfinished item keeps any milestone it has.
+admits a fix joining the current release (`decide`): into the current release, its release
+pull request open or not, or into the next planned one once that pull request has merged.
+Everything else, a P0 feature included, goes to the backlog. A planned release a person set
+stands; the current release goes through the same table. An unfinished item keeps any milestone
+it has.
 
 **Writes**, in order, with Priority last, which marks the item finished: file the issue (a new
 candidate only), add a `type/*` label when it has none, put it on the board, set the milestone
 when the placement changes it, set the empty ones of Status (New), Value and Effort, leave one
 reason comment carrying `CONST_ROADMAP_INTAKE_REASON_MARKER` unless one is there, then set
-Priority. A duplicate close comments with `CONST_ROADMAP_INTAKE_DUPLICATE_MARKER` unless that
-comment is there, then closes. A run that stops part-way leaves an open issue off the board, an
-item with no Priority, or an open duplicate, and the next run finishes it. Intake writes to no
-issue but the candidate.
+Priority. Each field write goes to the card the item has, or the card the add returned: no
+placement looks for its card in the board listing, which can show a new card minutes after the
+add (#1361).
+
+**A card planning did not see** (#1403). The listing leaves out an archived card, which the add
+restores (`AddedItem.restored`), and a card it has not shown yet, so intake plans such an issue as
+one off the board and the writes follow the card the add returns. A card that holds a Priority is
+an item intake would not take, and gets nothing more (`IntakeApplied.finished`). Otherwise intake
+writes only the fields the card holds no value for, besides the Status New the board's add
+workflow sets on a card the add did not restore; a restored card keeps its milestone, as an item
+does; and the reason comment gives that placement and those values. A value a person set stays,
+and the job record never claims it (ADR 0002).
+
+A duplicate close comments with `CONST_ROADMAP_INTAKE_DUPLICATE_MARKER` unless that comment is
+there, then closes. A run that stops part-way leaves an open issue off the board, an item with no
+Priority, or an open duplicate, and the next run finishes it. Intake writes to no issue but the
+candidate.
 
 **Dry run, plan, confirm** (the dry-run rule of #412). `dry_run_intake` makes no request, to
 GitHub or a model: it returns an `IntakePlan` marked `dry_run`, with no quota or decision, that
 holds the requests a run makes, in order, with placeholders for what a read gives
 (`intake_requests`). `plan_intake` makes the reads and the model calls and writes nothing; the
 command reports what it spent. `apply_intake` makes the writes.
+
+**A limit** (#1360). With `limit`, a run decides at most that many candidates and leaves the
+rest for a later run, so a burst of new issues never holds back the jobs after it. The fresh
+candidates come first, oldest (lowest number) first: those never decided, and those edited
+since a run left them undecided. The others follow, longest waiting first. `waiting` says which
+candidates were decided before, and when: the Service keeps it between rounds as an
+`IntakeRecord`, beside `schedule.json`; `devops roadmap intake --limit` keeps none, so it takes
+the oldest candidates first.
 
 **The agent filing quota (#1153).** Every run reads the counts the quota needs through REST
 search and reports them. A new candidate comes from an agent unless its caller says a person
@@ -64,15 +90,15 @@ from __future__ import annotations
 
 import logging
 import string
-from collections.abc import Callable, Collection, Iterator, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
 from functools import cached_property
 from typing import Any
 
 import yaml
-from pydantic import TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic import ValidationError as InvalidLabelsError
 
 from devops_cli.ai.vector_similarity import cosine_similarity
@@ -102,7 +128,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.exceptions.config import ConfigurationError
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubFileNotFoundError
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.github.labels import LabelSpec
 from devops_cli.lang import MESSAGES
@@ -128,6 +154,7 @@ from devops_cli.roadmap.reprioritize import (
     release_state,
 )
 from devops_cli.roadmap.store import (
+    AddedItem,
     ChangeKind,
     CloseReason,
     Closure,
@@ -140,7 +167,6 @@ from devops_cli.roadmap.store import (
     ItemField,
     Release,
     RoadmapStore,
-    in_release,
 )
 from devops_cli.security.sanitizer import redact_text
 
@@ -216,6 +242,7 @@ class Subject:
     labels: tuple[str, ...] = ()
     release: str | None = None
     author_association: str | None = None
+    updated_at: datetime | None = None
     item: Item | None = None
     new: NewCandidate | None = None
 
@@ -320,6 +347,8 @@ class IntakeDecision:
     """What intake does with one candidate, and every write it makes for it.
 
     `shown` is the type, Priority, Value and Effort the item ends with, for the report.
+    `reasons` holds the reason comment's lines, each value intake sets with its reason, so the
+    comment can be written for the placement and fields the writes make.
     """
 
     subject: Subject
@@ -336,6 +365,7 @@ class IntakeDecision:
     filing_labels: tuple[str, ...] = ()
     shown: tuple[str, str, str, str] = ("", "", "", "")
     notes: tuple[str, ...] = ()
+    reasons: tuple[tuple[str, str, str], ...] = ()
 
     @property
     def has_writes(self) -> bool:
@@ -379,6 +409,10 @@ class IntakePlan:
     """The quota's numbers, a decision for each candidate, and the asked-for issues that are not
     candidates; with `spend`, the requests the planning run made.
 
+    With a `limit`, `left` holds the candidates the run left for a later one, in the order a
+    later run takes them, and `fresh_left` whether a fresh one is among them: never decided, or
+    edited since it was.
+
     A dry run (`dry_run`) made no request, so it has no quota and no decision: `requests` holds
     the reads and model calls a run makes, in order, and `writes` those `--confirm` adds.
     """
@@ -386,6 +420,9 @@ class IntakePlan:
     quota: QuotaStanding | None
     decisions: tuple[IntakeDecision, ...]
     missing: tuple[int, ...] = ()
+    limit: int | None = None
+    left: tuple[int, ...] = ()
+    fresh_left: bool = False
     spend: Spend | None = None
     dry_run: bool = False
     requests: tuple[PlannedRequest, ...] = ()
@@ -398,11 +435,15 @@ class IntakePlan:
 
 @dataclass(frozen=True)
 class IntakeApplied:
-    """What a run wrote: items placed, duplicates closed, and the issues it filed."""
+    """What a run wrote: items placed, duplicates closed, and the issues it filed. `finished`
+    names each candidate whose card the add returned holding a Priority, a card a person
+    archived that the add restored or one a lagging listing left out: intake wrote nothing
+    else to it (#1403)."""
 
     placed: int
     closed: int
     filed: tuple[int, ...]
+    finished: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -412,6 +453,41 @@ class CandidateOutcome:
     plan: IntakePlan
     decision: IntakeDecision
     number: int | None
+
+
+class Waiting(BaseModel):
+    """A candidate a run decided that is still a candidate: the issue's `updated_at` then, and
+    when it was decided."""
+
+    model_config = ConfigDict(frozen=True)
+
+    updated_at: datetime | None
+    decided_at: datetime
+
+
+class IntakeRecord(BaseModel):
+    """What the Service's intake keeps between rounds (#1360): each candidate it decided that is
+    still one, by number, and whether a fresh candidate is left, which makes intake due at the
+    next poll."""
+
+    model_config = ConfigDict(frozen=True)
+
+    pending: bool = False
+    waiting: dict[int, Waiting] = Field(default_factory=dict)
+
+    def after(self, plan: IntakePlan, now: datetime) -> IntakeRecord:
+        """The record once `plan`'s candidates are decided, at `now`: those it decided, placed
+        or not, and those it left that waited before. A candidate that is one no more drops out
+        at the next run, which no longer lists it; one whose placement raised is decided again
+        after the fresh ones, unless that placement had already written to it, which makes it
+        fresh once."""
+        decided = {
+            decision.subject.number: Waiting(updated_at=decision.subject.updated_at, decided_at=now)
+            for decision in plan.decisions
+            if decision.subject.number is not None
+        }
+        kept = {number: self.waiting[number] for number in plan.left if number in self.waiting}
+        return IntakeRecord(pending=plan.fresh_left, waiting=kept | decided)
 
 
 class _InvalidProposal(ValueError):
@@ -474,9 +550,10 @@ def read_quota(store: RoadmapStore, config: RoadmapConfig) -> QuotaStanding:
 
 @dataclass
 class _Run:
-    """What one run reads once."""
+    """What one run reads once, from `repo`'s `store`."""
 
     store: RoadmapStore
+    repo: str
     config: RoadmapConfig
     model: IntakeModel
     ref: str | None
@@ -491,10 +568,11 @@ class _Run:
 
     @cached_property
     def state(self) -> ReleaseState:
-        """The current release's state, a shipped one read as cut: nothing joins either."""
+        """The current release's state, a shipped one read as merged: a critical fix joins
+        neither."""
         assert self.current is not None
         found = release_state(self.store, self.current, self.store.default_branch().name)
-        return ReleaseState.CUT if found is ReleaseState.SHIPPED else found
+        return ReleaseState.MERGED if found is ReleaseState.SHIPPED else found
 
     @cached_property
     def next_release(self) -> Release | None:
@@ -510,21 +588,34 @@ class _Run:
 
     @cached_property
     def types(self) -> tuple[str, ...]:
-        """The `type/*` labels `.github/labels.yml` declares, `type/epic` aside."""
-        text = self.store.repository_file(CONST_ROADMAP_LABELS_PATH, ref=self.ref)
+        """The `type/*` labels `.github/labels.yml` declares, `type/epic` aside. A file that is
+        missing, is no label specs or declares none is a configuration error naming the
+        repository; any other failed read stays GitHub's error (#1358)."""
+        path, texts = CONST_ROADMAP_LABELS_PATH, MESSAGES.roadmap
+        where = {
+            "repo": self.repo,
+            "path": path,
+            "ref": self.ref or texts.intake_placeholder_default_branch,
+        }
         try:
+            text = self.store.repository_file(path, ref=self.ref)
             specs = _LABEL_SPECS.validate_python(yaml.safe_load(text))
+        except GitHubFileNotFoundError as exc:
+            missing = texts.intake_labels_missing.format(**where)
+            raise ConfigurationError(missing, details={"path": path}) from exc
         except (yaml.YAMLError, InvalidLabelsError) as exc:
-            raise ConfigurationError(
-                f"{CONST_ROADMAP_LABELS_PATH} can't be read as label specs: {str(exc)[:200]}",
-                details={"path": CONST_ROADMAP_LABELS_PATH},
-            ) from exc
-        return tuple(
+            unreadable = texts.intake_labels_unreadable.format(**where, error=str(exc)[:200])
+            raise ConfigurationError(unreadable, details={"path": path}) from exc
+        types = tuple(
             spec.name
             for spec in specs
             if spec.name.startswith(CONST_ROADMAP_TYPE_LABEL_PREFIX)
             and spec.name != CONST_ROADMAP_EPIC_LABEL
         )
+        if not types:
+            untyped = texts.intake_labels_untyped.format(**where)
+            raise ConfigurationError(untyped, details={"path": path})
+        return types
 
     @cached_property
     def openings(self) -> list[int]:
@@ -560,6 +651,7 @@ def _subject(issue: IssueRecord, item: Item | None = None) -> Subject:
         labels=issue.labels,
         release=issue.release,
         author_association=issue.author_association,
+        updated_at=issue.updated_at,
         item=item,
     )
 
@@ -580,6 +672,32 @@ def _subjects(
         return found, ()
     chosen = [subject for subject in found if subject.number in issues]
     return chosen, tuple(sorted(set(issues) - {subject.number for subject in chosen}))
+
+
+@dataclass(frozen=True)
+class _Queue:
+    """The candidates a limited run decides, those it leaves, and whether a fresh one is left."""
+
+    decided: list[Subject]
+    left: tuple[int, ...]
+    fresh_left: bool
+
+
+def _queue(subjects: Sequence[Subject], waiting: Mapping[int, Waiting], limit: int) -> _Queue:
+    """The first `limit` candidates: the fresh ones, never decided or edited since they were,
+    oldest (lowest number) first, then the others, longest waiting first."""
+
+    def fresh(subject: Subject) -> bool:
+        before = waiting.get(subject.number or 0)
+        return before is None or before.updated_at != subject.updated_at
+
+    renewed = sorted((s for s in subjects if fresh(s)), key=lambda s: s.number or 0)
+    waited = sorted(
+        (s for s in subjects if not fresh(s)), key=lambda s: waiting[s.number or 0].decided_at
+    )
+    ordered = renewed + waited
+    left = tuple(subject.number for subject in ordered[limit:] if subject.number is not None)
+    return _Queue(ordered[:limit], left, len(renewed) > limit)
 
 
 # ── The duplicate check ───────────────────────────────────────────────────────
@@ -775,6 +893,11 @@ def _kept(release: str, reason: str) -> Placement:
     )
 
 
+def _resumed(release: str) -> Placement:
+    """An item's milestone, which it keeps."""
+    return _kept(release, MESSAGES.roadmap.intake_reason_resumed.format(release=release))
+
+
 def _by_table(run: _Run, event: Event, already_there: bool) -> Placement:
     """Where #740's table sends a candidate joining the current release."""
     assert run.current is not None
@@ -798,14 +921,7 @@ def _placement(run: _Run, subject: Subject, labels: tuple[str, ...], priority: s
     event = admission_event(probe)
     if subject.release is not None:
         if subject.item is not None:
-            return _kept(
-                subject.release,
-                MESSAGES.roadmap.intake_reason_resumed.format(release=subject.release),
-            )
-        if run.current is not None and in_release(subject.release, run.current.version):
-            if event is not Event.FIX_JOINED:
-                return _to_backlog(MESSAGES.roadmap.intake_reason_current_not_critical)
-            return _by_table(run, event, already_there=True)
+            return _resumed(subject.release)
         return _kept(
             subject.release, MESSAGES.roadmap.intake_reason_person.format(release=subject.release)
         )
@@ -889,18 +1005,22 @@ def _added_labels(
     )
 
 
-def _comment(
-    placement: Placement,
+def _reason_lines(
     proposal: Proposal,
     type_label: str | None,
     fields: Sequence[tuple[ItemField, str]],
     priority: tuple[str, str],
-) -> str:
-    """The reason comment: where the item went, and each value intake set with its reason."""
+) -> tuple[tuple[str, str, str], ...]:
+    """Each value intake sets that the reason comment gives, with its name and reason."""
     reasons = {ItemField.VALUE: proposal.value_reason, ItemField.EFFORT: proposal.effort_reason}
     lines = [("Type", type_label, proposal.type_reason)] if type_label else []
     lines.append((ItemField.PRIORITY.value, priority[0], priority[1]))
     lines += [(f.value, value, reasons[f]) for f, value in fields if f in reasons]
+    return tuple(lines)
+
+
+def _comment(placement: Placement, lines: Sequence[tuple[str, str, str]]) -> str:
+    """The reason comment: where the item went, and each value intake set with its reason."""
     rendered = "\n".join(
         MESSAGES.roadmap.intake_comment_field.format(field=name, value=value, reason=reason)
         for name, value, reason in lines
@@ -956,6 +1076,11 @@ class _Planner:
     opened: int = 0
 
     def decide_all(self, subjects: Sequence[Subject]) -> Iterator[IntakeDecision]:
+        """Each candidate's decision, in turn. A run with a candidate reads `.github/labels.yml`
+        first, so a file it can't use stops it before any timeline read or model call (#1358)."""
+        if not subjects:
+            return
+        _ = self.run.types
         checked = [_checked(self.run, subject) for subject in subjects]
         own = self._embed(subjects, checked)
         for subject, vector in zip(subjects, own, strict=True):
@@ -1072,10 +1197,11 @@ class _Planner:
         placement = _placement(self.run, subject, (*subject.labels, type_label), priority[0])
         fields = _fields(subject, proposal)
         added = None if subject.type_label else type_label
+        lines = _reason_lines(proposal, added, fields, priority)
         comment = (
             None
             if _has_comment(self.run.store, subject, CONST_ROADMAP_INTAKE_REASON_MARKER)
-            else _comment(placement, proposal, added, fields, priority)
+            else _comment(placement, lines)
         )
         return IntakeDecision(
             subject,
@@ -1089,19 +1215,25 @@ class _Planner:
             filing_labels=_filing_labels(subject, decided),
             shown=_shown(subject, type_label, priority[0], proposal),
             notes=notes,
+            reasons=lines,
         )
 
 
 def plan_intake(
     store: RoadmapStore,
     *,
+    repo: str,
     config: RoadmapConfig,
     model: IntakeModel,
     ref: str | None = None,
     issues: Collection[int] = (),
     new: NewCandidate | None = None,
+    limit: int | None = None,
+    waiting: Mapping[int, Waiting] | None = None,
 ) -> IntakePlan:
-    """Decide every candidate, or only `issues`, or only the `new` candidate, writing nothing.
+    """Decide every candidate of `repo`, whose roadmap `store` reads, or only `issues`, or only
+    the `new` candidate, writing nothing; with `limit`, at most that many, fresh ones first, by
+    what `waiting` says was decided before.
 
     A `new` candidate whose text looks like it holds a secret raises `SecurityError` first.
     """
@@ -1109,6 +1241,7 @@ def plan_intake(
         new.refuse_secrets()
     run = _Run(
         store=store,
+        repo=repo,
         config=config,
         model=model,
         ref=ref,
@@ -1118,8 +1251,16 @@ def plan_intake(
         standing=read_quota(store, config),
     )
     subjects, missing = _subjects(run, issues, new)
-    decisions = tuple(_Planner(run, off_board=new is not None).decide_all(subjects))
-    return IntakePlan(quota=run.standing, decisions=decisions, missing=missing)
+    queue = _Queue(subjects, (), False) if limit is None else _queue(subjects, waiting or {}, limit)
+    decisions = tuple(_Planner(run, off_board=new is not None).decide_all(queue.decided))
+    return IntakePlan(
+        quota=run.standing,
+        decisions=decisions,
+        missing=missing,
+        limit=limit,
+        left=queue.left,
+        fresh_left=queue.fresh_left,
+    )
 
 
 def dry_run_intake(
@@ -1128,11 +1269,13 @@ def dry_run_intake(
     ref: str | None = None,
     issues: Collection[int] = (),
     new: NewCandidate | None = None,
+    limit: int | None = None,
 ) -> IntakePlan:
     """The plan a dry run returns: no request made, the requests a run on `repo` over every
     candidate, only `issues`, or only the `new` candidate makes, in order, with placeholders for
-    what a read gives. A `new` candidate whose text looks like it holds a secret raises
-    `SecurityError`, as it does for a run."""
+    what a read gives; with `limit`, its per-candidate requests say they are for that many. A
+    `new` candidate whose text looks like it holds a secret raises `SecurityError`, as it does
+    for a run."""
     each = new is None and not issues
     if new is not None:
         new.refuse_secrets()
@@ -1141,33 +1284,69 @@ def dry_run_intake(
         subjects = [f"#{number}" for number in sorted(set(issues))]
     else:
         subjects = [MESSAGES.roadmap.intake_placeholder_each]
-    reads, writes = planned_requests(subjects, repo=repo, ref=ref, new=new is not None, each=each)
-    return IntakePlan(quota=None, decisions=(), dry_run=True, requests=reads, writes=writes)
+    reads, writes = planned_requests(
+        subjects, repo=repo, ref=ref, new=new is not None, each=each, limit=limit
+    )
+    return IntakePlan(
+        quota=None, decisions=(), limit=limit, dry_run=True, requests=reads, writes=writes
+    )
 
 
 # ── Writing ───────────────────────────────────────────────────────────────────
 
 
-def _apply_placement(store: RoadmapStore, decision: IntakeDecision) -> int | None:
-    """Make one placement's writes in order, Priority last; the number filed, if any."""
+def _unset(item: AddedItem, board_field: ItemField, value: str) -> bool:
+    """Whether the card the add returned holds no value for `board_field`; on a card the add
+    did not restore, also the Status New the board's "Item added to project" workflow sets,
+    which intake writes again so that its job record holds it."""
+    held = item.field_value(board_field)
+    new_status = not item.restored and board_field is ItemField.STATUS and held == value
+    return held is None or new_status
+
+
+def _on_card(decision: IntakeDecision, item: AddedItem) -> IntakeDecision | None:
+    """The decision for the card the add returned, which planning did not see: None when it
+    holds a Priority, as an item intake would not have taken; otherwise the planned writes of
+    the fields it holds no value for, with the milestone a restored card has kept, as an item's
+    is, and the reason comment for those writes (#1403)."""
+    if item.priority is not None:
+        return None
+    release = decision.subject.release
+    placement = _resumed(release) if item.restored and release is not None else decision.placement
+    fields = tuple((f, v) for f, v in decision.fields if _unset(item, f, v))
+    held = {f.value for f, _ in decision.fields} - {f.value for f, _ in fields}
+    lines = tuple(line for line in decision.reasons if line[0] not in held)
+    comment = None if decision.comment is None or placement is None else _comment(placement, lines)
+    return replace(decision, placement=placement, fields=fields, reasons=lines, comment=comment)
+
+
+def _apply_placement(
+    store: RoadmapStore, decision: IntakeDecision
+) -> tuple[int, IntakeDecision | None]:
+    """Make one placement's writes in order, Priority last; the issue's number, and the
+    decision the writes followed, None when the card the add returned holds a Priority."""
     subject = decision.subject
-    filed = None
-    if subject.number is None:
-        title, body = subject.title, subject.body
-        filed = store.create_issue(title, body, labels=decision.filing_labels).number
-    number = subject.number or filed
-    assert number is not None and decision.priority is not None
+    number = subject.number
+    if number is None:
+        filed = store.create_issue(subject.title, subject.body, labels=decision.filing_labels)
+        number = filed.number
     for label in decision.labels:
         store.label_issue(number, label)
-    if subject.item is None:
-        store.add_item(number)
-    item = store.item(number)
+    item: Item | None = subject.item
     if item is None:
-        raise GitHubOperationError(
-            f"#{number} is not on the board after intake added it.",
-            operation="roadmap.intake",
-            details={"number": number},
-        )
+        item = store.add_item(number)
+        on_card = _on_card(decision, item)
+        if on_card is None:
+            return number, None
+        decision = on_card
+    _write_fields(store, item, decision, number)
+    return number, decision
+
+
+def _write_fields(store: RoadmapStore, item: Item, decision: IntakeDecision, number: int) -> None:
+    """The writes after the add: the milestone when the placement changes it, the fields, the
+    reason comment, then Priority."""
+    assert decision.priority is not None
     if decision.moves and decision.placement is not None:
         store.set_field(item, ItemField.RELEASE, decision.placement.release)
     for board_field, value in decision.fields:
@@ -1175,7 +1354,6 @@ def _apply_placement(store: RoadmapStore, decision: IntakeDecision) -> int | Non
     if decision.comment:
         store.comment(number, decision.comment)
     store.set_field(item, ItemField.PRIORITY, decision.priority)
-    return filed
 
 
 def _should_refine_on_intake(decision: IntakeDecision) -> bool:
@@ -1220,25 +1398,30 @@ def apply_intake(
 ) -> IntakeApplied:
     """Make the plan's writes, one candidate at a time."""
     filed: list[int] = []
+    finished: list[int] = []
     placed = closed = 0
     refine_hook = refine or refine_item
     for decision in plan.decisions:
         if decision.outcome is Outcome.PLACE:
-            number = _apply_placement(store, decision)
-            filed += [number] if number is not None else []
+            number, applied = _apply_placement(store, decision)
+            filed += [] if decision.subject.number else [number]
+            if applied is None:
+                finished.append(number)
+                continue
             placed += 1
-            _maybe_refine_intake(refine_hook, store, decision, number)
+            _maybe_refine_intake(refine_hook, store, applied, number)
         elif decision.outcome is Outcome.DUPLICATE and decision.subject.number is not None:
             assert decision.original is not None
             store.close_as_duplicate(decision.subject.number, decision.original, decision.comment)
             closed += 1
-    return IntakeApplied(placed=placed, closed=closed, filed=tuple(filed))
+    return IntakeApplied(placed=placed, closed=closed, filed=tuple(filed), finished=tuple(finished))
 
 
 def intake_candidate(
     store: RoadmapStore,
     candidate: NewCandidate,
     *,
+    repo: str,
     config: RoadmapConfig,
     model: IntakeModel,
     ref: str | None = None,
@@ -1246,7 +1429,7 @@ def intake_candidate(
 ) -> CandidateOutcome:
     """The entry point discovery (#745) and the review hand-off call: decide one candidate that
     is not an issue yet, and with `confirm` file and place it unless it is a duplicate or folds."""
-    plan = plan_intake(store, config=config, model=model, ref=ref, new=candidate)
+    plan = plan_intake(store, repo=repo, config=config, model=model, ref=ref, new=candidate)
     (decision,) = plan.decisions
     applied = apply_intake(store, plan) if confirm else None
     number = applied.filed[0] if applied and applied.filed else None
@@ -1333,6 +1516,8 @@ def render_intake(plan: IntakePlan, *, repo: str) -> str:
             lines.append(texts.intake_writes.format(writes="; ".join(decision.writes())))
         lines += [texts.intake_note.format(note=note) for note in decision.notes]
     lines += [texts.intake_not_candidate.format(number=number) for number in plan.missing]
+    left = ", ".join(f"#{number}" for number in plan.left)
+    lines += [texts.intake_left.format(limit=plan.limit, left=left)] if plan.left else []
     lines += ["", plan.spend.render()] if plan.spend is not None else []
     return "\n".join(lines) + "\n"
 
@@ -1344,6 +1529,7 @@ __all__ = [
     "IntakeApplied",
     "IntakeDecision",
     "IntakePlan",
+    "IntakeRecord",
     "NewCandidate",
     "Outcome",
     "Placement",
@@ -1351,6 +1537,7 @@ __all__ = [
     "QuotaDecision",
     "QuotaStanding",
     "Subject",
+    "Waiting",
     "apply_intake",
     "dry_run_intake",
     "intake_candidate",

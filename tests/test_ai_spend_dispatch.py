@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
-from pathlib import Path
 from typing import Any
 
 import httpx2
@@ -16,7 +15,6 @@ import devops_cli.ai.spend as spend_mod
 from devops_cli.ai import context_budget
 from devops_cli.ai.client import AIClientError, LLMClient, LLMResponse, RequestPriority
 from devops_cli.ai.direct import direct_model_request, direct_model_request_sync
-from devops_cli.ai.spend import ledger as ledger_module
 from devops_cli.ai.spend.ledger import SpendLedger, observe_llm_calls
 from devops_cli.ai.spend.models import SpendRecord
 from devops_cli.config.settings import AIConfig
@@ -216,14 +214,6 @@ def test_direct_model_request_records_spend(monkeypatch: pytest.MonkeyPatch) -> 
 # ── Why a reply ended, from the provider to the ledger and its observers ──────────────────────
 
 
-@pytest.fixture
-def spend_ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SpendLedger:
-    """A fresh ledger that every recorded call in the test writes to."""
-    ledger = SpendLedger(db_path=tmp_path / "spend.db")
-    monkeypatch.setattr(ledger_module, "_GLOBAL_LEDGER", ledger)
-    return ledger
-
-
 def _ledger_rows(ledger: SpendLedger) -> list[tuple[str, str | None]]:
     with sqlite3.connect(ledger.db_path) as conn:
         return conn.execute(
@@ -258,6 +248,40 @@ def test_a_chat_reply_reaches_observers_and_the_ledger_with_its_finish_reason(
     assert ([call["finish_reason"] for call in seen], _ledger_rows(spend_ledger)) == (
         ["length"],
         [("chat_dispatch", "length")],
+    )
+
+
+@pytest.mark.parametrize(
+    ("cached_content", "options"),
+    [("", {}), ("an earlier reply", {"append_cache": True})],
+    ids=["empty-entry", "append-cache"],
+)
+def test_a_cache_lookup_that_answers_nothing_is_recorded_once_as_a_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    spend_ledger: SpendLedger,
+    cached_content: str,
+    options: dict[str, Any],
+) -> None:
+    """Verify a cached entry the client rejects, and the cached starting point an append-cache
+    call sends, are no hits: the call reaches the model and is recorded once, uncached (#816)."""
+    monkeypatch.setattr(LLMClient, "_ollama_messages", _cut_reply)
+    client = LLMClient(AIConfig(provider="ollama", model="llama3:8b"))
+    messages = [ChatMessage(role="user", content="user")]
+    key = client.cache.generate_key(
+        "ollama", "llama3:8b", "system", messages, options={"enable_thinking": True}
+    )
+    client.cache.set(key, "ollama", "llama3:8b", "system", "user", cached_content)
+    seen: list[dict[str, Any]] = []
+
+    with observe_llm_calls(seen.append):
+        reply = client.chat("system", "user", use_cache=True, **options)
+
+    with sqlite3.connect(spend_ledger.db_path) as conn:
+        rows = conn.execute("SELECT request_type, cached FROM ai_spend_records").fetchall()
+    assert (reply.cached, [call["cached"] for call in seen], rows) == (
+        False,
+        [False],
+        [("chat_dispatch", 0)],
     )
 
 

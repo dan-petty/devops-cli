@@ -1,7 +1,9 @@
 """`devops roadmap intake` over the in-memory roadmap store, a fake embedder and a fake model (#742).
 
 Each case builds the roadmap a person leaves, runs intake, and reads back what the store holds
-and what intake wrote. No case runs `gh`, reaches a model or opens a socket.
+and what intake wrote. The last cases run the GitHub store over `GitHubFake`, a fake at the `gh`
+process edge, to count the requests a placement sends (#1361). No case runs `gh`, reaches a
+model or opens a socket.
 """
 
 from __future__ import annotations
@@ -33,10 +35,16 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import AIConfig
 from devops_cli.dry_run.state import in_dry_run_invocation
 from devops_cli.exceptions.ai import ModelGatewayUnreachableError
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.config import ConfigurationError
+from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import store as roadmap_store_module
+from devops_cli.roadmap.board_read import (
+    BOARD_BUDGET_OPERATION,
+    BOARD_CARD_OPERATION,
+    BOARD_ITEMS_OPERATION,
+)
 from devops_cli.roadmap.config import RoadmapConfig, open_roadmap
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.intake import (
@@ -73,6 +81,7 @@ from devops_cli.roadmap.store import (
     ItemField,
 )
 from devops_cli.telemetry.tracer import OTelTelemetryClient, get_tracer
+from tests.roadmap_board_fake import GitHubFake, field_id
 
 REPO = "example/roadmap"
 NOW = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
@@ -125,14 +134,21 @@ class FakeModel:
 
 class Roadmap:
     """One repository's roadmap: v0.2.25 shipped and closed a day ago, v0.2.26 is current and
-    v0.2.27 planned."""
+    v0.2.27 planned. Its `.github/labels.yml` holds `labels`, this repository's own by default;
+    with None it has none."""
 
-    def __init__(self, store: InMemoryRoadmapStore | None = None, config: RoadmapConfig = CONFIG):
+    def __init__(
+        self,
+        store: InMemoryRoadmapStore | None = None,
+        config: RoadmapConfig = CONFIG,
+        labels: str | None = LABELS_YML,
+    ):
         self.now = NOW - timedelta(days=1)
         self.config = config
         self.store = store or InMemoryRoadmapStore(board_options=OPTIONS, clock=self.clock)
         self.person = self.store.as_actor("alice")
-        self.store.seed_file(".github/labels.yml", LABELS_YML)
+        if labels is not None:
+            self.store.seed_file(".github/labels.yml", labels)
         self.store.create_release(PREVIOUS, state=GitHubState.CLOSED)
         for title in (CURRENT, NEXT):
             self.store.create_release(title)
@@ -183,7 +199,7 @@ class Roadmap:
         return self.store.comments_on(number)
 
     def plan(self, model: FakeModel, **options: Any) -> IntakePlan:
-        return plan_intake(self.store, config=self.config, model=model, **options)
+        return plan_intake(self.store, repo=REPO, config=self.config, model=model, **options)
 
     def run(self, model: FakeModel, **options: Any) -> list[JobWrite]:
         before = len(self.store.job_writes())
@@ -239,6 +255,102 @@ def test_with_no_candidates_intake_embeds_nothing_and_asks_the_model_nothing(
     model = FakeModel()
     plan = roadmap.plan(model)
     assert (model.embedded, model.requests, plan.has_writes) == ([], [], False)
+
+
+# ── The type/* labels `.github/labels.yml` declares (#1358) ─────────────────────
+
+LABELS_RULE = "must declare the type/* labels intake may assign"
+ONLY_EPIC = "- name: type/epic\n  color: '5319e7'\n  description: A parent of other items.\n"
+
+
+def test_a_run_with_no_candidate_needs_no_labels_file() -> None:
+    model = FakeModel()
+    plan = Roadmap(labels=None).plan(model)
+    assert (plan.decisions, model.embedded, model.requests) == ((), [], [])
+
+
+@pytest.mark.parametrize(
+    ("labels", "names", "ruled"),
+    [
+        (None, f"{REPO} has no .github/labels.yml at the default branch.", True),
+        (
+            ONLY_EPIC,
+            f"{REPO}'s .github/labels.yml at the default branch declares no type/* label",
+            True,
+        ),
+        ("labels: none\n", f"{REPO}'s .github/labels.yml can't be read as label specs", False),
+    ],
+    ids=["missing", "only-epic", "not-label-specs"],
+)
+def test_a_labels_file_it_cant_use_stops_intake_before_any_read_or_model_call(
+    labels: str | None, names: str, ruled: bool
+) -> None:
+    """The file is read at the run's first candidate, before its timeline read and the
+    embedding call. Its error names the repository the run was given, the file and, for a
+    missing or type-less file, the rule."""
+    roadmap = Roadmap(labels=labels)
+    roadmap.issue("feat: export the board as CSV")
+    ran: list[str] = []
+    store: Any = _Recorded(roadmap.store, ran)
+    model = FakeModel()
+    with pytest.raises(ConfigurationError) as raised:
+        plan_intake(store, repo=REPO, config=CONFIG, model=model)
+    message = str(raised.value)
+    assert (
+        raised.value.details,
+        message.startswith(names),
+        LABELS_RULE in message,
+        "closures" in ran,
+        model.embedded,
+        model.requests,
+    ) == ({"path": ".github/labels.yml"}, True, ruled, False, [], [])
+
+
+def test_intake_names_the_repository_whose_labels_file_declares_no_type(
+    board: Roadmap, fake_model: FakeModel
+) -> None:
+    """The command hands the run its `--repo`, so the error names the repository."""
+    board.store.seed_file(".github/labels.yml", ONLY_EPIC)
+    board.issue("feat: export the board as CSV")
+    output = _intake("--plan", exit_code=1)
+    assert (
+        f"{REPO}'s .github/labels.yml at the default branch declares no type/* label" in output,
+        LABELS_RULE in output,
+        fake_model.requests,
+    ) == (True, True, [])
+
+
+def test_a_dry_runs_labels_read_waits_for_a_candidate_unless_it_has_a_title() -> None:
+    """A run over the open issues reads `.github/labels.yml` only once it has a candidate; a
+    `--title` candidate always is one, so its read has no condition."""
+
+    def labels_read(plan: IntakePlan) -> str:
+        target = f"repos/{REPO}/contents/.github/labels.yml"
+        return next(r.condition for r in plan.requests if r.argv and r.argv[-1] == target)
+
+    every = dry_run_intake(REPO)
+    new = dry_run_intake(REPO, new=NewCandidate(title="feat: idea", body="text"))
+    assert (labels_read(every), labels_read(new)) == (
+        MESSAGES.roadmap.intake_request_conditions["candidate"],
+        "",
+    )
+
+
+def test_a_labels_read_github_fails_stays_a_github_error() -> None:
+    """Only a missing file is a configuration error: a 502 is GitHub's failure, raised as
+    such, still before any model call."""
+    github, store = on_github()
+    github.files[".github/labels.yml"] = (1, "gh: Server Error (HTTP 502)")
+    github.seed_issue(1, "feat: export the board as CSV")
+    model = FakeModel()
+    with pytest.raises(GitHubOperationError) as raised:
+        plan_intake(store, repo=REPO, config=CONFIG, model=model)
+    assert (
+        isinstance(raised.value, (ConfigurationError, GitHubFileNotFoundError)),
+        "HTTP 502" in str(raised.value),
+        model.embedded,
+        model.requests,
+    ) == (False, True, [], [])
 
 
 def test_the_model_judges_only_the_five_nearest_items(roadmap: Roadmap) -> None:
@@ -350,20 +462,66 @@ def test_a_valid_citation_needs_a_trusted_author_and_must_be_in_the_candidates_t
     ) == (("P1-High", None), ("P1-High", None), [True, True], True, True)
 
 
-def test_a_critical_fix_arriving_while_the_release_pull_request_is_open_goes_to_the_next(
-    roadmap: Roadmap,
-) -> None:
-    roadmap.person.open_pull_request(
+def cut(roadmap: Roadmap) -> int:
+    """A person opens the current release's pull request, which cuts the release."""
+    return roadmap.person.open_pull_request(
         f"feat(release): {CURRENT}",
         base="main",
         head=f"chore/cut-{CURRENT}",
         labels=("release",),
         release=CURRENT,
     )
+
+
+@pytest.mark.parametrize(
+    ("merged", "published", "placed", "reason"),
+    [
+        (False, False, CURRENT, f"{CURRENT} is cut, and a critical fix still joins it"),
+        (True, False, NEXT, f"the release pull request of {CURRENT} has merged"),
+        (True, True, NEXT, f"the release pull request of {CURRENT} has merged"),
+    ],
+    ids=["pull-request-open", "merged-unpublished", "shipped-milestone-open"],
+)
+def test_a_critical_fix_joins_the_current_release_until_its_release_pull_request_merges(
+    roadmap: Roadmap, merged: bool, published: bool, placed: str, reason: str
+) -> None:
+    """While the release pull request is open, a critical fix goes into the cut release, so its
+    own pull request merges into the release branch first (#1294). Once that pull request has
+    merged, published or not, the fix goes to the next release."""
+    release_pr = cut(roadmap)
+    if merged:
+        roadmap.person.close_pull_request(release_pr, merged=True)
+    if published:
+        roadmap.person.publish_release(CURRENT)
     roadmap.store.seed_evidence(Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="abc1234"))
     number = roadmap.issue("fix: crash", "Introduced by abc1234.")
     roadmap.run(FakeModel(proposals={"fix: crash": REGRESSION}))
-    assert roadmap.fields(number)[1::3] == ("P0-Critical", NEXT)
+    (comment,) = roadmap.comments(number)
+    assert (roadmap.fields(number)[1::3], reason in comment) == (
+        ("P0-Critical", placed),
+        True,
+    )
+
+
+def test_a_candidate_that_is_not_a_critical_fix_stays_out_of_a_cut_release(
+    roadmap: Roadmap,
+) -> None:
+    """While the release pull request is open, intake places a candidate with no milestone as
+    after the start: only a critical fix goes into the cut release (#1294), and a feature, a P0
+    feature included, goes to the backlog."""
+    cut(roadmap)
+    roadmap.store.seed_evidence(Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="abc1234"))
+    roadmap.store.seed_evidence(Evidence(kind=EvidenceKind.FAILED_RUN, value="4242"))
+    fix = roadmap.issue("fix: crash", "Introduced by abc1234.")
+    feature = roadmap.issue("feat: export csv")
+    p0_feature = roadmap.issue("feat: retry", "Run 4242 failed.")
+    p0_evidence = {"evidence": {"kind": "failed_run", "value": "4242"}}
+    roadmap.run(FakeModel(proposals={"fix: crash": REGRESSION, "feat: retry": p0_evidence}))
+    assert (
+        roadmap.fields(fix)[1::3],
+        roadmap.fields(p0_feature)[1::3],
+        roadmap.fields(feature)[4],
+    ) == (("P0-Critical", CURRENT), ("P0-Critical", None), None)
 
 
 def test_a_p0_feature_with_verified_evidence_lands_in_the_backlog_at_p0(roadmap: Roadmap) -> None:
@@ -377,7 +535,7 @@ def test_a_p0_feature_with_verified_evidence_lands_in_the_backlog_at_p0(roadmap:
 # ── Placement ─────────────────────────────────────────────────────────────────
 
 
-def test_a_planned_release_a_person_set_stands_and_the_current_release_goes_through_admission(
+def test_a_planned_or_current_release_a_person_set_stands_at_intake(
     roadmap: Roadmap,
 ) -> None:
     roadmap.store.seed_evidence(Evidence(kind=EvidenceKind.FAILED_RUN, value="4242"))
@@ -390,9 +548,9 @@ def test_a_planned_release_a_person_set_stands_and_the_current_release_goes_thro
     assert (
         roadmap.fields(planned)[4],
         roadmap.fields(current)[4],
-        "only a critical fix" in comment,
+        "a person placed it in" in comment,
         roadmap.fields(p0_feature)[1::3],
-    ) == (NEXT, None, True, ("P0-Critical", None))
+    ) == (NEXT, CURRENT, True, ("P0-Critical", CURRENT))
 
 
 # ── Untrusted text ────────────────────────────────────────────────────────────
@@ -524,6 +682,75 @@ def test_a_person_put_on_the_board_without_a_priority_gets_only_its_empty_fields
     )
 
 
+def test_a_finished_card_a_person_archived_in_the_current_release_is_only_restored(
+    roadmap: Roadmap,
+) -> None:
+    """A person set #1 In Progress and P1-High in the current release, then archived its card,
+    so the listing leaves it out and #1 is a candidate again. Planning keeps #1 in its release (#1349).
+    The add restores the card, which holds a Priority, so intake writes nothing more: the milestone
+    stays, and there is no reason comment and no job record. At 833c467 the round cleared the
+    milestone, wrote Status, Value, Effort and Priority over the card's and commented "to the
+    backlog" (#1403)."""
+    number = roadmap.issue(
+        "feat: export the board as CSV", labels=("type/feature",), release=CURRENT, on_board=True
+    )
+    for board_field, value in ((ItemField.STATUS, "In Progress"), (ItemField.PRIORITY, "P1-High")):
+        roadmap.person.set_field(roadmap.item(number), board_field, value)
+    roadmap.person.archive_card(number)
+    planned = roadmap.plan(FakeModel())
+    before = len(roadmap.store.job_writes())
+    applied = apply_intake(roadmap.store, planned)
+    assert (
+        [(d.subject.number, d.moves) for d in planned.decisions],
+        [(w.operation, w.key) for w in roadmap.store.job_writes()[before:]],
+        roadmap.fields(number),
+        roadmap.comments(number),
+        roadmap.item(number).job_record,
+        (applied.placed, applied.finished),
+    ) == (
+        [(number, False)],
+        [("add_item", None)],
+        ("In Progress", "P1-High", None, None, CURRENT),
+        [],
+        {},
+        (0, (number,)),
+    )
+
+
+def test_a_restored_card_with_no_priority_keeps_its_milestone_and_the_values_it_holds(
+    roadmap: Roadmap,
+) -> None:
+    """A person put #1 in the current release and on the board with Value High, then archived
+    its card. Planning sends it to the backlog, as it does an issue of the current release that
+    is off the board and not a critical fix; the restore keeps the milestone, as an item keeps
+    its own, writes only Status, Effort and Priority, and the reason comment says where it
+    stayed and gives no Value (#1403)."""
+    number = roadmap.issue(
+        "feat: export the board as CSV", labels=("type/feature",), release=CURRENT, on_board=True
+    )
+    roadmap.person.set_field(roadmap.item(number), ItemField.VALUE, "High")
+    roadmap.person.archive_card(number)
+    writes = roadmap.run(FakeModel())
+    (comment,) = roadmap.comments(number)
+    assert (
+        [(w.operation, w.key) for w in writes],
+        roadmap.fields(number),
+        f"Intake placed this item kept in {CURRENT}" in comment,
+        ("- Value:" in comment, "- Effort: Low." in comment),
+    ) == (
+        [
+            ("add_item", None),
+            ("set_field", "Status"),
+            ("set_field", "Effort"),
+            ("comment", None),
+            ("set_field", "Priority"),
+        ],
+        ("New", "P2-Medium", "High", "Low", CURRENT),
+        True,
+        (False, True),
+    )
+
+
 def test_a_second_run_over_the_same_state_writes_nothing(roadmap: Roadmap) -> None:
     roadmap.issue("feat: one")
     roadmap.issue("feat: two")
@@ -547,6 +774,7 @@ def test_evidence_the_entry_points_caller_attaches_is_trusted_and_the_source_is_
             source="https://example.test/review/1",
             evidence=(commit,),
         ),
+        repo=REPO,
         config=CONFIG,
         model=model,
         confirm=True,
@@ -554,6 +782,7 @@ def test_evidence_the_entry_points_caller_attaches_is_trusted_and_the_source_is_
     claimed = intake_candidate(
         roadmap.store,
         NewCandidate(title="fix: claimed", body="Introduced by abc1234."),
+        repo=REPO,
         config=CONFIG,
         model=model,
         confirm=True,
@@ -609,7 +838,12 @@ def test_an_agent_opening_within_the_allowance_is_filed_with_source_agent(
     crowded: Roadmap,
 ) -> None:
     outcome = intake_candidate(
-        crowded.store, _new("feat: within"), config=TIGHT, model=FakeModel(), confirm=True
+        crowded.store,
+        _new("feat: within"),
+        repo=REPO,
+        config=TIGHT,
+        model=FakeModel(),
+        confirm=True,
     )
     standing = outcome.plan.quota
     assert standing is not None
@@ -627,13 +861,16 @@ def test_beyond_the_allowance_an_opening_folds_and_a_split_borrows_and_is_never_
     crowded: Roadmap,
 ) -> None:
     model = FakeModel()
-    intake_candidate(crowded.store, _new("feat: first"), config=TIGHT, model=model, confirm=True)
+    intake_candidate(
+        crowded.store, _new("feat: first"), repo=REPO, config=TIGHT, model=model, confirm=True
+    )
     folded = intake_candidate(
-        crowded.store, _new("feat: second"), config=TIGHT, model=model, confirm=True
+        crowded.store, _new("feat: second"), repo=REPO, config=TIGHT, model=model, confirm=True
     )
     borrowed = intake_candidate(
         crowded.store,
         _new("feat: split", borrow_reason=BorrowReason.SPLIT, source=PARENT),
+        repo=REPO,
         config=TIGHT,
         model=model,
         confirm=True,
@@ -651,8 +888,10 @@ def test_beyond_the_allowance_an_opening_folds_and_a_split_borrows_and_is_never_
 
 def test_a_p1_bug_beyond_the_allowance_borrows(crowded: Roadmap) -> None:
     model = FakeModel(proposals={"fix: second": {"type": "type/bug", "priority": "P1-High"}})
-    intake_candidate(crowded.store, _new("feat: first"), config=TIGHT, model=model, confirm=True)
-    bug = intake_candidate(crowded.store, _new("fix: second"), config=TIGHT, model=model)
+    intake_candidate(
+        crowded.store, _new("feat: first"), repo=REPO, config=TIGHT, model=model, confirm=True
+    )
+    bug = intake_candidate(crowded.store, _new("fix: second"), repo=REPO, config=TIGHT, model=model)
     assert (
         bug.decision.quota,
         bug.number,
@@ -776,10 +1015,11 @@ def test_dry_run_makes_no_request_and_prints_the_requests_a_run_makes_in_order(
         f"gh api 'repos/{REPO}/milestones?state=all&per_page=100&page=<n>' [repeated per page",
         "GraphQL read the items on board <the board .github/roadmap.toml names>",
         f"gh api -X GET search/issues -f 'q=repo:{REPO} is:issue is:open' -F per_page=1",
+        f"{REPO}/contents/.github/labels.yml",
+        "[only if the run has a candidate]",
         "GraphQL read the closes and reopens on #7's timeline",
         "[only if #7 is not on the board]",
         "embedding every item",
-        f"{REPO}/contents/.github/labels.yml",
         "model the proposal for #7",
         "With --confirm",
         "REST write label #7 with its type/* label",
@@ -852,7 +1092,6 @@ STORE_OPERATIONS: dict[str, str | None] = {
     "file": "create_issue",
     "label": "label_issue",
     "add": "add_item",
-    "item": "item",
     "release": "set_field",
     "field": "set_field",
     "comment": "comment",
@@ -931,7 +1170,7 @@ def test_a_dry_runs_requests_follow_the_order_a_run_makes_them(roadmap: Roadmap,
     store: Any = _Recorded(roadmap.store, ran)
     model: Any = _Recorded(FakeModel(proposals={title: REGRESSION}), ran)
     store.repository_file(".github/roadmap.toml")
-    plan = plan_intake(store, config=CONFIG, model=model, issues=issues, new=candidate)
+    plan = plan_intake(store, repo=REPO, config=CONFIG, model=model, issues=issues, new=candidate)
     apply_intake(store, plan)
     planned = _operations(dry_run_intake(REPO, issues=issues, new=candidate))
     assert (
@@ -968,6 +1207,31 @@ def test_a_dry_run_still_refuses_a_candidate_holding_a_secret(
     body.write_text("It fails with token=ghp_abcdefghijklmnop1234", encoding="utf-8")
     output = _intake("--title", "fix: auth", "--body-file", str(body), "--dry-run", exit_code=1)
     assert "secret" in output
+
+
+def test_a_dry_run_with_a_limit_makes_no_request_and_names_the_limit_per_candidate(
+    no_requests: None,
+) -> None:
+    """`--limit` changes which candidates a run decides, not what a dry run sends (#1360)."""
+    output = _intake("--dry-run", "--limit", "3")
+    assert (
+        "Dry run: no request was made" in output,
+        "[repeated for each of the 3 oldest candidates:" in output,
+        "[repeated for each candidate:" in output,
+    ) == (True, True, False)
+
+
+def test_a_limited_plan_decides_the_oldest_candidates_and_names_those_it_leaves(
+    board: Roadmap, fake_model: FakeModel
+) -> None:
+    """Without a record of earlier runs, the oldest candidates come first (#1360)."""
+    numbers = [board.issue(f"feat: candidate {n}") for n in range(1, 5)]
+    preview = _intake("--plan", "--limit", "2")
+    left = ", ".join(f"#{number}" for number in numbers[2:])
+    assert (
+        [request.title for request in fake_model.requests],
+        f"Left for a later run, beyond the limit of 2: {left}." in preview,
+    ) == (["feat: candidate 1", "feat: candidate 2"], True)
 
 
 def test_an_exported_dry_run_wins_over_confirm(
@@ -1041,6 +1305,22 @@ def test_an_unreachable_gateway_exits_non_zero_names_it_and_writes_nothing(
     before = board.store.job_writes()
     output = _intake("--confirm", exit_code=1)
     assert (f"gateway {gateway}" in output, board.store.job_writes() == before) == (True, True)
+
+
+def test_confirm_names_a_restored_card_it_left_as_it_was(
+    board: Roadmap, fake_model: FakeModel
+) -> None:
+    """A finished card a person archived comes back as it was, and the run says so rather than
+    counting it as placed (#1403)."""
+    number = board.finished("feat: archived once done")
+    board.person.archive_card(number)
+    output = _intake("--confirm")
+    left = " ".join(MESSAGES.roadmap.intake_finished.format(number=number).split())
+    assert ("Intake placed 0 item(s)" in output, left in output, board.fields(number)) == (
+        True,
+        True,
+        (None, "P3-Low", None, None, None),
+    )
 
 
 def test_a_new_candidate_files_one_issue_and_a_duplicate_files_none(
@@ -1207,7 +1487,7 @@ def test_a_model_answer_that_fails_validation_skips_only_its_candidate(roadmap: 
     model = GatewayIntakeModel(AIConfig(), embedder=_Embedder(), client=Client())
     garbled = roadmap.issue("feat: garbled")
     fine = roadmap.issue("feat: fine")
-    plan = plan_intake(roadmap.store, config=CONFIG, model=model)
+    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model)
     apply_intake(roadmap.store, plan)
     skipped = plan.decisions[0]
     assert (
@@ -1316,7 +1596,7 @@ def test_a_duplicate_agent_candidate_folds_into_its_original_and_the_report_says
     original = roadmap.finished("feat: cache embeddings")
     model = FakeModel(duplicates={"feat: cached embeddings": "feat: cache embeddings"})
     outcome = intake_candidate(
-        roadmap.store, _new("feat: cached embeddings"), config=CONFIG, model=model
+        roadmap.store, _new("feat: cached embeddings"), repo=REPO, config=CONFIG, model=model
     )
     report = " ".join(render_intake(outcome.plan, repo=REPO).split())
     assert (
@@ -1329,7 +1609,9 @@ def test_a_duplicate_agent_candidate_folds_into_its_original_and_the_report_says
 
 def test_a_skipped_agent_candidate_still_reports_its_quota_decision(roadmap: Roadmap) -> None:
     model = FakeModel(proposals={"feat: odd": {"value": "Enormous"}})
-    outcome = intake_candidate(roadmap.store, _new("feat: odd"), config=CONFIG, model=model)
+    outcome = intake_candidate(
+        roadmap.store, _new("feat: odd"), repo=REPO, config=CONFIG, model=model
+    )
     report = " ".join(render_intake(outcome.plan, repo=REPO).split())
     assert (outcome.decision.outcome, outcome.decision.quota, "Quota: open" in report) == (
         Outcome.SKIP,
@@ -1343,8 +1625,12 @@ def test_a_fold_names_the_nearest_open_item_never_a_rejected_issue(crowded: Road
         "widget exporter", state=GitHubState.CLOSED, state_reason="not_planned"
     )
     model = FakeModel(topics=("widget",))
-    intake_candidate(crowded.store, _new("feat: first"), config=TIGHT, model=model, confirm=True)
-    folded = intake_candidate(crowded.store, _new("feat: widget export"), config=TIGHT, model=model)
+    intake_candidate(
+        crowded.store, _new("feat: first"), repo=REPO, config=TIGHT, model=model, confirm=True
+    )
+    folded = intake_candidate(
+        crowded.store, _new("feat: widget export"), repo=REPO, config=TIGHT, model=model
+    )
     assert (folded.decision.quota, folded.decision.fold_into in {1, 2, 3}, rejected) == (
         QuotaDecision.FOLD,
         True,
@@ -1356,10 +1642,13 @@ def test_a_persons_new_candidate_beyond_the_allowance_is_filed_and_not_counted(
     crowded: Roadmap,
 ) -> None:
     model = FakeModel()
-    intake_candidate(crowded.store, _new("feat: first"), config=TIGHT, model=model, confirm=True)
+    intake_candidate(
+        crowded.store, _new("feat: first"), repo=REPO, config=TIGHT, model=model, confirm=True
+    )
     mine = intake_candidate(
         crowded.store,
         _new("feat: mine", filed_by=Filer.PERSON),
+        repo=REPO,
         config=TIGHT,
         model=model,
         confirm=True,
@@ -1372,10 +1661,13 @@ def test_a_persons_new_candidate_beyond_the_allowance_is_filed_and_not_counted(
 
 def test_a_split_borrows_only_with_the_link_it_was_split_from(crowded: Roadmap) -> None:
     model = FakeModel()
-    intake_candidate(crowded.store, _new("feat: first"), config=TIGHT, model=model, confirm=True)
+    intake_candidate(
+        crowded.store, _new("feat: first"), repo=REPO, config=TIGHT, model=model, confirm=True
+    )
     unlinked = intake_candidate(
         crowded.store,
         _new("feat: split", borrow_reason=BorrowReason.SPLIT),
+        repo=REPO,
         config=TIGHT,
         model=model,
     )
@@ -1426,7 +1718,7 @@ def test_a_retried_new_candidate_finds_the_issue_its_stopped_run_filed(roadmap: 
     filed = roadmap.issue("feat: retry me", labels=("source/agent",))
     model = FakeModel(duplicates={"feat: retry me": "feat: retry me"})
     outcome = intake_candidate(
-        roadmap.store, _new("feat: retry me"), config=CONFIG, model=model, confirm=True
+        roadmap.store, _new("feat: retry me"), repo=REPO, config=CONFIG, model=model, confirm=True
     )
     assert (outcome.decision.outcome, outcome.decision.original, len(roadmap.store.issues())) == (
         Outcome.DUPLICATE,
@@ -1454,3 +1746,226 @@ def test_a_person_files_through_the_command_without_the_agent_label(
     _intake("--title", "feat: mine", "--body-file", str(body), "--filed-by", "person", "--confirm")
     (new,) = [i.number for i in board.store.issues() if i.title == "feat: mine"]
     assert _labels(board, new) == ("type/feature",)
+
+
+# ── On the GitHub store, at the `gh` process edge (#1361) ─────────────────────
+# The store runs every command through `GitHubFake`, which answers as GitHub does: its board
+# listing may leave a card just added out, as GitHub's showed one up to two minutes late on
+# 2026-10-07, and it charges each GraphQL request the points GitHub's estimate gives its shape.
+
+GITHUB_MILESTONES = [
+    {"number": 25, "title": PREVIOUS, "state": "closed", "closed_at": "2026-10-03T12:00:00Z"},
+    {"number": 26, "title": CURRENT, "state": "open"},
+    {"number": 27, "title": NEXT, "state": "open"},
+]
+CRITICAL_FIX = NewCandidate(
+    title="fix: crash on start",
+    body="Introduced by abc1234.",
+    evidence=(Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="abc1234"),),
+)
+
+
+def on_github(board: int = 0, *, lag: int = 0) -> tuple[GitHubFake, GitHubRoadmapStore]:
+    """A repository whose board holds `board` finished items, and the store over it."""
+    github = GitHubFake(
+        REPO,
+        milestones=GITHUB_MILESTONES,
+        files={".github/labels.yml": LABELS_YML},
+        commits=("abc1234",),
+        lag=lag,
+    )
+    for number in range(1, board + 1):
+        github.seed_issue(
+            number,
+            f"feat: finished item {number}",
+            labels=("type/feature",),
+            card={"status": "Ready", "priority": "P3-Low", "value": "Low", "effort": "Low"},
+        )
+    owner = REPO.split("/")[0]
+    return github, GitHubRoadmapStore(REPO, board_owner=owner, board_number=1, runner=github)
+
+
+def _intake_on_github(
+    store: GitHubRoadmapStore, model: FakeModel, **options: Any
+) -> tuple[IntakePlan, Any]:
+    plan = plan_intake(store, repo=REPO, config=CONFIG, model=model, **options)
+    return plan, lambda: apply_intake(store, plan, refine=lambda *_: None)
+
+
+def _sent(github: GitHubFake, start: int, operation: str) -> int:
+    """How many requests naming `operation` the store sent from call `start` on."""
+    return sum(operation in " ".join(args) for args in github.calls[start:])
+
+
+def _edits(github: GitHubFake, start: int) -> list[tuple[str, str]]:
+    """Each id-addressed `item-edit` from call `start` on: the field's id and the value sent."""
+    return [
+        (args[args.index("--field-id") + 1], args[-1])
+        for args in github.calls[start:]
+        if args[:2] == ["project", "item-edit"]
+    ]
+
+
+def test_intake_writes_to_the_card_it_added_while_the_board_listing_leaves_it_out() -> None:
+    """The lag of 2026-10-07: the listing leaves a new card out of its next three reads. Intake
+    files a critical fix and places it in the current release, writing Release, Status, Value,
+    Effort and Priority to the card the add named; after the add it sends no board listing
+    query, only one card read for the add and one for each field write. At 910b823 it failed
+    here with "is not on the board after intake added it"."""
+    github, store = on_github(board=3, lag=3)
+    model = FakeModel(proposals={CRITICAL_FIX.title: REGRESSION})
+    _, apply = _intake_on_github(store, model, new=CRITICAL_FIX)
+    applied = apply()
+    (number,) = applied.filed
+    added = next(i for i, args in enumerate(github.calls) if args[:2] == ["project", "item-add"])
+    card = github.card(number) or {}
+    assert (
+        [_sent(github, added, name) for name in (BOARD_BUDGET_OPERATION, BOARD_ITEMS_OPERATION)],
+        _sent(github, added, BOARD_CARD_OPERATION),
+        github.board.lagging,
+        {key: card.get(key) for key in ("status", "priority", "value", "effort")},
+        json.loads(card["job record"])["Release"],
+        github.issues[number]["milestone"]["title"],
+    ) == (
+        [0, 0],
+        6,
+        {f"PVTI_{number}": 3},
+        {"status": "New", "priority": "P0-Critical", "value": "Medium", "effort": "Low"},
+        CURRENT,
+        CURRENT,
+    )
+
+
+@pytest.mark.parametrize("board", [120, 1_080])
+def test_a_placement_costs_the_same_few_graphql_points_whatever_the_boards_size(
+    board: int,
+) -> None:
+    """Filing and placing a critical fix in the release: the fields once, the add and its card,
+    then for each of five writes the card and its edits by node ids. The cost is a small
+    constant, the same on a board of 120 cards or of 1,080: about 17 in the fake, which charges
+    `item-add` as one mutation though gh first resolves its owner, board and issue with queries
+    of its own. On 2026-10-07 the same placement cost about 1,500, most of it in `field-list`,
+    name-addressed edits and whole-board re-reads."""
+    github, store = on_github(board=board)
+    model = FakeModel(proposals={CRITICAL_FIX.title: REGRESSION})
+    _, apply = _intake_on_github(store, model, new=CRITICAL_FIX)
+    github.points = 0
+    apply()
+    assert github.points == 17
+
+
+def test_an_item_on_the_board_with_status_and_value_gets_only_effort_and_priority() -> None:
+    """#1336's state: a card with Status and Value from a placement that stopped. Intake
+    writes the record and the field for Effort, then Priority, to the card it has, and sends
+    no board listing query."""
+    github, store = on_github()
+    record = json.dumps({"Status": "New", "Value": "Medium"})
+    github.seed_issue(1, "feat: export the board as CSV", card={"status": "New", "value": "Medium"})
+    (github.card(1) or {})["job record"] = record
+    plan, apply = _intake_on_github(store, FakeModel())
+    start = len(github.calls)
+    apply()
+    assert (
+        plan.decisions[0].subject.item is not None,
+        [field for field, _ in _edits(github, start)],
+        [value for _, value in _edits(github, start)][1::2],
+        _sent(github, start, "RoadmapBoardItems") + _sent(github, start, "RoadmapBoardBudget"),
+        _sent(github, start, "item-add"),
+    ) == (
+        True,
+        [field_id("Job record"), field_id("Effort"), field_id("Job record"), field_id("Priority")],
+        ["PVTF_effort/Low", "PVTF_priority/P2-Medium"],
+        0,
+        0,
+    )
+
+
+def test_an_issue_whose_card_a_person_archived_is_placed_in_one_round_on_that_card() -> None:
+    """#1's card is archived, holding the Status New, Value and Effort a person set, so the
+    board's listing leaves it out and #1 is a candidate. One round restores the card with one
+    `item-archive --undo` and writes only what it holds none of, Priority: the person's values
+    stay, and the job record claims none of them (ADR 0002). The next round finds no candidate
+    and sends no add or restore. Without the restore, every round raised "Board #1 does not hold
+    card PVTI_1 that #1 was just added as." (#1403)."""
+    github, store = on_github()
+    card = {"status": "New", "value": "High", "effort": "High"}
+    github.seed_issue(1, "feat: export the board as CSV", labels=("type/feature",), card=card)
+    (github.card(1) or {})["isArchived"] = True
+    _, apply = _intake_on_github(store, FakeModel())
+    applied = apply()
+    placed = github.card(1) or {}
+    second = len(github.calls)
+    owner = REPO.split("/")[0]
+    later = GitHubRoadmapStore(REPO, board_owner=owner, board_number=1, runner=github)
+    again, apply_again = _intake_on_github(later, FakeModel())
+    assert (
+        applied.placed,
+        _sent(github, 0, "item-archive"),
+        [field for field, _ in _edits(github, 0)][1::2],
+        {key: placed.get(key) for key in ("status", "priority", "value", "effort")},
+        "isArchived" in placed,
+        set(later.item(1).job_record) if later.item(1) else None,
+        (again.decisions, apply_again().placed),
+        _sent(github, second, "item-add") + _sent(github, second, "item-archive"),
+    ) == (
+        1,
+        1,
+        [field_id("Priority")],
+        {"status": "New", "priority": "P2-Medium", "value": "High", "effort": "High"},
+        False,
+        {ItemField.PRIORITY},
+        ((), 0),
+        0,
+    )
+
+
+def test_a_finished_card_a_person_archived_in_the_current_release_gets_only_its_restore() -> None:
+    """#1 is In Progress and P1-High in the current release, as a person set it, and a person
+    archived its card. The round sends the add and the restore and nothing else: no milestone
+    change, no comment and no field or job record edit, and it reports #1 as left as it was. At
+    833c467 it cleared the milestone, wrote Status, Value, Effort and Priority with the job
+    record, and commented "to the backlog" (#1403)."""
+    github, store = on_github()
+    card = {"status": "In Progress", "priority": "P1-High"}
+    github.seed_issue(
+        1, "feat: export the board as CSV", labels=("type/feature",), milestone=CURRENT, card=card
+    )
+    (github.card(1) or {})["isArchived"] = True
+    plan, apply = _intake_on_github(store, FakeModel())
+    start = len(github.calls)
+    applied = apply()
+    restored = github.card(1) or {}
+    writes = [args[:2] for args in github.calls[start:] if args[0] == "project"]
+    assert (
+        [decision.moves for decision in plan.decisions],
+        writes,
+        [args for args in github.calls[start:] if "--method" in args or "-X" in args],
+        (github.issues[1]["milestone"] or {}).get("title"),
+        github.comments.get(1),
+        {key: restored.get(key) for key in ("status", "priority", "job record", "isArchived")},
+        (applied.placed, applied.finished),
+    ) == (
+        [False],
+        [["project", "item-add"], ["project", "item-archive"]],
+        [],
+        CURRENT,
+        None,
+        {"status": "In Progress", "priority": "P1-High", "job record": None, "isArchived": None},
+        (0, (1,)),
+    )
+
+
+def test_an_intake_of_three_placements_reads_the_board_once() -> None:
+    """On a board of 250 cards: one budget probe and three pages for the whole run, its three
+    placements included."""
+    github, store = on_github(board=250)
+    for number in (251, 252, 253):
+        github.seed_issue(number, f"feat: new idea {number}")
+    _, apply = _intake_on_github(store, FakeModel())
+    applied = apply()
+    assert (
+        applied.placed,
+        _sent(github, 0, BOARD_BUDGET_OPERATION),
+        _sent(github, 0, BOARD_ITEMS_OPERATION),
+        [(github.card(n) or {}).get("priority") for n in (251, 252, 253)],
+    ) == (3, 1, 3, ["P2-Medium"] * 3)

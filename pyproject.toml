@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.2.28"
+version = "0.2.29"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
@@ -17,6 +17,8 @@ dependencies = [
     "gitpython==3.2.0",
     "cryptography==50.0.2",
     "httpx2==2.13.1",
+    "httpcore2==2.13.1",
+    "anyio==4.15.1",
     "keyring==25.7.0",
     "PyYAML==6.0.3",
     "jinja2==3.1.6",
@@ -34,7 +36,7 @@ dependencies = [
     "fastapi==0.142.2",
     "uvicorn==0.53.0",
     "tiktoken==0.14.0",
-    "pydantic-ai==2.35.0",
+    "pydantic-ai==2.54.0",
     "dnspython==2.8.0",
     "genai-prices==0.1.9",
     "opentelemetry-exporter-otlp-proto-grpc==1.44.0",
@@ -80,6 +82,7 @@ dev = [
     "actionlint-py==1.7.12.25",
     "pre-commit==4.6.2",
     "hypothesis==6.168.3",
+    "h11==0.16.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -117,6 +120,13 @@ python_version = "3.14"
 strict = true
 plugins = ['pydantic.mypy']
 enable_error_code = ["ignore-without-code"]
+
+# pydantic-ai documents EnqueueContent, PendingMessage and PendingMessagePriority as members of
+# pydantic_ai.run (https://pydantic.dev/docs/ai/api/run/), but the module has no __all__, so
+# strict mode would not count them as exported.
+[[tool.mypy.overrides]]
+module = "pydantic_ai.run"
+implicit_reexport = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

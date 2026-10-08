@@ -5792,7 +5792,7 @@ devops roadmap reprioritize [OPTIONS]
 
 ### `devops roadmap intake`
 
-**Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog, or a critical fix to the release #740's admission rule allows. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.**
+**Turn candidates into items: every open issue not on the board, and every board item intake left without a Priority. Each is checked for a duplicate among the board's items and the issues closed as not planned, gets a type, a priority, Value and Effort from the model with a reason comment, and goes to the backlog, or a critical fix to the release #740's admission rule allows. An open issue whose board card a person archived is a candidate too: intake restores the card, which keeps its values and milestone; close the issue as not planned to keep it off the roadmap. A candidate an agent files with --title and --body-file is labeled source/agent and held to the agent filing quota; a text that looks like it holds a secret is refused. --dry-run makes no request and prints the requests a run makes; --plan, the default, reads GitHub and calls the model, writes nothing and reports what it spent; --confirm makes the writes.**
 
 ```bash
 devops roadmap intake [OPTIONS]
@@ -5810,13 +5810,14 @@ devops roadmap intake [OPTIONS]
 | `--borrow-reason` | `choice (split|follow-up)` | - | Why the new candidate may open beyond the quota's allowance: a split of an item too big for one pull request, or a follow-up a reviewer or readiness check requires. Needs --source. |
 | `--source` | `string` | - | Link the new candidate came from, such as the item it splits or the review that found it; the filed body ends with it. |
 | `--filed-by` | `choice (agent|person)` | `agent` | Who files the new candidate: an agent's is labeled source/agent and counts toward the quota; a person's never does. |
+| `--limit` | `integer` | - | Decide at most this many candidates, the oldest first, and leave the rest for a later run. Without it, intake decides every candidate. It keeps no record of what it decided; the intake that devops roadmap run and the Service run keeps one, so a candidate it left undecided waits behind the fresh ones. |
 | `--dry-run` | `boolean` | - | Make no request, to GitHub or a model: print the requests a run makes, in order, with placeholders for values a read gives. |
 | `--plan` | `boolean` | - | Read GitHub and call the model, print each planned change and what the run spent, and write nothing. Intake without a mode flag does this. |
 | `--confirm` | `boolean` | - | Plan as --plan does, then make the writes on GitHub. |
 
 ### `devops roadmap close`
 
-**Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, pushes, and opens the release pull request into the default branch. Lists completed items with no changelog fragment. Writes only with --confirm.**
+**Close each item delivered to the current release, and cut the release once it holds no open item. Reads every pull request merged into release/vX.Y.Z and closes as completed each open issue a body closes with a closing keyword, commenting what changed and how it was verified (check runs and the task file's Acceptance Criteria). Reads each closed Release that still holds an open issue the same way first, closing the items of that Release its pull requests deliver, except one a person reopened, and naming the rest, which hold no cut. Once the release has no open item, one item closed as completed and no release pull request, writes docs/ROADMAP.md on release/vX.Y.Z in the clone at --root, bumps the version, pushes to release/vX.Y.Z (requiring Write role bypass on release ruleset 23059172), and opens the release pull request into the default branch. Lists completed items with no changelog fragment. Writes only with --confirm.**
 
 ```bash
 devops roadmap close [OPTIONS]
@@ -5831,11 +5832,11 @@ devops roadmap close [OPTIONS]
 | `--root` | `path` | `.` | The clone the cut runs git in (default: the current directory). |
 | `--confirm` | `boolean` | - | Close the issues and make the cut. Without it, close prints its plan only. |
 | `--dry-run` | `boolean` | - | Make no request and change no git ref: print the requests a run makes, in order, with placeholders for values a read gives. |
-| `--plan` | `boolean` | - | Read GitHub, print each issue the run closes with its comment and the cut or what holds it, write nothing, and end with the GraphQL points spent and left. Close without a mode flag does this. |
+| `--plan` | `boolean` | - | Read GitHub, print each issue the run closes with its comment and the cut or what holds it, write nothing, and end with the GraphQL points spent and left once its store has sent a GraphQL request. Close without a mode flag does this. |
 
 ### `devops roadmap refine`
 
-**Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria. Evaluates Next-release and Backlog New items using code, documentation, and external research.**
+**Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria. Evaluates Next-release and Backlog New items using code, documentation, and external research. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1.**
 
 ```bash
 devops roadmap refine [OPTIONS]
@@ -5855,7 +5856,7 @@ devops roadmap refine [OPTIONS]
 
 ### `devops roadmap run`
 
-**Run roadmap jobs that are due: evaluate due criteria across landed jobs, run due jobs in order, and record last-success execution timestamps. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
+**Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then intake and refine, and record each one's last success. Reprioritize is due on a ship, a cut or an un-cut the poll reads, on a change to an item in the current release, and once a day; intake decides at most 5 candidates a run and keeps a record of those it left beside the schedule. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
 
 ```bash
 devops roadmap run [OPTIONS]
@@ -6478,11 +6479,11 @@ devops gh project status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 
 #### `devops gh project sync`
 
-**Create or update the project board from its template, add open issues, and reconcile Status, Priority and Milestone; task files are not read.**
+**Find or create the project board from its template, link it, create the fields it lacks, and reconcile Status and Priority on the cards already on it. Sync adds no issue or pull request to the board: devops roadmap intake places issues, and a pull request's progress shows on its issue's card. Exits 1 when reconcile stops early.**
 
 ```bash
 devops gh project sync [OPTIONS]
@@ -6492,15 +6493,14 @@ devops gh project sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--task-file`, `-f` | `path` | `docs/agent/tasks` | Path to docs/agent/tasks directory |
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `--repo`, `-R` | `string` | - | Target repository |
-| `--dry-run` / `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
-| `--reconcile-fields` / `--no-reconcile-fields` | `boolean` | `True` | Also reconcile Status, Priority and Milestone from issue state and labels. |
+| `--dry-run` / `--no-dry-run` | `boolean` | - | Make no request and describe what a sync does. |
+| `--reconcile-fields` / `--no-reconcile-fields` | `boolean` | `True` | Also reconcile Status and Priority on the cards already on the board, from issue and pull request state and labels. |
 
 #### `devops gh project reconcile`
 
-**Reconcile Status, Priority and Milestone on project items, listing each change and its source; the board owns Status.**
+**Reconcile Status and Priority on the cards already on the board, listing each change and its source; the board owns Status, and reconcile never writes Milestone, Value or Effort or adds a card. A planned value the board's field has no option for is refused before any write. A run that stops early (mutation budget, GraphQL quota or a failed write) says why and how many planned changes remain, and exits 1. Running it again continues from there: after the reset when the quota stopped it, and once the cause is fixed when a write failed.**
 
 ```bash
 devops gh project reconcile [OPTIONS]
@@ -6513,7 +6513,8 @@ devops gh project reconcile [OPTIONS]
 | `--project-number`, `-n` | `integer` | - | GitHub Projects v2 board number |
 | `--state`, `-s` | `string` | `all` | Filter issue/PR states (open, closed, all) |
 | `--repo`, `-R` | `string` | - | Target repository |
-| `--dry-run` | `boolean` | - | Preview field reconciliation without mutations |
+| `--dry-run` | `boolean` | - | Make no request, reads included, and list the requests a run makes. |
+| `--plan` | `boolean` | - | Read the board and the repository and list the changes a run makes, making none. |
 
 #### `devops gh project link`
 
@@ -6551,7 +6552,7 @@ devops gh project list [OPTIONS]
 
 #### `devops gh project audit`
 
-**Audit project board items and fields against local tasks and template.**
+**Audit the project board's views against the template.**
 
 ```bash
 devops gh project audit [OPTIONS]
@@ -6561,7 +6562,7 @@ devops gh project audit [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 #### `devops gh project template`
@@ -6576,7 +6577,7 @@ devops gh project template [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 
 #### `devops gh project workflows`
 
@@ -6618,7 +6619,7 @@ devops gh views list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 
 #### `devops gh views spec`
 
@@ -6632,7 +6633,7 @@ devops gh views spec [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 
 #### `devops gh views sync`
 
@@ -6646,7 +6647,7 @@ devops gh views sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 #### `devops gh views audit`
@@ -6661,7 +6662,7 @@ devops gh views audit [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 ### `devops gh pages`
@@ -8252,6 +8253,11 @@ Enterprise HashiCorp Vault secret broker commands
 
 **Inspect HashiCorp Vault cluster health and initialization status.**
 
+Inspect HashiCorp Vault cluster health and initialization status.
+
+The health endpoint needs no token, and none is sent. The Token row names where the token
+other commands would use comes from, and why a stored token is not used for this address.
+
 ```bash
 devops vault status [OPTIONS]
 ```
@@ -8265,7 +8271,12 @@ devops vault status [OPTIONS]
 
 ### `devops vault get`
 
-**Fetch secret value from Vault or OS Keyring fallback.**
+**Fetch a secret from Vault, or from the OS keyring when Vault cannot answer.**
+
+Fetch a secret from Vault, or from the OS keyring when Vault cannot answer.
+
+The keyring answers only with no usable token, when Vault has no value at the path, or when
+Vault is unreachable; never after Vault rejects the token. The output names the source.
 
 ```bash
 devops vault get [OPTIONS] <path>
@@ -8310,6 +8321,11 @@ devops vault set [OPTIONS] <path> <key_values>
 
 **Synchronize secrets from Vault into OS Keyring for offline/local CLI operations.**
 
+Synchronize secrets from Vault into OS Keyring for offline/local CLI operations.
+
+Reads Vault alone. A path with no secret fails, and a field named like the entry that holds
+the `devops vault login` token is never written.
+
 ```bash
 devops vault sync [OPTIONS] <path>
 ```
@@ -8331,6 +8347,12 @@ devops vault sync [OPTIONS] <path>
 
 **Authenticate with Vault natively via AppRole or the in-cluster ServiceAccount.**
 
+Authenticate with Vault natively via AppRole or the in-cluster ServiceAccount.
+
+With --store, the default, the token is kept in the OS keyring with the address and namespace
+that issued it, and other vault commands use it for that Vault only. The command fails before
+logging in when no encrypted, unlocked OS keyring can keep it. The token is never printed.
+
 ```bash
 devops vault login [OPTIONS]
 ```
@@ -8339,15 +8361,33 @@ devops vault login [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--method`, `-m` | `string` | `approle` | Authentication method: approle or kubernetes |
+| `--method`, `-m` | `string` | `approle` | Authentication method: approle or kubernetes. In a pod, use kubernetes with --no-store: it checks the ServiceAccount login without keeping the token, and the pod takes VAULT_TOKEN from its Vault integration. |
 | `--role` | `string` | - | Vault role name (kubernetes method) |
 | `--role-id` | `string` | - | AppRole role_id |
 | `--secret-id` | `string` | - | AppRole secret_id |
-| `--store` / `--no-store` | `boolean` | `True` | Persist the issued token to the OS keyring |
+| `--store` / `--no-store` | `boolean` | `True` | Keep the issued token in the OS keyring, for this Vault address and namespace only. --no-store checks the credentials without keeping the token: the form for CI and in-cluster runs, which take VAULT_TOKEN from their Vault integration. |
+
+### `devops vault logout`
+
+**Revoke the token `devops vault login` stored, at the Vault that issued it, and delete it.**
+
+Revoke the token `devops vault login` stored, at the Vault that issued it, and delete it.
+
+The revoke goes to the address and namespace stored with the token, whatever VAULT_ADDR says
+now. The local copy is deleted even when the revoke fails, for example because Vault is
+unreachable or the token has expired, and the output says the revoke did not happen.
+
+```bash
+devops vault logout
+```
 
 ### `devops vault leases`
 
 **Inspect, renew, or revoke tracked Vault dynamic secret leases.**
+
+Inspect, renew, or revoke tracked Vault dynamic secret leases.
+
+Every mode needs a usable token and fails before any request without one.
 
 ```bash
 devops vault leases [OPTIONS]

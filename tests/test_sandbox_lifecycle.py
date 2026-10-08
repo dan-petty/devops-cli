@@ -13,7 +13,7 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-from devops_cli.exceptions.docker import DockerEngineError
+from devops_cli.exceptions.docker import DockerEngineError, DockerSandboxError
 from devops_cli.exceptions.sandbox import (
     SandboxError,
     SandboxNotFoundError,
@@ -217,7 +217,9 @@ def test_sandbox_registry_corrupted_file_handling(tmp_path: Path) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_sandbox_workspace_validation_forbidden_roots(tmp_path: Path) -> None:
+def test_sandbox_workspace_validation_forbidden_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Engine rejects forbidden root paths, user home, and sensitive dirs."""
     engine = WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json"))
 
@@ -237,11 +239,12 @@ def test_sandbox_workspace_validation_forbidden_roots(tmp_path: Path) -> None:
     with pytest.raises(SandboxValidationError, match="symbolic link"):
         engine.validate_workspace_dir(cfg_symlink.workspace_dir)
 
-    # docker.sock in path
-    sock_path = tmp_path / "var" / "run" / "docker.sock"
-    cfg_sock = SandboxDeployConfig(workspace_dir=sock_path)
-    with pytest.raises(SandboxValidationError, match="Docker socket"):
+    # The directory holding the engine socket DOCKER_HOST names
+    monkeypatch.setenv("DOCKER_HOST", f"unix://{tmp_path}/var/run/docker.sock")
+    cfg_sock = SandboxDeployConfig(workspace_dir=tmp_path / "var" / "run")
+    with pytest.raises(SandboxValidationError, match="container engine"):
         engine.validate_workspace_dir(cfg_sock.workspace_dir)
+    monkeypatch.delenv("DOCKER_HOST")
 
     # Sensitive subpath (.git, .ssh, .kube, .aws)
     git_path = tmp_path / ".git"
@@ -249,6 +252,173 @@ def test_sandbox_workspace_validation_forbidden_roots(tmp_path: Path) -> None:
     cfg_git = SandboxDeployConfig(workspace_dir=git_path)
     with pytest.raises(SandboxValidationError, match="credential or repository"):
         engine.validate_workspace_dir(cfg_git.workspace_dir)
+
+
+def _run_docker_sandbox(workspace: Path, tmp_path: Path) -> None:
+    """Run a workload as `devops docker sandbox` and `devops test sandbox` do."""
+    from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
+
+    config = WorkloadSandboxConfig(workspace_dir=workspace, command=["true"])
+    WorkloadSandboxRunner(config, exclude_home_dir=True).run()
+
+
+def _deploy_sandbox(workspace: Path, tmp_path: Path) -> None:
+    """Deploy a sandbox as `devops sandbox deploy` does."""
+    registry = SandboxRegistry(tmp_path / "reg.json")
+    engine = WorkloadSandboxEngine(registry=registry, exclude_home_dir=True)
+    engine.deploy(SandboxDeployConfig(workspace_dir=workspace))
+
+
+_SANDBOX_RUNNERS: dict[str, tuple[Any, type[Exception]]] = {
+    "docker-sandbox": (_run_docker_sandbox, DockerSandboxError),
+    "sandbox-deploy": (_deploy_sandbox, SandboxValidationError),
+}
+
+
+def _engine_dir(tmp_path: Path) -> Path:
+    return tmp_path / "d" / "engine"
+
+
+def _symlinked_engine_socket(tmp_path: Path) -> tuple[Path, Path, str]:
+    """Link `link/docker.sock` to `real/docker.sock`, as Docker Desktop's WSL integration links
+    /var/run/docker.sock into /mnt/wsl, so the socket the client opens lives in `real`."""
+    real, link = tmp_path / "real", tmp_path / "link"
+    real.mkdir()
+    link.mkdir()
+    (link / "docker.sock").symlink_to(real / "docker.sock")
+    return real, real, f"unix://{link}/docker.sock"
+
+
+# Each case: the workspace, the directory its refusal names, and the DOCKER_HOST it runs under.
+_REFUSED_WORKSPACES: dict[str, Any] = {
+    "run": lambda tmp, rt: (Path("/run"), Path("/run"), None),
+    "run-user": lambda tmp, rt: (Path("/run/user/1000"), Path("/run"), None),
+    "run-user-gnupg": lambda tmp, rt: (Path("/run/user/1000/gnupg"), Path("/run"), None),
+    "var-run": lambda tmp, rt: (Path("/var/run"), Path("/var/run"), None),
+    "runtime-dir": lambda tmp, rt: (rt, rt, None),
+    "under-runtime-dir": lambda tmp, rt: (rt / "sub", rt, None),
+    "holds-runtime-dir": lambda tmp, rt: (rt.parent, rt, None),
+    "engine-socket-dir": lambda tmp, rt: (
+        _engine_dir(tmp),
+        _engine_dir(tmp),
+        f"unix://{_engine_dir(tmp)}/docker.sock",
+    ),
+    "under-engine-socket-dir": lambda tmp, rt: (
+        _engine_dir(tmp) / "sub",
+        _engine_dir(tmp),
+        f"unix://{_engine_dir(tmp)}/docker.sock",
+    ),
+    "holds-engine-socket-dir": lambda tmp, rt: (
+        _engine_dir(tmp).parent,
+        _engine_dir(tmp),
+        f"unix://{_engine_dir(tmp)}/docker.sock",
+    ),
+    # docker-py reads `unix://tmp/...` as `/tmp/...`, so the check must too.
+    "engine-socket-dir-two-slash": lambda tmp, rt: (
+        _engine_dir(tmp),
+        _engine_dir(tmp),
+        f"unix://{str(_engine_dir(tmp)).lstrip('/')}/docker.sock",
+    ),
+    "symlinked-engine-socket": lambda tmp, rt: _symlinked_engine_socket(tmp),
+    "unsupported-engine-endpoint": lambda tmp, rt: (tmp / "ws", tmp / "ws", "fd://"),
+    # docker-py's parse_host raises a bare ValueError here, not a DockerException.
+    "unparseable-engine-endpoint": lambda tmp, rt: (tmp / "ws", tmp / "ws", "tcp://host:abc"),
+    "system-subpath": lambda tmp, rt: (Path("/etc/ssl"), Path("/etc/ssl"), None),
+}
+
+
+@pytest.mark.parametrize("runner_name", sorted(_SANDBOX_RUNNERS))
+@pytest.mark.parametrize("case", sorted(_REFUSED_WORKSPACES))
+def test_a_workspace_overlapping_a_socket_directory_is_refused_before_any_engine_call(
+    runner_name: str,
+    case: str,
+    tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    docker_engine: Any,
+) -> None:
+    """Both runners refuse /run, the runtime directory and the engine socket's directory when the
+    workspace is, holds or sits under one, and name the workspace and that directory (#1115)."""
+    run, refusal = _SANDBOX_RUNNERS[runner_name]
+    runtime_dir = tmp_path_factory.mktemp("rt")
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
+    workspace, protected, docker_host = _REFUSED_WORKSPACES[case](tmp_path, runtime_dir)
+    if docker_host:
+        monkeypatch.setenv("DOCKER_HOST", docker_host)
+    client = MagicMock()
+
+    with docker_engine(client), pytest.raises(refusal) as refused:
+        run(workspace, tmp_path)
+
+    message = str(refused.value)
+    assert (str(workspace) in message, str(protected) in message, client.mock_calls) == (
+        True,
+        True,
+        [],
+    )
+
+
+@pytest.mark.parametrize("runner_name", sorted(_SANDBOX_RUNNERS))
+@pytest.mark.parametrize("docker_host", [None, "tcp://192.0.2.1:2375"], ids=["unset", "tcp"])
+def test_a_workspace_beside_the_socket_directories_is_mounted(
+    runner_name: str,
+    docker_host: str | None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    docker_engine: Any,
+) -> None:
+    """A tcp endpoint names no socket, so only /run and the runtime directory stay protected."""
+    run, _refusal = _SANDBOX_RUNNERS[runner_name]
+    if docker_host:
+        monkeypatch.setenv("DOCKER_HOST", docker_host)
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    client = MagicMock()
+
+    with docker_engine(client):
+        run(workspace, tmp_path)
+
+    assert list(client.containers.create.call_args.kwargs["volumes"]) == [str(workspace)]
+
+
+@pytest.mark.parametrize("tool_name", ["docker_sandbox", "sandbox_deploy"])
+@pytest.mark.parametrize(
+    "case", ["run-user", "unsupported-engine-endpoint", "unparseable-engine-endpoint"]
+)
+def test_mcp_sandbox_tools_refuse_the_workspace_before_any_command_runs(
+    tool_name: str, case: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tool raises the shared check's refusal, so the client gets it and no command runs."""
+    from devops_cli.ai.mcp import server
+
+    workspace, _protected, docker_host = _REFUSED_WORKSPACES[case](tmp_path, tmp_path)
+    if docker_host:
+        monkeypatch.setenv("DOCKER_HOST", docker_host)
+    tool = getattr(server, tool_name)
+
+    with (
+        patch("devops_cli.ai.mcp.server._run_mcp_cmd") as run_command,
+        pytest.raises(SandboxValidationError),
+    ):
+        tool(command=["true"], workspace=str(workspace))
+
+    assert run_command.called is False
+
+
+def test_sandbox_deploy_dry_run_looks_up_no_engine_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The workspace check reads DOCKER_HOST without the engine's egress check, so a dry run
+    neither resolves a tcp engine's host nor refuses it as private (#1115)."""
+    from devops_cli.commands.sandbox import app as sandbox_app
+
+    monkeypatch.setenv("DOCKER_HOST", "tcp://example.com:2375")
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
+
+    with patch("devops_cli.core.validation._resolve_host_ips") as lookup:
+        res = CliRunner().invoke(sandbox_app, ["deploy", "--workspace", str(tmp_path), "--dry-run"])
+
+    assert (res.exit_code, lookup.called) == (0, False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -586,7 +756,7 @@ def test_cli_sandbox_exec(tmp_path: Path) -> None:
         assert res_fail.exit_code == 42
 
 
-def test_fastmcp_sandbox_tools() -> None:
+def test_fastmcp_sandbox_tools(tmp_path: Path) -> None:
     """Test FastMCP sandbox tool definitions and resource dispatch."""
     from devops_cli.ai.mcp.server import (
         get_sandbox_instances_resource,
@@ -597,7 +767,10 @@ def test_fastmcp_sandbox_tools() -> None:
     )
 
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="mcp output") as mock_run:
-        assert sandbox_deploy(image="python:3.14-slim", name="mcp-sb", ports=[8080]) == "mcp output"
+        deployed = sandbox_deploy(
+            image="python:3.14-slim", name="mcp-sb", ports=[8080], workspace=str(tmp_path)
+        )
+        assert deployed == "mcp output"
         assert sandbox_status("mcp-sb") == "mcp output"
         assert sandbox_stop("mcp-sb") == "mcp output"
         assert sandbox_exec("mcp-sb", ["ls", "-la"]) == "mcp output"

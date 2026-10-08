@@ -14,11 +14,13 @@ from typing import Any, Final
 
 from devops_cli.config.constants import (
     CONST_SANDBOX_DOCKER_INTERNAL_NET,
+    CONST_SANDBOX_RUNTIME_ROOT,
     CONST_SANDBOX_SENSITIVE_SUBPATHS,
+    CONST_XDG_RUNTIME_DIR_ENV_VAR,
 )
 from devops_cli.config.defaults import DEFAULT_SANDBOX_EXCLUDE_HOME
 from devops_cli.docker.engine import DockerEngineService, get_engine
-from devops_cli.exceptions.docker import DockerError
+from devops_cli.exceptions.docker import DockerEngineError, DockerError
 from devops_cli.exceptions.sandbox import (
     SandboxError,
     SandboxNotFoundError,
@@ -47,19 +49,6 @@ from devops_cli.telemetry import record_metric, trace_span
 logger = logging.getLogger(__name__)
 
 MAX_FOLLOW_BUFFER_LINES: Final[int] = 1000
-
-_FORBIDDEN_ROOTS: Final[set[str]] = {
-    "/",
-    "/etc",
-    "/usr",
-    "/bin",
-    "/sbin",
-    "/boot",
-    "/sys",
-    "/proc",
-    "/dev",
-    "/var",
-}
 
 
 def is_home_or_subpath(target_path: Path) -> bool:
@@ -116,15 +105,10 @@ def _check_workspace_forbidden_roots(resolved: Path) -> None:
     """Validate resolved workspace path against forbidden host system roots."""
     from devops_cli.core.paths import is_forbidden_system_path
 
-    resolved_str = str(resolved)
-    if (
-        resolved_str in _FORBIDDEN_ROOTS
-        or resolved == Path(resolved.anchor)
-        or is_forbidden_system_path(resolved)
-    ):
+    if resolved == Path(resolved.anchor) or is_forbidden_system_path(resolved):
         raise SandboxValidationError(
             f"Mounting sensitive root system directory into sandbox is forbidden: {resolved}",
-            path=resolved_str,
+            path=str(resolved),
         )
 
 
@@ -148,21 +132,62 @@ def _check_workspace_home(resolved: Path, exclude_home_dir: bool) -> None:
 
 
 def _check_workspace_sensitive_paths(resolved: Path) -> None:
-    """Block sensitive repository metadata directories and Docker sockets."""
-    resolved_str = str(resolved)
-    if resolved.name in CONST_SANDBOX_SENSITIVE_SUBPATHS or any(
-        part in CONST_SANDBOX_SENSITIVE_SUBPATHS for part in resolved.parts
-    ):
+    """Block sensitive credential and repository metadata directories."""
+    if any(part in CONST_SANDBOX_SENSITIVE_SUBPATHS for part in resolved.parts):
         raise SandboxValidationError(
             f"Mounting sensitive credential or repository metadata directory into sandbox is forbidden: {resolved}",
-            path=resolved_str,
+            path=str(resolved),
         )
 
-    if "docker.sock" in resolved_str:
+
+def _engine_socket_dirs(resolved: Path) -> list[Path]:
+    """Return the directories of the engine's unix socket, if it uses one: the one its path names
+    and, when the socket file is a symlink, the one the link leads to."""
+    try:
+        socket_path = get_engine().unix_socket_path()
+    except DockerEngineError as exc:
         raise SandboxValidationError(
-            f"Mounting Docker socket into sandbox is forbidden: {resolved}",
-            path=resolved_str,
-        )
+            f"Cannot tell which container engine socket to keep out of sandbox workspace {resolved}: {exc}",
+            path=str(resolved),
+        ) from exc
+    return [] if socket_path is None else [socket_path.parent, socket_path.resolve().parent]
+
+
+def _socket_dirs(resolved: Path) -> list[Path]:
+    """Return the resolved directories that hold container engine and session sockets."""
+    runtime_dir = Path(os.environ.get(CONST_XDG_RUNTIME_DIR_ENV_VAR, ""))
+    user_runtime_dirs = [runtime_dir] if runtime_dir.is_absolute() else []
+    candidates = [CONST_SANDBOX_RUNTIME_ROOT, *user_runtime_dirs, *_engine_socket_dirs(resolved)]
+    return [directory.resolve() for directory in candidates]
+
+
+def _check_workspace_socket_dirs(resolved: Path) -> None:
+    """Refuse a workspace that is, holds or sits under a directory holding engine or session sockets.
+
+    A read-only bind mount still allows `connect()` on a socket, so no part of such a directory
+    may reach the sandbox.
+    """
+    for socket_dir in _socket_dirs(resolved):
+        if resolved.is_relative_to(socket_dir) or socket_dir.is_relative_to(resolved):
+            raise SandboxValidationError(
+                f"Sandbox workspace {resolved} overlaps {socket_dir}, where container engine and session sockets live; mounting it is forbidden.",
+                path=str(resolved),
+            )
+
+
+def validate_sandbox_workspace(workspace: Path, *, exclude_home_dir: bool) -> Path:
+    """Resolve a sandbox workspace, refusing any directory a sandbox must never mount.
+
+    `devops docker sandbox`, `devops test sandbox`, `devops sandbox deploy` and the MCP tools in
+    front of them run this one check before any engine call.
+    """
+    _check_workspace_traversal_and_symlink(workspace)
+    resolved = workspace.resolve()
+    _check_workspace_forbidden_roots(resolved)
+    _check_workspace_home(resolved, exclude_home_dir)
+    _check_workspace_sensitive_paths(resolved)
+    _check_workspace_socket_dirs(resolved)
+    return resolved
 
 
 class WorkloadSandboxEngine:
@@ -189,12 +214,7 @@ class WorkloadSandboxEngine:
 
     def validate_workspace_dir(self, workspace_dir: Path) -> Path:
         """Enforce strict security boundaries preventing host system root or secret mounts."""
-        _check_workspace_traversal_and_symlink(workspace_dir)
-        resolved = workspace_dir.resolve()
-        _check_workspace_forbidden_roots(resolved)
-        _check_workspace_home(resolved, self.exclude_home_dir)
-        _check_workspace_sensitive_paths(resolved)
-        return resolved
+        return validate_sandbox_workspace(workspace_dir, exclude_home_dir=self.exclude_home_dir)
 
     def _generate_instance_id(self, name: str) -> str:
         """Create a deterministic unique timestamped collision-resistant instance identifier."""
@@ -741,4 +761,4 @@ def _aggregate_log_stream(
     return list(retained_buffer), incidents, total_count
 
 
-__all__ = ["WorkloadSandboxEngine"]
+__all__ = ["WorkloadSandboxEngine", "validate_sandbox_workspace"]

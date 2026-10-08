@@ -35,9 +35,9 @@ from devops_cli.config.defaults import (
     DEFAULT_WEB_FETCH_MAX_DOWNLOAD_BYTES,
     DEFAULT_WEB_FETCH_TIMEOUT_SECONDS,
 )
-from devops_cli.core.validation import validate_url_egress
 from devops_cli.http.broker import get_broker
 from devops_cli.http.client import new_http_client
+from devops_cli.http.egress import EgressLevel
 
 # =============================================================================
 # Native TypedDict Schemas (Matching pydantic_ai.common_tools)
@@ -485,16 +485,16 @@ def _validate_fetch_hop(
     allowed_domains: list[str] | None,
     blocked_domains: list[str] | None,
 ) -> None:
-    """Veto one web_fetch hop: http or https, within the domain lists, and public.
+    """Veto one web_fetch hop: http or https, and within the domain lists.
 
-    The address check ignores DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK, so no environment lets a page
-    or a redirect it sends reach a private, loopback or link-local address.
+    The hop's address is checked where it is dialled: web_fetch's client is public-only, whatever
+    `ai.allow_private_network` says, so no page or redirect it sends reaches a private, loopback or
+    link-local address, and the check makes no lookup of its own.
     """
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise ValueError(f"Unsupported URL scheme: {parsed.scheme}")
     _validate_fetch_domain(parsed.hostname or "", allowed_domains, blocked_domains)
-    validate_url_egress(url, purpose="web_fetch", allow_private=False)
 
 
 def web_fetch_tool(
@@ -512,12 +512,12 @@ def web_fetch_tool(
 
     def fetch_web_page(url: str) -> str:
         """Fetch URL content and return cleaned markdown text."""
-        egress_policy(url)
         try:
             # The broker's request hook holds every redirect hop to egress_policy before sending
-            # it. The tool's own headers keep the caller's trace context from the fetched site, and
-            # a client of its own keeps one site's cookies from every later fetch.
-            with get_broker().new_client() as client:
+            # it, and the public-only client checks each hop's address at the connect. The tool's
+            # own headers keep the caller's trace context from the fetched site, and a client of
+            # its own keeps one site's cookies from every later fetch.
+            with get_broker().new_client(EgressLevel.PUBLIC) as client:
                 request = client.build_request(
                     "GET",
                     url,
@@ -563,7 +563,7 @@ def duckduckgo_search_tool(
 
     def search_duckduckgo(query: str) -> str:
         """Search DuckDuckGo and return top matching web results."""
-        client = new_http_client()
+        client = new_http_client(level=EgressLevel.PUBLIC)
         url = "https://html.duckduckgo.com/html/"
         try:
             resp = client.post(url, data={"q": query}, timeout=DEFAULT_DUCKDUCKGO_TIMEOUT_SECONDS)
@@ -615,7 +615,7 @@ def tavily_search(
 
     Raises on HTTP error (via raise_for_status) and on a reply with no 'results' list.
     """
-    client = new_http_client()
+    client = new_http_client(level=EgressLevel.PUBLIC)
     tavily_url = "https://api.tavily.com/search"
     payload: dict[str, Any] = {
         "api_key": api_key or "",

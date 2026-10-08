@@ -27,6 +27,12 @@ from devops_cli.exceptions.git import (
     GitHubUnauthenticatedError,
     GitOperationError,
     InvalidBranchNameError,
+    ReleaseBranchMissingError,
+    ReleasePRCreationError,
+    ReleasePushError,
+    ReleasePushRefusedError,
+    ReleaseRemoteFetchError,
+    ReleaseWorkingTreeDirtyError,
 )
 from devops_cli.exceptions.k8s import (
     ChaosExecutionError,
@@ -39,7 +45,11 @@ from devops_cli.exceptions.k8s import (
     KubernetesError,
     KubernetesLoggingError,
 )
-from devops_cli.exceptions.roadmap import RoadmapRunError
+from devops_cli.exceptions.roadmap import (
+    RoadmapCardChangedError,
+    RoadmapRefineError,
+    RoadmapRunError,
+)
 from devops_cli.exceptions.sandbox import (
     SandboxError,
     SandboxNotFoundError,
@@ -83,6 +93,7 @@ from devops_cli.exceptions.vault import (
     VaultKeyError,
     VaultLeaseError,
     VaultOperationError,
+    VaultUnreachableError,
 )
 
 __all__ = [
@@ -122,6 +133,14 @@ __all__ = [
     "KubernetesError",
     "KubernetesLoggingError",
     "LogfireConfigurationError",
+    "ReleaseBranchMissingError",
+    "ReleasePRCreationError",
+    "ReleasePushError",
+    "ReleasePushRefusedError",
+    "ReleaseRemoteFetchError",
+    "ReleaseWorkingTreeDirtyError",
+    "RoadmapCardChangedError",
+    "RoadmapRefineError",
     "RoadmapRunError",
     "SSRFBlockedError",
     "SandboxError",
@@ -147,4 +166,5 @@ __all__ = [
     "VaultKeyError",
     "VaultLeaseError",
     "VaultOperationError",
+    "VaultUnreachableError",
 ]
