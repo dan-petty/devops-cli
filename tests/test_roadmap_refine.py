@@ -487,6 +487,24 @@ def test_intake_hook_calls_refine(store: InMemoryRoadmapStore) -> None:
     ) == (1, 1)
 
 
+def test_intake_hook_skips_a_finished_card_the_add_restored(store: InMemoryRoadmapStore) -> None:
+    """A critical placement whose card the add restores from the archive, holding a Priority,
+    is not placed, so the refine hook does not run (#1403)."""
+    number = store.seed_issue("Critical feature", body="Must be refined", on_board=True)
+    store.set_field(_require_item(store, number), ItemField.PRIORITY, "P1-High")
+    store.as_actor("alice").archive_card(number)
+    decision = IntakeDecision(
+        subject=Subject(title="Critical feature", body="Must be refined", number=number),
+        outcome=Outcome.PLACE,
+        priority=CONST_ROADMAP_CRITICAL_PRIORITY,
+        placement=Placement(release="v0.2.25", text="into v0.2.25"),
+        fields=((ItemField.STATUS, "New"),),
+    )
+    spy_refine = MagicMock()
+    applied = apply_intake(store, IntakePlan(quota=None, decisions=(decision,)), refine=spy_refine)
+    assert (applied.placed, applied.finished, spy_refine.call_count) == (0, (number,), 0)
+
+
 def test_size_limit_guard(git_repo: Path, store: InMemoryRoadmapStore) -> None:
     num = store.seed_issue("Item", body="Initial", on_board=True)
     item = _require_item(store, num)

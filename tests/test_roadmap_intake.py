@@ -682,6 +682,76 @@ def test_a_person_put_on_the_board_without_a_priority_gets_only_its_empty_fields
     )
 
 
+def test_a_finished_card_a_person_archived_in_the_current_release_is_only_restored(
+    roadmap: Roadmap,
+) -> None:
+    """A person set #1 In Progress and P1-High in the current release, then archived its card,
+    so the listing leaves it out and #1 is a candidate again. Planning, which can't see the card,
+    sends an item of the current release that is not a critical fix to the backlog. The add
+    restores the card, which holds a Priority, so intake writes nothing more: the milestone
+    stays, and there is no reason comment and no job record. At 833c467 the round cleared the
+    milestone, wrote Status, Value, Effort and Priority over the card's and commented "to the
+    backlog" (#1403)."""
+    number = roadmap.issue(
+        "feat: export the board as CSV", labels=("type/feature",), release=CURRENT, on_board=True
+    )
+    for board_field, value in ((ItemField.STATUS, "In Progress"), (ItemField.PRIORITY, "P1-High")):
+        roadmap.person.set_field(roadmap.item(number), board_field, value)
+    roadmap.person.archive_card(number)
+    planned = roadmap.plan(FakeModel())
+    before = len(roadmap.store.job_writes())
+    applied = apply_intake(roadmap.store, planned)
+    assert (
+        [(d.subject.number, d.moves) for d in planned.decisions],
+        [(w.operation, w.key) for w in roadmap.store.job_writes()[before:]],
+        roadmap.fields(number),
+        roadmap.comments(number),
+        roadmap.item(number).job_record,
+        (applied.placed, applied.finished),
+    ) == (
+        [(number, True)],
+        [("add_item", None)],
+        ("In Progress", "P1-High", None, None, CURRENT),
+        [],
+        {},
+        (0, (number,)),
+    )
+
+
+def test_a_restored_card_with_no_priority_keeps_its_milestone_and_the_values_it_holds(
+    roadmap: Roadmap,
+) -> None:
+    """A person put #1 in the current release and on the board with Value High, then archived
+    its card. Planning sends it to the backlog, as it does an issue of the current release that
+    is off the board and not a critical fix; the restore keeps the milestone, as an item keeps
+    its own, writes only Status, Effort and Priority, and the reason comment says where it
+    stayed and gives no Value (#1403)."""
+    number = roadmap.issue(
+        "feat: export the board as CSV", labels=("type/feature",), release=CURRENT, on_board=True
+    )
+    roadmap.person.set_field(roadmap.item(number), ItemField.VALUE, "High")
+    roadmap.person.archive_card(number)
+    writes = roadmap.run(FakeModel())
+    (comment,) = roadmap.comments(number)
+    assert (
+        [(w.operation, w.key) for w in writes],
+        roadmap.fields(number),
+        f"Intake placed this item kept in {CURRENT}" in comment,
+        ("- Value:" in comment, "- Effort: Low." in comment),
+    ) == (
+        [
+            ("add_item", None),
+            ("set_field", "Status"),
+            ("set_field", "Effort"),
+            ("comment", None),
+            ("set_field", "Priority"),
+        ],
+        ("New", "P2-Medium", "High", "Low", CURRENT),
+        True,
+        (False, True),
+    )
+
+
 def test_a_second_run_over_the_same_state_writes_nothing(roadmap: Roadmap) -> None:
     roadmap.issue("feat: one")
     roadmap.issue("feat: two")
@@ -1211,6 +1281,22 @@ def test_an_unreachable_gateway_exits_non_zero_names_it_and_writes_nothing(
     before = board.store.job_writes()
     output = _intake("--confirm", exit_code=1)
     assert (f"gateway {gateway}" in output, board.store.job_writes() == before) == (True, True)
+
+
+def test_confirm_names_a_restored_card_it_left_as_it_was(
+    board: Roadmap, fake_model: FakeModel
+) -> None:
+    """A finished card a person archived comes back as it was, and the run says so rather than
+    counting it as placed (#1403)."""
+    number = board.finished("feat: archived once done")
+    board.person.archive_card(number)
+    output = _intake("--confirm")
+    left = " ".join(MESSAGES.roadmap.intake_finished.format(number=number).split())
+    assert ("Intake placed 0 item(s)" in output, left in output, board.fields(number)) == (
+        True,
+        True,
+        (None, "P3-Low", None, None, None),
+    )
 
 
 def test_a_new_candidate_files_one_issue_and_a_duplicate_files_none(
@@ -1767,6 +1853,81 @@ def test_an_item_on_the_board_with_status_and_value_gets_only_effort_and_priorit
         ["PVTF_effort/Low", "PVTF_priority/P2-Medium"],
         0,
         0,
+    )
+
+
+def test_an_issue_whose_card_a_person_archived_is_placed_in_one_round_on_that_card() -> None:
+    """#1's card is archived, holding the Status New, Value and Effort a person set, so the
+    board's listing leaves it out and #1 is a candidate. One round restores the card with one
+    `item-archive --undo` and writes only what it holds none of, Priority: the person's values
+    stay, and the job record claims none of them (ADR 0002). The next round finds no candidate
+    and sends no add or restore. Without the restore, every round raised "Board #1 does not hold
+    card PVTI_1 that #1 was just added as." (#1403)."""
+    github, store = on_github()
+    card = {"status": "New", "value": "High", "effort": "High"}
+    github.seed_issue(1, "feat: export the board as CSV", labels=("type/feature",), card=card)
+    (github.card(1) or {})["isArchived"] = True
+    _, apply = _intake_on_github(store, FakeModel())
+    applied = apply()
+    placed = github.card(1) or {}
+    second = len(github.calls)
+    owner = REPO.split("/")[0]
+    later = GitHubRoadmapStore(REPO, board_owner=owner, board_number=1, runner=github)
+    again, apply_again = _intake_on_github(later, FakeModel())
+    assert (
+        applied.placed,
+        _sent(github, 0, "item-archive"),
+        [field for field, _ in _edits(github, 0)][1::2],
+        {key: placed.get(key) for key in ("status", "priority", "value", "effort")},
+        "isArchived" in placed,
+        set(later.item(1).job_record) if later.item(1) else None,
+        (again.decisions, apply_again().placed),
+        _sent(github, second, "item-add") + _sent(github, second, "item-archive"),
+    ) == (
+        1,
+        1,
+        [field_id("Priority")],
+        {"status": "New", "priority": "P2-Medium", "value": "High", "effort": "High"},
+        False,
+        {ItemField.PRIORITY},
+        ((), 0),
+        0,
+    )
+
+
+def test_a_finished_card_a_person_archived_in_the_current_release_gets_only_its_restore() -> None:
+    """#1 is In Progress and P1-High in the current release, as a person set it, and a person
+    archived its card. The round sends the add and the restore and nothing else: no milestone
+    change, no comment and no field or job record edit, and it reports #1 as left as it was. At
+    833c467 it cleared the milestone, wrote Status, Value, Effort and Priority with the job
+    record, and commented "to the backlog" (#1403)."""
+    github, store = on_github()
+    card = {"status": "In Progress", "priority": "P1-High"}
+    github.seed_issue(
+        1, "feat: export the board as CSV", labels=("type/feature",), milestone=CURRENT, card=card
+    )
+    (github.card(1) or {})["isArchived"] = True
+    plan, apply = _intake_on_github(store, FakeModel())
+    start = len(github.calls)
+    applied = apply()
+    restored = github.card(1) or {}
+    writes = [args[:2] for args in github.calls[start:] if args[0] == "project"]
+    assert (
+        [decision.moves for decision in plan.decisions],
+        writes,
+        [args for args in github.calls[start:] if "--method" in args or "-X" in args],
+        (github.issues[1]["milestone"] or {}).get("title"),
+        github.comments.get(1),
+        {key: restored.get(key) for key in ("status", "priority", "job record", "isArchived")},
+        (applied.placed, applied.finished),
+    ) == (
+        [True],
+        [["project", "item-add"], ["project", "item-archive"]],
+        [],
+        CURRENT,
+        None,
+        {"status": "In Progress", "priority": "P1-High", "job record": None, "isArchived": None},
+        (0, (1,)),
     )
 
 

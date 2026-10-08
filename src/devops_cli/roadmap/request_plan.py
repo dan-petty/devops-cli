@@ -11,8 +11,9 @@ for each page, item or field says so in `repeat`.
 `reprioritize_requests` and `migrate_requests` put a job's operations in the order the job makes
 them. A store reads the board's fields, and the listing of each filter, once (#1361), so an
 operation that needs them lists their read under the condition that the run has not made it yet.
-A board write lists the read of its one card and the edit by node ids. Every run of a job that
-reads the board ends with one GraphQL budget read, for its spend line, after any write.
+A board write lists the read of its one card and the edit by node ids; an add lists the read of
+the card it names and that card's restore when it is archived. Every run of a job that reads the
+board ends with one GraphQL budget read, for its spend line, after any write.
 """
 
 from __future__ import annotations
@@ -361,12 +362,16 @@ class StoreRequests:
         return [self.gh(args, "label", subject=subject)]
 
     def add_item(self, subject: str) -> Requests:
-        """The issue, the add, which names the card, then that card."""
+        """The issue, the add, which names the card, then that card, and its restore when it is
+        archived (#1403)."""
         args = gh.item_add_args(self.owner, self.number, _p("url"))
+        unarchive = gh.item_unarchive_args(self.owner, self.number, _p("card_id"))
+        archived = MESSAGES.roadmap.plan_conditions["card_archived"]
         return [
             *self.issue(subject),
             self.gh(args, "add_item", subject=subject),
             *self.card(subject),
+            self.gh(unarchive, "unarchive_card", condition=archived, subject=subject),
         ]
 
     def create_issue(self, subject: str, labels: Sequence[str] = ()) -> Requests:

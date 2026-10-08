@@ -95,7 +95,7 @@ _Avoid_: publish, deliver
 ## Roadmap jobs
 
 **Candidate**:
-Something that surfaced (from a person, a review of merged code, an agent or discovery) and may become an item. An open issue that intake has not yet placed on the roadmap is a candidate.
+Something that surfaced (from a person, a review of merged code, an agent or discovery) and may become an item. An open issue that intake has not yet placed on the roadmap, or whose card a person archived, is a candidate.
 _Avoid_: proposal, suggestion
 
 **Intake**:

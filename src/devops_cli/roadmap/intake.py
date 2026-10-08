@@ -1,10 +1,10 @@
 """`devops roadmap intake`: the single way new work becomes an item (#742).
 
-A candidate is an open issue not on the board, a board item intake left without a Priority (an
-unfinished item), or a candidate that is not an issue yet (`NewCandidate`), which `--title` and
-`--body-file` and the Python entry point `intake_candidate` take. Intake plans every candidate
-before it writes anything, model calls included, so a model gateway that does not answer
-(`ModelGatewayUnreachableError`) leaves GitHub as it was.
+A candidate is an open issue not on the board (an archived card is not on it), a board item intake
+left without a Priority (an unfinished item), or a candidate that is not an issue yet
+(`NewCandidate`), which `--title` and `--body-file` and the Python entry point `intake_candidate`
+take. Intake plans every candidate before it writes anything, model calls included, so a model
+gateway that does not answer (`ModelGatewayUnreachableError`) leaves GitHub as it was.
 
 **Duplicates.** A candidate is compared with every item on the board, open or closed, and every
 issue closed as not planned, plus the candidates this run placed before it; a new candidate is
@@ -44,10 +44,21 @@ when the placement changes it, set the empty ones of Status (New), Value and Eff
 reason comment carrying `CONST_ROADMAP_INTAKE_REASON_MARKER` unless one is there, then set
 Priority. Each field write goes to the card the item has, or the card the add returned: no
 placement looks for its card in the board listing, which can show a new card minutes after the
-add (#1361). A duplicate close comments with `CONST_ROADMAP_INTAKE_DUPLICATE_MARKER` unless that
-comment is there, then closes. A run that stops part-way leaves an open issue off the board, an
-item with no Priority, or an open duplicate, and the next run finishes it. Intake writes to no
-issue but the candidate.
+add (#1361).
+
+**A card planning did not see** (#1403). The listing leaves out an archived card, which the add
+restores (`AddedItem.restored`), and a card it has not shown yet, so intake plans such an issue as
+one off the board and the writes follow the card the add returns. A card that holds a Priority is
+an item intake would not take, and gets nothing more (`IntakeApplied.finished`). Otherwise intake
+writes only the fields the card holds no value for, besides the Status New the board's add
+workflow sets on a card the add did not restore; a restored card keeps its milestone, as an item
+does; and the reason comment gives that placement and those values. A value a person set stays,
+and the job record never claims it (ADR 0002).
+
+A duplicate close comments with `CONST_ROADMAP_INTAKE_DUPLICATE_MARKER` unless that comment is
+there, then closes. A run that stops part-way leaves an open issue off the board, an item with no
+Priority, or an open duplicate, and the next run finishes it. Intake writes to no issue but the
+candidate.
 
 **Dry run, plan, confirm** (the dry-run rule of #412). `dry_run_intake` makes no request, to
 GitHub or a model: it returns an `IntakePlan` marked `dry_run`, with no quota or decision, that
@@ -72,7 +83,7 @@ from __future__ import annotations
 import logging
 import string
 from collections.abc import Callable, Collection, Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
 from functools import cached_property
@@ -135,6 +146,7 @@ from devops_cli.roadmap.reprioritize import (
     release_state,
 )
 from devops_cli.roadmap.store import (
+    AddedItem,
     ChangeKind,
     CloseReason,
     Closure,
@@ -327,6 +339,8 @@ class IntakeDecision:
     """What intake does with one candidate, and every write it makes for it.
 
     `shown` is the type, Priority, Value and Effort the item ends with, for the report.
+    `reasons` holds the reason comment's lines, each value intake sets with its reason, so the
+    comment can be written for the placement and fields the writes make.
     """
 
     subject: Subject
@@ -343,6 +357,7 @@ class IntakeDecision:
     filing_labels: tuple[str, ...] = ()
     shown: tuple[str, str, str, str] = ("", "", "", "")
     notes: tuple[str, ...] = ()
+    reasons: tuple[tuple[str, str, str], ...] = ()
 
     @property
     def has_writes(self) -> bool:
@@ -405,11 +420,15 @@ class IntakePlan:
 
 @dataclass(frozen=True)
 class IntakeApplied:
-    """What a run wrote: items placed, duplicates closed, and the issues it filed."""
+    """What a run wrote: items placed, duplicates closed, and the issues it filed. `finished`
+    names each candidate whose card the add returned holding a Priority, a card a person
+    archived that the add restored or one a lagging listing left out: intake wrote nothing
+    else to it (#1403)."""
 
     placed: int
     closed: int
     filed: tuple[int, ...]
+    finished: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -797,6 +816,11 @@ def _kept(release: str, reason: str) -> Placement:
     )
 
 
+def _resumed(release: str) -> Placement:
+    """An item's milestone, which it keeps."""
+    return _kept(release, MESSAGES.roadmap.intake_reason_resumed.format(release=release))
+
+
 def _by_table(run: _Run, event: Event, already_there: bool) -> Placement:
     """Where #740's table sends a candidate joining the current release."""
     assert run.current is not None
@@ -820,10 +844,7 @@ def _placement(run: _Run, subject: Subject, labels: tuple[str, ...], priority: s
     event = admission_event(probe)
     if subject.release is not None:
         if subject.item is not None:
-            return _kept(
-                subject.release,
-                MESSAGES.roadmap.intake_reason_resumed.format(release=subject.release),
-            )
+            return _resumed(subject.release)
         if run.current is not None and in_release(subject.release, run.current.version):
             if event is not Event.FIX_JOINED:
                 return _to_backlog(MESSAGES.roadmap.intake_reason_current_not_critical)
@@ -911,18 +932,22 @@ def _added_labels(
     )
 
 
-def _comment(
-    placement: Placement,
+def _reason_lines(
     proposal: Proposal,
     type_label: str | None,
     fields: Sequence[tuple[ItemField, str]],
     priority: tuple[str, str],
-) -> str:
-    """The reason comment: where the item went, and each value intake set with its reason."""
+) -> tuple[tuple[str, str, str], ...]:
+    """Each value intake sets that the reason comment gives, with its name and reason."""
     reasons = {ItemField.VALUE: proposal.value_reason, ItemField.EFFORT: proposal.effort_reason}
     lines = [("Type", type_label, proposal.type_reason)] if type_label else []
     lines.append((ItemField.PRIORITY.value, priority[0], priority[1]))
     lines += [(f.value, value, reasons[f]) for f, value in fields if f in reasons]
+    return tuple(lines)
+
+
+def _comment(placement: Placement, lines: Sequence[tuple[str, str, str]]) -> str:
+    """The reason comment: where the item went, and each value intake set with its reason."""
     rendered = "\n".join(
         MESSAGES.roadmap.intake_comment_field.format(field=name, value=value, reason=reason)
         for name, value, reason in lines
@@ -1099,10 +1124,11 @@ class _Planner:
         placement = _placement(self.run, subject, (*subject.labels, type_label), priority[0])
         fields = _fields(subject, proposal)
         added = None if subject.type_label else type_label
+        lines = _reason_lines(proposal, added, fields, priority)
         comment = (
             None
             if _has_comment(self.run.store, subject, CONST_ROADMAP_INTAKE_REASON_MARKER)
-            else _comment(placement, proposal, added, fields, priority)
+            else _comment(placement, lines)
         )
         return IntakeDecision(
             subject,
@@ -1116,6 +1142,7 @@ class _Planner:
             filing_labels=_filing_labels(subject, decided),
             shown=_shown(subject, type_label, priority[0], proposal),
             notes=notes,
+            reasons=lines,
         )
 
 
@@ -1178,18 +1205,58 @@ def dry_run_intake(
 # ── Writing ───────────────────────────────────────────────────────────────────
 
 
-def _apply_placement(store: RoadmapStore, decision: IntakeDecision) -> int | None:
-    """Make one placement's writes in order, Priority last; the number filed, if any."""
+def _unset(item: AddedItem, board_field: ItemField, value: str) -> bool:
+    """Whether the card the add returned holds no value for `board_field`; on a card the add
+    did not restore, also the Status New the board's "Item added to project" workflow sets,
+    which intake writes again so that its job record holds it."""
+    held = item.field_value(board_field)
+    new_status = not item.restored and board_field is ItemField.STATUS and held == value
+    return held is None or new_status
+
+
+def _on_card(decision: IntakeDecision, item: AddedItem) -> IntakeDecision | None:
+    """The decision for the card the add returned, which planning did not see: None when it
+    holds a Priority, as an item intake would not have taken; otherwise the planned writes of
+    the fields it holds no value for, with the milestone a restored card has kept, as an item's
+    is, and the reason comment for those writes (#1403)."""
+    if item.priority is not None:
+        return None
+    release = decision.subject.release
+    placement = _resumed(release) if item.restored and release is not None else decision.placement
+    fields = tuple((f, v) for f, v in decision.fields if _unset(item, f, v))
+    held = {f.value for f, _ in decision.fields} - {f.value for f, _ in fields}
+    lines = tuple(line for line in decision.reasons if line[0] not in held)
+    comment = None if decision.comment is None or placement is None else _comment(placement, lines)
+    return replace(decision, placement=placement, fields=fields, reasons=lines, comment=comment)
+
+
+def _apply_placement(
+    store: RoadmapStore, decision: IntakeDecision
+) -> tuple[int, IntakeDecision | None]:
+    """Make one placement's writes in order, Priority last; the issue's number, and the
+    decision the writes followed, None when the card the add returned holds a Priority."""
     subject = decision.subject
-    filed = None
-    if subject.number is None:
-        title, body = subject.title, subject.body
-        filed = store.create_issue(title, body, labels=decision.filing_labels).number
-    number = subject.number or filed
-    assert number is not None and decision.priority is not None
+    number = subject.number
+    if number is None:
+        filed = store.create_issue(subject.title, subject.body, labels=decision.filing_labels)
+        number = filed.number
     for label in decision.labels:
         store.label_issue(number, label)
-    item = subject.item or store.add_item(number)
+    item: Item | None = subject.item
+    if item is None:
+        item = store.add_item(number)
+        on_card = _on_card(decision, item)
+        if on_card is None:
+            return number, None
+        decision = on_card
+    _write_fields(store, item, decision, number)
+    return number, decision
+
+
+def _write_fields(store: RoadmapStore, item: Item, decision: IntakeDecision, number: int) -> None:
+    """The writes after the add: the milestone when the placement changes it, the fields, the
+    reason comment, then Priority."""
+    assert decision.priority is not None
     if decision.moves and decision.placement is not None:
         store.set_field(item, ItemField.RELEASE, decision.placement.release)
     for board_field, value in decision.fields:
@@ -1197,7 +1264,6 @@ def _apply_placement(store: RoadmapStore, decision: IntakeDecision) -> int | Non
     if decision.comment:
         store.comment(number, decision.comment)
     store.set_field(item, ItemField.PRIORITY, decision.priority)
-    return filed
 
 
 def _should_refine_on_intake(decision: IntakeDecision) -> bool:
@@ -1242,19 +1308,23 @@ def apply_intake(
 ) -> IntakeApplied:
     """Make the plan's writes, one candidate at a time."""
     filed: list[int] = []
+    finished: list[int] = []
     placed = closed = 0
     refine_hook = refine or refine_item
     for decision in plan.decisions:
         if decision.outcome is Outcome.PLACE:
-            number = _apply_placement(store, decision)
-            filed += [number] if number is not None else []
+            number, applied = _apply_placement(store, decision)
+            filed += [] if decision.subject.number else [number]
+            if applied is None:
+                finished.append(number)
+                continue
             placed += 1
-            _maybe_refine_intake(refine_hook, store, decision, number)
+            _maybe_refine_intake(refine_hook, store, applied, number)
         elif decision.outcome is Outcome.DUPLICATE and decision.subject.number is not None:
             assert decision.original is not None
             store.close_as_duplicate(decision.subject.number, decision.original, decision.comment)
             closed += 1
-    return IntakeApplied(placed=placed, closed=closed, filed=tuple(filed))
+    return IntakeApplied(placed=placed, closed=closed, filed=tuple(filed), finished=tuple(finished))
 
 
 def intake_candidate(

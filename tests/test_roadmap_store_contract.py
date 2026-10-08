@@ -213,6 +213,37 @@ def test_adding_an_item_returns_it_with_its_card_and_adding_it_again_keeps_that_
     ) == (number, True, True, "Ready", True)
 
 
+def test_an_archived_card_leaves_the_board_and_adding_its_issue_restores_it_with_its_fields(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """A person archives a card: the issue is a candidate again and no read holds the card.
+    The add restores that card, marked `restored`, with its fields and job record (#1403)."""
+    number = store.seed_issue("archived by a person")
+    added = store.add_item(number)
+    store.set_field(added, ItemField.STATUS, "Ready")
+    store.as_actor("alice").archive_card(number)
+    archived = ([c.number for c in store.candidates()], store.item(number), store.cards())
+    restored = store.add_item(number)
+    assert (
+        added.restored,
+        archived,
+        (restored.restored, restored.card_id, restored.status, restored.job_record),
+        [c.number for c in store.candidates()],
+        store.add_item(number).restored,
+    ) == (
+        False,
+        ([number], None, []),
+        (True, added.card_id, "Ready", {ItemField.STATUS: "Ready"}),
+        [],
+        False,
+    )
+
+
+def test_archiving_a_card_that_is_not_on_the_board_raises(store: InMemoryRoadmapStore) -> None:
+    with pytest.raises(GitHubOperationError, match="not on the board"):
+        store.archive_card(store.seed_issue("never added"))
+
+
 def test_an_item_whose_card_is_not_its_own_is_not_on_the_board(
     store: InMemoryRoadmapStore,
 ) -> None:
