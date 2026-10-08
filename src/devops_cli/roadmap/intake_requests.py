@@ -229,14 +229,22 @@ class _Steps:
 
 
 def planned_requests(
-    subjects: Sequence[str], *, repo: str, ref: str | None, new: bool, each: bool = False
+    subjects: Sequence[str],
+    *,
+    repo: str,
+    ref: str | None,
+    new: bool,
+    each: bool = False,
+    limit: int | None = None,
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """The requests a run over `subjects` makes, as reads and model calls ending with the
     closing GraphQL budget read, then the writes `--confirm` adds before that read; `new` when
     the one subject is a candidate that is not an issue yet, and `each` when the one subject
-    stands for every candidate, its requests repeated for each."""
+    stands for every candidate, its requests repeated for each, or for the `limit` oldest."""
     steps = _Steps(repo=repo, ref=ref)
-    repeat = MESSAGES.roadmap.intake_repeat_candidate if each else ""
+    texts = MESSAGES.roadmap
+    limited = texts.intake_repeat_limited.format(limit=limit) if limit is not None else ""
+    repeat = (limited or texts.intake_repeat_candidate) if each else ""
     reads = steps.reads() + steps.decisions(subjects, new=new, repeat=repeat)
     reads += steps.store.budget()
     return tuple(reads), tuple(steps.writes(subjects, new=new, repeat=repeat))

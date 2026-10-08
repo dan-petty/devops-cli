@@ -101,11 +101,16 @@ class EvidenceKind(StrEnum):
 class ChangeKind(StrEnum):
     """What happened to an Item or a Release.
 
-    The first six are what the repository's issue events report, and the GitHub adapter reads
-    them. GitHub reports none of the rest as an issue event: a poll finds them by comparing what
-    it reads with what it read before (ADR 0003). The in-memory adapter records every kind as it
-    happens, as such a poll sees it. The four release kinds carry the Release they concern; the
-    number of a cut, an un-cut or a ship is its release pull request's.
+    Both adapters report the first six, which the repository's issue events report, and the
+    three release kinds: a release pull request opened (a cut) or closed unmerged (an un-cut),
+    and a GitHub Release published (a ship), which the GitHub adapter reads from the pull
+    request and release listings (#1360). The in-memory adapter also records the rest as they
+    happen: a board field set, a blocked-by link added or removed, a comment and an edit. GitHub
+    reports none of those as an event, and the GitHub adapter does not report them; a poll would
+    find them only by comparing what it reads with what it read before (ADR 0003). The release
+    kinds carry the Release they concern; a cut's and an un-cut's number is its release pull
+    request's, and a ship's is 0. A ship and an un-cut carry no actor: GitHub's listings name
+    neither who published a Release nor who closed a pull request.
     """
 
     JOINED_RELEASE = "joined_release"
@@ -119,7 +124,6 @@ class ChangeKind(StrEnum):
     BLOCKED_BY_REMOVED = "blocked_by_removed"
     COMMENTED = "commented"
     EDITED = "edited"
-    RELEASE_STARTED = "release_started"
     RELEASE_CUT = "release_cut"
     RELEASE_UNCUT = "release_uncut"
     RELEASE_SHIPPED = "release_shipped"
@@ -128,7 +132,6 @@ class ChangeKind(StrEnum):
 # The kinds that concern a Release, not an Item.
 RELEASE_CHANGE_KINDS: frozenset[ChangeKind] = frozenset(
     {
-        ChangeKind.RELEASE_STARTED,
         ChangeKind.RELEASE_CUT,
         ChangeKind.RELEASE_UNCUT,
         ChangeKind.RELEASE_SHIPPED,
@@ -311,7 +314,8 @@ class IssueRecord(BaseModel):
     """What the repository's issue listing says about one issue or pull request.
 
     `author_association` is GitHub's word for the author's relation to the repository, such as
-    `OWNER`, `COLLABORATOR` or `NONE`.
+    `OWNER`, `COLLABORATOR` or `NONE`. `updated_at` is when the issue last changed: any write to
+    it, a comment included, moves it.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -327,6 +331,7 @@ class IssueRecord(BaseModel):
     pull_request: bool = False
     author_association: str | None = None
     created_at: datetime | None = None
+    updated_at: datetime | None = None
     closed_at: datetime | None = None
 
 
@@ -608,6 +613,16 @@ def is_release_pull_request(
     )
 
 
+def cuts_its_release(pull_request: PullRequest, default_branch: str) -> bool:
+    """Whether `pull_request` is the pull request of the Release its milestone names, by
+    `is_release_pull_request`: so its opening cuts that Release, and its close unmerged un-cuts
+    it. A milestone that is not a version names no Release."""
+    title = pull_request.release
+    if title is None or not is_release_title(title):
+        return False
+    return is_release_pull_request(pull_request, parse_release_version(title), default_branch)
+
+
 def require_option(
     options: Mapping[str, Sequence[str]], field: ItemField, value: str | None
 ) -> None:
@@ -778,8 +793,9 @@ class RoadmapStore(Protocol):
         """The open issues of the repository that are not on the board."""
 
     def changes_since(self, since: datetime, *, except_actor: str | None = None) -> list[Change]:
-        """The Item changes made at or after `since`, oldest first, leaving out those
-        `except_actor` made; those cost no read of the board."""
+        """The changes made at or after `since`, oldest first: the Items' and the Releases'
+        (`ChangeKind`), leaving out those `except_actor` made; those cost no read of the board,
+        and neither does a release change."""
 
     def add_item(self, number: int) -> AddedItem:
         """Put issue `number` on the board and return it as the Item its card makes it, raising
@@ -1035,6 +1051,7 @@ __all__ = [
     "RoadmapStore",
     "Workflow",
     "as_utc",
+    "cuts_its_release",
     "field_options",
     "find_release",
     "get_roadmap_store",

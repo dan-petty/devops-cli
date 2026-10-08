@@ -1,11 +1,15 @@
 """Contract suite for the roadmap store, run against the in-memory adapter.
 
 Each case pins one promise `RoadmapStore` makes. The GitHub adapter keeps the same promises in
-`tests/test_roadmap_github_store.py`, over recorded `gh` output.
+`tests/test_roadmap_github_store.py`, over recorded `gh` output, but one: of the changes a poll
+reads, it reports the issue events' six kinds and the release kinds (a cut, an un-cut and a
+ship, #1360), and not a board field set, a blocked-by link, a comment or an edit, which only the
+in-memory adapter records (`ChangeKind`).
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -265,6 +269,46 @@ def test_changes_since_leaves_out_the_changes_one_actor_made(
     store.as_actor("alice").label_issue(number, "scope/cli")
     changes = store.changes_since(since, except_actor="roadmap-bot")
     assert [(change.actor, change.label) for change in changes] == [("alice", "scope/cli")]
+
+
+def test_a_ship_and_an_un_cut_name_no_actor_so_no_poll_leaves_them_out(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    """GitHub's listings name no one for either, so a poll that leaves out the Service's own
+    changes still reports a ship the Service's login published (#1360)."""
+    since = clock.now
+    bot = store.as_actor("roadmap-bot")
+    release = {"base": "main", "labels": ("release",), "release": "v0.2.25"}
+    cut = bot.open_pull_request("cut", head="chore/cut-v0.2.25", **release)
+    bot.close_pull_request(cut)
+    bot.publish_release("0.2.25")
+    changes = store.changes_since(since, except_actor="roadmap-bot")
+    assert [(change.kind, change.actor) for change in changes] == [
+        (ChangeKind.RELEASE_UNCUT, None),
+        (ChangeKind.RELEASE_SHIPPED, None),
+    ]
+
+
+def test_every_write_to_an_issue_a_comment_included_moves_its_updated_at(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    """Intake tells an edited candidate from one it left by `updated_at` (#1360)."""
+    number = store.seed_issue("edited")
+    created = clock.now
+
+    def updated_after(write: Callable[[], object]) -> datetime | None:
+        clock.now += timedelta(minutes=1)
+        write()
+        return next(issue.updated_at for issue in store.issues() if issue.number == number)
+
+    person = store.as_actor("alice")
+    moved = [
+        updated_after(lambda: None),
+        updated_after(lambda: person.write_issue_body(number, "more detail")),
+        updated_after(lambda: person.comment(number, "Any update?")),
+        updated_after(lambda: person.add_label(number, "type/bug")),
+    ]
+    assert moved == [created, *(created + timedelta(minutes=n) for n in (2, 3, 4))]
 
 
 def test_changes_since_with_an_empty_actor_leaves_out_nothing(

@@ -1210,6 +1210,31 @@ def test_a_dry_run_still_refuses_a_candidate_holding_a_secret(
     assert "secret" in output
 
 
+def test_a_dry_run_with_a_limit_makes_no_request_and_names_the_limit_per_candidate(
+    no_requests: None,
+) -> None:
+    """`--limit` changes which candidates a run decides, not what a dry run sends (#1360)."""
+    output = _intake("--dry-run", "--limit", "3")
+    assert (
+        "Dry run: no request was made" in output,
+        "[repeated for each of the 3 oldest candidates:" in output,
+        "[repeated for each candidate:" in output,
+    ) == (True, True, False)
+
+
+def test_a_limited_plan_decides_the_oldest_candidates_and_names_those_it_leaves(
+    board: Roadmap, fake_model: FakeModel
+) -> None:
+    """Without a record of earlier runs, the oldest candidates come first (#1360)."""
+    numbers = [board.issue(f"feat: candidate {n}") for n in range(1, 5)]
+    preview = _intake("--plan", "--limit", "2")
+    left = ", ".join(f"#{number}" for number in numbers[2:])
+    assert (
+        [request.title for request in fake_model.requests],
+        f"Left for a later run, beyond the limit of 2: {left}." in preview,
+    ) == (["feat: candidate 1", "feat: candidate 2"], True)
+
+
 def test_an_exported_dry_run_wins_over_confirm(
     no_requests: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

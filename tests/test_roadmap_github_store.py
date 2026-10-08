@@ -22,7 +22,10 @@ import pytest
 from packaging.version import Version
 
 from devops_cli.config.constants import CONST_ROADMAP_RUN_RECORD_BODY
-from devops_cli.config.defaults import DEFAULT_GH_GRAPHQL_BUDGET_FLOOR
+from devops_cli.config.defaults import (
+    DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
+    DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE,
+)
 from devops_cli.exceptions.git import (
     GitHubFileNotFoundError,
     GitHubOperationError,
@@ -84,6 +87,11 @@ EVENTS = recorded("issue-events.json")
 
 LISTING_MILESTONES = f"repos/{REPO}/milestones?state=all&per_page=100"
 LISTING_IN_RELEASE = f"repos/{REPO}/issues?milestone=43&state=all&per_page=100"
+LISTING_PULLS = "pulls?state=all&sort=updated&direction=desc"
+POLL_PAGE = DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE
+LISTING_RELEASES = f"releases?per_page={POLL_PAGE}"
+# A poll's pull request and GitHub Release listings with nothing in them (#1360).
+NO_RELEASE_CHANGES: dict[str, Any] = {LISTING_PULLS: [], LISTING_RELEASES: []}
 
 
 # The board's node id, as the recorded board listing (`project list`) gives it.
@@ -1246,6 +1254,7 @@ def test_every_read_passes_use_cache_false() -> None:
             "issues/737": ISSUES_IN_RELEASE[2],
             "issues?state=open": OPEN_ISSUES,
             "issues/events": EVENTS,
+            **NO_RELEASE_CHANGES,
         }
     )
     store.items(release="0.2.25")
@@ -1255,8 +1264,8 @@ def test_every_read_passes_use_cache_false() -> None:
     with pytest.raises(GitHubOperationError, match="Job record"):
         store.set_field(board_item(737), ItemField.STATUS, "Ready")
     assert ([kwargs["use_cache"] for _, kwargs in runner.calls], len(runner.calls)) == (
-        [False] * 10,
-        10,
+        [False] * 12,
+        12,
     )
 
 
@@ -1274,10 +1283,11 @@ def test_changes_since_pages_newest_first_and_stops_at_the_first_older_event() -
     ]
     store, runner = board_store(
         {
-            "&page=1": newer_page,
-            "&page=2": EVENTS + older_padding,
-            "&page=3": (1, "page 3 must not be read"),
+            "events?per_page=100&page=1": newer_page,
+            "events?per_page=100&page=2": EVENTS + older_padding,
+            "events?per_page=100&page=3": (1, "page 3 must not be read"),
             BOARD_READ: BoardServer(BOARD),
+            **NO_RELEASE_CHANGES,
         }
     )
     changes = store.changes_since(datetime(2026, 10, 1, 22, 0, tzinfo=UTC))
@@ -1300,7 +1310,9 @@ def test_changes_since_pages_newest_first_and_stops_at_the_first_older_event() -
 def test_changes_since_keeps_issue_release_label_and_state_events_only() -> None:
     closed = next(e for e in EVENTS if e["event"] == "closed" and "pull_request" not in e["issue"])
     reopened = {**closed, "event": "reopened", "created_at": "2026-10-02T01:00:00Z"}
-    store, _ = board_store({"issues/events": [reopened, *EVENTS], BOARD_READ: BoardServer(BOARD)})
+    store, _ = board_store(
+        {"issues/events": [reopened, *EVENTS], BOARD_READ: BoardServer(BOARD), **NO_RELEASE_CHANGES}
+    )
     changes = store.changes_since(datetime(2026, 10, 1))
     assert [
         (change.kind, change.number, change.actor, change.release or change.label)
@@ -1320,7 +1332,9 @@ def test_changes_since_drops_an_actors_own_changes_before_it_reads_the_board() -
     no GraphQL request (#1361); the others' changes still carry theirs."""
     closed = next(e for e in EVENTS if e["event"] == "closed" and "pull_request" not in e["issue"])
     own = {**closed, "actor": {"login": "roadmap-bot"}, "created_at": "2026-10-02T01:00:00Z"}
-    store, runner = board_store({"issues/events": [own], BOARD_READ: BoardServer(BOARD)})
+    store, runner = board_store(
+        {"issues/events": [own], BOARD_READ: BoardServer(BOARD), **NO_RELEASE_CHANGES}
+    )
     alone = store.changes_since(datetime(2026, 10, 1, tzinfo=UTC), except_actor="roadmap-bot")
     sent_alone = graphql_kinds(runner)
     runner.replies["issues/events"] = [own, *EVENTS]
@@ -1338,7 +1352,9 @@ def test_changes_since_with_an_empty_actor_leaves_out_nothing() -> None:
     reports with an empty login."""
     closed = next(e for e in EVENTS if e["event"] == "closed" and "pull_request" not in e["issue"])
     nameless = {**closed, "actor": {"login": ""}, "created_at": "2026-10-02T01:00:00Z"}
-    store, _ = board_store({"issues/events": [nameless], BOARD_READ: BoardServer(BOARD)})
+    store, _ = board_store(
+        {"issues/events": [nameless], BOARD_READ: BoardServer(BOARD), **NO_RELEASE_CHANGES}
+    )
     changes = store.changes_since(datetime(2026, 10, 1, tzinfo=UTC), except_actor="")
     assert [(change.number, change.actor) for change in changes] == [
         (closed["issue"]["number"], "")
@@ -1353,9 +1369,176 @@ def test_changes_since_raises_when_the_events_outrun_the_page_cap(
     full_page = [event_at(referenced, start - timedelta(minutes=n)) for n in range(100)]
     monkeypatch.setattr("devops_cli.roadmap.github_store.DEFAULT_GH_MAX_PAGINATED_PAGES", 2)
     store, runner = board_store({"issues/events": full_page})
-    with pytest.raises(GitHubOperationError, match="run past 2 pages"):
+    with pytest.raises(GitHubOperationError, match=r"issue events .* run past 2 pages"):
         store.changes_since(datetime(2026, 10, 1, tzinfo=UTC))
     assert len(runner.calls) == 2
+
+
+# ── What a poll reports of a Release: its cut, its un-cut and its ship (#1360) ──
+
+# v0.2.28's release pull request and its GitHub Release, and v0.2.27's Release, as the live pull
+# request and release listings gave them on 2026-10-08.
+(RELEASE_PR,) = recorded("pulls-release-1283.json")
+RELEASES = recorded("releases-v0.2.28.json")
+# Between v0.2.28's tag, created at 23:44:06Z, and its GitHub Release, published at 23:44:16Z.
+CUTOFF = datetime(2026, 10, 7, 23, 44, 10, tzinfo=UTC)
+SHIPPED = datetime(2026, 10, 7, 23, 44, 16, tzinfo=UTC)
+
+
+def _at(moment: datetime) -> str:
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def github_release(tag: str, created: datetime, published: datetime | None, **changes: Any) -> Any:
+    """The recorded v0.2.28 GitHub Release, retagged and retimed; a draft when `published` is
+    None."""
+    return {
+        **deepcopy(RELEASES[0]),
+        "tag_name": tag,
+        "name": tag,
+        "draft": published is None,
+        "created_at": _at(created),
+        "published_at": _at(published) if published else None,
+        **changes,
+    }
+
+
+def listed_pull(number: int, opened: datetime, **changes: Any) -> dict[str, Any]:
+    """The recorded release pull request #1283, renumbered and opened at `opened`, still open
+    unless `changes` say otherwise."""
+    return {
+        **deepcopy(RELEASE_PR),
+        "number": number,
+        "html_url": f"https://github.com/{REPO}/pull/{number}",
+        "state": "open",
+        "created_at": _at(opened),
+        "updated_at": _at(opened),
+        "closed_at": None,
+        "merged_at": None,
+        **changes,
+    }
+
+
+def _release_changes(
+    replies: dict[str, Any], except_actor: str | None = None, since: datetime = CUTOFF
+) -> list[Any]:
+    store, _ = board_store({"issues/events": [], **NO_RELEASE_CHANGES, **replies})
+    changes = store.changes_since(since, except_actor=except_actor)
+    return [(c.kind, c.number, c.actor, c.at, c.release) for c in changes]
+
+
+def test_a_published_github_release_is_a_ship_of_the_release_its_tag_names() -> None:
+    """The recorded v0.2.28 tag was created before the cutoff and its Release published after
+    it: the page is judged by when each was published. A draft, the recorded v0.2.27 published
+    the day before, a tag that is no version and one that names no Release give nothing."""
+    later = CUTOFF + timedelta(hours=2)
+    listing = [
+        github_release("v0.3.0", later, None),
+        github_release("v9.9.9", later, later),
+        github_release("nightly", later, later),
+        *RELEASES,
+    ]
+    ships = _release_changes({LISTING_RELEASES: listing, "milestones?state=all": MILESTONES})
+    assert ships == [(ChangeKind.RELEASE_SHIPPED, 0, None, SHIPPED, "v0.2.28")]
+
+
+def test_a_release_pull_request_opened_then_closed_unmerged_is_a_cut_then_an_un_cut() -> None:
+    """From the morning v0.2.28 was cut, the recorded #1283 is a cut naming who opened it, and
+    its merge is no un-cut. A release pull request closed unmerged is a cut then an un-cut that
+    names no one; a topic pull request and one into a release branch give nothing."""
+    morning = datetime(2026, 10, 7, 12, 0, tzinfo=UTC)
+    opened, closed = morning + timedelta(hours=1), morning + timedelta(hours=1, minutes=30)
+    listing = [
+        RELEASE_PR,
+        listed_pull(1290, opened, state="closed", closed_at=_at(closed), updated_at=_at(closed)),
+        listed_pull(1291, opened, labels=[], head={"ref": "fix/topic"}),
+        listed_pull(
+            1293, opened, base={"ref": "release/v0.2.28", "repo": {"default_branch": "main"}}
+        ),
+    ]
+    changes = _release_changes({LISTING_PULLS: listing}, since=morning)
+    assert changes == [
+        (
+            ChangeKind.RELEASE_CUT,
+            1283,
+            "dan-petty",
+            datetime.fromisoformat(RELEASE_PR["created_at"]),
+            "v0.2.28",
+        ),
+        (ChangeKind.RELEASE_CUT, 1290, "dan-petty", opened, "v0.2.28"),
+        (ChangeKind.RELEASE_UNCUT, 1290, None, closed, "v0.2.28"),
+    ]
+
+
+def test_a_ship_is_reported_whoever_the_poll_leaves_out_and_the_jobs_own_cut_is_not() -> None:
+    """A ship names no actor, so a poll leaving out the Service's own changes still reports one
+    the Service's login published; the cut it opened itself is its own."""
+    shipped = CUTOFF + timedelta(minutes=1)
+    replies = {
+        LISTING_RELEASES: [
+            github_release("v0.2.28", shipped, shipped, author={"login": "roadmap-bot"})
+        ],
+        "milestones?state=all": MILESTONES,
+        LISTING_PULLS: [listed_pull(1300, shipped, user={"login": "roadmap-bot"})],
+    }
+    assert [kind for kind, *_ in _release_changes(replies, "roadmap-bot")] == [
+        ChangeKind.RELEASE_SHIPPED
+    ]
+
+
+def test_release_changes_sort_with_the_issue_changes_and_read_no_board() -> None:
+    """A poll whose only changes are release changes sends no GraphQL request: a release change
+    carries no job record."""
+    closed = next(e for e in EVENTS if e["event"] == "closed" and "pull_request" not in e["issue"])
+    event = {**closed, "created_at": _at(CUTOFF + timedelta(minutes=2))}
+    shipped, opened = CUTOFF + timedelta(minutes=3), CUTOFF + timedelta(minutes=1)
+    replies = {
+        LISTING_RELEASES: [github_release("v0.2.28", shipped, shipped)],
+        LISTING_PULLS: [listed_pull(1300, opened)],
+        "milestones?state=all": MILESTONES,
+        BOARD_READ: BoardServer(BOARD),
+    }
+    alone, runner = board_store({"issues/events": [], **replies})
+    release_only = alone.changes_since(CUTOFF)
+    mixed, _ = board_store({"issues/events": [event], **replies})
+    assert (
+        [change.kind for change in release_only],
+        graphql_kinds(runner),
+        [change.kind for change in mixed.changes_since(CUTOFF)],
+    ) == (
+        [ChangeKind.RELEASE_CUT, ChangeKind.RELEASE_SHIPPED],
+        [],
+        [ChangeKind.RELEASE_CUT, ChangeKind.CLOSED, ChangeKind.RELEASE_SHIPPED],
+    )
+
+
+def test_the_release_listings_read_on_only_while_a_full_page_ends_after_the_cutoff() -> None:
+    """The pull request and GitHub Release listings are read a small page at a time, and each
+    stops after the first page that ends before the cutoff; the milestones are read only when a
+    GitHub Release was published since."""
+    newer = [
+        listed_pull(2000 + n, CUTOFF + timedelta(minutes=n), labels=[]) for n in range(POLL_PAGE)
+    ]
+    older = [
+        github_release(f"v0.1.{n}", CUTOFF - timedelta(days=n + 1), None) for n in range(POLL_PAGE)
+    ]
+    store, runner = board_store(
+        {
+            "issues/events": [],
+            f"{LISTING_PULLS}&per_page={POLL_PAGE}&page=1": newer,
+            f"{LISTING_PULLS}&per_page={POLL_PAGE}&page=2": [],
+            f"{LISTING_RELEASES}&page=1": older,
+            f"{LISTING_RELEASES}&page=2": (1, "page 2 must not be read"),
+        }
+    )
+    store.changes_since(CUTOFF)
+    read = [args[1].split("/", 3)[-1] for args, _ in runner.calls]
+    assert read == [
+        "issues/events?per_page=100&page=1",
+        f"{LISTING_PULLS}&per_page={POLL_PAGE}&page=1",
+        f"{LISTING_PULLS}&per_page={POLL_PAGE}&page=2",
+        f"{LISTING_RELEASES}&page=1",
+    ]
 
 
 def test_the_factory_opens_the_github_adapter_without_reading(
@@ -2228,7 +2411,9 @@ def test_a_milestone_change_carries_the_release_now_and_the_items_job_record() -
     joined["issue"]["milestone"] = {"title": "v0.2.24"}
     board = on_board(912)
     board["items"][-1]["job record"] = '{"Release": "v0.2.24"}'
-    store, _ = board_store({"issues/events": [joined], BOARD_READ: BoardServer(board)})
+    store, _ = board_store(
+        {"issues/events": [joined], BOARD_READ: BoardServer(board), **NO_RELEASE_CHANGES}
+    )
     (change,) = store.changes_since(datetime(2026, 10, 1, tzinfo=UTC))
     assert (change.kind, change.release, change.field, change.value, change.job_record) == (
         ChangeKind.JOINED_RELEASE,
@@ -2409,6 +2594,7 @@ def test_issue_records_and_releases_carry_author_and_close_times() -> None:
                     950,
                     author_association="COLLABORATOR",
                     created_at="2026-10-04T01:00:00Z",
+                    updated_at="2026-10-04T02:30:00Z",
                     closed_at=None,
                 )
             ],
@@ -2419,10 +2605,12 @@ def test_issue_records_and_releases_carry_author_and_close_times() -> None:
     assert (
         issue.author_association,
         issue.created_at,
+        issue.updated_at,
         release.closed_at,
     ) == (
         "COLLABORATOR",
         datetime(2026, 10, 4, 1, tzinfo=UTC),
+        datetime(2026, 10, 4, 2, 30, tzinfo=UTC),
         datetime(2026, 10, 3, 20, 37, 25, tzinfo=UTC),
     )
 

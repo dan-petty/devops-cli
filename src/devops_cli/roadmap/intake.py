@@ -66,6 +66,14 @@ holds the requests a run makes, in order, with placeholders for what a read give
 (`intake_requests`). `plan_intake` makes the reads and the model calls and writes nothing; the
 command reports what it spent. `apply_intake` makes the writes.
 
+**A limit** (#1360). With `limit`, a run decides at most that many candidates and leaves the
+rest for a later run, so a burst of new issues never holds back the jobs after it. The fresh
+candidates come first, oldest (lowest number) first: those never decided, and those edited
+since a run left them undecided. The others follow, longest waiting first. `waiting` says which
+candidates were decided before, and when: the Service keeps it between rounds as an
+`IntakeRecord`, beside `schedule.json`; `devops roadmap intake --limit` keeps none, so it takes
+the oldest candidates first.
+
 **The agent filing quota (#1153).** Every run reads the counts the quota needs through REST
 search and reports them. A new candidate comes from an agent unless its caller says a person
 filed it (`Filer`); an agent's is labeled `source/agent` and opens while the cycle's agent
@@ -82,7 +90,7 @@ from __future__ import annotations
 
 import logging
 import string
-from collections.abc import Callable, Collection, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
@@ -90,7 +98,7 @@ from functools import cached_property
 from typing import Any
 
 import yaml
-from pydantic import TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic import ValidationError as InvalidLabelsError
 
 from devops_cli.ai.vector_similarity import cosine_similarity
@@ -235,6 +243,7 @@ class Subject:
     labels: tuple[str, ...] = ()
     release: str | None = None
     author_association: str | None = None
+    updated_at: datetime | None = None
     item: Item | None = None
     new: NewCandidate | None = None
 
@@ -401,6 +410,10 @@ class IntakePlan:
     """The quota's numbers, a decision for each candidate, and the asked-for issues that are not
     candidates; with `spend`, the requests the planning run made.
 
+    With a `limit`, `left` holds the candidates the run left for a later one, in the order a
+    later run takes them, and `fresh_left` whether a fresh one is among them: never decided, or
+    edited since it was.
+
     A dry run (`dry_run`) made no request, so it has no quota and no decision: `requests` holds
     the reads and model calls a run makes, in order, and `writes` those `--confirm` adds.
     """
@@ -408,6 +421,9 @@ class IntakePlan:
     quota: QuotaStanding | None
     decisions: tuple[IntakeDecision, ...]
     missing: tuple[int, ...] = ()
+    limit: int | None = None
+    left: tuple[int, ...] = ()
+    fresh_left: bool = False
     spend: Spend | None = None
     dry_run: bool = False
     requests: tuple[PlannedRequest, ...] = ()
@@ -438,6 +454,41 @@ class CandidateOutcome:
     plan: IntakePlan
     decision: IntakeDecision
     number: int | None
+
+
+class Waiting(BaseModel):
+    """A candidate a run decided that is still a candidate: the issue's `updated_at` then, and
+    when it was decided."""
+
+    model_config = ConfigDict(frozen=True)
+
+    updated_at: datetime | None
+    decided_at: datetime
+
+
+class IntakeRecord(BaseModel):
+    """What the Service's intake keeps between rounds (#1360): each candidate it decided that is
+    still one, by number, and whether a fresh candidate is left, which makes intake due at the
+    next poll."""
+
+    model_config = ConfigDict(frozen=True)
+
+    pending: bool = False
+    waiting: dict[int, Waiting] = Field(default_factory=dict)
+
+    def after(self, plan: IntakePlan, now: datetime) -> IntakeRecord:
+        """The record once `plan`'s candidates are decided, at `now`: those it decided, placed
+        or not, and those it left that waited before. A candidate that is one no more drops out
+        at the next run, which no longer lists it; one whose placement raised is decided again
+        after the fresh ones, unless that placement had already written to it, which makes it
+        fresh once."""
+        decided = {
+            decision.subject.number: Waiting(updated_at=decision.subject.updated_at, decided_at=now)
+            for decision in plan.decisions
+            if decision.subject.number is not None
+        }
+        kept = {number: self.waiting[number] for number in plan.left if number in self.waiting}
+        return IntakeRecord(pending=plan.fresh_left, waiting=kept | decided)
 
 
 class _InvalidProposal(ValueError):
@@ -601,6 +652,7 @@ def _subject(issue: IssueRecord, item: Item | None = None) -> Subject:
         labels=issue.labels,
         release=issue.release,
         author_association=issue.author_association,
+        updated_at=issue.updated_at,
         item=item,
     )
 
@@ -621,6 +673,32 @@ def _subjects(
         return found, ()
     chosen = [subject for subject in found if subject.number in issues]
     return chosen, tuple(sorted(set(issues) - {subject.number for subject in chosen}))
+
+
+@dataclass(frozen=True)
+class _Queue:
+    """The candidates a limited run decides, those it leaves, and whether a fresh one is left."""
+
+    decided: list[Subject]
+    left: tuple[int, ...]
+    fresh_left: bool
+
+
+def _queue(subjects: Sequence[Subject], waiting: Mapping[int, Waiting], limit: int) -> _Queue:
+    """The first `limit` candidates: the fresh ones, never decided or edited since they were,
+    oldest (lowest number) first, then the others, longest waiting first."""
+
+    def fresh(subject: Subject) -> bool:
+        before = waiting.get(subject.number or 0)
+        return before is None or before.updated_at != subject.updated_at
+
+    renewed = sorted((s for s in subjects if fresh(s)), key=lambda s: s.number or 0)
+    waited = sorted(
+        (s for s in subjects if not fresh(s)), key=lambda s: waiting[s.number or 0].decided_at
+    )
+    ordered = renewed + waited
+    left = tuple(subject.number for subject in ordered[limit:] if subject.number is not None)
+    return _Queue(ordered[:limit], left, len(renewed) > limit)
 
 
 # ── The duplicate check ───────────────────────────────────────────────────────
@@ -1155,9 +1233,12 @@ def plan_intake(
     ref: str | None = None,
     issues: Collection[int] = (),
     new: NewCandidate | None = None,
+    limit: int | None = None,
+    waiting: Mapping[int, Waiting] | None = None,
 ) -> IntakePlan:
     """Decide every candidate of `repo`, whose roadmap `store` reads, or only `issues`, or only
-    the `new` candidate, writing nothing.
+    the `new` candidate, writing nothing; with `limit`, at most that many, fresh ones first, by
+    what `waiting` says was decided before.
 
     A `new` candidate whose text looks like it holds a secret raises `SecurityError` first.
     """
@@ -1175,8 +1256,16 @@ def plan_intake(
         standing=read_quota(store, config),
     )
     subjects, missing = _subjects(run, issues, new)
-    decisions = tuple(_Planner(run, off_board=new is not None).decide_all(subjects))
-    return IntakePlan(quota=run.standing, decisions=decisions, missing=missing)
+    queue = _Queue(subjects, (), False) if limit is None else _queue(subjects, waiting or {}, limit)
+    decisions = tuple(_Planner(run, off_board=new is not None).decide_all(queue.decided))
+    return IntakePlan(
+        quota=run.standing,
+        decisions=decisions,
+        missing=missing,
+        limit=limit,
+        left=queue.left,
+        fresh_left=queue.fresh_left,
+    )
 
 
 def dry_run_intake(
@@ -1185,11 +1274,13 @@ def dry_run_intake(
     ref: str | None = None,
     issues: Collection[int] = (),
     new: NewCandidate | None = None,
+    limit: int | None = None,
 ) -> IntakePlan:
     """The plan a dry run returns: no request made, the requests a run on `repo` over every
     candidate, only `issues`, or only the `new` candidate makes, in order, with placeholders for
-    what a read gives. A `new` candidate whose text looks like it holds a secret raises
-    `SecurityError`, as it does for a run."""
+    what a read gives; with `limit`, its per-candidate requests say they are for that many. A
+    `new` candidate whose text looks like it holds a secret raises `SecurityError`, as it does
+    for a run."""
     each = new is None and not issues
     if new is not None:
         new.refuse_secrets()
@@ -1198,8 +1289,12 @@ def dry_run_intake(
         subjects = [f"#{number}" for number in sorted(set(issues))]
     else:
         subjects = [MESSAGES.roadmap.intake_placeholder_each]
-    reads, writes = planned_requests(subjects, repo=repo, ref=ref, new=new is not None, each=each)
-    return IntakePlan(quota=None, decisions=(), dry_run=True, requests=reads, writes=writes)
+    reads, writes = planned_requests(
+        subjects, repo=repo, ref=ref, new=new is not None, each=each, limit=limit
+    )
+    return IntakePlan(
+        quota=None, decisions=(), limit=limit, dry_run=True, requests=reads, writes=writes
+    )
 
 
 # ── Writing ───────────────────────────────────────────────────────────────────
@@ -1426,6 +1521,8 @@ def render_intake(plan: IntakePlan, *, repo: str) -> str:
             lines.append(texts.intake_writes.format(writes="; ".join(decision.writes())))
         lines += [texts.intake_note.format(note=note) for note in decision.notes]
     lines += [texts.intake_not_candidate.format(number=number) for number in plan.missing]
+    left = ", ".join(f"#{number}" for number in plan.left)
+    lines += [texts.intake_left.format(limit=plan.limit, left=left)] if plan.left else []
     lines += ["", plan.spend.render()] if plan.spend is not None else []
     return "\n".join(lines) + "\n"
 
@@ -1437,6 +1534,7 @@ __all__ = [
     "IntakeApplied",
     "IntakeDecision",
     "IntakePlan",
+    "IntakeRecord",
     "NewCandidate",
     "Outcome",
     "Placement",
@@ -1444,6 +1542,7 @@ __all__ = [
     "QuotaDecision",
     "QuotaStanding",
     "Subject",
+    "Waiting",
     "apply_intake",
     "dry_run_intake",
     "intake_candidate",

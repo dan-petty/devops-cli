@@ -1740,6 +1740,11 @@ class RoadmapMessages:
     intake_repeat_candidate: str = (
         "for each candidate: an open issue off the board or an item without a Priority"
     )
+    intake_repeat_limited: str = (
+        "for each of the {limit} oldest candidates: an open issue off the board or an item "
+        "without a Priority"
+    )
+    intake_left: str = "Left for a later run, beyond the limit of {limit}: {left}."
     intake_placeholder_default_branch: str = "the default branch"
     intake_placeholder_board: str = "<the board .github/roadmap.toml names>"
     intake_placeholder_since: str = "<the previous release's close>"
@@ -1860,6 +1865,11 @@ class RoadmapMessages:
     run_job_needs_clone: str = (
         "The roadmap {job} job reads its repository's clone and was given none: its row in the "
         "due table must set needs_clone."
+    )
+    run_intake_record_unreadable: str = (
+        "The intake record {path} can't be read ({reason}), so intake does not run. Repair it, "
+        "or remove it: the next intake then starts a new record and takes every candidate as "
+        "never decided."
     )
     intake_borrow_needs_title: str = (
         "--borrow-reason applies to a new candidate; pass it with --title and --body-file."

@@ -9,17 +9,17 @@ does: a null node with a `NOT_FOUND` error, `gh` exiting 1. A card in `lagging` 
 that many listings, as GitHub's listing showed a new card up to two minutes after its add.
 
 `GitHubFake` is a whole repository and its board at the `gh` process edge: REST issues,
-milestones, labels, comments, events and files, the board's fields, and the `gh project`
-writes, each applied to what later reads return. It also answers the project metrics reads
-(the repository, its Actions runs and its traffic), `gh api user` with its `login`, and
-`gh api rate_limit` with a full quota that resets in a minute. It keeps every argv, and charges
-each GraphQL request the points GitHub's own estimate (`rateLimit(dryRun: true)`, board #2,
-2026-10-08) gives its shape (`GRAPHQL_POINTS`). Closing an issue runs the board's built-in
-"Item closed" workflow, which sets its card's Status to Done. `item-add` names the card an issue
-already has, archived or not, and `item-archive --undo` restores an archived one with its fields
-(#1403). Neither starts `gh` or opens a socket. `GitHubFake.process` stands in for
-`subprocess.run` itself, answering `gh` and passing every other program, such as `git`, to the
-real one.
+milestones, labels, comments, events, files, pull requests and GitHub Releases, the board's
+fields, and the `gh project` writes, each applied to what later reads return. It also answers
+the project metrics reads (the repository, its Actions runs and its traffic), `gh api user`
+with its `login`, and `gh api rate_limit` with a full quota that resets in a minute. It keeps
+every argv, and charges each GraphQL request the points GitHub's own estimate
+(`rateLimit(dryRun: true)`, board #2, 2026-10-08) gives its shape (`GRAPHQL_POINTS`). Closing an
+issue runs the board's built-in "Item closed" workflow, which sets its card's Status to Done.
+`item-add` names the card an issue already has, archived or not, and `item-archive --undo`
+restores an archived one with its fields (#1403). Neither starts `gh` or opens a socket.
+`GitHubFake.process` stands in for `subprocess.run` itself, answering `gh` and passing every
+other program, such as `git`, to the real one.
 """
 
 from __future__ import annotations
@@ -277,6 +277,8 @@ class GitHubFake:
     `issues` maps a number to its REST payload; `on_board` numbers start as cards with the
     given `cards` fields. `lag` is how many board listings leave a card just added out. `files`
     maps a path to its text, or to the `(exit code, output)` `gh` gives for it, such as a 502.
+    `pulls` and `releases` are the pull request and GitHub Release listings, newest first, as
+    REST lists them (#1360).
     """
 
     def __init__(
@@ -289,12 +291,16 @@ class GitHubFake:
         lag: int = 0,
         commits: Iterable[str] = (),
         login: str = "roadmap-bot",
+        pulls: Iterable[dict[str, Any]] = (),
+        releases: Iterable[dict[str, Any]] = (),
     ) -> None:
         self.repo = repo
         self.login = login
         self.milestones = list(milestones)
         self.files = dict(files or {})
         self.events = list(events)
+        self.pulls = list(pulls)
+        self.releases = list(releases)
         self.commits = set(commits)
         self.lag = lag
         self.issues: dict[int, dict[str, Any]] = {}
@@ -518,20 +524,28 @@ class GitHubFake:
             return self.files[name] if name in self.files else (1, "gh: Not Found (HTTP 404)")
         if parts[0] == "commits":
             return {"sha": parts[1]} if parts[1] in self.commits else (1, "HTTP 422")
+        listings = {"issues/events": self.events, "pulls": self.pulls, "releases": self.releases}
+        if "/".join(parts) in listings:
+            size = int(query.get("per_page", "100"))
+            return listings["/".join(parts)][(page - 1) * size : page * size]
         if parts[0] == "releases":
-            return (1, "gh: Not Found (HTTP 404)")
+            return self._release_by_tag(parts[1:])
         if parts == ["actions", "runs"]:
             return {"total_count": 0, "workflow_runs": []}
         if parts[0] == "traffic":
             return [] if parts[1] == "popular" else {"count": 0, "uniques": 0}
         if parts[0] == "milestones":
             return self.milestones if page == 1 else []
-        if parts == ["issues", "events"]:
-            return self.events[(page - 1) * 100 : page * 100]
         if parts == ["issues"]:
             labels = [arg.split("=", 1)[1] for arg in args if arg.startswith("labels[]=")]
             return self._issues(method, query, fields | {"labels": json.dumps(labels)}, page)
         return self._issue_route(method, int(parts[1]), parts[2:], fields, page)
+
+    def _release_by_tag(self, rest: list[str]) -> Any:
+        """One GitHub Release by its tag, as `releases/tags/<tag>` reads it."""
+        tag = unquote("/".join(rest[1:])) if rest[0] == "tags" else None
+        found = next((release for release in self.releases if release["tag_name"] == tag), None)
+        return found if found is not None else (1, "gh: Not Found (HTTP 404)")
 
     def _issues(self, method: str, query: dict[str, str], fields: dict[str, str], page: int) -> Any:
         if method == "POST":

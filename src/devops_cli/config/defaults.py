@@ -772,6 +772,9 @@ DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC: int = 25
 DEFAULT_GH_QUOTA_MAX_AGE_SECONDS: float = 300.0
 DEFAULT_GH_MAX_PAGINATED_PAGES: int = 100
 DEFAULT_GH_REST_PER_PAGE: int = 100
+# A roadmap poll reads the pull requests and the GitHub Releases this many at a time: at 100 a
+# page the two pages ran to about 2 MB and 0.4 MB, and a poll needs the newest few (#1360).
+DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE: int = 20
 # Board reads page GraphQL's `ProjectV2.items` this many items at a time, its largest page (#1125).
 DEFAULT_GH_PROJECT_ITEM_PAGE_SIZE: int = 100
 # A board read stops before a page, and refuses before it starts, while GraphQL reports fewer
@@ -814,6 +817,8 @@ DEFAULT_ROADMAP_STALL_CHECK_HOURS: int = 24
 # `.github/roadmap.toml` keys a repository may leave out. `board` has no default.
 DEFAULT_ROADMAP_RELEASE_CAP: int = 12
 DEFAULT_ROADMAP_REFINE_LIMIT: int = 3
+# The most candidates one Service round of intake decides, one model call each (#1360).
+DEFAULT_ROADMAP_INTAKE_LIMIT: int = 5
 DEFAULT_ROADMAP_DISCOVERY_THRESHOLD: int = 24
 DEFAULT_ROADMAP_PLANNING_HORIZON: int = 2
 DEFAULT_ROADMAP_STALL_DAYS: int = 14
