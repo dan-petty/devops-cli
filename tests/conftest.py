@@ -928,9 +928,10 @@ def _evaluate_workspace_tripwire(snapshot: dict[str, Any]) -> list[str]:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Skip live bubblewrap tests where bubblewrap is not installed on the host (#832)."""
+    """Skip live bubblewrap tests where bubblewrap is not installed on the host (#832, #1337)."""
+    from devops_cli.sandbox.host import HostSandbox
 
-    if True:
+    if not HostSandbox().is_available():
         skip_bwrap = pytest.mark.skip(reason="bubblewrap is not installed")
         for item in items:
             if "bwrap" in item.keywords:
