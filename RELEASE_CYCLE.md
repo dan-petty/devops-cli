@@ -162,6 +162,7 @@ sequenceDiagram
 
     Dev->>CLI: devops release prepare X.Y.Z --create-pr
     CLI->>Git: Push branch release/vX.Y.Z & Open Release PR
+    Git->>Rel: Push to release/vX.Y.Z publishes service:vX.Y.Z
     Git->>CI: Trigger CI Validation
     CI-->>Git: All validation checks passed (Green)
     Dev->>Git: Peer Review & PR Approval
@@ -171,6 +172,7 @@ sequenceDiagram
     Rel->>Rel: Extract release notes (devops release notes)
     Rel->>Git: Auto-cut annotated tag vX.Y.Z
     Rel->>Git: Publish GitHub Release & Assets
+    Rel->>Rel: Point service:latest at service:vX.Y.Z
 ```
 
 ### Automated Release Cutting & Ruleset Bypass (`roadmap-service`)
@@ -203,13 +205,16 @@ uv run devops release prepare X.Y.Z --create-pr
    - Documentation freshness (`devops docs check`)
    - Pytest unit tests and test coverage thresholds
    - Bandit static security scanning
-2. Maintainers review the release diff, changelog, and documentation updates.
+2. Each push to `release/vX.Y.Z` that holds version X.Y.Z runs `release.yml`'s **Build & Publish Service Image**, so the image `main` will pin exists before the merge ([#1451](https://github.com/dan-petty/devops-cli/issues/1451)). When the image's inputs changed, or the tag's image has no provenance from `release.yml`, it builds, smoke-tests and scans `service:vX.Y.Z`, pushes it by digest, attests it and then tags it. `ci.yml`'s **Service Image** job skips the release PR for that reason.
+   - The check fails when `main` has image changes the branch lacks; commits on `main` that leave the image's inputs alone don't count. Merge `main` into the branch with a release-process pull request, which `devops pr check-readiness` exempts from grounding, and merge it with **Create a merge commit**, which the release ruleset allows: `git fetch origin`, `git switch -c chore/open-vX.Y.Z-main origin/main`, `git push -u origin chore/open-vX.Y.Z-main`, then `uv run devops pr create --base release/vX.Y.Z --title "chore(release): merge main into release/vX.Y.Z"`.
+   - Merge the release PR only with this check green. The run checks `main` again right before it tags, so a release PR merged while it runs leaves `service:vX.Y.Z` without that push's change, and the run fails.
+3. Maintainers review the release diff, changelog, and documentation updates.
 
 ### A Critical Fix While the Release PR Is Open
 Opening the release PR cuts the release, and a critical fix (P0 with `type/bug` or `type/security`) still joins it, so the release branch holds every change before the release PR merges:
 1. `devops roadmap intake` places the fix in the cut release, and `devops roadmap reprioritize` keeps it there with an "is cut, and a critical fix still joins it" comment. Intake places any other candidate with no milestone in the backlog, as after the start, and the start of a release a person cut before it pulls nothing in.
 2. The fix's pull request targets `release/vX.Y.Z`. `devops pr check-readiness` accepts it because the issue it closes is in release vX.Y.Z.
-3. The release PR's head is `release/vX.Y.Z`, so it picks up the fix's commit and its checks run again. Its description is not regenerated yet ([#1346](https://github.com/dan-petty/devops-cli/issues/1346)), so a person edits its list of deliverables and its notes.
+3. The release PR's head is `release/vX.Y.Z`, so it picks up the fix's commit and its checks run again, and the push publishes `service:vX.Y.Z` again when the fix changed the image's inputs. Its description is not regenerated yet ([#1346](https://github.com/dan-petty/devops-cli/issues/1346)), so a person edits its list of deliverables and its notes.
 4. The fix adds `changelog.d/<issue>.md` like any item. Once the release's fragments were collected into its `CHANGELOG.md` section, a person collects the late one before the release PR merges: a `chore/open-vX.Y.Z-collate-<issue>` pull request into `release/vX.Y.Z` moves its entries into the version's section and deletes it, as #1293 did for #1290 in v0.2.28. A fragment left behind is collected into the next release's section. [#1103](https://github.com/dan-petty/devops-cli/issues/1103) moves the collection to the release merge, which ends this step.
 5. Merge the release PR only once its milestone holds no open item. [#1425](https://github.com/dan-petty/devops-cli/issues/1425) adds the check that enforces this, and makes `devops pr check-readiness` refuse a pull request into a release branch whose release PR has merged. If the release PR merged while an admitted fix was still open, move the fix to the next release: set its issue's milestone to vNEXT, and retarget its pull request with `uv run devops pr edit <pr> --base release/vNEXT`. Otherwise the fix stays in the shipped release, whose milestone `release.yml` closes, because no job moves an item out of a shipped release.
 
@@ -225,6 +230,7 @@ Upon PR merge into `main`, [`.github/workflows/release.yml`](.github/workflows/r
 2. Runs release verification without the CI suite (`devops release check --allow-dirty --skip-ci`).
 3. Cuts and pushes the annotated git tag `vX.Y.Z`.
 4. Extracts release notes using `devops release notes` and creates the official GitHub Release.
+5. Points the Service image's `latest` at `service:vX.Y.Z`, which the release branch published, once its provenance from `release.yml` verifies. It never replaces `service:vX.Y.Z`: when the merged tree's image inputs differ from the image's (`main` moved after the branch's last push, or a later push to `main`, such as one that recovers a failed release run, changed them), it warns and those changes ship in the next release. It builds the image only when no image has that tag, and fails when the tag's image has no verifiable provenance.
 
 ### Step 6: Post-Release DevContainer Validation
 Verify DevContainer lifecycle operations:
