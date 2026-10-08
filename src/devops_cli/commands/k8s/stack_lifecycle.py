@@ -175,6 +175,7 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         DEFAULT_K8S_DIR / "llm" / "profiles" / "services.yaml",
         DEFAULT_K8S_DIR / "llm" / "profiles" / "ollama-profiles.yaml",
         DEFAULT_K8S_DIR / "llm" / "gateway" / "configmap.yaml",
+        DEFAULT_K8S_DIR / "llm" / "gateway" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "llm" / "gateway" / "deployment.yaml",
         DEFAULT_K8S_DIR / "llm" / "gateway" / "service.yaml",
     ],

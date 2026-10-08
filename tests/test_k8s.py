@@ -251,6 +251,32 @@ def test_k8s_teardown_stack_llm_dry_run() -> None:
         set_dry_run(False)
 
 
+def test_llm_stack_applies_the_gateway_policy_before_the_gateway_and_deletes_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """deploy-stack --stack llm applies llm-gateway-perimeter before the gateway's Deployment,
+    and teardown-stack deletes it (#795). Without Argo CD the gateway ran with no policy, so its
+    egress was unrestricted. Neither dry run makes a request."""
+    from tests.cluster_secret_fakes import forbid_requests
+
+    attempted = forbid_requests(monkeypatch)
+    policy, gateway = (
+        str(Path("k8s", "llm", "gateway", name))
+        for name in ("networkpolicy.yaml", "deployment.yaml")
+    )
+    deploy = runner.invoke(app, ["deploy-stack", "--stack", "llm", "--dry-run"])
+    teardown = runner.invoke(app, ["teardown-stack", "--stack", "llm", "--dry-run"])
+    manifests = _dry_run_details(deploy.output)["manifests"]
+
+    assert (
+        deploy.exit_code,
+        teardown.exit_code,
+        policy in manifests and manifests.index(policy) < manifests.index(gateway),
+        policy in _dry_run_details(teardown.output)["manifest_deletes"],
+        attempted,
+    ) == (0, 0, True, True, [])
+
+
 def test_k8s_deploy_stack_invalid_stack() -> None:
     """k8s deploy-stack with invalid stack option must exit code 1."""
     set_dry_run(True)
