@@ -30,7 +30,6 @@ UNDEPLOYED_NETWORK_POLICIES: dict[tuple[str, str], tuple[str, str]] = {
         "Argo CD's otel Application; deploy-stack in #1371, as its 8888 rule "
         "would break the otel-metrics route",
     ),
-    ("llm", "llm-gateway-perimeter"): ("k8s/llm/gateway/networkpolicy.yaml", "#795"),
     ("llm", "vllm-profiles-perimeter"): (
         "k8s/llm/profiles/networkpolicy.yaml",
         "#820, which deletes it with the vLLM leftovers",

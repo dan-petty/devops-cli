@@ -43,9 +43,10 @@ The issue body's deploy path no longer fit the tree. The amendment of 2026-10-08
   Each exemption names its file and the issue or path that owns it:
   - argocd: #1371;
   - otel: Argo CD's `otel` Application, and #1371 for deploy-stack;
-  - `llm-gateway-perimeter`: #795;
   - `vllm-profiles-perimeter`: #820;
   - `portkey-perimeter` and `valkey-runs-perimeter`: Argo CD's `llm` Application, plus a person's apply for `devops ai runs`.
+
+  `llm-gateway-perimeter` was exempted under #795 until #795 made deploy-stack apply it. #795 merged first, so the exemption was deleted on `release/v0.2.29` once both had landed.
 - [x] The tests use structural tuple assertions and reach no cluster, DNS or network. The only process they run is `kubectl kustomize` on repository files.
 - [x] The alloy-operator pre-delete hook's API-server egress is pinned offline by `test_monitoring_network_policy_alloy_egress_rules` (6443 through the `ipBlock`, `tests/test_k8s_logging_stack.py`). The file has no ingress `ipBlock` (`test_monitoring_ingress_admits_no_world_cidr`).
 - [x] `changelog.d/913.md` records the change under `### Security`; `CHANGELOG.md` and `docs/ROADMAP.md` are not edited.
