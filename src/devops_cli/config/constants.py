@@ -127,10 +127,15 @@ CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
 CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
     CONST_MCP_EAGER_DOMAINS | CONST_MCP_LAZY_DOMAINS | {"github", "secrets", "benchmarks"}
 )
-# The module whose tools and resources shell out to `devops`, and the argv head that marks
-# such a call. `devops docs check` resolves every list that starts with it.
-CONST_MCP_SERVER_MODULE = "devops_cli.ai.mcp.server"
-CONST_DEVOPS_ARGV_PREFIX: Final[tuple[str, ...]] = ("uv", "run", "devops")
+# The argv heads that run the devops CLI, directly or through `uv run`. `devops docs check`
+# resolves every list literal under src/devops_cli that starts with one (#868). Such a list
+# spells the command word as a quoted literal in one of Python's two quote characters, so a
+# module holding neither spelling is not parsed.
+CONST_DEVOPS_ARGV_PREFIXES: Final[tuple[tuple[str, ...], ...]] = (
+    ("devops",),
+    ("uv", "run", "devops"),
+)
+CONST_DEVOPS_ARGV_QUOTED_COMMAND: Final[tuple[str, ...]] = ('"devops"', "'devops'")
 # Well-known placeholder tokens and handwritten documentation files checked for command argv resolution (#921).
 CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
     {"...", "COMMAND", "ARGS", "OPTIONS", "SUBCOMMAND", "PARAMS"}
@@ -144,7 +149,7 @@ CONST_HANDWRITTEN_DOCS_PATHS: Final[tuple[Path, ...]] = (
     Path("docs/DEVCONTAINER_USAGE.md"),
     Path("docs/VISION.md"),
 )
-# The list methods that add tokens to an argv the MCP server builds up in a variable.
+# The list methods that add tokens to a `devops` argv built up in a variable.
 CONST_ARGV_EXTENDING_METHODS: Final[frozenset[str]] = frozenset({"append", "extend"})
 # Bound on the length of command output returned to an MCP client.
 CONST_MCP_MAX_COMMAND_OUTPUT_CHARS: Final[int] = 4000

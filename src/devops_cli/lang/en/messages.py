@@ -700,7 +700,7 @@ class RAGMessages:
     reset_cache_success: str = "Reset local indexing cache"
     cannot_connect_qdrant: str = (
         "Cannot connect to Qdrant at [bold]{url}[/bold]\n"
-        "Tip: Deploy or start Qdrant via 'devops k8s deploy-stack llm'"
+        "Tip: Deploy or start Qdrant via 'devops k8s deploy-stack --stack llm'"
     )
     searching_qdrant: str = "Searching Qdrant ({coll}) for query: '{query}' (limit: {limit})..."
     indexing_complete: str = (

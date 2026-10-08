@@ -1,0 +1,45 @@
+# Task: Docs Check Resolves Every devops Argv in src (#868)
+
+**Issue**: [#868](https://github.com/dan-petty/devops-cli/issues/868)
+**Status**: Done
+**Milestone**: v0.2.29
+**Priority**: priority/p1-high
+**Scope**: scope/cli
+
+## Description
+`devops docs check` resolved only the `uv run devops` argv lists of the MCP server (#836). The other `devops` command lines in `src/devops_cli` went unchecked: the quality gate's steps in `commands/ci.py`, the release gate in `commands/release.py`, and the bare `["devops", ...]` lists in `commands/devcontainer.py` and `core/cli.py`. The resolver also skipped every computed token left over, so `["devops", "k8s", "deploy-stack", stack]`, the auto-deploy bug fixed in v0.2.26 by #741, would still have passed even with those modules collected.
+
+Owner's scope decision, 2026-10-08: the auto-deploy argv fix had already shipped with #741, so this item delivers only the docs-check half and the Qdrant tip. `_auto_deploy_k8s_stack`, its warning and its tests are unchanged. Whether post-start should keep auto-deploying is the owner decision in #1368.
+
+- `src/devops_cli/docs/source_argv_collector.py` (renamed from `mcp_argv_collector.py` with `git mv`, no alias left): `collect_source_argv_references()` reads every module under `src/devops_cli`. A module whose text holds neither `"devops"` nor `'devops'` is skipped without being parsed. It collects list literals that start with either head in `CONST_DEVOPS_ARGV_PREFIXES`, `("devops",)` or `("uv", "run", "devops")`. One explicit-stack pass splits each tree into its module and function scopes, and appends and extends are matched only in scopes that hold an argv list. `check_source_argv()` replaces `check_mcp_server_argv()`, and `DocGenerator.check_docs` and `markdown_argv_collector.py` import from the new module.
+- Single-token rule: a computed list element or `.append` argument becomes `ArgvPlaceholder(single_token=True)`. A starred element or an `.extend` of a runtime value stays a placeholder for any number of tokens. `resolve_devops_argv` now reports a literal or single-token argument left over where the command takes no more arguments. `single_token` defaults to false, so the Markdown collectors (#920, #921) and `tests/markdown_examples.py` (#952) build the same placeholders and get the same results.
+- A conditional whose branches are string literals, or such conditionals nested, becomes an `ArgvChoice`. `describe_unresolved_references` resolves each combination of choices and reports a list once, at its first failing command line.
+- The collector stays branch-blind: appends in branches that exclude each other read as one command line. `bootstrap-k8s ... --stack <stack> --deploy --no-deploy` (`commands/devcontainer.py`) still resolves. The module docstring states both rules.
+- `ai/mcp/server.py`: three lists failed the new rule. `config_output` writes its `--json`/`--export` conditional inline instead of through a `flag` local. `roadmap_refine` and `roadmap_intake` write `--repo`, `--ref`, `--title` and `--source` as literals, each validated with `_validate_mcp_arg`, in the same order as before. `roadmap_intake` passes its mode as `"--confirm" if mode == "confirm" else "--plan" if mode == "plan" else "--dry-run"`, so any mode other than `confirm` makes no write. `_roadmap_cmd` builds options on a list passed in, which the collector does not see, and is unchanged.
+- The Qdrant tip reads `devops k8s deploy-stack --stack llm` in `MESSAGES.rag.cannot_connect_qdrant`. `devops ai rag index` and `devops ai rag index-kb` both print it, and the unread `ERRORS.rag.cannot_connect` is deleted.
+- `CONST_DEVOPS_ARGV_PREFIX` and `CONST_MCP_SERVER_MODULE` are replaced by `CONST_DEVOPS_ARGV_PREFIXES` and `CONST_DEVOPS_ARGV_QUOTED_COMMAND`. The FastMCP knowledge-base article states the rule for option names.
+
+Collection cost, measured in-process with every list collected and the two collectors run alternately seven times at load average 10 to 12: the previous MCP-only collector took a median of 0.10 s (0.09 to 0.23 s). The collector over all of src took a median of 0.52 s (0.49 to 0.81 s): 179 lists in 24 modules. The added cost is about 0.4 s. At load average 27 the new collector took 0.86 to 1.30 s wall and 0.75 to 1.02 s CPU. Before the walk became a single pass, it took 2.1 to 3.3 s at the same load.
+
+## Acceptance Criteria
+- [x] The collector reads every module under `src/devops_cli` and collects lists that start with `devops` or with `uv run devops`. `devops docs check` resolves each one. `test_a_module_without_a_quoted_devops_is_not_parsed` shows that a module that only imports `devops_cli` is not parsed (`ast.parse` called twice for three modules).
+- [x] A computed single token, whether a list element or an `.append` argument, left over where the command takes no more arguments is reported. A starred element or an `.extend` of a runtime value is not. A conditional between literals is resolved once per alternative, nested conditionals included. `test_a_single_token_placeholder_is_reported_only_when_left_over` covers the resolver. `test_a_placeholder_for_any_number_of_tokens_is_never_reported` and the unchanged `tests/test_docs_knowledge_base_argv.py`, `tests/test_docs_review_loop.py` and `tests/test_docs_command_resolver.py` results show that other callers see no change.
+- [x] The fixture tests (`test_argv_lists_and_everything_added_to_them_are_collected`, `test_unresolved_fixture_argv_are_reported_with_their_source_line`) report `devops k8s deploy-stack infra` and `devops k8s deploy-stack <stack>`, element and append, at their lines. They do not report `--stack <stack>`, a list ending in `*args`, or `cmd.extend(flags)`. A conditional with the unknown `--yaml` is reported and names it, and every alternative of a nested conditional resolves.
+- [x] `devops docs check` exits 1 and names `fixture.py:43` when the collector returns the broken fixture line (`test_docs_check_reports_an_unresolved_source_argv`). The Markdown checks are patched, so the call phase stays under 1 s.
+- [x] `test_the_collector_reads_every_module_and_both_prefixes` and `test_every_devops_argv_in_src_resolves` replace `test_every_mcp_server_argv_resolves`. They find at least 174 lists (179 today) in `ai/mcp/server.py`, `commands/ci.py`, `commands/devcontainer.py`, `commands/release.py` and `core/cli.py`, and report none. The inline `config_output` conditional is collected as a choice.
+- [x] Neither the resolver nor the collector runs a command. The shared `src_references` fixture collects with `subprocess.Popen` and `_run_mcp_cmd` patched to raise, and the resolve test asserts that neither was called. The command trees are built in a module-scoped fixture, so each call phase stays under 1 s.
+- [x] The added collection costs at most 1 s in the gate: about 0.4 s at load average 10 to 12, measured above.
+- [x] The names that said "MCP server" are gone, with no alias left: the module, `collect_mcp_server_argv_references`, `check_mcp_server_argv`, `CONST_DEVOPS_ARGV_PREFIX` and the now-unused `CONST_MCP_SERVER_MODULE`. The collector's docstring states the branch-blind and single-token rules.
+- [x] `roadmap_refine` and `roadmap_intake` keep their argv order: `test_roadmap_refine_contract_and_argv`, the new `test_roadmap_intake_argv_keeps_its_order_and_writes_only_on_confirm`, and the in-process `tests/test_roadmap_intake.py` MCP tests pass.
+- [x] The Qdrant tip reads `devops k8s deploy-stack --stack llm` in one string. Both `rag` paths print it, and `ERRORS.rag.cannot_connect` is deleted. `test_an_unreachable_qdrant_tip_names_a_deploy_command_the_cli_accepts` passes the quoted command to `resolve_devops_argv` and gets `None`.
+- [x] `changelog.d/868.md` holds the `### Fixed` entries. `CHANGELOG.md` and `docs/ROADMAP.md` are not edited.
+- [x] Every test runs offline, and `uv run devops ci` passes.
+
+## Deliverables
+- [x] `src/devops_cli/docs/source_argv_collector.py`, `src/devops_cli/docs/command_resolver.py`, `src/devops_cli/docs/generator.py`, `src/devops_cli/docs/markdown_argv_collector.py`, `src/devops_cli/config/constants.py`
+- [x] `src/devops_cli/ai/mcp/server.py` (`config_output`, `roadmap_refine`, `roadmap_intake`)
+- [x] `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/errors.py`, `src/devops_cli/commands/rag.py`
+- [x] `src/devops_cli/ai/knowledge_base/devops_cli/libraries/fastmcp.md`
+- [x] `tests/test_docs_source_argv_collector.py` (renamed from `tests/test_docs_mcp_argv_collector.py`), `tests/test_docs_command_resolver.py`, `tests/test_docs_knowledge_base_argv.py`, `tests/test_fastmcp_contracts.py`, `tests/test_rag_cli.py`
+- [x] `changelog.d/868.md`
+- Not done here, by the owner's decision: the call-site half. That covers deploy-stack's output going uncaptured, the exit status in `MESSAGES.devcontainer.auto_deploy_failed`, `test_bootstrap_k8s_autodeploy_k8s_stack` and `test_post_start_autodeploy_k8s_stack` still using the rejected stack `observability`, and the two live `bootstrap-k8s` checks. It moves to #1368, which first decides whether post-start auto-deploy stays.

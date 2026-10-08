@@ -23,6 +23,7 @@ def _finding(defect: CommandReferenceDefect, path: str, token: str) -> CommandRe
 
 TARGET = ArgvPlaceholder(expression="target")
 NUMBER = ArgvPlaceholder(expression="str(max_complexity)")
+STACK = ArgvPlaceholder(expression="stack", single_token=True)
 
 
 # The negative controls below fail if a Typer upgrade changes how the walk descends: each
@@ -128,13 +129,41 @@ def test_a_placeholder_that_fails_conversion_does_not_hide_an_extra_argument() -
         ["config", "output", ArgvPlaceholder(expression="flag")],
     ],
 )
-def test_a_placeholder_is_never_reported(tokens: list[ArgvToken]) -> None:
+def test_a_placeholder_for_any_number_of_tokens_is_never_reported(
+    tokens: list[ArgvToken],
+) -> None:
     """Verify a runtime value where a command or an extra argument sits is inconclusive.
 
-    A placeholder can stand for anything, `--json` included, so only literal tokens are
-    reported.
+    A placeholder that is not marked single-token can stand for anything, `--json` included,
+    as the Markdown collectors' `[OPTIONS]` and `<name>` do.
     """
     assert resolve_devops_argv(tokens) is None
+
+
+@pytest.mark.parametrize(
+    ("tokens", "expected"),
+    [
+        (
+            ["k8s", "deploy-stack", STACK],
+            _finding(
+                CommandReferenceDefect.UNEXPECTED_ARGUMENT, "devops k8s deploy-stack", "<stack>"
+            ),
+        ),
+        (
+            ["config", "output", ArgvPlaceholder(expression="flag", single_token=True)],
+            _finding(CommandReferenceDefect.UNEXPECTED_ARGUMENT, "devops config output", "<flag>"),
+        ),
+        (["k8s", "deploy-stack", "--stack", STACK], None),
+        (["ai", ArgvPlaceholder(expression="subcommand", single_token=True)], None),
+    ],
+)
+def test_a_single_token_placeholder_is_reported_only_when_left_over(
+    tokens: list[ArgvToken], expected: CommandReferenceFinding | None
+) -> None:
+    """Verify a single computed token left over where the command takes no more arguments is
+    an unexpected argument, and is not where it fills an option's value or names a subcommand.
+    """
+    assert resolve_devops_argv(tokens) == expected
 
 
 def test_an_option_missing_its_value_is_not_an_extra_argument() -> None:

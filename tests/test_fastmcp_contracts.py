@@ -1447,6 +1447,56 @@ def test_roadmap_refine_contract_and_argv() -> None:
     )
 
 
+def test_roadmap_intake_argv_keeps_its_order_and_writes_only_on_confirm() -> None:
+    """Verify roadmap_intake names each option and mode flag as written, in the CLI's order.
+
+    A mode outside the three the tool declares falls back to `--dry-run`, which makes no
+    request, so only `mode="confirm"` writes.
+    """
+    from typing import Any
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import roadmap_intake
+
+    unknown_mode: Any = "write"
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
+        roadmap_intake(
+            repo="dan-petty/devops-cli",
+            ref="release/v0.2.29",
+            issues=[868],
+            title="fix: example",
+            source="https://example.com",
+            borrow_reason="split",
+            mode="confirm",
+        )
+        roadmap_intake()
+        roadmap_intake(mode="dry-run")
+        roadmap_intake(mode=unknown_mode)
+
+    head = ["uv", "run", "devops", "roadmap", "intake"]
+    assert [call.args[0] for call in run.call_args_list] == [
+        [
+            *head,
+            "--repo",
+            "dan-petty/devops-cli",
+            "--ref",
+            "release/v0.2.29",
+            "--title",
+            "fix: example",
+            "--source",
+            "https://example.com",
+            "--issue",
+            "868",
+            "--borrow-reason",
+            "split",
+            "--confirm",
+        ],
+        [*head, "--plan"],
+        [*head, "--dry-run"],
+        [*head, "--dry-run"],
+    ]
+
+
 # =============================================================================
 # telemetry_profile names a trace and runs nothing (#980)
 # =============================================================================

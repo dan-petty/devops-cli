@@ -642,9 +642,15 @@ def config_show() -> str:
 @mcp.tool()
 def config_output(output_format: str = "json") -> str:
     """Output environment variables available for configuration (text or json)."""
-    flag = "--json" if output_format == "json" else "--export"
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "config", "output", flag],
+        [
+            "uv",
+            "run",
+            "devops",
+            "config",
+            "output",
+            "--json" if output_format == "json" else "--export",
+        ],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 
@@ -798,10 +804,15 @@ def roadmap_refine(
     It never accepts a confirm argument, ensuring it is strictly read-only.
     """
     cmd = ["uv", "run", "devops", "roadmap", "refine"]
-    for name, value in (("repo", repo), ("ref", ref), ("source", source)):
-        if value:
-            _validate_mcp_arg(name, value)
-            cmd.extend([f"--{name}", value])
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    if ref:
+        _validate_mcp_arg("ref", ref)
+        cmd.extend(["--ref", ref])
+    if source:
+        _validate_mcp_arg("source", source)
+        cmd.extend(["--source", source])
     if item is not None:
         cmd.extend(["--item", str(item)])
     if limit is not None:
@@ -831,16 +842,24 @@ def roadmap_intake(
     the tool reads no file of the caller's choosing.
     """
     cmd = ["uv", "run", "devops", "roadmap", "intake"]
-    for name, value in (("repo", repo), ("ref", ref), ("title", title), ("source", source)):
-        if value:
-            _validate_mcp_arg(name, value)
-            cmd.extend([f"--{name}", value])
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    if ref:
+        _validate_mcp_arg("ref", ref)
+        cmd.extend(["--ref", ref])
+    if title:
+        _validate_mcp_arg("title", title)
+        cmd.extend(["--title", title])
+    if source:
+        _validate_mcp_arg("source", source)
+        cmd.extend(["--source", source])
     for number in issues or ():
         _validate_mcp_int_bound("issues", number)
         cmd.extend(["--issue", str(number)])
     if borrow_reason:
         cmd.extend(["--borrow-reason", borrow_reason])
-    cmd.append(f"--{mode}")
+    cmd.append("--confirm" if mode == "confirm" else "--plan" if mode == "plan" else "--dry-run")
     if body is None:
         return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
     # The file is created owner-only (0600) and removed when the command ends.
