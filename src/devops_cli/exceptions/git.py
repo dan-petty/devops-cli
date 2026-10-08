@@ -141,3 +141,142 @@ class GitHubRateLimitError(GitHubOperationError, ValueError):
             error_code="GITHUB_RATE_LIMIT_UNKNOWN",
             details=err_details,
         )
+
+
+class ReleaseWorkingTreeDirtyError(GitOperationError):
+    """Raised when the working tree has uncommitted changes before cutting a release."""
+
+    def __init__(
+        self,
+        message: str = "Working directory has uncommitted changes. Stash or commit them before cutting a release.",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            operation="verify_clean_tree",
+            exit_code=CONST_EXIT_FAILURE,
+            error_code="RELEASE_WORKING_TREE_DIRTY",
+            details=details,
+        )
+
+
+class ReleaseRemoteFetchError(GitOperationError):
+    """Raised when fetching the remote release branch tip fails."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        remote_ref: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = {"remote_ref": remote_ref} if remote_ref else {}
+        if details:
+            err_details.update(details)
+        super().__init__(
+            message,
+            operation="fetch_remote_release_branch",
+            exit_code=CONST_EXIT_FAILURE,
+            error_code="RELEASE_REMOTE_FETCH_FAILED",
+            details=err_details,
+        )
+
+
+class ReleaseBranchMissingError(GitOperationError):
+    """Raised when the remote release branch tracking ref does not exist."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        remote_ref: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = {"remote_ref": remote_ref} if remote_ref else {}
+        if details:
+            err_details.update(details)
+        super().__init__(
+            message,
+            operation="verify_remote_release_branch",
+            exit_code=CONST_EXIT_FAILURE,
+            error_code="RELEASE_BRANCH_MISSING",
+            details=err_details,
+        )
+
+
+class ReleasePushError(GitOperationError):
+    """Raised when pushing a release cut branch or tag to origin fails."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        target_ref: str | None = None,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = "RELEASE_PUSH_FAILED",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = {"target_ref": target_ref} if target_ref else {}
+        if details:
+            err_details.update(details)
+        super().__init__(
+            message,
+            operation="git_push",
+            exit_code=exit_code,
+            error_code=error_code,
+            details=err_details,
+        )
+
+
+class ReleasePushRefusedError(ReleasePushError):
+    """Raised when git push to a release branch is refused by a repository ruleset (GH013)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        target_ref: str | None = None,
+        ruleset: str = "23059172",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = {"ruleset": ruleset}
+        if details:
+            err_details.update(details)
+        super().__init__(
+            message,
+            target_ref=target_ref,
+            exit_code=CONST_EXIT_FAILURE,
+            error_code="RELEASE_PUSH_REFUSED_RULESET",
+            details=err_details,
+        )
+
+
+class ReleasePRCreationError(GitHubOperationError):
+    """Raised when creating a release pull request via GitHub CLI fails."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        pr_title: str | None = None,
+        base: str | None = None,
+        head: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details: dict[str, Any] = {}
+        if pr_title:
+            err_details["title"] = pr_title
+        if base:
+            err_details["base"] = base
+        if head:
+            err_details["head"] = head
+        if details:
+            err_details.update(details)
+        super().__init__(
+            message,
+            operation="create_release_pr",
+            exit_code=CONST_EXIT_FAILURE,
+            error_code="RELEASE_PR_CREATION_FAILED",
+            details=err_details,
+        )

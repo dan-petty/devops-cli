@@ -39,6 +39,16 @@ from devops_cli.config.constants import (
     CONST_GITHUB_PULL_REQUEST_BODY_MAX_CHARS,
     CONST_GITHUB_RELEASE_BODY_MAX_CHARS,
 )
+from devops_cli.exceptions import (
+    DevOpsCLIError,
+    GitOperationError,
+    ReleaseBranchMissingError,
+    ReleasePRCreationError,
+    ReleasePushError,
+    ReleasePushRefusedError,
+    ReleaseRemoteFetchError,
+    ReleaseWorkingTreeDirtyError,
+)
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState
 from tests.conftest import PINNED_GITHUB_TOKEN, fail_the_github_lookup
@@ -2754,3 +2764,142 @@ def test_release_prepare_and_pr_dry_run_cut_branch(sample_project_dir: Path) -> 
         "feat(release): v0.2.26" in res_pr.output,
         "changelog_fragments" in res_pr.output,
     ) == (0, True, True, True, True)
+
+
+def test_release_cut_ruleset_refusal_raises_typed_error(
+    git_release_repo: tuple[Path, Path],
+) -> None:
+    """A ruleset rejection (GH013) raises ReleasePushRefusedError diagnosing bypass (#1280)."""
+    origin, clone = git_release_repo
+    hook_file = origin / "hooks" / "pre-receive"
+    hook_file.parent.mkdir(exist_ok=True)
+    ruleset_msg = (
+        "remote: error: GH013: Repository rule violations found for refs/heads/release/v0.2.26.\n"
+        "remote: Review rule violations: https://github.com/example.com/dan-petty/devops-cli/rulesets/23059172\n"
+        "To origin\n"
+        " ! [remote rejected] release/v0.2.26 -> release/v0.2.26 (pre-receive hook declined)\n"
+        "error: failed to push some refs to 'origin'\n"
+    )
+    hook_file.write_text(
+        f"#!/bin/sh\ncat > /dev/null\nprintf '%s' {shlex.quote(ruleset_msg)} >&2\nexit 1\n",
+        encoding="utf-8",
+    )
+    hook_file.chmod(0o755)
+
+    from devops_cli.commands.release import cut_release
+
+    gh_called = False
+
+    def mock_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        nonlocal gh_called
+        gh_called = True
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    with (
+        patch("devops_cli.commands.release.run_gh", side_effect=mock_gh),
+        pytest.raises(ReleasePushRefusedError) as exc_info,
+    ):
+        cut_release(version="0.2.26", repo_root=clone, is_prepare=True)
+
+    exc = exc_info.value
+    assert (
+        isinstance(exc, (ReleasePushError, GitOperationError, DevOpsCLIError)),
+        gh_called,
+        "GH013" in exc.message,
+        "23059172" in exc.message,
+        "Write" in exc.message,
+    ) == (True, False, True, True, True)
+
+    # CLI command invocation wraps and reports ruleset refusal
+    with patch("devops_cli.commands.release.run_gh", side_effect=mock_gh):
+        res = runner.invoke(app, ["prepare", "0.2.26", "--create-pr", "--root", str(clone)])
+    assert (
+        res.exit_code,
+        gh_called,
+        "GH013" in res.output,
+        "23059172" in res.output,
+        "Write" in res.output,
+    ) == (1, False, True, True, True)
+
+
+def test_release_cut_failure_modes_raise_typed_devops_cli_errors(
+    git_release_repo: tuple[Path, Path],
+) -> None:
+    """Every failure mode in cut_release raises a typed DevOpsCLIError subclass (#1280)."""
+    origin, clone = git_release_repo
+    from devops_cli.commands.release import cut_release
+
+    # 1. Dirty tree raises ReleaseWorkingTreeDirtyError
+    dirty_file = clone / "uncommitted.txt"
+    dirty_file.write_text("wip\n", encoding="utf-8")
+    with pytest.raises(ReleaseWorkingTreeDirtyError) as dirty_exc:
+        cut_release(version="0.2.26", repo_root=clone)
+    dirty_file.unlink()
+
+    # 2. Remote fetch failure raises ReleaseRemoteFetchError
+    subprocess.run(
+        ["git", "branch", "-D", "release/v0.2.26"],
+        cwd=origin,
+        check=True,
+        capture_output=True,
+    )
+    with pytest.raises(ReleaseRemoteFetchError) as fetch_exc:
+        cut_release(version="0.2.26", repo_root=clone)
+
+    # Recreate remote release branch for next steps
+    subprocess.run(
+        ["git", "branch", "release/v0.2.26", "main"],
+        cwd=origin,
+        check=True,
+        capture_output=True,
+    )
+
+    # 3. Missing tracking ref rev-parse failure raises ReleaseBranchMissingError
+    subprocess.run(
+        ["git", "config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "update-ref", "-d", "refs/remotes/origin/release/v0.2.26"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    with pytest.raises(ReleaseBranchMissingError) as missing_exc:
+        cut_release(version="0.2.26", repo_root=clone)
+
+    # Restore fetch refspec and tracking ref
+    subprocess.run(
+        ["git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
+        cwd=clone,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["git", "fetch", "origin"], cwd=clone, check=True, capture_output=True)
+
+    # 4. PR creation failure raises ReleasePRCreationError
+    def mock_gh_fail(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if "pr" in cmd and "create" in cmd:
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=1, stdout="", stderr="GraphQL error: duplicate PR"
+            )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="[]", stderr="")
+
+    with (
+        patch("devops_cli.commands.release.run_gh", side_effect=mock_gh_fail),
+        pytest.raises(ReleasePRCreationError) as pr_exc,
+    ):
+        cut_release(version="0.2.26", repo_root=clone)
+
+    assert (
+        isinstance(dirty_exc.value, GitOperationError),
+        "uncommitted changes" in dirty_exc.value.message.lower(),
+        isinstance(fetch_exc.value, GitOperationError),
+        "Failed to fetch origin/release/v0.2.26" in fetch_exc.value.message,
+        isinstance(missing_exc.value, GitOperationError),
+        "does not exist" in missing_exc.value.message,
+        isinstance(pr_exc.value, DevOpsCLIError),
+        "duplicate PR" in pr_exc.value.message,
+    ) == (True, True, True, True, True, True, True, True)

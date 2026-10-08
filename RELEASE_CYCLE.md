@@ -173,6 +173,12 @@ sequenceDiagram
     Rel->>Git: Publish GitHub Release & Assets
 ```
 
+### Automated Release Cutting & Ruleset Bypass (`roadmap-service`)
+
+When all deliverables in an active release milestone are delivered and closed, `roadmap-service` automatically cuts the release in its background closure job: it renders `docs/ROADMAP.md` on `release/vX.Y.Z`, bumps the version, pushes directly to `release/vX.Y.Z`, and opens the release pull request into `main`.
+
+Because GitHub branch ruleset 23059172 enforces pull request requirements on `refs/heads/release*/**`, direct pushes to `release/vX.Y.Z` by automated background services require that the ruleset includes a bypass entry for the machine account's repository role (**Write**), mode **Always** (configured in **Settings → Rules → Rulesets → ruleset 23059172**). If a push is attempted without this bypass permission, GitHub refuses the push with `GH013`, and the cut raises a typed `ReleasePushRefusedError` explaining the ruleset refusal and bypass requirement.
+
 ---
 
 ## 7. Step-by-Step Release Procedure

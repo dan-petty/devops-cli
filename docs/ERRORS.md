@@ -91,6 +91,12 @@ names the class each row describes. One code never maps to two exit statuses.
 | `PersonaExecutionError` | `PERSONA_EXECUTION_ERROR` | `13` | Ai | Raised when an AI reviewer persona fails during diff analysis. |
 | `PoolLoadError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.pool_load | Prometheus could not answer a pool load query. |
 | `QdrantClientError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.rag.qdrant | Raised when an interaction with Qdrant fails. |
+| `ReleaseBranchMissingError` | `RELEASE_BRANCH_MISSING` | `1` | Git | Raised when the remote release branch tracking ref does not exist. |
+| `ReleasePRCreationError` | `RELEASE_PR_CREATION_FAILED` | `1` | Git | Raised when creating a release pull request via GitHub CLI fails. |
+| `ReleasePushError` | `RELEASE_PUSH_FAILED` | `1` | Git | Raised when pushing a release cut branch or tag to origin fails. |
+| `ReleasePushRefusedError` | `RELEASE_PUSH_REFUSED_RULESET` | `1` | Git | Raised when git push to a release branch is refused by a repository ruleset (GH013). |
+| `ReleaseRemoteFetchError` | `RELEASE_REMOTE_FETCH_FAILED` | `1` | Git | Raised when fetching the remote release branch tip fails. |
+| `ReleaseWorkingTreeDirtyError` | `RELEASE_WORKING_TREE_DIRTY` | `1` | Git | Raised when the working tree has uncommitted changes before cutting a release. |
 | `ReviewPoolError` | `REVIEW_POOL_ERROR` | `1` | Ai | Raised when an error occurs during parallel review worker pool execution. |
 | `RoadmapCardChangedError` | `ROADMAP_CARD_CHANGED` | `1` | Roadmap | Raised before a job's board write that would revert a change made since it read the card. |
 | `RoadmapRunError` | `DEVOPS_CLI_ERROR` | `1` | Roadmap | Raised when one or more roadmap jobs fail during execution. |

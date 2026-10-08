@@ -471,6 +471,11 @@ class ReleaseMessages:
     ci_gate_failed: str = "CI Quality Gate checks failed. Resolve errors before releasing."
     cannot_determine_version: str = "Could not determine target release version."
     push_branch_failed: str = "Warning: Could not push branch to remote: {stderr}"
+    push_refused_ruleset: str = (
+        "Push refused by repository ruleset (GH013). "
+        "Direct pushes to release branches require Write role bypass on the release ruleset "
+        "(ruleset 23059172 in Settings → Rules → Rulesets). Git output: {reason}"
+    )
 
 
 @dataclass(frozen=True)
