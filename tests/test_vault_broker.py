@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections.abc import Iterator
@@ -86,6 +87,15 @@ def vault_hops(stub_web: StubWeb) -> list[str]:
     return [url for url in stub_web.requested if httpx2.URL(url).host == "example.com"]
 
 
+def vault_reads(stub_web: StubWeb) -> list[tuple[str, str, str | None]]:
+    """The method, URL and X-Vault-Token of each request the stub received for the Vault host."""
+    return [
+        (request.method, str(request.url), request.headers.get("X-Vault-Token"))
+        for request in stub_web.sent
+        if request.url.host == "example.com"
+    ]
+
+
 def sent_tokens(mock_request: MagicMock) -> list[str | None]:
     """The X-Vault-Token header of every request the patched broker received."""
     return [call.kwargs["headers"].get("X-Vault-Token") for call in mock_request.call_args_list]
@@ -104,14 +114,22 @@ def test_parse_vault_uri() -> None:
     )
 
 
-def test_vault_broker_get_secret_api_success() -> None:
-    """A token-carrying read returns Vault's field, or the whole secret, and names Vault."""
-    broker = VaultSecretBroker(vault_addr=VAULT_ADDR, vault_token="s.test-token")
-    fields = {"api_key": "vault-secret-value-xyz", "username": "admin"}
+def test_vault_broker_get_secret_api_success(stub_web: StubWeb) -> None:
+    """A token-carrying read returns Vault's field, or the whole secret, and names Vault.
 
-    with patch(_REQUEST, return_value=kv(fields)) as mock_request:
-        one = broker.get_secret("secret/data/myapp", key="api_key")
-        everything = broker.get_secret("secret/data/myapp")
+    Vault answers at the HTTP edge, so the read goes through the real broker, URL and headers.
+    """
+    fields = {"api_key": "vault-secret-value-xyz", "username": "admin"}
+    secret_url = f"{VAULT_ADDR}/v1/secret/data/myapp"
+    stub_web.page(
+        secret_url,
+        json.dumps({"data": {"data": fields, "metadata": {"version": 1}}}),
+        headers={"content-type": "application/json"},
+    )
+    broker = VaultSecretBroker(vault_addr=VAULT_ADDR, vault_token="s.test-token")
+
+    one = broker.get_secret("secret/data/myapp", key="api_key")
+    everything = broker.get_secret("secret/data/myapp")
 
     assert (one.value, one.source, one.checked, everything.value) == (
         "vault-secret-value-xyz",
@@ -119,7 +137,7 @@ def test_vault_broker_get_secret_api_success() -> None:
         ["vault"],
         fields,
     )
-    assert sent_tokens(mock_request) == ["s.test-token", "s.test-token"]
+    assert vault_reads(stub_web) == [("GET", secret_url, "s.test-token")] * 2
 
 
 def test_vault_broker_set_secret_success() -> None:
