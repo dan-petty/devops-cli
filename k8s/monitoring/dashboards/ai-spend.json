@@ -154,7 +154,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "LLM calls over the dashboard's time range. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "LLM calls over the dashboard's time range, replies the response cache answered included; Response Cache Hit Share shows how many those were. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -782,6 +782,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "LLM calls per second by model, replies the response cache answered included.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -828,6 +829,54 @@
           "expr": "sum(rate(devops_cli_ai_requests_total[30m]))",
           "legendFormat": "Total Rolling Avg (30m)",
           "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Share of the last hour's LLM calls the response cache answered; an hour with calls and no cache answers shows 0. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall on either side of the ratio, so a share can come out high or low.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 36
+      },
+      "id": 19,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Response Cache Hit Share",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum(increase(devops_cli_ai_requests_total{cached=\"true\"}[1h])) or sum(increase(devops_cli_ai_requests_total[1h])) * 0) / sum(increase(devops_cli_ai_requests_total[1h]))",
+          "legendFormat": "Cache answered",
+          "refId": "A"
         }
       ]
     }

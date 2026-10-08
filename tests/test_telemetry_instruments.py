@@ -10,16 +10,21 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
+from devops_cli.ai.client import LLMClient, LLMResponse
 from devops_cli.ai.personas import PersonaDefinition
+from devops_cli.ai.response_cache import get_llm_response_cache
 from devops_cli.ai.review.runner import _record_review_metrics
 from devops_cli.ai.review_schema import Finding, ReviewResult
 from devops_cli.ai.spend.ledger import SpendLedger, track_request_spend
+from devops_cli.config.settings import AIConfig
+from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import tracer as tracer_module
 from devops_cli.telemetry.instruments import (
     INSTRUMENTS,
@@ -205,6 +210,26 @@ def test_a_command_group_without_errors_charts_a_zero_error_share() -> None:
     ) == (True, True, True)
 
 
+def test_the_hit_share_panel_divides_cached_requests_by_all_requests_over_an_hour() -> None:
+    """Verify the response-cache hit share is cached requests over every request, each counted
+    over the last hour, and shows 0 for an hour with requests and no hits (#816).
+
+    Active backends still count only uncached requests: the cache is no backend.
+    """
+    panels = {panel["title"]: panel for panel in _panels(DASHBOARDS / "ai-spend.json")}
+    numerator, _, requests = _panel_queries(panels["Response Cache Hit Share"]).rpartition(" / ")
+
+    assert (
+        numerator,
+        requests,
+        'cached="false"' in _panel_queries(panels["Active AI Backends"]),
+    ) == (
+        f'(sum(increase(devops_cli_ai_requests_total{{cached="true"}}[1h])) or {requests} * 0)',
+        "sum(increase(devops_cli_ai_requests_total[1h]))",
+        True,
+    )
+
+
 def test_a_grouped_query_adds_no_unlabelled_zero_series() -> None:
     """Verify `or vector(0)` follows only an ungrouped result.
 
@@ -261,7 +286,9 @@ class Captured:
         self.payloads: list[dict[str, Any]] = []
 
     def __call__(self, path: str, payload: dict[str, Any]) -> None:
-        self.payloads.append(payload)
+        # An LLM call also sends its spans; only the metrics are kept.
+        if "resourceMetrics" in payload:
+            self.payloads.append(payload)
 
     @property
     def metrics(self) -> list[dict[str, Any]]:
@@ -361,6 +388,60 @@ def test_ai_calls_count_requests_tokens_and_spend_by_backend(
         [("completion", 200.0), ("prompt", 1000.0)],
         (1, True, "vllm"),
     )
+
+
+def test_a_response_cache_hit_counts_one_cached_request_with_no_tokens_or_spend(
+    captured: Captured, spend_ledger: SpendLedger, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a second identical chat, which the cache answers, counts as one cached request
+    that adds no tokens and no spend, and writes a cached ledger row costing nothing (#816)."""
+    sent: list[str] = []
+
+    def hosted_reply(
+        _self: LLMClient, system: str, _messages: list[ChatMessage], **_: Any
+    ) -> LLMResponse:
+        sent.append(system)
+        return LLMResponse("ok", prompt_tokens=1000, completion_tokens=200, total_tokens=1200)
+
+    monkeypatch.setattr(LLMClient, "_openai_compat_messages", hosted_reply)
+    config = AIConfig(provider="openai", model="gpt-4o", api_base_url="https://example.com/v1")
+    client = LLMClient(config, api_key="sk-test")
+
+    replies = [client.chat("system", "user", use_cache=True).cached for _ in range(2)]
+
+    hit_tokens = [
+        v for a, v in captured.points("devops_cli_ai_tokens_total") if a["server"] == "cache"
+    ]
+    with sqlite3.connect(spend_ledger.db_path) as conn:
+        rows = conn.execute(
+            "SELECT server, cached, prompt_tokens, completion_tokens, cost_usd"
+            " FROM ai_spend_records ORDER BY id"
+        ).fetchall()
+    assert (
+        (replies, len(sent)),
+        [(a["server"], a["cached"], v) for a, v in captured.points("devops_cli_ai_requests_total")],
+        sum(hit_tokens),
+        [a["server"] for a, _ in captured.points("devops_cli_ai_spend_usd_total")],
+        rows[1],
+    ) == (
+        ([False, True], 1),
+        [("example.com", "false", 1.0), ("cache", "true", 1.0)],
+        0,
+        ["example.com"],
+        ("cache", 1, 0, 0, 0.0),
+    )
+
+
+def test_response_cache_lookups_and_writes_send_no_metric_of_their_own(
+    captured: Captured,
+) -> None:
+    """Verify a cache write, hit and miss send nothing: the requests counter's `cached` label
+    carries the hits, and a gauge of 1 from a short-lived process counted nothing (#816)."""
+    cache = get_llm_response_cache()
+    cache.set("llm_key", "openai", "gpt-4o", "system", "user", "reply")
+    lookups = (cache.get("llm_key") is not None, cache.get("llm_missing") is None)
+
+    assert (lookups, captured.metrics) == ((True, True), [])
 
 
 def test_local_ai_calls_emit_equivalent_spend_instrument(

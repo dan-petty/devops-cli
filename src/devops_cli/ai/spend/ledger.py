@@ -20,6 +20,7 @@ from devops_cli.ai.spend.models import (
     SpendRecord,
     StageSpendSummary,
 )
+from devops_cli.config.constants import CONST_RESPONSE_CACHE_SERVER
 from devops_cli.config.defaults import (
     DEFAULT_AI_REFERENCE_MODEL,
     DEFAULT_AI_SPEND_DB_FILENAME,
@@ -97,7 +98,7 @@ SELECT
     COALESCE(SUM(total_tokens), 0) as total_tok,
     COALESCE(SUM(cost_usd), 0.0) as total_spend,
     COALESCE(SUM(CASE WHEN cached=1 THEN 1 ELSE 0 END), 0) as total_cached,
-    COUNT(DISTINCT server) as srv_count,
+    COUNT(DISTINCT CASE WHEN cached=0 THEN server END) as srv_count,
     COUNT(DISTINCT model) as mdl_count,
     MIN(timestamp) as first_ts,
     MAX(timestamp) as last_ts
@@ -131,7 +132,8 @@ SELECT
     COALESCE(SUM(prompt_tokens), 0) as p_tokens,
     COALESCE(SUM(completion_tokens), 0) as c_tokens,
     COALESCE(SUM(total_tokens), 0) as t_tokens,
-    COALESCE(SUM(cost_usd), 0.0) as m_cost
+    COALESCE(SUM(cost_usd), 0.0) as m_cost,
+    COALESCE(SUM(CASE WHEN cached=1 THEN 1 ELSE 0 END), 0) as cached_count
 FROM ai_spend_records
 WHERE (? IS NULL OR timestamp >= ?)
 GROUP BY model, provider
@@ -144,7 +146,7 @@ SELECT
     COUNT(*) as req_count,
     COALESCE(SUM(total_tokens), 0) as t_tokens,
     COALESCE(SUM(cost_usd), 0.0) as p_cost,
-    COUNT(DISTINCT server) as s_count
+    COUNT(DISTINCT CASE WHEN cached=0 THEN server END) as s_count
 FROM ai_spend_records
 WHERE (? IS NULL OR timestamp >= ?)
 GROUP BY provider
@@ -173,14 +175,19 @@ _QUERY_DELETE_RECORDS = "DELETE FROM ai_spend_records;"
 def _tally_and_annotate_servers(
     servers: list[ServerSpendSummary], ref_pricing: ModelPricing
 ) -> tuple[int, int, int, int]:
-    """Annotate servers with local status and cost equivalent, tallying local usage."""
+    """Annotate servers with local status and cost equivalent, tallying local usage.
+
+    The response cache ran no model, local or hosted, so its replies are no local requests.
+    """
     from devops_cli.ai.spend.pricing import is_local
 
     local_requests = 0
     local_prompt_tokens = 0
     local_completion_tokens = 0
     for s in servers:
-        s.is_local = is_local(server=s.server, provider=s.provider)
+        s.is_local = s.server != CONST_RESPONSE_CACHE_SERVER and is_local(
+            server=s.server, provider=s.provider
+        )
         s.cost_equivalent_usd = ref_pricing.calculate_cost(s.prompt_tokens, s.completion_tokens)
         if s.is_local:
             local_requests += s.request_count
@@ -476,6 +483,7 @@ class SpendLedger:
                     completion_tokens=int(r["c_tokens"] or 0),
                     total_tokens=int(r["t_tokens"] or 0),
                     approx_spend_usd=round(float(r["m_cost"] or 0.0), 6),
+                    cached_requests=int(r["cached_count"] or 0),
                 )
             )
         return results
@@ -492,7 +500,7 @@ class SpendLedger:
                     request_count=int(r["req_count"] or 0),
                     total_tokens=int(r["t_tokens"] or 0),
                     approx_spend_usd=round(float(r["p_cost"] or 0.0), 6),
-                    server_count=int(r["s_count"] or 1),
+                    server_count=int(r["s_count"] or 0),
                 )
             )
         return results

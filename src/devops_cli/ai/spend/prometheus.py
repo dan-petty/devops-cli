@@ -101,9 +101,10 @@ def _build_model_counters(report: LifetimeSpendReport) -> list[str]:
             "# TYPE devops_cli_ai_requests_total counter",
         ]
     )
+    # Replies the response cache answered ran no model, and add no tokens or spend here.
     for m in report.models:
         lbl = _format_labels({"model": m.model, "provider": m.provider})
-        lines.append(f"devops_cli_ai_requests_total{lbl} {m.request_count}")
+        lines.append(f"devops_cli_ai_requests_total{lbl} {m.request_count - m.cached_requests}")
     lines.append("")
 
     lines.extend(

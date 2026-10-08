@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai.client import LLMClient, LLMResponse
 from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.ai.spend.pricing import PricingRegistry
 from devops_cli.commands.ai import app as ai_app
 from devops_cli.commands.ai_cost import app as cost_app
+from devops_cli.config.settings import AIConfig
 
 runner = CliRunner()
 
@@ -192,3 +195,28 @@ def test_ai_cost_roi_command(mock_spend_env: SpendLedger) -> None:
         0,
         0,
     )
+
+
+def _local_reply(_self: LLMClient, _system: str, _messages: list[Any], **_: Any) -> LLMResponse:
+    return LLMResponse("ok", prompt_tokens=100, completion_tokens=20, total_tokens=120)
+
+
+def test_spend_report_counts_a_cache_hit_as_a_cached_request_and_no_backend(
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+) -> None:
+    """Verify one dispatch and one reply the cache answered report 2 requests, 1 cached, and
+    one backend server, overall and for the provider; the cache ran no local model (#816)."""
+    monkeypatch.setattr(LLMClient, "_ollama_messages", _local_reply)
+    client = LLMClient(AIConfig(provider="ollama", model="llama3:8b"))
+    for _ in range(2):
+        client.chat("system", "user", use_cache=True)
+
+    res = runner.invoke(ai_app, ["spend", "report", "--json"])
+    data = json.loads(res.stdout)
+
+    assert (
+        res.exit_code,
+        (data["total_requests"], data["cached_requests"], data["active_servers_count"]),
+        [(p["provider"], p["request_count"], p["server_count"]) for p in data["providers"]],
+        data["local_requests"],
+    ) == (0, (2, 1, 1), [("ollama", 2, 1)], 1)

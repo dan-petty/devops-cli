@@ -35,6 +35,7 @@ from devops_cli.config.constants import (
     CONST_AI_BACKEND_HOST_UNKNOWN,
     CONST_FINISH_REASON_ERROR,
     CONST_OTEL_SPAN_KIND_CLIENT,
+    CONST_RESPONSE_CACHE_SERVER,
     CONST_UNCACHED_FINISH_REASONS,
     CONST_URL_ANTHROPIC_API_BASE,
     CONST_URL_GITHUB_COPILOT_API_BASE,
@@ -582,9 +583,29 @@ class LLMClient(
             cached_entry.content,
             processing_seconds=0.0,
             wall_seconds=0.0,
-            backend_info="cache",
+            backend_info=CONST_RESPONSE_CACHE_SERVER,
             thinking=cached_entry.thinking,
             cached=True,
+        )
+
+    def _record_cache_hit(self) -> None:
+        """Record a reply the response cache answered as one cached request.
+
+        No model processed it, so it carries no tokens and no cost, and names the cache as its
+        server. The dispatch recorder is not reused: it would estimate the missing tokens.
+        """
+        from devops_cli.ai.spend import resolve_spend_stage, track_request_spend
+
+        track_request_spend(
+            provider=self._config.provider,
+            model=self._config.model,
+            server=CONST_RESPONSE_CACHE_SERVER,
+            backend_info=CONST_RESPONSE_CACHE_SERVER,
+            prompt_tokens=0,
+            completion_tokens=0,
+            cached=True,
+            request_type="chat_cache_hit",
+            stage=resolve_spend_stage(None, getattr(self._config, "task_name", None)),
         )
 
     def _handle_successful_chat_dispatch(
@@ -723,6 +744,7 @@ class LLMClient(
             if use_cache and not eff_start and not eff_append:
                 hit = self._check_chat_cache(cache_key, validator, span_h)
                 if hit is not None:
+                    self._record_cache_hit()
                     return hit
 
             retries = max_retries if max_retries is not None else self._config.max_retries

@@ -19,7 +19,6 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.repo import resolve_data_path
 from devops_cli.models.ai import ChatMessage
-from devops_cli.telemetry import record_metric
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +213,6 @@ class LLMResponseCache:
                 cached.last_accessed = time.time()
                 self._hits += 1
                 self._save_to_disk(cached)
-                record_metric("devops_cli_llm_cache_hits", 1.0, attributes={"source": "memory"})
                 return cached
 
             # 2. Check disk cache
@@ -229,11 +227,9 @@ class LLMResponseCache:
                 self._memory_cache[key] = disk_entry
                 self._hits += 1
                 self._save_to_disk(disk_entry)
-                record_metric("devops_cli_llm_cache_hits", 1.0, attributes={"source": "disk"})
                 return disk_entry
 
             self._misses += 1
-            record_metric("devops_cli_llm_cache_misses", 1.0)
             return None
 
     def set(
@@ -280,7 +276,6 @@ class LLMResponseCache:
             self._memory_cache[key] = entry
             self._save_to_disk(entry)
             self._enforce_capacity()
-            record_metric("devops_cli_llm_cache_writes", 1.0)
             return entry
 
     def get_starting_point(
