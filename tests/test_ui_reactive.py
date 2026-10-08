@@ -1797,21 +1797,33 @@ def test_a_pod_log_source_opens_the_stream_only_when_it_is_consumed(
     assert (list(source()), opened) == (["one", "two"], ["api-0"])
 
 
-def test_a_pod_log_source_splits_a_non_streaming_response(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.asyncio
+async def test_log_pane_streams_framed_pod_logs(
+    patched_fetchers: Callable[..., None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A server that returns the whole log as text still yields line by line."""
+    """A LogPane streaming pod_log_source frames chunks incrementally without split lines."""
+    from unittest.mock import MagicMock
 
-    class FakeService:
-        @staticmethod
-        def get_instance() -> Any:
-            return FakeService()
+    from devops_cli.k8s.service import KubernetesService
+    from devops_cli.ui.dashboard import DashboardApp
 
-        def read_pod_logs(self, **kwargs: Any) -> Any:
-            return "alpha\nbeta\n"
+    patched_fetchers()
+    mock_resp = MagicMock()
+    mock_resp.stream.return_value = [b"a\nb", b"c\nd\n"]
+    mock_core = MagicMock()
+    mock_core.read_namespaced_pod_log.return_value = mock_resp
 
-    monkeypatch.setattr("devops_cli.k8s.service.KubernetesService", FakeService)
-    assert list(pod_log_source("api-0", "devops-system")()) == ["alpha", "beta"]
+    svc = KubernetesService.get_instance()
+    monkeypatch.setattr(svc, "load_config", lambda context=None: True)
+    svc._core_v1 = mock_core
+
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        pane = app.query_one("#log-pane", LogPane)
+        pane.start_stream(pod_log_source("web-0", "shop"))
+        await _settle(pilot, lambda: pane.buffer.total_appended >= 3)
+        entries = [line.text for line in pane.buffer.viewport_lines()]
+        assert entries[-3:] == ["a", "bc", "d"]
 
 
 class _FakeLogStream:

@@ -14,9 +14,10 @@ from devops_cli.config.constants import (
     CONST_K8S_EVENT_ADDED,
     CONST_K8S_EVENT_DELETED,
 )
+from devops_cli.config.defaults import DEFAULT_LOG_MAX_LINE_CHARS
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.informer import ResourceInformer
-from devops_cli.k8s.service import KubernetesService
+from devops_cli.k8s.service import KubernetesService, PodLogStream
 
 
 @pytest.fixture(autouse=True)
@@ -151,18 +152,25 @@ def test_k8s_service_list_pods() -> None:
 
 
 def test_k8s_service_read_pod_logs() -> None:
-    """Verify read_pod_logs invokes CoreV1Api with bounded tail."""
+    """Verify read_pod_logs invokes CoreV1Api with bounded tail and returns framed stream."""
     svc = KubernetesService.get_instance()
+    mock_resp = MagicMock()
+    mock_resp.stream.return_value = [b"log-line-1\nlog-line-2\n"]
     mock_core = MagicMock()
-    mock_core.read_namespaced_pod_log.return_value = "log-line-1\nlog-line-2"
+    mock_core.read_namespaced_pod_log.return_value = mock_resp
 
     with patch.object(svc, "load_config", return_value=True):
         svc._core_v1 = mock_core
         output = svc.read_pod_logs("pod-1", namespace="default", tail_lines=50)
-        assert (output, mock_core.read_namespaced_pod_log.call_count) == (
-            "log-line-1\nlog-line-2",
-            1,
-        )
+        lines = list(output)
+        kwargs = mock_core.read_namespaced_pod_log.call_args.kwargs
+        assert (
+            lines,
+            mock_core.read_namespaced_pod_log.call_count,
+            kwargs.get("tail_lines"),
+            kwargs.get("_preload_content"),
+            kwargs.get("follow"),
+        ) == (["log-line-1", "log-line-2"], 1, 50, False, False)
 
 
 def test_k8s_service_resolve_service_endpoint_load_balancer() -> None:
@@ -317,7 +325,7 @@ def test_k8s_service_read_pod_logs_follow() -> None:
         stream_iter = svc.read_pod_logs("pod-1", follow=True)
         lines = list(stream_iter)
         assert (lines, mock_core.read_namespaced_pod_log.call_count) == (
-            ["stream-1\n", "stream-2\n"],
+            ["stream-1", "stream-2"],
             1,
         )
 
@@ -367,7 +375,7 @@ def test_closing_a_followed_log_ends_a_read_blocked_on_a_quiet_container() -> No
     reader.join(timeout=2)
     assert (reader.is_alive(), lines, response.calls) == (
         False,
-        ["first\n"],
+        ["first"],
         ["shutdown", "close", "release_conn"],
     )
 
@@ -386,10 +394,57 @@ def test_closing_a_followed_log_that_already_ended_is_harmless() -> None:
     lines = list(stream)
     stream.close()
     assert (lines, response.close.call_count, response.release_conn.call_count) == (
-        ["only\n"],
+        ["only"],
         1,
         1,
     )
+
+
+@pytest.mark.parametrize(
+    ("chunks", "expected_lines", "cap"),
+    [
+        ([b"a\nb", b"c\n"], ["a", "bc"], DEFAULT_LOG_MAX_LINE_CHARS),
+        ([b"a\n", b"tail"], ["a", "tail"], DEFAULT_LOG_MAX_LINE_CHARS),
+        ([b"caf\xc3", b"\xa9\n"], ["café"], DEFAULT_LOG_MAX_LINE_CHARS),
+        ([b"\xff\nok\n"], ["\ufffd", "ok"], DEFAULT_LOG_MAX_LINE_CHARS),
+        ([b"x" * 15], ["x" * 10, "x" * 5], 10),
+        ([b"x" * 10, b"\n"], ["x" * 10], 10),
+        ([b"a\x0cb\n"], ["a\x0cb"], DEFAULT_LOG_MAX_LINE_CHARS),
+    ],
+)
+def test_pod_log_stream_framing_scenarios(
+    chunks: list[bytes], expected_lines: list[str], cap: int
+) -> None:
+    """Verify incremental line framing across chunk boundaries, splits, and caps."""
+    mock_resp = MagicMock()
+    mock_resp.stream.return_value = chunks
+    stream = PodLogStream(mock_resp, max_line_chars=cap)
+    lines = list(stream)
+    assert (lines, mock_resp.close.call_count, mock_resp.release_conn.call_count) == (
+        expected_lines,
+        1,
+        1,
+    )
+
+
+def test_k8s_service_read_pod_logs_non_follow_json() -> None:
+    """Verify non-follow mode passes follow=False and _preload_content=False, returning raw json."""
+    svc = KubernetesService.get_instance()
+    mock_resp = MagicMock()
+    mock_resp.stream.return_value = [b'{"level": "info"}\n']
+    mock_core = MagicMock()
+    mock_core.read_namespaced_pod_log.return_value = mock_resp
+
+    with patch.object(svc, "load_config", return_value=True):
+        svc._core_v1 = mock_core
+        stream = svc.read_pod_logs("pod-json", namespace="default", follow=False)
+        lines = list(stream)
+        kwargs = mock_core.read_namespaced_pod_log.call_args.kwargs
+        assert (
+            lines,
+            kwargs.get("follow"),
+            kwargs.get("_preload_content"),
+        ) == (['{"level": "info"}'], False, False)
 
 
 def test_k8s_service_read_pod_logs_failure() -> None:
