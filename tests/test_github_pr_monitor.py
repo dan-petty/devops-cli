@@ -245,9 +245,15 @@ class TestGetPRMonitoringStatus:
             },
         ]
 
-        timeline_output = (
-            '{"event": "copilot_work_started", "created_at": "2026-09-12T13:52:12Z"}\n'
-            '{"event": "reviewed", "submitted_at": "2026-09-12T13:59:17Z"}\n'
+        timeline_output = json.dumps(
+            [
+                {"event": "copilot_work_started", "created_at": "2026-09-12T13:52:12Z"},
+                {
+                    "event": "reviewed",
+                    "submitted_at": "2026-09-12T13:59:17Z",
+                    "user": {"login": "copilot-pull-request-reviewer[bot]"},
+                },
+            ]
         )
 
         def mock_subprocess(cmd: list[str], **kwargs: object) -> MagicMock:
@@ -302,9 +308,15 @@ class TestGetPRMonitoringStatus:
                 },
             ]
         }
-        timeline_output = (
-            '{"event": "copilot_work_started", "created_at": "2026-09-12T13:52:12Z"}\n'
-            '{"event": "reviewed", "submitted_at": "2026-09-12T13:59:17Z"}\n'
+        timeline_output = json.dumps(
+            [
+                {"event": "copilot_work_started", "created_at": "2026-09-12T13:52:12Z"},
+                {
+                    "event": "reviewed",
+                    "submitted_at": "2026-09-12T13:59:17Z",
+                    "user": {"login": "copilot-pull-request-reviewer[bot]"},
+                },
+            ]
         )
 
         def mock_subprocess(cmd: list[str], **kwargs: object) -> MagicMock:
@@ -848,17 +860,37 @@ class TestMonitorPR:
                 "submitted_at": "2026-09-12T13:00:00Z",
             }
         ]
-        timeline = (
-            '{"event": "copilot_work_started", "created_at": "2026-09-12T13:00:00Z"}\n'
-            '{"event": "reviewed", "author": "human-developer", "submitted_at": "2026-09-12T13:05:00Z"}\n'
+        timeline = json.dumps(
+            [
+                {"event": "copilot_work_started", "created_at": "2026-09-12T13:00:00Z"},
+                {
+                    "event": "reviewed",
+                    "user": {"login": "human-developer"},
+                    "submitted_at": "2026-09-12T13:05:00Z",
+                },
+            ]
         )
         from devops_cli.github.pr_monitor import _detect_copilot_status
 
         with patch("devops_cli.github.pr_monitor.run_gh") as mock_sub:
             mock_sub.return_value = MagicMock(returncode=0, stdout=timeline, stderr="")
             status = _detect_copilot_status("dan-petty", "devops-cli", 168, reviews_data)
-            assert status.is_active is True
-            assert status.state == "working"
+            assert (status.is_active, status.state) == (True, "working")
+
+    def test_query_timeline_copilot_state_two_page_timeline_event_on_page_two(self) -> None:
+        """A two-page timeline whose matching copilot event is on page 2 gives the right Copilot state."""
+        from devops_cli.github.pr_monitor import _query_timeline_copilot_state
+
+        page1_events = [{"event": "commented", "id": i} for i in range(100)]
+        page2_events = [
+            {"event": "copilot_work_started", "actor": {"login": "copilot"}},
+        ]
+        combined_payload = json.dumps(page1_events + page2_events)
+
+        with patch("devops_cli.github.pr_monitor.run_gh") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=combined_payload, stderr="")
+            working, event, err = _query_timeline_copilot_state("dan-petty", "devops-cli", 168)
+            assert (working, event, err) == (True, "copilot_work_started", "")
 
     def test_get_pr_monitoring_status_bounds_oversized_errors(self) -> None:
         huge_err = "x" * 500

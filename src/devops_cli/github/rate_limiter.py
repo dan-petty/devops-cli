@@ -34,6 +34,7 @@ from tenacity import RetryCallState, Retrying, wait_random_exponential
 from devops_cli.config.constants import (
     CONST_CACHE_DIR_NAME,
     CONST_GH_API_DEFAULT_METHOD,
+    CONST_GH_API_GRAPHQL_ENDPOINT,
     CONST_GH_CLI,
     CONST_GH_QUOTA_CACHE_FILENAME,
     CONST_GH_READ_VERBS,
@@ -48,6 +49,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_MAX_RATE_LIMIT_WAIT,
     DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS,
     DEFAULT_GH_QUOTA_MAX_AGE_SECONDS,
+    DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_GH_SECONDARY_MAX_CAP,
     DEFAULT_GH_SECONDARY_RATE_WAIT,
 )
@@ -55,6 +57,7 @@ from devops_cli.core.process import github_token, is_local_gh_command, run_subpr
 from devops_cli.exceptions.git import GitHubRateLimitError
 from devops_cli.github.request_classifier import (
     gh_command_words,
+    incompatible_gh_api_paginate_flag,
     is_write_gh_command,
     parse_gh_api_args,
 )
@@ -1512,20 +1515,22 @@ def _extract_rate_limit_endpoint_response(output: str, limiter: GitHubRateLimite
 
 
 def _extract_page_per_page(url_or_endpoint: str) -> int:
-    """Extract per_page from query string or default to 100."""
+    """Extract per_page from query string or default to DEFAULT_GH_REST_PER_PAGE."""
     parts = urlsplit(url_or_endpoint)
     query = parse_qs(parts.query)
     per_page_vals = query.get("per_page")
     if per_page_vals and per_page_vals[0].isdigit():
         return int(per_page_vals[0])
-    return 100
+    return DEFAULT_GH_REST_PER_PAGE
 
 
-def _build_paginated_url(endpoint: str, page: int) -> str:
-    """Append or update page query parameter in endpoint URL."""
+def _build_paginated_url(endpoint: str, page: int, per_page: int = DEFAULT_GH_REST_PER_PAGE) -> str:
+    """Append or update page and per_page query parameters in endpoint URL."""
     parts = urlsplit(endpoint)
     query = parse_qs(parts.query, keep_blank_values=True)
     query["page"] = [str(page)]
+    if "per_page" not in query:
+        query["per_page"] = [str(per_page)]
     new_query = urlencode(query, doseq=True)
     return urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
 
@@ -1543,6 +1548,7 @@ def _execute_single_page(
     endpoint_idx: int,
     base_endpoint: str,
     page: int,
+    per_page: int,
     limiter: GitHubRateLimiter,
     target_resource: str,
     cwd: Path | None,
@@ -1550,7 +1556,7 @@ def _execute_single_page(
     timeout: float,
 ) -> subprocess.CompletedProcess[str]:
     """Prepend calculated delay and execute a single page request."""
-    page_endpoint = _build_paginated_url(base_endpoint, page)
+    page_endpoint = _build_paginated_url(base_endpoint, page, per_page)
     page_args = list(base_args)
     page_args[endpoint_idx] = page_endpoint
 
@@ -1577,9 +1583,18 @@ def _execute_single_page(
     return proc
 
 
+def _is_expected_page_shape(data: Any) -> bool:
+    """Return True if data is a list or a check-runs dict."""
+    if isinstance(data, list):
+        return True
+    return (
+        isinstance(data, dict) and "check_runs" in data and isinstance(data.get("check_runs"), list)
+    )
+
+
 def _append_paginated_data(combined_items: list[Any], data: Any, per_page: int) -> bool:
     """Append page items and return True if more pages may exist."""
-    if isinstance(data, dict) and "check_runs" in data:
+    if isinstance(data, dict):
         combined_items.append(data)
         check_runs = data.get("check_runs", [])
         total_count = data.get("total_count", 0)
@@ -1590,6 +1605,45 @@ def _append_paginated_data(combined_items: list[Any], data: Any, per_page: int) 
         return len(data) >= per_page
 
     return False
+
+
+def _validate_page_payload(
+    proc: subprocess.CompletedProcess[str],
+    base_endpoint: str,
+    page: int,
+) -> tuple[Any, subprocess.CompletedProcess[str] | None]:
+    """Validate page stdout and return (data, None), or (None, error_proc) on failure."""
+    stdout_trimmed = (proc.stdout or "").strip()
+    if not stdout_trimmed:
+        err_proc = subprocess.CompletedProcess(
+            args=proc.args,
+            returncode=1,
+            stdout="",
+            stderr=f"gh api paginated read of {base_endpoint} failed on page {page}: empty response",
+        )
+        return None, err_proc
+
+    try:
+        data = json.loads(stdout_trimmed)
+    except (json.JSONDecodeError, ValueError) as exc:
+        err_proc = subprocess.CompletedProcess(
+            args=proc.args,
+            returncode=1,
+            stdout="",
+            stderr=f"gh api paginated read of {base_endpoint} failed on page {page}: malformed JSON ({exc})",
+        )
+        return None, err_proc
+
+    if not _is_expected_page_shape(data):
+        err_proc = subprocess.CompletedProcess(
+            args=proc.args,
+            returncode=1,
+            stdout="",
+            stderr=f"gh api paginated read of {base_endpoint} failed on page {page}: unexpected response shape",
+        )
+        return None, err_proc
+
+    return data, None
 
 
 def _fetch_all_pages(
@@ -1615,6 +1669,7 @@ def _fetch_all_pages(
             endpoint_idx,
             base_endpoint,
             page,
+            per_page,
             limiter,
             target_resource,
             cwd,
@@ -1626,17 +1681,24 @@ def _fetch_all_pages(
             return proc, combined_items, False
 
         stdout_trimmed = (proc.stdout or "").strip()
-        if stdout_trimmed in ("", "[]"):
-            break
+        if stdout_trimmed == "[]":
+            return last_proc, combined_items, True
 
-        data = extract_json_payload(stdout_trimmed)
+        data, err_proc = _validate_page_payload(proc, base_endpoint, page)
+        if err_proc is not None:
+            return err_proc, combined_items, False
+
         if not _append_paginated_data(combined_items, data, per_page):
-            if not combined_items and isinstance(data, dict):
-                return proc, combined_items, False
-            break
+            return last_proc, combined_items, True
         page += 1
 
-    return last_proc, combined_items, True
+    err_proc = subprocess.CompletedProcess(
+        args=last_proc.args if last_proc else [CONST_GH_CLI, *args_no_paginate],
+        returncode=1,
+        stdout="",
+        stderr=f"gh api: paginated read of '{base_endpoint}' exceeded page cap of {max_pages} pages",
+    )
+    return err_proc, combined_items, False
 
 
 def _run_gh_paginated(
@@ -1704,6 +1766,42 @@ def _post_process_run(
         _parse_rate_limit_from_output(proc.stderr, resource, limiter)
 
 
+def _validate_paginated_api_args(
+    clean_args: list[str], full_cmd: list[str], check: bool
+) -> subprocess.CompletedProcess[str] | None:
+    """Refuse incompatible flags or GraphQL queries when --paginate is passed."""
+    if not clean_args or clean_args[0] != "api" or "--paginate" not in clean_args:
+        return None
+    api_args = clean_args[1:]
+    incompatible_flag = incompatible_gh_api_paginate_flag(api_args)
+    if incompatible_flag is not None:
+        proc = subprocess.CompletedProcess(
+            args=full_cmd,
+            returncode=1,
+            stdout="",
+            stderr=f"gh api: cannot combine --paginate with {incompatible_flag}",
+        )
+        if check:
+            raise subprocess.CalledProcessError(
+                proc.returncode, full_cmd, output=proc.stdout, stderr=proc.stderr
+            )
+        return proc
+    parsed_api = parse_gh_api_args(api_args)
+    if parsed_api is not None and parsed_api.endpoint == CONST_GH_API_GRAPHQL_ENDPOINT:
+        proc = subprocess.CompletedProcess(
+            args=full_cmd,
+            returncode=1,
+            stdout="",
+            stderr="gh api: GraphQL queries do not support --paginate",
+        )
+        if check:
+            raise subprocess.CalledProcessError(
+                proc.returncode, full_cmd, output=proc.stdout, stderr=proc.stderr
+            )
+        return proc
+    return None
+
+
 def _handle_cached_or_paginated(
     limiter: GitHubRateLimiter,
     clean_args: list[str],
@@ -1728,6 +1826,10 @@ def _handle_cached_or_paginated(
         return cached
 
     if not is_check and not is_mutation and "--paginate" in clean_args:
+        invalid_paginated = _validate_paginated_api_args(clean_args, full_cmd, check)
+        if invalid_paginated is not None:
+            return invalid_paginated
+
         proc = _run_gh_paginated(
             clean_args,
             limiter=limiter,

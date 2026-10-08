@@ -634,7 +634,7 @@ def test_run_gh_paginated_edge_cases(tmp_path: Path, monkeypatch: pytest.MonkeyP
         assert res.returncode == 0
         assert res.stdout == "[]"
 
-    # Non-list response terminates loop and returns proc
+    # Non-list response terminates loop and returns failed read
     with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
         mock_sub.return_value = subprocess.CompletedProcess(
             args=["gh", "api", "repos/owner/repo/pulls", "--paginate"],
@@ -643,8 +643,222 @@ def test_run_gh_paginated_edge_cases(tmp_path: Path, monkeypatch: pytest.MonkeyP
             stderr="",
         )
         res = run_gh(["api", "repos/owner/repo/pulls", "--paginate"])
-        assert res.returncode == 0
-        assert res.stdout == '{"message": "Not found"}'
+        assert (res.returncode, "repos/owner/repo/pulls" in res.stderr, "page 1" in res.stderr) == (
+            1,
+            True,
+            True,
+        )
+
+
+@pytest.mark.parametrize(
+    ("bad_stdout", "scenario"),
+    [
+        ("<html>upstream 502 Bad Gateway</html>", "html"),
+        ("", "empty"),
+        ("   \n\t ", "whitespace-empty"),
+        ('[{"id": 1, "name": "partial"', "truncated-json"),
+        ('{"message": "rate limit exceeded"}', "error-object"),
+        ('Preamble banner\n[{"id": 1}]', "preamble-salvage-rejected"),
+    ],
+)
+def test_paginated_read_fails_closed_on_bad_first_page(
+    bad_stdout: str, scenario: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bad first page returns a failed read with exit code 1 naming the endpoint and page."""
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+    endpoint = "repos/owner/repo/pulls"
+    rate_limit_payload = json.dumps(
+        {"resources": {"core": {"limit": 5000, "remaining": 4999, "reset": 1999999999, "used": 1}}}
+    )
+
+    def mock_sub(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "rate_limit" in " ".join(cmd):
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout=rate_limit_payload, stderr=""
+            )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=bad_stdout, stderr="")
+
+    with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_sub):
+        res = run_gh(["api", endpoint, "--paginate"])
+        assert (
+            res.returncode,
+            endpoint in res.stderr,
+            "page 1" in res.stderr,
+        ) == (1, True, True)
+
+
+@pytest.mark.parametrize(
+    ("bad_stdout", "scenario"),
+    [
+        ("<html>upstream 502 Bad Gateway</html>", "html"),
+        ("", "empty"),
+        ("   \n\t ", "whitespace-empty"),
+        ('[{"id": 101, "name": "partial"', "truncated-json"),
+        ('{"message": "rate limit exceeded"}', "error-object"),
+        ('Preamble banner\n[{"id": 101}]', "preamble-salvage-rejected"),
+    ],
+)
+def test_paginated_read_fails_closed_on_bad_later_page(
+    bad_stdout: str, scenario: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bad later page returns a failed read with exit code 1 naming the endpoint and page."""
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+    endpoint = "repos/owner/repo/pulls?per_page=100"
+    rate_limit_payload = json.dumps(
+        {"resources": {"core": {"limit": 5000, "remaining": 4999, "reset": 1999999999, "used": 1}}}
+    )
+    page1_items = [{"id": i} for i in range(100)]
+    page1_proc = subprocess.CompletedProcess(
+        args=["gh", "api", endpoint],
+        returncode=0,
+        stdout=json.dumps(page1_items),
+        stderr="",
+    )
+    page2_proc = subprocess.CompletedProcess(
+        args=["gh", "api", endpoint],
+        returncode=0,
+        stdout=bad_stdout,
+        stderr="",
+    )
+    pages = [page1_proc, page2_proc]
+
+    def mock_sub(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "rate_limit" in " ".join(cmd):
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout=rate_limit_payload, stderr=""
+            )
+        return pages.pop(0)
+
+    with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_sub):
+        res = run_gh(["api", endpoint, "--paginate"])
+        assert (
+            res.returncode,
+            endpoint in res.stderr,
+            "page 2" in res.stderr,
+        ) == (1, True, True)
+
+
+@pytest.mark.parametrize(
+    ("page2_stdout", "expected_count"),
+    [
+        ("[]", 100),
+        (json.dumps([{"id": 201}, {"id": 202}]), 102),
+    ],
+)
+def test_paginated_read_succeeds_on_normal_completion(
+    page2_stdout: str, expected_count: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A normal listing that ends with [] or a short page succeeds."""
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+    endpoint = "repos/owner/repo/pulls?per_page=100"
+    rate_limit_payload = json.dumps(
+        {"resources": {"core": {"limit": 5000, "remaining": 4999, "reset": 1999999999, "used": 1}}}
+    )
+    page1_items = [{"id": i} for i in range(100)]
+    page1_proc = subprocess.CompletedProcess(
+        args=["gh", "api", endpoint],
+        returncode=0,
+        stdout=json.dumps(page1_items),
+        stderr="",
+    )
+    page2_proc = subprocess.CompletedProcess(
+        args=["gh", "api", endpoint],
+        returncode=0,
+        stdout=page2_stdout,
+        stderr="",
+    )
+    pages = [page1_proc, page2_proc]
+
+    def mock_sub(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "rate_limit" in " ".join(cmd):
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout=rate_limit_payload, stderr=""
+            )
+        return pages.pop(0)
+
+    with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_sub):
+        res = run_gh(["api", endpoint, "--paginate"])
+        parsed = json.loads(res.stdout)
+        assert (res.returncode, len(parsed), res.stderr) == (0, expected_count, "")
+
+
+@pytest.mark.parametrize(
+    ("flag", "arg"),
+    [
+        ("-q", "-q"),
+        ("--jq", "--jq"),
+        ("-t", "-t"),
+        ("--template", "--template"),
+        ("-i", "-i"),
+        ("--include", "--include"),
+        ("--silent", "--silent"),
+    ],
+)
+def test_paginated_read_refuses_incompatible_flags(flag: str, arg: str) -> None:
+    """A paged read with an incompatible flag is refused before any request, naming the flag."""
+    extra = [arg, ".[]"] if flag in ("-q", "--jq", "-t", "--template") else [arg]
+    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
+        res = run_gh(["api", "repos/owner/repo/pulls", "--paginate", *extra])
+        assert (res.returncode, flag in res.stderr, mock_sub.call_count) == (1, True, 0)
+
+
+def test_paginated_read_refuses_graphql_query() -> None:
+    """devops gh api graphql --paginate is refused with a message naming GraphQL."""
+    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
+        res = run_gh(["api", "graphql", "--paginate"])
+        assert (res.returncode, "GraphQL" in res.stderr, mock_sub.call_count) == (1, True, 0)
+
+
+def test_paginated_read_fails_closed_when_exceeding_page_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A listing that is still full when reaching DEFAULT_GH_MAX_PAGINATED_PAGES fails naming the cap."""
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr("devops_cli.github.rate_limiter.DEFAULT_GH_MAX_PAGINATED_PAGES", 2)
+    endpoint = "repos/owner/repo/pulls?per_page=100"
+    page_items = [{"id": i} for i in range(100)]
+    rate_limit_payload = json.dumps(
+        {"resources": {"core": {"limit": 5000, "remaining": 4999, "reset": 1999999999, "used": 1}}}
+    )
+
+    def mock_sub(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "rate_limit" in " ".join(cmd):
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout=rate_limit_payload, stderr=""
+            )
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout=json.dumps(page_items), stderr=""
+        )
+
+    with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_sub):
+        res = run_gh(["api", endpoint, "--paginate"])
+        assert (res.returncode, "exceeded page cap" in res.stderr) == (1, True)
+
+
+def test_paginated_read_injects_default_per_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every page URL carries per_page, defaulting to DEFAULT_GH_REST_PER_PAGE when omitted."""
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+    endpoint = "repos/owner/repo/pulls"
+    called_cmds: list[list[str]] = []
+    rate_limit_payload = json.dumps(
+        {"resources": {"core": {"limit": 5000, "remaining": 4999, "reset": 1999999999, "used": 1}}}
+    )
+
+    def mock_sub(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        cmd_str = " ".join(cmd)
+        if "rate_limit" in cmd_str:
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout=rate_limit_payload, stderr=""
+            )
+        called_cmds.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="[]", stderr="")
+
+    with patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_sub):
+        res = run_gh(["api", endpoint, "--paginate"])
+        assert (res.returncode, any("per_page=100" in " ".join(c) for c in called_cmds)) == (
+            0,
+            True,
+        )
 
 
 def test_run_gh_with_cwd_and_called_process_error(tmp_path: Path) -> None:
