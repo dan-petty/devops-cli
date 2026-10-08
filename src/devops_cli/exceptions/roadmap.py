@@ -5,7 +5,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from devops_cli.config.constants import CONST_ERROR_CODE_ROADMAP_CARD_CHANGED
+from devops_cli.config.constants import (
+    CONST_ERROR_CODE_ROADMAP_CARD_CHANGED,
+    CONST_ERROR_CODE_ROADMAP_REFINE_FAILED,
+)
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubOperationError
 
@@ -47,4 +50,26 @@ class RoadmapCardChangedError(GitHubOperationError):
             operation=operation,
             error_code=CONST_ERROR_CODE_ROADMAP_CARD_CHANGED,
             details=details,
+        )
+
+
+class RoadmapRefineError(DevOpsCLIError):
+    """Raised after a refine run in which the model call failed for one or more items.
+
+    Refine skipped each such item and wrote the others first. The message names each skipped
+    item with its error's class and schema violation count, never the model's text.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failed_items: Sequence[int] = (),
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        self.failed_items = tuple(failed_items)
+        super().__init__(
+            message,
+            error_code=CONST_ERROR_CODE_ROADMAP_REFINE_FAILED,
+            details={"failed_items": list(self.failed_items), **(details or {})},
         )

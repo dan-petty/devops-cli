@@ -97,8 +97,10 @@ names the class each row describes. One code never maps to two exit statuses.
 | `ReleasePushRefusedError` | `RELEASE_PUSH_REFUSED_RULESET` | `1` | Git | Raised when git push to a release branch is refused by a repository ruleset (GH013). |
 | `ReleaseRemoteFetchError` | `RELEASE_REMOTE_FETCH_FAILED` | `1` | Git | Raised when fetching the remote release branch tip fails. |
 | `ReleaseWorkingTreeDirtyError` | `RELEASE_WORKING_TREE_DIRTY` | `1` | Git | Raised when the working tree has uncommitted changes before cutting a release. |
+| `ReplyRejectedError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when the caller's validator refused a reply; it carries the reply, never cached. |
 | `ReviewPoolError` | `REVIEW_POOL_ERROR` | `1` | Ai | Raised when an error occurs during parallel review worker pool execution. |
 | `RoadmapCardChangedError` | `ROADMAP_CARD_CHANGED` | `1` | Roadmap | Raised before a job's board write that would revert a change made since it read the card. |
+| `RoadmapRefineError` | `ROADMAP_REFINE_FAILED` | `1` | Roadmap | Raised after a refine run in which the model call failed for one or more items. |
 | `RoadmapRunError` | `DEVOPS_CLI_ERROR` | `1` | Roadmap | Raised when one or more roadmap jobs fail during execution. |
 | `RunCancelled` | `RUN_CANCELLED` | `26` | Ai | Raised when an agent run was cancelled by the application or timeout. |
 | `RunIndexNotConfiguredError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.run_store | No shared run index is configured. |

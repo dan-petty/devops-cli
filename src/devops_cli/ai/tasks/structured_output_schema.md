@@ -1,0 +1,1 @@
+Reply with one JSON object and nothing else: no Markdown, no code fence and no text before or after it. The object must validate against the JSON Schema below. Use only the keys it defines, give every key it requires, and give each value the type it states.

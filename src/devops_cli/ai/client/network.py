@@ -11,6 +11,7 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -70,6 +71,31 @@ def limit_completion_tokens(limit: int) -> Generator[None]:
         yield
     finally:
         completion_cap.reset(token)
+
+
+@dataclass(frozen=True)
+class ReplySchema:
+    """The JSON Schema a structured call's reply must validate against, and the schema's name."""
+
+    name: str
+    json_schema: dict[str, Any]
+
+
+# The schema the replies of the calls made inside `constrain_reply` must match. It travels with
+# the context, like the reply cap, so a structured call can ask the provider to constrain its
+# decoding without every layer between it and the request payload taking a parameter.
+reply_schema: ContextVar[ReplySchema | None] = ContextVar("reply_schema", default=None)
+
+
+@contextmanager
+def constrain_reply(schema: ReplySchema) -> Generator[None]:
+    """Ask the provider to constrain the reply of every LLM call made inside the block to
+    ``schema``, where the provider takes such a parameter."""
+    token = reply_schema.set(schema)
+    try:
+        yield
+    finally:
+        reply_schema.reset(token)
 
 
 @contextmanager

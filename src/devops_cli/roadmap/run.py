@@ -481,15 +481,17 @@ def _run_refine_adapter(
     config: RoadmapConfig | None = None,
     **_: Any,
 ) -> JobOutcome:
-    """Run refine job and return JobOutcome."""
+    """Run refine job and return JobOutcome; it fails, once the other items are written, when the
+    model call failed for any item."""
     from devops_cli.roadmap.config import read_roadmap_config
-    from devops_cli.roadmap.refine import apply_refine, plan_refine
+    from devops_cli.roadmap.refine import apply_refine, plan_refine, raise_for_failed_items
 
     active_config = config or read_roadmap_config(store, ref=None)
     source = clone_path or Path.cwd()
     plan = plan_refine(store, repo=repo, source=source, config=active_config)
     if plan.has_writes:
         apply_refine(store, plan)
+    raise_for_failed_items(plan)
     return JobOutcome()
 
 
