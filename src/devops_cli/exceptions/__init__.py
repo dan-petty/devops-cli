@@ -39,7 +39,7 @@ from devops_cli.exceptions.k8s import (
     KubernetesError,
     KubernetesLoggingError,
 )
-from devops_cli.exceptions.roadmap import RoadmapRunError
+from devops_cli.exceptions.roadmap import RoadmapCardChangedError, RoadmapRunError
 from devops_cli.exceptions.sandbox import (
     SandboxError,
     SandboxNotFoundError,
@@ -123,6 +123,7 @@ __all__ = [
     "KubernetesError",
     "KubernetesLoggingError",
     "LogfireConfigurationError",
+    "RoadmapCardChangedError",
     "RoadmapRunError",
     "SSRFBlockedError",
     "SandboxError",

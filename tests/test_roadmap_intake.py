@@ -1,7 +1,9 @@
 """`devops roadmap intake` over the in-memory roadmap store, a fake embedder and a fake model (#742).
 
 Each case builds the roadmap a person leaves, runs intake, and reads back what the store holds
-and what intake wrote. No case runs `gh`, reaches a model or opens a socket.
+and what intake wrote. The last cases run the GitHub store over `GitHubFake`, a fake at the `gh`
+process edge, to count the requests a placement sends (#1361). No case runs `gh`, reaches a
+model or opens a socket.
 """
 
 from __future__ import annotations
@@ -37,6 +39,11 @@ from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import store as roadmap_store_module
+from devops_cli.roadmap.board_read import (
+    BOARD_BUDGET_OPERATION,
+    BOARD_CARD_OPERATION,
+    BOARD_ITEMS_OPERATION,
+)
 from devops_cli.roadmap.config import RoadmapConfig, open_roadmap
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.intake import (
@@ -73,6 +80,7 @@ from devops_cli.roadmap.store import (
     ItemField,
 )
 from devops_cli.telemetry.tracer import OTelTelemetryClient, get_tracer
+from tests.roadmap_board_fake import GitHubFake, field_id
 
 REPO = "example/roadmap"
 NOW = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
@@ -852,7 +860,6 @@ STORE_OPERATIONS: dict[str, str | None] = {
     "file": "create_issue",
     "label": "label_issue",
     "add": "add_item",
-    "item": "item",
     "release": "set_field",
     "field": "set_field",
     "comment": "comment",
@@ -1454,3 +1461,151 @@ def test_a_person_files_through_the_command_without_the_agent_label(
     _intake("--title", "feat: mine", "--body-file", str(body), "--filed-by", "person", "--confirm")
     (new,) = [i.number for i in board.store.issues() if i.title == "feat: mine"]
     assert _labels(board, new) == ("type/feature",)
+
+
+# ── On the GitHub store, at the `gh` process edge (#1361) ─────────────────────
+# The store runs every command through `GitHubFake`, which answers as GitHub does: its board
+# listing may leave a card just added out, as GitHub's showed one up to two minutes late on
+# 2026-10-07, and it charges each GraphQL request the points GitHub's estimate gives its shape.
+
+GITHUB_MILESTONES = [
+    {"number": 25, "title": PREVIOUS, "state": "closed", "closed_at": "2026-10-03T12:00:00Z"},
+    {"number": 26, "title": CURRENT, "state": "open"},
+    {"number": 27, "title": NEXT, "state": "open"},
+]
+CRITICAL_FIX = NewCandidate(
+    title="fix: crash on start",
+    body="Introduced by abc1234.",
+    evidence=(Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="abc1234"),),
+)
+
+
+def on_github(board: int = 0, *, lag: int = 0) -> tuple[GitHubFake, GitHubRoadmapStore]:
+    """A repository whose board holds `board` finished items, and the store over it."""
+    github = GitHubFake(
+        REPO,
+        milestones=GITHUB_MILESTONES,
+        files={".github/labels.yml": LABELS_YML},
+        commits=("abc1234",),
+        lag=lag,
+    )
+    for number in range(1, board + 1):
+        github.seed_issue(
+            number,
+            f"feat: finished item {number}",
+            labels=("type/feature",),
+            card={"status": "Ready", "priority": "P3-Low", "value": "Low", "effort": "Low"},
+        )
+    owner = REPO.split("/")[0]
+    return github, GitHubRoadmapStore(REPO, board_owner=owner, board_number=1, runner=github)
+
+
+def _intake_on_github(
+    store: GitHubRoadmapStore, model: FakeModel, **options: Any
+) -> tuple[IntakePlan, Any]:
+    plan = plan_intake(store, config=CONFIG, model=model, **options)
+    return plan, lambda: apply_intake(store, plan, refine=lambda *_: None)
+
+
+def _sent(github: GitHubFake, start: int, operation: str) -> int:
+    """How many requests naming `operation` the store sent from call `start` on."""
+    return sum(operation in " ".join(args) for args in github.calls[start:])
+
+
+def _edits(github: GitHubFake, start: int) -> list[tuple[str, str]]:
+    """Each id-addressed `item-edit` from call `start` on: the field's id and the value sent."""
+    return [
+        (args[args.index("--field-id") + 1], args[-1])
+        for args in github.calls[start:]
+        if args[:2] == ["project", "item-edit"]
+    ]
+
+
+def test_intake_writes_to_the_card_it_added_while_the_board_listing_leaves_it_out() -> None:
+    """The lag of 2026-10-07: the listing leaves a new card out of its next three reads. Intake
+    files a critical fix and places it in the current release, writing Release, Status, Value,
+    Effort and Priority to the card the add named; after the add it sends no board listing
+    query, only one card read for the add and one for each field write. At 910b823 it failed
+    here with "is not on the board after intake added it"."""
+    github, store = on_github(board=3, lag=3)
+    model = FakeModel(proposals={CRITICAL_FIX.title: REGRESSION})
+    _, apply = _intake_on_github(store, model, new=CRITICAL_FIX)
+    applied = apply()
+    (number,) = applied.filed
+    added = next(i for i, args in enumerate(github.calls) if args[:2] == ["project", "item-add"])
+    card = github.card(number) or {}
+    assert (
+        [_sent(github, added, name) for name in (BOARD_BUDGET_OPERATION, BOARD_ITEMS_OPERATION)],
+        _sent(github, added, BOARD_CARD_OPERATION),
+        github.board.lagging,
+        {key: card.get(key) for key in ("status", "priority", "value", "effort")},
+        json.loads(card["job record"])["Release"],
+        github.issues[number]["milestone"]["title"],
+    ) == (
+        [0, 0],
+        6,
+        {f"PVTI_{number}": 3},
+        {"status": "New", "priority": "P0-Critical", "value": "Medium", "effort": "Low"},
+        CURRENT,
+        CURRENT,
+    )
+
+
+@pytest.mark.parametrize("board", [120, 1_080])
+def test_a_placement_costs_the_same_few_graphql_points_whatever_the_boards_size(
+    board: int,
+) -> None:
+    """Filing and placing a critical fix in the release: the fields once, the add and its card,
+    then for each of five writes the card and its edits by node ids. The cost is a small
+    constant, the same on a board of 120 cards or of 1,080: about 17 in the fake, which charges
+    `item-add` as one mutation though gh first resolves its owner, board and issue with queries
+    of its own. On 2026-10-07 the same placement cost about 1,500, most of it in `field-list`,
+    name-addressed edits and whole-board re-reads."""
+    github, store = on_github(board=board)
+    model = FakeModel(proposals={CRITICAL_FIX.title: REGRESSION})
+    _, apply = _intake_on_github(store, model, new=CRITICAL_FIX)
+    github.points = 0
+    apply()
+    assert github.points == 17
+
+
+def test_an_item_on_the_board_with_status_and_value_gets_only_effort_and_priority() -> None:
+    """#1336's state: a card with Status and Value from a placement that stopped. Intake
+    writes the record and the field for Effort, then Priority, to the card it has, and sends
+    no board listing query."""
+    github, store = on_github()
+    record = json.dumps({"Status": "New", "Value": "Medium"})
+    github.seed_issue(1, "feat: export the board as CSV", card={"status": "New", "value": "Medium"})
+    (github.card(1) or {})["job record"] = record
+    plan, apply = _intake_on_github(store, FakeModel())
+    start = len(github.calls)
+    apply()
+    assert (
+        plan.decisions[0].subject.item is not None,
+        [field for field, _ in _edits(github, start)],
+        [value for _, value in _edits(github, start)][1::2],
+        _sent(github, start, "RoadmapBoardItems") + _sent(github, start, "RoadmapBoardBudget"),
+        _sent(github, start, "item-add"),
+    ) == (
+        True,
+        [field_id("Job record"), field_id("Effort"), field_id("Job record"), field_id("Priority")],
+        ["PVTF_effort/Low", "PVTF_priority/P2-Medium"],
+        0,
+        0,
+    )
+
+
+def test_an_intake_of_three_placements_reads_the_board_once() -> None:
+    """On a board of 250 cards: one budget probe and three pages for the whole run, its three
+    placements included."""
+    github, store = on_github(board=250)
+    for number in (251, 252, 253):
+        github.seed_issue(number, f"feat: new idea {number}")
+    _, apply = _intake_on_github(store, FakeModel())
+    applied = apply()
+    assert (
+        applied.placed,
+        _sent(github, 0, BOARD_BUDGET_OPERATION),
+        _sent(github, 0, BOARD_ITEMS_OPERATION),
+        [(github.card(n) or {}).get("priority") for n in (251, 252, 253)],
+    ) == (3, 1, 3, ["P2-Medium"] * 3)

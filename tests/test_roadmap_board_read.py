@@ -25,11 +25,13 @@ from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.github.rate_limiter import get_github_rate_limiter, reset_github_rate_limiter
 from devops_cli.roadmap.board_read import (
     BOARD_BUDGET_QUERY,
+    BOARD_CARD_QUERY,
     BOARD_ITEMS_QUERY,
     GRAPHQL_BUDGET_QUERY,
     GraphQLBudget,
     GraphQLSpend,
     board_budget_args,
+    board_card_args,
     board_items_args,
     graphql_budget_args,
     spend_between,
@@ -121,18 +123,19 @@ def test_every_board_document_is_valid_against_githubs_schema() -> None:
     """The documents are fixed templates; GitHub's schema, cut to the types they use, accepts
     each of them and rejects a field it doesn't define."""
     schema = build_schema(SCHEMA.read_text(encoding="utf-8"))
-    documents = [BOARD_ITEMS_QUERY, BOARD_BUDGET_QUERY, GRAPHQL_BUDGET_QUERY]
+    documents = [BOARD_ITEMS_QUERY, BOARD_BUDGET_QUERY, BOARD_CARD_QUERY, GRAPHQL_BUDGET_QUERY]
     misspelled = BOARD_ITEMS_QUERY.replace("archivedStates", "archived")
     assert (
         [validate(schema, parse(document)) for document in documents],
         len(validate(schema, parse(misspelled))),
-    ) == ([[], [], []], 1)
+    ) == ([[], [], [], []], 1)
 
 
 def test_the_argument_builders_send_the_filter_the_cursor_and_typed_numbers() -> None:
     """A request plan lists these same argv; the filter goes as a string, the numbers typed."""
     first = board_items_args(OWNER, 2, "is:open")
     later = board_items_args(OWNER, 2, "", after="Y3Vyc29y")
+    card = board_card_args("PVTI_7")
     assert (
         first[:3],
         {key: value for key, value in gh_variables(first).items() if key != "query"},
@@ -141,6 +144,7 @@ def test_the_argument_builders_send_the_filter_the_cursor_and_typed_numbers() ->
         "archivedStates: [NOT_ARCHIVED]" in gh_variables(first)["query"],
         gh_variables(board_budget_args(OWNER, 2, "is:open"))["filter"],
         graphql_budget_args()[:3],
+        {key: value for key, value in gh_variables(card).items() if key != "query"},
     ) == (
         ["api", "graphql", "-f"],
         {"owner": OWNER, "filter": "is:open", "number": "2", "first": "100", "fieldValues": "100"},
@@ -149,6 +153,7 @@ def test_the_argument_builders_send_the_filter_the_cursor_and_typed_numbers() ->
         True,
         "is:open",
         ["api", "graphql", "-f"],
+        {"id": "PVTI_7", "fieldValues": "100"},
     )
 
 
@@ -156,7 +161,8 @@ def test_the_argument_builders_send_the_filter_the_cursor_and_typed_numbers() ->
 
 
 def test_each_read_passes_its_filter_at_the_source() -> None:
-    """The job's filter for its whole-board reads, `is:open` for the backlog and candidates."""
+    """The job's filter for its whole-board reads, `is:open` for the backlog and candidates,
+    which share that one read of the store (#1361)."""
     board = board_of(3, 2)
     store, gh = store_over(
         {
@@ -176,8 +182,6 @@ def test_each_read_passes_its_filter_at_the_source() -> None:
     assert [read["filter"] for read in board_reads(gh)] == [
         "",
         "",
-        "is:open",
-        "is:open",
         "is:open",
         "is:open",
         "-status:Done",
@@ -263,7 +267,7 @@ def _fields_reply() -> dict[str, Any]:
     }
     record = {"id": "PVTF_jobrecord", "name": "Job record", "dataType": "TEXT"}
     connection = {"totalCount": 2, "nodes": [status, record]}
-    return {"data": {"repositoryOwner": {"projectV2": {"fields": connection}}}}
+    return {"data": {"repositoryOwner": {"projectV2": {"id": "PVT_board", "fields": connection}}}}
 
 
 def _rest_pages(listing: list[dict[str, Any]]) -> Callable[[list[str]], Any]:
@@ -277,10 +281,10 @@ def _rest_pages(listing: list[dict[str, Any]]) -> Callable[[list[str]], Any]:
 
 def test_a_reprioritize_run_on_a_board_of_931_items_charges_its_pages() -> None:
     """The board of 2026-10-04: 931 items, 280 of them open, one more archived. Through `run_gh`,
-    with gh's process stubbed, the run charges the GraphQL points its board reads report: two
-    reads (the items, then the run record), each one budget query and ten pages of 100. The
-    same run through `gh project item-list` cost 2,025 points while the limiter counted one call
-    per read. The run ends with the points spent and left, read from GraphQL."""
+    with gh's process stubbed, the run charges the GraphQL points its board read reports: one
+    read, one budget query and ten pages of 100, which the items and the run record share
+    (#1361). The same run through `gh project item-list` cost 2,025 points while the limiter
+    counted one call per read. The run ends with the points spent and left, read from GraphQL."""
     board = board_of(280, 651, archived=1)
     server = BoardServer(board)
     gh = Gh(
@@ -326,7 +330,7 @@ def test_a_reprioritize_run_on_a_board_of_931_items_charges_its_pages() -> None:
         server.pages,
         charged,
         (spend.spent, spend.remaining),
-    ) == (None, [""] * 22, 20, 23, (23, 4977))
+    ) == (None, [""] * 11, 10, 12, (12, 4988))
 
 
 # ── The spend line ────────────────────────────────────────────────────────────

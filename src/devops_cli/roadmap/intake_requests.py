@@ -6,10 +6,11 @@ A dry run makes no request at all. It returns the requests a run makes, in order
 call and the model calls. `method` names the transport and whether it reads or writes, and
 `target` what it reads or writes. Every `gh` command shows its exact argv and stdin, built by
 the store's own argument builders (`roadmap/request_plan.py`, #1125), one line per command, so a
-board write shows the board reads it makes first. A value that needs a read is a placeholder in
-angle brackets, a request that runs only when an earlier one returns something names that in
-`condition`, and a listing read a page at a time, or a request made for each candidate, says so
-in `repeat`. The reads end with the GraphQL budget read the run's spend line comes from.
+board write shows the read of its one card it makes first (#1361). A value that needs a read is
+a placeholder in angle brackets, a request that runs only when an earlier one returns something
+names that in `condition`, and a listing read a page at a time, or a request made for each
+candidate, says so in `repeat`. The reads end with the GraphQL budget read the run's spend line
+comes from.
 
 A `--plan` run makes the reads and the model calls, writes nothing, and reports what it spent:
 each `gh` command by the rate-limit resource it spends, as `run_gh` classifies it, and each
@@ -192,7 +193,6 @@ class _Steps:
         steps: list[tuple[str, list[PlannedRequest], dict[str, str]]] = [
             ("label", store.label_issue(subject), {}),
             ("add", store.add_item(subject), {}),
-            ("item", store.item(subject), {}),
             ("release", store.set_field(subject, "Release"), {}),
             *(
                 ("field", store.set_field(subject, name), {"field": shown})

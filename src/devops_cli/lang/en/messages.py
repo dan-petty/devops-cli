@@ -1112,6 +1112,16 @@ class RoadmapMessages:
         "GraphQL has {remaining} points left until {reset}, below the {floor} kept in reserve, "
         "so the read of {what} stopped before page {page}. Run it again after {reset}."
     )
+    graphql_budget_write_floor: str = (
+        "GraphQL has {remaining} points left until {reset}, below the {floor} kept in reserve, "
+        "so the run stopped before writing {what}. Run it again after {reset}."
+    )
+    card_changed: str = (
+        "{card}'s {field} is {now} on the board but was {read} when this run read it, so "
+        "someone changed it since and the run stopped before writing it. Nothing was written; "
+        "the next run reads the board again and plans with that change."
+    )
+    card_value_unset: str = "unset"
     board_count_changed: str = (
         "The {what} changed while they were read ({counts}), and again on a second read, so "
         "the read is incomplete. Run it again once the board is still."
@@ -1366,8 +1376,12 @@ class RoadmapMessages:
             ),
             "board_first": "the first page of board {board}'s items{matching}",
             "board_page": "the next page of board {board}'s items{matching}",
-            "fields": "board {board}'s fields, with their options",
-            "field_options": "board {board}'s field options",
+            "fields": "board {board}'s node id and fields, with their options",
+            "card": (
+                "the card of {subject}: its fields, its job record and GraphQL's points left; a "
+                "write stops here when the points are below the reserve, or when someone changed "
+                "the field it writes since the run read it"
+            ),
             "workflows": "board {board}'s workflows",
             "boards": "{owner}'s boards, to find board {board}",
             "default_branch": "the default branch and its head",
@@ -1431,6 +1445,12 @@ class RoadmapMessages:
             "posted": "the change posts a comment",
             "record": "the run records its release or size",
             "no_card": "the board has no run record card yet",
+            "run_card": "the board has the run record card",
+            "board_unread": (
+                "the run has not read these items of the board since it began or last closed an "
+                "issue"
+            ),
+            "fields_unread": "the run has not read the board's fields yet",
             "closing": "a shipped release's milestone is still open",
             "release_named": "the value is a Release",
             "board": "the configured board exists",
@@ -1703,20 +1723,20 @@ class RoadmapMessages:
                 "label {subject} with its type/* label when it has none, and budget/borrowed "
                 "when it borrows"
             ),
-            "add": "read {subject}, then add it to board {board}",
-            "item": "board {board} and {subject}, to find its item",
+            "add": "read {subject}, add it to board {board}, then read the card the add names",
             "release": (
-                "set the milestone of {subject} to <the placement>: the board's fields and "
-                "items, every milestone, the job record (GraphQL), then the milestone (REST)"
+                "set the milestone of {subject} to <the placement>: the board's fields once a "
+                "run, every milestone, its card, the job record (GraphQL), then the milestone "
+                "(REST)"
             ),
             "field": (
-                "set {field} on {subject}: the board's fields and items, the job record, then "
-                "the field"
+                "set {field} on {subject}: the board's fields once a run, its card, the job "
+                "record, then the field"
             ),
             "comment": "the reason comment on {subject}",
             "priority": (
-                "set Priority <the proposed Priority> on {subject}: the board's fields and "
-                "items, the job record, then the field"
+                "set Priority <the proposed Priority> on {subject}: the board's fields once a "
+                "run, its card, the job record, then the field"
             ),
             "duplicate_read": "{subject} and <the original>",
             "duplicate_comment": "the duplicate comment on {subject}",

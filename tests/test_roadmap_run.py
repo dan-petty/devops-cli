@@ -1,7 +1,9 @@
 """Tests for `devops roadmap run` and due table execution (#981).
 
 All tests run in-memory without network or cluster access, testing due evaluation,
-schedule persistence, clone management, service wiring, and MCP integration.
+schedule persistence, clone management, service wiring, and MCP integration. The last cases run
+the GitHub store over `GitHubFake`, a fake at the `gh` process edge, to count a round's board
+reads (#1361).
 """
 
 from __future__ import annotations
@@ -26,6 +28,8 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
 )
 from devops_cli.exceptions import GitOperationError, RoadmapRunError
+from devops_cli.roadmap.board_read import BOARD_BUDGET_OPERATION, BOARD_ITEMS_OPERATION
+from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import (
     JobOutcome,
@@ -37,6 +41,7 @@ from devops_cli.roadmap.run import (
 )
 from devops_cli.roadmap.store import Change, ChangeKind, CloseReason, GitHubState
 from devops_cli.server.service import TriggerBatch
+from tests.roadmap_board_fake import GitHubFake
 
 REPO = "example/roadmap"
 RELEASE = "v0.2.26"
@@ -893,3 +898,93 @@ def test_metrics_job_registered_in_default_due_table_and_adapter(
     )
     fail_outcome = _run_metrics_adapter(repo="example/repo")
     assert isinstance(fail_outcome, JobOutcome) is True
+
+
+# ── On the GitHub store, at the `gh` process edge (#1361) ─────────────────────
+
+
+def _labeled(count: int, actor: str) -> list[dict[str, Any]]:
+    """`count` label events by `actor` on issues #1.., newest first, in no milestone."""
+    return [
+        {
+            "event": "labeled",
+            "created_at": (NOW - timedelta(seconds=10 + n)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "actor": {"login": actor},
+            "issue": {"number": n + 1, "milestone": None},
+            "label": {"name": "scope/cli"},
+        }
+        for n in range(count)
+    ]
+
+
+def _github_round(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, events: list[dict[str, Any]]
+) -> tuple[GitHubFake, GitHubRoadmapStore]:
+    """A repository with 60 cards and a current release, its jobs all run five minutes ago, the
+    Service logged in as `roadmap-bot`, and the store a round opens over it."""
+    github = GitHubFake(
+        REPO,
+        milestones=[
+            {"number": 25, "title": "v0.2.25", "state": "closed"},
+            {"number": 26, "title": RELEASE, "state": "open"},
+        ],
+        events=events,
+    )
+    for number in range(1, 61):
+        github.seed_issue(number, card={"status": "Ready"})
+    t5 = (NOW - timedelta(minutes=5)).isoformat()
+    sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
+    sched_file.parent.mkdir(parents=True, exist_ok=True)
+    sched_file.write_text(
+        json.dumps({"intake": t5, "close": t5, "reprioritize": t5}), encoding="utf-8"
+    )
+    monkeypatch.setattr("devops_cli.roadmap.run._get_session_login", lambda: "roadmap-bot")
+    store = GitHubRoadmapStore(REPO, board_owner="example", board_number=1, runner=github)
+    return github, store
+
+
+def test_a_round_judging_50_foreign_label_changes_reads_the_board_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """None of the changes is in the current release, so reprioritize's trigger looks up every
+    one of the 50 Items: all of them, and the job records the changes carry, come from the one
+    listing the round's store reads."""
+    github, store = _github_round(tmp_path, monkeypatch, _labeled(50, "alice"))
+    ran = run_due_jobs(
+        REPO,
+        store,
+        batch={("poll", "", ""): 1},
+        table=build_stub_table(),
+        data_dir=tmp_path,
+        now=NOW,
+    )
+    sent = [" ".join(args) for args in github.graphql_calls()]
+    assert (
+        ran,
+        sum(BOARD_BUDGET_OPERATION in args for args in sent),
+        sum(BOARD_ITEMS_OPERATION in args for args in sent),
+        sum(
+            "issues/" in " ".join(args) and "events" not in " ".join(args) for args in github.calls
+        ),
+    ) == ((), 1, 1, 50)
+
+
+def test_a_poll_whose_changes_are_all_the_services_own_sends_no_graphql_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Service's own events are dropped before any job record is read, so a poll with no
+    interval due and nothing else since the cutoff reads only the issue events."""
+    github, store = _github_round(tmp_path, monkeypatch, _labeled(12, "roadmap-bot"))
+    ran = run_due_jobs(
+        REPO,
+        store,
+        batch={("poll", "", ""): 1},
+        table=build_stub_table(),
+        data_dir=tmp_path,
+        now=NOW,
+    )
+    assert (ran, github.graphql_calls(), [args[1][:24] for args in github.calls]) == (
+        (),
+        [],
+        ["repos/example/roadmap/is"],
+    )

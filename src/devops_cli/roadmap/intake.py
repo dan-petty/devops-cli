@@ -37,7 +37,9 @@ table. An unfinished item keeps any milestone it has.
 candidate only), add a `type/*` label when it has none, put it on the board, set the milestone
 when the placement changes it, set the empty ones of Status (New), Value and Effort, leave one
 reason comment carrying `CONST_ROADMAP_INTAKE_REASON_MARKER` unless one is there, then set
-Priority. A duplicate close comments with `CONST_ROADMAP_INTAKE_DUPLICATE_MARKER` unless that
+Priority. Each field write goes to the card the item has, or the card the add returned: no
+placement looks for its card in the board listing, which can show a new card minutes after the
+add (#1361). A duplicate close comments with `CONST_ROADMAP_INTAKE_DUPLICATE_MARKER` unless that
 comment is there, then closes. A run that stops part-way leaves an open issue off the board, an
 item with no Priority, or an open duplicate, and the next run finishes it. Intake writes to no
 issue but the candidate.
@@ -102,7 +104,6 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.exceptions.config import ConfigurationError
-from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.github.labels import LabelSpec
 from devops_cli.lang import MESSAGES
@@ -1159,15 +1160,7 @@ def _apply_placement(store: RoadmapStore, decision: IntakeDecision) -> int | Non
     assert number is not None and decision.priority is not None
     for label in decision.labels:
         store.label_issue(number, label)
-    if subject.item is None:
-        store.add_item(number)
-    item = store.item(number)
-    if item is None:
-        raise GitHubOperationError(
-            f"#{number} is not on the board after intake added it.",
-            operation="roadmap.intake",
-            details={"number": number},
-        )
+    item = subject.item or store.add_item(number)
     if decision.moves and decision.placement is not None:
         store.set_field(item, ItemField.RELEASE, decision.placement.release)
     for board_field, value in decision.fields:

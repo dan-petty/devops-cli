@@ -26,6 +26,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.roadmap import app
 from devops_cli.config.constants import CONST_ROADMAP_RENDER_BOARD_FILTER
 from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.board_read import board_budget_args, board_items_args
 from devops_cli.roadmap.config import open_roadmap
@@ -42,7 +43,14 @@ from devops_cli.roadmap.reprioritize import (
     dry_run_reprioritization,
     plan_reprioritization,
 )
-from devops_cli.roadmap.request_plan import is_page_repeat
+from devops_cli.roadmap.request_plan import (
+    StoreRequests,
+    close_requests,
+    is_page_repeat,
+    migrate_requests,
+    render_requests,
+    reprioritize_requests,
+)
 from tests.roadmap_board_fake import BOARD_READ, BoardServer, budget_reply
 from tests.test_roadmap_board_read import _fields_reply, _rest_pages, board_of, issues_of
 
@@ -146,6 +154,114 @@ def test_a_plan_is_built_by_the_stores_own_argument_builders() -> None:
         default_branch_args(REPO),
     ]
     assert all(tuple(args) in planned for args in expected)
+
+
+def _shape(request: PlannedRequest) -> str:
+    """What a planned `gh` command is: a board, card or fields read, an edit by ids, or its
+    first arguments."""
+    args = list(request.argv[1:])
+    query = next((a for a in args if a.startswith("query=")), "")
+    names = ("RoadmapBoardCard", "RoadmapBoardBudget", "RoadmapBoardItems", "fields(first")
+    found = next((name for name in names if name in query), None)
+    if found:
+        return found
+    if args[:2] == ["project", "item-edit"]:
+        return "item-edit by id" if "--id" in args else "item-edit by name"
+    return " ".join(args[:2]) if args[0] == "project" else " ".join(args[:3])
+
+
+def test_a_board_write_plans_its_card_read_and_an_edit_by_node_ids() -> None:
+    """A write lists the fields read it makes once a run, then its one card and the edits by
+    node ids; never `field-list`, a board page or an edit by URL or field name (#1361)."""
+    store = StoreRequests(REPO)
+    plans = {
+        "set_field": store.set_field("#7", "Value"),
+        "release": store.set_field("#7", "Release"),
+        "set_marks": store.set_marks("#7"),
+        "add_item": store.add_item("#7"),
+        "set_card_field": store.set_card_field(),
+        "remove_card": store.remove_card(),
+    }
+    assert {name: [_shape(r) for r in plan] for name, plan in plans.items()} == {
+        "set_field": ["fields(first", "RoadmapBoardCard", "item-edit by id", "item-edit by id"],
+        "release": [
+            "fields(first",
+            "api repos/dan-petty/devops-cli/milestones?state=all&per_page=100&page=<n>",
+            "RoadmapBoardCard",
+            "item-edit by id",
+            "api -X PATCH",
+        ],
+        "set_marks": ["fields(first", "RoadmapBoardCard", "item-edit by id"],
+        "add_item": [
+            "api repos/dan-petty/devops-cli/issues/7",
+            "project item-add",
+            "RoadmapBoardCard",
+        ],
+        "set_card_field": [
+            "fields(first",
+            "RoadmapBoardCard",
+            "item-edit by id",
+            "item-edit by id",
+        ],
+        "remove_card": ["RoadmapBoardCard", "project item-delete"],
+    }
+
+
+def test_the_run_record_card_a_run_creates_is_written_with_no_read_after_its_create() -> None:
+    plan = StoreRequests(REPO).set_run_record()
+    create = next(i for i, r in enumerate(plan) if "item-create" in r.argv)
+    assert (
+        [_shape(r) for r in plan[create:]],
+        plan[create].argv[-2:],
+        [bool(r.condition) for r in plan[: create + 1]],
+    ) == (
+        ["project item-create", "item-edit by id"],
+        ("--format", "json"),
+        [True] * (create + 1),
+    )
+
+
+def test_no_roadmap_plan_lists_a_board_command_gh_resolves_by_reading_the_board_first() -> None:
+    """Every job's plan: no `field-list`, and every `item-edit` by node ids."""
+    from devops_cli.roadmap.intake import dry_run_intake
+
+    intake = dry_run_intake(REPO, ref="main")
+    plans = [
+        *render_requests(REPO, None),
+        *(
+            r
+            for pair in (reprioritize_requests(REPO, None), migrate_requests(REPO, None))
+            for r in (*pair[0], *pair[1])
+        ),
+        *(r for r in (*close_requests(REPO, None)[0], *close_requests(REPO, None)[1])),
+        *intake.requests,
+        *intake.writes,
+    ]
+    shapes = {_shape(request) for request in plans if request.argv}
+    assert (
+        "project field-list" in shapes,
+        "item-edit by name" in shapes,
+        "item-edit by id" in shapes,
+    ) == (
+        False,
+        False,
+        True,
+    )
+
+
+def test_intakes_placement_plans_no_board_read_after_its_add() -> None:
+    """A placement writes to the card the add names: after the add, its plan lists that card's
+    read, then for each field the card and the edits, and no board page or budget probe."""
+    from devops_cli.roadmap.intake import dry_run_intake
+
+    writes = dry_run_intake(REPO, ref="main", issues=(7,)).writes
+    added = next(i for i, r in enumerate(writes) if "item-add" in r.argv)
+    after = [_shape(r) for r in writes[added:] if r.argv and r.argv[1] in ("api", "project")]
+    assert (
+        after.count("RoadmapBoardCard"),
+        {"RoadmapBoardBudget", "RoadmapBoardItems"} & set(after),
+        [t for t in MESSAGES.roadmap.intake_requests if t == "item"],
+    ) == (6, set(), [])
 
 
 # ── A real run's argv is its plan ─────────────────────────────────────────────

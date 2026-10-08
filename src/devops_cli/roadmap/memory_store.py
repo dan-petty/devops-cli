@@ -12,6 +12,10 @@ poll would find. `seed_evidence` makes a piece of evidence one GitHub confirms. 
 write the store makes as a job, not as a person, is kept in `job_writes`, so a test can check
 what a job wrote and that a preview wrote nothing. The only draft issue the board holds is the
 run record card, once a job has written the run record.
+
+Each view holds every card as it last read it, with its own writes: a job's write of a field a
+person changed since raises before it changes anything, as the GitHub adapter's does against
+its listing (#1361). Reads here are live, so a view's next read sees the person's change.
 """
 
 from __future__ import annotations
@@ -81,6 +85,7 @@ from devops_cli.roadmap.store import (
     require_new_release,
     require_option,
     require_release,
+    require_unchanged,
     select_candidates,
     with_marks,
 )
@@ -94,8 +99,9 @@ def _at_or_after(moment: datetime | None, since: datetime) -> bool:
     return moment is not None and moment >= as_utc(since)
 
 
-def _card_id(number: int) -> str:
-    return f"card-{number}"
+def _entry(number: int) -> BoardEntry:
+    """A new card for issue `number`, with no field set."""
+    return BoardEntry(number=number, card_id=f"card-{number}")
 
 
 # The run record card's id: the only draft issue the in-memory board holds.
@@ -178,6 +184,8 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._roadmap = _Roadmap(repo=repo, clock=clock, board=None, is_private=is_private)
         self._actor = actor
         self._writes_job_record = True
+        # Each card as this view last read or wrote it, by issue number.
+        self._read: dict[int, BoardEntry] = {}
         if board_exists:
             self._roadmap.board = self._new_board("Roadmap")
         specs = [
@@ -238,7 +246,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             closed_at=now if state is GitHubState.CLOSED else None,
         )
         if on_board:
-            self._roadmap.cards[number] = BoardEntry(number=number)
+            self._roadmap.cards[number] = _entry(number)
         return number
 
     def seed_field(self, spec: FieldSpec) -> BoardField:
@@ -571,7 +579,8 @@ class InMemoryRoadmapStore(RoadmapStore):
         """The Item numbered `number`, or None when that issue is not on the board."""
         self._require_board()
         issue = self._roadmap.issues.get(number)
-        return next(iter(join_items([issue], self._roadmap.cards)), None) if issue else None
+        found = self._seen(join_items([issue], self._roadmap.cards)) if issue else []
+        return next(iter(found), None)
 
     def items(self, *, release: str | None = None) -> list[Item]:
         """Every Item, open and closed, or only those in the Release of `release`."""
@@ -580,7 +589,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         if release is not None:
             version = parse_release_version(release)
             issues = [issue for issue in issues if in_release(issue.release, version)]
-        return join_items(issues, self._roadmap.cards)
+        return self._seen(join_items(issues, self._roadmap.cards))
 
     def backlog(self) -> list[Item]:
         """The open Items in no Release."""
@@ -593,15 +602,22 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._require_board()
         return select_candidates(self._roadmap.issues.values(), self._roadmap.cards)
 
-    def changes_since(self, since: datetime) -> list[Change]:
-        """The changes made at or after `since`, oldest first, each as a poll reads it now."""
+    def changes_since(self, since: datetime, *, except_actor: str | None = None) -> list[Change]:
+        """The changes made at or after `since`, oldest first, each as a poll reads it now,
+        leaving out those `except_actor` made; an empty actor leaves out nothing."""
         cutoff = as_utc(since)
-        return [self._as_read(change) for change in self._roadmap.changes if change.at >= cutoff]
+        skipped = except_actor or None
+        return [
+            self._as_read(change)
+            for change in self._roadmap.changes
+            if change.at >= cutoff and (skipped is None or change.actor != skipped)
+        ]
 
     # ── Item writes ──
 
-    def add_item(self, number: int) -> None:
-        """Put issue `number` on the board, raising if it is not an issue of this repository."""
+    def add_item(self, number: int) -> Item:
+        """Put issue `number` on the board and return its Item, raising if it is not an issue
+        of this repository; an issue already on the board keeps its card."""
         self._require_board()
         issue = self._roadmap.issues.get(number)
         if issue is None or issue.pull_request:
@@ -610,8 +626,9 @@ class InMemoryRoadmapStore(RoadmapStore):
                 operation="roadmap.item.add",
                 details={"number": number},
             )
-        self._roadmap.cards.setdefault(number, BoardEntry(number=number))
+        self._read.setdefault(number, self._roadmap.cards.setdefault(number, _entry(number)))
         self._log("add_item", number)
+        return join_items([issue], self._roadmap.cards)[0]
 
     def set_field(
         self,
@@ -624,9 +641,12 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Set or clear one of the Item's fields; the store's own writes also record the value,
         and `marks` with it, in one step, so no write stops between the two.
 
-        `job_writes` keeps the field's entry, then one entry for each mark.
+        `job_writes` keeps the field's entry, then one entry for each mark. A job's write of a
+        board field a person changed since this view read the card raises, unless the card
+        already holds `value`.
         """
-        entry = self._require_entry(item, "roadmap.item.set_field")
+        written = None if field is ItemField.RELEASE else field
+        entry = self._require_entry(item, "roadmap.item.set_field", written, value)
         if field is ItemField.RELEASE:
             recorded = self._place_in_release(item.number, value)
         else:
@@ -640,6 +660,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             entry = self._recorded(entry, mark, marked)
             self._log("set_mark", item.number, mark.value, marked)
         self._roadmap.cards[item.number] = entry
+        self._remember(entry, written)
 
     def set_marks(
         self,
@@ -666,6 +687,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             entry = self._recorded(entry, mark, value)
             self._log("set_mark", item.number, mark.value, value)
         self._roadmap.cards[item.number] = entry
+        self._remember(entry)
 
     def run_record(self) -> JobRecord:
         """The run record card's job record, empty while the board has no such card."""
@@ -805,6 +827,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Every card: this repository's issues and pull requests on the board, then the run
         record card when there is one."""
         self._require_board()
+        self._read.update(self._roadmap.cards)
         cards = [self._card(entry) for _, entry in sorted(self._roadmap.cards.items())]
         if self._roadmap.run_record is not None:
             cards.append(
@@ -817,14 +840,20 @@ class InMemoryRoadmapStore(RoadmapStore):
         return cards
 
     def set_card_field(self, card: Card, field: ItemField, value: str | None) -> None:
-        """Set or clear a board field on any card; the store's own writes also record it."""
+        """Set or clear a board field on any card; the store's own writes also record it, and
+        raise for a field a person changed since this view read the card, unless the card
+        already holds `value`."""
+        operation = "roadmap.card.set_field"
         require_board_field(field)
-        number = self._card_number(card, "roadmap.card.set_field")
+        number = self._card_number(card, operation)
         if self._writes_job_record:
             require_job_record_field(self._roadmap.board_fields)
         require_option(field_options(self._roadmap.board_fields.values()), field, value)
-        entry = self._roadmap.cards[number].model_copy(update={field.name.lower(): value})
+        current = self._roadmap.cards[number]
+        self._require_unchanged(current, field, value, card.field_value(field), operation)
+        entry = current.model_copy(update={field.name.lower(): value})
         self._roadmap.cards[number] = self._recorded(entry, field, value)
+        self._remember(self._roadmap.cards[number], field)
         self._field_changed(number, field, value)
         self._log("set_card_field", number, field.value, value)
 
@@ -836,6 +865,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             return
         number = self._card_number(card, "roadmap.card.remove")
         del self._roadmap.cards[number]
+        self._read.pop(number, None)
         self._log("remove_card", number)
 
     def workflows(self) -> list[Workflow]:
@@ -899,11 +929,15 @@ class InMemoryRoadmapStore(RoadmapStore):
             )
         return issue
 
-    def _require_entry(self, item: Item, operation: str) -> BoardEntry:
-        """The Item's board entry, refusing an Item off the board or a board with no record field."""
+    def _require_entry(
+        self, item: Item, operation: str, field: ItemField | None = None, value: str | None = None
+    ) -> BoardEntry:
+        """The Item's board entry, refusing an Item off the board, one whose card id is not its
+        card's, a board with no record field, and a job's write of `value` to `field` when a
+        person changed it since this view read the card."""
         self._require_board()
         entry = self._roadmap.cards.get(item.number)
-        if entry is None:
+        if entry is None or entry.card_id != item.card_id:
             raise GitHubOperationError(
                 f"#{item.number} is not on the board.",
                 operation=operation,
@@ -911,7 +945,39 @@ class InMemoryRoadmapStore(RoadmapStore):
             )
         if self._writes_job_record:
             require_job_record_field(self._roadmap.board_fields)
+        if field is not None:
+            self._require_unchanged(entry, field, value, item.field_value(field), operation)
         return entry
+
+    def _require_unchanged(
+        self, entry: BoardEntry, field: ItemField, value: str | None, held: str | None, op: str
+    ) -> None:
+        """A job's write of `value` to `field` raises when the card holds another value than
+        this view read: its own copy, kept current by its writes, or `held`, the caller's, when
+        it has none. A person's view checks nothing, as a person on GitHub sees the board."""
+        if not self._writes_job_record:
+            return
+        attribute = field.name.lower()
+        read = self._read.get(entry.number)
+        before = held if read is None else getattr(read, attribute)
+        now = getattr(entry, attribute)
+        require_unchanged(f"#{entry.number}", field, {before}, now, value, op)
+
+    def _seen(self, items: list[Item]) -> list[Item]:
+        """`items`, each card held as this view read it."""
+        self._read.update((item.number, self._roadmap.cards[item.number]) for item in items)
+        return items
+
+    def _remember(self, entry: BoardEntry, field: ItemField | None = None) -> None:
+        """Hold this view's own write: its copy of the card takes the job record and `field`'s
+        value `entry` holds, and keeps its other fields as the view read them."""
+        read = self._read.get(entry.number)
+        if read is None:
+            return
+        kept: dict[str, Any] = {"job_record": entry.job_record}
+        if field is not None:
+            kept[field.name.lower()] = getattr(entry, field.name.lower())
+        self._read[entry.number] = read.model_copy(update=kept)
 
     def _log(
         self,
@@ -930,7 +996,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         issue = self._roadmap.issues.get(change.number)
         if change.kind in RELEASE_CHANGE_KINDS or issue is None:
             return change
-        entry = self._roadmap.cards.get(change.number, BoardEntry(number=change.number))
+        entry = self._roadmap.cards.get(change.number, _entry(change.number))
         values = entry.model_dump() | {"release": issue.release}
         moved = change.field is ItemField.RELEASE
         return change.model_copy(
@@ -1007,16 +1073,16 @@ class InMemoryRoadmapStore(RoadmapStore):
         issue = self._roadmap.issues[entry.number]
         kind = CardKind.PULL_REQUEST if issue.pull_request else CardKind.ISSUE
         return Card(
-            id=_card_id(entry.number),
+            id=entry.card_id,
             kind=kind,
             url=issue.url,
             repository=self._roadmap.repo,
-            **entry.model_dump(),
+            **entry.model_dump(exclude={"card_id"}),
         )
 
     def _card_number(self, card: Card, operation: str) -> int:
         self._require_board()
-        number = next((n for n in self._roadmap.cards if _card_id(n) == card.id), None)
+        number = next((n for n, e in self._roadmap.cards.items() if e.card_id == card.id), None)
         if number is None:
             raise GitHubOperationError(
                 f"Card {card.id} is not on the board.",
