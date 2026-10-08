@@ -34,11 +34,17 @@ _ROOT = "devops"
 
 
 class ArgvPlaceholder(BaseModel):
-    """An argv token computed at runtime, so it may stand for any value or option."""
+    """An argv token computed at runtime.
+
+    By default it stands for any number of tokens, options included: a starred element, an
+    extended runtime list, a documentation `[OPTIONS]`. `single_token` marks a value that is
+    exactly one token, such as a computed list element, so one left over is reported.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     expression: str
+    single_token: bool = False
 
     def __str__(self) -> str:
         return f"<{self.expression}>"
@@ -77,8 +83,9 @@ class CommandReferenceFinding(BaseModel):
 def resolve_devops_argv(tokens: Sequence[ArgvToken]) -> CommandReferenceFinding | None:
     """Return the first defect in the command line `devops <tokens>`, or None if it parses.
 
-    Only literal tokens are reported. A placeholder where a subcommand belongs ends the walk,
-    and a placeholder left over as an argument may be an option the caller computes.
+    A placeholder where a subcommand belongs ends the walk. A literal or a single-token
+    placeholder left over where the command takes no more arguments is reported; a placeholder
+    for any number of tokens is not, since it may hold the options the caller computes.
     """
     context, finding = _parse(_root_command(), _ROOT, _ROOT, tokens, parent=None)
     subcommand = _literal_subcommand(context, tokens) if finding is None else None
@@ -169,9 +176,10 @@ def _unknown_option(error: Exception, path: str) -> CommandReferenceFinding | No
 def _unexpected_argument(
     context: Any, path: str, tokens: Sequence[ArgvToken]
 ) -> CommandReferenceFinding | None:
-    """Report the literal arguments a command that takes no extra arguments left over."""
-    literals = {token for token in tokens if isinstance(token, str)}
-    stray = [argument for argument in context.args if argument in literals]
+    """Report the literal or single-token arguments a command that takes no extra arguments
+    left over."""
+    single = {str(token) for token in tokens if isinstance(token, str) or token.single_token}
+    stray = [argument for argument in context.args if argument in single]
     if context.allow_extra_args or not stray:
         return None
     return _found(CommandReferenceDefect.UNEXPECTED_ARGUMENT, path, " ".join(stray))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +11,9 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.rag.models import CodeChunk, SearchResult
 from devops_cli.commands.rag import app
+from devops_cli.docs.command_resolver import module_click_command, resolve_devops_argv
+from devops_cli.lang import MESSAGES
+from devops_cli.main import _COMMAND_SPECS
 from devops_cli.main import app as main_app
 
 
@@ -149,6 +153,42 @@ def test_rag_error_branches(runner: CliRunner, tmp_path: Path) -> None:
 
         res_kb_down = runner.invoke(app, ["index-kb"])
         assert res_kb_down.exit_code == 1
+
+
+@pytest.fixture(scope="module")
+def k8s_command_tree() -> None:
+    """Build the `devops k8s` command tree once, outside the call phase that resolves into it."""
+    module_click_command(_COMMAND_SPECS["k8s"][0])
+
+
+def test_an_unreachable_qdrant_tip_names_a_deploy_command_the_cli_accepts(
+    runner: CliRunner, tmp_path: Path, k8s_command_tree: None
+) -> None:
+    """Verify `index` and `index-kb` print the one Qdrant tip, and its quoted command resolves.
+
+    The tip read `devops k8s deploy-stack llm`, which deploy-stack rejects: it takes the stack
+    only as `--stack`.
+    """
+    unreachable = MagicMock()
+    unreachable.is_alive.return_value = False
+    unreachable.base_url = "http://localhost:6333"
+    with patch(
+        "devops_cli.commands.rag._get_rag_components",
+        return_value=(unreachable, MagicMock(), "code", "docs"),
+    ):
+        results = [
+            runner.invoke(app, ["index", str(tmp_path)]),
+            runner.invoke(app, ["index-kb"]),
+        ]
+
+    tip = MESSAGES.rag.cannot_connect_qdrant.format(url=unreachable.base_url)
+    quoted = shlex.split(shlex.split(tip)[-1])
+    assert (
+        [result.exit_code for result in results],
+        ["devops k8s deploy-stack --stack llm" in result.output for result in results],
+        quoted,
+        resolve_devops_argv(quoted[1:]),
+    ) == ([1, 1], [True, True], ["devops", "k8s", "deploy-stack", "--stack", "llm"], None)
 
 
 def test_rag_index_cmd_handles_canonical_indexer_keys(runner: CliRunner, tmp_path: Path) -> None:
