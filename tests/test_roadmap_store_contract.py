@@ -358,6 +358,28 @@ def test_a_job_write_of_a_field_a_person_changed_since_it_was_read_raises_and_wr
     )
 
 
+def test_a_job_write_of_release_a_person_changed_since_it_was_read_raises(
+    store: InMemoryRoadmapStore,
+) -> None:
+    store.create_release("v0.2.26")
+    item = store.item(store.seed_issue("release move", on_board=True))
+    assert item is not None
+    store.as_actor("alice").set_field(item, ItemField.RELEASE, "v0.2.25")
+    before = len(store.job_writes())
+    with pytest.raises(RoadmapCardChangedError, match=r"Release is v0\.2\.25") as raised:
+        store.set_field(item, ItemField.RELEASE, "v0.2.26")
+    kept = store.item(item.number)
+    assert (
+        store.job_writes()[before:],
+        kept.release if kept else None,
+        {key: raised.value.details[key] for key in ("card", "field", "read", "now")},
+    ) == (
+        [],
+        "v0.2.25",
+        {"card": f"#{item.number}", "field": "Release", "read": None, "now": "v0.2.25"},
+    )
+
+
 def test_a_persons_change_stays_caught_after_the_job_wrote_another_field_of_the_card(
     store: InMemoryRoadmapStore,
 ) -> None:

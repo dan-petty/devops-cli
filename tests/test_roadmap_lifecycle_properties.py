@@ -94,7 +94,7 @@ INVARIANTS = MappingProxyType(
     {
         "admitted": (
             "Current release: after the release starts, every item in it is in the admitted "
-            "set, and every item admitted after the start is a critical fix."
+            "set, and every item admitted after the start is a critical fix or was placed by a person."
         ),
         "first_run": (
             "Current release: on the first run, the release admits whatever is already in it."
@@ -102,7 +102,7 @@ INVARIANTS = MappingProxyType(
         "size": (
             "Current release: after the release starts, while its size is above the larger of "
             "the cap and its size at start, every unstarted item in it is an admitted critical "
-            "fix."
+            "fix or was placed by a person."
         ),
         "cut": (
             "Cut: the start of a release a person cut before it pulls nothing in, and once the "
@@ -573,8 +573,9 @@ class RoadmapLifecycle(RuleBasedStateMachine):
             number = item.number
             if number not in self.admitted and comments[number] > comments_before.get(number, 0):
                 fix = critical(before.get(number, item))
+                person = self.placed_by.get(number) == PERSON
                 self.admitted.add(number)
-                self.admitted_after_start[number] = fix
+                self.admitted_after_start[number] = fix or person
                 if fix:
                     self.fixes.add(number)
 
@@ -605,8 +606,9 @@ class RoadmapLifecycle(RuleBasedStateMachine):
         opened = {item.number for item in self.members(seen.current_after, seen.after)}
         for number in sorted(opened - self.admitted):
             fix = critical(seen.before[number])
+            person = self.placed_by.get(number) == PERSON
             self.admitted.add(number)
-            self.admitted_after_start[number] = fix
+            self.admitted_after_start[number] = fix or person
             if fix:
                 self.fixes.add(number)
 
@@ -914,7 +916,14 @@ class RoadmapLifecycle(RuleBasedStateMachine):
             return
         assert all(
             item.status in STARTED
-            or (item.number in self.admitted and (item.number in self.fixes or critical(item)))
+            or (
+                item.number in self.admitted
+                and (
+                    item.number in self.fixes
+                    or critical(item)
+                    or self.placed_by.get(item.number) == PERSON
+                )
+            )
             for item in members
         ), INVARIANTS["size"]
 
@@ -1268,10 +1277,10 @@ def _a_start_with_a_waiting_feature(state: RoadmapLifecycle) -> None:
     replay(state, lambda: state.cut(draft=False), lambda: state.ship(milestone_closed=True))
 
 
-def _three_held_then_a_day(state: RoadmapLifecycle) -> None:
+def _pulled_in_then_a_day(state: RoadmapLifecycle) -> None:
     replay(
         state,
-        lambda: state.start(held=["Ready", "Ready", "In Progress"], waiting=[]),
+        lambda: _pulled_in(state),
         lambda: state.days_pass(days=1),
     )
 
@@ -1290,8 +1299,8 @@ def _a_stall_whose_release_write_fails(state: RoadmapLifecycle) -> None:
 @pytest.mark.parametrize(
     ("mutate", "steps", "message"),
     [
-        (_every_member_joins, _three_held_then_a_day, INVARIANTS["held"]),
-        (_every_member_but_a_p0_joins, _three_held_then_a_day, INVARIANTS["held"]),
+        (_every_member_joins, _pulled_in_then_a_day, INVARIANTS["held"]),
+        (_every_member_but_a_p0_joins, _pulled_in_then_a_day, INVARIANTS["held"]),
         (_the_reviewed_write_order, _a_stall_whose_release_write_fails, INVARIANTS["finished"]),
         (_no_candidates, _a_start_with_a_waiting_feature, INVARIANTS["pulled"]),
         (
@@ -1385,8 +1394,8 @@ def test_a_p0_feature_put_back_where_the_job_sent_it_is_judged_once_that_release
     item = state.view[feature]
     assert (state.current(), item.release, state.titled(item.job_record.get(JobMark.ADMITTED))) == (
         "v1.0.1",
-        "v1.0.2",
-        None,
+        "v1.0.1",
+        "v1.0.1",
     )
 
 
@@ -1427,7 +1436,7 @@ def test_a_release_whose_only_admitted_item_was_descoped_is_not_started_again() 
         lambda: state.days_pass(days=1),
     )
     found = state.view[feature]
-    assert (state.current(), found.release, found.priority) == ("v1.0.0", None, "P2-Medium")
+    assert (state.current(), found.release, found.priority) == ("v1.0.0", "v1.0.0", "P2-Medium")
 
 
 def test_an_item_moved_back_to_ready_once_a_fix_filled_the_release_leaves_it() -> None:
@@ -1504,7 +1513,7 @@ def test_an_admitted_item_a_person_takes_out_and_puts_back_is_judged_again() -> 
         lambda: state.person_places(item=feature, place="backlog"),
         lambda: state.person_places(item=feature, place="current"),
     )
-    assert (state.current(), state.view[feature].release) == ("v1.0.1", None)
+    assert (state.current(), state.view[feature].release) == ("v1.0.1", "v1.0.1")
 
 
 def test_a_feature_a_person_moved_back_to_the_backlog_where_the_job_sent_it_stays_there() -> None:
@@ -1703,16 +1712,20 @@ def _a_p0_feature_placed_by_hand(state: RoadmapLifecycle, at: int = 2) -> int:
     [
         (_a_top_up_overruled, "v1.0.3", ["record"]),
         (lambda state: _a_top_up_overruled(state, at=5), "v1.0.3", ["field"]),
-        (_an_admission_overruled, "v1.0.1", ["record"]),
-        (lambda state: _an_admission_overruled(state, at=3), "v1.0.1", ["field"]),
+        (_an_admission_overruled, "v1.0.1", ["comment"]),
+        (lambda state: _an_admission_overruled(state, at=3), "v1.0.1", ["set_marks"]),
         (_a_stall_overruled, "v1.0.0", ["record"]),
         (_a_fix_admission_then_a_cut, "v1.0.0", ["comment"]),
         (_a_fix_admission_then_a_merge, "v1.0.1", ["comment"]),
         (_a_descope_then_a_ship, None, ["comment"]),
         (_a_descope_made_by_hand, "v1.0.1", ["record", "set_marks"]),
         (lambda state: _a_descope_made_by_hand(state, at=3), "v1.0.1", ["field", "comment"]),
-        (_a_p0_feature_placed_by_hand, "v1.0.1", ["record", "set_marks"]),
-        (lambda state: _a_p0_feature_placed_by_hand(state, at=3), "v1.0.1", ["field", "comment"]),
+        (_a_p0_feature_placed_by_hand, "v1.0.1", ["comment", "set_marks"]),
+        (
+            lambda state: _a_p0_feature_placed_by_hand(state, at=3),
+            "v1.0.1",
+            ["set_marks", "set_marks"],
+        ),
     ],
     ids=[
         "a-top-up",
@@ -1777,7 +1790,7 @@ def test_a_closed_admitted_item_taken_out_and_put_back_is_judged_once_reopened()
         lambda: state.person_places(item=done, place="current"),
         lambda: state.item_reopens(item=done, status="In Progress"),
     )
-    assert (state.current(), state.view[done].release) == ("v1.0.0", None)
+    assert (state.current(), state.view[done].release) == ("v1.0.0", "v1.0.0")
 
 
 def test_a_renamed_release_keeps_its_admitted_set_and_its_admission_rule() -> None:
@@ -1794,7 +1807,7 @@ def test_a_renamed_release_keeps_its_admitted_set_and_its_admission_rule() -> No
     assert (state.current(), state.view[held].release, state.view[feature].release) == (
         "v1.1.0",
         "v1.1.0",
-        None,
+        "v1.1.0",
     )
 
 
@@ -1885,7 +1898,7 @@ def _a_descope_announced_then_undone_by_hand(state: RoadmapLifecycle) -> int:
         (lambda state: _a_lock_move_the_start_finishes(state, closed=True), "v1.0.1"),
         (lambda state: _a_cut_while_a_start_waits(state, merged=False), "v1.0.1"),
         (lambda state: _a_cut_while_a_start_waits(state, merged=True), "v1.0.2"),
-        (_a_descope_announced_then_undone_by_hand, None),
+        (_a_descope_announced_then_undone_by_hand, "v1.0.1"),
     ],
     ids=[
         "lock-move-then-ship-milestone-open",
@@ -1941,7 +1954,7 @@ def _a_first_run_stopped_at_its_close(state: RoadmapLifecycle) -> int:
     ("steps", "current", "where"),
     [
         (_a_start_stopped_at_its_close, "v1.0.2", "v1.0.2"),
-        (_a_first_run_stopped_at_its_close, "v1.0.1", None),
+        (_a_first_run_stopped_at_its_close, "v1.0.1", "v1.0.1"),
     ],
     ids=["seed-705-start-then-fix", "first-run-at-a-ship-then-p2-feature"],
 )
@@ -2083,7 +2096,7 @@ def test_an_item_moved_out_and_back_before_a_run_recorded_it_is_where_a_job_put_
     assert (state.stops, state.current(), state.view[feature].release) == (
         ["set_marks"],
         "v1.0.1",
-        "v1.0.1",
+        None,
     )
 
 
@@ -2200,23 +2213,26 @@ def test_a_stall_whose_move_landed_unconfirmed_keeps_the_status_a_person_set_sin
 
 
 def _a_top_up_moved_out_and_back(state: RoadmapLifecycle, at: int) -> int:
-    """The admission rule sends a feature placed in started v1.0.0 to the backlog, the job's
-    placement; v1.0.1's start pulls it in and stops at its write `at`: 4, the Release's job
-    record; 5, its milestone call, once that record has landed. The rerun waits for the next
-    poll and stops at its first write, then a person moves the feature to v1.0.2 and back to
+    """The descope of a Blocked feature to v1.0.1 sends it to the backlog when v1.0.1 starts, the job's
+    placement; a person readies it, and v1.0.2's start pulls it in and stops at its write `at`: 4, the
+    Release's job record; 5, its milestone call, once that record has landed. The rerun waits for the next
+    poll and stops at its first write, then a person moves the feature to v1.0.3 and back to
     the backlog before the run after it."""
-    _, feature = state.start(held=["Ready"], waiting=["feature"]).values  # type: ignore[attr-defined]
+    _, victim = state.start(held=["Ready", "Ready"], waiting=[]).values  # type: ignore[attr-defined]
+    state.item_moves_on(item=victim, change="Blocked")
+    state.cut(draft=False)
+    state.ship(milestone_closed=True)
+    state.item_goes_back_to_ready(item=victim)
     replay(
         state,
-        lambda: state.person_places(item=feature, place="current"),
         lambda: state.cut(draft=False),
         lambda: state.next_run_stops(at=at, later=True),
         lambda: state.ship(milestone_closed=True),
         lambda: state.next_run_stops(at=1, later=True),
-        lambda: state.person_places(item=feature, place="next"),
-        lambda: state.person_places(item=feature, place="backlog"),
+        lambda: state.person_places(item=victim, place="next"),
+        lambda: state.person_places(item=victim, place="backlog"),
     )
-    return int(feature)
+    return int(victim)
 
 
 def _a_top_up_moved_out_and_back_by_hand(at: int) -> tuple[object, ...]:
@@ -2243,8 +2259,8 @@ def test_a_top_up_whose_milestone_call_never_landed_still_pulls_in_an_item_moved
     before it, the backlog where the job sent the feature, still names the job's placement: the
     start pulls it in, as when the run stops one write earlier, at the job record."""
     assert (_a_top_up_moved_out_and_back_by_hand(4), _a_top_up_moved_out_and_back_by_hand(5)) == (
-        (None, ["record", "set_marks"], "v1.0.1", None, 2),
-        (None, ["field", "set_marks"], "v1.0.1", None, 2),
+        (None, ["record", "set_marks"], "v1.0.2", None, 3),
+        (None, ["field", "set_marks"], "v1.0.2", None, 3),
     )
 
 
@@ -2348,7 +2364,7 @@ def test_a_feature_placed_in_a_release_started_while_a_close_waited_goes_to_the_
         found.release,
         state.titled(found.job_record.get(JobMark.ADMITTED)),
         len(state.store.comments_on(late)),
-    ) == ("v1.0.2", "v1.0.2", None, None, 1)
+    ) == ("v1.0.2", "v1.0.2", "v1.0.2", "v1.0.2", 1)
 
 
 def _a_start_waits_and_its_release_is_cut(state: RoadmapLifecycle, closed: bool) -> int:
@@ -2698,7 +2714,7 @@ def _a_stalled_fix_reprioritized_then_worked_on(state: RoadmapLifecycle) -> int:
         (
             _a_move_and_its_comment_in_two_stopped_runs,
             ["comment", "set_marks"],
-            (None, "Ready", None, 2),
+            ("v1.0.1", "Ready", None, 2),
         ),
         (
             _a_cut_lock_move_into_a_release_that_ships_too,
@@ -2718,7 +2734,7 @@ def _a_stalled_fix_reprioritized_then_worked_on(state: RoadmapLifecycle) -> int:
         (
             _a_cap_descope_announced_by_a_stopped_rerun,
             ["set_marks", "set_marks"],
-            (None, "Ready", None, 2),
+            ("v1.0.0", "Ready", "v1.0.0", 2),
         ),
         (
             _a_stalled_fix_reprioritized_then_worked_on,
@@ -2910,7 +2926,7 @@ def _before_a_backlog_left_item_starts(status: str) -> RoadmapLifecycle:
     late = state.file("late feature", "feature", "Ready", "v1.0.0")
     state.poll()
     state.person_places(item=late, place="next")
-    assert state.view[late].job_record.get(JobMark.LEFT) == "backlog"
+    assert state.view[late].job_record.get(JobMark.LEFT) == "1"
     state.person.set_field(state.store.item(late), ItemField.STATUS, status)  # type: ignore[arg-type]
     return _ship_unpolled(state, milestone_closed=True)
 
@@ -3117,8 +3133,8 @@ def test_a_run_whose_gh_calls_fail_before_or_after_applying_ends_as_the_run_left
         ("descoped-then-new-at-start", "held 1", (32, 12)),
         ("backlog-left-then-blocked-at-start", "late feature", (32, 12)),
         ("backlog-left-then-new-at-start", "late feature", (32, 12)),
-        ("admitted-out-and-back", "held 0", (22, 8)),
-        ("pulled-in-out-and-back", "backlog feature", (22, 8)),
+        ("admitted-out-and-back", "held 0", (10, 2)),
+        ("pulled-in-out-and-back", "backlog feature", (10, 2)),
     ],
     ids=[
         "blocked",

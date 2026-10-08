@@ -447,6 +447,12 @@ def admitted_to(item: Item) -> int | None:
     return _milestone(item.job_record.get(JobMark.ADMITTED))
 
 
+def joined_release(item: Item) -> int | None:
+    """The milestone number of the Release the item entered as a person's join after the start
+    or while cut, if any."""
+    return _milestone(item.job_record.get(JobMark.JOINED))
+
+
 def current_release(releases: Iterable[Release]) -> Release | None:
     """The current release: the open Release with the lowest version, or None when none is open."""
     opened = (release for release in releases if release.state is GitHubState.OPEN)
@@ -515,6 +521,7 @@ class Decision:
     by_person: frozenset[ItemField] = frozenset()
     unlanded: frozenset[ItemField] = frozenset()
     admits: bool = False
+    joined: bool = False
 
     @property
     def resumed(self) -> bool:
@@ -605,6 +612,7 @@ class _Pending(BaseModel):
     written_moves: int | None = None
     written_status_at: datetime | None = None
     stays: bool = False
+    joined: bool = False
 
     def begin(self, item_field: ItemField) -> _Pending:
         """The mark with `item_field` among its begun fields."""
@@ -948,6 +956,28 @@ class _Run:
         note = self.note(transition, release, goes_to, detail)
         return Decision(item, event, transition, release, goes_to, note)
 
+    def admission_decision(
+        self,
+        state: ReleaseState,
+        event: Event,
+        item: Item,
+        release: str,
+        target: str | None,
+        *,
+        person: bool,
+    ) -> Decision:
+        """The admission decision about `item` joining after start or into a cut release.
+        If placed by a person, the item is admitted, naming the rule it bypassed.
+        """
+        transition = decide(state, event)
+        if person and transition.action is not Action.ADMIT and state != "merged":
+            transition = Transition(Action.ADMIT, transition.reason)
+            note = self.note(transition, release, target, "")
+            return Decision(item, event, transition, release, None, note, joined=True)
+        goes_to = target if transition.action in _TO_TARGET else None
+        note = self.note(transition, release, goes_to, "")
+        return Decision(item, event, transition, release, goes_to, note, joined=False)
+
 
 def _require_migrated(options: Mapping[str, Sequence[str]], items: Iterable[Item]) -> None:
     """Refuse a board #739's migrate has not finished. Without the New and Blocked Status
@@ -1159,6 +1189,7 @@ def _resumed(store: RoadmapStore, item: Item, titles: Mapping[int, str]) -> _Res
         pending.note,
         begun=pending,
         admits=pending.admits,
+        joined=pending.joined,
     )
     was = {
         ItemField.RELEASE: titles[pending.was_in] if pending.was_in is not None else None,
@@ -1418,6 +1449,7 @@ def _cap_decisions(
     target: str,
     remaining: list[Item],
     admitted_now: list[Item],
+    joined_now: Container[int] = frozenset(),
 ) -> list[Decision]:
     """The items descoped to hold the release to its size, lowest-ranked first.
 
@@ -1428,13 +1460,18 @@ def _cap_decisions(
     Ready after a fix had joined makes room then.
     """
     cap, title = run.config.release_cap, current.title
-    for_fixes = max(0, min(len(remaining) - cap, len(admitted_now)))
+    planned_remaining = [
+        item
+        for item in remaining
+        if item.number not in joined_now and joined_release(item) != current.number
+    ]
+    for_fixes = max(0, min(len(planned_remaining) - cap, len(admitted_now)))
     known = run.size_at_start is not None and run.started == current.number
-    over = len(remaining) - max(cap, run.size_at_start or 0) if known else 0
+    over = len(planned_remaining) - max(cap, run.size_at_start or 0) if known else 0
     candidates = sorted(
         (
             item
-            for item in remaining
+            for item in planned_remaining
             if not is_started(item)
             and not is_critical_fix(item)
             and not run.linked_pull_requests(item.number)
@@ -1538,12 +1575,13 @@ def _plan_rules(run: _Run, current: Release, state: ReleaseState) -> Reprioritiz
     """
     target, creates = _next_release(run, current)
     joined = {
-        item.number: run.decision(
+        item.number: run.admission_decision(
             state,
             admission_event(item, has_pr=bool(run.linked_pull_requests(item.number))),
             item,
             current.title,
             target,
+            person=placed_by_person(item, _history(run, item)),
         )
         for item in run.members(current.title)
         if admitted_to(item) != current.number
@@ -1558,14 +1596,15 @@ def _plan_rules(run: _Run, current: Release, state: ReleaseState) -> Reprioritiz
         if d.action is Action.ADMIT and is_critical_fix(d.item) and n not in leaving
     ]
     remaining = [item for item in run.members(current.title) if item.number not in leaving]
-    for victim in _cap_decisions(run, state, current, target, remaining, admitted_now):
+    joined_now = {n for n, d in joined.items() if d.joined}
+    for victim in _cap_decisions(run, state, current, target, remaining, admitted_now, joined_now):
         decisions[victim.item.number] = victim
     # A fix the run admits that a rule also readies or nudges keeps that rule's decision, which
     # carries the admission.
     for number, joining in joined.items():
         last = decisions[number]
         if joining.action is Action.ADMIT and last.action is not Action.ADMIT and not last.leaves:
-            decisions[number] = replace(last, admits=True)
+            decisions[number] = replace(last, admits=True, joined=joining.joined)
     ordered = tuple(decisions[number] for number in sorted(decisions))
     return ReprioritizationPlan(
         repo=run.repo,
@@ -2015,7 +2054,7 @@ def _admits(decision: Decision) -> bool:
     """Whether the decision's last write admits the item to its release: an admission, a pull
     in at a start, or a change that `admits` the fix it readies or nudges, once its comment is
     posted or while the item is still a critical fix."""
-    joins = decision.admits and (decision.done or is_critical_fix(decision.item))
+    joins = decision.admits and (decision.done or is_critical_fix(decision.item) or decision.joined)
     return joins or decision.action in (Action.ADMIT, Action.PULL_IN)
 
 
@@ -2038,6 +2077,8 @@ def _final_marks(
     announced = decision.done and not (decision.begun is not None and decision.begun.stays)
     if _admits(decision):
         marks[JobMark.ADMITTED] = str(release)
+        if decision.joined:
+            marks[JobMark.JOINED] = str(release)
     elif (
         decision.leaves
         and release is not None
@@ -2049,6 +2090,7 @@ def _final_marks(
         )
     ):
         marks[JobMark.ADMITTED] = None
+        marks[JobMark.JOINED] = None
     if _sets_release(decision, decision.by_person) and decision.item.job_record.get(JobMark.LEFT):
         marks[JobMark.LEFT] = None
     if decision.action is Action.NUDGE:
@@ -2106,6 +2148,7 @@ def _pending(store: RoadmapStore, decision: Decision, numbers: Mapping[str, int]
         target_title=decision.target,
         note=decision.note,
         admits=decision.admits,
+        joined=decision.joined,
         comment=decision.comment,
         posted=store.comments_on(item.number).count(decision.comment),
         was_in=numbers.get(item.release) if item.release is not None else None,

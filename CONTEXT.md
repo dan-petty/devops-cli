@@ -65,7 +65,7 @@ A numbered version that ships a fixed set of items.
 _Avoid_: milestone, sprint
 
 **Current release**:
-The one release being worked toward now: the lowest-numbered release that hasn't shipped. Its scope is fixed when work on it starts; after that, only a critical fix can join it.
+The one release being worked toward now: the lowest-numbered release that hasn't shipped. Its scope is fixed when work on it starts; after that, only a critical fix can join it on the jobs' own placement, and an item a person places in it stays with a comment naming the rule it breaks.
 _Avoid_: active milestone, air-locked milestone
 
 **Planned release**:
@@ -111,7 +111,7 @@ Answering an item's key questions until it is ready.
 _Avoid_: grooming, triage
 
 **Reprioritization**:
-Re-ranking items, moving them between planned releases and the backlog, starting each release by filling it to size, and holding the current release to its admission rule and size. A person's ranking and placement stand; the admission rule, the cut and the size bind everyone.
+Re-ranking items, moving them between planned releases and the backlog, starting each release by filling it to size, and holding the current release to its admission rule and size. A person's ranking and placement stand: an item a person places in a release stays there, and the jobs comment on a rule it breaks rather than moving it out. The admission rule and the cut bind everyone else, and the merged release's lock binds everyone.
 _Avoid_: guard, governor, scope governor
 
 **Closure**:
