@@ -252,10 +252,11 @@ sequenceDiagram
     participant CI as GitHub Actions
     participant Hub as GitHub (Main & Releases)
 
-    Maintainer->>Branch: devops roadmap close --confirm (closes items, cuts chore/cut-vX.Y.Z)
+    Maintainer->>Branch: devops roadmap close --confirm (closes items, cuts the release on release/vX.Y.Z)
+    Branch->>CI: release.yml publishes service:vX.Y.Z
     Branch->>CI: Quality Gates Validate Release PR
-    Maintainer->>Hub: Squash-Merge Release PR into main
-    CI->>Hub: release.yml cuts tag, creates release, closes milestone, builds image
+    Maintainer->>Hub: Squash-Merge Release PR into main once its checks are green
+    CI->>Hub: release.yml cuts tag, creates release, closes milestone, points service:latest at service:vX.Y.Z
 ```
 
 #### Step-by-Step Procedure:
@@ -264,10 +265,10 @@ sequenceDiagram
    - Bumps version in `pyproject.toml` (`__init__.py` derives `__version__` from it).
    - Collects the `changelog.d/` fragments into the target version's block in `CHANGELOG.md` and deletes them, leaving `[Unreleased]` an empty heading.
    - Regenerates docs and updates README Command Matrix.
-   - Creates cut branch `chore/cut-v<version>`, commits bumps, and opens a GitHub Release PR targeting `main` titled `feat(release): v<version>`.
+   - Commits the bumps on `release/v<version>`, pushes it, and opens a GitHub Release PR from it into `main` titled `feat(release): v<version>`. The push publishes `service:v<version>` (step 5).
 3. **Run Authoritative Release Check**: Run `uv run devops release check` to verify tree cleanliness, version matching, and CI validation.
-4. **Human Maintainer Merge**: The maintainer reviews and squash-merges the Release PR into `main`.
-5. **Automated Publishing & Milestone Closure**: GitHub Actions (`release.yml`) cuts the git tag, extracts release notes with `devops release notes` (over GitHub's 125,000-character Release body limit, each entry's title alone and a link to the version's section of `CHANGELOG.md` at its tag), creates the GitHub Release, closes the release milestone via `devops gh milestones close <version>`, and publishes the pre-built DevContainer image and attested production service image to GHCR (verified via `gh attestation verify oci://ghcr.io/dan-petty/devops-cli/service:v<version> -R dan-petty/devops-cli --signer-workflow dan-petty/devops-cli/.github/workflows/release.yml`).
+4. **Human Maintainer Merge**: The maintainer reviews the Release PR and squash-merges it into `main` once its checks are green, **Build & Publish Service Image** included (`uv run devops pr check-readiness <pr>` passes). Merged while that check is still running, the release can pin an image without the branch's last change (`k8s/README.md`, "When a release merges into main").
+5. **Automated Publishing & Milestone Closure**: GitHub Actions (`release.yml`) cuts the git tag, extracts release notes with `devops release notes` (over GitHub's 125,000-character Release body limit, each entry's title alone and a link to the version's section of `CHANGELOG.md` at its tag), creates the GitHub Release, closes the release milestone via `devops gh milestones close <version>`, publishes the pre-built DevContainer image, and points the production service image's `latest` at `service:v<version>`, which `release.yml` published and attested from `release/v<version>` before the merge, once that provenance verifies (verified via `gh attestation verify oci://ghcr.io/dan-petty/devops-cli/service:v<version> -R dan-petty/devops-cli --signer-workflow dan-petty/devops-cli/.github/workflows/release.yml --source-ref refs/heads/release/v<version>`; `--source-ref refs/heads/main` when the release merged over a failed check and `main`'s run built the image).
 6. **Post-Release DevContainer Validation**: Run `uv run devops devcontainer run-lifecycle --all` to verify container lifecycle tasks.
 7. **Next Active Milestone Initialization & Issue/Views Population**:
    - Cut and push the next release branch (`release/vX.Y.Z`) from `main`.
