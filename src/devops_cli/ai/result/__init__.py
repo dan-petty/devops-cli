@@ -1,22 +1,15 @@
 """Native Pydantic AI result subsystem for devops-cli.
 
 Provides unified execution result handling, streaming results, usage tracking,
-dynamic model pricing calculation, and output validation.
+and model pricing through genai-prices.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from pydantic_ai._cost import best_effort_price
-from pydantic_ai._output import (
-    OutputSchema,
-    OutputValidator,
-    TextOutputSchema,
-    run_image_process_hooks,
-    run_output_with_hooks,
-)
-from pydantic_ai._sync_stream import SyncStreamBridge
+from genai_prices import calc_price
+from genai_prices.types import PriceCalculation
 from pydantic_ai.messages import AgentStreamEvent
 from pydantic_ai.result import (
     AgentStream,
@@ -52,8 +45,12 @@ def calculate_usage_cost(
     usage: RunUsage | Any,
     model_name: str | None = None,
     **kwargs: Any,
-) -> Any:
-    """Calculate live financial cost for an execution run using native best_effort_price."""
+) -> PriceCalculation | None:
+    """Price an execution run with genai-prices, or None for a model or usage it cannot price.
+
+    Extra keyword arguments (`provider_id`, `provider_api_url`, `genai_request_timestamp`) go
+    to `genai_prices.calc_price`.
+    """
     if usage is None or model_name is None:
         return None
 
@@ -68,8 +65,8 @@ def calculate_usage_cost(
         run_u = RunUsage(input_tokens=in_tok, output_tokens=out_tok, requests=reqs, tool_calls=tc)
 
     try:
-        return best_effort_price(run_u, model_name=model_name, **kwargs)
-    except Exception:
+        return calc_price(run_u, model_name, **kwargs)
+    except LookupError, ValueError:
         return None
 
 
@@ -102,19 +99,12 @@ __all__ = [
     "AgentStream",
     "AgentStreamEvent",
     "FinalResult",
-    "OutputSchema",
-    "OutputValidator",
     "OutputValidatorFunc",
     "RunUsage",
     "StreamedRunResult",
     "StreamedRunResultSync",
-    "SyncStreamBridge",
-    "TextOutputSchema",
-    "best_effort_price",
     "calculate_usage_cost",
     "create_run_usage",
-    "run_image_process_hooks",
-    "run_output_with_hooks",
     "to_agent_response",
     "to_final_result",
 ]

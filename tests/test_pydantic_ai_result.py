@@ -12,14 +12,9 @@ from devops_cli.ai.result import (
     AgentStream,
     AgentStreamEvent,
     FinalResult,
-    OutputSchema,
-    OutputValidator,
     RunUsage,
     StreamedRunResult,
     StreamedRunResultSync,
-    SyncStreamBridge,
-    TextOutputSchema,
-    best_effort_price,
     calculate_usage_cost,
     create_run_usage,
     to_agent_response,
@@ -43,13 +38,8 @@ class TestPydanticAIResultSubsystem:
         assert FinalResult is not None
         assert StreamedRunResult is not None
         assert StreamedRunResultSync is not None
-        assert SyncStreamBridge is not None
-        assert OutputValidator is not None
-        assert OutputSchema is not None
-        assert TextOutputSchema is not None
         assert AgentStream is not None
         assert AgentStreamEvent is not None
-        assert callable(best_effort_price)
 
     def test_create_run_usage(self) -> None:
         """Verify create_run_usage constructs a valid RunUsage instance."""
@@ -65,8 +55,8 @@ class TestPydanticAIResultSubsystem:
         assert otel.get("gen_ai.usage.input_tokens") == 1500
         assert otel.get("gen_ai.usage.output_tokens") == 300
 
-    def test_calculate_usage_cost_with_best_effort_price(self) -> None:
-        """Test calculation of financial cost using native best_effort_price."""
+    def test_calculate_usage_cost_with_genai_prices(self) -> None:
+        """Test calculation of financial cost through genai-prices."""
         usage = create_run_usage(input_tokens=10000, output_tokens=2000)
         cost_calc = calculate_usage_cost(usage, model_name="gpt-4o")
         assert cost_calc is not None
@@ -158,7 +148,6 @@ class TestPydanticAIResultSubsystem:
             assert hasattr(mod, "FinalResult")
             assert hasattr(mod, "StreamedRunResult")
             assert hasattr(mod, "StreamedRunResultSync")
-            assert hasattr(mod, "best_effort_price")
             assert hasattr(mod, "create_run_usage")
             assert hasattr(mod, "calculate_usage_cost")
             assert hasattr(mod, "to_agent_response")

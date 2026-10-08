@@ -5,6 +5,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
+from opentelemetry import trace
+from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
+
 from devops_cli.ai.agents.models import AgentResponse
 from devops_cli.ai.run import (
     AgentRun,
@@ -21,7 +24,6 @@ from devops_cli.ai.run import (
     NodeStep,
     PendingMessage,
     create_pending_message,
-    current_otel_traceparent,
     format_run_summary,
     get_active_traceparent,
 )
@@ -45,7 +47,6 @@ class TestPydanticAIRunSubsystem:
         assert JoinItem is not None
         assert NodeStep is not None
         assert PendingMessage is not None
-        assert callable(current_otel_traceparent)
         assert callable(get_active_traceparent)
         assert callable(create_pending_message)
         assert callable(format_run_summary)
@@ -61,9 +62,20 @@ class TestPydanticAIRunSubsystem:
         assert msg_asap.priority == "asap"
 
     def test_get_active_traceparent(self) -> None:
-        """Verify get_active_traceparent returns string or None depending on active span."""
-        tp = get_active_traceparent()
-        assert tp is None or isinstance(tp, str)
+        """Verify get_active_traceparent names the active span, and is None outside any span."""
+        span_context = SpanContext(
+            trace_id=0x4BF92F3577B34DA6A3CE929D0E0E4736,
+            span_id=0x00F067AA0BA902B7,
+            is_remote=False,
+            trace_flags=TraceFlags(TraceFlags.SAMPLED),
+        )
+        with trace.use_span(NonRecordingSpan(span_context)):
+            inside = get_active_traceparent()
+
+        assert (inside, get_active_traceparent()) == (
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+            None,
+        )
 
     def test_format_run_summary(self) -> None:
         """Verify format_run_summary extracts structured metadata from an AgentRunResult."""
@@ -125,7 +137,6 @@ class TestPydanticAIRunSubsystem:
             assert hasattr(pkg, "JoinItem")
             assert hasattr(pkg, "NodeStep")
             assert hasattr(pkg, "PendingMessage")
-            assert hasattr(pkg, "current_otel_traceparent")
             assert hasattr(pkg, "get_active_traceparent")
             assert hasattr(pkg, "create_pending_message")
             assert hasattr(pkg, "format_run_summary")
