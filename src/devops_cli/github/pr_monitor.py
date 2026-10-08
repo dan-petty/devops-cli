@@ -249,6 +249,22 @@ def _extract_timeline_events(timeline_stdout: str) -> list[dict[str, Any]]:
     return top_dicts if top_dicts else _parse_ndjson_dicts(stripped)
 
 
+def _extract_timeline_author(evt: dict[str, Any]) -> str:
+    """Extract actor or user login from timeline event dictionary."""
+    actor = evt.get("actor")
+    if isinstance(actor, dict) and actor.get("login"):
+        return str(actor["login"])
+    user = evt.get("user")
+    if isinstance(user, dict) and user.get("login"):
+        return str(user["login"])
+    author = evt.get("author")
+    if isinstance(author, dict) and author.get("login"):
+        return str(author["login"])
+    if isinstance(author, str):
+        return author
+    return ""
+
+
 def _process_single_timeline_event(
     evt: dict[str, Any], current_state: tuple[bool, str]
 ) -> tuple[bool, str]:
@@ -257,7 +273,7 @@ def _process_single_timeline_event(
     if evt_name == "copilot_work_started":
         return True, "copilot_work_started"
     if evt_name == "reviewed":
-        evt_author = str(evt.get("author", "")).lower()
+        evt_author = _extract_timeline_author(evt).lower()
         if not evt_author or "copilot" in evt_author:
             return False, "reviewed"
     return current_state
@@ -331,9 +347,7 @@ def _query_timeline_copilot_state(
         CONST_GH_CLI,
         "api",
         "--paginate",
-        f"repos/{owner}/{repo_name}/issues/{pr_number}/timeline",
-        "--jq",
-        '.[] | select(.event | test("copilot|reviewed")) | {event: .event, created_at: .created_at, submitted_at: .submitted_at, author: (.actor.login // .user.login // "")}',
+        f"repos/{owner}/{repo_name}/issues/{pr_number}/timeline?per_page=100",
     ]
     proc = run_gh(cmd, check=False, quiet=True)
     if proc.returncode == 0:
