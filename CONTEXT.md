@@ -17,7 +17,7 @@ The in-repo implementation record of one item, written in the pull request that 
 _Avoid_: task, task item
 
 **Changelog fragment**:
-One item's changelog entries, written as `changelog.d/<issue>.md` in the pull request that delivers it and merged into the release's section of `CHANGELOG.md` at the cut.
+One item's changelog entries, written as `changelog.d/<issue>.md` in the pull request that delivers it and collected into the release's section of `CHANGELOG.md` by a person before the release's pull request merges; the automatic cut collects none. One left behind, such as a late critical fix's, goes into the next release's section.
 _Avoid_: news fragment, changelog snippet
 
 **Priority**:
@@ -85,7 +85,7 @@ To move an item that hasn't started out of the current release into the next pla
 _Avoid_: rollover, defer
 
 **Cut**:
-Opening a release's pull request. From then on the release accepts no more items. Closing that pull request without merging it un-cuts the release.
+Opening a release's pull request. A critical fix still joins the release until that pull request merges; after that, it goes first into the next release. Closing that pull request without merging it un-cuts the release.
 _Avoid_: freeze, air-lock
 
 **Ship**:

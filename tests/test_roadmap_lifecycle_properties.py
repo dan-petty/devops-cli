@@ -104,7 +104,10 @@ INVARIANTS = MappingProxyType(
             "the cap and its size at start, every unstarted item in it is an admitted critical "
             "fix."
         ),
-        "cut": "Cut: after the cut, nothing joins until the release is un-cut.",
+        "cut": (
+            "Cut: the start of a release a person cut before it pulls nothing in, and once the "
+            "release pull request has merged, no critical fix joins the release."
+        ),
         "ship": "Ship: once the current release ships, the release after it starts.",
         "descope": "Descope: descoping touches only items that have not started.",
         "stalled": (
@@ -126,8 +129,8 @@ INVARIANTS = MappingProxyType(
         ),
         "reason": (
             "Reprioritization: the job moves an item a person placed in the current release "
-            "only through admission, the cut lock, trimming at start or descoping, always with "
-            "a reason comment."
+            "only through admission, the merged release's lock, trimming at start or descoping, "
+            "always with a reason comment."
         ),
         "fields": "Reprioritization: the job never changes priority, Value or Effort.",
         "pulled": (
@@ -151,9 +154,12 @@ SETTINGS = settings(
     stateful_step_count=30 if _DEEP else _GATE_STEPS,
     phases=(Phase.explicit, Phase.reuse, Phase.generate, Phase.target, Phase.shrink),
 )
-# The deep sweep's search for the failure the cut lock's absence causes, which it shrinks to its
-# minimal sequence. Short sequences keep the shrink within Hypothesis's limit on shrinks.
-CUT_LOCK_SETTINGS = settings(SETTINGS, stateful_step_count=_GATE_STEPS, report_multiple_bugs=False)
+# The deep sweep's search for the failure the merged release's lock's absence causes, which it
+# shrinks to its minimal sequence. Short sequences keep the shrink within Hypothesis's limit on
+# shrinks.
+MERGED_LOCK_SETTINGS = settings(
+    SETTINGS, stateful_step_count=_GATE_STEPS, report_multiple_bugs=False
+)
 
 
 def critical(item: Item) -> bool:
@@ -211,6 +217,7 @@ class RunSeen:
     shipped: str | None
     under_way: str
     cut: bool
+    merged: bool
     window: Window
     job_fields: frozenset[tuple[int, ItemField]]
     person_fields: frozenset[tuple[int, ItemField]]
@@ -463,7 +470,8 @@ class RoadmapLifecycle(RuleBasedStateMachine):
         )
         seen_before = (dict(self.placed_by), frozenset(self.admitted))
         first_run, shipped, shipped_all = not self.ran, self.shipped, tuple(self.shipped_all)
-        cut = self.release_pr is not None or self.merged_pr is not None
+        merged = self.merged_pr is not None
+        cut = self.release_pr is not None or merged
         position, self.stops_at = self.stops_at, 0
         rerun_now, self.rerun_now = self.rerun_now, True
         own = len(self.store.job_writes())
@@ -508,6 +516,7 @@ class RoadmapLifecycle(RuleBasedStateMachine):
             shipped,
             under_way,
             cut,
+            merged,
             window,
             frozenset(
                 (w.number, ItemField(w.key))
@@ -854,8 +863,8 @@ class RoadmapLifecycle(RuleBasedStateMachine):
     @rule(milestone_closed=st.booleans(), published=st.booleans())
     def ship(self, milestone_closed: bool, published: bool = True) -> None:
         """The release pull request merges, and GitHub Release vX.Y.Z is published. Unless
-        `published`, `release.yml` fails to publish it, and the release stays cut until a person
-        publishes it by hand: a later `ship` once the pull request has merged."""
+        `published`, `release.yml` fails to publish it, and the release stays merged until a
+        person publishes it by hand: a later `ship` once the pull request has merged."""
         if self.release_pr is not None:
             self.ship_pull_request(self.release_pr)
             self.merged_pr, self.release_pr = self.release_pr, None
@@ -910,10 +919,13 @@ class RoadmapLifecycle(RuleBasedStateMachine):
         ), INVARIANTS["size"]
 
     @invariant()
-    def nothing_joins_a_cut_release(self) -> None:
+    def a_cut_start_pulls_nothing_in_and_no_fix_joins_once_merged(self) -> None:
         """A first run admits whatever is already in the release, cut or not, and so does a
         start, but the start of a release a person cut before it pulls nothing in: it moves no
-        item into it but those it finishes moving out of a shipped release."""
+        item into it but those it finishes moving out of a shipped release. While the release
+        pull request is open, a critical fix still joins, as after the start, so the fix merges
+        into the release branch first (#1294); once that pull request has merged, none joins.
+        Which other items join after the start is the `admitted` invariant's."""
         seen = self.last_run
         if seen is None or not seen.cut or seen.first_run:
             return
@@ -929,12 +941,12 @@ class RoadmapLifecycle(RuleBasedStateMachine):
             ]
             assert pulled == [], INVARIANTS["cut"]
             return
-        joined = [
+        fixes = [
             item.number
             for item in self.members(seen.current_before, seen.after)
-            if item.number not in seen.admitted_before
+            if item.number not in seen.admitted_before and critical(seen.before[item.number])
         ]
-        assert joined == [], INVARIANTS["cut"]
+        assert not seen.merged or fixes == [], INVARIANTS["cut"]
 
     @invariant()
     def a_shipped_release_gives_way_to_the_next(self) -> None:
@@ -1159,40 +1171,50 @@ def rule_steps(failure: BaseException) -> list[str]:
     return [name for name in named if name not in checks and name != "teardown"]
 
 
-def test_the_machine_fails_without_the_cut_lock_row(monkeypatch: pytest.MonkeyPatch) -> None:
-    """With the cut lock gone, a critical fix filed into a cut release joins it.
+def test_the_machine_fails_without_the_merged_release_lock_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With the merged release's lock gone, a critical fix filed into a release whose pull
+    request has merged joins it, through the cut release's row it inherits.
 
-    The gate replays the minimal failing sequence, the start, the cut and a critical fix filed
-    into the release, and checks every invariant after each step; with the row in place, the
-    same steps pass. A search for that sequence can't be relied on within the gate's second:
-    what Hypothesis draws, derandomized or not, depends on the constants of the modules loaded,
-    and the number of examples a search needs to find it varies with them, often past what a
-    second allows. `DEVOPS_PROPERTY_PROFILE=deep` runs that search instead, and shrinks the
-    failure to the same three steps.
+    The gate replays the minimal failing sequence, the start, the cut, the merge of the release
+    pull request with `release.yml` failing to publish the release, and a critical fix filed
+    into it, and checks every invariant after each step; with the row in place, the same steps
+    pass, the fix moving on to v1.0.1. A search for that sequence can't be relied on within the
+    gate's second: what Hypothesis draws, derandomized or not, depends on the constants of the
+    modules loaded, and the number of examples a search needs to find it varies with them,
+    often past what a second allows. `DEVOPS_PROPERTY_PROFILE=deep` runs that search instead,
+    and shrinks the failure to the same four steps.
     """
+    filed: list[int] = []
 
     def minimal(state: RoadmapLifecycle) -> RoadmapLifecycle:
         return replay(
             state,
             lambda: state.start(held=[], waiting=[]),
             lambda: state.cut(draft=False),
-            lambda: state.critical_fix_filed(kind="bug", status="New"),
+            lambda: state.ship(milestone_closed=False, published=False),
+            lambda: filed.append(state.critical_fix_filed(kind="bug", status="New")),
         )
 
     kept = minimal(RoadmapLifecycle())
-    cut_lock = (ReleaseState.CUT, Event.FIX_JOINED)
-    rows = {key: row for key, row in reprioritize.TRANSITIONS.items() if key != cut_lock}
+    lock = (ReleaseState.MERGED, Event.FIX_JOINED)
+    rows = {key: row for key, row in reprioritize.TRANSITIONS.items() if key != lock}
     monkeypatch.setattr(reprioritize, "TRANSITIONS", MappingProxyType(rows))
     if _DEEP:
         with pytest.raises(AssertionError, match=r"^Cut: ") as failure:
-            run_state_machine_as_test(RoadmapLifecycle, settings=CUT_LOCK_SETTINGS)
+            run_state_machine_as_test(RoadmapLifecycle, settings=MERGED_LOCK_SETTINGS)
         print("\n".join(getattr(failure.value, "__notes__", [])))
         steps = rule_steps(failure.value)
     else:
         with pytest.raises(AssertionError, match=r"^Cut: "):
             minimal(RoadmapLifecycle())
-        steps = ["start", "cut", "critical_fix_filed"]
-    assert (kept.current(), steps) == ("v1.0.0", ["start", "cut", "critical_fix_filed"])
+        steps = ["start", "cut", "ship", "critical_fix_filed"]
+    assert (kept.current(), kept.view[filed[0]].release, steps) == (
+        "v1.0.0",
+        "v1.0.1",
+        ["start", "cut", "ship", "critical_fix_filed"],
+    )
 
 
 def _every_member_joins(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1422,10 +1444,10 @@ def test_an_item_moved_back_to_ready_once_a_fix_filled_the_release_leaves_it() -
     assert (len(state.members(state.current())), state.view[held[0]].release) == (CAP, "v1.0.1")
 
 
-def test_a_merged_release_pull_request_keeps_the_release_cut_until_it_is_published() -> None:
+def test_a_merged_release_pull_request_locks_the_release_until_it_is_published() -> None:
     """The reviewer's replay of the cut window: the release pull request merges and
-    `release.yml` fails to publish the release. Its code is in `main` already, so the release
-    stays cut, and a critical fix filed into it goes first into the next release."""
+    `release.yml` fails to publish the release. Its code is in `main` already, so a critical
+    fix filed into it goes first into the next release."""
     state = RoadmapLifecycle()
     state.start(held=["Ready"], waiting=[])
     fix = replay(
@@ -1436,6 +1458,33 @@ def test_a_merged_release_pull_request_keeps_the_release_cut_until_it_is_publish
     ).view
     filed = max(fix)
     assert (state.current(), fix[filed].release) == ("v1.0.0", "v1.0.1")
+
+
+def test_a_fix_filed_while_the_release_pull_request_is_open_joins_and_ships_where_it_is() -> None:
+    """A critical fix filed into a cut release joins it while its release pull request is open,
+    so the fix's own pull request goes into the release branch first (#1294). Should the release
+    pull request merge with the fix still open, the release ships with it, as with any open
+    item: no job moves an item out of a shipped release, and the next release starts without it.
+    Merging the release pull request only once its milestone holds no open item is a person's
+    step."""
+    state = RoadmapLifecycle()
+    state.start(held=["Ready"], waiting=[])
+    filed: list[int] = []
+    replay(
+        state,
+        lambda: state.cut(draft=True),
+        lambda: filed.append(state.critical_fix_filed(kind="bug", status="New")),
+    )
+    joined = state.view[filed[0]]
+    admitted = (joined.release, state.titled(joined.job_record.get(JobMark.ADMITTED)))
+    replay(state, lambda: state.ship(milestone_closed=True))
+    shipped = state.view[filed[0]]
+    assert (admitted, state.current(), shipped.release, shipped.state) == (
+        ("v1.0.0", "v1.0.0"),
+        "v1.0.1",
+        "v1.0.0",
+        GitHubState.OPEN,
+    )
 
 
 def test_an_admitted_item_a_person_takes_out_and_puts_back_is_judged_again() -> None:
@@ -1575,12 +1624,29 @@ def _a_stall_overruled(state: RoadmapLifecycle) -> int:
 
 
 def _a_fix_admission_then_a_cut(state: RoadmapLifecycle) -> int:
+    """(d): the admission of a critical fix stops at its comment, and a person then cuts the
+    release, which still admits the fix: the rerun finishes the admission."""
     state.start(held=[], waiting=[])
     replay(
         state,
         lambda: state.next_run_stops(at=2, later=True),
         lambda: state.critical_fix_filed(kind="bug", status="New"),
         lambda: state.cut(draft=False),
+    )
+    return max(state.view)
+
+
+def _a_fix_admission_then_a_merge(state: RoadmapLifecycle) -> int:
+    """(d) once the cut admits a fix (#1294): the admission of a critical fix filed into the cut
+    release stops at its comment, and the release pull request merges before the rerun, which
+    sends the fix on to v1.0.1."""
+    state.start(held=[], waiting=[])
+    replay(
+        state,
+        lambda: state.cut(draft=False),
+        lambda: state.next_run_stops(at=2, later=True),
+        lambda: state.critical_fix_filed(kind="bug", status="New"),
+        lambda: state.ship(milestone_closed=False, published=False),
     )
     return max(state.view)
 
@@ -1640,7 +1706,8 @@ def _a_p0_feature_placed_by_hand(state: RoadmapLifecycle, at: int = 2) -> int:
         (_an_admission_overruled, "v1.0.1", ["record"]),
         (lambda state: _an_admission_overruled(state, at=3), "v1.0.1", ["field"]),
         (_a_stall_overruled, "v1.0.0", ["record"]),
-        (_a_fix_admission_then_a_cut, "v1.0.1", ["comment"]),
+        (_a_fix_admission_then_a_cut, "v1.0.0", ["comment"]),
+        (_a_fix_admission_then_a_merge, "v1.0.1", ["comment"]),
         (_a_descope_then_a_ship, None, ["comment"]),
         (_a_descope_made_by_hand, "v1.0.1", ["record", "set_marks"]),
         (lambda state: _a_descope_made_by_hand(state, at=3), "v1.0.1", ["field", "comment"]),
@@ -1654,6 +1721,7 @@ def _a_p0_feature_placed_by_hand(state: RoadmapLifecycle, at: int = 2) -> int:
         "b-admission-at-its-milestone-call",
         "c-stall-in-review",
         "d-fix-then-cut",
+        "d-fix-then-merge",
         "descope-then-ship",
         "s7-two-edits",
         "s7-two-edits-at-its-milestone-call",
@@ -1666,11 +1734,11 @@ def test_a_stopped_run_left_for_the_next_poll_is_judged_again(
 ) -> None:
     """The reviewers' replays (a) to (d), S5 and S7, and the start after an interrupted
     descope, through the machine: a run stops and is run again at the next poll, after a person
-    moved the item, moved it into review, cut the release or shipped it. The rerun finishes what
-    the rules still decide, and a person's change made since stands, whether the run stopped at
-    a Release write's job record or, once that had landed, at its milestone call; a move a
-    person then made by hand is finished as one that happened. Each case checks where its runs
-    stopped.
+    moved the item, moved it into review, cut the release, merged its release pull request or
+    shipped it. The rerun finishes what the rules still decide, and a person's change made
+    since stands, whether the run stopped at a Release write's job record or, once that had
+    landed, at its milestone call; a move a person then made by hand is finished as one that
+    happened. Each case checks where its runs stopped.
 
     Hypothesis printed (d) for the reviewers' variant of the machine (seed 7, 200 examples of
     30 steps), shrunk to the steps of `_a_fix_admission_then_a_cut` and five days passing.
@@ -1764,14 +1832,15 @@ def test_a_fix_whose_admission_was_announced_before_its_run_stopped_stays_admitt
     )
 
 
-def _a_cut_lock_move_the_start_finishes(state: RoadmapLifecycle, closed: bool) -> int:
-    """Seed 101: the run that sends a fix filed into cut v1.0.0 on to v1.0.1 stops at its
-    Release write, and v1.0.0 ships before the rerun, which starts v1.0.1 and finishes the
-    move into it."""
+def _a_lock_move_the_start_finishes(state: RoadmapLifecycle, closed: bool) -> int:
+    """Seed 101: the run that sends a fix filed into v1.0.0, whose release pull request has
+    merged, on to v1.0.1 stops at its Release write, and v1.0.0 is published before the rerun,
+    which starts v1.0.1 and finishes the move into it."""
     state.start(held=[], waiting=[])
     replay(
         state,
         lambda: state.cut(draft=False),
+        lambda: state.ship(milestone_closed=False, published=False),
         lambda: state.next_run_stops(at=2, later=True),
         lambda: state.critical_fix_filed(kind="bug", status="New"),
         lambda: state.ship(milestone_closed=closed, published=True),
@@ -1779,9 +1848,10 @@ def _a_cut_lock_move_the_start_finishes(state: RoadmapLifecycle, closed: bool) -
     return max(state.view)
 
 
-def _a_cut_while_a_start_waits(state: RoadmapLifecycle) -> int:
+def _a_cut_while_a_start_waits(state: RoadmapLifecycle, merged: bool) -> int:
     """Seeds 106 and 111: the start of v1.0.1 stops at its first write and waits, with v1.0.0's
-    milestone still open; a person cuts the release under way and files a fix into it."""
+    milestone still open; a person cuts the release under way and files a fix into it, which
+    joins it, or goes on to v1.0.2 once its release pull request has merged (`merged`)."""
     state.start(held=[], waiting=[])
     replay(
         state,
@@ -1789,6 +1859,7 @@ def _a_cut_while_a_start_waits(state: RoadmapLifecycle) -> int:
         lambda: state.next_run_stops(at=1, later=True),
         lambda: state.ship(milestone_closed=False, published=True),
         lambda: state.cut(draft=False),
+        *([lambda: state.ship(milestone_closed=False, published=False)] if merged else []),
         lambda: state.critical_fix_filed(kind="bug", status="New"),
     )
     return max(state.view)
@@ -1810,15 +1881,17 @@ def _a_descope_announced_then_undone_by_hand(state: RoadmapLifecycle) -> int:
 @pytest.mark.parametrize(
     ("steps", "where"),
     [
-        (lambda state: _a_cut_lock_move_the_start_finishes(state, closed=False), "v1.0.1"),
-        (lambda state: _a_cut_lock_move_the_start_finishes(state, closed=True), "v1.0.1"),
-        (_a_cut_while_a_start_waits, "v1.0.2"),
+        (lambda state: _a_lock_move_the_start_finishes(state, closed=False), "v1.0.1"),
+        (lambda state: _a_lock_move_the_start_finishes(state, closed=True), "v1.0.1"),
+        (lambda state: _a_cut_while_a_start_waits(state, merged=False), "v1.0.1"),
+        (lambda state: _a_cut_while_a_start_waits(state, merged=True), "v1.0.2"),
         (_a_descope_announced_then_undone_by_hand, None),
     ],
     ids=[
-        "cut-lock-then-ship-milestone-open",
-        "cut-lock-then-ship-milestone-closed",
+        "lock-move-then-ship-milestone-open",
+        "lock-move-then-ship-milestone-closed",
         "cut-while-a-start-waits",
+        "merge-while-a-start-waits",
         "descope-announced-then-undone",
     ],
 )
@@ -1831,8 +1904,9 @@ def test_the_machines_own_errors_the_fourth_rounds_sweeps_found(
     person placed elsewhere, `cut` cut the shipped release whose milestone a waiting start had
     not closed yet, and a stopped run's announced descope stayed in the machine's admitted set,
     so `held` fired when the feature a person put back went to the backlog. The job is right in
-    each: the fix goes first into the next release, a fix filed into a cut release goes on, and
-    a feature put back after its descope joins after the start."""
+    each: the fix goes first into the next release, a fix filed into a cut release joins it and
+    one filed once its release pull request has merged goes on (#1294), and a feature put back
+    after its descope joins after the start."""
     state = RoadmapLifecycle()
     number = steps(state)
     assert (state.outstanding, state.view[number].release) == (None, where)
@@ -2014,8 +2088,9 @@ def test_an_item_moved_out_and_back_before_a_run_recorded_it_is_where_a_job_put_
 
 
 def _a_top_up_undone_by_hand(at: int) -> tuple[object, ...]:
-    """Seed 6031, shrunk: the cut lock sends a critical fix filed into v1.0.1 on to v1.0.2; made
-    P1 and put back in v1.0.1, it goes to the backlog, the job's placement. v1.0.2's start pulls
+    """Seed 6031, shrunk: the lock of a merged release sends a critical fix filed into v1.0.1
+    on to v1.0.2; made P1 and put back in v1.0.1, it goes to the backlog, the job's placement,
+    and v1.0.1 is published. v1.0.2's start pulls
     it in, and stops at its write `at`: 7, the Release's written mark, after its milestone call
     landed; 8, its comment. A person moves it back to the backlog before the rerun."""
     state, filed = RoadmapLifecycle(), []
@@ -2023,6 +2098,7 @@ def _a_top_up_undone_by_hand(at: int) -> tuple[object, ...]:
         state,
         lambda: state.start(held=[], waiting=[], shipped=False),
         lambda: state.cut(draft=False),
+        lambda: state.ship(milestone_closed=False, published=False),
         lambda: filed.append(state.critical_fix_filed(kind="bug", status="Ready")),
         lambda: state.person_reprioritizes(item=filed[0], priority="P1-High"),
         lambda: state.person_places(item=filed[0], place="current"),
@@ -2521,13 +2597,14 @@ def _a_move_and_its_comment_in_two_stopped_runs(state: RoadmapLifecycle) -> int:
 
 
 def _a_cut_lock_move_into_a_release_that_ships_too(state: RoadmapLifecycle) -> int:
-    """A: the cut lock's move of a fix out of v1.0.0 waits while v1.0.0 and then v1.0.1 ship,
-    and the start of v1.0.2 finishes it into closed v1.0.1."""
+    """A: the lock's move of a fix out of v1.0.0, whose release pull request has merged, waits
+    while v1.0.0 and then v1.0.1 ship, and the start of v1.0.2 finishes it into closed v1.0.1."""
     state.start(held=[], waiting=[])
     filed: list[int] = []
     replay(
         state,
         lambda: state.cut(draft=False),
+        lambda: state.ship(milestone_closed=False, published=False),
         lambda: state.next_run_stops(at=2, later=True),
         lambda: filed.append(state.critical_fix_filed(kind="bug", status="New")),
         lambda: state.next_run_stops(at=2, later=True),
@@ -2557,13 +2634,15 @@ def _a_fix_admitted_while_a_close_waits_then_made_p1(state: RoadmapLifecycle) ->
 
 
 def _a_fix_moved_by_a_stopped_rerun_then_closed(state: RoadmapLifecycle) -> int:
-    """E: the cut lock's move of a fix stops at its comment and waits; a second fix is filed,
-    the rerun moves it on and stops at its comment too, and a person closes the second fix."""
+    """E: the lock's move of a fix out of a release whose pull request has merged stops at its
+    comment and waits; a second fix is filed, the rerun moves it on and stops at its comment
+    too, and a person closes the second fix."""
     state.start(held=[], waiting=[])
     filed: list[int] = []
     replay(
         state,
         lambda: state.cut(draft=False),
+        lambda: state.ship(milestone_closed=False, published=False),
         lambda: state.next_run_stops(at=5, later=True),
         lambda: state.critical_fix_filed(kind="bug", status="New"),
         lambda: state.next_run_stops(at=7, later=True),
@@ -3115,16 +3194,20 @@ def _a_cap_descope_then_a_cut(state: RoadmapLifecycle) -> int:
     return int(victim)
 
 
-def _a_cut_lock_move_then_an_uncut(state: RoadmapLifecycle) -> int:
-    """Seed 510: a fix filed into the cut release goes on to the next, its milestone call lands
-    and its written mark fails; the release pull request is closed before the rerun."""
+def _a_lock_move_then_a_ship(state: RoadmapLifecycle) -> int:
+    """Seed 510: a fix filed into a release whose pull request has merged goes on to the next,
+    its milestone call lands and its written mark fails; the release is published before the
+    rerun. The seed closed a cut release's pull request instead, but since a cut release admits
+    a fix (#1294), an un-cut changes no move: only a merged release sends a fix on, and its
+    pull request can't be closed again."""
     state.start(held=[], waiting=[])
     replay(
         state,
         lambda: state.cut(draft=False),
+        lambda: state.ship(milestone_closed=False, published=False),
         lambda: state.next_run_stops(at=4, later=True),
         lambda: state.critical_fix_filed(kind="bug", status="New"),
-        lambda: state.uncut(),
+        lambda: state.ship(milestone_closed=False, published=True),
     )
     return max(state.view)
 
@@ -3148,10 +3231,10 @@ def _a_size_descope_then_a_reprioritization(state: RoadmapLifecycle) -> int:
     ("steps", "comments"),
     [
         (_a_cap_descope_then_a_cut, 1),
-        (_a_cut_lock_move_then_an_uncut, 1),
+        (_a_lock_move_then_a_ship, 1),
         (_a_size_descope_then_a_reprioritization, 2),
     ],
-    ids=["seed-502-cap-then-cut", "seed-510-cut-lock-then-uncut", "seed-512-size-then-p0"],
+    ids=["seed-502-cap-then-cut", "seed-510-lock-move-then-ship", "seed-512-size-then-p0"],
 )
 def test_a_move_whose_milestone_call_landed_unrecorded_is_finished_whatever_changed_since(
     steps: Callable[[RoadmapLifecycle], int], comments: int

@@ -3,12 +3,15 @@ and the start of each release (#740).
 
 The current release is the open Release with the lowest version (`current_release`). Its state
 comes from its release pull request (`is_release_pull_request`): it is cut from the moment one
-is opened, draft or not, until that one is closed unmerged, and shipped once one has merged and
-GitHub Release vX.Y.Z is published; merged and not yet published, it is still cut
-(`release_state`). Every decision about an item reads one table, `TRANSITIONS`, which maps the
-state of a release and what happened to the item (an `Event`) to a `Transition`: an action and
-the reason the item's comment gives. A cut release follows the started release's rows except
-where it has its own (`INHERITS`), so the cut lock is one row.
+is opened, draft or not, until that one is closed unmerged, merged once one has merged, and
+shipped once GitHub Release vX.Y.Z is published too (`release_state`). Every decision about an
+item reads one table, `TRANSITIONS`, which maps the state of a release and what happened to the
+item (an `Event`) to a `Transition`: an action and the reason the item's comment gives. A cut
+release follows the started release's rows, and a merged one the cut release's, except where
+each has its own (`INHERITS`). While its release pull request is open, a cut release still
+admits a critical fix, whose own pull request then merges into the release branch before the
+release's does (#1294); once that pull request has merged, a critical fix goes first into the
+next release, the merged release's one row.
 
 Intake (#742) asks the same table what an item joining the current release meets: it finds the
 release with `current_release`, its state with `release_state`, the item's event with
@@ -43,7 +46,7 @@ holds it to the rules as the current release, in its own state, so an item a per
 since is judged now, and closes the shipped ones last; once its milestone is closed without it
 shipping, the closes are all that is left. One the run record names that has shipped since, its
 milestone closed or not, is skipped like the others, and the release after it starts. A release
-a person cut before any run started it takes no item at its start: nothing joins a cut release.
+a person cut before any run started it takes no item at its start, its pull request open or merged.
 A current release older than the one the run record names, such as a hotfix milestone opened
 later, never started: the job holds it to no rule and moves nothing until it ships or closes.
 The run record's `Size` is the commit point of a start or a first run: written after every other
@@ -119,7 +122,7 @@ have landed, a person who moved the item back there would read as that job, and 
 pull in the item they had just taken out of it. When no field is a person's or unproven, and the
 change is about the release this run judges, the run decides the item afresh as it was before
 the change began, and finishes the change only when it decides the same again; else it puts the
-item back and decides anew, so a release cut since the change began sends a fix on. Its Status
+item back and decides anew, so a release merged since the change began sends a fix on. Its Status
 clock is the one the change found only when the change began its Status write, the job's own
 write being no activity; a change that never began it leaves the clock as it is, since a person
 who set the Status since, even to what the change found, worked on the item. A change about
@@ -219,11 +222,14 @@ from devops_cli.roadmap.store import (
 
 
 class ReleaseState(StrEnum):
-    """Where a release is: planned, started (the current one), cut, or shipped."""
+    """Where a release is: planned, started (the current one), cut (its release pull request
+    is open), merged (that pull request merged, and the release is not published yet), or
+    shipped."""
 
     PLANNED = "planned"
     STARTED = "started"
     CUT = "cut"
+    MERGED = "merged"
     SHIPPED = "shipped"
 
 
@@ -285,6 +291,7 @@ class Reason(StrEnum):
     ADMISSION = "admission"
     P0_FEATURE = "p0_feature"
     CUT = "cut"
+    MERGED = "merged"
     CAP = "cap"
     OVER_SIZE = "over_size"
     BLOCKED = "blocked"
@@ -311,10 +318,11 @@ class Transition:
     reason: Reason
 
 
-_S, _P, _C, _X = (
+_S, _P, _C, _M, _X = (
     ReleaseState.STARTED,
     ReleaseState.PLANNED,
     ReleaseState.CUT,
+    ReleaseState.MERGED,
     ReleaseState.SHIPPED,
 )
 
@@ -328,9 +336,13 @@ TRANSITIONS: Mapping[tuple[ReleaseState, Event], Transition] = MappingProxyType(
         (_S, Event.PR_JOINED): Transition(Action.ADMIT, Reason.PULL_REQUEST),
         (_S, Event.P0_FEATURE_JOINED): Transition(Action.TO_NEXT, Reason.P0_FEATURE),
         (_S, Event.ITEM_JOINED): Transition(Action.TO_BACKLOG, Reason.ADMISSION),
-        # The cut lock: nothing joins a cut release, and a critical fix goes first into the next.
-        (_C, Event.FIX_JOINED): Transition(Action.TO_NEXT, Reason.CUT),
+        # The cut: while the release pull request is open, a critical fix still joins, and its
+        # own pull request merges into the release branch before the release's does.
+        (_C, Event.FIX_JOINED): Transition(Action.ADMIT, Reason.CUT),
         (_C, Event.PR_JOINED): Transition(Action.ADMIT, Reason.PULL_REQUEST),
+        # The lock: once the release pull request has merged, a critical fix goes first into
+        # the next release.
+        (_M, Event.FIX_JOINED): Transition(Action.TO_NEXT, Reason.MERGED),
         # The cap: an admitted critical fix that takes the release over it descopes one item.
         (_S, Event.OVER_CAP): Transition(Action.TO_NEXT, Reason.CAP),
         (_S, Event.OVER_SIZE): Transition(Action.TO_NEXT, Reason.OVER_SIZE),
@@ -359,7 +371,7 @@ TRANSITIONS: Mapping[tuple[ReleaseState, Event], Transition] = MappingProxyType(
     }
 )
 # A state without a row of its own for an event takes the row of the state it inherits from.
-INHERITS: Mapping[ReleaseState, ReleaseState] = MappingProxyType({_C: _S})
+INHERITS: Mapping[ReleaseState, ReleaseState] = MappingProxyType({_C: _S, _M: _C})
 
 _LEAVING = frozenset({Action.TO_BACKLOG, Action.TO_NEXT, Action.READY_TO_NEXT})
 _TO_TARGET = frozenset({Action.TO_NEXT, Action.READY_TO_NEXT, Action.PULL_IN})
@@ -457,8 +469,8 @@ def size_at_start(run_record: JobRecord) -> int | None:
 def release_state(store: RoadmapStore, release: Release, default_branch: str) -> ReleaseState:
     """The release's state, from its release pull requests and its GitHub Release.
 
-    It is shipped once one has merged and GitHub Release vX.Y.Z is published, and cut while one
-    is open or has merged without the release being published yet.
+    It is shipped once one has merged and GitHub Release vX.Y.Z is published, merged while one
+    has merged without the release being published yet, and cut while one is open.
     """
     pull_requests = [
         pull_request
@@ -468,7 +480,7 @@ def release_state(store: RoadmapStore, release: Release, default_branch: str) ->
     states = {pull_request.state for pull_request in pull_requests}
     if PullRequestState.MERGED in states:
         published = store.release_published(release.title)
-        return ReleaseState.SHIPPED if published else ReleaseState.CUT
+        return ReleaseState.SHIPPED if published else ReleaseState.MERGED
     return ReleaseState.CUT if PullRequestState.OPEN in states else ReleaseState.STARTED
 
 
@@ -1648,12 +1660,13 @@ def _branch_writes(run: _Run, starting: str) -> list[ReleaseWrite]:
 
 
 def _is_cut(run: _Run, title: str) -> bool:
-    """Whether the Release titled `title` is cut: its release pull request is open, or merged
-    with the release not yet published. False for one the run creates."""
+    """Whether the Release titled `title` is cut or merged: its release pull request is open, or
+    merged with the release not yet published. False for one the run creates."""
     release = find_release(run.releases, title)
     if release is None:
         return False
-    return release_state(run.store, release, run.default_branch.name) is ReleaseState.CUT
+    state = release_state(run.store, release, run.default_branch.name)
+    return state in (ReleaseState.CUT, ReleaseState.MERGED)
 
 
 def _fill_or_trim(
@@ -1661,7 +1674,7 @@ def _fill_or_trim(
 ) -> tuple[list[Decision], list[tuple[Item, str]]]:
     """Top the starting release up to the cap, or trim it down to it; with the backlog items a
     person took out of a Release, which stay out (`_candidates`). A release a person cut before
-    any run started it is topped up with nothing: nothing joins a cut release."""
+    any run started it, its release pull request open or merged, is topped up with nothing."""
     cap = run.config.release_cap
     if len(kept) < cap and _is_cut(run, starting):
         return [], []
