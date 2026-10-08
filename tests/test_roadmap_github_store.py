@@ -156,6 +156,7 @@ class RecordedGh:
             "item-add",
             "item-create",
             "item-delete",
+            "item-archive",
             "field-delete",
             "create",
             "link",
@@ -833,6 +834,103 @@ def test_adding_an_issue_already_on_the_board_returns_its_existing_card() -> Non
     )
     added = store.add_item(737)
     assert (added.card_id, added.status, added.priority) == (CARD_737, "Done", "P1-High")
+
+
+def _archived_card(**card: str) -> tuple[GitHubFake, GitHubRoadmapStore]:
+    """Open issue #7, whose card a person archived holding `card`'s fields, and a store over
+    it; the board's listing leaves the card out, so #7 is a candidate."""
+    github = GitHubFake(REPO)
+    github.seed_issue(7, "feat: archived by a person", card=card)
+    (github.card(7) or {})["isArchived"] = True
+    return github, GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+
+
+def _project_commands(github: GitHubFake) -> list[list[str]]:
+    return [args[1:] for args in github.calls if args[0] == "project"]
+
+
+def test_adding_an_issue_whose_card_is_archived_restores_that_card_with_its_fields() -> None:
+    """`item-add` names the archived card. The store reads it once, restores it with one
+    `item-archive --undo` by its node id, and returns it with the fields it holds; a later store
+    lists it, so the issue is no longer a candidate (#1403). Without the restore, every round
+    raised "Board #2 does not hold card PVTI_7 that #7 was just added as."."""
+    github, store = _archived_card(status="Ready", value="High")
+    candidates = [candidate.number for candidate in store.candidates()]
+    added = store.add_item(7)
+    later = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    assert (
+        candidates,
+        _project_commands(github),
+        sum("RoadmapBoardCard" in " ".join(args) for args in github.calls),
+        (added.restored, added.card_id, added.status, added.value),
+        [candidate.number for candidate in later.candidates()],
+        [(item.number, item.status, item.value) for item in later.items()],
+    ) == (
+        [7],
+        [
+            [
+                "item-add",
+                "2",
+                "--owner",
+                "dan-petty",
+                "--url",
+                f"{ISSUE_URL}/7",
+                "--format",
+                "json",
+            ],
+            [
+                "item-archive",
+                "2",
+                "--owner",
+                "dan-petty",
+                "--id",
+                "PVTI_7",
+                "--undo",
+                "--format",
+                "json",
+            ],
+        ],
+        1,
+        (True, "PVTI_7", "Ready", "High"),
+        [],
+        [(7, "Ready", "High")],
+    )
+
+
+def test_adding_an_issue_whose_card_is_on_the_board_restores_nothing() -> None:
+    github = GitHubFake(REPO)
+    github.seed_issue(7, card={"status": "Ready"})
+    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    added = store.add_item(7)
+    assert ([args[0] for args in _project_commands(github)], added.status, added.restored) == (
+        ["item-add"],
+        "Ready",
+        False,
+    )
+
+
+def test_a_restore_that_answers_with_another_card_raises_before_any_edit() -> None:
+    """Fail closed: the store returns the card it restored only when gh names that card."""
+    github, store = _archived_card(status="Ready")
+    other = {"id": "PVTI_other", "title": "Issue 8", "type": "Issue"}
+    with patch.object(github, "_unarchive", return_value=other):
+        with pytest.raises(GitHubOperationError, match="answered with card PVTI_other"):
+            store.add_item(7)
+    assert [args[0] for args in _project_commands(github)] == ["item-add", "item-archive"]
+
+
+def test_a_restore_refuses_while_the_card_read_leaves_fewer_points_than_the_reserve() -> None:
+    """`item-add` is sent, and GitHub answers it with the card the issue has; the card read then
+    reports fewer points than the reserve, so the restore is refused and the card stays
+    archived."""
+    github, store = _archived_card(status="Ready")
+    github.board.remaining = DEFAULT_GH_GRAPHQL_BUDGET_FLOOR
+    with pytest.raises(GitHubRateLimitError, match="stopped before writing #7"):
+        store.add_item(7)
+    assert (
+        [args[0] for args in _project_commands(github)],
+        (github.card(7) or {}).get("isArchived"),
+    ) == (["item-add"], True)
 
 
 def test_an_added_card_joins_the_listing_the_store_already_read() -> None:

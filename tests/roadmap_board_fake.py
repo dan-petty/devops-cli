@@ -15,9 +15,11 @@ writes, each applied to what later reads return. It also answers the project met
 `gh api rate_limit` with a full quota that resets in a minute. It keeps every argv, and charges
 each GraphQL request the points GitHub's own estimate (`rateLimit(dryRun: true)`, board #2,
 2026-10-08) gives its shape (`GRAPHQL_POINTS`). Closing an issue runs the board's built-in
-"Item closed" workflow, which sets its card's Status to Done. Neither starts `gh` or opens a
-socket. `GitHubFake.process` stands in for `subprocess.run` itself, answering `gh` and passing
-every other program, such as `git`, to the real one.
+"Item closed" workflow, which sets its card's Status to Done. `item-add` names the card an issue
+already has, archived or not, and `item-archive --undo` restores an archived one with its fields
+(#1403). Neither starts `gh` or opens a socket. `GitHubFake.process` stands in for
+`subprocess.run` itself, answering `gh` and passing every other program, such as `git`, to the
+real one.
 """
 
 from __future__ import annotations
@@ -217,10 +219,10 @@ GRAPHQL_POINTS: dict[str, int] = {
 a query that pages no board items, such as the fields, a one-card read or a page of the store's
 board query, and a mutation cost about 1 point. `gh project field-list`, and `gh project
 item-edit` given `--url` or `--field`, first fetch the board's first 100 items with all their
-field values (`ProjectFields`, `firstItems` 100): about 101 more. `gh project item-add` and
-`item-create` are charged as one mutation, though gh first resolves the board's owner and the
-board, and for an add the issue, with small queries of its own that this fake leaves out, so its
-totals for a placement are a floor of a few points under GitHub's."""
+field values (`ProjectFields`, `firstItems` 100): about 101 more. `gh project item-add`,
+`item-create` and `item-archive` are charged as one mutation, though gh first resolves the
+board's owner and the board, and for an add the issue, with small queries of its own that this
+fake leaves out, so its totals for a placement are a floor of a few points under GitHub's."""
 
 BOARD_ID = "PVT_board"
 OPTIONS: dict[str, tuple[str, ...]] = {
@@ -429,6 +431,8 @@ class GitHubFake:
             return {"id": card["id"], "title": card["content"]["title"], "type": "Issue"}
         if command == "item-edit":
             return self._edit(flags)
+        if command == "item-archive":
+            return self._unarchive(flags)
         if command == "item-create":
             card = {
                 "id": "PVTI_draft",
@@ -451,6 +455,16 @@ class GitHubFake:
         else:
             entry[key] = flags["--single-select-option-id"].split("/", 1)[1].replace("_", " ")
         return ""
+
+    def _unarchive(self, flags: dict[str, str]) -> dict[str, Any]:
+        """`item-archive --undo`: the card leaves the archive with its fields, printed as gh
+        prints it; the store never archives a card."""
+        assert "--undo" in flags, f"the store archived a card: {flags}"
+        entry = self.board.entry(flags["--id"])
+        assert entry is not None, f"no card {flags['--id']}"
+        entry.pop("isArchived", None)
+        content = entry["content"]
+        return {"id": entry["id"], "title": content["title"], "type": content["type"]}
 
     def _put_card(self, number: int, fields: dict[str, str], *, lag: int = 0) -> dict[str, Any]:
         issue = self.issues[number]

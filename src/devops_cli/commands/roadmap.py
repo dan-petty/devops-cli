@@ -407,6 +407,8 @@ def _intake(
     )
     for number in applied.filed:
         print_info(MESSAGES.roadmap.intake_filed.format(number=number))
+    for number in applied.finished:
+        print_info(MESSAGES.roadmap.intake_finished.format(number=number))
 
 
 @app.command("close", help=HELP.roadmap.close)

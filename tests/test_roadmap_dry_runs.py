@@ -197,6 +197,7 @@ def test_a_board_write_plans_its_card_read_and_an_edit_by_node_ids() -> None:
             "api repos/dan-petty/devops-cli/issues/7",
             "project item-add",
             "RoadmapBoardCard",
+            "project item-archive",
         ],
         "set_card_field": [
             "fields(first",
@@ -206,6 +207,34 @@ def test_a_board_write_plans_its_card_read_and_an_edit_by_node_ids() -> None:
         ],
         "remove_card": ["RoadmapBoardCard", "project item-delete"],
     }
+
+
+def test_an_add_plans_the_restore_of_the_card_it_names_only_when_that_card_is_archived(
+    no_requests: None,
+) -> None:
+    """The restore is `item-archive --undo` of the card the add names, a GraphQL write under
+    its own condition; intake's placement lists it under its add, and the dry run that lists it
+    makes no request (#1403)."""
+    from devops_cli.roadmap.intake import dry_run_intake
+
+    restore = StoreRequests(REPO).add_item("#7")[-1]
+    writes = dry_run_intake(REPO, ref="main", issues=(7,)).writes
+    added = next(i for i, r in enumerate(writes) if "item-add" in r.argv)
+    archived = MESSAGES.roadmap.plan_conditions["card_archived"]
+    assert (
+        restore.argv[1:],
+        (restore.method, restore.condition),
+        _shape(writes[added + 2]),
+        archived in writes[added + 2].condition,
+        writes[added + 2].target == writes[added].target,
+    ) == (
+        ("project", "item-archive", "<board>", "--owner", "dan-petty", "--id", "<card id>")
+        + ("--undo", "--format", "json"),
+        ("GraphQL write", archived),
+        "project item-archive",
+        True,
+        True,
+    )
 
 
 def test_the_run_record_card_a_run_creates_is_written_with_no_read_after_its_create() -> None:

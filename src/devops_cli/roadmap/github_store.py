@@ -24,7 +24,9 @@ Every board write is `gh project item-edit` by node ids (`--id`, `--project-id`,
 and an option's id), which sends only the mutation; given a card's URL or a field's name, gh
 first reads the board's first 100 items with all their field values, about 101 points.
 `item-add` and `item-create` return the card they make (`--format json`), which the store writes
-to without looking for it in a listing that can lag the add by minutes.
+to without looking for it in a listing that can lag the add by minutes. `item-add` names the card
+an issue already has, archived or not: the store reads that card once and restores an archived one
+with `gh project item-archive --undo`, so it comes back with the fields it holds (#1403).
 
 The board's own shape (its node id, its fields with their option ids, colors and descriptions,
 and its workflows) comes from GraphQL. So do the default branch, pull requests with their last
@@ -102,6 +104,7 @@ from devops_cli.roadmap.board_read import (
 )
 from devops_cli.roadmap.store import (
     BOARD_FIELDS,
+    AddedItem,
     Board,
     BoardEntry,
     BoardField,
@@ -542,7 +545,8 @@ class _BoardItemPayload(BaseModel):
 
 
 class _AddedCardPayload(BaseModel):
-    """What `gh project item-add` or `item-create` prints with `--format json`: the card it made."""
+    """What `gh project item-add`, `item-create` or `item-archive --undo` prints with `--format
+    json`: the card it made, named or restored."""
 
     id: str
 
@@ -1045,6 +1049,22 @@ def item_delete_args(owner: str, number: Number, card_id: str) -> list[str]:
     return ["project", "item-delete", str(number), "--owner", owner, "--id", card_id]
 
 
+def item_unarchive_args(owner: str, number: Number, card_id: str) -> list[str]:
+    """`gh project item-archive --undo` of card `card_id`, printing the card it restores."""
+    return [
+        "project",
+        "item-archive",
+        str(number),
+        "--owner",
+        owner,
+        "--id",
+        card_id,
+        "--undo",
+        "--format",
+        "json",
+    ]
+
+
 GRAPHQL_INPUT_ARGS: tuple[str, ...] = ("api", "graphql", "--input", "-")
 """A GraphQL write, its request on stdin, so option lists need no flag encoding."""
 
@@ -1384,11 +1404,12 @@ class GitHubRoadmapStore(RoadmapStore):
             details={"repo": self._repo[:256]},
         )
 
-    def add_item(self, number: int) -> Item:
+    def add_item(self, number: int) -> AddedItem:
         """Put issue `number` on the board and return its Item, raising if it is not an issue
         of this repository. The card is the one `item-add` names, the issue's own when it is on
-        the board already, and its fields come from one read of that card, never from the board
-        listing, which can show a new card minutes late."""
+        the board already, restored and marked `restored` when it is archived, and its fields
+        come from one read of that card, never from the board listing, which can show a new card
+        minutes late."""
         owner, board_number = self._require_board()
         issue = self._read_issue(number)
         if issue.pull_request is not None:
@@ -1401,16 +1422,10 @@ class GitHubRoadmapStore(RoadmapStore):
             item_add_args(owner, board_number, issue.html_url), f"add #{number} to the board"
         )
         added = self._validate(written, _ADDED_CARD, f"card of #{number} after it was added")
-        card, _ = self._read_card(added.id, f"#{number}")
-        if card is None or card.content_number != number:
-            raise GitHubOperationError(
-                f"Board #{board_number} does not hold card {added.id} that #{number} was just "
-                "added as.",
-                operation="roadmap.item.add",
-                details={"repo": self._repo[:256], "number": number, "card": added.id[:256]},
-            )
+        card, restored = self._active_card(added.id, number)
         self._added(card, is_open=issue.state is GitHubState.OPEN)
-        return join_items([issue.record()], {number: card.entry()})[0]
+        item = join_items([issue.record()], {number: card.entry()})[0]
+        return AddedItem.model_validate(item.model_dump() | {"restored": restored})
 
     def set_field(
         self,
@@ -1906,9 +1921,48 @@ class GitHubRoadmapStore(RoadmapStore):
         self._remember(card.id, CONST_GH_PROJECT_JOB_RECORD_FIELD, card.job_record_text())
         return card
 
+    def _active_card(self, card_id: str, number: int) -> tuple[_BoardItemPayload, bool]:
+        """Card `card_id`, which `item-add` named for issue `number`, from one read by its node
+        id, restored with `item-archive --undo` when it is archived, and whether it was;
+        raising when it is gone or another issue's, when the read leaves fewer points than the
+        reserve before a restore, or when the restore names another card. A person archived it,
+        as nothing here archives a card: the restore undoes only that, and the card keeps its
+        fields (#1403)."""
+        owner, board_number = self._require_board()
+        read = self._read_card_node(card_id, f"#{number}")
+        card = self._card_payload(read.listed(archived=True), f"#{number}")
+        if card is None or card.content_number != number:
+            raise GitHubOperationError(
+                f"Board #{board_number} does not hold card {card_id} that #{number} was just "
+                "added as.",
+                operation="roadmap.item.add",
+                details={"repo": self._repo[:256], "number": number, "card": card_id[:256]},
+            )
+        if read.is_archived():
+            require_write_floor(read.rate_limit, f"#{number}")
+            written = self._write(
+                item_unarchive_args(owner, board_number, card_id),
+                f"restore the archived card of #{number}",
+            )
+            restored = self._validate(written, _ADDED_CARD, f"card of #{number} it restored")
+            if restored.id != card_id:
+                raise GitHubOperationError(
+                    f"Restoring card {card_id} of #{number} on board #{board_number} answered "
+                    f"with card {restored.id[:256]}.",
+                    operation="roadmap.item.add",
+                    details={"repo": self._repo[:256], "number": number, "card": card_id[:256]},
+                )
+        return card, read.is_archived()
+
     def _read_card(self, card_id: str, name: str) -> tuple[_BoardItemPayload | None, GraphQLBudget]:
         """Card `card_id` from one GraphQL read by its node id, None when GitHub holds no such
         card or it is archived, and the budget the read reported; any other failure raises."""
+        read = self._read_card_node(card_id, name)
+        return self._card_payload(read.listed(), name), read.rate_limit
+
+    def _read_card_node(self, card_id: str, name: str) -> BoardCardPayload:
+        """GitHub's answer to one read of card `card_id` by its node id, its budget noted; a
+        failure other than GitHub holding no such card raises."""
         what = f"the card of {name}"
         proc = self._run(board_card_args(card_id))
         if proc.returncode == 0:
@@ -1916,9 +1970,13 @@ class GitHubRoadmapStore(RoadmapStore):
         else:
             read = self._gone_card(proc, what)
         self._note_budget(read.rate_limit)
-        listed = read.listed()
-        card = None if listed is None else self._validate(json.dumps(listed), _BOARD_ITEM, what)
-        return card, read.rate_limit
+        return read
+
+    def _card_payload(self, listed: dict[str, Any] | None, name: str) -> _BoardItemPayload | None:
+        """A card read's item as the store holds a listed card, or None."""
+        if listed is None:
+            return None
+        return self._validate(json.dumps(listed), _BOARD_ITEM, f"the card of {name}")
 
     def _gone_card(self, proc: subprocess.CompletedProcess[str], what: str) -> BoardCardPayload:
         """A failed card read's answer when GitHub says only that the node does not exist, which
@@ -2334,6 +2392,7 @@ __all__ = [
     "item_add_args",
     "item_delete_args",
     "item_edit_args",
+    "item_unarchive_args",
     "label_args",
     "listing_page_args",
     "milestone_args",

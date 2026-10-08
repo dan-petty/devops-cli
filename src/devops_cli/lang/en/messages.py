@@ -1431,6 +1431,7 @@ class RoadmapMessages:
             "comment": "comment on {subject}",
             "label": "label {subject}",
             "add_item": "add {subject} to board {board}",
+            "unarchive_card": "restore {subject}'s archived card on board {board}",
             "close_issue": "close {subject}",
             "close_duplicate": "close {subject} as a duplicate",
             "create_issue": "open an issue for {subject}",
@@ -1472,6 +1473,7 @@ class RoadmapMessages:
                 "issue"
             ),
             "fields_unread": "the run has not read the board's fields yet",
+            "card_archived": "the card the add names is archived",
             "closing": "a shipped release's milestone is still open",
             "release_named": "the value is a Release",
             "board": "the configured board exists",
@@ -1795,12 +1797,17 @@ class RoadmapMessages:
             "release": "the placement changes it",
             "field": "it has none",
             "comment": "intake's is not there",
+            "priority": "it has none",
             "duplicate": "{subject} is a duplicate instead of placed",
             "duplicate_comment": "intake's is not there",
         }
     )
     intake_applied: str = "Intake placed {placed} item(s) and closed {closed} duplicate(s)."
     intake_filed: str = "Filed #{number}."
+    intake_finished: str = (
+        "#{number}'s card holds a Priority, so it was already placed: the add restored the "
+        "card if a person had archived it, and intake wrote nothing else to it."
+    )
     triage_no_board: str = (
         "This repository has no .github/roadmap.toml, so issues awaiting intake are not reported."
     )

@@ -15,9 +15,10 @@ having spent nothing on pages, and a read stops before any page while fewer than
 left.
 
 A write reads only the card it writes (#1361): `RoadmapBoardCard` reads one item by its node id,
-with the same item fields a page holds and `rateLimit`, for about one point whatever the board's
-size, and a write refuses before it starts while fewer than the floor are left. The documents are
-fixed templates, validated against GitHub's public schema in a test.
+archived or not, with the same item fields a page holds and `rateLimit`, for about one point
+whatever the board's size, and a write refuses before it starts while fewer than the floor are
+left. A write leaves an archived card alone; the add that names an issue's archived card restores
+it (#1403). The documents are fixed templates, validated against GitHub's public schema in a test.
 
 This module only builds `gh` arguments and reads payloads; the store runs them, so a request plan
 can list the same argv the store sends.
@@ -255,11 +256,15 @@ class BoardCardPayload(BaseModel):
             and all(error.type == "NOT_FOUND" for error in self.errors)
         )
 
-    def listed(self) -> dict[str, Any] | None:
-        """The item shaped as `gh project item-list` lists it, or None when it is archived, gone
-        or not a board item."""
+    def is_archived(self) -> bool:
+        """Whether the item is on the board but archived."""
+        return bool((self.node or {}).get("isArchived"))
+
+    def listed(self, *, archived: bool = False) -> dict[str, Any] | None:
+        """The item shaped as `gh project item-list` lists it, or None when it is gone or not a
+        board item, or archived unless `archived`."""
         node = self.node or {}
-        if "id" not in node or node.get("isArchived"):
+        if "id" not in node or (self.is_archived() and not archived):
             return None
         return listing_item(node)
 

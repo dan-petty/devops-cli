@@ -6,12 +6,13 @@ change fields and record changes under their name, but never touch the job recor
 option names, and `edit_options_by_hand` renames or clears them by option id, as GitHub's
 cards, which hold option ids, show after a person edits a field's options in its settings.
 
-A person also opens, closes and merges pull requests, publishes GitHub Releases, closes and
-reopens issues and adds blocked-by links through the helpers below; each records the change a
-poll would find. `seed_evidence` makes a piece of evidence one GitHub confirms. Every
-write the store makes as a job, not as a person, is kept in `job_writes`, so a test can check
-what a job wrote and that a preview wrote nothing. The only draft issue the board holds is the
-run record card, once a job has written the run record.
+A person also opens, closes and merges pull requests, publishes GitHub Releases, closes and reopens
+issues and adds blocked-by links through the helpers below; each records the change a poll would
+find. A person's `archive_card` takes a card off every read with its fields and job record, and
+`add_item` restores it, marked `restored`, as GitHub's board does (#1403). `seed_evidence` makes
+a piece of evidence one GitHub confirms. Every write the store makes as a job, not as a person, is
+kept in `job_writes`, so a test can check what a job wrote and that a preview wrote nothing. The
+only draft issue the board holds is the run record card, once a job has written the run record.
 
 Each view holds every card as it last read it, with its own writes: a job's write of a field a
 person changed since raises before it changes anything, as the GitHub adapter's does against
@@ -42,6 +43,7 @@ from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationEr
 from devops_cli.roadmap.store import (
     BOARD_FIELDS,
     RELEASE_CHANGE_KINDS,
+    AddedItem,
     Board,
     BoardEntry,
     BoardField,
@@ -135,6 +137,8 @@ class _Roadmap:
     releases: dict[int, Release] = field(default_factory=dict)
     issues: dict[int, IssueRecord] = field(default_factory=dict)
     cards: dict[int, BoardEntry] = field(default_factory=dict)
+    # The cards a person archived, by issue number: in no read, and restored by an add.
+    archived: dict[int, BoardEntry] = field(default_factory=dict)
     changes: list[Change] = field(default_factory=list)
     comments: dict[int, list[str]] = field(default_factory=dict)
     files: dict[tuple[str, str | None], str] = field(default_factory=dict)
@@ -320,6 +324,18 @@ class InMemoryRoadmapStore(RoadmapStore):
             )
             self._closure(number, ChangeKind.REOPENED)
             self._record(ChangeKind.REOPENED, number, issue.release)
+
+    def archive_card(self, number: int) -> None:
+        """Archive issue `number`'s card, as a person does on the board: it keeps its fields
+        and job record and leaves every read, so the issue is a candidate again."""
+        entry = self._roadmap.cards.pop(number, None)
+        if entry is None:
+            raise GitHubOperationError(
+                f"#{number} is not on the board.",
+                operation="roadmap.card.archive",
+                details={"number": number},
+            )
+        self._roadmap.archived[number] = entry
 
     def close_by_hand(self, number: int, reason: CloseReason) -> None:
         """Close an issue without a comment, as a person's bulk close does on GitHub."""
@@ -620,9 +636,10 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     # ── Item writes ──
 
-    def add_item(self, number: int) -> Item:
+    def add_item(self, number: int) -> AddedItem:
         """Put issue `number` on the board and return its Item, raising if it is not an issue
-        of this repository; an issue already on the board keeps its card."""
+        of this repository; an issue already on the board keeps its card, and an archived card
+        is restored with its fields and marked `restored`."""
         self._require_board()
         issue = self._roadmap.issues.get(number)
         if issue is None or issue.pull_request:
@@ -631,9 +648,12 @@ class InMemoryRoadmapStore(RoadmapStore):
                 operation="roadmap.item.add",
                 details={"number": number},
             )
-        self._read.setdefault(number, self._roadmap.cards.setdefault(number, _entry(number)))
+        archived = self._roadmap.archived.pop(number, None)
+        card = self._roadmap.cards.setdefault(number, archived or _entry(number))
+        self._read.setdefault(number, card)
         self._log("add_item", number)
-        return join_items([issue], self._roadmap.cards)[0]
+        item = join_items([issue], self._roadmap.cards)[0]
+        return AddedItem.model_validate(item.model_dump() | {"restored": archived is not None})
 
     def set_field(
         self,

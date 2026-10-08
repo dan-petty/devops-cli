@@ -277,6 +277,13 @@ class Item(BaseModel):
         return cast(str | None, getattr(self, field.name.lower()))
 
 
+class AddedItem(Item):
+    """The Item `add_item` returns: `restored` when the card the add named was one a person
+    archived, which the add brought back with the fields and job record it holds (#1403)."""
+
+    restored: bool = False
+
+
 class Change(BaseModel):
     """One change to an Item or a Release, with who made it and when.
 
@@ -774,10 +781,12 @@ class RoadmapStore(Protocol):
         """The Item changes made at or after `since`, oldest first, leaving out those
         `except_actor` made; those cost no read of the board."""
 
-    def add_item(self, number: int) -> Item:
+    def add_item(self, number: int) -> AddedItem:
         """Put issue `number` on the board and return it as the Item its card makes it, raising
         if it is not an issue of this repository. An issue already on the board keeps its card,
-        which is returned."""
+        which is returned. A card a person archived is restored and returned, marked
+        `restored`, with the fields and job record it holds: the board keeps one card for each
+        issue, so an add can't make another (#1403)."""
 
     def set_field(
         self,
@@ -993,6 +1002,7 @@ def get_roadmap_store(
 __all__ = [
     "BOARD_FIELDS",
     "RELEASE_CHANGE_KINDS",
+    "AddedItem",
     "Board",
     "BoardEntry",
     "BoardField",
