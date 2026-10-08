@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import contextlib
 import logging
 import os
@@ -13,6 +14,7 @@ from typing import Any
 from devops_cli.config.defaults import (
     DEFAULT_K8S_CACHE_TTL_SECONDS,
     DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS,
+    DEFAULT_LOG_MAX_LINE_CHARS,
     DEFAULT_LOG_TAIL_LINES,
 )
 from devops_cli.exceptions.k8s import KubernetesContextError
@@ -20,6 +22,25 @@ from devops_cli.k8s.context import resolve_context
 from devops_cli.security.sanitizer import mask_secrets
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_line(buffer: str, max_line_chars: int) -> tuple[str | None, str]:
+    """Extract one line if a newline or length boundary is met."""
+    idx = buffer.find("\n")
+    if 0 <= idx <= max_line_chars:
+        return buffer[:idx], buffer[idx + 1 :]
+    if idx > max_line_chars or len(buffer) > max_line_chars:
+        return buffer[:max_line_chars], buffer[max_line_chars:]
+    return None, buffer
+
+
+def _flush_buffer(buffer: str, max_line_chars: int) -> Iterator[str]:
+    """Yield remaining buffer sliced to max_line_chars."""
+    while len(buffer) > max_line_chars:
+        yield buffer[:max_line_chars]
+        buffer = buffer[max_line_chars:]
+    if buffer:
+        yield buffer
 
 
 class PodLogStream:
@@ -31,13 +52,26 @@ class PodLogStream:
     its connection, as the client's own watch does.
     """
 
-    def __init__(self, response: Any) -> None:
+    def __init__(self, response: Any, max_line_chars: int = DEFAULT_LOG_MAX_LINE_CHARS) -> None:
         self._response = response
+        self._max_line_chars = max_line_chars
 
     def __iter__(self) -> Iterator[str]:
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        buffer = ""
         try:
             for chunk in self._response.stream():
-                yield chunk.decode("utf-8") if isinstance(chunk, bytes) else str(chunk)
+                text = (
+                    decoder.decode(chunk, final=False) if isinstance(chunk, bytes) else str(chunk)
+                )
+                buffer += text
+                while True:
+                    line, buffer = _extract_line(buffer, self._max_line_chars)
+                    if line is None:
+                        break
+                    yield line
+            buffer += decoder.decode(b"", final=True)
+            yield from _flush_buffer(buffer, self._max_line_chars)
         finally:
             self._response.close()
             self._response.release_conn()
@@ -277,7 +311,7 @@ class KubernetesService:
         tail_lines: int = DEFAULT_LOG_TAIL_LINES,
         follow: bool = False,
         context: str | None = None,
-    ) -> str | PodLogStream:
+    ) -> PodLogStream:
         """Read pod logs natively via CoreV1Api without spawning kubectl logs."""
         if not self.load_config(context=context):
             raise KubernetesContextError("Kubernetes client configuration is not available.")
@@ -288,14 +322,14 @@ class KubernetesService:
             "namespace": namespace,
             "tail_lines": bounded_tail,
             "follow": follow,
-            "_preload_content": not follow,
+            "_preload_content": False,
         }
         if container:
             kwargs["container"] = container
 
         try:
             resp = self._core_v1.read_namespaced_pod_log(**kwargs)
-            return PodLogStream(resp) if follow else str(resp)
+            return PodLogStream(resp)
         except Exception as exc:
             raise KubernetesContextError(
                 f"Failed to read pod logs for '{pod}': {mask_secrets(str(exc))}"

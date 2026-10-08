@@ -12,6 +12,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.argo import _validate_k8s_name
 from devops_cli.commands.argo import app as argo_app
 from devops_cli.config.settings import Settings
+from devops_cli.k8s.service import KubernetesService
 from devops_cli.main import app as main_app
 
 runner = CliRunner()
@@ -420,3 +421,49 @@ def test_argo_rollout_state_from_manifest_safe_step() -> None:
     manifest["status"]["currentStepIndex"] = "invalid"
     state_invalid = ArgoRolloutState.from_manifest(manifest)
     assert (state_invalid.current_step,) == (None,)
+
+
+def test_argo_workflows_logs_without_follow() -> None:
+    """Verify argo workflows logs without --follow prints framed lines after pod header."""
+    mock_crd_api = MagicMock()
+    mock_crd_api.get_namespaced_custom_object.return_value = {
+        "metadata": {"name": "my-wf", "namespace": "argocd"},
+        "status": {"phase": "Succeeded", "nodes": {"node-pod-1": {"type": "Pod"}}},
+    }
+    svc = KubernetesService.get_instance()
+    mock_resp = MagicMock()
+    mock_resp.stream.return_value = [b"a\nb\n"]
+    mock_core = MagicMock()
+    mock_core.read_namespaced_pod_log.return_value = mock_resp
+
+    with (
+        patch("devops_cli.argo.crd.ArgoCRDService._api", return_value=mock_crd_api),
+        patch.object(svc, "load_config", return_value=True),
+    ):
+        svc._core_v1 = mock_core
+        res = runner.invoke(argo_app, ["workflows", "logs", "my-wf", "--namespace", "argocd"])
+        assert (res.exit_code, res.stdout) == (0, "── node-pod-1 ──\na\nb\n")
+
+
+def test_argo_workflows_logs_with_follow() -> None:
+    """Verify argo workflows logs with --follow prints framed lines across chunk boundaries."""
+    mock_crd_api = MagicMock()
+    mock_crd_api.get_namespaced_custom_object.return_value = {
+        "metadata": {"name": "my-wf", "namespace": "argocd"},
+        "status": {"phase": "Succeeded", "nodes": {"node-pod-1": {"type": "Pod"}}},
+    }
+    svc = KubernetesService.get_instance()
+    mock_resp = MagicMock()
+    mock_resp.stream.return_value = [b"a\nb", b"c\n"]
+    mock_core = MagicMock()
+    mock_core.read_namespaced_pod_log.return_value = mock_resp
+
+    with (
+        patch("devops_cli.argo.crd.ArgoCRDService._api", return_value=mock_crd_api),
+        patch.object(svc, "load_config", return_value=True),
+    ):
+        svc._core_v1 = mock_core
+        res = runner.invoke(
+            argo_app, ["workflows", "logs", "my-wf", "--namespace", "argocd", "--follow"]
+        )
+        assert (res.exit_code, res.stdout) == (0, "── node-pod-1 ──\na\nbc\n")

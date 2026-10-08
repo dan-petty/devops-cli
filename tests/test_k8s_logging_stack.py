@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -288,3 +290,74 @@ def test_logging_stack_security_and_scoping() -> None:
                 .get("kubernetes.io/metadata.name", "")
             )
             assert (ns_name != "ingress-nginx", "ipBlock" not in f) == (True, True)
+
+
+@pytest.mark.parametrize("follow", [False, True])
+def test_k8s_logs_native_streaming_framing_and_literals(follow: bool) -> None:
+    """Verify devops k8s logs writes each line via write_stdout without markup or wrapping."""
+    from devops_cli.k8s.service import KubernetesService
+
+    svc = KubernetesService.get_instance()
+    mock_resp = MagicMock()
+    mock_resp.stream.return_value = [
+        b"a\nb",
+        b"c\n",
+        b"literal [/bold] tags\n",
+        b"w" * 200 + b"\n",
+    ]
+    mock_core = MagicMock()
+    mock_core.read_namespaced_pod_log.return_value = mock_resp
+
+    args = ["logs", "pod-1", "-n", "default"]
+    if follow:
+        args.append("--follow")
+
+    with (
+        patch.object(svc, "load_config", return_value=True),
+        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
+        patch("devops_cli.commands.k8s.run_subprocess") as mock_subproc,
+    ):
+        svc._core_v1 = mock_core
+        res = runner.invoke(app, args)
+        assert (
+            res.exit_code,
+            res.stdout,
+            mock_cmd.called,
+            mock_subproc.called,
+        ) == (
+            0,
+            f"a\nbc\nliteral [/bold] tags\n{'w' * 200}\n",
+            False,
+            False,
+        )
+
+
+def test_k8s_logs_mid_body_error_raises_without_fallback() -> None:
+    """Verify mid-body error in non-follow mode raises without fallback to kubectl."""
+    from devops_cli.k8s.service import KubernetesService
+
+    svc = KubernetesService.get_instance()
+
+    def stream_with_error() -> Iterator[bytes]:
+        yield b"head-line\n"
+        raise RuntimeError("mid-stream failure")
+
+    mock_resp = MagicMock()
+    mock_resp.stream.return_value = stream_with_error()
+    mock_core = MagicMock()
+    mock_core.read_namespaced_pod_log.return_value = mock_resp
+
+    with (
+        patch.object(svc, "load_config", return_value=True),
+        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
+        patch("devops_cli.commands.k8s.run_subprocess") as mock_subproc,
+    ):
+        svc._core_v1 = mock_core
+        res = runner.invoke(app, ["logs", "pod-1", "-n", "default"])
+        assert (
+            res.exit_code != 0,
+            isinstance(res.exception, RuntimeError),
+            "head-line\n" in res.stdout,
+            mock_cmd.called,
+            mock_subproc.called,
+        ) == (True, True, True, False, False)

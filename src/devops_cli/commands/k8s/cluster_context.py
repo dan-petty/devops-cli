@@ -286,7 +286,33 @@ def _render_logql_results(result: Any, output_format: str) -> None:
         print(f"{ns_pod}{escaped_line}{trace_badge}")
 
 
-def _execute_legacy_kubectl_logs(  # noqa: C901
+def _stream_native_pod_logs(
+    pod: str,
+    namespace: str | None,
+    container: str | None,
+    bounded_tail: int,
+    follow: bool,
+) -> bool:
+    """Stream pod logs via native Kubernetes API, returning True on success."""
+    try:
+        from devops_cli.k8s.service import KubernetesService
+
+        log_stream = KubernetesService.get_instance().read_pod_logs(
+            pod=pod,
+            namespace=namespace or "default",
+            container=container,
+            tail_lines=bounded_tail,
+            follow=follow,
+        )
+    except Exception:
+        return False
+
+    for line in log_stream:
+        write_stdout(f"{line}\n")
+    return True
+
+
+def _execute_legacy_kubectl_logs(
     pod: str,
     container: str | None,
     namespace: str | None,
@@ -316,24 +342,8 @@ def _execute_legacy_kubectl_logs(  # noqa: C901
         )
         return
 
-    try:
-        from devops_cli.k8s.service import KubernetesService
-
-        log_output = KubernetesService.get_instance().read_pod_logs(
-            pod=pod,
-            namespace=namespace or "default",
-            container=container,
-            tail_lines=bounded_tail,
-            follow=follow,
-        )
-        if follow and not isinstance(log_output, str):
-            for line in log_output:
-                print(line, end="")
-        else:
-            print(str(log_output))
+    if _stream_native_pod_logs(pod, namespace, container, bounded_tail, follow):
         return
-    except Exception:
-        pass
 
     if follow:
         runtime.run_subprocess(
