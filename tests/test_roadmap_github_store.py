@@ -562,17 +562,30 @@ def test_a_board_without_a_job_record_field_raises_before_any_write() -> None:
 
 
 def test_placing_an_item_in_a_release_records_it_then_sets_its_milestone() -> None:
+    current_issue = {**ISSUES_IN_RELEASE[1], "milestone": None}
+
+    def patch_or_read(args: list[str]) -> dict[str, Any]:
+        if "-X" in args and "PATCH" in args:
+            for arg in args:
+                if "milestone=" in arg:
+                    val = arg.split("milestone=")[1]
+                    current_issue["milestone"] = (
+                        None if val == "null" else ISSUES_IN_RELEASE[1]["milestone"]
+                    )
+        return current_issue
+
     store, runner = board_store(
         {
             "fields(first": ITEM_FIELDS,
             BOARD_READ: BoardServer(on_board(739)),
             "milestones?state=all": MILESTONES,
-            "-X PATCH": ISSUES_IN_RELEASE[1],
+            "-X PATCH": patch_or_read,
+            "issues/739": lambda _: current_issue,
             "item-edit": "",
         }
     )
     store.set_field(board_item(739), ItemField.RELEASE, "0.2.25")
-    store.set_field(board_item(739), ItemField.RELEASE, None)
+    store.set_field(board_item(739, release="v0.2.25"), ItemField.RELEASE, None)
     assert [args[3:] if args[0] == "api" else args[7:] for args in runner.writes] == [
         [JOB_RECORD_ID, "--text", '{"Release": "v0.2.25"}'],
         [f"repos/{REPO}/issues/739", "-F", "milestone=43"],
@@ -615,6 +628,7 @@ def test_a_release_write_sends_one_card_read_one_edit_and_one_milestone_write() 
             BOARD_READ: BoardServer(BOARD),
             "milestones?state=all": MILESTONES,
             "-X PATCH": ISSUES_IN_RELEASE[2],
+            "issues/737": ISSUES_IN_RELEASE[2],
         }
     )
     store.set_field(board_item(737), ItemField.RELEASE, "v0.2.25")
@@ -675,6 +689,28 @@ def test_a_field_a_person_changed_after_the_listing_was_read_raises_before_any_e
         (github.card(7) or {})["priority"],
         {key: raised.value.details[key] for key in ("field", "read", "now")},
     ) == ([], "P1-High", {"field": "Priority", "read": "P2-Medium", "now": "P1-High"})
+
+
+def test_a_release_a_person_changed_after_the_listing_was_read_raises_before_any_edit() -> None:
+    github = GitHubFake(
+        REPO,
+        milestones=[
+            {"title": "v0.2.25", "number": 1, "state": "open"},
+            {"title": "v0.2.26", "number": 2, "state": "open"},
+        ],
+    )
+    github.seed_issue(7, card={})
+    store = GitHubRoadmapStore(REPO, board_owner="dan-petty", board_number=2, runner=github)
+    (item,) = store.items()
+    github.issues[7]["milestone"] = {"title": "v0.2.25", "number": 1, "state": "open"}
+    start = len(github.calls)
+    with pytest.raises(RoadmapCardChangedError, match="#7's Release") as raised:
+        store.set_field(item, ItemField.RELEASE, "v0.2.26")
+    assert (
+        _item_edits(github, start),
+        (github.card(7) or {}).get("release"),
+        {key: raised.value.details[key] for key in ("field", "read", "now")},
+    ) == ([], None, {"field": "Release", "read": None, "now": "v0.2.25"})
 
 
 def test_a_persons_change_stays_caught_after_the_store_wrote_another_field_of_its_card() -> None:

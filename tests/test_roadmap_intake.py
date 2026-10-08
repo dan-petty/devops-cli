@@ -535,7 +535,7 @@ def test_a_p0_feature_with_verified_evidence_lands_in_the_backlog_at_p0(roadmap:
 # ── Placement ─────────────────────────────────────────────────────────────────
 
 
-def test_a_planned_release_a_person_set_stands_and_the_current_release_goes_through_admission(
+def test_a_planned_or_current_release_a_person_set_stands_at_intake(
     roadmap: Roadmap,
 ) -> None:
     roadmap.store.seed_evidence(Evidence(kind=EvidenceKind.FAILED_RUN, value="4242"))
@@ -548,9 +548,9 @@ def test_a_planned_release_a_person_set_stands_and_the_current_release_goes_thro
     assert (
         roadmap.fields(planned)[4],
         roadmap.fields(current)[4],
-        "only a critical fix" in comment,
+        "a person placed it in" in comment,
         roadmap.fields(p0_feature)[1::3],
-    ) == (NEXT, None, True, ("P0-Critical", None))
+    ) == (NEXT, CURRENT, True, ("P0-Critical", CURRENT))
 
 
 # ── Untrusted text ────────────────────────────────────────────────────────────
@@ -686,9 +686,8 @@ def test_a_finished_card_a_person_archived_in_the_current_release_is_only_restor
     roadmap: Roadmap,
 ) -> None:
     """A person set #1 In Progress and P1-High in the current release, then archived its card,
-    so the listing leaves it out and #1 is a candidate again. Planning, which can't see the card,
-    sends an item of the current release that is not a critical fix to the backlog. The add
-    restores the card, which holds a Priority, so intake writes nothing more: the milestone
+    so the listing leaves it out and #1 is a candidate again. Planning keeps #1 in its release (#1349).
+    The add restores the card, which holds a Priority, so intake writes nothing more: the milestone
     stays, and there is no reason comment and no job record. At 833c467 the round cleared the
     milestone, wrote Status, Value, Effort and Priority over the card's and commented "to the
     backlog" (#1403)."""
@@ -709,7 +708,7 @@ def test_a_finished_card_a_person_archived_in_the_current_release_is_only_restor
         roadmap.item(number).job_record,
         (applied.placed, applied.finished),
     ) == (
-        [(number, True)],
+        [(number, False)],
         [("add_item", None)],
         ("In Progress", "P1-High", None, None, CURRENT),
         [],
@@ -1946,7 +1945,7 @@ def test_a_finished_card_a_person_archived_in_the_current_release_gets_only_its_
         {key: restored.get(key) for key in ("status", "priority", "job record", "isArchived")},
         (applied.placed, applied.finished),
     ) == (
-        [True],
+        [False],
         [["project", "item-add"], ["project", "item-archive"]],
         [],
         CURRENT,

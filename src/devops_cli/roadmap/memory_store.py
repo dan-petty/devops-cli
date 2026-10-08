@@ -42,6 +42,8 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_MEMORY_REPO,
 )
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
+from devops_cli.exceptions.roadmap import RoadmapCardChangedError
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.store import (
     BOARD_FIELDS,
     RELEASE_CHANGE_KINDS,
@@ -84,6 +86,7 @@ from devops_cli.roadmap.store import (
     join_items,
     parse_release_version,
     release_edits,
+    release_number,
     require_board_field,
     require_field,
     require_job_record_field,
@@ -669,8 +672,11 @@ class InMemoryRoadmapStore(RoadmapStore):
         board field a person changed since this view read the card raises, unless the card
         already holds `value`.
         """
+        operation = "roadmap.item.set_field"
+        if field is ItemField.RELEASE:
+            self._require_release_unchanged(item, value, operation)
         written = None if field is ItemField.RELEASE else field
-        entry = self._require_entry(item, "roadmap.item.set_field", written, value)
+        entry = self._require_entry(item, operation, written, value)
         if field is ItemField.RELEASE:
             recorded = self._place_in_release(item.number, value)
         else:
@@ -977,6 +983,39 @@ class InMemoryRoadmapStore(RoadmapStore):
         if field is not None:
             self._require_unchanged(entry, field, value, item.field_value(field), operation)
         return entry
+
+    def _require_release_unchanged(self, item: Item, target: str | None, operation: str) -> None:
+        """A job's write of `target` to Release raises when the issue holds another milestone
+        than this view read, compared by milestone number, unless it already holds `target`."""
+        if not self._writes_job_record:
+            return
+        issue = self._roadmap.issues[item.number]
+        now_title = issue.release
+        releases = self.releases()
+        read_num = release_number(releases, item.release)
+        now_num = release_number(releases, now_title)
+        target_num = release_number(releases, target)
+        if read_num != now_num and target_num != now_num:
+            if item.release == now_title:
+                texts = MESSAGES.roadmap
+                raise RoadmapCardChangedError(
+                    texts.card_changed.format(
+                        card=f"#{item.number}",
+                        field=ItemField.RELEASE.value,
+                        now=now_title or texts.card_value_unset,
+                        read=item.release or texts.card_value_unset,
+                    ),
+                    operation=operation,
+                    details={
+                        "card": f"#{item.number}"[:256],
+                        "field": ItemField.RELEASE.value,
+                        "read": item.release and item.release[:256],
+                        "now": now_title and now_title[:256],
+                    },
+                )
+            require_unchanged(
+                f"#{item.number}", ItemField.RELEASE, {item.release}, now_title, target, operation
+            )
 
     def _require_unchanged(
         self, entry: BoardEntry, field: ItemField, value: str | None, held: str | None, op: str

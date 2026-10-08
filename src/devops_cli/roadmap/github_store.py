@@ -85,6 +85,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_POLL_LISTING_PER_PAGE,
 )
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
+from devops_cli.exceptions.roadmap import RoadmapCardChangedError
 from devops_cli.github.projects import check_github_rate_limit_error
 from devops_cli.github.rate_limiter import gh_request_resource, run_gh
 from devops_cli.lang import MESSAGES
@@ -147,6 +148,7 @@ from devops_cli.roadmap.store import (
     is_release_title,
     join_items,
     release_edits,
+    release_number,
     release_title,
     require_board_field,
     require_field,
@@ -215,6 +217,9 @@ class _IssuePayload(BaseModel):
     state_reason: str | None = None
     labels: list[_NamedPayload] = Field(default_factory=list)
     release: str | None = Field(default=None, validation_alias=AliasPath("milestone", "title"))
+    milestone_number: int | None = Field(
+        default=None, validation_alias=AliasPath("milestone", "number")
+    )
     pull_request: dict[str, Any] | None = None
     node_id: str | None = None
     author_association: str | None = None
@@ -1551,6 +1556,7 @@ class GitHubRoadmapStore(RoadmapStore):
         if field is ItemField.RELEASE:
             target = self._release_for(value)
             recorded = target.title if target else None
+            self._require_release_unchanged(item, target, operation)
         else:
             require_option(options, field, value)
             recorded = value
@@ -1972,6 +1978,44 @@ class GitHubRoadmapStore(RoadmapStore):
         card = _BOARD_ITEM.validate_python({"id": created.id, "content": content})
         self._added(card, is_open=False)
         return card
+
+    def _require_release_unchanged(
+        self, item: Item, target: Release | None, operation: str
+    ) -> None:
+        """A job's write of `target` to Release raises when the issue holds another milestone
+        than this view read, compared by milestone number, unless it already holds `target`."""
+        current_issue = self._read_issue(item.number)
+        now_num = current_issue.milestone_number
+        releases = self.releases()
+        read_num = release_number(releases, item.release)
+        target_num = target.number if target is not None else None
+        if read_num != now_num and target_num != now_num:
+            now_title = current_issue.release
+            if item.release == now_title:
+                texts = MESSAGES.roadmap
+                raise RoadmapCardChangedError(
+                    texts.card_changed.format(
+                        card=f"#{item.number}",
+                        field=ItemField.RELEASE.value,
+                        now=now_title or texts.card_value_unset,
+                        read=item.release or texts.card_value_unset,
+                    ),
+                    operation=operation,
+                    details={
+                        "card": f"#{item.number}"[:256],
+                        "field": ItemField.RELEASE.value,
+                        "read": item.release and item.release[:256],
+                        "now": now_title and now_title[:256],
+                    },
+                )
+            require_unchanged(
+                f"#{item.number}",
+                ItemField.RELEASE,
+                {item.release},
+                now_title,
+                target.title if target else None,
+                operation,
+            )
 
     def _require_entry(
         self, item: Item, operation: str, field: ItemField | None = None, value: str | None = None

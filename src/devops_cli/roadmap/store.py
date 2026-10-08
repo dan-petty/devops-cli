@@ -153,6 +153,8 @@ class JobMark(StrEnum):
 
     In the run record: `STARTED` names the Release the job last started, or recorded at its
     first run, and `SIZE` gives that Release's size then; a first run writes `SIZE` last.
+    `JOINED` names the Release an Item entered as a person's join after its start or while cut,
+    by its milestone number.
     """
 
     ADMITTED = "Admitted"
@@ -161,6 +163,7 @@ class JobMark(StrEnum):
     PENDING = "Pending"
     STARTED = "Started"
     SIZE = "Size"
+    JOINED = "Joined"
 
 
 class PullRequestState(StrEnum):
@@ -539,6 +542,16 @@ def find_release(releases: Iterable[Release], version: str) -> Release | None:
     """The Release of `version`, whether or not it is written with a leading `v`."""
     wanted = parse_release_version(version)
     return next((release for release in releases if release.version == wanted), None)
+
+
+def release_number(releases: Iterable[Release], title: str | None) -> int | None:
+    """The milestone number of the Release titled `title`, or None when none matches."""
+    if title is None:
+        return None
+    for release in releases:
+        if release.title == title or in_release(title, release.version):
+            return release.number
+    return None
 
 
 def require_release(releases: Iterable[Release], version: str, operation: str) -> Release:
@@ -1062,6 +1075,7 @@ __all__ = [
     "parse_release_version",
     "release_cut_branch",
     "release_edits",
+    "release_number",
     "release_title",
     "require_board_field",
     "require_field",

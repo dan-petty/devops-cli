@@ -167,7 +167,6 @@ from devops_cli.roadmap.store import (
     ItemField,
     Release,
     RoadmapStore,
-    in_release,
 )
 from devops_cli.security.sanitizer import redact_text
 
@@ -923,10 +922,6 @@ def _placement(run: _Run, subject: Subject, labels: tuple[str, ...], priority: s
     if subject.release is not None:
         if subject.item is not None:
             return _resumed(subject.release)
-        if run.current is not None and in_release(subject.release, run.current.version):
-            if event is not Event.FIX_JOINED:
-                return _to_backlog(MESSAGES.roadmap.intake_reason_current_not_critical)
-            return _by_table(run, event, already_there=True)
         return _kept(
             subject.release, MESSAGES.roadmap.intake_reason_person.format(release=subject.release)
         )
