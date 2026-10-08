@@ -1378,6 +1378,7 @@ class RoadmapMessages:
             "card": "<card>",
             "new_board": "<new board>",
             "since": "<since>",
+            "shipped": "<shipped release>",
         }
     )
     plan_targets: dict[str, str] = field(
@@ -1478,6 +1479,11 @@ class RoadmapMessages:
             "not_planned": "the roadmap lists a rejected idea",
             "unfiled": "the rejected idea has no issue",
             "done": "the run is done: it comes after any write",
+            "read_issues": (
+                "a release is current, or a closed Release's milestone counts an open issue or "
+                "pull request"
+            ),
+            "shipped": "a closed Release holds an open issue no person reopened",
             "closes": "a merged pull request closes an open issue",
             "task_file": "the pull request changed a task file of the issue",
             "no_open": "the release holds no open item",
@@ -1495,6 +1501,9 @@ class RoadmapMessages:
             "merged": "for each merged pull request",
             "closing": "for each issue the run closes",
             "completed": "for each item closed as completed",
+            "shipped": (
+                "for each closed Release that holds an open issue no person reopened, oldest first"
+            ),
         }
     )
     # `devops roadmap close` (#743).
@@ -1522,6 +1531,14 @@ class RoadmapMessages:
         }
     )
     close_open_item: str = "- #{number} {title}"
+    close_shipped_heading: str = (
+        "## {release}, shipped: its milestone is closed and it still holds an open issue"
+    )
+    close_shipped_open: str = "Still open in {release}, holding no cut:"
+    close_shipped_reopened: str = (
+        "Reopened by a person in {release}, so closure leaves it open, holding no cut:"
+    )
+    close_current_heading: str = "## {release}, the current release"
     close_cut: str = "Cut: push {branch} and open the release pull request into {base}, '{title}'."
     close_cut_files: str = "The cut commit changes {files}."
     close_cut_fragments: str = (

@@ -242,7 +242,7 @@ sequenceDiagram
 
 ### Cadence C: Release Lifecycle & Orchestration
 
-Executed per scheduled release (patch/minor) or upon milestone completion. `devops roadmap close` closes each item delivered to the current release and cuts the release once it holds no open item; `devops release prepare <version> --create-pr` is the manual fallback.
+Executed per scheduled release (patch/minor) or upon milestone completion. `devops roadmap close` closes each item delivered to the current release, and to a closed release that still holds an open issue, and cuts the current release once it holds no open item; `devops release prepare <version> --create-pr` is the manual fallback.
 
 ```mermaid
 sequenceDiagram
@@ -259,7 +259,7 @@ sequenceDiagram
 ```
 
 #### Step-by-Step Procedure:
-1. **Close Delivered Items and Cut**: Run `uv run devops roadmap close` to preview, then `--confirm`. It closes as completed each open issue a pull request merged into `release/vX.Y.Z` closes, with a comment saying what changed and how it was verified, and lists the open items holding the release. Once the release holds no open item, at least one item closed as completed and no release PR, it writes `docs/ROADMAP.md` with `devops roadmap render` on the cut branch and runs the cut below with the PR ready for review; completed items with no `changelog.d/<issue>.md` are listed for a person to add on the release PR.
+1. **Close Delivered Items and Cut**: Run `uv run devops roadmap close` to preview, then `--confirm`. It closes as completed each open issue a pull request merged into `release/vX.Y.Z` closes, with a comment saying what changed and how it was verified, and lists the open items holding the release. It first does the same on the branch of each closed release that still holds an open issue, as one does when its milestone closes before closure runs: it closes the items of that release its pull requests deliver, except an item a person reopened, and names the rest, which hold no cut. Once the release holds no open item, at least one item closed as completed and no release PR, it writes `docs/ROADMAP.md` with `devops roadmap render` on the cut branch and runs the cut below with the PR ready for review; completed items with no `changelog.d/<issue>.md` are listed for a person to add on the release PR.
 2. **Manual Fallback, Release Preparation**: Run `devops release prepare <version> --create-pr`.
    - Bumps version in `pyproject.toml` (`__init__.py` derives `__version__` from it).
    - Collects the `changelog.d/` fragments into the target version's block in `CHANGELOG.md` and deletes them, leaving `[Unreleased]` an empty heading.

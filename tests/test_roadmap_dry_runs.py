@@ -29,6 +29,7 @@ from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.board_read import board_budget_args, board_items_args
+from devops_cli.roadmap.close import ClosePlan, dry_run_close, plan_close
 from devops_cli.roadmap.config import open_roadmap
 from devops_cli.roadmap.github_store import (
     board_fields_args,
@@ -267,7 +268,8 @@ def test_intakes_placement_plans_no_board_read_after_its_add() -> None:
 # ── A real run's argv is its plan ─────────────────────────────────────────────
 
 _REQUEST, _ARG, _BODY = "\x1e", "\x1f", "\x1d"
-_PLACEHOLDER = re.compile(r"<[^<>]+>")
+_PLACEHOLDER = re.compile(r"<[^<>]+>|%3C.+?%3E")
+"""A placeholder, as written or URL-quoted in a REST path."""
 
 
 def _template(text: str) -> str:
@@ -368,6 +370,108 @@ def test_a_render_runs_gh_argv_sequence_is_its_plan(github_stores: None) -> None
         True,
         True,
     )
+
+
+_SHIPPED_LISTING = "pulls?state=closed&base=release%2Fv0.2.25"
+
+
+def _close_github(*, current: bool, holds: bool, reopened: bool = False, prefix: str = "v") -> _Gh:
+    """Closed v0.2.25, holding open #1 when `holds`, reopened by a person when `reopened`, its
+    pull request #3 closing it, and when `current` the open v0.2.26 holding open #2, which holds
+    its cut. Each milestone's title is its version after `prefix`."""
+    late, work = (
+        {
+            "number": number,
+            "title": title,
+            "html_url": f"https://github.com/{REPO}/issues/{number}",
+            "state": "open",
+            "state_reason": reason,
+            "milestone": {"title": f"{prefix}{version}"},
+        }
+        for number, title, version, reason in (
+            (1, "late", "0.2.25", "reopened" if reopened else None),
+            (2, "work", "0.2.26", None),
+        )
+    )
+    pull = {
+        "number": 3,
+        "html_url": f"https://github.com/{REPO}/pull/3",
+        "body": "Closes #1",
+        "merged_at": "2026-10-07T21:41:20Z",
+        "merge_commit_sha": "f" * 40,
+        "head": {"sha": "e" * 40},
+    }
+    shipped = {
+        "number": 43,
+        "title": f"{prefix}0.2.25",
+        "state": "closed",
+        "open_issues": int(holds),
+    }
+    now = {"number": 44, "title": f"{prefix}0.2.26", "state": "open", "open_issues": 1}
+    return _Gh(
+        {
+            "contents/.github/roadmap.toml": "board = 2\n",
+            "milestones?state=all": [shipped, *([now] if current else [])],
+            "issues?": [*([late] if holds else []), *([work] if current else [])],
+            _SHIPPED_LISTING: [pull],
+            "pulls?state=closed&base=release%2Fv0.2.26": [],
+            "/files?": [{"filename": "src/devops_cli/roadmap/close.py"}],
+        }
+    )
+
+
+def _plan_close_over(gh: _Gh) -> tuple[ClosePlan, list[str]]:
+    """The close plan a run over `gh` makes, and the commands it ran."""
+    from devops_cli.github.check_verdict import CheckVerdictSummary
+
+    _, store = open_roadmap(
+        REPO, ref=None, runner=gh, board_filter=CONST_ROADMAP_RENDER_BOARD_FILTER
+    )
+    plan = plan_close(store, repo=REPO, checks=lambda _: CheckVerdictSummary())
+    return plan, [" ".join(args) for args, _ in gh.calls]
+
+
+@pytest.mark.parametrize(
+    ("current", "holds", "reopened"),
+    [
+        (True, False, False),
+        (True, True, False),
+        (False, False, False),
+        (False, True, False),
+        (True, True, True),
+    ],
+    ids=["current", "current-and-shipped", "no-release", "shipped-only", "shipped-reopened"],
+)
+def test_a_close_runs_gh_argv_sequence_is_its_plan(
+    github_stores: None, current: bool, holds: bool, reopened: bool
+) -> None:
+    """A closed release that holds an open issue no person reopened costs its listing once,
+    before the current release's reads; with none, the run makes the requests it made before
+    #1362."""
+    gh = _close_github(current=current, holds=holds, reopened=reopened)
+    plan, commands = _plan_close_over(gh)
+    closable = holds and not reopened
+    assert (
+        sum(_SHIPPED_LISTING in command for command in commands),
+        any("issues?" in command for command in commands),
+        [closing.number for closing in plan.closings],
+        follows(dry_run_close(REPO, ref=None).requests, gh.calls),
+    ) == (int(closable), current or holds, [1] if closable else [], True), commands
+
+
+def test_closure_reads_the_cut_branch_of_a_release_titled_without_its_v(
+    github_stores: None,
+) -> None:
+    """A person titled the milestones `0.2.25` and `0.2.26`: closure still reads the branches
+    the cut makes, `release/v0.2.25` and `release/v0.2.26`."""
+    plan, commands = _plan_close_over(_close_github(current=True, holds=True, prefix=""))
+    (closing,) = plan.closings
+    assert (
+        sum(_SHIPPED_LISTING in command for command in commands),
+        sum("pulls?state=closed&base=release%2Fv0.2.26" in command for command in commands),
+        closing.number,
+        "merged into `release/v0.2.25`" in closing.comment,
+    ) == (1, 1, 1, True), commands
 
 
 def test_a_plan_does_not_match_a_run_it_does_not_describe() -> None:

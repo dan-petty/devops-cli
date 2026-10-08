@@ -759,8 +759,9 @@ def roadmap_close(
     ref: str | None = None,
     mode: Literal["dry-run", "plan"] = "plan",
 ) -> str:
-    """Preview closure: each delivered item of the current release it would close, with its
-    comment, and the release cut it would make or what holds it.
+    """Preview closure: each delivered item it would close, with its comment, first in each
+    closed release that still holds an open issue and then in the current release, and the
+    current release's cut it would make or what holds it.
 
     It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points
     spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A

@@ -583,7 +583,9 @@ def close_requests(
     repo: str, ref: str | None
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap close` reads, in order, ending with its closing budget read, and
-    the writes `--confirm` makes before that last read: the closes, then the cut (#743)."""
+    the writes `--confirm` makes before that last read: the closes, then the cut (#743). It
+    reads the merged pull requests of each closed Release that holds an open issue before the
+    current release's (#1362)."""
     from devops_cli.commands.release import (
         _build_release_pr_command,
         milestone_issues_args,
@@ -598,15 +600,22 @@ def close_requests(
     branch, cut_branch = f"release/{release}", f"release/{release}"
     fragment = f"{CONST_CHANGELOG_FRAGMENTS_DIR}/{number}.md"
     task = f"{CONST_AGENT_TASKS_DIR}/task-{number}-<slug>.md"
+
+    def closes(into: str) -> Requests:
+        return [
+            *store.merged_pull_requests(into),
+            *within(store.pr_checks(), cond["closes"], rep["merged"]),
+            *within(store.file(task, _p("sha")), cond["task_file"], rep["closing"]),
+        ]
+
     reads = [
         *_config(store, ref),
         *store.releases(),
+        *within(store.issues(), cond["read_issues"]),
+        *within(closes(f"release/{_p('shipped')}"), cond["shipped"], rep["shipped"]),
         *within(
             [
-                *store.merged_pull_requests(branch),
-                *store.issues(),
-                *within(store.pr_checks(), cond["closes"], rep["merged"]),
-                *within(store.file(task, _p("sha")), cond["task_file"], rep["closing"]),
+                *closes(branch),
                 *within(
                     [
                         *store.release_pull_requests(),
