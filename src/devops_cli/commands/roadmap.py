@@ -493,7 +493,12 @@ def refine_cmd(
 ) -> None:
     """Refine roadmap items to Ready with proposed design, tasks and acceptance criteria."""
     _one_mode(dry_run=dry_run, confirm=confirm)
-    from devops_cli.roadmap.refine import apply_refine, plan_refine, render_refine_plan
+    from devops_cli.roadmap.refine import (
+        apply_refine,
+        plan_refine,
+        raise_for_failed_items,
+        render_refine_plan,
+    )
 
     target_repo = repo or get_repo_origin_name(source)
     if not target_repo or "/" not in target_repo:
@@ -517,15 +522,15 @@ def refine_cmd(
         write_stdout(render_refine_plan(plan) + "\n")
         if dry_run or not confirm or is_dry_run():
             print_info(MESSAGES.roadmap.preview_only)
-            return
-        if not plan.has_writes:
-            return
-        with _exit_on_failure("Could not apply refinement"):
-            applied = apply_refine(store, plan)
-            print_success(
-                f"Refined {applied.refined_count} item(s): {applied.readied_count} set to Ready, "
-                f"{applied.split_count} marked for split."
-            )
+        elif plan.has_writes:
+            with _exit_on_failure("Could not apply refinement"):
+                applied = apply_refine(store, plan)
+                print_success(
+                    f"Refined {applied.refined_count} item(s): {applied.readied_count} set to "
+                    f"Ready, {applied.split_count} marked for split."
+                )
+        with _exit_on_failure("Refinement incomplete"):
+            raise_for_failed_items(plan)
 
 
 @app.command("run", help=HELP.roadmap.run)

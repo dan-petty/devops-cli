@@ -15,9 +15,10 @@ from devops_cli.ai.client.models import (
     is_reasoning_model,
     provider_finish_reason,
 )
-from devops_cli.ai.client.network import request_limited_json, stream_served_by
+from devops_cli.ai.client.network import reply_schema, request_limited_json, stream_served_by
 from devops_cli.ai.client.streaming import _openai_stream_frame, _read_event_stream
 from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_SERVED_BY_HEADER,
     CONST_OPENAI_FINISH_REASONS,
     CONST_URL_GITHUB_COPILOT_API_BASE,
@@ -102,7 +103,24 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             self._apply_reasoning_params(payload, limit, enable_thinking)
         else:
             self._apply_standard_params(payload, limit, stream)
+        self._apply_reply_schema(payload)
         return payload
+
+    def _apply_reply_schema(self, payload: dict[str, Any]) -> None:
+        """Ask the gateway to constrain the reply to a structured call's schema, if one is set.
+
+        Only the gateway gets `response_format`, and without `strict`: LiteLLM maps it to an
+        Ollama deployment's `format`, and drops it for a deployment that takes no such parameter
+        (`drop_params`). The openai and copilot providers rely on the schema in the prompt, which
+        `chat_structured` sends to every provider.
+        """
+        schema = reply_schema.get()
+        if schema is None or self._config.provider != CONST_AI_GATEWAY_PROVIDER:
+            return
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": schema.name, "schema": schema.json_schema},
+        }
 
     @staticmethod
     def _extract_inline_thinking(content: str, thinking_str: str | None) -> tuple[str, str | None]:

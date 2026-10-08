@@ -815,7 +815,8 @@ def roadmap_refine(
 ) -> str:
     """Run a dry run of item refinement: returns the refinement plan without making any writes.
 
-    It never accepts a confirm argument, ensuring it is strictly read-only.
+    It never accepts a confirm argument, ensuring it is strictly read-only. When the model call
+    fails for an item, the tool fails, and its error still carries the plan naming that item.
     """
     cmd = ["uv", "run", "devops", "roadmap", "refine"]
     if repo:

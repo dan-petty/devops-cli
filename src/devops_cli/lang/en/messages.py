@@ -1294,6 +1294,15 @@ class RoadmapMessages:
     )
     refine_title: str = "# Refinement plan for {repo}"
     refine_none: str = "No items to refine."
+    refine_failed_heading: str = "## Failed Items"
+    refine_failed_line: str = (
+        "- #{number} {title}: skipped, its model call failed ({error}, {violations} schema "
+        "violation(s))"
+    )
+    refine_failed: str = (
+        "the model call failed for {count} item(s), and refine skipped them: {items}"
+    )
+    refine_failed_item: str = "#{number} ({error}, {violations} schema violation(s))"
     reprioritize_kept_out: str = (
         "- #{number} was taken out of {release} by a person, as its issue's events show, so it "
         "stays in the backlog: a person's placement stands."

@@ -22,6 +22,7 @@ from devops_cli.ai.client.network import (
     acquire_ollama_slot,
     active_ollama_requests,
     ollama_active_lock,
+    reply_schema,
     request_limited_json,
     request_priority_scope,
 )
@@ -269,6 +270,13 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
 
         raise self._connection_error(last_exc or RuntimeError("All Ollama servers unreachable"))
 
+    @staticmethod
+    def _apply_reply_format(payload: dict[str, Any]) -> None:
+        """Constrain the reply to a structured call's schema with Ollama's `format`, if one is set."""
+        schema = reply_schema.get()
+        if schema is not None:
+            payload["format"] = schema.json_schema
+
     def _ollama_request(  # noqa: C901
         self, base: str, system: str, messages: list[ChatMessage], think: bool
     ) -> LLMResponse:
@@ -301,6 +309,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             ollama_opts["num_predict"] = reply_limit
         if ollama_opts:
             payload["options"] = ollama_opts
+        self._apply_reply_format(payload)
         headers = inject_trace_context({"Content-Type": "application/json"})
         raw_res, _headers = request_limited_json(
             self._shared_client(),

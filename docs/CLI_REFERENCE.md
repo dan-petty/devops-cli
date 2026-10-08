@@ -5835,7 +5835,7 @@ devops roadmap close [OPTIONS]
 
 ### `devops roadmap refine`
 
-**Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria. Evaluates Next-release and Backlog New items using code, documentation, and external research.**
+**Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria. Evaluates Next-release and Backlog New items using code, documentation, and external research. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1.**
 
 ```bash
 devops roadmap refine [OPTIONS]

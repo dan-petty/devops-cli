@@ -5,8 +5,13 @@ backlog by priority, until 12 Ready items or `--limit` (default 3) are reached.
 It skips items that are Ready, Blocked, started, or unchanged since their last run.
 Inputs are minimized from `--source` at HEAD SHA (docs, cited files/lines, identifiers, repo map).
 Two model steps run with `ai.for_task("analysis")`: research plan (Tavily search when public) and proposal.
+Their prompts are `roadmap_refine_research.md` and `roadmap_refine_proposal.md`, and the issue reaches the
+model as a JSON document; `chat_structured` adds the schema each reply must match.
 Deterministic validation checks sources, key questions and owner decisions, and the Ready check sets
 Status New → Ready only when complete.
+A model call that fails skips only its item: refine writes the others, then fails with
+`RoadmapRefineError` naming each skipped item, its error's class and its schema violation count.
+Rejected credentials still stop the run at the first item.
 """
 
 from __future__ import annotations
@@ -23,8 +28,14 @@ from typing import Any, Final, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.ai.client import LLMClient
+from devops_cli.ai.client.models import (
+    AIClientError,
+    AICredentialsError,
+    StructuredOutputValidationError,
+)
 from devops_cli.ai.common_tools import tavily_search
 from devops_cli.ai.context_budget import truncate_to_token_limit
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import (
     CONST_ROADMAP_CRITICAL_PRIORITY,
@@ -44,6 +55,7 @@ from devops_cli.config.settings import get_ai_api_key, get_tavily_api_key, load_
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.roadmap import RoadmapRefineError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.store import (
@@ -106,6 +118,23 @@ class RefinedItem:
 
 
 @dataclass(frozen=True)
+class RefineFailure:
+    """An item refine skipped because its model call failed: the error's class name and the
+    last reply's schema violation count (0 when it held no JSON, or the call got no reply),
+    never the model's text."""
+
+    item: Item
+    error: str
+    violations: int = 0
+
+    @classmethod
+    def of(cls, item: Item, exc: AIClientError) -> RefineFailure:
+        """The failure `exc` made of `item`'s model call."""
+        violations = exc.violations if isinstance(exc, StructuredOutputValidationError) else 0
+        return cls(item=item, error=type(exc).__name__, violations=violations)
+
+
+@dataclass(frozen=True)
 class RefinePlan:
     repo: str
     sha: str
@@ -113,7 +142,7 @@ class RefinePlan:
     refined_items: list[RefinedItem] = field(default_factory=list)
     skipped_items: list[tuple[Item, str]] = field(default_factory=list)
     has_writes: bool = False
-    error: str | None = None
+    failed_items: list[RefineFailure] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -335,19 +364,21 @@ def run_research_step(
         return [], set()
 
     # Step 1: research plan from model
-    prompt = (
-        "Analyze the following issue body and generate up to 3 search queries for external research. "
-        "Return empty queries list if no research is needed.\n\n"
-        f"Issue Body:\n{body}"
-    )
+    request = {"body": body, "max_queries": CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES}
     try:
         plan: ResearchPlan = client.chat_structured(
-            "You are a research planning assistant. Return queries for technical research.",
-            prompt,
+            load_task_prompt("roadmap_refine_research.md"),
+            json.dumps(request, ensure_ascii=False, indent=1),
             ResearchPlan,
         )
-    except Exception as exc:
-        logger.warning("Research plan generation failed: %s", exc)
+    except AICredentialsError:
+        raise
+    except AIClientError as exc:
+        # The error's message can quote the reply, so only its class is logged.
+        logger.warning(
+            "Research plan generation failed (%s); refining without search results.",
+            type(exc).__name__,
+        )
         return [], set()
 
     queries = [q.strip() for q in plan.queries if q.strip()][
@@ -782,16 +813,16 @@ def refine_one_item(
     ctx = collect_context(source, sha, current_body, max_tokens=max_context_tokens)
 
     # Step 3: Proposal generation
-    proposal_prompt = (
-        "Generate a structured RefinementProposal for this issue.\n\n"
-        f"Issue #{item.number}: {item.title}\n"
-        f"Body:\n{current_body}\n\n"
-        f"Context:\n{ctx}\n\n"
-        f"Search Results:\n{json.dumps(search_results)}"
-    )
+    request = {
+        "number": item.number,
+        "title": item.title,
+        "body": current_body,
+        "context": ctx,
+        "search_results": search_results,
+    }
     raw_proposal: RefinementProposal = client.chat_structured(
-        "You are an expert software architect refining issues to Ready status.",
-        proposal_prompt,
+        load_task_prompt("roadmap_refine_proposal.md"),
+        json.dumps(request, ensure_ascii=False, indent=1),
         RefinementProposal,
     )
 
@@ -879,16 +910,23 @@ def plan_refine(
     max_tokens = ai_config.for_task("analysis").context_window or 8192
 
     refined: list[RefinedItem] = []
+    failed: list[RefineFailure] = []
     for cand in candidates:
-        res = refine_one_item(
-            store,
-            cand,
-            source=source_path,
-            sha=sha,
-            branch=branch,
-            client=client,
-            max_context_tokens=max_tokens,
-        )
+        try:
+            res = refine_one_item(
+                store,
+                cand,
+                source=source_path,
+                sha=sha,
+                branch=branch,
+                client=client,
+                max_context_tokens=max_tokens,
+            )
+        except AICredentialsError:
+            raise
+        except AIClientError as exc:
+            failed.append(_failed_item(cand, exc))
+            continue
         refined.append(res)
 
     has_writes = any(r.skip_reason is None for r in refined)
@@ -899,6 +937,41 @@ def plan_refine(
         refined_items=refined,
         skipped_items=skipped,
         has_writes=has_writes,
+        failed_items=failed,
+    )
+
+
+def _failed_item(item: Item, exc: AIClientError) -> RefineFailure:
+    """Record `item` as skipped for its failed model call, logging no model text: the error's
+    message can quote the reply."""
+    failure = RefineFailure.of(item, exc)
+    logger.warning(
+        "Refine skipped #%d: its model call failed (%s, %d schema violation(s)).",
+        item.number,
+        failure.error,
+        failure.violations,
+    )
+    return failure
+
+
+def raise_for_failed_items(plan: RefinePlan) -> None:
+    """Fail a run in which the model call failed for any item, once the others are written.
+
+    The error names each skipped item with its error's class and schema violation count. It is
+    raised outside the handler that caught the model's error and is not chained to it, so a
+    logged traceback holds no reply text.
+    """
+    if not plan.failed_items:
+        return
+    items = ", ".join(
+        MESSAGES.roadmap.refine_failed_item.format(
+            number=failure.item.number, error=failure.error, violations=failure.violations
+        )
+        for failure in plan.failed_items
+    )
+    raise RoadmapRefineError(
+        MESSAGES.roadmap.refine_failed.format(count=len(plan.failed_items), items=items),
+        failed_items=[failure.item.number for failure in plan.failed_items],
     )
 
 
@@ -988,13 +1061,14 @@ def refine_item(
         model=model,
     )
     applied = apply_refine(store, plan) if (confirm and plan.has_writes) else None
+    raise_for_failed_items(plan)
     return RefineOutcome(plan=plan, applied=applied)
 
 
 def render_refine_plan(plan: RefinePlan) -> str:
     """Formats the refinement plan for CLI stdout report."""
     lines: list[str] = [MESSAGES.roadmap.refine_title.format(repo=plan.repo)]
-    if not plan.refined_items and not plan.skipped_items:
+    if not (plan.refined_items or plan.skipped_items or plan.failed_items):
         lines.append(MESSAGES.roadmap.refine_none)
         return "\n".join(lines)
 
@@ -1009,6 +1083,18 @@ def render_refine_plan(plan: RefinePlan) -> str:
                 if r.open_questions:
                     lines.append(f"  Open questions: {len(r.open_questions)}")
 
+    if plan.failed_items:
+        lines.append(MESSAGES.roadmap.refine_failed_heading)
+        lines.extend(
+            MESSAGES.roadmap.refine_failed_line.format(
+                number=failure.item.number,
+                title=failure.item.title,
+                error=failure.error,
+                violations=failure.violations,
+            )
+            for failure in plan.failed_items
+        )
+
     if plan.skipped_items:
         lines.append("## Skipped Items")
         for it, reason in plan.skipped_items:
@@ -1021,6 +1107,7 @@ __all__ = [
     "AcceptanceCriterion",
     "QuestionAnswer",
     "RefineApplied",
+    "RefineFailure",
     "RefineOutcome",
     "RefinePlan",
     "RefinedItem",
@@ -1034,6 +1121,7 @@ __all__ = [
     "hash_text",
     "inspect_checkout",
     "plan_refine",
+    "raise_for_failed_items",
     "refine_item",
     "render_proposal_section",
     "render_refine_plan",

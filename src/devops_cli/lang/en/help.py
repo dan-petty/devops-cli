@@ -1082,7 +1082,9 @@ class RoadmapCommandHelp:
     )
     refine: str = (
         "Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria. "
-        "Evaluates Next-release and Backlog New items using code, documentation, and external research."
+        "Evaluates Next-release and Backlog New items using code, documentation, and external research. "
+        "An item whose model call fails is skipped and reported; the others are still refined, "
+        "and refine then exits 1."
     )
     refine_item: str = "Specific issue number to refine instead of selecting by priority."
     refine_limit: str = "Maximum number of New items to refine in this run (default 3)."

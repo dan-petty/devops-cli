@@ -18,6 +18,7 @@ from devops_cli.ai.client.models import (
     AIClientError,
     AICredentialsError,
     LLMResponse,
+    ReplyRejectedError,
     RequestPriority,
     _is_json_error_payload,
     genai_provider_name,
@@ -612,6 +613,19 @@ class LLMClient(
             self._cache_chat_entry(cache_key, system, out_messages, res, context_tag)
         return res
 
+    def _rejection(self, res: LLMResponse, attempt: int, attempts: int) -> AIClientError:
+        """The error for a reply that failed validation, which is never cached.
+
+        A reply the caller's validator refused comes back on `ReplyRejectedError`, so a caller
+        can reflect on it. An empty reply or a provider's error payload never reached the
+        validator, so it stays a plain `AIClientError`.
+        """
+        model = self._config.model
+        msg = f"Response validation failed for model '{model}' (attempt {attempt}/{attempts})."
+        if self._validate_response_text(res):
+            return ReplyRejectedError(msg, reply=res)
+        return AIClientError(msg)
+
     def _retry_chat_dispatch(
         self,
         system: str,
@@ -636,9 +650,7 @@ class LLMClient(
                     priority=priority,
                 )
                 if not self._validate_response_text(res, validator):
-                    m = self._config.model
-                    msg = f"Response validation failed for model '{m}' (attempt {attempt}/{attempts})."
-                    last_exc = AIClientError(msg)
+                    last_exc = self._rejection(res, attempt, attempts)
                     continue
                 return self._handle_successful_chat_dispatch(
                     res, cache_key, system, out_messages, use_cache, context_tag, span_h

@@ -65,8 +65,27 @@ class AIClientError(LLMInferenceError, RuntimeError):
     """Raised when an AI provider request fails with a user-actionable message."""
 
 
+class ReplyRejectedError(AIClientError):
+    """Raised when the caller's validator refused a reply; it carries the reply, never cached.
+
+    The message is the one a plain `AIClientError` for a refused reply has, and holds none of the
+    reply, so a caller that logs the error logs no model text.
+    """
+
+    def __init__(self, message: str, *, reply: str = "", **kwargs: Any) -> None:
+        super().__init__(message, **kwargs)
+        self.reply = reply
+
+
 class StructuredOutputValidationError(AIClientError):
-    """Raised when the model answered, but no answer validated against the schema after retries."""
+    """Raised when the model answered, but no answer validated against the schema after retries.
+
+    `violations` counts the last answer's schema violations, and is 0 when it held no JSON.
+    """
+
+    def __init__(self, message: str, *, violations: int = 0, **kwargs: Any) -> None:
+        super().__init__(message, **kwargs)
+        self.violations = violations
 
 
 class AICredentialsError(AIClientError):

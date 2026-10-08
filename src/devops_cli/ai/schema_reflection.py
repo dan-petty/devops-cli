@@ -28,7 +28,6 @@ __all__ = [
     "build_schema_reflection_message",
     "extract_schema_reflection",
     "format_field_path",
-    "format_schema_validation_error",
     "synthesize_fix_hint",
 ]
 
@@ -215,15 +214,6 @@ def extract_schema_reflection(
         violations=violations,
         remaining_count=remaining,
     )
-
-
-def format_schema_validation_error(
-    exc: ValidationError,
-    max_errors: int = CONST_MAX_SCHEMA_REFLECTION_ERRORS,
-) -> str:
-    """Format a Pydantic ValidationError into a bounded summary string."""
-    report = extract_schema_reflection(exc, max_errors=max_errors)
-    return report.format_error_summary()
 
 
 def build_schema_reflection_message(
