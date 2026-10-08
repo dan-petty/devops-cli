@@ -616,7 +616,7 @@ def test_a_person_reopens_a_closed_issue_in_its_release(store: InMemoryRoadmapSt
     assert (
         (found.state, found.state_reason, found.release) if found else None,
         [(c.kind, c.release) for c in store.changes_since(datetime.min)[len(since) :]],
-    ) == ((GitHubState.OPEN, None, "v0.2.25"), [(ChangeKind.REOPENED, "v0.2.25")])
+    ) == ((GitHubState.OPEN, "reopened", "v0.2.25"), [(ChangeKind.REOPENED, "v0.2.25")])
 
 
 def test_closing_a_pull_request_raises(store: InMemoryRoadmapStore) -> None:

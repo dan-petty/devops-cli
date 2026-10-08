@@ -27,6 +27,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 from devops_cli.config.constants import (
+    CONST_GH_ISSUE_STATE_REASON_REOPENED,
     CONST_GH_PROJECT_JOB_RECORD_FIELD,
     CONST_ROADMAP_RUN_RECORD_TITLE,
 )
@@ -311,7 +312,11 @@ class InMemoryRoadmapStore(RoadmapStore):
         issue = self._require_issue(number, "roadmap.issue.reopen")
         if issue.state is GitHubState.CLOSED:
             self._roadmap.issues[number] = issue.model_copy(
-                update={"state": GitHubState.OPEN, "state_reason": None, "closed_at": None}
+                update={
+                    "state": GitHubState.OPEN,
+                    "state_reason": CONST_GH_ISSUE_STATE_REASON_REOPENED,
+                    "closed_at": None,
+                }
             )
             self._closure(number, ChangeKind.REOPENED)
             self._record(ChangeKind.REOPENED, number, issue.release)

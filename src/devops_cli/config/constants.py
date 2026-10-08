@@ -1100,6 +1100,9 @@ CONST_GH_ISSUE_EVENT_CHANGE_KINDS: Final[dict[str, str]] = {
     "closed": "closed",
     "reopened": "reopened",
 }
+CONST_GH_ISSUE_STATE_REASON_REOPENED: Final[str] = "reopened"
+"""GitHub's `state_reason` on an issue someone reopened, which it keeps while the issue is open.
+No roadmap job reopens an issue, so it marks a person's reopen (ADR 0002)."""
 
 # ── Exception & Domain Error Codes ────────────────────────────────────────────
 CONST_ERROR_CODE_DEVOPS_CLI = "DEVOPS_CLI_ERROR"
