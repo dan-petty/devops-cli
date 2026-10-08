@@ -506,3 +506,28 @@ def test_host_sandbox_reports_a_timeout_apart_from_a_failure(tmp_path: Path) -> 
         (timed_out.passed, timed_out.exit_code, timed_out.timed_out),
         (failed.passed, failed.exit_code, failed.timed_out),
     ) == ((False, -1, True), (False, 1, False))
+
+
+def test_bwrap_marked_tests_skip_only_when_bubblewrap_unavailable(
+    request: pytest.FixtureRequest,
+) -> None:
+    """A bwrap-marked test carries the bubblewrap skip if and only if bwrap is unavailable (#1337)."""
+    bwrap_items = [item for item in request.session.items if "bwrap" in item.keywords]
+    if not bwrap_items:
+        pytest.skip("no bwrap-marked items collected in this session")
+
+    is_available = HostSandbox().is_available()
+    skipped_bwrap_items = [
+        item.nodeid
+        for item in bwrap_items
+        if any(
+            "bubblewrap is not installed" in str(m.kwargs.get("reason", ""))
+            for m in item.iter_markers("skip")
+        )
+    ]
+
+    if is_available:
+        assert (len(skipped_bwrap_items), skipped_bwrap_items) == (0, [])
+    else:
+        all_nodeids = [item.nodeid for item in bwrap_items]
+        assert skipped_bwrap_items == all_nodeids
