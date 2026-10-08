@@ -679,14 +679,13 @@ def _fetch_filtered_changes(
     store: RoadmapStore,
     current_time: datetime,
 ) -> list[Change]:
-    """Fetch recent store changes excluding writes authored by the current session."""
+    """Fetch recent store changes excluding writes authored by the current session, which the
+    store leaves out before it reads any job record (#1361)."""
     has_poll = any(src == "poll" for (src, _evt, _act) in active_batch)
     if not has_poll and not any(r.change_predicate is not None for r in rows):
         return []
     cutoff = _oldest_cutoff(rows, schedule, current_time)
-    raw_changes = store.changes_since(cutoff)
-    ignored = _current_actor(store)
-    return [c for c in raw_changes if not (c.actor and ignored and c.actor == ignored)]
+    return store.changes_since(cutoff, except_actor=_current_actor(store))
 
 
 def _simulate_dry_run(

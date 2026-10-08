@@ -1,26 +1,41 @@
 """The GitHub roadmap store: Releases, Items and board fields read and written through `gh`.
 
-Every command goes through an injected runner that defaults to `run_gh`, and no read is
-cached. REST listings are read a full page at a time until a page is short, and each page must
-be a JSON list: `run_gh`'s own paging (`api --paginate`) ends a listing at a page that is empty
-or not JSON as if it were the last. The board comes from the store's own paged GraphQL query
-(`board_read`): each read passes its job's Projects filter at the source, leaves archived items
-out, checks the budget first and charges each page's reported points, and is checked against the
-total for the same filter, so a short read is caught; a count that changes during the read is
-read again once before the read fails. Issue events are read a page at a time, newest
-first, so the read stops at the first event older than it needs.
+Every command goes through an injected runner that defaults to `run_gh`. REST listings are read
+a full page at a time until a page is short, and each page must be a JSON list: `run_gh`'s own
+paging (`api --paginate`) ends a listing at a page that is empty or not JSON as if it were the
+last. The board comes from the store's own paged GraphQL query (`board_read`): each read passes
+a Projects filter at the source, leaves archived items out, checks the budget first and charges
+each page's reported points, and is checked against the total for the same filter, so a short
+read is caught; a count that changes during the read is read again once before the read fails.
+Issue events are read a page at a time, newest first, so the read stops at the first event older
+than it needs.
 
-The board's own shape (its fields with their option ids, colors and descriptions, and its
-workflows) comes from GraphQL, because `gh project field-list` gives no option colors or
-descriptions. So do the default branch, pull requests with their last commit, and when an
-Item's Status last changed, which is the Status value's `updatedAt`: the board's timelines hold
-no status-change events (#768). A GraphQL connection is read in one request of up to its limit,
-and one longer than that raises. New fields, and the options of a board just created, are
-written with a GraphQL request on stdin. GitHub's option input takes no id, so the adapter never
-sends an option list to a board that already has cards. A card is edited by its node ids, which
-reach draft issues and other repositories' cards too. Issue events carry the Item's job record
-from the board as it is when they are read. The run record card is the board's draft issue
-titled `CONST_ROADMAP_RUN_RECORD_TITLE`, found by that title in the board listing.
+The store reads the board listing once for each filter, and the board's fields once, and keeps
+both for its life, one command or one Service round (#1361): every reader of a filter shares its
+listing, and the store's own writes keep it current with the values they sent and the cards
+they add. A close drops the listings, because the board's own workflow then changes the closed
+issue's card. A write reads only the card it writes, by node id (`RoadmapBoardCard`, about one
+point), so the job record it writes joins the one the card holds then, a card gone or archived
+raises before any write, and the points that read reports below the reserve refuse the write.
+A field someone changed since the store read the card raises `RoadmapCardChangedError` before
+any write, unless the card already holds the value the write sends: the job planned without
+that change, and ADR 0002 forbids reverting it, so the job fails and the next store plans again.
+Every board write is `gh project item-edit` by node ids (`--id`, `--project-id`, `--field-id`,
+and an option's id), which sends only the mutation; given a card's URL or a field's name, gh
+first reads the board's first 100 items with all their field values, about 101 points.
+`item-add` and `item-create` return the card they make (`--format json`), which the store writes
+to without looking for it in a listing that can lag the add by minutes.
+
+The board's own shape (its node id, its fields with their option ids, colors and descriptions,
+and its workflows) comes from GraphQL. So do the default branch, pull requests with their last
+commit, and when an Item's Status last changed, which is the Status value's `updatedAt`: the
+board's timelines hold no status-change events (#768). A GraphQL connection is read in one
+request of up to its limit, and one longer than that raises. New fields, and the options of a
+board just created, are written with a GraphQL request on stdin. GitHub's option input takes no
+id, so the adapter never sends an option list to a board that already has cards. Issue events
+carry the Item's job record from the board listing, and those of the actor a caller leaves out
+read none. The run record card is the board's draft issue titled
+`CONST_ROADMAP_RUN_RECORD_TITLE`, found by that title in the board listing.
 """
 
 from __future__ import annotations
@@ -69,17 +84,20 @@ from devops_cli.github.rate_limiter import run_gh
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.board_read import (
     BoardBudgetPayload,
+    BoardCardPayload,
     BoardItemsPage,
     GraphQLBudget,
     GraphQLBudgetPayload,
     GraphQLSpend,
     board_budget_args,
+    board_card_args,
     board_items_args,
     graphql_budget_args,
     item_list_key,
     read_cost,
     require_budget,
     require_floor,
+    require_write_floor,
     spend_between,
 )
 from devops_cli.roadmap.store import (
@@ -126,6 +144,7 @@ from devops_cli.roadmap.store import (
     require_new_release,
     require_option,
     require_release,
+    require_unchanged,
     select_candidates,
     with_marks,
 )
@@ -470,11 +489,12 @@ class _BoardItemPayload(BaseModel):
 
     def values(self) -> dict[str, Any]:
         """The card's board fields and job record, keyed as `BoardEntry` and `Card` hold them."""
-        extra = self.model_extra or {}
-        fields = {
-            f.name.lower(): _text_value(extra.get(item_list_key(f.value))) for f in BOARD_FIELDS
-        }
+        fields = {f.name.lower(): self.field_value(f.value) for f in BOARD_FIELDS}
         return fields | {"job_record": decode_job_record(self.job_record_text(), card=self.name())}
+
+    def field_value(self, field_name: str) -> str | None:
+        """The value the card holds for the board field `field_name`, None when it has none."""
+        return _text_value((self.model_extra or {}).get(item_list_key(field_name)))
 
     def name(self) -> str:
         """The card as an error names it: its issue's number, or its node id."""
@@ -482,8 +502,7 @@ class _BoardItemPayload(BaseModel):
 
     def job_record_text(self) -> str | None:
         """The job record as the board's text field holds it."""
-        extra = self.model_extra or {}
-        return _text_value(extra.get(item_list_key(CONST_GH_PROJECT_JOB_RECORD_FIELD)))
+        return self.field_value(CONST_GH_PROJECT_JOB_RECORD_FIELD)
 
     def recorded(
         self,
@@ -499,8 +518,14 @@ class _BoardItemPayload(BaseModel):
         return encode_job_record(kept, over=held, card=self.name())
 
     def entry(self) -> BoardEntry:
-        """The board's fields and job record for this issue."""
-        return BoardEntry.model_validate(self.values() | {"number": self.content_number})
+        """The board's fields and job record for this issue, with its card's node id."""
+        return BoardEntry.model_validate(
+            self.values() | {"number": self.content_number, "card_id": self.id}
+        )
+
+    def written(self, field_name: str, value: str | None) -> _BoardItemPayload:
+        """The card as it is once the store has written `value` to the field `field_name`."""
+        return self.model_copy(update={item_list_key(field_name): value})
 
     def card(self) -> Card:
         """The card, whatever it holds."""
@@ -516,13 +541,20 @@ class _BoardItemPayload(BaseModel):
         )
 
 
+class _AddedCardPayload(BaseModel):
+    """What `gh project item-add` or `item-create` prints with `--format json`: the card it made."""
+
+    id: str
+
+
 class _BoardFieldPayload(BaseModel):
     name: str
     options: list[_NamedPayload] = Field(default_factory=list)
 
 
 class FieldListingPayload(BaseModel):
-    """The reply to `field_list_args`: every board field, with its options by name."""
+    """The reply to `field_list_args`: every board field, with its options by name. Project
+    reconcile reads it (#892); the store reads its fields through GraphQL instead."""
 
     fields: list[_BoardFieldPayload]
     total_count: int = Field(alias="totalCount")
@@ -577,9 +609,27 @@ class _FieldConnectionPayload(BaseModel):
 
 
 class _BoardFieldsPayload(BaseModel):
+    board_id: str = Field(validation_alias=AliasPath("data", "repositoryOwner", "projectV2", "id"))
     fields: _FieldConnectionPayload = Field(
         validation_alias=AliasPath("data", "repositoryOwner", "projectV2", "fields")
     )
+
+
+class _BoardSchema(BaseModel):
+    """The board's node id and its fields, which every write addresses by id."""
+
+    model_config = ConfigDict(frozen=True)
+
+    board_id: str
+    fields: tuple[BoardField, ...]
+
+    def options(self) -> dict[str, tuple[str, ...]]:
+        """Each field's option names by field name."""
+        return field_options(self.fields)
+
+    def field(self, name: str, operation: str) -> BoardField:
+        """The field named `name`, raising when the board has none."""
+        return require_field(self.fields, name, operation)
 
 
 class _WorkflowConnectionPayload(BaseModel):
@@ -608,7 +658,9 @@ _BOARD_PAGE = TypeAdapter(BoardItemsPage)
 _BOARD_BUDGET = TypeAdapter(BoardBudgetPayload)
 _GRAPHQL_BUDGET = TypeAdapter(GraphQLBudgetPayload)
 _BOARD_ITEMS = TypeAdapter(list[_BoardItemPayload])
-_FIELDS = TypeAdapter(FieldListingPayload)
+_BOARD_ITEM = TypeAdapter(_BoardItemPayload)
+_BOARD_CARD = TypeAdapter(BoardCardPayload)
+_ADDED_CARD = TypeAdapter(_AddedCardPayload)
 _JOB_RECORD = TypeAdapter(JobRecord)
 # The job record keys this version reads; the others are a newer version's, kept as they are.
 _JOB_RECORD_KEYS = frozenset(key.value for key in (*ItemField, *JobMark, *RefineRecordKey))
@@ -644,7 +696,7 @@ _FIELD_SELECTION = (
     "... on ProjectV2SingleSelectField { options { id name color description } }"
 )
 _FIELDS_QUERY = _OWNED_BOARD.format(
-    selection=f"fields(first: $first) {{ totalCount nodes {{ {_FIELD_SELECTION} }} }}"
+    selection=f"id fields(first: $first) {{ totalCount nodes {{ {_FIELD_SELECTION} }} }}"
 )
 _WORKFLOWS_QUERY = _OWNED_BOARD.format(
     selection="workflows(first: $first) { totalCount nodes { number name enabled } }"
@@ -883,7 +935,8 @@ def board_query_args(query: str, owner: str, number: Number, first: int) -> list
 
 
 def board_fields_args(owner: str, number: Number) -> list[str]:
-    """The GraphQL read of board `number`'s fields, with each option's id, color and description."""
+    """The GraphQL read of board `number`'s node id and fields, with each option's id, color and
+    description; it reads no item, so it costs about one point."""
     return board_query_args(_FIELDS_QUERY, owner, number, DEFAULT_GH_PROJECT_FIELD_LIMIT)
 
 
@@ -893,7 +946,9 @@ def board_workflows_args(owner: str, number: Number) -> list[str]:
 
 
 def field_list_args(owner: str, number: Number) -> list[str]:
-    """`gh project field-list`: every board field's options by name."""
+    """`gh project field-list`: every board field's options by name. gh also reads the board's
+    first 100 items with every field value (about 101 points), so the store never sends it;
+    project reconcile does (#892)."""
     limit = str(DEFAULT_GH_PROJECT_FIELD_LIMIT)
     return [
         "project",
@@ -927,13 +982,17 @@ def field_delete_args(field_id: str) -> list[str]:
 
 
 def item_add_args(owner: str, number: Number, url: str) -> list[str]:
-    return ["project", "item-add", str(number), "--owner", owner, "--url", url]
+    """`gh project item-add` of the issue at `url`, printing the card it adds, or the card the
+    issue already has."""
+    return ["project", "item-add", str(number), "--owner", owner, "--url", url, "--format", "json"]
 
 
 def item_edit_args(
     owner: str, number: Number, url: str, field_name: str, change: Sequence[str]
 ) -> list[str]:
-    """`gh project item-edit` on the issue at `url`, by the field's name."""
+    """`gh project item-edit` on the issue at `url`, by the field's name. gh resolves both names
+    by reading the board's first 100 items with every field value (about 101 points), so the
+    store edits by node ids (`card_edit_args`); project reconcile sends this (#892)."""
     return [
         "project",
         "item-edit",
@@ -951,7 +1010,7 @@ def item_edit_args(
 def card_edit_args(
     card_id: str, project_id: str, field_id: str, change: Sequence[str]
 ) -> list[str]:
-    """`gh project item-edit` on any card, by node ids."""
+    """`gh project item-edit` on any card, by node ids: gh sends only the mutation."""
     return [
         "project",
         "item-edit",
@@ -966,7 +1025,7 @@ def card_edit_args(
 
 
 def run_record_card_args(owner: str, number: Number) -> list[str]:
-    """`gh project item-create`: the run record card, a draft issue."""
+    """`gh project item-create`: the run record card, a draft issue, printing the card."""
     return [
         "project",
         "item-create",
@@ -977,6 +1036,8 @@ def run_record_card_args(owner: str, number: Number) -> list[str]:
         CONST_ROADMAP_RUN_RECORD_TITLE,
         "--body",
         CONST_ROADMAP_RUN_RECORD_BODY,
+        "--format",
+        "json",
     ]
 
 
@@ -1181,7 +1242,9 @@ def _releases_among(milestones: list[_MilestonePayload]) -> Iterator[Release]:
 class GitHubRoadmapStore(RoadmapStore):
     """The roadmap on GitHub, read and written as whoever `gh` is logged in as.
 
-    Without a board, Release operations work, and Item reads and writes raise.
+    Without a board, Release operations work, and Item reads and writes raise. One store lives
+    for one command or one Service round: it keeps the board's fields, and the listing of each
+    filter it read, for its life.
     """
 
     def __init__(
@@ -1203,6 +1266,9 @@ class GitHubRoadmapStore(RoadmapStore):
             (board_owner, board_number) if board_owner and board_number else None
         )
         self._runner = runner
+        # The board's node id and fields, and its listing by filter, read once when first needed.
+        self._schema: _BoardSchema | None = None
+        self._listings: dict[str, list[_BoardItemPayload]] = {}
 
     # ── Releases ──
 
@@ -1293,14 +1359,22 @@ class GitHubRoadmapStore(RoadmapStore):
         board = self._read_board(CONST_ROADMAP_OPEN_ITEMS_FILTER)
         return select_candidates(self._read_issues("state=open"), board)
 
-    def changes_since(self, since: datetime) -> list[Change]:
-        """The Item changes made at or after `since`, oldest first, read newest first."""
+    def changes_since(self, since: datetime, *, except_actor: str | None = None) -> list[Change]:
+        """The Item changes made at or after `since`, oldest first, read newest first; those
+        `except_actor` made are left out before any job record is read; an empty actor leaves out
+        nothing."""
         cutoff = as_utc(since)
+        skipped = except_actor or None
         changes: list[Change] = []
         for page in range(1, DEFAULT_GH_MAX_PAGINATED_PAGES + 1):
             events = self._read(issue_events_page_args(self._repo, page), _EVENTS, "issue events")
             recent = list(takewhile(lambda event: event.created_at >= cutoff, events))
-            changes.extend(change for event in recent if (change := event.change()) is not None)
+            changes.extend(
+                change
+                for event in recent
+                if (change := event.change()) is not None
+                and (skipped is None or change.actor != skipped)
+            )
             if len(recent) < len(events) or len(events) < DEFAULT_GH_REST_PER_PAGE:
                 return self._with_job_records(changes[::-1])
         raise GitHubOperationError(
@@ -1310,8 +1384,11 @@ class GitHubRoadmapStore(RoadmapStore):
             details={"repo": self._repo[:256]},
         )
 
-    def add_item(self, number: int) -> None:
-        """Put issue `number` on the board, raising if it is not an issue of this repository."""
+    def add_item(self, number: int) -> Item:
+        """Put issue `number` on the board and return its Item, raising if it is not an issue
+        of this repository. The card is the one `item-add` names, the issue's own when it is on
+        the board already, and its fields come from one read of that card, never from the board
+        listing, which can show a new card minutes late."""
         owner, board_number = self._require_board()
         issue = self._read_issue(number)
         if issue.pull_request is not None:
@@ -1320,9 +1397,20 @@ class GitHubRoadmapStore(RoadmapStore):
                 operation="roadmap.item.add",
                 details={"repo": self._repo[:256], "number": number},
             )
-        self._write(
+        written = self._write(
             item_add_args(owner, board_number, issue.html_url), f"add #{number} to the board"
         )
+        added = self._validate(written, _ADDED_CARD, f"card of #{number} after it was added")
+        card, _ = self._read_card(added.id, f"#{number}")
+        if card is None or card.content_number != number:
+            raise GitHubOperationError(
+                f"Board #{board_number} does not hold card {added.id} that #{number} was just "
+                "added as.",
+                operation="roadmap.item.add",
+                details={"repo": self._repo[:256], "number": number, "card": added.id[:256]},
+            )
+        self._added(card, is_open=issue.state is GitHubState.OPEN)
+        return join_items([issue.record()], {number: card.entry()})[0]
 
     def set_field(
         self,
@@ -1336,26 +1424,29 @@ class GitHubRoadmapStore(RoadmapStore):
 
         GitHub takes the two as separate calls, and the record goes first: a run that stops
         between them leaves the field as it was and the record naming the job's value, never
-        a field the job changed with no record of it. The value joins the job record the board
-        holds now, not the one `item` was read with, so two writes from one read both stay
-        recorded.
+        a field the job changed with no record of it. The value joins the job record the card
+        holds now, read by its node id just before the write, not the one `item` was read with,
+        so two writes from one read both stay recorded. A board field someone changed since the
+        store read the card raises before any write, unless the card already holds `value`, so
+        a job never reverts a change it did not see (ADR 0002).
         """
-        options, entry = self._require_entry(item, "roadmap.item.set_field")
+        operation = "roadmap.item.set_field"
+        options = self._read_schema().options()
+        require_job_record_field(options)
         if field is ItemField.RELEASE:
             target = self._release_for(value)
             recorded = target.title if target else None
         else:
             require_option(options, field, value)
             recorded = value
-        changes = with_marks({field: recorded}, marks or {})
-        self._edit_board_field(
-            item, CONST_GH_PROJECT_JOB_RECORD_FIELD, ["--text", entry.recorded(changes)]
-        )
+        written = None if field is ItemField.RELEASE else field
+        card = self._require_entry(item, operation, written, value)
+        text = card.recorded(with_marks({field: recorded}, marks or {}))
+        card = self._edit_card(card, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
         if field is ItemField.RELEASE:
             self._place_in_release(item, target)
         else:
-            change = ["--value", value] if value is not None else ["--clear"]
-            self._edit_board_field(item, field.value, change)
+            self._edit_card(card, field.value, value, operation)
 
     def set_marks(
         self,
@@ -1365,14 +1456,16 @@ class GitHubRoadmapStore(RoadmapStore):
         recorded: Mapping[ItemField, str | None] | None = None,
         forgotten: Collection[ItemField] = (),
     ) -> None:
-        """Set or clear a job's marks in the Item's job record, as held on the board now, and
+        """Set or clear a job's marks in the Item's job record, as its card holds it now, and
         record or forget a value for a field, in one write."""
-        _, entry = self._require_entry(item, "roadmap.item.set_marks")
+        operation = "roadmap.item.set_marks"
+        require_job_record_field(self._read_schema().options())
+        card = self._require_entry(item, operation)
         changes: JobRecord = {}
         for item_field, value in (recorded or {}).items():
             changes[item_field] = value
-        text = entry.recorded(with_marks(changes, marks), forgotten)
-        self._edit_board_field(item, CONST_GH_PROJECT_JOB_RECORD_FIELD, ["--text", text])
+        text = card.recorded(with_marks(changes, marks), forgotten)
+        self._edit_card(card, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
 
     def run_record(self) -> JobRecord:
         """The run record card's job record, empty while the board has no such card."""
@@ -1380,17 +1473,18 @@ class GitHubRoadmapStore(RoadmapStore):
         return card.card().job_record if card else {}
 
     def set_run_record(self, marks: Mapping[Any, str | None]) -> None:
-        """Set or clear marks in the run record card's job record, creating the card first when
-        the board has none. The card is found again after it is created, by its title."""
-        board = self._require_existing_board()
-        fields = self.board_fields()
-        require_job_record_field(field_options(fields))
-        record = require_field(fields, CONST_GH_PROJECT_JOB_RECORD_FIELD, "roadmap.run_record")
-        card = self._run_record_card() or self._create_run_record_card()
-        self._write(
-            card_edit_args(card.id, board.id, record.id, ["--text", card.recorded(marks)]),
-            "set the run record",
+        """Set or clear marks in the run record card's job record, as the card holds it now,
+        creating the card first when the board has none."""
+        operation = "roadmap.run_record"
+        require_job_record_field(self._read_schema().options())
+        listed = self._run_record_card()
+        card = (
+            self._require_card_node(listed.id, f"Run record card {listed.id}", operation)
+            if listed
+            else self._create_run_record_card()
         )
+        text = card.recorded(marks)
+        self._edit_card(card, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
 
     def release_changes(self, number: int) -> list[Change]:
         """Every time issue `number` joined or left a Release, from its own events."""
@@ -1422,7 +1516,9 @@ class GitHubRoadmapStore(RoadmapStore):
         return self._validate(written, _ISSUE, "issue after it was opened").record()
 
     def close_issue(self, number: int, reason: CloseReason, comment: str) -> None:
-        """Comment on issue `number`, then close it for `reason`."""
+        """Comment on issue `number`, then close it for `reason`. The board's own workflow then
+        changes the issue's card, so the store drops the listings it read and reads the board
+        again when next needed."""
         if self._read_issue(number).pull_request is not None:
             raise GitHubOperationError(
                 f"#{number} in {self._repo} is a pull request, not an issue.",
@@ -1431,6 +1527,7 @@ class GitHubRoadmapStore(RoadmapStore):
             )
         self.comment(number, comment)
         self._write(close_issue_args(self._repo, number, reason), f"close #{number}")
+        self._listings = {}
 
     def read_issue_body(self, number: int) -> str:
         """The body of issue `number`, raising if it is not an issue of this repository."""
@@ -1469,7 +1566,8 @@ class GitHubRoadmapStore(RoadmapStore):
     def close_as_duplicate(self, number: int, original: int, comment: str | None) -> None:
         """Comment on issue `number` unless `comment` is None, then close it as a duplicate of
         `original` through GraphQL, which alone sets the original (`duplicateIssueId`). Both are
-        read first, so a pull request on either side raises before any write."""
+        read first, so a pull request on either side raises before any write. The board's own
+        workflow then changes the issue's card, so the store drops the listings it read."""
         node_ids = [self._require_issue_node(n, "roadmap.issue.close") for n in (number, original)]
         if comment is not None:
             self.comment(number, comment)
@@ -1477,6 +1575,7 @@ class GitHubRoadmapStore(RoadmapStore):
             close_as_duplicate_request(node_ids[0], node_ids[1]),
             f"close #{number} as a duplicate of #{original}",
         )
+        self._listings = {}
 
     def closures(self, number: int) -> list[Closure]:
         """Every close and reopen of issue `number` from its timeline, oldest first."""
@@ -1561,7 +1660,8 @@ class GitHubRoadmapStore(RoadmapStore):
             project_link_args(owner, created.number, self._repo), f"link board #{created.number}"
         )
         current = {
-            board_field.name: board_field for board_field in self._read_fields(created.number)
+            board_field.name: board_field
+            for board_field in self._read_fields(created.number).fields
         }
         for spec in fields:
             self._create_or_align_field(created, current.get(spec.name), spec)
@@ -1569,46 +1669,50 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def board_fields(self) -> list[BoardField]:
         """Every field on the board, with each option's id, color and description."""
-        return self._read_fields(self._require_board()[1])
+        return list(self._read_schema().fields)
 
     def delete_field(self, name: str) -> None:
         """Delete the board field `name`, raising if the board has none."""
-        deleted = require_field(self.board_fields(), name, "roadmap.board.delete_field")
+        schema = self._read_schema()
+        deleted = schema.field(name, "roadmap.board.delete_field")
         self._write(field_delete_args(deleted.id), f"delete the {name} field")
+        kept = tuple(board_field for board_field in schema.fields if board_field.id != deleted.id)
+        self._schema = schema.model_copy(update={"fields": kept})
 
     def cards(self) -> list[Card]:
         """Everything on the board, whatever it holds and whichever repository it belongs to."""
         return [board_item.card() for board_item in self._read_board_listing()]
 
     def set_card_field(self, card: Card, field: ItemField, value: str | None) -> None:
-        """Set or clear a board field on any card by its node ids, then record it."""
+        """Set or clear a board field on any card by its node ids, then record it; a field
+        someone changed since the store read the card raises before any write, unless the card
+        already holds `value`."""
+        operation = "roadmap.card.set_field"
         require_board_field(field)
-        board = self._require_existing_board()
-        fields = self.board_fields()
-        require_job_record_field(field_options(fields))
-        require_option(field_options(fields), field, value)
-        current = self._require_card(card, "roadmap.card.set_field")
-        target = require_field(fields, field.value, "roadmap.card.set_field")
-        option_id = next((option.id for option in target.options if option.name == value), None)
-        change = ["--single-select-option-id", option_id] if option_id else ["--clear"]
-        record = require_field(fields, CONST_GH_PROJECT_JOB_RECORD_FIELD, "roadmap.card.set_field")
-        edits = (
-            (target, change),
-            (record, ["--text", current.recorded({field: value})]),
+        options = self._read_schema().options()
+        require_job_record_field(options)
+        require_option(options, field, value)
+        current = self._require_card_node(
+            card.id,
+            f"Card {card.id}",
+            operation,
+            field=field,
+            value=value,
+            held=card.field_value(field),
         )
-        for board_field, flags in edits:
-            self._write(
-                card_edit_args(card.id, board.id, board_field.id, flags),
-                f"set {board_field.name} on card {card.id}",
-            )
+        current = self._edit_card(current, field.value, value, operation)
+        text = current.recorded({field: value})
+        self._edit_card(current, CONST_GH_PROJECT_JOB_RECORD_FIELD, text, operation)
 
     def remove_card(self, card: Card) -> None:
         """Take `card` off the board, raising if it is not on it."""
         owner, number = self._require_board()
-        self._require_card(card, "roadmap.card.remove")
+        self._require_card_node(card.id, f"Card {card.id}", "roadmap.card.remove")
         self._write(
             item_delete_args(owner, number, card.id), f"remove card {card.id} from board #{number}"
         )
+        for listing in self._listings.values():
+            listing[:] = [listed for listed in listing if listed.id != card.id]
 
     def workflows(self) -> list[Workflow]:
         """The board's built-in workflows."""
@@ -1736,37 +1840,145 @@ class GitHubRoadmapStore(RoadmapStore):
         ]
 
     def _run_record_card(self) -> _BoardItemPayload | None:
-        """The run record card as the board holds it now, or None."""
+        """The run record card as the board listing holds it, or None."""
         listing = self._read_board_listing()
         return next((item for item in listing if item.is_run_record()), None)
 
     def _create_run_record_card(self) -> _BoardItemPayload:
-        """Put the run record card on the board, and read it back."""
+        """Put the run record card on the board: the card `item-create` names, with no field
+        set, read nothing after the create."""
         owner, number = self._require_board()
-        self._write(run_record_card_args(owner, number), "create the run record card")
-        created = self._run_record_card()
-        if created is None:
-            raise GitHubOperationError(
-                f"Board #{number} does not list the run record card just created.",
-                operation="roadmap.run_record",
-                details={"repo": self._repo[:256], "board": number},
-            )
-        return created
+        written = self._write(run_record_card_args(owner, number), "create the run record card")
+        created = self._validate(written, _ADDED_CARD, "run record card after it was created")
+        content = {"type": CardKind.DRAFT_ISSUE.value, "title": CONST_ROADMAP_RUN_RECORD_TITLE}
+        card = _BOARD_ITEM.validate_python({"id": created.id, "content": content})
+        self._added(card, is_open=False)
+        return card
 
     def _require_entry(
-        self, item: Item, operation: str
-    ) -> tuple[dict[str, tuple[str, ...]], _BoardItemPayload]:
-        """The board's options and the Item's card, raising before any write when either is missing."""
-        options = self._read_board_options()
-        require_job_record_field(options)
-        entry = self._read_board_items().get(item.number)
-        if entry is None:
-            raise GitHubOperationError(
-                f"#{item.number} is not on the board.",
-                operation=operation,
-                details={"repo": self._repo[:256], "number": item.number},
-            )
-        return options, entry
+        self, item: Item, operation: str, field: ItemField | None = None, value: str | None = None
+    ) -> _BoardItemPayload:
+        """The Item's card as it is now, read by its node id, raising before any write when the
+        Item has none, or it is gone, archived or another issue's, when the points left are
+        below the reserve, or when someone changed `field` since the store read the card."""
+        return self._require_card_node(
+            item.card_id,
+            f"#{item.number}",
+            operation,
+            number=item.number,
+            field=field,
+            value=value,
+            held=None if field is None else item.field_value(field),
+        )
+
+    def _require_card_node(
+        self,
+        card_id: str | None,
+        name: str,
+        operation: str,
+        *,
+        number: int | None = None,
+        field: ItemField | None = None,
+        value: str | None = None,
+        held: str | None = None,
+    ) -> _BoardItemPayload:
+        """The card `card_id` as it is now, from one read by its node id, raising before any
+        write when it is gone or archived, or not issue `number`'s when one is given, when that
+        read leaves fewer points than the reserve, or when writing `value` to `field` would
+        revert a change made since the store read the card: the value read is the card's in the
+        store's listings, which its own writes keep current, or `held`, the caller's, when no
+        listing holds the card. The listings take the card's job record as it is now, and keep
+        its fields as the store read them."""
+        if not card_id:
+            raise self._not_on_board(name, operation)
+        card, budget = self._read_card(card_id, name)
+        if card is None:
+            raise self._not_on_board(name, operation)
+        require_write_floor(budget, name)
+        if number is not None and not (
+            card.is_issue_of(self._repo) and card.content_number == number
+        ):
+            raise self._not_on_board(name, operation)
+        if field is not None:
+            read = {listed.field_value(field.value) for listed in self._listed(card.id)}
+            now = card.field_value(field.value)
+            require_unchanged(card.name(), field, read or {held}, now, value, operation)
+        self._remember(card.id, CONST_GH_PROJECT_JOB_RECORD_FIELD, card.job_record_text())
+        return card
+
+    def _read_card(self, card_id: str, name: str) -> tuple[_BoardItemPayload | None, GraphQLBudget]:
+        """Card `card_id` from one GraphQL read by its node id, None when GitHub holds no such
+        card or it is archived, and the budget the read reported; any other failure raises."""
+        what = f"the card of {name}"
+        proc = self._run(board_card_args(card_id))
+        if proc.returncode == 0:
+            read = self._validate(proc.stdout or "", _BOARD_CARD, what)
+        else:
+            read = self._gone_card(proc, what)
+        self._note_budget(read.rate_limit)
+        listed = read.listed()
+        card = None if listed is None else self._validate(json.dumps(listed), _BOARD_ITEM, what)
+        return card, read.rate_limit
+
+    def _gone_card(self, proc: subprocess.CompletedProcess[str], what: str) -> BoardCardPayload:
+        """A failed card read's answer when GitHub says only that the node does not exist, which
+        `gh` reports by exiting 1 with the answer on stdout; any other failure raises."""
+        try:
+            read = _BOARD_CARD.validate_json(proc.stdout or "")
+        except MalformedPayloadError:
+            raise self._failure(proc, f"read {what}", "roadmap.read") from None
+        if not read.is_gone():
+            raise self._failure(proc, f"read {what}", "roadmap.read")
+        return read
+
+    def _not_on_board(self, name: str, operation: str) -> GitHubOperationError:
+        return GitHubOperationError(
+            f"{name} is not on the board.",
+            operation=operation,
+            details={"repo": self._repo[:256], "card": name[:256]},
+        )
+
+    def _edit_card(
+        self, card: _BoardItemPayload, field_name: str, value: str | None, operation: str
+    ) -> _BoardItemPayload:
+        """Write `value` to the board field `field_name` on `card` by node ids: text for the job
+        record, an option's id for a single-select field, a clear for None. The listings the
+        store holds take the value it sent."""
+        schema = self._read_schema()
+        board_field = schema.field(field_name, operation)
+        self._write(
+            card_edit_args(card.id, schema.board_id, board_field.id, _change(board_field, value)),
+            f"set {field_name} on {card.name()}",
+        )
+        self._remember(card.id, field_name, value)
+        return card.written(field_name, value)
+
+    def _listed(self, card_id: str) -> list[_BoardItemPayload]:
+        """Card `card_id` in each listing the store holds it in, as the store read it."""
+        return [
+            listed for items in self._listings.values() for listed in items if listed.id == card_id
+        ]
+
+    def _remember(self, card_id: str, field_name: str, value: str | None) -> None:
+        """Hold `value` as card `card_id`'s field `field_name` in every listing the store holds
+        the card in; its other fields stay as the store read them."""
+        for listing in self._listings.values():
+            listing[:] = [
+                listed.written(field_name, value) if listed.id == card_id else listed
+                for listed in listing
+            ]
+
+    def _added(self, card: _BoardItemPayload, *, is_open: bool) -> None:
+        """Hold a card the store added in each listing that selects it: the unfiltered one,
+        which selects every card not archived, and the open items' when its issue is open; a
+        listing that already holds the card keeps it as the store read it. Any other listing,
+        whose filter the store can't judge, is read again when next needed."""
+        kept = {"", CONST_ROADMAP_OPEN_ITEMS_FILTER} if is_open else {""}
+        self._listings = {
+            query: listing if any(listed.id == card.id for listed in listing) else [*listing, card]
+            for query, listing in self._listings.items()
+            if query in kept
+        }
 
     def _release_for(self, version: str | None) -> Release | None:
         """The Release of `version` an issue is placed in, None for the backlog; raising when
@@ -1780,13 +1992,6 @@ class GitHubRoadmapStore(RoadmapStore):
         self._write(
             issue_milestone_args(self._repo, item.number, target.number if target else None),
             f"set the Release of #{item.number}",
-        )
-
-    def _edit_board_field(self, item: Item, field_name: str, change: list[str]) -> None:
-        owner, board_number = self._require_board()
-        self._write(
-            item_edit_args(owner, board_number, item.url, field_name, change),
-            f"set {field_name} on #{item.number}",
         )
 
     def _write_milestone(
@@ -1815,10 +2020,17 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def _read_board_listing(self, board_filter: str | None = None) -> list[_BoardItemPayload]:
         """The board's items that `board_filter`, or the job's filter, selects, archived ones
-        left out, refusing before any page when the budget can't cover the read and raising on a
-        short read. A count that changes during the read is read again once."""
-        owner, number = self._require_board()
+        left out: read the first time the store needs that filter, and kept for its life."""
         query = self._board_filter if board_filter is None else board_filter
+        if query not in self._listings:
+            self._listings[query] = self._fetch_board_listing(query)
+        return self._listings[query]
+
+    def _fetch_board_listing(self, query: str) -> list[_BoardItemPayload]:
+        """One read of the items `query` selects, refusing before any page when the budget can't
+        cover the read and raising on a short read. A count that changes during the read is read
+        again once."""
+        owner, number = self._require_board()
         texts = MESSAGES.roadmap
         what = (
             texts.board_items_filtered.format(number=number, query=query)
@@ -1904,29 +2116,6 @@ class GitHubRoadmapStore(RoadmapStore):
             if item.is_issue_of(self._repo) and item.content_number is not None
         }
 
-    def _require_existing_board(self) -> Board:
-        found = self.board()
-        if found is None:
-            owner, number = self._require_board()
-            raise GitHubOperationError(
-                f"{owner} has no board #{number}.",
-                operation="roadmap.board",
-                details={"owner": owner[:256], "number": number},
-            )
-        return found
-
-    def _require_card(self, card: Card, operation: str) -> _BoardItemPayload:
-        """The card as the board holds it now, raising when it is no longer on the board."""
-        listing = self._read_board_listing()
-        found = next((current for current in listing if current.id == card.id), None)
-        if found is None:
-            raise GitHubOperationError(
-                f"Card {card.id} is not on the board.",
-                operation=operation,
-                details={"repo": self._repo[:256], "card": card.id[:256]},
-            )
-        return found
-
     def _pull_requests(
         self, connection: _PullRequestConnectionPayload, what: str
     ) -> list[PullRequest]:
@@ -1962,8 +2151,15 @@ class GitHubRoadmapStore(RoadmapStore):
             )
         return issue.node_id
 
-    def _read_fields(self, number: int) -> list[BoardField]:
-        """Board `number`'s fields through GraphQL, which alone gives option colors and descriptions."""
+    def _read_schema(self) -> _BoardSchema:
+        """The configured board's node id and fields, read the first time a store needs them."""
+        if self._schema is None:
+            self._schema = self._read_fields(self._require_board()[1])
+        return self._schema
+
+    def _read_fields(self, number: int) -> _BoardSchema:
+        """Board `number`'s node id and fields through GraphQL, which alone gives option colors
+        and descriptions."""
         owner, _ = self._require_board()
         payload = self._read(
             board_fields_args(owner, number),
@@ -1972,7 +2168,9 @@ class GitHubRoadmapStore(RoadmapStore):
         )
         connection = payload.fields
         self._require_whole(len(connection.nodes), connection.total_count, "board fields")
-        return [node.field() for node in connection.nodes]
+        return _BoardSchema(
+            board_id=payload.board_id, fields=tuple(node.field() for node in connection.nodes)
+        )
 
     def _create_or_align_field(
         self, board: Board, current: BoardField | None, spec: FieldSpec
@@ -2000,17 +2198,6 @@ class GitHubRoadmapStore(RoadmapStore):
         if proc.returncode != 0:
             raise self._failure(proc, action, "roadmap.write")
         return proc.stdout or ""
-
-    def _read_board_options(self) -> dict[str, tuple[str, ...]]:
-        """Every board field's options by field name; fields that aren't single-select have none."""
-        owner, number = self._require_board()
-        listing = self._read(
-            field_list_args(owner, number),
-            _FIELDS,
-            f"board #{number} fields",
-        )
-        self._require_whole(len(listing.fields), listing.total_count, f"board #{number} fields")
-        return listing.options()
 
     def _read_issue(self, number: int) -> _IssuePayload:
         return self._read(issue_args(self._repo, number), _ISSUE, f"issue #{number}")
@@ -2083,6 +2270,23 @@ class GitHubRoadmapStore(RoadmapStore):
             operation=operation,
             details={"repo": self._repo[:256], "exit_code": proc.returncode},
         )
+
+
+def _change(board_field: BoardField, value: str | None) -> list[str]:
+    """The `item-edit` flags that write `value` to `board_field`: its text for a text field,
+    the option's id for a single-select one, and a clear for None."""
+    if value is None:
+        return ["--clear"]
+    if not board_field.single_select:
+        return ["--text", value]
+    found = next((o.id for o in board_field.options if o.name == value and o.id), None)
+    if found is None:
+        raise GitHubOperationError(
+            f"The board's {board_field.name} field has no option {value[:64]!r} to write.",
+            operation="roadmap.write",
+            details={"field": board_field.name[:256], "value": value[:256]},
+        )
+    return ["--single-select-option-id", found]
 
 
 def _counts(totals: Sequence[int], listing: Sequence[object]) -> str:

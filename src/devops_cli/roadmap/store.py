@@ -3,9 +3,18 @@
 An Item is an issue of this repository that is on the board. A Release is a milestone whose
 title parses as a version. A Candidate is an open issue of this repository that is not on the
 board yet. A Card is anything on the board: an Item, a pull request, a draft issue or another
-repository's issue. Both adapters keep the same promises: reads page through every result, a
-read that can't complete raises instead of returning an empty or partial result, and no read is
-cached.
+repository's issue. Both adapters keep the same promises: reads page through every result, and a
+read that can't complete raises instead of returning an empty or partial result.
+
+A store lives for one command or one Service round (#1361). It reads the board's fields once,
+and the board listing once for each Projects filter, when first needed, and its own writes keep
+that listing current with the values they sent and the cards they add; a close drops it, as the
+board's own workflow changes a closed issue's card, and a change someone else makes meanwhile is
+seen by the next store (ADR 0003). A write never trusts the listing: it reads the one card it
+writes, by the card's node id, so it joins the job record the card holds then, and a job's write
+of a field someone changed since the store read it raises `RoadmapCardChangedError` before it
+changes anything, unless the card already holds the value it writes, so a job never reverts a
+change it did not see (ADR 0002).
 
 Every Item and Card field write also records the value it set in the card's job record, so a
 job can tell a person's change from its own by comparing a field with its record (ADR 0002).
@@ -28,7 +37,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from devops_cli.config.constants import CONST_GH_PROJECT_JOB_RECORD_FIELD
 from devops_cli.config.defaults import DEFAULT_GH_PROJECT_OPTION_COLOR, DEFAULT_RELEASE_LABEL
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.roadmap import RoadmapCardChangedError
 from devops_cli.exceptions.validation import InvalidVersionError
+from devops_cli.lang import MESSAGES
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.board_read import GraphQLSpend
@@ -240,7 +251,9 @@ class Item(BaseModel):
 
     State, labels and Release come from the issue; Status, Priority, Value and Effort from the
     board. The job record holds the last value the store set for each field; a field missing
-    from it was never set by a job.
+    from it was never set by a job. `card_id` is the node id of the Item's card, which every
+    Item a store reads or adds carries and a store writes it by; an Item built as a probe has
+    none, and a write to it raises.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -248,6 +261,7 @@ class Item(BaseModel):
     number: int
     title: str
     url: str
+    card_id: str | None = None
     state: GitHubState = GitHubState.OPEN
     state_reason: str | None = None
     labels: tuple[str, ...] = ()
@@ -347,11 +361,13 @@ class Evidence(BaseModel):
 
 
 class BoardEntry(BaseModel):
-    """What the board holds for one issue of this repository: its fields and job record."""
+    """What the board holds for one issue of this repository: its card's node id, its fields
+    and its job record."""
 
     model_config = ConfigDict(frozen=True)
 
     number: int
+    card_id: str
     status: str | None = None
     priority: str | None = None
     value: str | None = None
@@ -604,6 +620,40 @@ def require_option(
         )
 
 
+def require_unchanged(
+    card: str,
+    field: ItemField,
+    read: Collection[str | None],
+    now: str | None,
+    value: str | None,
+    operation: str,
+) -> None:
+    """Refuse a job's write of `value` to `field` on `card` when the card holds `now` but the
+    store read another value (`read` holds each value it read, its own writes included): the
+    job planned without that change, so the write would revert it (ADR 0002). Writing the value
+    the card holds now reverts nothing, such as the Status the board sets on a card just added.
+    """
+    if set(read) == {now} or value == now:
+        return
+    texts = MESSAGES.roadmap
+    before = min(set(read) - {now}, key=str)
+    raise RoadmapCardChangedError(
+        texts.card_changed.format(
+            card=card,
+            field=field.value,
+            now=now or texts.card_value_unset,
+            read=before or texts.card_value_unset,
+        ),
+        operation=operation,
+        details={
+            "card": card[:256],
+            "field": field.value,
+            "read": before and before[:256],
+            "now": now and now[:256],
+        },
+    )
+
+
 def field_options(fields: Iterable[BoardField]) -> dict[str, tuple[str, ...]]:
     """Each board field's option names by field name; a field that isn't single-select has none."""
     return {field.name: tuple(option.name for option in field.options) for field in fields}
@@ -720,11 +770,14 @@ class RoadmapStore(Protocol):
     def candidates(self) -> list[Candidate]:
         """The open issues of the repository that are not on the board."""
 
-    def changes_since(self, since: datetime) -> list[Change]:
-        """The Item changes made at or after `since`, oldest first."""
+    def changes_since(self, since: datetime, *, except_actor: str | None = None) -> list[Change]:
+        """The Item changes made at or after `since`, oldest first, leaving out those
+        `except_actor` made; those cost no read of the board."""
 
-    def add_item(self, number: int) -> None:
-        """Put issue `number` on the board, raising if it is not an issue of this repository."""
+    def add_item(self, number: int) -> Item:
+        """Put issue `number` on the board and return it as the Item its card makes it, raising
+        if it is not an issue of this repository. An issue already on the board keeps its card,
+        which is returned."""
 
     def set_field(
         self,
@@ -741,10 +794,11 @@ class RoadmapStore(Protocol):
         record of the job's value: by the record alone, a write that stops between the two
         reads as the job's value a person changed since, so a job that has to tell the two
         apart also reads whether the field changed. A board field takes one of its board
-        options; the Release takes an existing Release's version. Anything else, or an Item no
-        longer on the board, raises before the store changes anything. The record keeps what
-        the store set for the Item's other fields, even when `item` was read before an earlier
-        write.
+        options; the Release takes an existing Release's version. Anything else, an Item no
+        longer on the board, or a board field someone changed since the store read the card,
+        unless the card already holds `value`, raises before the store changes anything. The
+        record keeps what the store set for the Item's other fields, even when `item` was read
+        before an earlier write.
         """
 
     def delete_release(self, version: str) -> None:
@@ -757,7 +811,9 @@ class RoadmapStore(Protocol):
         """Open an issue with `title`, `body` and `labels`, returning it."""
 
     def close_issue(self, number: int, reason: CloseReason, comment: str) -> None:
-        """Comment on issue `number`, then close it for `reason`, raising if it is not an issue."""
+        """Comment on issue `number`, then close it for `reason`, raising if it is not an issue.
+        The store's next board read reads the board again, so it shows the card as the board's
+        own workflow leaves a closed issue's."""
 
     def read_issue_body(self, number: int) -> str:
         """The body of issue `number`, raising if it is not an issue of this repository."""
@@ -800,7 +856,9 @@ class RoadmapStore(Protocol):
         """Set or clear a board field on any card, then record the value in its job record.
 
         The Release is not a board field and raises; so do a value that is not one of the
-        field's options and a card no longer on the board, before the store changes anything.
+        field's options, a card no longer on the board, and a field someone changed since the
+        store read the card, unless the card already holds `value`, before the store changes
+        anything.
         """
 
     def remove_card(self, card: Card) -> None:
@@ -881,7 +939,8 @@ class RoadmapStore(Protocol):
     def close_as_duplicate(self, number: int, original: int, comment: str | None) -> None:
         """Comment on issue `number` unless `comment` is None (a retry whose comment is already
         there), then close it as a duplicate of issue `original`, raising if either is not an
-        issue of this repository."""
+        issue of this repository. The store's next board read reads the board again, as after
+        `close_issue`."""
 
     def closures(self, number: int) -> list[Closure]:
         """Every close and reopen of issue `number`, oldest first, from its timeline."""
@@ -982,6 +1041,7 @@ __all__ = [
     "require_new_release",
     "require_option",
     "require_release",
+    "require_unchanged",
     "select_candidates",
     "with_marks",
 ]

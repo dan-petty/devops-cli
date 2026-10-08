@@ -12,7 +12,12 @@ the same connection's `totalCount`, so it counts the same items.
 Before the pages, one small query (`RoadmapBoardBudget`) reads the points left and the filter's
 total; a read that would leave fewer than `DEFAULT_GH_GRAPHQL_BUDGET_FLOOR` points refuses there,
 having spent nothing on pages, and a read stops before any page while fewer than the floor are
-left. The documents are fixed templates, validated against GitHub's public schema in a test.
+left.
+
+A write reads only the card it writes (#1361): `RoadmapBoardCard` reads one item by its node id,
+with the same item fields a page holds and `rateLimit`, for about one point whatever the board's
+size, and a write refuses before it starts while fewer than the floor are left. The documents are
+fixed templates, validated against GitHub's public schema in a test.
 
 This module only builds `gh` arguments and reads payloads; the store runs them, so a request plan
 can list the same argv the store sends.
@@ -36,6 +41,7 @@ from devops_cli.lang import MESSAGES
 
 BOARD_ITEMS_OPERATION = "RoadmapBoardItems"
 BOARD_BUDGET_OPERATION = "RoadmapBoardBudget"
+BOARD_CARD_OPERATION = "RoadmapBoardCard"
 GRAPHQL_BUDGET_OPERATION = "RoadmapGraphQLBudget"
 
 _RATE_LIMIT = "rateLimit { cost limit remaining used resetAt }"
@@ -46,6 +52,16 @@ _OWNED_BOARD = (
 )
 _FIELD_NAME = "field { ... on ProjectV2FieldCommon { name } }"
 _REPOSITORY_CONTENT = "number title url repository { nameWithOwner }"
+# The item fields the store keeps, the same in a page and in a one-card read.
+_ITEM_SELECTION = (
+    "id content { __typename ... on DraftIssue { title } "
+    f"... on Issue {{ {_REPOSITORY_CONTENT} }} "
+    f"... on PullRequest {{ {_REPOSITORY_CONTENT} }} }} "
+    "fieldValues(first: $fieldValues) { nodes { "
+    f"... on ProjectV2ItemFieldSingleSelectValue {{ name {_FIELD_NAME} }} "
+    f"... on ProjectV2ItemFieldTextValue {{ text {_FIELD_NAME} }} "
+    f"... on ProjectV2ItemFieldDateValue {{ date {_FIELD_NAME} }} }} }}"
+)
 
 BOARD_ITEMS_QUERY = (
     f"query {BOARD_ITEMS_OPERATION}($owner: String!, $number: Int!, $filter: String!, "
@@ -53,18 +69,17 @@ BOARD_ITEMS_QUERY = (
     f"{_RATE_LIMIT} "
     + _OWNED_BOARD.format(
         selection=_ITEMS.format(first="$first", after="after: $after, ")
-        + " { totalCount pageInfo { hasNextPage endCursor } nodes { id "
-        "content { __typename ... on DraftIssue { title } "
-        f"... on Issue {{ {_REPOSITORY_CONTENT} }} "
-        f"... on PullRequest {{ {_REPOSITORY_CONTENT} }} }} "
-        "fieldValues(first: $fieldValues) { nodes { "
-        f"... on ProjectV2ItemFieldSingleSelectValue {{ name {_FIELD_NAME} }} "
-        f"... on ProjectV2ItemFieldTextValue {{ text {_FIELD_NAME} }} "
-        f"... on ProjectV2ItemFieldDateValue {{ date {_FIELD_NAME} }} }} }} }} }}"
+        + f" {{ totalCount pageInfo {{ hasNextPage endCursor }} nodes {{ {_ITEM_SELECTION} }} }}"
     )
     + " }"
 )
 """One page of the board's items that `$filter` selects, archived ones left out."""
+
+BOARD_CARD_QUERY = (
+    f"query {BOARD_CARD_OPERATION}($id: ID!, $fieldValues: Int!) {{ {_RATE_LIMIT} "
+    f"node(id: $id) {{ ... on ProjectV2Item {{ isArchived {_ITEM_SELECTION} }} }} }}"
+)
+"""One board item by its node id, archived or not, with the fields a page holds."""
 
 BOARD_BUDGET_QUERY = (
     f"query {BOARD_BUDGET_OPERATION}($owner: String!, $number: Int!, $filter: String!) {{ "
@@ -118,6 +133,15 @@ def board_budget_args(owner: str, number: int | str, board_filter: str) -> list[
         ("owner", owner),
         ("filter", board_filter),
         typed=("-F", f"number={number}"),
+    )
+
+
+def board_card_args(card_id: str) -> list[str]:
+    """The `gh` arguments of the read of one board item by its node id."""
+    return _graphql_args(
+        BOARD_CARD_QUERY,
+        ("id", card_id),
+        typed=("-F", f"fieldValues={DEFAULT_GH_PROJECT_FIELD_LIMIT}"),
     )
 
 
@@ -211,6 +235,35 @@ class GraphQLBudgetPayload(BaseModel):
     rate_limit: GraphQLBudget = Field(validation_alias=AliasPath("data", "rateLimit"))
 
 
+class _GraphQLError(BaseModel):
+    type: str | None = None
+
+
+class BoardCardPayload(BaseModel):
+    """The answer to `RoadmapBoardCard`. A node id that resolves to nothing comes back as a null
+    node with a `NOT_FOUND` error, which `gh` reports by exiting 1 with the answer on stdout."""
+
+    rate_limit: GraphQLBudget = Field(validation_alias=AliasPath("data", "rateLimit"))
+    node: dict[str, Any] | None = Field(default=None, validation_alias=AliasPath("data", "node"))
+    errors: list[_GraphQLError] = Field(default_factory=list)
+
+    def is_gone(self) -> bool:
+        """Whether GitHub says the node does not exist, and says nothing else went wrong."""
+        return (
+            self.node is None
+            and bool(self.errors)
+            and all(error.type == "NOT_FOUND" for error in self.errors)
+        )
+
+    def listed(self) -> dict[str, Any] | None:
+        """The item shaped as `gh project item-list` lists it, or None when it is archived, gone
+        or not a board item."""
+        node = self.node or {}
+        if "id" not in node or node.get("isArchived"):
+            return None
+        return listing_item(node)
+
+
 def listing_item(node: dict[str, Any]) -> dict[str, Any]:
     """A board item node in the shape `gh project item-list` gives it: content keyed `type`,
     `repository` as `owner/name`, and each field's value under its name, first letter
@@ -258,6 +311,22 @@ def require_budget(budget: GraphQLBudget, cost: int, what: str) -> None:
         )
 
 
+def require_write_floor(budget: GraphQLBudget, what: str) -> None:
+    """Refuse a write, before it starts, while fewer points than the floor are left."""
+    if budget.remaining < DEFAULT_GH_GRAPHQL_BUDGET_FLOOR:
+        raise GitHubRateLimitError(
+            MESSAGES.roadmap.graphql_budget_write_floor.format(
+                remaining=budget.remaining,
+                reset=utc_clock(budget.reset_at),
+                floor=DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
+                what=what,
+            ),
+            subcommand="graphql",
+            operation="roadmap.write",
+            details={"remaining": budget.remaining},
+        )
+
+
 def require_floor(budget: GraphQLBudget, what: str, page: int) -> None:
     """Stop a read before page `page` while fewer points than the floor are left."""
     if budget.remaining < DEFAULT_GH_GRAPHQL_BUDGET_FLOOR:
@@ -283,16 +352,20 @@ def utc_clock(moment: datetime) -> str:
 __all__ = [
     "BOARD_BUDGET_OPERATION",
     "BOARD_BUDGET_QUERY",
+    "BOARD_CARD_OPERATION",
+    "BOARD_CARD_QUERY",
     "BOARD_ITEMS_OPERATION",
     "BOARD_ITEMS_QUERY",
     "GRAPHQL_BUDGET_OPERATION",
     "GRAPHQL_BUDGET_QUERY",
     "BoardBudgetPayload",
+    "BoardCardPayload",
     "BoardItemsPage",
     "GraphQLBudget",
     "GraphQLBudgetPayload",
     "GraphQLSpend",
     "board_budget_args",
+    "board_card_args",
     "board_items_args",
     "graphql_budget_args",
     "item_list_key",
@@ -300,6 +373,7 @@ __all__ = [
     "read_cost",
     "require_budget",
     "require_floor",
+    "require_write_floor",
     "spend_between",
     "utc_clock",
 ]
