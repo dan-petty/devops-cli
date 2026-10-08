@@ -120,6 +120,20 @@ def _validate_mcp_arg(name: str, value: str) -> None:
         )
 
 
+def _validate_mcp_sandbox_workspace(workspace: str) -> None:
+    """Refuse a sandbox workspace through the commands' shared check before any command runs.
+
+    The client gets the refusal as a tool error; no command line is built and nothing runs.
+    """
+    from pathlib import Path
+
+    from devops_cli.config.settings import load_settings
+    from devops_cli.sandbox.engine import validate_sandbox_workspace
+
+    exclude_home_dir = load_settings().sandbox.exclude_home_dir
+    validate_sandbox_workspace(Path(workspace), exclude_home_dir=exclude_home_dir)
+
+
 def _validate_mcp_whitelist(name: str, items: list[str] | None) -> None:
     """Reject whitelist items that start with a hyphen or contain forbidden characters."""
     if not items:
@@ -1537,6 +1551,7 @@ def docker_sandbox(
     """Execute command inside an isolated Docker container sandbox."""
     _validate_mcp_arg("image", image)
     _validate_mcp_arg("workspace", workspace)
+    _validate_mcp_sandbox_workspace(workspace)
     _validate_mcp_arg("network", network)
     if network_mode:
         _validate_mcp_arg("network_mode", network_mode)
@@ -1588,6 +1603,7 @@ def sandbox_deploy(  # noqa: C901
     """Deploy an isolated workload container sandbox with security containment and port allocation."""
     _validate_mcp_arg("image", image)
     _validate_mcp_arg("workspace", workspace)
+    _validate_mcp_sandbox_workspace(workspace)
     _validate_mcp_arg("network", network)
     if network_mode:
         _validate_mcp_arg("network_mode", network_mode)

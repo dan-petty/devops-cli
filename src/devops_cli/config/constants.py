@@ -2101,6 +2101,9 @@ CONST_DOCKER_HOST_ENV_VAR: Final[str] = "DOCKER_HOST"
 # validation before the Engine API client is constructed. Closed, exhaustive set
 # defined by the Docker Engine daemon socket grammar (`dockerd -H`).
 CONST_DOCKER_NETWORK_HOST_SCHEMES: Final[tuple[str, ...]] = ("tcp://", "http://", "https://")
+# The scheme docker-py's `parse_host` gives a unix socket endpoint; its client then speaks over
+# the socket its `UnixHTTPAdapter` derives from that URL.
+CONST_DOCKER_UNIX_ADAPTER_SCHEME: Final[str] = "http+unix"
 
 # `GET /system/df` object types returned by the Engine API disk-usage endpoint.
 CONST_DOCKER_DF_BUILD_CACHE_KEY: Final[str] = "BuildCache"
@@ -2130,6 +2133,12 @@ CONST_SANDBOX_SENSITIVE_SUBPATHS: Final[frozenset[str]] = frozenset(
         ".git",
     }
 )
+# The system runtime root, where rootful engine sockets and each user's runtime directory
+# (`/run/user/<uid>`, with its session bus) live. A sandbox workspace never overlaps it, nor
+# $XDG_RUNTIME_DIR, nor the engine socket's directory (#1115). Only the sandbox check refuses it:
+# subprocess working directories and every other `CONST_FORBIDDEN_SYSTEM_DIRS` caller do not.
+CONST_SANDBOX_RUNTIME_ROOT: Final[Path] = Path("/run")
+CONST_XDG_RUNTIME_DIR_ENV_VAR: Final[str] = "XDG_RUNTIME_DIR"
 
 # Multi-tier sandbox networking mode constants
 CONST_SANDBOX_NETWORK_ISOLATED: Final[str] = "isolated"

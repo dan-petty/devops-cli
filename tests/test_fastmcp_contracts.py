@@ -1554,7 +1554,7 @@ def test_telemetry_profile_reads_the_named_trace() -> None:
     ]
 
 
-def test_docker_sandbox_hands_its_command_over_after_the_options_end() -> None:
+def test_docker_sandbox_hands_its_command_over_after_the_options_end(tmp_path) -> None:
     """`docker_sandbox` appended `command` straight after its own options (#980).
 
     `devops docker sandbox` parsed a leading `--root` or `--cpus 64` in that list as its own
@@ -1566,7 +1566,7 @@ def test_docker_sandbox_hands_its_command_over_after_the_options_end() -> None:
     from devops_cli.ai.mcp.server import docker_sandbox
 
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
-        docker_sandbox(command=["--root", "id"])
+        docker_sandbox(command=["--root", "id"], workspace=str(tmp_path))
     assert run.call_args.args[0][-3:] == ["--", "--root", "id"]
 
 

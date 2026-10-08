@@ -202,7 +202,9 @@ def test_agent_runner_masks_secrets_in_tool_errors() -> None:
 
 
 # 12. Sandbox directory validation (Finding 10)
-def test_docker_sandbox_rejects_symlinks_and_system_roots(tmp_path: Path) -> None:
+def test_docker_sandbox_rejects_symlinks_and_system_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Verify WorkloadSandboxRunner rejects symlinked workspace and sensitive root directories."""
     from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
 
@@ -227,13 +229,13 @@ def test_docker_sandbox_rejects_symlinks_and_system_roots(tmp_path: Path) -> Non
         with pytest.raises(ValueError, match="sensitive credential or repository metadata"):
             runner_sens.run()
 
-    # Docker socket reference
-    sock_path = tmp_path / "var_run_docker.sock"
-    sock_path.touch()
-    cfg_sock = WorkloadSandboxConfig(workspace_dir=sock_path, command=["echo", "test"])
+    # The directory holding the engine socket DOCKER_HOST names
+    monkeypatch.setenv("DOCKER_HOST", f"unix://{tmp_path}/engine/docker.sock")
+    cfg_sock = WorkloadSandboxConfig(workspace_dir=tmp_path / "engine", command=["echo", "test"])
     runner_sock = WorkloadSandboxRunner(cfg_sock)
-    with pytest.raises(ValueError, match="Docker socket"):
+    with pytest.raises(ValueError, match="container engine"):
         runner_sock.run()
+    monkeypatch.delenv("DOCKER_HOST")
 
     # Symlinked workspace path
     real_ws = tmp_path / "real_ws"

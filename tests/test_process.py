@@ -95,6 +95,12 @@ def test_run_subprocess_cwd_security() -> None:
         run_subprocess(["echo", "hi"], cwd=Path("/etc"))
 
 
+def test_run_subprocess_runs_in_the_runtime_root() -> None:
+    """Only a sandbox workspace refuses /run (#1115); a subprocess may still run there."""
+    proc = run_subprocess(["pwd"], cwd=Path("/run"))
+    assert (proc.returncode, proc.stdout.strip()) == (0, "/run")
+
+
 @pytest.mark.anyio
 async def test_run_subprocess_async_cwd_security() -> None:
     """Verify run_subprocess_async rejects traversal sequences and forbidden system directories in cwd."""
