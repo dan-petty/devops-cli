@@ -22,6 +22,8 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_GH_LABEL_LIST_LIMIT
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import get_repo_origin_name
+from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.github.branch_protection import (
@@ -62,13 +64,14 @@ from devops_cli.github.pages import (
     verify_pages_configuration,
 )
 from devops_cli.github.projects import (
+    ReconcileResult,
     audit_project_drift,
     audit_remote_project_views,
     get_project_workflows,
     link_project_to_repository,
     list_remote_projects,
     load_project_template,
-    parse_tasks_to_project_items,
+    project_template_path,
     sync_remote_project,
     sync_remote_project_views,
 )
@@ -420,9 +423,9 @@ def edit_milestone_cmd(
 @project_app.command("status")
 def status_project(
     template_file: Annotated[
-        Path,
-        typer.Option("--template", "-t", help="Path to project template JSON"),
-    ] = Path(".github/project-template.json"),
+        Path | None,
+        typer.Option("--template", "-t", help=HELP.gh.project_template_file),
+    ] = None,
 ) -> None:
     """Inspect the declarative GitHub Projects v2 template structure and views."""
     template = load_project_template(template_file)
@@ -437,24 +440,14 @@ def status_project(
 
 @project_app.command("sync", help=HELP.gh.project_sync)
 def sync_project(
-    task_file: Annotated[
-        Path,
-        typer.Option(
-            "--task-file",
-            "-f",
-            help="Path to docs/agent/tasks directory",
-        ),
-    ] = Path("docs/agent/tasks"),
     template_file: Annotated[
-        Path,
-        typer.Option("--template", "-t", help="Path to project template JSON"),
-    ] = Path(".github/project-template.json"),
+        Path | None,
+        typer.Option("--template", "-t", help=HELP.gh.project_template_file),
+    ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
     dry_run: Annotated[
         bool,
-        typer.Option(
-            "--dry-run/--no-dry-run", help="Preview task card items without remote mutations"
-        ),
+        typer.Option("--dry-run/--no-dry-run", help=HELP.gh.project_sync_dry_run),
     ] = False,
     reconcile_fields: Annotated[
         bool,
@@ -464,55 +457,86 @@ def sync_project(
         ),
     ] = True,
 ) -> None:
-    """Synchronize task lifecycle items into GitHub Projects v2 status."""
-    items = parse_tasks_to_project_items(task_file)
-    counts: dict[str, int] = {}
-    for it in items:
-        counts[it.status] = counts.get(it.status, 0) + 1
-
-    summary = ", ".join(f"{k}: {v}" for k, v in sorted(counts.items()))
+    """Find or create the template's board, link it, create its missing fields and reconcile Status and Priority on its cards."""
     target_repo = repo or _resolve_repo()
     owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
     template = load_project_template(template_file)
-
-    try:
-        res = sync_remote_project(
-            owner=owner,
-            repo=target_repo,
-            template=template,
-            items=items,
-            dry_run=dry_run,
-            reconcile_fields=reconcile_fields,
+    res = sync_remote_project(
+        owner=owner,
+        repo=target_repo,
+        template=template,
+        dry_run=dry_run or is_dry_run(),
+        reconcile_fields=reconcile_fields,
+    )
+    texts = MESSAGES.project
+    if res.dry_run:
+        print_info(
+            texts.sync_dry_run.format(
+                title=res.project_title,
+                owner=owner,
+                repo=target_repo,
+                fields=", ".join(f.name for f in template.fields),
+                reconcile=texts.sync_dry_run_reconcile if reconcile_fields else "",
+            )
         )
-        mode_text = "[yellow][DRY RUN][/yellow] " if res.dry_run else ""
-        link_text = " linked to repository" if res.linked else ""
-        print_success(
-            f"{mode_text}Project '{res.project_title}' (#{res.project_number}){link_text}: "
-            f"synchronized {res.items_synced} items ({summary}). "
-            f"Provisioned fields: {', '.join(res.fields_provisioned) or 'all up-to-date'}."
+        return
+    print_success(
+        texts.sync_done.format(
+            title=res.project_title,
+            number=res.project_number,
+            linked=texts.sync_linked.format(repo=target_repo) if res.linked else "",
+            fields=", ".join(res.fields_provisioned) or texts.sync_fields_current,
         )
-    except Exception as exc:
-        print_warning(f"Remote project sync skipped or failed: {exc}")
-        print_info(f"Local tasks parsed: {len(items)} items ({summary}).")
+    )
+    if res.reconcile is not None:
+        _report_reconcile(res.reconcile, target_repo)
 
 
 def _resolve_project_number(owner: str, target_repo: str, project_number: int | None) -> int:
     """Return the board number given, or the template board's, never a guessed one."""
     if project_number:
         return project_number
-    from devops_cli.github.projects import find_remote_project, load_project_template
+    from devops_cli.github.projects import find_project_by_template, load_project_template
 
     template = load_project_template()
-    matched = find_remote_project(owner, template.name, repo=target_repo)
-    if not matched and template.short_name:
-        matched = find_remote_project(owner, template.short_name, repo=target_repo)
-    if not matched or not matched.get("number"):
+    number = find_project_by_template(owner, target_repo, template)
+    if number is None:
         print_error(
             f"No project board named '{template.name}' found for {owner}; "
             "pass --project-number to choose one."
         )
         raise typer.Exit(1)
-    return int(matched["number"])
+    return number
+
+
+def _report_reconcile(result: ReconcileResult, repo: str) -> None:
+    """Print a reconcile run: its request plan, or its changes, summary and stop; exit 1 when
+    it stopped before making every planned change."""
+    texts = MESSAGES.project
+    if result.mode == "dry-run":
+        heading = "\n\n".join(
+            [texts.dry_run_title.format(repo=repo), MESSAGES.roadmap.plan_dry_run]
+        )
+        render_request_plan(heading, result.requests, texts.dry_run_notes, described=True)
+        return
+    if result.shown:
+        # Board options and label names are remote text, printed as written.
+        print(
+            texts.changes_title.format(number=result.project_number),
+            columns=["Item", "Field", "Old", "New", "Source"],
+            rows=[[c.item, c.field, c.old or "(unset)", c.new, c.source] for c in result.shown],
+            safe=True,
+        )
+    intake = result.intake_line()
+    if intake:
+        print_info(intake)
+    stop = result.stop_line()
+    if stop is None:
+        print_success(result.summary())
+        return
+    # A failed write's stop line carries gh's error, which is remote text.
+    print_error(stop, safe=True)
+    raise typer.Exit(1)
 
 
 @project_app.command("reconcile", help=HELP.gh.project_reconcile)
@@ -528,49 +552,37 @@ def reconcile_project_cmd(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Preview field reconciliation without mutations"),
+        typer.Option("--dry-run", help=HELP.gh.project_reconcile_dry_run),
+    ] = False,
+    plan_only: Annotated[
+        bool,
+        typer.Option("--plan", help=HELP.gh.project_reconcile_plan),
     ] = False,
 ) -> None:
-    """Reconcile Status, Priority and Milestone on project items, listing every change and its source."""
-    from devops_cli.github.projects import reconcile_project_custom_fields
+    """Reconcile Status and Priority on the board's cards, listing every change and its source."""
+    from devops_cli.github import projects
 
+    if dry_run and plan_only:
+        print_error(MESSAGES.roadmap.plan_modes_exclusive.format(modes="--dry-run and --plan"))
+        raise typer.Exit(1)
     target_repo = repo or _resolve_repo()
     owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
+    if dry_run or is_dry_run():
+        template = None if project_number else projects.load_project_template()
+        planned = projects.reconcile_dry_run(
+            owner, target_repo, project_number, state=state, template=template, writes=not plan_only
+        )
+        _report_reconcile(planned, target_repo)
+        return
     proj_num = _resolve_project_number(owner, target_repo, project_number)
-
-    try:
-        res = reconcile_project_custom_fields(
-            owner=owner,
-            repo=target_repo,
-            project_number=proj_num,
-            dry_run=dry_run,
-            state=state,
-        )
-    except Exception as exc:
-        print_error(f"Failed to reconcile project #{proj_num}: {exc}")
-        raise typer.Exit(1) from exc
-
-    changes = res.get("changes", [])
-    if changes:
-        print_table(
-            f"Project #{proj_num} Field Changes",
-            ["Item", "Field", "Old", "New", "Source"],
-            [
-                [
-                    "#" + str(c["url"]).rstrip("/").rsplit("/", 1)[-1],
-                    c["field"],
-                    c["old"] or "(unset)",
-                    c["new"],
-                    c["source"],
-                ]
-                for c in changes
-            ],
-        )
-    verb = "[yellow][DRY RUN][/yellow] Would change" if dry_run else "Changed"
-    print_success(
-        f"{verb} {res['items_reconciled']} of {res['items_evaluated']} items on project "
-        f"#{proj_num} ({len(changes)} field changes)."
+    result = projects.reconcile_project_custom_fields(
+        owner=owner,
+        repo=target_repo,
+        project_number=proj_num,
+        mode="plan" if plan_only else "write",
+        state=state,
     )
+    _report_reconcile(result, target_repo)
 
 
 @project_app.command("link", help=HELP.gh.project_link)
@@ -678,9 +690,9 @@ def list_projects(
 @project_app.command("audit", help=HELP.gh.project_audit)
 def audit_project(
     template_file: Annotated[
-        Path,
-        typer.Option("--template", "-t", help="Path to project template JSON"),
-    ] = Path(".github/project-template.json"),
+        Path | None,
+        typer.Option("--template", "-t", help=HELP.gh.project_template_file),
+    ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
 ) -> None:
     """Audit project board health and alignment against standardized template."""
@@ -709,13 +721,14 @@ def audit_project(
 @project_app.command("template")
 def show_template(
     template_file: Annotated[
-        Path,
-        typer.Option("--template", "-t", help="Path to project template JSON"),
-    ] = Path(".github/project-template.json"),
+        Path | None,
+        typer.Option("--template", "-t", help=HELP.gh.project_template_file),
+    ] = None,
 ) -> None:
     """Display the raw GitHub Projects v2 declarative JSON template."""
-    content = template_file.read_text(encoding="utf-8")
-    print(content)
+    path = project_template_path(template_file)
+    load_project_template(path)
+    print(path.read_text(encoding="utf-8"))
 
 
 # =============================================================================
@@ -726,9 +739,9 @@ def show_template(
 @views_app.command("list")
 def list_views(
     template_file: Annotated[
-        Path,
-        typer.Option("--template", "-t", help="Path to project template JSON"),
-    ] = Path(".github/project-template.json"),
+        Path | None,
+        typer.Option("--template", "-t", help=HELP.gh.project_template_file),
+    ] = None,
 ) -> None:
     """List all standardized GitHub Projects v2 views configured for this workspace."""
     template = load_project_template(template_file)
@@ -749,9 +762,9 @@ def list_views(
 @views_app.command("spec")
 def spec_views(
     template_file: Annotated[
-        Path,
-        typer.Option("--template", "-t", help="Path to project template JSON"),
-    ] = Path(".github/project-template.json"),
+        Path | None,
+        typer.Option("--template", "-t", help=HELP.gh.project_template_file),
+    ] = None,
 ) -> None:
     """Output JSON schema specification for all configured project views."""
     template = load_project_template(template_file)
@@ -789,9 +802,9 @@ def _display_issues_saved_views(target_repo: str) -> None:
 @views_app.command("sync", help=HELP.gh.views_sync)
 def sync_views(
     template_file: Annotated[
-        Path,
-        typer.Option("--template", "-t", help="Path to project template JSON"),
-    ] = Path(".github/project-template.json"),
+        Path | None,
+        typer.Option("--template", "-t", help=HELP.gh.project_template_file),
+    ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
 ) -> None:
     """Synchronize standardized views with remote GitHub Projects v2 board."""
@@ -820,9 +833,9 @@ def sync_views(
 @views_app.command("audit", help=HELP.gh.views_audit)
 def audit_views(
     template_file: Annotated[
-        Path,
-        typer.Option("--template", "-t", help="Path to project template JSON"),
-    ] = Path(".github/project-template.json"),
+        Path | None,
+        typer.Option("--template", "-t", help=HELP.gh.project_template_file),
+    ] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
 ) -> None:
     """Audit remote project views against standardized view template specifications."""

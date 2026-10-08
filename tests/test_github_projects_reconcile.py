@@ -3,17 +3,33 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
+from devops_cli.github import rate_limiter
 from devops_cli.github.projects import (
     FieldChange,
+    MutationBudget,
+    ReconcileResult,
     plan_item_changes,
+    reconcile_dry_run,
     reconcile_project_custom_fields,
 )
-from tests.roadmap_board_fake import board_page_reply
+from devops_cli.github.rate_limiter import get_github_rate_limiter
+from tests.project_reconcile_fake import (
+    REPO,
+    ProjectGitHub,
+    card,
+    collapse,
+    issue,
+    pull,
+    request_kind,
+)
 
 _URL = "https://github.com/owner/repo/issues/7"
 _STATUSES = ("New", "Ready", "In Progress", "In Review", "Done")
@@ -137,261 +153,278 @@ def test_a_field_change_records_the_item_it_belongs_to() -> None:
     )
 
 
-def test_reconcile_project_custom_fields_dry_run() -> None:
-    with (
-        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
-        patch("devops_cli.github.projects._fetch_project_items_data", return_value={}),
-        patch("devops_cli.github.projects._fetch_repository_issues", return_value=[]),
-        patch("devops_cli.github.projects._fetch_repository_prs", return_value=[]),
-    ):
-        res = reconcile_project_custom_fields(
-            owner="owner",
-            repo="owner/repo",
-            project_number=2,
-            dry_run=True,
+def _reconcile(
+    fake: ProjectGitHub, mode: str = "write", state: str = "open", limit: int = 25
+) -> ReconcileResult:
+    """Reconcile board 2 of `o/r` against `fake`, standing in for `run_gh`."""
+    with patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh):
+        return reconcile_project_custom_fields(
+            "o", REPO, 2, mode=mode, state=state, budget=MutationBudget(limit=limit)
         )
-        assert (res["dry_run"], res["project_number"], res["changes"]) == (True, 2, [])
 
 
-def test_reconcile_project_custom_fields_live() -> None:
-    existing_items_resp = [
-        {
-            "id": "item_1",
-            "content": {"url": "https://example.com/owner/repo/issues/74"},
-        }
-    ]
-    issues_resp = [
-        {
-            "number": 74,
-            "title": "feat(ai): Tree-sitter AST Graph",
-            "url": "https://example.com/owner/repo/issues/74",
-            "state": "OPEN",
-            "labels": [{"name": "priority/p1-high"}, {"name": "status/in-progress"}],
-        }
-    ]
+def _five_changes() -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Three cards needing five changes, and two open issues off the board."""
+    cards = [card(1), card(2), card(3, status="Ready")]
+    labelled = ("priority/p1-high",)
+    issues = [issue(n, labels=labelled) for n in (1, 2, 3)] + [issue(10), issue(11)]
+    return cards, issues
 
-    def mock_run_subprocess(cmd: list[str], **kwargs: object) -> MagicMock:
-        res = MagicMock()
-        res.returncode = 0
-        cmd_str = " ".join(cmd)
-        if "RoadmapBoardItems" in cmd_str:
-            res.stdout = board_page_reply(existing_items_resp)
-        elif "repos/owner/repo/issues" in cmd_str:
-            res.stdout = json.dumps(issues_resp)
-        elif "repos/owner/repo/pulls" in cmd_str:
-            res.stdout = json.dumps([])
-        else:
-            res.stdout = ""
-        return res
+
+def _rate_limit_reply(remaining: int = 5000) -> str:
+    """`gh api rate_limit` as REST answers it, every resource reset an hour from now."""
+    reset = int(time.time()) + 3600
+    resource = {"limit": 5000, "remaining": remaining, "used": 0, "reset": reset}
+    return json.dumps({"resources": {name: resource for name in ("core", "graphql", "search")}})
+
+
+@pytest.mark.parametrize("ledger", ["no graphql entry", "an entry past its reset"])
+def test_reconcile_reads_an_unknown_quota_and_plans_the_board(ledger: str) -> None:
+    """Fault 1 of #892: an unknown or expired ledger entry no longer reads as exhausted. Through
+    the real `run_gh`, its `acquire` refreshes the ledger from `gh api rate_limit` before the
+    budget query, whose GraphQL reply then decides, and the plan holds the board's changes."""
+    limiter = get_github_rate_limiter()
+    if ledger == "an entry past its reset":
+        limiter.update_quota("graphql", remaining=4000, reset_epoch=time.time() - 60, limit=5000)
+    cards, issues = _five_changes()
+    fake = ProjectGitHub(cards, issues)
+    refreshed: list[list[str]] = []
+
+    def rate_limit(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        refreshed.append(cmd)
+        assert cmd == ["gh", "api", "rate_limit"]
+        return subprocess.CompletedProcess(cmd, 0, _rate_limit_reply(), "")
 
     with (
-        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
-        patch("devops_cli.github.projects._get_authenticated_user", return_value="owner"),
-        patch("devops_cli.github.projects.run_gh", side_effect=mock_run_subprocess) as mock_cmd,
+        patch.object(rate_limiter, "_burst_protected_subprocess", side_effect=fake),
+        patch.object(rate_limiter, "run_subprocess", side_effect=rate_limit),
+        patch("devops_cli.github.rate_limiter.time.sleep"),
     ):
-        res = reconcile_project_custom_fields(
-            owner="owner",
-            repo="owner/repo",
-            project_number=2,
-            dry_run=False,
-        )
-        edited = [
-            c[0][0][c[0][0].index("--field") + 1]
-            for c in mock_cmd.call_args_list
-            if "item-edit" in c[0][0]
-        ]
-        assert (res["dry_run"], res["items_reconciled"], edited, res["changes"]) == (
-            False,
-            1,
-            ["Status", "Priority"],
-            [
-                {
-                    "url": "https://example.com/owner/repo/issues/74",
-                    "field": "Status",
-                    "old": None,
-                    "new": "In Progress",
-                    "source": "label status/in-progress",
-                },
-                {
-                    "url": "https://example.com/owner/repo/issues/74",
-                    "field": "Priority",
-                    "old": None,
-                    "new": "P1-High",
-                    "source": "label priority/p1-high",
-                },
-            ],
-        )
+        result = reconcile_project_custom_fields("o", REPO, 2, mode="plan")
+    quota = limiter.get_quota("graphql")
+    assert (
+        len(result.planned),
+        result.summary(),
+        bool(refreshed),
+        quota.is_valid(),
+        (quota.remaining or 5000) <= fake.server.remaining,
+        fake.edits,
+    ) == (5, "Would change 3 of 3 items on project #2 (5 field changes).", True, True, True, [])
 
 
-def test_is_graphql_quota_exhausted() -> None:
-    import time
+@pytest.mark.parametrize("mode", ["plan", "write"])
+def test_reconcile_refuses_to_start_below_the_floor(mode: str) -> None:
+    """With 100 GraphQL points left the run does not start: it names the points and the reset
+    and reads nothing past the budget query, so a write run writes nothing."""
+    cards, issues = _five_changes()
+    fake = ProjectGitHub(cards, issues, remaining=101)
+    with pytest.raises(GitHubRateLimitError) as refused:
+        _reconcile(fake, mode=mode)
+    assert (
+        "100 points left until 00:00 UTC" in refused.value.message,
+        fake.kinds(),
+        fake.edits,
+    ) == (True, ["RoadmapBoardBudget"], [])
 
-    from devops_cli.github.projects import _is_graphql_quota_exhausted
-    from devops_cli.github.rate_limiter import QuotaState
 
-    mock_limiter = MagicMock()
-    # When remaining is None (quota unknown), exhausted = True (must not run)
-    mock_limiter.get_quota.return_value = QuotaState(remaining=None, last_updated=0.0)
-    with patch("devops_cli.github.projects.get_github_rate_limiter", return_value=mock_limiter):
-        assert _is_graphql_quota_exhausted(threshold=25) is True
-
-    # When quota is expired or reset_epoch in the past, exhausted = True (must not run)
-    mock_limiter.get_quota.return_value = QuotaState(
-        remaining=100, reset_epoch=time.time() - 10, last_updated=100.0
+@pytest.mark.parametrize("state", ["open", "closed", "all"])
+def test_reconcile_never_adds_a_card_whatever_the_state(state: str) -> None:
+    """An open issue, a closed issue, an open pull request and a merged one, all off the board,
+    stay off it. Only the open issue waits for intake, and only a run that listed open issues
+    can count it."""
+    fake = ProjectGitHub(
+        [card(1, status="Ready")],
+        [issue(1), issue(10), issue(11, "closed")],
+        [pull(12), pull(13, "closed", merged=True)],
     )
-    with patch("devops_cli.github.projects.get_github_rate_limiter", return_value=mock_limiter):
-        assert _is_graphql_quota_exhausted(threshold=25) is True
-
-    # When remaining < threshold and valid, exhausted = True
-    future_epoch = time.time() + 3600
-    mock_limiter.get_quota.return_value = QuotaState(
-        remaining=10, reset_epoch=future_epoch, last_updated=100.0
+    result = _reconcile(fake, state=state)
+    intake = "1 open issue is not on the board (awaiting intake: devops roadmap intake)."
+    assert (fake.adds, result.intake_line(), "item-add" in str(fake.sent)) == (
+        [],
+        None if state == "closed" else intake,
+        False,
     )
-    with patch("devops_cli.github.projects.get_github_rate_limiter", return_value=mock_limiter):
-        assert _is_graphql_quota_exhausted(threshold=25) is True
 
-    # When remaining >= threshold and valid, not exhausted
-    mock_limiter.get_quota.return_value = QuotaState(
-        remaining=100, reset_epoch=future_epoch, last_updated=100.0
+
+def test_two_open_issues_off_the_board_are_counted_in_the_plural() -> None:
+    cards, issues = _five_changes()
+    result = _reconcile(ProjectGitHub(cards, issues), mode="plan")
+    assert result.intake_line() == (
+        "2 open issues are not on the board (awaiting intake: devops roadmap intake)."
     )
-    with patch("devops_cli.github.projects.get_github_rate_limiter", return_value=mock_limiter):
-        assert _is_graphql_quota_exhausted(threshold=25) is False
 
 
-def test_reconcile_project_custom_fields_quota_exhausted() -> None:
-    with patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=True):
-        res = reconcile_project_custom_fields(
-            owner="owner",
-            repo="owner/repo",
-            project_number=2,
-            dry_run=False,
-        )
-        assert res["items_evaluated"] == 0
-        assert res["items_reconciled"] == 0
+def test_the_mutation_budget_stops_the_run_and_says_what_remains() -> None:
+    """Budget 3, five planned changes on cards already on the board and two open issues off it:
+    three changes made, no card added, and the stop line names the budget and the two left."""
+    cards, issues = _five_changes()
+    fake = ProjectGitHub(cards, issues)
+    result = _reconcile(fake, limit=3)
+    assert (
+        len(result.applied),
+        len(fake.edits),
+        fake.adds,
+        result.stop_line(),
+        result.remaining == result.planned[3:],
+    ) == (
+        3,
+        3,
+        [],
+        "Stopped early (mutation budget of 3 reached): 2 planned changes remain.",
+        True,
+    )
+
+
+def test_the_graphql_quota_stops_the_run_between_writes() -> None:
+    """The ledger falls below the floor after two writes: the run stops before the third,
+    names the quota and counts the three changes left."""
+    limiter = get_github_rate_limiter()
+
+    def spend(count: int) -> None:
+        if count == 2:
+            limiter.update_quota("graphql", remaining=100, reset_epoch=4_102_444_800.0, limit=5000)
+
+    cards, issues = _five_changes()
+    fake = ProjectGitHub(cards, issues, on_edit=spend)
+    result = _reconcile(fake)
+    assert (len(fake.edits), result.stop_line()) == (
+        2,
+        "Stopped early (GraphQL has 100 points left until 00:00 UTC, below the 250 kept in "
+        "reserve): 3 planned changes remain.",
+    )
+
+
+def test_a_failed_write_is_counted_among_the_changes_that_remain() -> None:
+    """An item-edit that exits 1 is not dropped: the run stops there and counts it."""
+    cards, issues = _five_changes()
+    fake = ProjectGitHub(cards, issues, fail_edits=(2,))
+    result = _reconcile(fake)
+    assert (
+        len(result.applied),
+        result.remaining[0] == result.planned[1],
+        result.stop_line(),
+    ) == (
+        1,
+        True,
+        "Stopped early (the write of Priority on #1 failed: GraphQL: the write failed): "
+        "4 planned changes remain.",
+    )
+
+
+@pytest.mark.parametrize("limit", [3, 25])
+def test_the_plan_matches_the_live_run(limit: int) -> None:
+    """Both evaluate only the cards on the board, and the plan is the live run's applied
+    changes followed by its remaining ones."""
+    cards, issues = _five_changes()
+    prs = [pull(12, body="Closes #3")]
+    plan = _reconcile(ProjectGitHub(cards, issues, prs), mode="plan")
+    live = _reconcile(ProjectGitHub(cards, issues, prs), limit=limit)
+    assert (
+        plan.items_evaluated,
+        live.items_evaluated,
+        plan.planned,
+        live.applied + live.remaining,
+        plan.remaining,
+    ) == (3, 3, live.planned, plan.planned, [])
+
+
+def test_a_complete_run_applies_every_change_and_reports_no_stop() -> None:
+    cards, issues = _five_changes()
+    result = _reconcile(ProjectGitHub(cards, issues))
+    assert (result.stop_line(), result.remaining, result.summary()) == (
+        None,
+        [],
+        "Changed 3 of 3 items on project #2 (5 field changes).",
+    )
+
+
+def test_status_comes_from_the_boards_own_options(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A board without Blocked keeps `status/blocked` from mapping. The run is in a checkout
+    with no project template, so a template read would fail it."""
+    (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
+    fake = ProjectGitHub(
+        [card(1)], [issue(1, labels=("status/blocked",))], statuses=("New", "Ready", "Done")
+    )
+    result = _reconcile(fake, mode="plan")
+    assert [(c.field, c.new) for c in result.planned] == [("Status", "New")]
+
+
+@pytest.mark.parametrize(
+    ("reply", "message"),
+    [
+        (subprocess.CompletedProcess([], 1, "", "HTTP 502"), "Failed to read project #2 fields"),
+        (
+            subprocess.CompletedProcess([], 0, json.dumps({"fields": [], "totalCount": 0}), ""),
+            "Project #2 has no Status field with options",
+        ),
+        (
+            subprocess.CompletedProcess([], 0, json.dumps({"fields": [], "totalCount": 3}), ""),
+            "Read 0 of 3 project #2 fields, so the read is incomplete.",
+        ),
+    ],
+)
+def test_an_unread_status_field_fails_the_run(
+    reply: subprocess.CompletedProcess[str], message: str
+) -> None:
+    """A failed, empty or partial field read must not let every unset card default to New."""
+    fake = ProjectGitHub([card(1)], [issue(1, labels=("status/ready",))])
+
+    def gh(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return reply if cmd[1:3] == ["project", "field-list"] else fake(cmd)
+
+    with (
+        patch("devops_cli.github.projects.run_gh", side_effect=gh),
+        pytest.raises(GitHubOperationError) as failed,
+    ):
+        reconcile_project_custom_fields("o", REPO, 2, mode="plan")
+    assert (message in failed.value.message, fake.edits) == (True, [])
+
+
+@pytest.mark.parametrize("mode", ["plan", "write"])
+def test_a_value_the_board_has_no_option_for_refuses_the_run_before_any_write(mode: str) -> None:
+    """A board without In Review can't take an open pull request's Status. The run refuses
+    before its first write, naming the value and the board's options, rather than stopping at a
+    write that fails on every run and blocks the changes after it."""
+    statuses = ("New", "Ready", "In Progress", "Done", "Blocked")
+    fake = ProjectGitHub([card(1), card(12, "pull")], [issue(1)], [pull(12)], statuses=statuses)
+    with pytest.raises(GitHubOperationError) as refused:
+        _reconcile(fake, mode=mode)
+    assert (refused.value.message, fake.edits) == (
+        "'In Review' is not a Status option on the board; "
+        "the options are New, Ready, In Progress, Done, Blocked.",
+        [],
+    )
 
 
 def test_a_failed_fetch_raises_rather_than_reading_as_empty() -> None:
     """A failed read must stay distinct from a board or repository with nothing in it."""
     failed = MagicMock(returncode=1, stdout="", stderr="HTTP 502")
     with (
-        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
-        patch("devops_cli.github.projects._get_authenticated_user", return_value="owner"),
         patch("devops_cli.github.projects.run_gh", return_value=failed),
         pytest.raises(GitHubOperationError),
     ):
-        reconcile_project_custom_fields(
-            owner="owner",
-            repo="owner/repo",
-            project_number=2,
-            dry_run=False,
-        )
+        reconcile_project_custom_fields("o", REPO, 2, mode="write")
 
 
-def test_reconcile_project_custom_fields_empty_project_provisions_candidates() -> None:
-    mock_issues = [
-        {
-            "html_url": "https://github.com/owner/repo/issues/1",
-            "title": "Issue 1",
-            "state": "open",
-            "labels": [],
-        }
-    ]
-    with (
-        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
-        patch("devops_cli.github.projects._fetch_project_items_data", return_value={}),
-        patch("devops_cli.github.projects._fetch_repository_issues", return_value=mock_issues),
-        patch("devops_cli.github.projects._fetch_repository_prs", return_value=[]),
-        patch("devops_cli.github.projects._provision_missing_candidates") as mock_prov,
-        patch("devops_cli.github.projects._reconcile_candidate_items", return_value=[]),
-    ):
-        res = reconcile_project_custom_fields(
-            owner="owner",
-            repo="owner/repo",
-            project_number=2,
-            dry_run=False,
-        )
-        assert (res["items_evaluated"], res["items_reconciled"]) == (1, 0)
-        mock_prov.assert_called_once()
+def test_the_dry_run_lists_the_requests_a_run_sends_in_order() -> None:
+    """The request plan is built by the argument builders the run uses, so it lists the kinds
+    of request a write run sends, in the order it sends them."""
+    cards, issues = _five_changes()
+    fake = ProjectGitHub(cards, issues)
+    _reconcile(fake)
+    planned = reconcile_dry_run("o", REPO, 2, state="open")
+    assert (
+        collapse(request_kind(list(request.argv[1:])) for request in planned.requests),
+        planned.mode,
+    ) == (fake.kinds(), "dry-run")
 
 
-def test_reconcile_project_custom_fields_skips_when_quota_unknown() -> None:
-    """Verify reconcile_project_custom_fields never runs if quota is unknown for any reason."""
-    from devops_cli.github.rate_limiter import QuotaState
-
-    mock_limiter = MagicMock()
-    mock_limiter.get_quota.return_value = QuotaState(remaining=None, last_updated=0.0)
-    with patch("devops_cli.github.projects.get_github_rate_limiter", return_value=mock_limiter):
-        res = reconcile_project_custom_fields(
-            owner="owner",
-            repo="owner/repo",
-            project_number=2,
-            dry_run=False,
-        )
-        assert (res["items_evaluated"], res["items_reconciled"]) == (0, 0)
-
-
-def test_sync_project_items_skips_when_quota_unknown() -> None:
-    """Verify sync_repository_issues_to_project never runs if quota is unknown for any reason."""
-    from devops_cli.github.projects import sync_repository_issues_to_project
-    from devops_cli.github.rate_limiter import QuotaState
-
-    mock_limiter = MagicMock()
-    mock_limiter.get_quota.return_value = QuotaState(remaining=None, last_updated=0.0)
-    with patch("devops_cli.github.projects.get_github_rate_limiter", return_value=mock_limiter):
-        added = sync_repository_issues_to_project(
-            owner="owner",
-            repo="owner/repo",
-            project_number=2,
-            dry_run=False,
-        )
-        assert added == 0
-
-
-def test_reconcile_project_custom_fields_dry_run_filters_offboard_candidates() -> None:
-    """Assert that off-board items are excluded in dry_run=True and evaluated in dry_run=False."""
-    active_items = {
-        "https://example.com/owner/repo/issues/1": {"id": "item_1", "status": "Ready"},
-    }
-    mock_issues = [
-        {
-            "html_url": "https://example.com/owner/repo/issues/1",
-            "title": "On Board Issue",
-            "state": "open",
-            "labels": [],
-        },
-        {
-            "html_url": "https://example.com/owner/repo/issues/2",
-            "title": "Off Board Issue",
-            "state": "open",
-            "labels": [],
-        },
-    ]
-
-    with (
-        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
-        patch("devops_cli.github.projects._fetch_project_items_data", return_value=active_items),
-        patch("devops_cli.github.projects._fetch_repository_issues", return_value=mock_issues),
-        patch("devops_cli.github.projects._fetch_repository_prs", return_value=[]),
-        patch("devops_cli.github.projects._provision_missing_candidates") as mock_prov,
-        patch("devops_cli.github.projects._reconcile_candidate_items", return_value=[]),
-    ):
-        res_dry = reconcile_project_custom_fields(
-            owner="owner",
-            repo="owner/repo",
-            project_number=2,
-            dry_run=True,
-        )
-        assert (res_dry["dry_run"], res_dry["items_evaluated"]) == (True, 1)
-        mock_prov.assert_not_called()
-
-        res_live = reconcile_project_custom_fields(
-            owner="owner",
-            repo="owner/repo",
-            project_number=2,
-            dry_run=False,
-        )
-        assert (res_live["dry_run"], res_live["items_evaluated"]) == (False, 2)
-        mock_prov.assert_called_once()
+def test_a_plan_dry_run_lists_no_write() -> None:
+    planned = reconcile_dry_run("o", REPO, 2, writes=False)
+    assert [r for r in planned.requests if "item-edit" in r.argv] == []
 
 
 def test_the_issue_fetch_leaves_pull_requests_to_the_pulls_fetch() -> None:

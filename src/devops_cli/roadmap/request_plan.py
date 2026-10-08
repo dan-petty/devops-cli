@@ -62,6 +62,34 @@ def within(requests: Iterable[PlannedRequest], condition: str = "", repeat: str 
     ]
 
 
+def planned_gh(
+    argv: Sequence[str],
+    target: str,
+    *,
+    stdin: str | None = None,
+    condition: str = "",
+    repeat: str = "",
+) -> PlannedRequest:
+    """One `gh` command against `target`: its transport and whether it writes, as `run_gh`
+    classifies it."""
+    from devops_cli.github.rate_limiter import gh_request_resource
+    from devops_cli.github.request_classifier import is_write_gh_command
+
+    args = list(argv)
+    texts = MESSAGES.roadmap
+    via = {"graphql": "GraphQL", "search": "REST search"}.get(gh_request_resource(args), "REST")
+    write = is_write_gh_command(args, input=stdin)
+    verb = texts.intake_request_write if write else texts.intake_request_read
+    return PlannedRequest(
+        method=f"{via} {verb}",
+        target=target,
+        argv=(_GH, *args),
+        stdin=stdin,
+        condition=condition,
+        repeat=repeat,
+    )
+
+
 def is_page_repeat(repeat: str) -> bool:
     """Whether `repeat` is only a page repeat: the request runs at least once, then again per
     page. Any other repeat may run no time at all."""
@@ -96,24 +124,11 @@ class StoreRequests:
         repeat: str = "",
         **values: str,
     ) -> PlannedRequest:
-        """One `gh` command: its transport and whether it writes, as `run_gh` classifies it."""
-        from devops_cli.github.rate_limiter import gh_request_resource
-        from devops_cli.github.request_classifier import is_write_gh_command
-
-        args = list(argv)
-        texts = MESSAGES.roadmap
-        via = {"graphql": "GraphQL", "search": "REST search"}.get(gh_request_resource(args), "REST")
-        write = is_write_gh_command(args, input=stdin)
-        verb = texts.intake_request_write if write else texts.intake_request_read
-        target = texts.plan_targets[key].format(board=self.number, owner=self.owner, **values)
-        return PlannedRequest(
-            method=f"{via} {verb}",
-            target=target,
-            argv=(_GH, *args),
-            stdin=stdin,
-            condition=condition,
-            repeat=repeat,
+        """One `gh` command, against the target `key` names in `plan_targets`."""
+        target = MESSAGES.roadmap.plan_targets[key].format(
+            board=self.number, owner=self.owner, **values
         )
+        return planned_gh(argv, target, stdin=stdin, condition=condition, repeat=repeat)
 
     # ── Reads ──
 
@@ -646,6 +661,7 @@ __all__ = [
     "close_requests",
     "is_page_repeat",
     "migrate_requests",
+    "planned_gh",
     "render_dry_run",
     "render_requests",
     "reprioritize_requests",

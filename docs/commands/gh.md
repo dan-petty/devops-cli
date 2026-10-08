@@ -242,11 +242,11 @@ devops gh project status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 
 ### `devops gh project sync`
 
-**Create or update the project board from its template, add open issues, and reconcile Status, Priority and Milestone; task files are not read.**
+**Find or create the project board from its template, link it, create the fields it lacks, and reconcile Status and Priority on the cards already on it. Sync adds no issue or pull request to the board: devops roadmap intake places issues, and a pull request's progress shows on its issue's card. Exits 1 when reconcile stops early.**
 
 ```bash
 devops gh project sync [OPTIONS]
@@ -256,15 +256,14 @@ devops gh project sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--task-file`, `-f` | `path` | `docs/agent/tasks` | Path to docs/agent/tasks directory |
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `--repo`, `-R` | `string` | - | Target repository |
-| `--dry-run` / `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
-| `--reconcile-fields` / `--no-reconcile-fields` | `boolean` | `True` | Also reconcile Status, Priority and Milestone from issue state and labels. |
+| `--dry-run` / `--no-dry-run` | `boolean` | - | Make no request and describe what a sync does. |
+| `--reconcile-fields` / `--no-reconcile-fields` | `boolean` | `True` | Also reconcile Status and Priority on the cards already on the board, from issue and pull request state and labels. |
 
 ### `devops gh project reconcile`
 
-**Reconcile Status, Priority and Milestone on project items, listing each change and its source; the board owns Status.**
+**Reconcile Status and Priority on the cards already on the board, listing each change and its source; the board owns Status, and reconcile never writes Milestone, Value or Effort or adds a card. A planned value the board's field has no option for is refused before any write. A run that stops early (mutation budget, GraphQL quota or a failed write) says why and how many planned changes remain, and exits 1. Running it again continues from there: after the reset when the quota stopped it, and once the cause is fixed when a write failed.**
 
 ```bash
 devops gh project reconcile [OPTIONS]
@@ -277,7 +276,8 @@ devops gh project reconcile [OPTIONS]
 | `--project-number`, `-n` | `integer` | - | GitHub Projects v2 board number |
 | `--state`, `-s` | `string` | `all` | Filter issue/PR states (open, closed, all) |
 | `--repo`, `-R` | `string` | - | Target repository |
-| `--dry-run` | `boolean` | - | Preview field reconciliation without mutations |
+| `--dry-run` | `boolean` | - | Make no request, reads included, and list the requests a run makes. |
+| `--plan` | `boolean` | - | Read the board and the repository and list the changes a run makes, making none. |
 
 ### `devops gh project link`
 
@@ -315,7 +315,7 @@ devops gh project list [OPTIONS]
 
 ### `devops gh project audit`
 
-**Audit project board items and fields against local tasks and template.**
+**Audit the project board's views against the template.**
 
 ```bash
 devops gh project audit [OPTIONS]
@@ -325,7 +325,7 @@ devops gh project audit [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 ### `devops gh project template`
@@ -340,7 +340,7 @@ devops gh project template [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 
 ### `devops gh project workflows`
 
@@ -384,7 +384,7 @@ devops gh views list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 
 ### `devops gh views spec`
 
@@ -398,7 +398,7 @@ devops gh views spec [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 
 ### `devops gh views sync`
 
@@ -412,7 +412,7 @@ devops gh views sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 ### `devops gh views audit`
@@ -427,7 +427,7 @@ devops gh views audit [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--template`, `-t` | `path` | - | Path to the project template JSON; defaults to .github/project-template.json at the repository root. |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 ---

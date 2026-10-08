@@ -521,9 +521,15 @@ class _BoardFieldPayload(BaseModel):
     options: list[_NamedPayload] = Field(default_factory=list)
 
 
-class _FieldListingPayload(BaseModel):
+class FieldListingPayload(BaseModel):
+    """The reply to `field_list_args`: every board field, with its options by name."""
+
     fields: list[_BoardFieldPayload]
     total_count: int = Field(alias="totalCount")
+
+    def options(self) -> dict[str, tuple[str, ...]]:
+        """Each field's option names by field name; a field that isn't single-select has none."""
+        return {field.name: tuple(option.name for option in field.options) for field in self.fields}
 
 
 class _ProjectPayload(BaseModel):
@@ -602,7 +608,7 @@ _BOARD_PAGE = TypeAdapter(BoardItemsPage)
 _BOARD_BUDGET = TypeAdapter(BoardBudgetPayload)
 _GRAPHQL_BUDGET = TypeAdapter(GraphQLBudgetPayload)
 _BOARD_ITEMS = TypeAdapter(list[_BoardItemPayload])
-_FIELDS = TypeAdapter(_FieldListingPayload)
+_FIELDS = TypeAdapter(FieldListingPayload)
 _JOB_RECORD = TypeAdapter(JobRecord)
 # The job record keys this version reads; the others are a newer version's, kept as they are.
 _JOB_RECORD_KEYS = frozenset(key.value for key in (*ItemField, *JobMark, *RefineRecordKey))
@@ -2004,10 +2010,7 @@ class GitHubRoadmapStore(RoadmapStore):
             f"board #{number} fields",
         )
         self._require_whole(len(listing.fields), listing.total_count, f"board #{number} fields")
-        return {
-            board_field.name: tuple(option.name for option in board_field.options)
-            for board_field in listing.fields
-        }
+        return listing.options()
 
     def _read_issue(self, number: int) -> _IssuePayload:
         return self._read(issue_args(self._repo, number), _ISSUE, f"issue #{number}")
@@ -2089,6 +2092,7 @@ def _counts(totals: Sequence[int], listing: Sequence[object]) -> str:
 
 __all__ = [
     "GRAPHQL_INPUT_ARGS",
+    "FieldListingPayload",
     "GhRunner",
     "GitHubRoadmapStore",
     "advisory_args",

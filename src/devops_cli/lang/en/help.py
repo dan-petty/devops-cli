@@ -833,22 +833,43 @@ class GHCommandHelp:
         "Edit a release milestone's title, description, state, or due date; "
         "fields left out stay as they are."
     )
-    project_app: str = "Manage GitHub Projects v2 templates and task item synchronization."
+    project_app: str = (
+        "Manage the GitHub Projects v2 board: its template, fields, views and card fields."
+    )
     project_list: str = "List available GitHub Projects v2 boards for user or organization."
     project_status: str = "Inspect project template structure and configured views."
-    project_sync: str = (
-        "Create or update the project board from its template, add open issues, and reconcile "
-        "Status, Priority and Milestone; task files are not read."
+    project_template_file: str = (
+        "Path to the project template JSON; defaults to .github/project-template.json at the "
+        "repository root."
     )
+    project_sync: str = (
+        "Find or create the project board from its template, link it, create the fields it "
+        "lacks, and reconcile Status and Priority on the cards already on it. Sync adds no issue "
+        "or pull request to the board: devops roadmap intake places issues, and a pull request's "
+        "progress shows on its issue's card. Exits 1 when reconcile stops early."
+    )
+    project_sync_dry_run: str = "Make no request and describe what a sync does."
     project_reconcile: str = (
-        "Reconcile Status, Priority and Milestone on project items, listing each change and "
-        "its source; the board owns Status."
+        "Reconcile Status and Priority on the cards already on the board, listing each change "
+        "and its source; the board owns Status, and reconcile never writes Milestone, Value or "
+        "Effort or adds a card. A planned value the board's field has no option for is refused "
+        "before any write. A run that stops early (mutation budget, GraphQL quota or a failed "
+        "write) says why and how many planned changes remain, and exits 1. Running it again "
+        "continues from there: after the reset when the quota stopped it, and once the cause "
+        "is fixed when a write failed."
+    )
+    project_reconcile_plan: str = (
+        "Read the board and the repository and list the changes a run makes, making none."
+    )
+    project_reconcile_dry_run: str = (
+        "Make no request, reads included, and list the requests a run makes."
     )
     reconcile_fields: str = (
-        "Also reconcile Status, Priority and Milestone from issue state and labels."
+        "Also reconcile Status and Priority on the cards already on the board, from issue and "
+        "pull request state and labels."
     )
     project_link: str = "Link a GitHub Project v2 board to the repository."
-    project_audit: str = "Audit project board items and fields against local tasks and template."
+    project_audit: str = "Audit the project board's views against the template."
     project_template: str = "Display the declarative GitHub Projects v2 JSON template."
     project_workflows_app: str = (
         "Inspect and audit GitHub Projects v2 built-in workflows and automations."

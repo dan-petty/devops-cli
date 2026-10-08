@@ -1768,6 +1768,95 @@ class RoadmapMessages:
 
 
 @dataclass(frozen=True)
+class ProjectMessages:
+    """`devops gh project sync` and `devops gh project reconcile` (#892)."""
+
+    budget_read: str = "the GraphQL budget for reading {what}"
+    no_status_options: str = (
+        "Project #{number} has no Status field with options, so reconcile can't tell which "
+        "status/* labels it may set. Create the field with `devops gh project sync`."
+    )
+    changes_title: str = "Project #{number} Field Changes"
+    summary_plan: str = (
+        "Would change {items} of {evaluated} items on project #{number} ({changes} field changes)."
+    )
+    summary_write: str = (
+        "Changed {items} of {evaluated} items on project #{number} ({changes} field changes)."
+    )
+    stopped: str = "Stopped early ({reason}): {remaining}."
+    # Indexed by whether the count is other than one.
+    remaining: tuple[str, str] = (
+        "{count} planned change remains",
+        "{count} planned changes remain",
+    )
+    stop_budget: str = "mutation budget of {limit} reached"
+    stop_quota: str = (
+        "GraphQL has {remaining} points left until {reset}, below the {floor} kept in reserve"
+    )
+    stop_write_failed: str = "the write of {field} on {item} failed: {error}"
+    awaiting_intake: tuple[str, str] = (
+        "{count} open issue is not on the board (awaiting intake: devops roadmap intake).",
+        "{count} open issues are not on the board (awaiting intake: devops roadmap intake).",
+    )
+    dry_run_title: str = "# devops gh project reconcile for {repo}"
+    dry_run_notes: tuple[str, ...] = (
+        "run_gh may read `gh api rate_limit` to pace a request; that read costs no quota.",
+    )
+    request_placeholders: dict[str, str] = field(
+        default_factory=lambda: {
+            "board": "<board>",
+            "login": "<login>",
+            "cursor": "<cursor>",
+            "url": "<item url>",
+            "field": "<field>",
+            "value": "<value>",
+            "owner_arg": "<{owner} or @me>",
+        }
+    )
+    request_targets: dict[str, str] = field(
+        default_factory=lambda: {
+            "repo_boards": "the boards linked to {repo}, {found}",
+            "owner_boards": "{owner}'s boards, {found}",
+            "project_list": "{owner}'s boards through gh project list, {found}",
+            "find": "to find the board named '{name}'",
+            "login": "the signed-in login",
+            "budget": (
+                "GraphQL's points left and the total of board {board}'s items; the run stops here "
+                "when the points can't cover the read"
+            ),
+            "first": "the first page of board {board}'s items",
+            "page": "the next page of board {board}'s items",
+            "fields": "board {board}'s fields, for the options a change may set",
+            "issues": "the issues of {repo} in state {state}, every page",
+            "pulls": "the pull requests of {repo} in state {state}, every page",
+            "edit": "set a planned field change on a card of board {board}",
+        }
+    )
+    request_conditions: dict[str, str] = field(
+        default_factory=lambda: {
+            "not_found": "no board named {names} was found",
+            "login_unread": ", and the login was not read earlier in the run",
+        }
+    )
+    request_repeat_edit: str = (
+        "for each planned change, in order, until {limit} are made, GraphQL keeps fewer than "
+        "{floor} points, or a write fails"
+    )
+    request_repeat_owner_fallback: str = (
+        "once more with --owner @me when GitHub answers 'unknown owner type'"
+    )
+    sync_done: str = "Project '{title}' (#{number}){linked}. Provisioned fields: {fields}."
+    sync_linked: str = " linked to {repo}"
+    sync_fields_current: str = "all up-to-date"
+    sync_dry_run: str = (
+        "[DRY RUN] No request was made. A sync finds board '{title}' of {owner}, or creates it, "
+        "links it to {repo}, creates the template fields it lacks ({fields}){reconcile}. It "
+        "adds no issue or pull request to the board."
+    )
+    sync_dry_run_reconcile: str = ", and reconciles Status and Priority on the cards already on it"
+
+
+@dataclass(frozen=True)
 class LanguageCatalog:
     persona_titles: PersonaTitles = field(default_factory=PersonaTitles)
     messages: GeneralMessages = field(default_factory=GeneralMessages)
@@ -1808,6 +1897,7 @@ class LanguageCatalog:
     pipeline: PipelineMessages = field(default_factory=PipelineMessages)
     test: TestMessages = field(default_factory=TestMessages)
     roadmap: RoadmapMessages = field(default_factory=RoadmapMessages)
+    project: ProjectMessages = field(default_factory=ProjectMessages)
 
 
 MESSAGES = LanguageCatalog()

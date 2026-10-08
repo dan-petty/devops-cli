@@ -16,9 +16,6 @@ from devops_cli.github.issues import (
     edit_repository_issue,
 )
 from devops_cli.github.milestones import calculate_milestone_progress
-from devops_cli.github.projects import (
-    _reconcile_single_item,
-)
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, Release
 
@@ -176,32 +173,6 @@ def test_cli_gh_issues_edit() -> None:
         )
         assert (result.exit_code, mock_gh.called) == (0, True)
         assert "Issue #42 updated successfully" in result.output
-
-
-def test_reconcile_never_writes_the_milestone_the_board_mirrors() -> None:
-    """_reconcile_single_item plans no Milestone change though the board's copy differs."""
-    item = {
-        "url": "https://github.com/example/repo/issues/1",
-        "title": "Test Issue",
-        "state": "OPEN",
-        "labels": [{"name": "priority/p1-high"}],
-        "milestone": {"title": "v0.2.21"},
-    }
-    current_fields: dict[str, str | None] = {
-        "status": "New",
-        "priority": "P1-High",
-        "value": "High",
-        "effort": "Medium",
-        "milestone": "v0.2.20",
-    }
-    changes = _reconcile_single_item(
-        owner="example",
-        project_number=2,
-        item=item,
-        dry_run=True,
-        current_fields=current_fields,
-    )
-    assert [(c.field, c.old, c.new) for c in changes] == []
 
 
 def test_fastmcp_gh_tools() -> None:
