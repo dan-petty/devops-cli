@@ -1777,6 +1777,7 @@ class RoadmapMessages:
     )
     intake_request_conditions: dict[str, str] = field(
         default_factory=lambda: {
+            "candidate": "the run has a candidate",
             "closures": "{subject} is not on the board",
             "embed": "a candidate is off the board",
             "evidence": "the model cites any",
@@ -1809,6 +1810,19 @@ class RoadmapMessages:
     intake_secret: str = (
         "The candidate's {part} holds what looks like a secret, so intake sent it to no model "
         "and filed nothing. Remove it and run again."
+    )
+    intake_labels_unreadable: str = "{repo}'s {path} can't be read as label specs: {error}"
+    intake_labels_missing: str = (
+        "{repo} has no {path} at {ref}. Intake decides no candidate without it: the file must "
+        "declare the type/* labels intake may assign."
+    )
+    intake_labels_untyped: str = (
+        "{repo}'s {path} at {ref} declares no type/* label other than type/epic. Intake decides "
+        "no candidate without one: the file must declare the type/* labels intake may assign."
+    )
+    run_job_needs_clone: str = (
+        "The roadmap {job} job reads its repository's clone and was given none: its row in the "
+        "due table must set needs_clone."
     )
     intake_borrow_needs_title: str = (
         "--borrow-reason applies to a new candidate; pass it with --title and --body-file."

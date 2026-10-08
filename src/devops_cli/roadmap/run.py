@@ -40,6 +40,7 @@ from devops_cli.core.paths import (
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import GitOperationError, RoadmapRunError, SecurityError
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.reprioritize import current_release
 from devops_cli.roadmap.store import (
     RELEASE_CHANGE_KINDS,
@@ -346,10 +347,12 @@ def _refine_cross_job(
 
 def _run_intake_adapter(
     store: RoadmapStore,
+    *,
+    repo: str,
     config: RoadmapConfig | None = None,
     **_: Any,
 ) -> JobOutcome:
-    """Run intake job and return JobOutcome."""
+    """Run intake on `repo` and return JobOutcome."""
     from devops_cli.config.constants import CONST_ROADMAP_CRITICAL_FIX_LABELS
     from devops_cli.roadmap.config import read_roadmap_config
     from devops_cli.roadmap.intake import (
@@ -361,7 +364,7 @@ def _run_intake_adapter(
 
     active_config = config or read_roadmap_config(store, ref=None)
     model = build_intake_model()
-    plan = plan_intake(store, config=active_config, model=model)
+    plan = plan_intake(store, repo=repo, config=active_config, model=model)
     has_crit_or_p0 = False
     for dec in plan.decisions:
         if dec.outcome is Outcome.PLACE:
@@ -474,6 +477,16 @@ def _run_reprioritize_adapter(
     return JobOutcome(changes=changes)
 
 
+def _job_clone(job: str, clone_path: Path | None) -> Path:
+    """The clone `job` reads its repository in. A row that gives it none is a due-table error,
+    never a reason to read the working directory instead (#1358)."""
+    if clone_path is None:
+        raise GitOperationError(
+            MESSAGES.roadmap.run_job_needs_clone.format(job=job), operation="checkout"
+        )
+    return clone_path
+
+
 def _run_refine_adapter(
     store: RoadmapStore,
     repo: str = "",
@@ -487,7 +500,7 @@ def _run_refine_adapter(
     from devops_cli.roadmap.refine import apply_refine, plan_refine, raise_for_failed_items
 
     active_config = config or read_roadmap_config(store, ref=None)
-    source = clone_path or Path.cwd()
+    source = _job_clone("refine", clone_path)
     plan = plan_refine(store, repo=repo, source=source, config=active_config)
     if plan.has_writes:
         apply_refine(store, plan)
@@ -497,9 +510,12 @@ def _run_refine_adapter(
 
 def _run_metrics_adapter(
     repo: str = "",
+    clone_path: Path | None = None,
     **_: Any,
 ) -> JobOutcome:
-    """Run project metrics collection adapter and update in-memory registry and OTLP."""
+    """Collect the project metrics, walking the release tags of the job's clone of `repo`, and the
+    GitHub and Cloudflare status, into the in-memory registry and OTLP (#1358). A failed
+    collection or status read is logged and skipped; a missing clone fails the job."""
     from devops_cli.github.metrics import (
         collect_project_metrics_report,
         emit_project_metrics_telemetry,
@@ -512,9 +528,10 @@ def _run_metrics_adapter(
         record_service_status_in_registry,
     )
 
+    clone = _job_clone("metrics", clone_path)
     try:
         target_repo = repo or None
-        report = collect_project_metrics_report(repo=target_repo)
+        report = collect_project_metrics_report(root=clone, repo=target_repo)
         record_project_metrics_in_registry(report)
         emit_project_metrics_telemetry(report)
     except Exception as exc:
@@ -569,6 +586,7 @@ DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (
         name="metrics",
         interval=timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES),
         runner=_run_metrics_adapter,
+        needs_clone=True,
         first_run_due=True,
     ),
 )
@@ -623,6 +641,7 @@ def build_stub_table(
                 name="metrics",
                 interval=timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES),
                 runner=r.get("metrics", lambda **_: JobOutcome()),
+                needs_clone=needs_clone,
                 first_run_due=True,
             )
         )

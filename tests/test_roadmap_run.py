@@ -18,7 +18,7 @@ from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -30,15 +30,21 @@ from devops_cli.config.constants import (
     CONST_GH_CLI,
     CONST_ROADMAP_CLOSURE_BATCH_KEYS,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
+    CONST_URL_CLOUDFLARE_STATUS_SUMMARY,
+    CONST_URL_GITHUB_STATUS_SUMMARY,
 )
+from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
 from devops_cli.exceptions import GitOperationError, RoadmapRunError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.board_read import BOARD_BUDGET_OPERATION, BOARD_ITEMS_OPERATION
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import (
+    DEFAULT_DUE_TABLE,
     JobOutcome,
     JobRow,
+    _run_metrics_adapter,
+    _run_refine_adapter,
     build_stub_table,
     ensure_checkout,
     run_due_jobs,
@@ -46,7 +52,10 @@ from devops_cli.roadmap.run import (
 )
 from devops_cli.roadmap.store import Change, ChangeKind, CloseReason, GitHubState, Release
 from devops_cli.server.service import TriggerBatch
+from devops_cli.telemetry.instruments import PROJECT_RELEASES_TOTAL
+from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.roadmap_board_fake import GitHubFake
+from tests.web_fakes import StubWeb
 
 REPO = "example/roadmap"
 RELEASE = "v0.2.26"
@@ -616,7 +625,8 @@ def test_checkouts_git_management(
     release_remote: Path,
     child_argvs: list[list[str]],
 ) -> None:
-    """Clones to expected path, tracks remote tip, sets identity, fails clone-dependent jobs."""
+    """Clones to expected path, tracks remote tip, sets identity, fails clone-dependent jobs:
+    close, refine and metrics, which walks the clone's release tags (#1358)."""
     bare = release_remote
     data_dir = tmp_path / "data"
 
@@ -638,6 +648,7 @@ def test_checkouts_git_management(
     ran_reprio = False
     called_close = False
     called_refine = False
+    called_metrics = False
 
     def stub_intake(**_: Any) -> JobOutcome:
         nonlocal ran_intake
@@ -659,12 +670,18 @@ def test_checkouts_git_management(
         called_refine = True
         return JobOutcome()
 
+    def stub_metrics(**_: Any) -> JobOutcome:
+        nonlocal called_metrics
+        called_metrics = True
+        return JobOutcome()
+
     fail_table = build_stub_table(
         {
             "intake": stub_intake,
             "close": stub_close,
             "reprioritize": stub_reprio,
             "refine": stub_refine,
+            "metrics": stub_metrics,
         },
         needs_clone=True,
     )
@@ -693,6 +710,7 @@ def test_checkouts_git_management(
         ran_reprio,
         called_close,
         called_refine,
+        called_metrics,
         exc_info.value.failed_jobs,
     ) == (
         True,
@@ -703,7 +721,8 @@ def test_checkouts_git_management(
         True,
         False,
         False,
-        ("close", "refine"),
+        False,
+        ("close", "refine", "metrics"),
     )
 
 
@@ -1130,52 +1149,103 @@ def test_ensure_checkout_rejects_path_escape_and_malformed_repo_slugs(tmp_path: 
     assert (len(results), all(results)) == (len(escapes), True)
 
 
-def test_metrics_job_registered_in_default_due_table_and_adapter(
+STATUS_PAGE = {
+    "page": {"id": "page", "name": "Status", "url": "https://example.com"},
+    "status": {"indicator": "none", "description": "All Systems Operational"},
+}
+
+
+def test_the_metrics_job_walks_the_release_tags_of_its_own_clone(
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    stub_web: StubWeb,
+    git: Callable[..., None],
 ) -> None:
-    """Verify metrics job is present in DEFAULT_DUE_TABLE and _run_metrics_adapter executes."""
-    from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
-    from devops_cli.roadmap.run import DEFAULT_DUE_TABLE, _run_metrics_adapter
-
-    metrics_row = next((r for r in DEFAULT_DUE_TABLE if r.name == "metrics"), None)
+    """The default table's metrics row clones the repository and walks its release tags there,
+    not in the working directory, which in the Service is no git repository (#1358). The gauge
+    reads the remote's two tags, and the job logs no warning, so every GitHub and status read it
+    made was answered."""
+    row = next(row for row in DEFAULT_DUE_TABLE if row.name == "metrics")
+    remote = _make_bare_remote(tmp_path)
+    for tag in ("v0.1.0", "v0.2.0"):
+        git(remote, "tag", tag, f"release/{RELEASE}")
+    github = GitHubFake(REPO, milestones=[{"number": 26, "title": RELEASE, "state": "open"}])
+    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    for url in (CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY):
+        stub_web.page(url, json.dumps(STATUS_PAGE))
+    GLOBAL_METRICS.clear_metric(PROJECT_RELEASES_TOTAL.name)
+    data_dir = tmp_path / "data"
+    with caplog.at_level(logging.WARNING):
+        ran = run_due_jobs(
+            REPO, seeded_store, table=(row,), data_dir=data_dir, remote_url=str(remote), now=NOW
+        )
+    clone = data_dir / "roadmap" / "example" / "roadmap" / "clone"
     assert (
-        metrics_row is not None,
-        metrics_row.first_run_due if metrics_row else False,
-        metrics_row.interval.total_seconds() if metrics_row and metrics_row.interval else 0,
+        (row.needs_clone, row.first_run_due, row.interval),
+        ran,
+        (clone / ".git").is_dir(),
+        GLOBAL_METRICS.get_gauge(PROJECT_RELEASES_TOTAL.name),
+        [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING],
     ) == (
+        (True, True, timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES)),
+        ("metrics",),
         True,
-        True,
-        float(DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES * 60),
+        2.0,
+        [],
     )
 
-    called: list[str] = []
-    fake_report = MagicMock()
-    monkeypatch.setattr(
-        "devops_cli.github.metrics.collect_project_metrics_report",
-        lambda **_: called.append("collect") or fake_report,
-    )
-    monkeypatch.setattr(
-        "devops_cli.github.metrics.record_project_metrics_in_registry",
-        lambda _: called.append("record"),
-    )
-    monkeypatch.setattr(
-        "devops_cli.github.metrics.emit_project_metrics_telemetry",
-        lambda _: called.append("emit"),
-    )
 
-    outcome = _run_metrics_adapter(repo="example/repo")
-    assert (isinstance(outcome, JobOutcome), called) == (
+def test_a_failed_metrics_collection_or_status_read_is_logged_and_the_job_goes_on(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    stub_web: StubWeb,
+    git: Callable[..., None],
+) -> None:
+    """GitHub answers a milestone the report can't count, and neither status page answers:
+    each failure is a WARNING from the job, which still returns its outcome."""
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    git(clone, "init", "--quiet")
+    milestone = {"number": 26, "title": RELEASE, "state": "open", "open_issues": None}
+    monkeypatch.setattr(
+        subprocess, "run", GitHubFake(REPO, milestones=[milestone]).process(subprocess.run)
+    )
+    with caplog.at_level(logging.WARNING):
+        outcome = _run_metrics_adapter(repo=REPO, clone_path=clone)
+    job = [r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.run"]
+    status_pages = {CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY}
+    assert (
+        outcome,
+        [message.partition(":")[0] for message in job],
+        status_pages <= set(stub_web.requested),
+    ) == (
+        JobOutcome(),
+        [
+            f"Project metrics collection failed for {REPO}",
+            "GitHub service status collection failed",
+            "Cloudflare service status collection failed",
+        ],
         True,
-        ["collect", "record", "emit"],
     )
 
-    # Verify graceful degradation on exception
-    monkeypatch.setattr(
-        "devops_cli.github.metrics.collect_project_metrics_report",
-        MagicMock(side_effect=RuntimeError("GitHub API timeout")),
+
+@pytest.mark.parametrize(
+    ("job", "runner"), [("metrics", _run_metrics_adapter), ("refine", _run_refine_adapter)]
+)
+def test_a_job_that_reads_the_clone_fails_without_one_rather_than_reading_the_cwd(
+    seeded_store: InMemoryRoadmapStore, job: str, runner: Callable[..., JobOutcome]
+) -> None:
+    """A row that runs metrics or refine without `needs_clone` is a table error, not a run
+    over the working directory, which in the Service is no git repository (#1358)."""
+    with pytest.raises(GitOperationError) as raised:
+        runner(store=seeded_store, repo=REPO, clone_path=None)
+    assert (f"roadmap {job} job" in str(raised.value), "needs_clone" in str(raised.value)) == (
+        True,
+        True,
     )
-    fail_outcome = _run_metrics_adapter(repo="example/repo")
-    assert isinstance(fail_outcome, JobOutcome) is True
 
 
 # ── On the GitHub store, at the `gh` process edge (#1361) ─────────────────────

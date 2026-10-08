@@ -10,21 +10,28 @@ that many listings, as GitHub's listing showed a new card up to two minutes afte
 
 `GitHubFake` is a whole repository and its board at the `gh` process edge: REST issues,
 milestones, labels, comments, events and files, the board's fields, and the `gh project`
-writes, each applied to what later reads return. It keeps every argv, and charges each GraphQL
-request the points GitHub's own estimate (`rateLimit(dryRun: true)`, board #2, 2026-10-08) gives
-its shape (`GRAPHQL_POINTS`). Closing an issue runs the board's built-in "Item closed" workflow,
-which sets its card's Status to Done. Neither starts `gh` or opens a socket.
+writes, each applied to what later reads return. It also answers the project metrics reads
+(the repository, its Actions runs and its traffic), `gh api user` with its `login`, and
+`gh api rate_limit` with a full quota that resets in a minute. It keeps every argv, and charges
+each GraphQL request the points GitHub's own estimate (`rateLimit(dryRun: true)`, board #2,
+2026-10-08) gives its shape (`GRAPHQL_POINTS`). Closing an issue runs the board's built-in
+"Item closed" workflow, which sets its card's Status to Done. Neither starts `gh` or opens a
+socket. `GitHubFake.process` stands in for `subprocess.run` itself, answering `gh` and passing
+every other program, such as `git`, to the real one.
 """
 
 from __future__ import annotations
 
 import json
 import subprocess
+import time
 from collections.abc import Callable, Iterable
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.roadmap.board_read import (
     BOARD_BUDGET_OPERATION,
     BOARD_CARD_OPERATION,
@@ -266,7 +273,8 @@ class GitHubFake:
     """One repository's issues, milestones and board, answering the store's `gh` commands.
 
     `issues` maps a number to its REST payload; `on_board` numbers start as cards with the
-    given `cards` fields. `lag` is how many board listings leave a card just added out.
+    given `cards` fields. `lag` is how many board listings leave a card just added out. `files`
+    maps a path to its text, or to the `(exit code, output)` `gh` gives for it, such as a 502.
     """
 
     def __init__(
@@ -274,12 +282,14 @@ class GitHubFake:
         repo: str,
         *,
         milestones: Iterable[dict[str, Any]] = (),
-        files: dict[str, str] | None = None,
+        files: dict[str, str | tuple[int, str]] | None = None,
         events: Iterable[dict[str, Any]] = (),
         lag: int = 0,
         commits: Iterable[str] = (),
+        login: str = "roadmap-bot",
     ) -> None:
         self.repo = repo
+        self.login = login
         self.milestones = list(milestones)
         self.files = dict(files or {})
         self.events = list(events)
@@ -341,11 +351,34 @@ class GitHubFake:
         text = output if isinstance(output, str) else json.dumps(output)
         return subprocess.CompletedProcess(args, returncode, text, "" if returncode == 0 else text)
 
+    def process(
+        self, run: Callable[..., subprocess.CompletedProcess[str]]
+    ) -> Callable[..., subprocess.CompletedProcess[str]]:
+        """A stand-in for `subprocess.run` that answers `gh`, given as a list or a tuple, as this
+        fake, raising `CalledProcessError` for a failed answer under `check=True` as `run` does,
+        and hands every other program to `run`, the real `subprocess.run`."""
+
+        def dispatch(cmd: Any, *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            if not (isinstance(cmd, list | tuple) and cmd and Path(cmd[0]).name == CONST_GH_CLI):
+                return run(cmd, *args, **kwargs)
+            answer = self(list(cmd[1:]), **kwargs)
+            if kwargs.get("check"):
+                answer.check_returncode()
+            return answer
+
+        return dispatch
+
     def _answer(self, args: list[str], stdin: str | None) -> Any:
         if args[0] == "project":
             return self._project(args)
         if args[:2] == ["api", "graphql"]:
             return self._graphql(args, stdin)
+        if args[:2] == ["api", "user"]:
+            return f"{self.login}\n"
+        if args[:2] == ["api", "rate_limit"]:
+            reset = int(time.time()) + 60
+            quota = {"limit": 5000, "remaining": 5000, "used": 0, "reset": reset}
+            return {"resources": {name: quota for name in ("core", "graphql", "search")}}
         assert args[0] == "api", f"not a gh command the store sends: {args}"
         return self._rest(args)
 
@@ -448,6 +481,9 @@ class GitHubFake:
         )
         url = urlsplit(path)
         query = {key: values[0] for key, values in parse_qs(url.query).items()}
+        if url.path == f"repos/{self.repo}":
+            open_issues = sum(issue["state"] == "open" for issue in self.issues.values())
+            return {"stargazers_count": 0, "forks_count": 0, "open_issues_count": open_issues}
         parts = url.path.removeprefix(f"repos/{self.repo}/").split("/")
         return self._rest_route(method, url.path, parts, query, fields, args)
 
@@ -470,6 +506,10 @@ class GitHubFake:
             return {"sha": parts[1]} if parts[1] in self.commits else (1, "HTTP 422")
         if parts[0] == "releases":
             return (1, "gh: Not Found (HTTP 404)")
+        if parts == ["actions", "runs"]:
+            return {"total_count": 0, "workflow_runs": []}
+        if parts[0] == "traffic":
+            return [] if parts[1] == "popular" else {"count": 0, "uniques": 0}
         if parts[0] == "milestones":
             return self.milestones if page == 1 else []
         if parts == ["issues", "events"]:
