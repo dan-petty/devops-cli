@@ -592,6 +592,9 @@ CONST_AI_PROVIDER_API_BASES: Final[dict[str, str]] = {
 # What `backend_host` reports for a provider with no configured or default endpoint. It names
 # no server, so LLM spans write no `server.address` for it.
 CONST_AI_BACKEND_HOST_UNKNOWN = "unknown"
+# The `backend_info` of a reply the response cache answered, and the server its spend-ledger row
+# names: no backend served it, so spend reports leave it out of their server counts (#816).
+CONST_RESPONSE_CACHE_SERVER: Final[str] = "cache"
 CONST_URL_GITHUB_API_BASE = "https://api.github.com"
 CONST_URL_CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 CONST_CLOUDFLARE_CFARGOTUNNEL_SUFFIX = ".cfargotunnel.com"

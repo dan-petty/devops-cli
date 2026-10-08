@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.ai.spend.prometheus import export_ai_spend_prometheus
 from devops_cli.commands.ai_cost import app as cost_app
+from devops_cli.config.constants import CONST_RESPONSE_CACHE_SERVER
 from devops_cli.server.app import create_app
 
 runner = CliRunner()
@@ -83,6 +84,29 @@ def test_export_ai_spend_prometheus_with_records(seeded_ledger: SpendLedger) -> 
         True,
         True,
     )
+
+
+def test_the_exported_request_counter_counts_only_requests_sent_to_a_model(
+    seeded_ledger: SpendLedger,
+) -> None:
+    """Verify a reply the response cache answered adds no request to the exported counter,
+    whose help text counts requests executed, and no active server (#816)."""
+    seeded_ledger.record_request(
+        provider="openai",
+        server=CONST_RESPONSE_CACHE_SERVER,
+        model="gpt-4o",
+        prompt_tokens=0,
+        completion_tokens=0,
+        cost_usd=0.0,
+        cached=True,
+    )
+
+    lines = export_ai_spend_prometheus(seeded_ledger).splitlines()
+
+    assert (
+        'devops_cli_ai_requests_total{model="gpt-4o",provider="openai"} 1' in lines,
+        "devops_cli_ai_active_servers 2" in lines,
+    ) == (True, True)
 
 
 def test_ai_cost_cli_prometheus_format(

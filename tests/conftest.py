@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 if TYPE_CHECKING:
+    from devops_cli.ai.spend.ledger import SpendLedger
     from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
     from devops_cli.roadmap.store import RoadmapStore
     from tests.web_fakes import StubWeb
@@ -285,6 +286,16 @@ def isolate_llm_response_cache(tmp_path: Path):
     get_llm_response_cache(cache_dir=test_cache_dir, enabled=True)
     yield
     reset_llm_response_cache()
+
+
+@pytest.fixture
+def spend_ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SpendLedger:
+    """A fresh ledger that every recorded call in the test writes to."""
+    from devops_cli.ai.spend import ledger as ledger_module
+
+    ledger = ledger_module.SpendLedger(db_path=tmp_path / "spend.db")
+    monkeypatch.setattr(ledger_module, "_GLOBAL_LEDGER", ledger)
+    return ledger
 
 
 @pytest.fixture(autouse=True)
