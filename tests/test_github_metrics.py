@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import subprocess
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -39,6 +41,7 @@ from devops_cli.github.metrics import (
     record_project_metrics_in_registry,
 )
 from devops_cli.telemetry.metrics import InMemoryMetricsRegistry
+from tests.roadmap_board_fake import GitHubFake
 
 runner = CliRunner()
 
@@ -253,37 +256,73 @@ def test_get_label_taxonomy_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (p1.count, cli_scope.count) == (2, 2)
 
 
-def test_collect_project_metrics_report(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Verify aggregate report building across releases, CI checks, and milestones."""
-    releases = [
-        ReleaseCadenceMetric(
-            tag="v0.2.25",
-            published_at="2026-10-01",
-            days_since_prev=3.0,
-            commit_count=20,
-            pr_count=15,
-        ),
-        ReleaseCadenceMetric(
-            tag="v0.2.24",
-            published_at="2026-09-28",
-            days_since_prev=2.0,
-            commit_count=30,
-            pr_count=25,
-        ),
-    ]
-    monkeypatch.setattr(
-        "devops_cli.github.metrics.get_release_cadence_metrics", lambda *_, **__: releases
-    )
-    monkeypatch.setattr("devops_cli.github.metrics.get_ci_workflow_metrics", lambda *_, **__: [])
-    monkeypatch.setattr("devops_cli.github.metrics.get_milestone_metrics", lambda *_, **__: [])
-    monkeypatch.setattr("devops_cli.github.metrics.get_label_taxonomy_metrics", lambda *_, **__: [])
+def test_collect_project_metrics_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """The report takes its releases from the repository's tags and its milestones and open
+    issues' labels from GitHub, each read at its process edge."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    git(root, "init", "--quiet", "--initial-branch=main")
+    for tag, day in (
+        ("v0.2.23", "2026-09-26"),
+        ("v0.2.24", "2026-09-28"),
+        ("v0.2.25", "2026-10-01"),
+    ):
+        monkeypatch.setenv("GIT_COMMITTER_DATE", f"{day}T12:00:00+00:00")
+        git(root, "commit", "--quiet", "--allow-empty", "-m", f"release {tag}")
+        git(root, "tag", tag)
+    milestone = {"title": "v0.2.25", "state": "closed", "open_issues": 1, "closed_issues": 3}
+    github = GitHubFake("example/test-repo", milestones=[milestone])
+    github.seed_issue(1, "feat: export", labels=("type/feature",))
+    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
 
-    report = collect_project_metrics_report(root=tmp_path, repo="example/test-repo")
-    assert (report.repo, report.total_releases, report.average_cadence_days) == (
+    report = collect_project_metrics_report(root=root, repo="example/test-repo")
+    assert (
+        report.repo,
+        [release.tag for release in report.releases],
+        report.average_cadence_days,
+        [(found.milestone, found.completion_rate) for found in report.milestones],
+        [(found.label, found.count) for found in report.taxonomy_labels],
+    ) == (
         "example/test-repo",
-        2,
+        ["v0.2.25", "v0.2.24", "v0.2.23"],
         2.5,
+        [("v0.2.25", 75.0)],
+        [("type/feature", 1)],
     )
+
+
+def _tagged_repository(git: Callable[..., None], repo: Path, tags: Sequence[str]) -> None:
+    """A repository at `repo` with one commit for each of `tags`, each tagged by name."""
+    repo.mkdir(parents=True)
+    git(repo, "init", "--quiet", "--initial-branch=main")
+    for tag in tags:
+        git(repo, "commit", "--quiet", "--allow-empty", "-m", f"release {tag}")
+        git(repo, "tag", tag)
+
+
+def test_a_given_root_is_walked_as_it_is_even_inside_another_checkout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    git: Callable[..., None],
+) -> None:
+    """A local `devops roadmap run` keeps each repository's clone under `.data/`, inside the
+    workspace checkout (#1358). The report walks the tags of the clone it is given, not those of
+    the checkout around it, and every read it makes succeeds."""
+    workspace = tmp_path / "workspace"
+    clone = workspace / ".data" / "roadmap" / "example" / "roadmap" / "clone"
+    _tagged_repository(git, workspace, ("v9.0.0", "v9.1.0"))
+    _tagged_repository(git, clone, ("v0.1.0", "v0.2.0"))
+    github = GitHubFake("example/roadmap")
+    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    with caplog.at_level(logging.WARNING):
+        report = collect_project_metrics_report(root=clone, repo="example/roadmap")
+    assert (
+        [release.tag for release in report.releases],
+        [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING],
+    ) == (["v0.2.0", "v0.1.0"], [])
 
 
 def test_emit_project_metrics_telemetry(monkeypatch: pytest.MonkeyPatch) -> None:

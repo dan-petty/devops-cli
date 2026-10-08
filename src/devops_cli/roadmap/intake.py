@@ -17,9 +17,13 @@ that a person reversed by reopening it, skip the check. A new candidate whose te
 looks like a secret is refused before it reaches a model or GitHub.
 
 **The proposal.** The model returns a type, a Priority from P1 to P3, Value and Effort, each
-with a one-line reason, and optionally one piece of evidence. The candidate's text is untrusted:
-code checks every value against its list, a `duplicate_of` outside the shortlist is rejected,
-and a proposal with a value off its list, or an answer that never fits the schema, is skipped.
+with a one-line reason, and optionally one piece of evidence. The types it may pick are the
+`type/*` labels `.github/labels.yml` declares, `type/epic` aside; a run reads the file at its
+first candidate, before any timeline read or model call, and stops with a `ConfigurationError`
+naming the repository when the file is missing or declares none (#1358). The candidate's text
+is untrusted: code checks every value against its list, a `duplicate_of` outside the shortlist
+is rejected, and a proposal with a value off its list, or an answer that never fits the
+schema, is skipped.
 P0 needs evidence whose value is a whole word of the candidate's text or was attached by the
 entry point's caller, that GitHub confirms (`RoadmapStore.evidence_holds`), from a trusted
 source: an author with write access, on an issue no agent filed, or the caller that attached it.
@@ -104,6 +108,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.exceptions.config import ConfigurationError
+from devops_cli.exceptions.git import GitHubFileNotFoundError
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.github.labels import LabelSpec
 from devops_cli.lang import MESSAGES
@@ -475,9 +480,10 @@ def read_quota(store: RoadmapStore, config: RoadmapConfig) -> QuotaStanding:
 
 @dataclass
 class _Run:
-    """What one run reads once."""
+    """What one run reads once, from `repo`'s `store`."""
 
     store: RoadmapStore
+    repo: str
     config: RoadmapConfig
     model: IntakeModel
     ref: str | None
@@ -511,21 +517,34 @@ class _Run:
 
     @cached_property
     def types(self) -> tuple[str, ...]:
-        """The `type/*` labels `.github/labels.yml` declares, `type/epic` aside."""
-        text = self.store.repository_file(CONST_ROADMAP_LABELS_PATH, ref=self.ref)
+        """The `type/*` labels `.github/labels.yml` declares, `type/epic` aside. A file that is
+        missing, is no label specs or declares none is a configuration error naming the
+        repository; any other failed read stays GitHub's error (#1358)."""
+        path, texts = CONST_ROADMAP_LABELS_PATH, MESSAGES.roadmap
+        where = {
+            "repo": self.repo,
+            "path": path,
+            "ref": self.ref or texts.intake_placeholder_default_branch,
+        }
         try:
+            text = self.store.repository_file(path, ref=self.ref)
             specs = _LABEL_SPECS.validate_python(yaml.safe_load(text))
+        except GitHubFileNotFoundError as exc:
+            missing = texts.intake_labels_missing.format(**where)
+            raise ConfigurationError(missing, details={"path": path}) from exc
         except (yaml.YAMLError, InvalidLabelsError) as exc:
-            raise ConfigurationError(
-                f"{CONST_ROADMAP_LABELS_PATH} can't be read as label specs: {str(exc)[:200]}",
-                details={"path": CONST_ROADMAP_LABELS_PATH},
-            ) from exc
-        return tuple(
+            unreadable = texts.intake_labels_unreadable.format(**where, error=str(exc)[:200])
+            raise ConfigurationError(unreadable, details={"path": path}) from exc
+        types = tuple(
             spec.name
             for spec in specs
             if spec.name.startswith(CONST_ROADMAP_TYPE_LABEL_PREFIX)
             and spec.name != CONST_ROADMAP_EPIC_LABEL
         )
+        if not types:
+            untyped = texts.intake_labels_untyped.format(**where)
+            raise ConfigurationError(untyped, details={"path": path})
+        return types
 
     @cached_property
     def openings(self) -> list[int]:
@@ -957,6 +976,11 @@ class _Planner:
     opened: int = 0
 
     def decide_all(self, subjects: Sequence[Subject]) -> Iterator[IntakeDecision]:
+        """Each candidate's decision, in turn. A run with a candidate reads `.github/labels.yml`
+        first, so a file it can't use stops it before any timeline read or model call (#1358)."""
+        if not subjects:
+            return
+        _ = self.run.types
         checked = [_checked(self.run, subject) for subject in subjects]
         own = self._embed(subjects, checked)
         for subject, vector in zip(subjects, own, strict=True):
@@ -1096,13 +1120,15 @@ class _Planner:
 def plan_intake(
     store: RoadmapStore,
     *,
+    repo: str,
     config: RoadmapConfig,
     model: IntakeModel,
     ref: str | None = None,
     issues: Collection[int] = (),
     new: NewCandidate | None = None,
 ) -> IntakePlan:
-    """Decide every candidate, or only `issues`, or only the `new` candidate, writing nothing.
+    """Decide every candidate of `repo`, whose roadmap `store` reads, or only `issues`, or only
+    the `new` candidate, writing nothing.
 
     A `new` candidate whose text looks like it holds a secret raises `SecurityError` first.
     """
@@ -1110,6 +1136,7 @@ def plan_intake(
         new.refuse_secrets()
     run = _Run(
         store=store,
+        repo=repo,
         config=config,
         model=model,
         ref=ref,
@@ -1232,6 +1259,7 @@ def intake_candidate(
     store: RoadmapStore,
     candidate: NewCandidate,
     *,
+    repo: str,
     config: RoadmapConfig,
     model: IntakeModel,
     ref: str | None = None,
@@ -1239,7 +1267,7 @@ def intake_candidate(
 ) -> CandidateOutcome:
     """The entry point discovery (#745) and the review hand-off call: decide one candidate that
     is not an issue yet, and with `confirm` file and place it unless it is a duplicate or folds."""
-    plan = plan_intake(store, config=config, model=model, ref=ref, new=candidate)
+    plan = plan_intake(store, repo=repo, config=config, model=model, ref=ref, new=candidate)
     (decision,) = plan.decisions
     applied = apply_intake(store, plan) if confirm else None
     number = applied.filed[0] if applied and applied.filed else None

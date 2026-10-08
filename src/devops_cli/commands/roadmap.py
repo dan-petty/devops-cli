@@ -385,6 +385,7 @@ def _intake(
         opened.append(store)
         plan = plan_intake(
             store,
+            repo=target,
             config=config,
             model=meter.model(build_intake_model()),
             ref=ref,

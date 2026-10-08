@@ -35,7 +35,8 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import AIConfig
 from devops_cli.dry_run.state import in_dry_run_invocation
 from devops_cli.exceptions.ai import ModelGatewayUnreachableError
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.config import ConfigurationError
+from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import store as roadmap_store_module
@@ -133,14 +134,21 @@ class FakeModel:
 
 class Roadmap:
     """One repository's roadmap: v0.2.25 shipped and closed a day ago, v0.2.26 is current and
-    v0.2.27 planned."""
+    v0.2.27 planned. Its `.github/labels.yml` holds `labels`, this repository's own by default;
+    with None it has none."""
 
-    def __init__(self, store: InMemoryRoadmapStore | None = None, config: RoadmapConfig = CONFIG):
+    def __init__(
+        self,
+        store: InMemoryRoadmapStore | None = None,
+        config: RoadmapConfig = CONFIG,
+        labels: str | None = LABELS_YML,
+    ):
         self.now = NOW - timedelta(days=1)
         self.config = config
         self.store = store or InMemoryRoadmapStore(board_options=OPTIONS, clock=self.clock)
         self.person = self.store.as_actor("alice")
-        self.store.seed_file(".github/labels.yml", LABELS_YML)
+        if labels is not None:
+            self.store.seed_file(".github/labels.yml", labels)
         self.store.create_release(PREVIOUS, state=GitHubState.CLOSED)
         for title in (CURRENT, NEXT):
             self.store.create_release(title)
@@ -191,7 +199,7 @@ class Roadmap:
         return self.store.comments_on(number)
 
     def plan(self, model: FakeModel, **options: Any) -> IntakePlan:
-        return plan_intake(self.store, config=self.config, model=model, **options)
+        return plan_intake(self.store, repo=REPO, config=self.config, model=model, **options)
 
     def run(self, model: FakeModel, **options: Any) -> list[JobWrite]:
         before = len(self.store.job_writes())
@@ -247,6 +255,102 @@ def test_with_no_candidates_intake_embeds_nothing_and_asks_the_model_nothing(
     model = FakeModel()
     plan = roadmap.plan(model)
     assert (model.embedded, model.requests, plan.has_writes) == ([], [], False)
+
+
+# ── The type/* labels `.github/labels.yml` declares (#1358) ─────────────────────
+
+LABELS_RULE = "must declare the type/* labels intake may assign"
+ONLY_EPIC = "- name: type/epic\n  color: '5319e7'\n  description: A parent of other items.\n"
+
+
+def test_a_run_with_no_candidate_needs_no_labels_file() -> None:
+    model = FakeModel()
+    plan = Roadmap(labels=None).plan(model)
+    assert (plan.decisions, model.embedded, model.requests) == ((), [], [])
+
+
+@pytest.mark.parametrize(
+    ("labels", "names", "ruled"),
+    [
+        (None, f"{REPO} has no .github/labels.yml at the default branch.", True),
+        (
+            ONLY_EPIC,
+            f"{REPO}'s .github/labels.yml at the default branch declares no type/* label",
+            True,
+        ),
+        ("labels: none\n", f"{REPO}'s .github/labels.yml can't be read as label specs", False),
+    ],
+    ids=["missing", "only-epic", "not-label-specs"],
+)
+def test_a_labels_file_it_cant_use_stops_intake_before_any_read_or_model_call(
+    labels: str | None, names: str, ruled: bool
+) -> None:
+    """The file is read at the run's first candidate, before its timeline read and the
+    embedding call. Its error names the repository the run was given, the file and, for a
+    missing or type-less file, the rule."""
+    roadmap = Roadmap(labels=labels)
+    roadmap.issue("feat: export the board as CSV")
+    ran: list[str] = []
+    store: Any = _Recorded(roadmap.store, ran)
+    model = FakeModel()
+    with pytest.raises(ConfigurationError) as raised:
+        plan_intake(store, repo=REPO, config=CONFIG, model=model)
+    message = str(raised.value)
+    assert (
+        raised.value.details,
+        message.startswith(names),
+        LABELS_RULE in message,
+        "closures" in ran,
+        model.embedded,
+        model.requests,
+    ) == ({"path": ".github/labels.yml"}, True, ruled, False, [], [])
+
+
+def test_intake_names_the_repository_whose_labels_file_declares_no_type(
+    board: Roadmap, fake_model: FakeModel
+) -> None:
+    """The command hands the run its `--repo`, so the error names the repository."""
+    board.store.seed_file(".github/labels.yml", ONLY_EPIC)
+    board.issue("feat: export the board as CSV")
+    output = _intake("--plan", exit_code=1)
+    assert (
+        f"{REPO}'s .github/labels.yml at the default branch declares no type/* label" in output,
+        LABELS_RULE in output,
+        fake_model.requests,
+    ) == (True, True, [])
+
+
+def test_a_dry_runs_labels_read_waits_for_a_candidate_unless_it_has_a_title() -> None:
+    """A run over the open issues reads `.github/labels.yml` only once it has a candidate; a
+    `--title` candidate always is one, so its read has no condition."""
+
+    def labels_read(plan: IntakePlan) -> str:
+        target = f"repos/{REPO}/contents/.github/labels.yml"
+        return next(r.condition for r in plan.requests if r.argv and r.argv[-1] == target)
+
+    every = dry_run_intake(REPO)
+    new = dry_run_intake(REPO, new=NewCandidate(title="feat: idea", body="text"))
+    assert (labels_read(every), labels_read(new)) == (
+        MESSAGES.roadmap.intake_request_conditions["candidate"],
+        "",
+    )
+
+
+def test_a_labels_read_github_fails_stays_a_github_error() -> None:
+    """Only a missing file is a configuration error: a 502 is GitHub's failure, raised as
+    such, still before any model call."""
+    github, store = on_github()
+    github.files[".github/labels.yml"] = (1, "gh: Server Error (HTTP 502)")
+    github.seed_issue(1, "feat: export the board as CSV")
+    model = FakeModel()
+    with pytest.raises(GitHubOperationError) as raised:
+        plan_intake(store, repo=REPO, config=CONFIG, model=model)
+    assert (
+        isinstance(raised.value, (ConfigurationError, GitHubFileNotFoundError)),
+        "HTTP 502" in str(raised.value),
+        model.embedded,
+        model.requests,
+    ) == (False, True, [], [])
 
 
 def test_the_model_judges_only_the_five_nearest_items(roadmap: Roadmap) -> None:
@@ -555,6 +659,7 @@ def test_evidence_the_entry_points_caller_attaches_is_trusted_and_the_source_is_
             source="https://example.test/review/1",
             evidence=(commit,),
         ),
+        repo=REPO,
         config=CONFIG,
         model=model,
         confirm=True,
@@ -562,6 +667,7 @@ def test_evidence_the_entry_points_caller_attaches_is_trusted_and_the_source_is_
     claimed = intake_candidate(
         roadmap.store,
         NewCandidate(title="fix: claimed", body="Introduced by abc1234."),
+        repo=REPO,
         config=CONFIG,
         model=model,
         confirm=True,
@@ -617,7 +723,12 @@ def test_an_agent_opening_within_the_allowance_is_filed_with_source_agent(
     crowded: Roadmap,
 ) -> None:
     outcome = intake_candidate(
-        crowded.store, _new("feat: within"), config=TIGHT, model=FakeModel(), confirm=True
+        crowded.store,
+        _new("feat: within"),
+        repo=REPO,
+        config=TIGHT,
+        model=FakeModel(),
+        confirm=True,
     )
     standing = outcome.plan.quota
     assert standing is not None
@@ -635,13 +746,16 @@ def test_beyond_the_allowance_an_opening_folds_and_a_split_borrows_and_is_never_
     crowded: Roadmap,
 ) -> None:
     model = FakeModel()
-    intake_candidate(crowded.store, _new("feat: first"), config=TIGHT, model=model, confirm=True)
+    intake_candidate(
+        crowded.store, _new("feat: first"), repo=REPO, config=TIGHT, model=model, confirm=True
+    )
     folded = intake_candidate(
-        crowded.store, _new("feat: second"), config=TIGHT, model=model, confirm=True
+        crowded.store, _new("feat: second"), repo=REPO, config=TIGHT, model=model, confirm=True
     )
     borrowed = intake_candidate(
         crowded.store,
         _new("feat: split", borrow_reason=BorrowReason.SPLIT, source=PARENT),
+        repo=REPO,
         config=TIGHT,
         model=model,
         confirm=True,
@@ -659,8 +773,10 @@ def test_beyond_the_allowance_an_opening_folds_and_a_split_borrows_and_is_never_
 
 def test_a_p1_bug_beyond_the_allowance_borrows(crowded: Roadmap) -> None:
     model = FakeModel(proposals={"fix: second": {"type": "type/bug", "priority": "P1-High"}})
-    intake_candidate(crowded.store, _new("feat: first"), config=TIGHT, model=model, confirm=True)
-    bug = intake_candidate(crowded.store, _new("fix: second"), config=TIGHT, model=model)
+    intake_candidate(
+        crowded.store, _new("feat: first"), repo=REPO, config=TIGHT, model=model, confirm=True
+    )
+    bug = intake_candidate(crowded.store, _new("fix: second"), repo=REPO, config=TIGHT, model=model)
     assert (
         bug.decision.quota,
         bug.number,
@@ -784,10 +900,11 @@ def test_dry_run_makes_no_request_and_prints_the_requests_a_run_makes_in_order(
         f"gh api 'repos/{REPO}/milestones?state=all&per_page=100&page=<n>' [repeated per page",
         "GraphQL read the items on board <the board .github/roadmap.toml names>",
         f"gh api -X GET search/issues -f 'q=repo:{REPO} is:issue is:open' -F per_page=1",
+        f"{REPO}/contents/.github/labels.yml",
+        "[only if the run has a candidate]",
         "GraphQL read the closes and reopens on #7's timeline",
         "[only if #7 is not on the board]",
         "embedding every item",
-        f"{REPO}/contents/.github/labels.yml",
         "model the proposal for #7",
         "With --confirm",
         "REST write label #7 with its type/* label",
@@ -938,7 +1055,7 @@ def test_a_dry_runs_requests_follow_the_order_a_run_makes_them(roadmap: Roadmap,
     store: Any = _Recorded(roadmap.store, ran)
     model: Any = _Recorded(FakeModel(proposals={title: REGRESSION}), ran)
     store.repository_file(".github/roadmap.toml")
-    plan = plan_intake(store, config=CONFIG, model=model, issues=issues, new=candidate)
+    plan = plan_intake(store, repo=REPO, config=CONFIG, model=model, issues=issues, new=candidate)
     apply_intake(store, plan)
     planned = _operations(dry_run_intake(REPO, issues=issues, new=candidate))
     assert (
@@ -1214,7 +1331,7 @@ def test_a_model_answer_that_fails_validation_skips_only_its_candidate(roadmap: 
     model = GatewayIntakeModel(AIConfig(), embedder=_Embedder(), client=Client())
     garbled = roadmap.issue("feat: garbled")
     fine = roadmap.issue("feat: fine")
-    plan = plan_intake(roadmap.store, config=CONFIG, model=model)
+    plan = plan_intake(roadmap.store, repo=REPO, config=CONFIG, model=model)
     apply_intake(roadmap.store, plan)
     skipped = plan.decisions[0]
     assert (
@@ -1323,7 +1440,7 @@ def test_a_duplicate_agent_candidate_folds_into_its_original_and_the_report_says
     original = roadmap.finished("feat: cache embeddings")
     model = FakeModel(duplicates={"feat: cached embeddings": "feat: cache embeddings"})
     outcome = intake_candidate(
-        roadmap.store, _new("feat: cached embeddings"), config=CONFIG, model=model
+        roadmap.store, _new("feat: cached embeddings"), repo=REPO, config=CONFIG, model=model
     )
     report = " ".join(render_intake(outcome.plan, repo=REPO).split())
     assert (
@@ -1336,7 +1453,9 @@ def test_a_duplicate_agent_candidate_folds_into_its_original_and_the_report_says
 
 def test_a_skipped_agent_candidate_still_reports_its_quota_decision(roadmap: Roadmap) -> None:
     model = FakeModel(proposals={"feat: odd": {"value": "Enormous"}})
-    outcome = intake_candidate(roadmap.store, _new("feat: odd"), config=CONFIG, model=model)
+    outcome = intake_candidate(
+        roadmap.store, _new("feat: odd"), repo=REPO, config=CONFIG, model=model
+    )
     report = " ".join(render_intake(outcome.plan, repo=REPO).split())
     assert (outcome.decision.outcome, outcome.decision.quota, "Quota: open" in report) == (
         Outcome.SKIP,
@@ -1350,8 +1469,12 @@ def test_a_fold_names_the_nearest_open_item_never_a_rejected_issue(crowded: Road
         "widget exporter", state=GitHubState.CLOSED, state_reason="not_planned"
     )
     model = FakeModel(topics=("widget",))
-    intake_candidate(crowded.store, _new("feat: first"), config=TIGHT, model=model, confirm=True)
-    folded = intake_candidate(crowded.store, _new("feat: widget export"), config=TIGHT, model=model)
+    intake_candidate(
+        crowded.store, _new("feat: first"), repo=REPO, config=TIGHT, model=model, confirm=True
+    )
+    folded = intake_candidate(
+        crowded.store, _new("feat: widget export"), repo=REPO, config=TIGHT, model=model
+    )
     assert (folded.decision.quota, folded.decision.fold_into in {1, 2, 3}, rejected) == (
         QuotaDecision.FOLD,
         True,
@@ -1363,10 +1486,13 @@ def test_a_persons_new_candidate_beyond_the_allowance_is_filed_and_not_counted(
     crowded: Roadmap,
 ) -> None:
     model = FakeModel()
-    intake_candidate(crowded.store, _new("feat: first"), config=TIGHT, model=model, confirm=True)
+    intake_candidate(
+        crowded.store, _new("feat: first"), repo=REPO, config=TIGHT, model=model, confirm=True
+    )
     mine = intake_candidate(
         crowded.store,
         _new("feat: mine", filed_by=Filer.PERSON),
+        repo=REPO,
         config=TIGHT,
         model=model,
         confirm=True,
@@ -1379,10 +1505,13 @@ def test_a_persons_new_candidate_beyond_the_allowance_is_filed_and_not_counted(
 
 def test_a_split_borrows_only_with_the_link_it_was_split_from(crowded: Roadmap) -> None:
     model = FakeModel()
-    intake_candidate(crowded.store, _new("feat: first"), config=TIGHT, model=model, confirm=True)
+    intake_candidate(
+        crowded.store, _new("feat: first"), repo=REPO, config=TIGHT, model=model, confirm=True
+    )
     unlinked = intake_candidate(
         crowded.store,
         _new("feat: split", borrow_reason=BorrowReason.SPLIT),
+        repo=REPO,
         config=TIGHT,
         model=model,
     )
@@ -1433,7 +1562,7 @@ def test_a_retried_new_candidate_finds_the_issue_its_stopped_run_filed(roadmap: 
     filed = roadmap.issue("feat: retry me", labels=("source/agent",))
     model = FakeModel(duplicates={"feat: retry me": "feat: retry me"})
     outcome = intake_candidate(
-        roadmap.store, _new("feat: retry me"), config=CONFIG, model=model, confirm=True
+        roadmap.store, _new("feat: retry me"), repo=REPO, config=CONFIG, model=model, confirm=True
     )
     assert (outcome.decision.outcome, outcome.decision.original, len(roadmap.store.issues())) == (
         Outcome.DUPLICATE,
@@ -1503,7 +1632,7 @@ def on_github(board: int = 0, *, lag: int = 0) -> tuple[GitHubFake, GitHubRoadma
 def _intake_on_github(
     store: GitHubRoadmapStore, model: FakeModel, **options: Any
 ) -> tuple[IntakePlan, Any]:
-    plan = plan_intake(store, config=CONFIG, model=model, **options)
+    plan = plan_intake(store, repo=REPO, config=CONFIG, model=model, **options)
     return plan, lambda: apply_intake(store, plan, refine=lambda *_: None)
 
 

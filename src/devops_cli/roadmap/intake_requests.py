@@ -144,11 +144,13 @@ class _Steps:
     def decisions(self, subjects: Sequence[str], *, new: bool, repeat: str) -> list[PlannedRequest]:
         """The reads and model calls that decide each candidate, in the order a run makes them."""
         store = self.store
-        planned: list[PlannedRequest] = []
+        candidate = "" if new else MESSAGES.roadmap.intake_request_conditions["candidate"]
+        planned = self.step(
+            "labels", store.file(CONST_ROADMAP_LABELS_PATH, self.ref), when=candidate
+        )
         for s in [] if new else subjects:
             planned += self.step("closures", store.closures(s), subject=s, repeat=repeat)
         planned.append(self.call("embed_new" if new else "embed", _Via.EMBEDDING))
-        planned += self.step("labels", store.file(CONST_ROADMAP_LABELS_PATH, self.ref))
         for index, subject in enumerate(subjects):
             planned.append(self.call("propose", _Via.MODEL, subject=subject, repeat=repeat))
             planned += self.step(
