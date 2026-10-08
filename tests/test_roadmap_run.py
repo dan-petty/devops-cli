@@ -28,6 +28,7 @@ from devops_cli.commands.roadmap import app as roadmap_app
 from devops_cli.commands.serve import app as serve_app
 from devops_cli.config.constants import (
     CONST_GH_CLI,
+    CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS,
     CONST_ROADMAP_CLOSURE_BATCH_KEYS,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_URL_CLOUDFLARE_STATUS_SUMMARY,
@@ -35,8 +36,15 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
 from devops_cli.exceptions import GitOperationError, RoadmapRunError
+from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
-from devops_cli.roadmap.board_read import BOARD_BUDGET_OPERATION, BOARD_ITEMS_OPERATION
+from devops_cli.roadmap import store as roadmap_store_module
+from devops_cli.roadmap.board_read import (
+    BOARD_BUDGET_OPERATION,
+    BOARD_ITEMS_OPERATION,
+    GRAPHQL_BUDGET_OPERATION,
+    refusal_reset,
+)
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import (
@@ -47,10 +55,19 @@ from devops_cli.roadmap.run import (
     _run_refine_adapter,
     build_stub_table,
     ensure_checkout,
+    log_round_spend,
     run_due_jobs,
     service_job,
+    service_pause_until,
 )
-from devops_cli.roadmap.store import Change, ChangeKind, CloseReason, GitHubState, Release
+from devops_cli.roadmap.store import (
+    Change,
+    ChangeKind,
+    CloseReason,
+    GitHubState,
+    ItemField,
+    Release,
+)
 from devops_cli.server.service import TriggerBatch
 from devops_cli.telemetry.instruments import PROJECT_RELEASES_TOTAL
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
@@ -1060,7 +1077,8 @@ def test_service_wiring(
     roadmap_store_repos: list[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`devops serve --service` passes service_job to create_service_app and opens store."""
+    """`devops serve --service` passes service_job, and the reader of the time a refused round
+    names (#1400), to create_service_app and opens store."""
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", f'["{REPO}"]')
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_MACHINE_ACCOUNT", "devops-cli")
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", f'{{"{REPO}":"secret-1"}}')
@@ -1081,10 +1099,12 @@ def test_service_wiring(
     assert (
         res.exit_code,
         fastapi_app.state.job is service_job,
+        fastapi_app.state.pause_until is service_pause_until,
         REPO in roadmap_store_repos,
         mock_run.called,
     ) == (
         0,
+        True,
         True,
         True,
         True,
@@ -1335,4 +1355,222 @@ def test_a_poll_whose_changes_are_all_the_services_own_sends_no_graphql_request(
         (),
         [],
         ["repos/example/roadmap/is"],
+    )
+
+
+# ── A refused round's reset, and each round's spend line (#1400) ──────────────
+
+RESET = datetime(2099, 1, 1, tzinfo=UTC)
+"""The reset `GitHubFake` reports in every `rateLimit`."""
+
+
+def _round(store: GitHubRoadmapStore, tmp_path: Path, **options: Any) -> tuple[str, ...]:
+    """A poll round over the stub table, or `options`' table and batch."""
+    return run_due_jobs(
+        REPO,
+        store,
+        batch=options.pop("batch", {("poll", "", ""): 1}),
+        table=options.pop("table", build_stub_table()),
+        data_dir=tmp_path,
+        now=NOW,
+    )
+
+
+def test_a_refused_read_of_the_changes_leaves_the_round_with_the_reset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The changes' job records come from a board read, refused before it starts while the points
+    left can't cover it. The refusal leaves the round outside any job, unchanged, naming the
+    reset; the Service waits until the clock-skew bound after it."""
+    github, store = _github_round(tmp_path, monkeypatch, _labeled(3, "alice"))
+    github.board.remaining = 100
+    with pytest.raises(GitHubRateLimitError) as raised:
+        _round(store, tmp_path)
+    assert (refusal_reset(raised.value), service_pause_until(raised.value)) == (
+        RESET,
+        RESET + timedelta(seconds=CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS),
+    )
+
+
+def test_a_jobs_refused_write_fails_the_round_with_the_reset_and_the_next_job_still_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Close's card write is refused below the reserve: its read leaves 249 points. The round's
+    `RoadmapRunError` names close and carries the reset, and reprioritize after it still runs.
+    A round whose job fails for another reason carries none, and the Service doesn't wait."""
+    github, store = _github_round(tmp_path, monkeypatch, [])
+    github.board.remaining = 252
+
+    def write_value(*, store: GitHubRoadmapStore, **_: Any) -> JobOutcome:
+        item = store.item(1)
+        assert item is not None
+        store.set_field(item, ItemField.VALUE, "High")
+        return JobOutcome()
+
+    def crash(**_: Any) -> JobOutcome:
+        raise RuntimeError("model down")
+
+    ran: list[str] = []
+    refusing = build_stub_table(
+        {"close": write_value, "reprioritize": lambda **_: ran.append("reprioritize")}
+    )
+    batch = {CONST_ROADMAP_CLOSURE_BATCH_KEYS[0]: 1, ("webhook", "milestones", "opened"): 1}
+    with pytest.raises(RoadmapRunError) as refused:
+        _round(store, tmp_path, table=refusing, batch=batch)
+    with pytest.raises(RoadmapRunError) as crashed:
+        _round(store, tmp_path, table=build_stub_table({"close": crash}), batch=batch)
+    assert (
+        refused.value.failed_jobs,
+        refused.value.reset_at,
+        refused.value.details["reset_at"],
+        ran,
+        github.board.remaining,
+        crashed.value.reset_at,
+        service_pause_until(refused.value),
+        service_pause_until(crashed.value),
+    ) == (
+        ("close",),
+        RESET,
+        RESET.isoformat(),
+        ["reprioritize"],
+        249,
+        None,
+        RESET + timedelta(seconds=CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS),
+        None,
+    )
+
+
+def _spend_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """The INFO lines the round logged about GraphQL."""
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "devops_cli.roadmap.run"
+        and record.levelno == logging.INFO
+        and "GraphQL" in record.getMessage()
+    ]
+
+
+def test_a_round_that_sends_graphql_ends_with_one_spend_line_naming_its_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The round reads the board for its changes' job records: a budget probe and a page, so the
+    closing budget read reports 2 of the account's points spent."""
+    github, store = _github_round(tmp_path, monkeypatch, _labeled(3, "alice"))
+    _round(store, tmp_path)
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
+        log_round_spend(REPO, store)
+    assert (_spend_lines(caplog), len(github.graphql_calls(GRAPHQL_BUDGET_OPERATION))) == (
+        [
+            f"{REPO}: GraphQL, 2 of the account's points spent during the round, 4998 left "
+            "until 00:00 UTC."
+        ],
+        1,
+    )
+
+
+def test_a_round_that_sends_no_graphql_logs_no_spend_line_and_reads_no_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Every change is the Service's own, so the round reads only the issue events over REST."""
+    github, store = _github_round(tmp_path, monkeypatch, _labeled(12, "roadmap-bot"))
+    _round(store, tmp_path)
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
+        log_round_spend(REPO, store)
+    assert (_spend_lines(caplog), github.graphql_calls()) == ([], [])
+
+
+DEFAULT_JOB_NAMES = ("intake", "close", "reprioritize", "refine", "metrics")
+POLL = TriggerBatch(repo=REPO, counts={("poll", "", ""): 1}, first_at=NOW, last_at=NOW)
+
+
+def _service_github(events: list[dict[str, Any]], *, remaining: int = 5000) -> GitHubFake:
+    """The repository `service_job` opens, with `events` dated now and `remaining` points."""
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    github = GitHubFake(
+        REPO,
+        milestones=[{"number": 26, "title": RELEASE, "state": "open"}],
+        files={".github/roadmap.toml": "board = 1\n"},
+        events=[event | {"created_at": now} for event in events],
+    )
+    for number in range(1, 4):
+        github.seed_issue(number, card={"status": "Ready"})
+    github.board.remaining = remaining
+    return github
+
+
+def _serve_over(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gh: Callable[..., Any]) -> None:
+    """`service_job` opens its stores over `gh`, logged in as `roadmap-bot`, with every job of
+    the default table run a minute ago, so a poll runs only what changes since then make due."""
+    stamp = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+    sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
+    sched_file.parent.mkdir(parents=True, exist_ok=True)
+    sched_file.write_text(json.dumps(dict.fromkeys(DEFAULT_JOB_NAMES, stamp)), encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("devops_cli.roadmap.run._get_session_login", lambda: "roadmap-bot")
+    monkeypatch.setattr(
+        roadmap_store_module,
+        "get_roadmap_store",
+        lambda repo, runner=None, **options: GitHubRoadmapStore(repo, runner=gh, **options),
+    )
+
+
+def test_a_service_round_ends_with_its_spend_line_however_it_ends(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A round whose board read is refused raises the refusal unchanged and still ends with the
+    line, built from the budget the refused probe reported, with no closing budget read, so the
+    pause starts at once; a round that reads only REST ends with none and reads no budget."""
+    refused = _service_github(_labeled(2, "alice"), remaining=100)
+    quiet = _service_github([])
+    lines: list[list[str]] = []
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
+        _serve_over(tmp_path, monkeypatch, refused)
+        with pytest.raises(GitHubRateLimitError, match="stopped before reading"):
+            service_job(POLL)
+        lines.append(_spend_lines(caplog))
+        caplog.clear()
+        _serve_over(tmp_path, monkeypatch, quiet)
+        service_job(POLL)
+        lines.append(_spend_lines(caplog))
+    assert (lines, refused.graphql_calls(GRAPHQL_BUDGET_OPERATION), quiet.graphql_calls()) == (
+        [
+            [
+                f"{REPO}: GraphQL, 1 of the account's points spent during the round, 99 left "
+                "until 00:00 UTC."
+            ],
+            [],
+        ],
+        [],
+        [],
+    )
+
+
+def test_a_budget_the_round_cant_read_is_a_warning_and_the_rounds_own_error_stands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The round fails on a board page GitHub can't serve, and its closing budget read fails
+    too, with an error of any class: the round's own error is what the Service sees, and the
+    line is a warning naming the repository and the class."""
+    github = _service_github(_labeled(2, "alice"))
+
+    def pages_and_budget_down(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        sent = " ".join(args)
+        if GRAPHQL_BUDGET_OPERATION in sent:
+            raise OSError("gh vanished")
+        if BOARD_ITEMS_OPERATION in sent:
+            return subprocess.CompletedProcess(args, 1, "", "HTTP 502: Bad Gateway")
+        return github(args, **kwargs)
+
+    _serve_over(tmp_path, monkeypatch, pages_and_budget_down)
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
+        with pytest.raises(GitHubOperationError, match="HTTP 502"):
+            service_job(POLL)
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert (warnings, _spend_lines(caplog)) == (
+        [
+            f"{REPO}: could not read the GraphQL budget after the round, so it has no spend "
+            "line: OSError: gh vanished"
+        ],
+        [],
     )

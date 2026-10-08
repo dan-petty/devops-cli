@@ -1031,8 +1031,8 @@ class RoadmapCommandHelp:
     )
     close_plan: str = (
         "Read GitHub, print each issue the run closes with its comment and the cut or what "
-        "holds it, write nothing, and end with the GraphQL points spent and left. Close "
-        "without a mode flag does this."
+        "holds it, write nothing, and end with the GraphQL points spent and left once its store "
+        "has sent a GraphQL request. Close without a mode flag does this."
     )
     close_root: str = "The clone the cut runs git in (default: the current directory)."
     intake: str = (

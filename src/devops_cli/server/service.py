@@ -32,6 +32,7 @@ from devops_cli.config.settings import (
     get_service_webhook_secrets,
     load_settings,
 )
+from devops_cli.lang import MESSAGES
 from devops_cli.server.routes.webhooks import DeliveryLRUCache, create_webhook_router
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import get_tracer
@@ -50,6 +51,10 @@ class TriggerBatch(BaseModel):
     last_at: datetime
 
 
+PauseReader = Callable[[Exception], datetime | None]
+"""Reads the time a failed round's error names, before which no round starts, or None."""
+
+
 def default_service_job(batch: TriggerBatch) -> None:
     """Default fallback job executing for repository events when no custom handler is given."""
     logger.info(
@@ -60,6 +65,63 @@ def default_service_job(batch: TriggerBatch) -> None:
     )
 
 
+def no_round_pause(_exc: Exception) -> datetime | None:
+    """A failed round names no time to wait for: how the engine reads an error when the
+    service gives no other reader."""
+    return None
+
+
+class RoundPause:
+    """The time before which no worker starts a round, shared by every repository's worker
+    (#1400).
+
+    A failed round can name a time to wait for, which `reader` reads from its error: the roadmap
+    Service names a GraphQL budget refusal's reset, because the budget is the machine account's
+    and every repository's rounds spend it. Triggers keep coalescing meanwhile, so each
+    repository runs one round with all of them once the time passes.
+    """
+
+    def __init__(self, clock: Callable[[], datetime], reader: PauseReader = no_round_pause) -> None:
+        self._clock = clock
+        self._reader = reader
+        self._lock = threading.Lock()
+        self._until: datetime | None = None
+
+    def after(self, exc: Exception, repo: str) -> None:
+        """Hold every round until the time `exc`, the error of `repo`'s round, names, and log
+        each new time once; a time not after the clock, or not after the time held already,
+        changes nothing. A time that can't be read is a warning naming its class: nothing is
+        held, and the worker carries on."""
+        try:
+            until = self._reader(exc)
+            fresh = until if until is not None and self._hold(until) else None
+        except Exception as failure:
+            unread = MESSAGES.serve.rounds_pause_unread.format(
+                repo=repo, kind=type(failure).__name__, error=failure
+            )
+            logger.warning(unread, extra={"repo": repo})
+            return
+        if fresh is not None:
+            shown = fresh.astimezone(UTC).isoformat(timespec="seconds")
+            logger.info(
+                MESSAGES.serve.rounds_paused.format(until=shown, repo=repo), extra={"repo": repo}
+            )
+
+    def _hold(self, until: datetime) -> bool:
+        """Hold rounds until `until` when it is after the clock and after the time held already;
+        whether it is a new time."""
+        with self._lock:
+            if until <= self._clock() or (self._until is not None and until <= self._until):
+                return False
+            self._until = until
+            return True
+
+    def holds(self) -> bool:
+        """Whether no round may start now."""
+        with self._lock:
+            return self._until is not None and self._clock() < self._until
+
+
 class RepoWorker:
     """Dedicated daemon worker thread maintaining a single-concurrency queue for one repository."""
 
@@ -68,10 +130,12 @@ class RepoWorker:
         repo: str,
         job_func: Callable[[TriggerBatch], None],
         clock: Callable[[], datetime],
+        pause: RoundPause | None = None,
     ) -> None:
         self.repo = repo
         self.job_func = job_func
         self.clock = clock
+        self.pause = pause or RoundPause(clock)
         self._cond = threading.Condition()
         self._stop_event = threading.Event()
         self._is_active = False
@@ -119,25 +183,37 @@ class RepoWorker:
         with self._cond:
             self._cond.notify_all()
 
+    def join(self, timeout: float) -> bool:
+        """Wait up to `timeout` seconds for the worker thread to end; whether it has."""
+        if self._thread is not None:
+            self._thread.join(timeout)
+        return self._thread is None or not self._thread.is_alive()
+
     def wait_active(self, timeout: float) -> bool:
-        """Wait until currently active job completes and pending queue drains, or timeout expires."""
+        """Wait until the active job completes and the pending queue drains, or timeout expires;
+        a batch the pause holds is not waited for."""
         deadline = time.perf_counter() + timeout
         with self._cond:
-            while self._is_active or self._pending_counts:
+            while self._is_active or self._has_runnable_batch():
                 remaining = deadline - time.perf_counter()
                 if remaining <= 0:
                     break
                 self._cond.wait(timeout=min(remaining, 0.05))
-            return not self._is_active and not self._pending_counts
+            return not self._is_active and not self._has_runnable_batch()
+
+    def _has_runnable_batch(self) -> bool:
+        """Whether events are pending and the pause lets a round start; the caller holds the
+        condition."""
+        return bool(self._pending_counts) and not self.pause.holds()
 
     def _wait_for_next_batch(
         self,
     ) -> tuple[dict[tuple[str, str, str], int], datetime, datetime] | None:
-        """Wait for pending events and pop them into a batch tuple."""
+        """Wait for pending events the pause lets run and pop them into a batch tuple."""
         with self._cond:
-            while not self._pending_counts and not self._stop_event.is_set():
+            while not self._has_runnable_batch() and not self._stop_event.is_set():
                 self._cond.wait(timeout=0.2)
-            if not self._pending_counts:
+            if not self._has_runnable_batch():
                 return None
             counts = dict(self._pending_counts)
             first_at = self._first_at or self.clock()
@@ -183,6 +259,7 @@ class RepoWorker:
                     extra={"repo": self.repo, "result": "error"},
                     exc_info=True,
                 )
+                self.pause.after(exc, self.repo)
             finally:
                 span.set_attribute("service.result", result)
                 duration = time.perf_counter() - start_time
@@ -231,6 +308,7 @@ class ServiceManager:
         job_func: Callable[[TriggerBatch], None],
         clock: Callable[[], datetime],
         sleep_func: Callable[[float], Coroutine[Any, Any, None]],
+        pause_until: PauseReader = no_round_pause,
     ) -> None:
         self.config = config
         self.secrets = secrets
@@ -240,8 +318,9 @@ class ServiceManager:
         self.managed_repos: set[str] = set(config.repos)
         self.machine_account: str | None = config.machine_account
         self.delivery_cache = DeliveryLRUCache()
+        self.pause = RoundPause(clock, pause_until)
         self.workers: dict[str, RepoWorker] = {
-            repo: RepoWorker(repo, job_func, clock) for repo in config.repos
+            repo: RepoWorker(repo, job_func, clock, self.pause) for repo in config.repos
         }
         self._stop_event = threading.Event()
         self._ready = False
@@ -304,7 +383,8 @@ class ServiceManager:
         return True
 
     async def drain_and_stop(self) -> None:
-        """Initiate graceful shutdown and drain active jobs within configured timeout."""
+        """Initiate graceful shutdown, drain active jobs and stop each worker within configured
+        timeout; the rounds a pause holds are not run."""
         self._draining = True
         self._stop_event.set()
         if self._tick_task is not None and not self._tick_task.done():
@@ -320,6 +400,7 @@ class ServiceManager:
             remaining = max(0.0, deadline - time.perf_counter())
             worker.wait_active(remaining)
             worker.stop()
+            worker.join(max(0.0, deadline - time.perf_counter()))
 
 
 def _resolve_service_secrets(
@@ -405,13 +486,16 @@ def create_service_app(
     secrets: dict[str, str] | None = None,
     clock: Callable[[], datetime] | None = None,
     sleep_func: Callable[[float], Coroutine[Any, Any, None]] | None = None,
+    pause_until: PauseReader | None = None,
 ) -> FastAPI:
-    """Construct production FastAPI service application."""
+    """Construct production FastAPI service application; `pause_until` reads the time a failed
+    round's error names, before which no repository starts a round."""
     active_settings = settings or load_settings()
     service_secrets = _resolve_service_secrets(active_settings, secrets)
     service_clock = clock or (lambda: datetime.now(UTC))
     service_sleep = sleep_func or asyncio.sleep
     job_handler = job or default_service_job
+    pause_reader = pause_until or no_round_pause
 
     _warn_missing_secrets(active_settings.service.repos, service_secrets)
 
@@ -421,6 +505,7 @@ def create_service_app(
         job_func=job_handler,
         clock=service_clock,
         sleep_func=service_sleep,
+        pause_until=pause_reader,
     )
 
     @asynccontextmanager
@@ -439,6 +524,7 @@ def create_service_app(
     )
     app.state.service_manager = manager
     app.state.job = job_handler
+    app.state.pause_until = pause_reader
 
     app.middleware("http")(_service_trace_middleware)
     app.include_router(create_webhook_router(manager))

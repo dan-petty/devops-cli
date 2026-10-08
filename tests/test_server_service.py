@@ -7,10 +7,13 @@ import hashlib
 import hmac
 import json
 import logging
+import queue
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -18,9 +21,11 @@ from fastapi.testclient import TestClient
 
 from devops_cli.config import Settings
 from devops_cli.config.constants import (
+    CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS,
     CONST_GH_WEBHOOK_DELIVERY_HEADER,
     CONST_GH_WEBHOOK_EVENT_HEADER,
     CONST_GH_WEBHOOK_SIGNATURE_HEADER,
+    CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
     CONST_SERVICE_METRIC_JOBS,
@@ -29,9 +34,20 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
 )
 from devops_cli.config.settings import ServiceConfig
+from devops_cli.exceptions import RoadmapRunError
+from devops_cli.exceptions.git import GitHubRateLimitError
+from devops_cli.roadmap.board_read import GraphQLBudget, require_budget, require_write_floor
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.run import JobOutcome, build_stub_table, run_due_jobs, service_pause_until
 from devops_cli.server.json_logs import JsonLogFormatter
 from devops_cli.server.routes.webhooks import verify_webhook_signature
-from devops_cli.server.service import RepoWorker, TriggerBatch, create_service_app
+from devops_cli.server.service import (
+    PauseReader,
+    RepoWorker,
+    ServiceManager,
+    TriggerBatch,
+    create_service_app,
+)
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import _from_otlp_any_value, get_tracer, reset_tracer
 
@@ -844,4 +860,293 @@ def test_repo_worker_executes_batch_with_span(monkeypatch: pytest.MonkeyPatch) -
         "error",
         True,
         "simulated job failure",
+    )
+
+
+# ── A GraphQL budget refusal holds every repository's rounds (#1400) ──────────
+
+REPO_A, REPO_B = "example-org/repo1", "example-org/repo2"
+RESET = datetime(2026, 10, 8, 13, tzinfo=UTC)
+RESUME = RESET + timedelta(seconds=CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS)
+"""The reset plus the bound on how late GitHub still reports the window that ended (#1364): when
+rounds start again."""
+WAIT_LINE = (
+    "No repository starts a Service round before 2026-10-08T13:00:05+00:00, the time the failed "
+    "round for {repo} named; the triggers that arrive until then run as one round per repository."
+)
+
+
+class _Clock:
+    """The Service's clock, set by the test."""
+
+    def __init__(self, now: datetime) -> None:
+        self.now = now
+
+    def __call__(self) -> datetime:
+        return self.now
+
+
+def _low_budget(reset: datetime = RESET) -> GraphQLBudget:
+    return GraphQLBudget(cost=1, limit=5000, remaining=40, used=4960, reset_at=reset)
+
+
+def _refuse_read(reset: datetime = RESET) -> None:
+    """What a refused board read raises, as `changes_since` does outside any job."""
+    require_budget(_low_budget(reset), 12, "board #1 items")
+
+
+def _refuse_jobs_write(store: InMemoryRoadmapStore, data_dir: Path) -> None:
+    """A round whose intake job's card write is refused: `run_due_jobs` raises the
+    `RoadmapRunError` that carries the reset."""
+
+    def write(**_: Any) -> JobOutcome:
+        require_write_floor(_low_budget(), "#7")
+        return JobOutcome()
+
+    run_due_jobs(
+        REPO_A,
+        store,
+        batch={CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1},
+        table=build_stub_table({"intake": write}),
+        data_dir=data_dir,
+        now=RESET - timedelta(minutes=20),
+    )
+
+
+class _Rounds:
+    """The jobs each repository's worker ran, the first `refusing` rounds raising `refusal`."""
+
+    def __init__(self, refusal: Callable[[], None], refusing: dict[str, int]) -> None:
+        self.refusal = refusal
+        self.refusing = dict(refusing)
+        self.batches: dict[str, list[TriggerBatch]] = {REPO_A: [], REPO_B: []}
+        self.done: queue.Queue[str] = queue.Queue()
+
+    def __call__(self, batch: TriggerBatch) -> None:
+        self.batches[batch.repo].append(batch)
+        try:
+            if self.refusing.get(batch.repo, 0) >= len(self.batches[batch.repo]):
+                self.refusal()
+        finally:
+            self.done.put(batch.repo)
+
+    def wait(self, count: int, manager: ServiceManager) -> list[str]:
+        """The repositories of the next `count` rounds to finish, once every worker is idle, so
+        a failed round's pause is in place."""
+        finished = sorted(self.done.get(timeout=1.0) for _ in range(count))
+        assert all(worker.wait_active(1.0) for worker in manager.workers.values())
+        return finished
+
+    def held(self, manager: ServiceManager) -> bool:
+        """Whether no round started for the triggers just enqueued: a worker whose batch may run
+        is waited for until it has run, so an idle worker and no finished round mean the pause
+        held every batch."""
+        assert all(worker.wait_active(1.0) for worker in manager.workers.values())
+        return self.done.empty()
+
+    def triggers(self) -> dict[str, list[int]]:
+        return {repo: [sum(b.counts.values()) for b in done] for repo, done in self.batches.items()}
+
+
+def _service(
+    rounds: _Rounds, clock: _Clock, reader: PauseReader = service_pause_until
+) -> ServiceManager:
+    """The Service over both repositories, its workers started, with no poll loop."""
+    manager = ServiceManager(
+        config=_make_settings(repos=[REPO_A, REPO_B]).service,
+        secrets={},
+        job_func=rounds,
+        clock=clock,
+        sleep_func=asyncio.sleep,
+        pause_until=reader,
+    )
+    for worker in manager.workers.values():
+        worker.start()
+    return manager
+
+
+def _trigger(manager: ServiceManager, *repos: str) -> None:
+    for repo in repos:
+        manager.enqueue_trigger(repo, "webhook", "issues", "labeled")
+
+
+def _wait_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == "devops_cli.server.service" and r.getMessage().startswith("No repository")
+    ]
+
+
+@pytest.mark.parametrize("source", ["changes_since", "job"])
+def test_a_budget_refusal_holds_every_repositorys_rounds_until_the_reset(
+    source: str,
+    tmp_path: Path,
+    roadmap_store: InMemoryRoadmapStore,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Repository A's round is refused, by a board read outside any job or by a job's write.
+    Until 5 s after the reset no round starts, B's included, though triggers arrive for both
+    10 minutes before the reset and 4 s after it, past the 0.72-2.07 s GitHub took to report the
+    new window (#1364). Then each runs one round holding all of them. The wait is logged once."""
+    refusal = {
+        "changes_since": _refuse_read,
+        "job": lambda: _refuse_jobs_write(roadmap_store, tmp_path),
+    }[source]
+    rounds, clock = _Rounds(refusal, {REPO_A: 1}), _Clock(RESET - timedelta(minutes=20))
+    with caplog.at_level(logging.INFO, logger="devops_cli.server.service"):
+        manager = _service(rounds, clock)
+        _trigger(manager, REPO_A)
+        refused = rounds.wait(1, manager)
+        held: list[bool] = []
+        for now in (RESET - timedelta(minutes=10), RESET + timedelta(seconds=4)):
+            clock.now = now
+            _trigger(manager, REPO_A, REPO_B)
+            held.append(rounds.held(manager))
+        clock.now = RESUME
+        resumed = rounds.wait(2, manager)
+        asyncio.run(manager.drain_and_stop())
+    assert (refused, held, resumed, rounds.triggers(), _wait_lines(caplog)) == (
+        [REPO_A],
+        [True, True],
+        [REPO_A, REPO_B],
+        {REPO_A: [1, 2], REPO_B: [2]},
+        [WAIT_LINE.format(repo=REPO_A)],
+    )
+
+
+def test_every_worker_refused_for_one_reset_logs_one_wait_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Both repositories' rounds are refused for the same reset: one line. A's next round,
+    refused for the next hour's reset, logs its own."""
+    refusals = iter([RESET, RESET, RESET + timedelta(hours=1)])
+    rounds = _Rounds(lambda: _refuse_read(next(refusals)), {REPO_A: 2, REPO_B: 1})
+    clock = _Clock(RESET - timedelta(minutes=20))
+    with caplog.at_level(logging.INFO, logger="devops_cli.server.service"):
+        manager = _service(rounds, clock)
+        _trigger(manager, REPO_A, REPO_B)
+        first = rounds.wait(2, manager)
+        clock.now = RESUME
+        _trigger(manager, REPO_A)
+        second = rounds.wait(1, manager)
+        asyncio.run(manager.drain_and_stop())
+    assert (first, second, [line.split(",")[0] for line in _wait_lines(caplog)]) == (
+        [REPO_A, REPO_B],
+        [REPO_A],
+        [
+            "No repository starts a Service round before 2026-10-08T13:00:05+00:00",
+            "No repository starts a Service round before 2026-10-08T14:00:05+00:00",
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        GitHubRateLimitError(
+            "Rate limit state for subcommand 'core' is in an unknown or broken state",
+            details={"reset_epoch": str(RESET.timestamp())},
+        ),
+        GitHubRateLimitError(
+            "GitHub reported the core reset well before the local clock",
+            details={
+                "reported_reset": "2026-10-08T13:00:00Z",
+                "local_clock": "2026-10-08T13:01:00Z",
+                "gap_seconds": "60.00",
+            },
+        ),
+        GitHubRateLimitError(
+            "GitHub's rate limit answer has no core resource",
+            details={"reported_resources": "graphql, search"},
+        ),
+        RoadmapRunError("Roadmap jobs failed: intake", failed_jobs=("intake",)),
+        RuntimeError("model down"),
+    ],
+    ids=["rate-limiter-state", "clocks-disagree", "resource-unreported", "job-failure", "other"],
+)
+def test_an_error_that_names_no_reset_holds_no_round(
+    error: Exception, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The rate limiter's own errors carry `reset_epoch`, or #1364's `reported_reset`,
+    `local_clock`, `gap_seconds` and `reported_resources`, never a refusal's reset, and a job that
+    failed for another reason carries none: B's round runs at once, and nothing is logged."""
+
+    def fail() -> None:
+        raise error
+
+    rounds, clock = _Rounds(fail, {REPO_A: 1}), _Clock(RESET - timedelta(minutes=20))
+    with caplog.at_level(logging.INFO, logger="devops_cli.server.service"):
+        manager = _service(rounds, clock)
+        _trigger(manager, REPO_A)
+        refused = rounds.wait(1, manager)
+        _trigger(manager, REPO_B)
+        ran = rounds.wait(1, manager)
+        asyncio.run(manager.drain_and_stop())
+    assert (refused, ran, _wait_lines(caplog)) == ([REPO_A], [REPO_B], [])
+
+
+def test_a_refusal_whose_reset_has_passed_holds_no_round(caplog: pytest.LogCaptureFixture) -> None:
+    """A refusal read while GitHub still reports the window that just ended names a reset more
+    than the bound behind the clock: nothing is held, and B's round runs at once."""
+    rounds = _Rounds(_refuse_read, {REPO_A: 1})
+    clock = _Clock(RESUME + timedelta(seconds=1))
+    with caplog.at_level(logging.INFO, logger="devops_cli.server.service"):
+        manager = _service(rounds, clock)
+        _trigger(manager, REPO_A)
+        refused = rounds.wait(1, manager)
+        _trigger(manager, REPO_B)
+        ran = rounds.wait(1, manager)
+        asyncio.run(manager.drain_and_stop())
+    assert (refused, ran, _wait_lines(caplog)) == ([REPO_A], [REPO_B], [])
+
+
+def test_a_drain_during_a_pause_stops_the_workers_without_running_the_held_rounds() -> None:
+    """A rollout during a pause doesn't wait out the 120 s drain timeout for rounds the pause
+    holds: the drain returns well within it, the workers stop, and the held rounds never run;
+    the next pod's start-up poll reads the changes they were for."""
+    rounds, clock = _Rounds(_refuse_read, {REPO_A: 1}), _Clock(RESET - timedelta(minutes=20))
+    manager = _service(rounds, clock)
+    _trigger(manager, REPO_A)
+    rounds.wait(1, manager)
+    _trigger(manager, REPO_A, REPO_B)
+    started = time.perf_counter()
+    asyncio.run(manager.drain_and_stop())
+    drained = time.perf_counter() - started
+    assert (
+        drained < 1.0,
+        [w.is_alive() for w in manager.workers.values()],
+        rounds.triggers(),
+    ) == (True, [False, False], {REPO_A: [1], REPO_B: []})
+
+
+def test_a_pause_reader_that_fails_holds_nothing_and_the_worker_carries_on(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The time a failed round names can't be read: a warning names the class, nothing is held,
+    and the worker that ran the round lives on to run its next one, as B's runs at once."""
+
+    def unreadable(_exc: Exception) -> datetime | None:
+        raise ValueError("no reset in this error")
+
+    rounds = _Rounds(_refuse_read, {REPO_A: 1})
+    clock = _Clock(RESET - timedelta(minutes=20))
+    with caplog.at_level(logging.INFO, logger="devops_cli.server.service"):
+        manager = _service(rounds, clock, unreadable)
+        _trigger(manager, REPO_A)
+        refused = rounds.wait(1, manager)
+        _trigger(manager, REPO_A, REPO_B)
+        ran = rounds.wait(2, manager)
+        alive = [worker.is_alive() for worker in manager.workers.values()]
+        asyncio.run(manager.drain_and_stop())
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert (refused, ran, alive, warnings, _wait_lines(caplog)) == (
+        [REPO_A],
+        [REPO_A, REPO_B],
+        [True, True],
+        [
+            f"Could not read the time the failed Service round for {REPO_A} names, so no round "
+            "waits for it: ValueError: no reset in this error"
+        ],
+        [],
     )

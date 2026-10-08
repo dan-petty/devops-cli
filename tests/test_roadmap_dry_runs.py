@@ -503,6 +503,38 @@ def test_closure_reads_the_cut_branch_of_a_release_titled_without_its_v(
     ) == (1, 1, 1, True), commands
 
 
+def test_a_close_with_no_open_release_sends_no_graphql_and_skips_its_plans_budget_read(
+    github_stores: None,
+) -> None:
+    """With no open release, close reads its configuration and the milestones over REST and
+    nothing else, so it makes no closing budget read, which its plan lists only for a run that
+    sent a GraphQL request (#1400)."""
+    from devops_cli.github.rate_limiter import gh_request_resource
+    from devops_cli.roadmap.close import Hold, plan_close
+
+    shipped = {"number": 4, "title": "v0.2.25", "state": "closed"}
+    gh = _github(board_of(3, 0), [shipped])
+    _config, store = open_roadmap(REPO, ref="main", runner=gh)
+    plan = plan_close(store, repo=REPO, checks=lambda pr: pytest.fail(f"read checks of {pr}"))
+    spend = store.graphql_spend()
+    reads, _writes = close_requests(REPO, "main")
+    assert (
+        plan.hold,
+        spend,
+        [args for args, _ in gh.calls if gh_request_resource(args) == "graphql"],
+        "RoadmapGraphQLBudget" in " ".join(reads[-1].argv),
+        reads[-1].condition,
+        follows(reads, gh.calls),
+    ) == (
+        Hold.NO_RELEASE,
+        None,
+        [],
+        True,
+        MESSAGES.roadmap.plan_conditions["done"],
+        True,
+    )
+
+
 def test_a_plan_does_not_match_a_run_it_does_not_describe() -> None:
     """The matcher is strict: a run with a request the plan lacks, or missing one it always
     makes, does not follow it."""

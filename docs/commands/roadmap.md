@@ -107,7 +107,7 @@ devops roadmap close [OPTIONS]
 | `--root` | `path` | `.` | The clone the cut runs git in (default: the current directory). |
 | `--confirm` | `boolean` | - | Close the issues and make the cut. Without it, close prints its plan only. |
 | `--dry-run` | `boolean` | - | Make no request and change no git ref: print the requests a run makes, in order, with placeholders for values a read gives. |
-| `--plan` | `boolean` | - | Read GitHub, print each issue the run closes with its comment and the cut or what holds it, write nothing, and end with the GraphQL points spent and left. Close without a mode flag does this. |
+| `--plan` | `boolean` | - | Read GitHub, print each issue the run closes with its comment and the cut or what holds it, write nothing, and end with the GraphQL points spent and left once its store has sent a GraphQL request. Close without a mode flag does this. |
 
 ---
 

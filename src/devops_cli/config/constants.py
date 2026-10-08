@@ -1035,6 +1035,11 @@ CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS: Final[float] = 1.0
 # as disagreeing. The Service measured GitHub reporting an ended window 0.72 s to 2.07 s past its
 # reset (#1364); a larger gap is a clock for a person to correct, not something to pace around.
 CONST_GH_RATE_LIMIT_CLOCK_SKEW_BOUND_SECONDS: Final[float] = 5.0
+# The details key of a roadmap GraphQL budget refusal's reset, ISO 8601, which the Service reads
+# to hold every repository's rounds until then (#1400). The rate limiter's own errors carry
+# `reset_epoch`, `reported_reset`, `local_clock`, `gap_seconds` or `reported_resources` instead,
+# so none of them reads as a refusal.
+CONST_GRAPHQL_REFUSAL_RESET_KEY: Final[str] = "reset_at"
 CONST_GH_WEBHOOK_SIGNATURE_HEADER = "X-Hub-Signature-256"
 CONST_GH_WEBHOOK_EVENT_HEADER: Final[str] = "X-GitHub-Event"
 CONST_GH_WEBHOOK_DELIVERY_HEADER: Final[str] = "X-GitHub-Delivery"

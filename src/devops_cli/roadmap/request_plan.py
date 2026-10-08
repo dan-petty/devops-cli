@@ -12,8 +12,9 @@ for each page, item or field says so in `repeat`.
 them. A store reads the board's fields, and the listing of each filter, once (#1361), so an
 operation that needs them lists their read under the condition that the run has not made it yet.
 A board write lists the read of its one card and the edit by node ids; an add lists the read of
-the card it names and that card's restore when it is archived. Every run of a job that reads the
-board ends with one GraphQL budget read, for its spend line, after any write.
+the card it names and that card's restore when it is archived. Every run of a job that sent a
+GraphQL request, as every run that reads the board does, ends with one GraphQL budget read, for
+its spend line, after any write; a run that sent none makes no budget read (#1400).
 """
 
 from __future__ import annotations
@@ -290,7 +291,8 @@ class StoreRequests:
         return self.kept_board()
 
     def budget(self) -> Requests:
-        """The run's last request: the GraphQL budget its spend line reports."""
+        """The run's last request, once it has sent a GraphQL request: the GraphQL budget its
+        spend line reports."""
         done = MESSAGES.roadmap.plan_conditions["done"]
         return [self.gh(graphql_budget_args(), "budget", condition=done)]
 

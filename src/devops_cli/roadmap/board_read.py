@@ -20,6 +20,9 @@ whatever the board's size, and a write refuses before it starts while fewer than
 left. A write leaves an archived card alone; the add that names an issue's archived card restores
 it (#1403). The documents are fixed templates, validated against GitHub's public schema in a test.
 
+Each refusal carries the budget's reset in its details (`CONST_GRAPHQL_REFUSAL_RESET_KEY`),
+which the Service reads to hold every repository's rounds until then (#1400).
+
 This module only builds `gh` arguments and reads payloads; the store runs them, so a request plan
 can list the same argv the store sends.
 """
@@ -32,6 +35,7 @@ from typing import Any
 
 from pydantic import AliasPath, BaseModel, ConfigDict, Field
 
+from devops_cli.config.constants import CONST_GRAPHQL_REFUSAL_RESET_KEY
 from devops_cli.config.defaults import (
     DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
     DEFAULT_GH_PROJECT_FIELD_LIMIT,
@@ -181,6 +185,19 @@ class GraphQLSpend(BaseModel):
             spent=self.spent, remaining=self.remaining, reset=utc_clock(self.reset_at)
         )
 
+    def round_line(self, repo: str) -> str:
+        """The one line a Service round of `repo` ends with: the points are the account's, which
+        every repository's rounds and other tools share (#1400)."""
+        texts = MESSAGES.roadmap
+        template = (
+            texts.graphql_round_spend_since_reset
+            if self.reset_during_run
+            else texts.graphql_round_spend
+        )
+        return template.format(
+            repo=repo, spent=self.spent, remaining=self.remaining, reset=utc_clock(self.reset_at)
+        )
+
 
 def spend_between(first: GraphQLBudget, last: GraphQLBudget) -> GraphQLSpend:
     """What a run spent from the first response that reported the budget to the last: the
@@ -299,54 +316,58 @@ def read_cost(total: int, page_points: int) -> int:
     return max(1, math.ceil(total / DEFAULT_GH_PROJECT_ITEM_PAGE_SIZE)) * page_points
 
 
+def _refusal(
+    template: str, budget: GraphQLBudget, operation: str, what: str, **details: int
+) -> GitHubRateLimitError:
+    """The error refusing a request on `what` while the budget is too low: the message names the
+    points left and the reset, and the details carry both, the reset under
+    `CONST_GRAPHQL_REFUSAL_RESET_KEY` (#1400)."""
+    return GitHubRateLimitError(
+        template.format(
+            remaining=budget.remaining,
+            reset=utc_clock(budget.reset_at),
+            floor=DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
+            what=what,
+            **details,
+        ),
+        subcommand="graphql",
+        operation=operation,
+        details={
+            "remaining": budget.remaining,
+            **details,
+            CONST_GRAPHQL_REFUSAL_RESET_KEY: budget.reset_at.isoformat(),
+        },
+    )
+
+
 def require_budget(budget: GraphQLBudget, cost: int, what: str) -> None:
     """Refuse a read, before it spends anything, when it would leave less than the floor."""
     if budget.remaining - cost < DEFAULT_GH_GRAPHQL_BUDGET_FLOOR:
-        raise GitHubRateLimitError(
-            MESSAGES.roadmap.graphql_budget_refused.format(
-                remaining=budget.remaining,
-                reset=utc_clock(budget.reset_at),
-                what=what,
-                cost=cost,
-                floor=DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
-            ),
-            subcommand="graphql",
-            operation="roadmap.read",
-            details={"remaining": budget.remaining, "cost": cost},
-        )
+        template = MESSAGES.roadmap.graphql_budget_refused
+        raise _refusal(template, budget, "roadmap.read", what, cost=cost)
 
 
 def require_write_floor(budget: GraphQLBudget, what: str) -> None:
     """Refuse a write, before it starts, while fewer points than the floor are left."""
     if budget.remaining < DEFAULT_GH_GRAPHQL_BUDGET_FLOOR:
-        raise GitHubRateLimitError(
-            MESSAGES.roadmap.graphql_budget_write_floor.format(
-                remaining=budget.remaining,
-                reset=utc_clock(budget.reset_at),
-                floor=DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
-                what=what,
-            ),
-            subcommand="graphql",
-            operation="roadmap.write",
-            details={"remaining": budget.remaining},
-        )
+        template = MESSAGES.roadmap.graphql_budget_write_floor
+        raise _refusal(template, budget, "roadmap.write", what)
 
 
 def require_floor(budget: GraphQLBudget, what: str, page: int) -> None:
     """Stop a read before page `page` while fewer points than the floor are left."""
     if budget.remaining < DEFAULT_GH_GRAPHQL_BUDGET_FLOOR:
-        raise GitHubRateLimitError(
-            MESSAGES.roadmap.graphql_budget_floor.format(
-                remaining=budget.remaining,
-                reset=utc_clock(budget.reset_at),
-                floor=DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
-                what=what,
-                page=page,
-            ),
-            subcommand="graphql",
-            operation="roadmap.read",
-            details={"remaining": budget.remaining, "page": page},
-        )
+        template = MESSAGES.roadmap.graphql_budget_floor
+        raise _refusal(template, budget, "roadmap.read", what, page=page)
+
+
+def refusal_reset(exc: BaseException) -> datetime | None:
+    """The reset a GraphQL budget refusal names, or None for any other error, a rate limiter
+    error included."""
+    if not isinstance(exc, GitHubRateLimitError):
+        return None
+    reset = exc.details.get(CONST_GRAPHQL_REFUSAL_RESET_KEY)
+    return None if reset is None else datetime.fromisoformat(reset)
 
 
 def utc_clock(moment: datetime) -> str:
@@ -376,6 +397,7 @@ __all__ = [
     "item_list_key",
     "listing_item",
     "read_cost",
+    "refusal_reset",
     "require_budget",
     "require_floor",
     "require_write_floor",

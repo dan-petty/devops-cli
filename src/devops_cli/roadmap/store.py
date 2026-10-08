@@ -964,9 +964,10 @@ class RoadmapStore(Protocol):
     def count_issues(self, query: IssueQuery) -> int:
         """How many issues of the repository match `query`, never pull requests."""
 
-    def graphql_spend(self) -> GraphQLSpend | None:
-        """The GraphQL points the run spent and the points left, read from GraphQL itself; None
-        for a store that spends none."""
+    def graphql_spend(self, *, read: bool = True) -> GraphQLSpend | None:
+        """The GraphQL points the run spent and the points left, read from GraphQL itself, or
+        with `read` False from the last budget a response of the run reported, sending nothing;
+        None, with no request sent, for a store that has sent no GraphQL request."""
         return None
 
 

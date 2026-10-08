@@ -30,6 +30,7 @@ from devops_cli.exceptions.git import (
 )
 from devops_cli.exceptions.roadmap import RoadmapCardChangedError
 from devops_cli.github.rate_limiter import GitHubRateLimiter, reset_github_rate_limiter
+from devops_cli.roadmap.board_read import GRAPHQL_BUDGET_OPERATION
 from devops_cli.roadmap.config import RoadmapConfig
 from devops_cli.roadmap.github_store import (
     GitHubRoadmapStore,
@@ -57,7 +58,13 @@ from devops_cli.roadmap.store import (
     PullRequestState,
     RoadmapStore,
 )
-from tests.roadmap_board_fake import BOARD_READ, BoardServer, GitHubFake, gh_variables
+from tests.roadmap_board_fake import (
+    BOARD_READ,
+    BoardServer,
+    GitHubFake,
+    budget_reply,
+    gh_variables,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "roadmap"
 REPO = "dan-petty/devops-cli"
@@ -1044,6 +1051,38 @@ def test_a_failed_write_raises() -> None:
     with pytest.raises(GitHubOperationError, match="Could not set Job record on #737"):
         store.set_field(board_item(737), ItemField.STATUS, "Ready")
     assert [args[7] for args in runner.writes] == [JOB_RECORD_ID]
+
+
+# ── The run's spend (#1400) ───────────────────────────────────────────────────
+
+
+def test_the_spend_reads_no_budget_until_the_store_sends_a_graphql_request() -> None:
+    """A store that has sent only REST requests has no spend to report, so it reads no budget;
+    once it reads the board, the spend is read from GraphQL's own budget, as the run's last
+    request. Without the read, as after a refusal, it comes from the last budget the board read
+    reported, and nothing is sent."""
+    server = BoardServer(BOARD, remaining=4000)
+    store, runner = board_store(
+        {
+            "milestones?state=all": MILESTONES,
+            GRAPHQL_BUDGET_OPERATION: budget_reply(3990),
+            BOARD_READ: server,
+        }
+    )
+    store.releases()
+    rest_only = (store.graphql_spend(read=False), store.graphql_spend(), len(runner.calls))
+    store.cards()
+    sent = len(runner.calls)
+    held = store.graphql_spend(read=False)
+    unsent = len(runner.calls) - sent
+    spend = store.graphql_spend()
+    last = gh_variables(runner.calls[-1][0])["query"]
+    assert (
+        rest_only,
+        (unsent, held is not None and held.remaining == server.remaining),
+        GRAPHQL_BUDGET_OPERATION in last,
+        spend is not None,
+    ) == ((None, None, 1), (0, True), True, True)
 
 
 # ── Paging and caching ────────────────────────────────────────────────────────

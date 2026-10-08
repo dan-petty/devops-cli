@@ -34,6 +34,10 @@ from devops_cli.roadmap.board_read import (
     board_card_args,
     board_items_args,
     graphql_budget_args,
+    refusal_reset,
+    require_budget,
+    require_floor,
+    require_write_floor,
     spend_between,
 )
 from devops_cli.roadmap.config import RoadmapConfig
@@ -250,6 +254,60 @@ def test_a_read_stops_before_a_page_once_below_the_floor() -> None:
     with pytest.raises(GitHubRateLimitError, match="stopped before page 2"):
         store.cards()
     assert (server.pages, server.remaining) == (1, DEFAULT_GH_GRAPHQL_BUDGET_FLOOR - 51)
+
+
+def test_each_refusal_carries_its_budgets_reset_in_its_details() -> None:
+    """The Service holds every round until the reset a refusal names, so each of the three puts
+    it in its details, ISO 8601, beside the points left; the store's refusal of a read carries
+    the reset GraphQL reported (#1400)."""
+    reset = datetime(2026, 10, 8, 13, tzinfo=UTC)
+    left = DEFAULT_GH_GRAPHQL_BUDGET_FLOOR - 1
+    budget = GraphQLBudget(cost=1, limit=5000, remaining=left, used=5000 - left, reset_at=reset)
+    refusals: list[GitHubRateLimitError] = []
+    for refuse in (
+        lambda: require_budget(budget, 3, "board #2 items"),
+        lambda: require_write_floor(budget, "#7"),
+        lambda: require_floor(budget, "board #2 items", 2),
+    ):
+        with pytest.raises(GitHubRateLimitError) as raised:
+            refuse()
+        refusals.append(raised.value)
+    store, _ = store_over({BOARD_READ: BoardServer(board_of(3, 0), remaining=left)})
+    with pytest.raises(GitHubRateLimitError) as read_refused:
+        store.cards()
+    common = {"subcommand": "graphql", "remaining": str(left), "reset_at": reset.isoformat()}
+    assert (
+        [refusal.details for refusal in refusals],
+        [refusal_reset(refusal) for refusal in refusals],
+        refusal_reset(read_refused.value),
+    ) == (
+        [
+            {"operation": "roadmap.read", **common, "cost": "3"},
+            {"operation": "roadmap.write", **common},
+            {"operation": "roadmap.read", **common, "page": "2"},
+        ],
+        [reset] * 3,
+        datetime(2099, 1, 1, tzinfo=UTC),
+    )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        GitHubRateLimitError("core is in a broken state", details={"reset_epoch": "4102444800"}),
+        GitHubRateLimitError(
+            "GitHub reported the core reset well before the local clock",
+            details={"reported_reset": "2026-10-08T13:00:00Z", "gap_seconds": "60.00"},
+        ),
+        GitHubOperationError("Could not read issue events (exit 1): HTTP 502"),
+        RuntimeError("model down"),
+    ],
+    ids=["rate-limiter-state", "clocks-disagree", "failed-read", "other"],
+)
+def test_an_error_that_is_not_a_budget_refusal_names_no_reset(error: Exception) -> None:
+    """The rate limiter's own errors carry `reset_epoch`, or #1364's `reported_reset` and
+    `gap_seconds`, never the refusal's key, so none of them reads as a refusal."""
+    assert refusal_reset(error) is None
 
 
 # ── A reprioritize run ────────────────────────────────────────────────────────
