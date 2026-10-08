@@ -11,6 +11,7 @@ import yaml
 
 from devops_cli.commands.k8s.networking import _collect_port_forward_services
 from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
+from tests.k8s_manifests import kustomized_objects
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
@@ -258,28 +259,9 @@ def test_otel_collector_remote_writes_to_the_path_alloy_serves() -> None:
     )
 
 
-def _kustomize_services(kustomization_dir: Path) -> set[tuple[str, str]]:
-    """(namespace, name) of every Service `kubectl apply -k` applies from this kustomization."""
-    with open(kustomization_dir / "kustomization.yaml", encoding="utf-8") as f:
-        kustomization = yaml.safe_load(f)
-    services: set[tuple[str, str]] = set()
-    for entry in kustomization.get("resources", []):
-        path = kustomization_dir / entry
-        if path.is_dir():
-            services |= _kustomize_services(path)
-            continue
-        with open(path, encoding="utf-8") as f:
-            for doc in yaml.safe_load_all(f):
-                if doc and doc.get("kind") == "Service":
-                    meta = doc["metadata"]
-                    namespace = meta.get("namespace", kustomization.get("namespace", ""))
-                    services.add((namespace, meta["name"]))
-    return services
-
-
 def test_deploy_stack_applies_the_monitoring_services_the_stack_addresses() -> None:
-    """deploy-stack applies only the root kustomization (`kubectl apply -k k8s/`). No chart creates
-    the `prometheus` Service that Alloy writes to and Grafana queries, or the Services
+    """deploy-stack applies the root kustomization (`kubectl apply -k k8s/`) for every stack. No
+    chart creates the `prometheus` Service that Alloy writes to and Grafana queries, or the Services
     `devops k8s port-forward` targets, so the root kustomization must apply them (#912)."""
     with open(K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml", encoding="utf-8") as f:
         alloy_url = yaml.safe_load(f)["destinations"]["localPrometheus"]["url"]
@@ -298,7 +280,7 @@ def test_deploy_stack_applies_the_monitoring_services_the_stack_addresses() -> N
     }
 
     helm_services = {(r["namespace"], r["name"]) for r in _HELM_RELEASES_BY_STACK.get("infra", [])}
-    assert sorted(addressed - _kustomize_services(K8S_DIR) - helm_services) == []
+    assert sorted(addressed - kustomized_objects(K8S_DIR, "Service") - helm_services) == []
 
 
 def test_dcgm_exporter_values_timeout_and_capabilities() -> None:

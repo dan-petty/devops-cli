@@ -1,3 +1,12 @@
+# The monitoring namespace's default-deny perimeter and its Grafana dashboards.
+# Applied by: Argo CD's `monitoring` Application on a cluster it manages, or
+# `kubectl apply -k k8s/monitoring` in `devops k8s deploy-stack --stack infra` (or `all`) without
+# Argo CD. The root kustomization leaves it out so `base` does not own these objects as well, and
+# lists the monitoring Service aliases (service-aliases.yaml) itself.
+#
+# A native deploy applies this right after the root creates the namespace, before any chart
+# installs: so no chart's pods run without the perimeter, but neither do the CRDs the charts bring
+# exist yet. List no object of a chart-installed CRD kind here (ServiceMonitor, PrometheusRule).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
