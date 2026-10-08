@@ -462,20 +462,66 @@ def test_a_valid_citation_needs_a_trusted_author_and_must_be_in_the_candidates_t
     ) == (("P1-High", None), ("P1-High", None), [True, True], True, True)
 
 
-def test_a_critical_fix_arriving_while_the_release_pull_request_is_open_goes_to_the_next(
-    roadmap: Roadmap,
-) -> None:
-    roadmap.person.open_pull_request(
+def cut(roadmap: Roadmap) -> int:
+    """A person opens the current release's pull request, which cuts the release."""
+    return roadmap.person.open_pull_request(
         f"feat(release): {CURRENT}",
         base="main",
         head=f"chore/cut-{CURRENT}",
         labels=("release",),
         release=CURRENT,
     )
+
+
+@pytest.mark.parametrize(
+    ("merged", "published", "placed", "reason"),
+    [
+        (False, False, CURRENT, f"{CURRENT} is cut, and a critical fix still joins it"),
+        (True, False, NEXT, f"the release pull request of {CURRENT} has merged"),
+        (True, True, NEXT, f"the release pull request of {CURRENT} has merged"),
+    ],
+    ids=["pull-request-open", "merged-unpublished", "shipped-milestone-open"],
+)
+def test_a_critical_fix_joins_the_current_release_until_its_release_pull_request_merges(
+    roadmap: Roadmap, merged: bool, published: bool, placed: str, reason: str
+) -> None:
+    """While the release pull request is open, a critical fix goes into the cut release, so its
+    own pull request merges into the release branch first (#1294). Once that pull request has
+    merged, published or not, the fix goes to the next release."""
+    release_pr = cut(roadmap)
+    if merged:
+        roadmap.person.close_pull_request(release_pr, merged=True)
+    if published:
+        roadmap.person.publish_release(CURRENT)
     roadmap.store.seed_evidence(Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="abc1234"))
     number = roadmap.issue("fix: crash", "Introduced by abc1234.")
     roadmap.run(FakeModel(proposals={"fix: crash": REGRESSION}))
-    assert roadmap.fields(number)[1::3] == ("P0-Critical", NEXT)
+    (comment,) = roadmap.comments(number)
+    assert (roadmap.fields(number)[1::3], reason in comment) == (
+        ("P0-Critical", placed),
+        True,
+    )
+
+
+def test_a_candidate_that_is_not_a_critical_fix_stays_out_of_a_cut_release(
+    roadmap: Roadmap,
+) -> None:
+    """While the release pull request is open, intake places a candidate with no milestone as
+    after the start: only a critical fix goes into the cut release (#1294), and a feature, a P0
+    feature included, goes to the backlog."""
+    cut(roadmap)
+    roadmap.store.seed_evidence(Evidence(kind=EvidenceKind.REGRESSION_COMMIT, value="abc1234"))
+    roadmap.store.seed_evidence(Evidence(kind=EvidenceKind.FAILED_RUN, value="4242"))
+    fix = roadmap.issue("fix: crash", "Introduced by abc1234.")
+    feature = roadmap.issue("feat: export csv")
+    p0_feature = roadmap.issue("feat: retry", "Run 4242 failed.")
+    p0_evidence = {"evidence": {"kind": "failed_run", "value": "4242"}}
+    roadmap.run(FakeModel(proposals={"fix: crash": REGRESSION, "feat: retry": p0_evidence}))
+    assert (
+        roadmap.fields(fix)[1::3],
+        roadmap.fields(p0_feature)[1::3],
+        roadmap.fields(feature)[4],
+    ) == (("P0-Critical", CURRENT), ("P0-Critical", None), None)
 
 
 def test_a_p0_feature_with_verified_evidence_lands_in_the_backlog_at_p0(roadmap: Roadmap) -> None:

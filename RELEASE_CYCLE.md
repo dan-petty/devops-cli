@@ -205,6 +205,16 @@ uv run devops release prepare X.Y.Z --create-pr
    - Bandit static security scanning
 2. Maintainers review the release diff, changelog, and documentation updates.
 
+### A Critical Fix While the Release PR Is Open
+Opening the release PR cuts the release, and a critical fix (P0 with `type/bug` or `type/security`) still joins it, so the release branch holds every change before the release PR merges:
+1. `devops roadmap intake` places the fix in the cut release, and `devops roadmap reprioritize` keeps it there with an "is cut, and a critical fix still joins it" comment. Intake places any other candidate with no milestone in the backlog, as after the start, and the start of a release a person cut before it pulls nothing in.
+2. The fix's pull request targets `release/vX.Y.Z`. `devops pr check-readiness` accepts it because the issue it closes is in release vX.Y.Z.
+3. The release PR's head is `release/vX.Y.Z`, so it picks up the fix's commit and its checks run again. Its description is not regenerated yet ([#1346](https://github.com/dan-petty/devops-cli/issues/1346)), so a person edits its list of deliverables and its notes.
+4. The fix adds `changelog.d/<issue>.md` like any item. Once the release's fragments were collected into its `CHANGELOG.md` section, a person collects the late one before the release PR merges: a `chore/open-vX.Y.Z-collate-<issue>` pull request into `release/vX.Y.Z` moves its entries into the version's section and deletes it, as #1293 did for #1290 in v0.2.28. A fragment left behind is collected into the next release's section. [#1103](https://github.com/dan-petty/devops-cli/issues/1103) moves the collection to the release merge, which ends this step.
+5. Merge the release PR only once its milestone holds no open item. [#1425](https://github.com/dan-petty/devops-cli/issues/1425) adds the check that enforces this, and makes `devops pr check-readiness` refuse a pull request into a release branch whose release PR has merged. If the release PR merged while an admitted fix was still open, move the fix to the next release: set its issue's milestone to vNEXT, and retarget its pull request with `uv run devops pr edit <pr> --base release/vNEXT`. Otherwise the fix stays in the shipped release, whose milestone `release.yml` closes, because no job moves an item out of a shipped release.
+
+Once the release PR has merged, a critical fix filed then goes first into the next release, with a "the release pull request of vX.Y.Z has merged" comment, even before the release is published.
+
 ### Step 4: Merge PR into `main` (Maintainer Gate)
 Once all automated CI checks pass and reviews are complete, repository maintainers squash-merge the approved Release Pull Request into `main` via the GitHub Web UI or CLI (`gh pr merge --squash`). Automated AI agents do not perform merges autonomously.
 

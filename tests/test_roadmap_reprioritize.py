@@ -466,33 +466,90 @@ def test_an_item_moved_back_to_ready_once_a_fix_filled_the_release_makes_room(
 # ── The cut ───────────────────────────────────────────────────────────────────
 
 
-def test_a_draft_release_pull_request_sends_a_fix_on_until_it_is_closed_unmerged(
+CUT_ADMISSION = (
+    "Admitted to v0.2.25: v0.2.25 is cut, and a critical fix still joins it while its release "
+    "pull request is open, so the fix merges into the release branch before the release pull "
+    "request does."
+)
+MERGED_LOCK = (
+    "Moved to v0.2.26: the release pull request of v0.2.25 has merged, so a critical fix can no "
+    "longer ship in it and goes first into the next release."
+)
+
+
+@pytest.mark.parametrize(
+    ("state", "event", "transition"),
+    [
+        (ReleaseState.CUT, Event.FIX_JOINED, Transition(Action.ADMIT, Reason.CUT)),
+        (ReleaseState.CUT, Event.PR_JOINED, Transition(Action.ADMIT, Reason.PULL_REQUEST)),
+        (ReleaseState.CUT, Event.OVER_CAP, Transition(Action.TO_NEXT, Reason.CAP)),
+        (ReleaseState.MERGED, Event.FIX_JOINED, Transition(Action.TO_NEXT, Reason.MERGED)),
+        (ReleaseState.MERGED, Event.PR_JOINED, Transition(Action.ADMIT, Reason.PULL_REQUEST)),
+        (ReleaseState.MERGED, Event.OVER_CAP, Transition(Action.TO_NEXT, Reason.CAP)),
+    ],
+    ids=[
+        "cut-fix",
+        "cut-pull-request",
+        "cut-over-cap",
+        "merged-fix",
+        "merged-pull-request",
+        "merged-over-cap",
+    ],
+)
+def test_a_critical_fix_joins_a_cut_release_until_its_release_pull_request_merges(
+    state: ReleaseState, event: Event, transition: Transition
+) -> None:
+    """While the release pull request is open, a critical fix joins, so its own pull request
+    merges into the release branch first (#1294); once that pull request has merged, the fix
+    goes on to the next release. An item with a pull request in flight joins either, and the
+    cap binds both, as it binds a started release."""
+    assert decide(state, event) == transition
+
+
+def test_a_fix_filed_while_a_draft_release_pull_request_is_open_joins_and_stays_when_uncut(
     started: Roadmap,
 ) -> None:
     release_pr = started.release_pull_request(draft=True)
     fix = started.fix()
+    plan = started.plan()
     started.run()
-    while_cut = (started.release_of(fix), started.comments(fix))
+    while_cut = (plan.state, started.release_of(fix), started.admitted(fix), started.comments(fix))
     started.person.close_pull_request(release_pr)
-    started.place(fix, CURRENT)
-    started.run()
-    assert (while_cut, started.release_of(fix), started.admitted(fix)) == (
-        (
-            [NEXT],
-            [
-                "Moved to v0.2.26: v0.2.25 is cut, so nothing joins it until its release pull "
-                "request is closed; a critical fix goes first into the next release."
-            ],
-        ),
+    writes = started.run()
+    assert (while_cut, writes, started.release_of(fix), started.admitted(fix)) == (
+        (ReleaseState.CUT, [CURRENT], CURRENT, [CUT_ADMISSION]),
+        [],
         [CURRENT],
         CURRENT,
     )
 
 
-def test_a_merged_release_pull_request_keeps_the_release_cut_until_it_is_published(
+def test_a_fix_that_takes_a_cut_release_over_its_cap_descopes_its_lowest_ranked_unstarted_item(
+    roadmap: Roadmap,
+) -> None:
+    """The cap binds a cut release as a started one: an admitted fix that takes it over the cap
+    sends its lowest-ranked unstarted item on, which would otherwise ship unfinished."""
+    held = [roadmap.file(f"held {n}", priority="P1-High") for n in range(11)]
+    lowest = roadmap.file("lowest", priority="P3-Low")
+    started_with(roadmap, *held, lowest)
+    roadmap.release_pull_request()
+    fix = roadmap.fix()
+    roadmap.run()
+    assert (roadmap.release_of(fix, lowest), roadmap.comments(lowest), roadmap.size()) == (
+        [CURRENT, NEXT],
+        [
+            f"Moved to v0.2.26: critical fix #{fix} took v0.2.25 over its size of 12 items, and "
+            "this was its lowest-ranked unstarted item."
+        ],
+        12,
+    )
+
+
+def test_a_merged_release_pull_request_locks_the_release_until_it_is_published(
     started: Roadmap,
 ) -> None:
-    """Its code is in `main` already; if `release.yml` fails to publish, the release stays cut."""
+    """Its code is in `main` already, so a critical fix filed while `release.yml` has not
+    published it, or failed to, goes on to the next release."""
     started.person.close_pull_request(started.release_pull_request(), merged=True)
     fix = started.fix()
     plan = started.plan()
@@ -503,15 +560,7 @@ def test_a_merged_release_pull_request_keeps_the_release_cut_until_it_is_publish
         started.release_of(fix),
         started.comments(fix),
         started.plan().state,
-    ) == (
-        ReleaseState.CUT,
-        [NEXT],
-        [
-            "Moved to v0.2.26: v0.2.25 is cut, so nothing joins it until its release pull "
-            "request is closed; a critical fix goes first into the next release."
-        ],
-        ReleaseState.SHIPPED,
-    )
+    ) == (ReleaseState.MERGED, [NEXT], [MERGED_LOCK], ReleaseState.SHIPPED)
 
 
 # ── The first run ─────────────────────────────────────────────────────────────
@@ -1108,9 +1157,10 @@ def test_a_release_cut_before_its_start_is_topped_up_with_nothing(
 ) -> None:
     """The twelfth round's reviewers' replay: v0.2.25 ships, and before any run starts v0.2.26
     a person opens its release pull request, which may merge before its release is published.
-    v0.2.26's start keeps and admits its own item and pulls nothing in: nothing joins a cut
-    release. It used to top it up from the backlog, and once v0.2.26 shipped, the feature sat
-    Ready in its closed milestone, where no later start looks. v0.2.27's start pulls it in."""
+    v0.2.26's start keeps and admits its own item and pulls nothing in, its release pull
+    request open or merged. It used to top it up from the backlog, and once v0.2.26 shipped, the
+    feature sat Ready in its closed milestone, where no later start looks. v0.2.27's start pulls
+    it in."""
     kept = started.file("next", release=NEXT)
     feature = started.file("backlog feature", release=None)
     started.ship(close_milestone=True)
@@ -1992,23 +2042,28 @@ def test_a_stall_about_a_release_that_shipped_since_gives_way_to_the_status_a_pe
     ) == (NEXT, (CURRENT, "In Progress"), [], None)
 
 
-def test_a_fix_whose_release_was_cut_before_the_rerun_goes_to_the_next_release(
-    started: Roadmap,
+@pytest.mark.parametrize("merged", [False, True], ids=["cut", "merged"])
+def test_a_fix_whose_release_was_cut_before_the_rerun_is_admitted_until_its_pull_request_merges(
+    started: Roadmap, merged: bool
 ) -> None:
     """The reviewers' replay (d): the run that admits a New critical fix stops at its comment,
-    and a person then opens a draft release pull request. The rerun sends the fix on, as a run
-    after the cut would have."""
+    and a person then opens a draft release pull request. The cut still admits the fix, so the
+    rerun finishes the admission; once that pull request has merged, the rerun sends the fix
+    on, as a run after the merge would have."""
     fix = started.fix(status="New")
     started.stopped("comment")
-    started.release_pull_request(draft=True)
+    release_pr = started.release_pull_request(draft=True)
+    if merged:
+        started.person.close_pull_request(release_pr, merged=True)
     started.run()
     assert (started.release_of(fix), started.admitted(fix), started.comments(fix)) == (
-        [NEXT],
-        None,
-        [
-            "Moved to v0.2.26: v0.2.25 is cut, so nothing joins it until its release pull "
-            "request is closed; a critical fix goes first into the next release."
-        ],
+        ([NEXT], None, [MERGED_LOCK])
+        if merged
+        else (
+            [CURRENT],
+            CURRENT,
+            ["Admitted to v0.2.25: a critical fix can join v0.2.25 after it starts."],
+        )
     )
 
 

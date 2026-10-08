@@ -32,10 +32,11 @@ The comment shows each of the model's reasons as inline code, so no `#N` or `@na
 or notifies.
 
 **Placement.** A critical fix (P0 with `type/bug` or `type/security`) goes where #740's table
-admits a fix joining the current release (`decide`): into the current release, or into the
-next planned one once the current one is cut. Everything else, a P0 feature included, goes to
-the backlog. A planned release a person set stands; the current release goes through the same
-table. An unfinished item keeps any milestone it has.
+admits a fix joining the current release (`decide`): into the current release, its release
+pull request open or not, or into the next planned one once that pull request has merged.
+Everything else, a P0 feature included, goes to the backlog. A planned release a person set
+stands; the current release goes through the same table. An unfinished item keeps any milestone
+it has.
 
 **Writes**, in order, with Priority last, which marks the item finished: file the issue (a new
 candidate only), add a `type/*` label when it has none, put it on the board, set the milestone
@@ -498,10 +499,11 @@ class _Run:
 
     @cached_property
     def state(self) -> ReleaseState:
-        """The current release's state, a shipped one read as cut: nothing joins either."""
+        """The current release's state, a shipped one read as merged: a critical fix joins
+        neither."""
         assert self.current is not None
         found = release_state(self.store, self.current, self.store.default_branch().name)
-        return ReleaseState.CUT if found is ReleaseState.SHIPPED else found
+        return ReleaseState.MERGED if found is ReleaseState.SHIPPED else found
 
     @cached_property
     def next_release(self) -> Release | None:

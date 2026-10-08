@@ -1159,8 +1159,13 @@ class RoadmapMessages:
                 "first when {next} starts."
             ),
             "cut": (
-                "{release} is cut, so nothing joins it until its release pull request is "
-                "closed; a critical fix goes first into the next release."
+                "{release} is cut, and a critical fix still joins it while its release pull "
+                "request is open, so the fix merges into the release branch before the release "
+                "pull request does."
+            ),
+            "merged": (
+                "the release pull request of {release} has merged, so a critical fix can no "
+                "longer ship in it and goes first into the next release."
             ),
             "cap": (
                 "critical fix {detail} took {release} over its size of {cap} items, and this "
