@@ -30,9 +30,9 @@ class StubWeb:
             html,
         )
 
-    def redirect(self, url: str, location: str) -> None:
-        """Answer `url` with a 302 to `location`."""
-        self.routes[url] = (302, {"location": location}, "")
+    def redirect(self, url: str, location: str, status: int = 302) -> None:
+        """Answer `url` with a redirect to `location`; a 307 or 308 keeps the method and body."""
+        self.routes[url] = (status, {"location": location}, "")
 
     def handle(self, request: httpx2.Request) -> httpx2.Response:
         """Record `request` and answer it from the routes, or with a 404."""

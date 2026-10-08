@@ -210,7 +210,13 @@ class SettingsProvider:
 
 
 class VaultProvider:
-    """Resolves secrets from HashiCorp Vault's KV-v2 engine."""
+    """Resolves secrets from HashiCorp Vault's KV-v2 engine, and from Vault alone.
+
+    The keyring has already been asked by `KeyringProvider`, so this provider never falls back to
+    it. Without a usable token it makes no request, and any Vault failure answers None so one
+    source cannot break resolution. The broker, and the token it resolved, is built once per
+    resolver.
+    """
 
     def __init__(self, broker: Any | None = None) -> None:
         self._broker = broker
@@ -234,16 +240,18 @@ class VaultProvider:
         return self._broker
 
     def get(self, ref: SecretRef) -> str | None:
-        """Fetch the secret from Vault when the reference declares a path."""
+        """Fetch the secret from Vault when the reference declares a path and a token is usable."""
         if not ref.vault_path:
             return None
         broker = self._resolve_broker()
-        if broker is None:
+        if broker is None or not broker.vault_token:
             return None
 
+        from devops_cli.exceptions.base import DevOpsCLIError
+
         try:
-            value = broker.get_secret(ref.vault_path, key=ref.vault_key)
-        except Exception as exc:
+            value = broker.read_secret(ref.vault_path, key=ref.vault_key)
+        except DevOpsCLIError as exc:
             logger.debug("Vault lookup failed for %s: %s", ref.name, exc)
             return None
 

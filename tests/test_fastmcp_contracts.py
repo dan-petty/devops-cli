@@ -1589,3 +1589,22 @@ def test_a_delegated_command_receives_the_end_of_options_marker(monkeypatch) -> 
         main_module.app, ["sandbox", "exec", "abc", "--", "--workdir", "/", "id"]
     )
     assert (result.exit_code, delegated) == (0, ["exec", "abc", "--", "--workdir", "/", "id"])
+
+
+def test_the_token_carrying_vault_tools_take_no_address() -> None:
+    """`vault_get`, `vault_set` and `vault_sync` act with the user's Vault token, so a client
+    must never choose where it is sent; only `vault_status`, which sends no token, takes one."""
+    import inspect
+
+    from devops_cli.ai.mcp import server
+
+    parameters = {
+        name: set(inspect.signature(getattr(server, name)).parameters)
+        for name in ("vault_get", "vault_set", "vault_sync", "vault_status")
+    }
+    assert parameters == {
+        "vault_get": {"path", "key"},
+        "vault_set": {"path", "key_values"},
+        "vault_sync": {"path", "keys"},
+        "vault_status": {"vault_addr"},
+    }

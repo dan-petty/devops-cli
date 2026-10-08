@@ -1896,10 +1896,29 @@ CONST_VAULT_PATH_KUBERNETES_LOGIN: Final[str] = "auth/kubernetes/login"
 CONST_VAULT_AUTH_METHODS: Final[frozenset[str]] = frozenset({"approle", "kubernetes"})
 CONST_VAULT_PATH_TOKEN_LOOKUP_SELF: Final[str] = "auth/token/lookup-self"
 CONST_VAULT_PATH_TOKEN_RENEW_SELF: Final[str] = "auth/token/renew-self"
+CONST_VAULT_PATH_TOKEN_REVOKE_SELF: Final[str] = "auth/token/revoke-self"
+CONST_VAULT_PATH_HEALTH: Final[str] = "sys/health"
 CONST_VAULT_PATH_LEASE_RENEW: Final[str] = "sys/leases/renew"
 CONST_VAULT_PATH_LEASE_REVOKE: Final[str] = "sys/leases/revoke"
 CONST_VAULT_PATH_TRANSIT_ENCRYPT: Final[str] = "transit/encrypt"
 CONST_VAULT_PATH_TRANSIT_DECRYPT: Final[str] = "transit/decrypt"
+
+# The keyring entry `devops vault login` writes: one record holding the token and the address
+# and namespace that issued it. It keeps the name a bare token was stored under before the
+# record existed, so such an entry is found and reported as unusable rather than ignored.
+CONST_VAULT_LOGIN_KEYRING_KEY: Final[str] = "vault_token"
+# Environment variables a Vault token is read from, in order, after the stored login.
+CONST_VAULT_TOKEN_ENV_VARS: Final[tuple[str, ...]] = ("VAULT_TOKEN", "DEVOPS_CLI_VAULT_TOKEN")
+# Credential ids the broker's two token lookups are audited under.
+CONST_VAULT_LOGIN_CREDENTIAL_ID: Final[str] = "vault.login"
+CONST_VAULT_TOKEN_CREDENTIAL_ID: Final[str] = "vault.token"
+# Where the broker's token came from, beside the keyring and environment provider names. The
+# set is closed: a token is passed in, read from one of the two providers, or absent.
+CONST_VAULT_TOKEN_SOURCE_ARGUMENT: Final[str] = "argument"
+CONST_VAULT_TOKEN_SOURCE_NONE: Final[str] = "none"
+# Statuses with which Vault refuses the token a request carried: missing, expired, revoked, or
+# without a policy for the path. Fixed by the Vault HTTP API.
+CONST_VAULT_TOKEN_REJECTED_STATUSES: Final[frozenset[int]] = frozenset({401, 403})
 
 # Default in-cluster ServiceAccount token projected into every Kubernetes pod.
 CONST_KUBERNETES_SA_TOKEN_PATH: Final[str] = "/var/run/secrets/kubernetes.io/serviceaccount/token"

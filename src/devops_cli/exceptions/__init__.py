@@ -83,6 +83,7 @@ from devops_cli.exceptions.vault import (
     VaultKeyError,
     VaultLeaseError,
     VaultOperationError,
+    VaultUnreachableError,
 )
 
 __all__ = [
@@ -147,4 +148,5 @@ __all__ = [
     "VaultKeyError",
     "VaultLeaseError",
     "VaultOperationError",
+    "VaultUnreachableError",
 ]
