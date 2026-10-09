@@ -104,9 +104,10 @@ def test_entry_toggle_ast_invariants() -> None:
                 if isinstance(node, ast.ImportFrom)
                 else [alias.name for alias in node.names]
             )
-            if any(name.startswith("devops_cli") for name in names):
-                if first_devops_import_lineno is None:
-                    first_devops_import_lineno = node.lineno
+            if first_devops_import_lineno is None and any(
+                name.startswith("devops_cli") for name in names
+            ):
+                first_devops_import_lineno = node.lineno
 
     assert (
         toggle_lineno is not None,

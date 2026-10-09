@@ -44,14 +44,17 @@ repos:
 
   - repo: local
     hooks:
-      # Pure-stdlib AST walk over the staged files: no devops_cli import, because loading
-      # the package costs about five seconds before a single file is read, and a
-      # commit-time gate has to cost less than the commit. Blocks on nesting depth, which
-      # the tree currently satisfies. Complexity is not checked here: it is Ruff's C901,
+      # Stdlib AST walk over the staged files, the same metric the whole-tree test and
+      # `devops scan complexity` read (devops_cli.core.code_metrics). It loads no scanner and
+      # no pydantic_ai, because a commit-time gate has to cost less than the commit; the
+      # package inits still load devops_cli.config and typer. The cap arrives as an argument
+      # and a test pins it to DEFAULT_MAX_NESTING_DEPTH. Blocks on nesting depth, the
+      # function body being depth 1. Complexity is not checked here: it is Ruff's C901,
       # run by the ruff-check hook above.
       - id: structural-invariants
         name: AST structural invariants (nesting depth)
-        entry: uv run python3 -m devops_cli.security.structural_invariants
+        entry: uv run python3 -m devops_cli.core.code_metrics
+        args: [--max-depth, "5"]
         language: system
         stages: [pre-commit]
         types: [python]

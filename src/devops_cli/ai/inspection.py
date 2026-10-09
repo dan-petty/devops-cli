@@ -25,9 +25,9 @@ from devops_cli.config.constants import (
     CONST_HOTSPOT_COMPLEXITY_THRESHOLD,
     CONST_MAX_INSPECT_FILE_SIZE_BYTES,
 )
+from devops_cli.core.code_metrics import measure_tree
 from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
 from devops_cli.exceptions import DevOpsCLIError, ValidationError
-from devops_cli.security.complexity import _ComplexityVisitor
 
 logger = logging.getLogger(__name__)
 
@@ -288,9 +288,8 @@ def _extract_control_flow_sketch(node: ast.FunctionDef | ast.AsyncFunctionDef) -
 
 def _build_python_topology(tree: ast.AST, content: str) -> TopologyOutline:
     """Construct Level 0 Topology outline from Python AST."""
-    visitor = _ComplexityVisitor()
-    visitor.visit(tree)
-    complexity_map = {f.name: f.cyclomatic_complexity for f in visitor.functions}
+    measured = measure_tree(tree)
+    complexity_map = {f.name: f.cyclomatic_complexity for f in measured}
 
     classes: list[ClassTopology] = []
     functions: list[FunctionTopology] = []
@@ -340,7 +339,7 @@ def _build_python_topology(tree: ast.AST, content: str) -> TopologyOutline:
             end_line_number=f.end_line_number,
             is_method=f.is_method,
         )
-        for f in sorted(visitor.functions, key=lambda x: x.cyclomatic_complexity, reverse=True)
+        for f in sorted(measured, key=lambda x: x.cyclomatic_complexity, reverse=True)
         if f.cyclomatic_complexity >= CONST_HOTSPOT_COMPLEXITY_THRESHOLD
     ]
 

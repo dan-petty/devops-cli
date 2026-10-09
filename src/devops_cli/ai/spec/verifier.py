@@ -9,6 +9,8 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_SPECS_DIR_PATH
+from devops_cli.config.defaults import DEFAULT_MAX_NESTING_DEPTH
+from devops_cli.core.code_metrics import measure_tree
 from devops_cli.core.repo import find_repo_root, list_repo_files
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.telemetry.tracer import trace_span
@@ -35,26 +37,6 @@ class ArchitectureSpecReport(BaseModel):
     passed_rules: int = 0
     failed_rules: int = 0
     rule_results: list[SpecContractRule] = Field(default_factory=list)
-
-
-def _get_ast_depth(n: ast.AST, current: int) -> int:
-    """Calculate maximum nesting depth of compound statement nodes."""
-    max_d = current
-    for child in ast.iter_child_nodes(n):
-        if isinstance(child, (ast.If, ast.For, ast.While, ast.With, ast.Try)):
-            max_d = max(max_d, _get_ast_depth(child, current + 1))
-    return max_d
-
-
-def _check_ast_indentation(tree: ast.AST, max_indent: int = 5) -> list[tuple[str, int]]:
-    """Check functions exceeding indentation threshold in AST."""
-    violations: list[tuple[str, int]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            depth = _get_ast_depth(node, 1)
-            if depth > max_indent:
-                violations.append((node.name, depth))
-    return violations
 
 
 def _check_forbidden_imports(tree: ast.AST, forbidden: set[str]) -> list[str]:
@@ -84,16 +66,21 @@ def _verify_source_file(
     rules: list[SpecContractRule] = []
 
     # Rule 1: Max Indentation
-    indent_violations = _check_ast_indentation(tree, max_indent=5)
+    indent_violations = [
+        fn for fn in measure_tree(tree) if fn.max_nesting_depth > DEFAULT_MAX_NESTING_DEPTH
+    ]
     if indent_violations:
-        for func_name, depth in indent_violations:
+        for fn in indent_violations:
             rules.append(
                 SpecContractRule(
-                    name=f"Indentation Limit ({func_name})",
+                    name=f"Indentation Limit ({fn.name})",
                     rule_type="max_indentation",
-                    target_path=f"{rel_path}:{func_name}",
+                    target_path=f"{rel_path}:{fn.name}",
                     passed=False,
-                    details=f"Function depth {depth} exceeds limit 5.",
+                    details=(
+                        f"Function depth {fn.max_nesting_depth} exceeds limit "
+                        f"{DEFAULT_MAX_NESTING_DEPTH}."
+                    ),
                 )
             )
     else:
