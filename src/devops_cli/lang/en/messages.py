@@ -69,6 +69,14 @@ class ReviewMessages:
     )
     no_review_dir_found: str = "No review directory found."
     no_saved_sessions: str = "No saved review sessions found."
+    score_no_sessions: str = (
+        "Name the SESSION directories to score, or write the golden set with --materialise-golden."
+    )
+    score_golden_takes_no_sessions: str = "--materialise-golden takes no SESSION directories."
+    score_golden_written: str = (
+        "Golden set written → [bold]{path}[/bold]: {files} files in commit {commit}. Review it "
+        "with: devops review path {path}"
+    )
     updated_finding_status: str = "Updated finding #{index} status → {status}"
     updated_candidate_status: str = "Updated candidate #{index} status → {status}"
     candidate_moved: str = "Candidate #{index} added to findings.json as finding #{number}"

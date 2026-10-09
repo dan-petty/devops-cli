@@ -880,6 +880,23 @@ CONST_REVIEW_CANDIDATES_FILENAME = "candidates.json"
 # Held while `devops review verify` reads and writes a session's files, so verdicts given on one
 # session at once, as an MCP client's parallel calls give them, wait their turn (#949).
 CONST_REVIEW_VERDICT_LOCK_FILENAME = ".verify.lock"
+# The admitted tool findings of a review session, with their fingerprint_v2 (#871).
+CONST_REVIEW_SARIF_FILENAME = "findings.sarif"
+# A review session's per-page records: the file each page read and the findings it raised there.
+CONST_REVIEW_PAGES_DIRNAME = "files"
+# `devops review score` (#1138): the labels a person gives a distinct finding, the two that count
+# as valid, the producer of a model's finding, and the severities its HIGH/CRITICAL figure reads.
+CONST_REVIEW_LABEL_VALID_STRICT = "valid-strict"
+CONST_REVIEW_LABEL_VALID_LENIENT = "valid-lenient"
+CONST_REVIEW_LABEL_FALSE = "false"
+CONST_REVIEW_LABELS_VALID: Final[frozenset[str]] = frozenset(
+    {CONST_REVIEW_LABEL_VALID_STRICT, CONST_REVIEW_LABEL_VALID_LENIENT}
+)
+CONST_REVIEW_PRODUCER_PERSONA = "persona"
+CONST_REVIEW_SCORE_HIGH_SEVERITIES: Final[frozenset[str]] = frozenset({"CRITICAL", "HIGH"})
+# A model's finding matches a label of its path and origin page when their lines lie this close,
+# the window the loop study clustered persona findings with.
+CONST_REVIEW_SCORE_PERSONA_LINE_WINDOW = 5
 CONST_REVIEW_GENERATED_FILES = frozenset(
     {
         "uv.lock",

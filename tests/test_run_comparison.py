@@ -307,6 +307,118 @@ def test_check_regression_verdicts() -> None:
     )
 
 
+def _score_run(**results: Any) -> RunRecord:
+    return _sample_run(Mechanism.REVIEW_SCORE, results=results)
+
+
+def test_score_runs_check_precision_stability_and_calls_at_their_tolerances() -> None:
+    """A review score's precision and stability may fall, and its model calls rise, only so far."""
+    base = _score_run(
+        precision_lenient=0.20,
+        precision_strict=0.10,
+        stability_jaccard=0.40,
+        stability_kappa=0.50,
+        median_llm_calls=100,
+    )
+    current = _score_run(
+        precision_lenient=0.191,
+        precision_strict=0.10,
+        stability_jaccard=0.37,
+        stability_kappa=0.50,
+        median_llm_calls=115,
+    )
+    comparison = compare_runs(base, current)
+    tolerant = RegressionTolerances(
+        max_precision_drop=0.05, max_stability_drop=0.10, max_calls_increase=0.15
+    )
+    strict = RegressionTolerances(
+        max_precision_drop=0.04, max_stability_drop=0.07, max_calls_increase=0.14
+    )
+
+    def failed(tolerances: RegressionTolerances) -> list[str]:
+        report = check_regression(comparison, tolerances)
+        return sorted(v.metric for v in report.verdicts if not v.passed)
+
+    assert (failed(tolerant), failed(strict)) == (
+        [],
+        ["llm_calls", "precision_lenient", "stability_jaccard"],
+    )
+
+
+def test_a_score_figure_the_current_run_could_not_compute_fails_the_check() -> None:
+    """New false findings leave rows unlabelled, so precision is not computable: that fails."""
+    base = _score_run(precision_lenient=0.20, precision_strict=0.10, median_llm_calls=100)
+    current = _score_run(
+        median_llm_calls=100,
+        not_computable={
+            "precision_lenient": "1 of 2 sessions not computable",
+            "precision_strict": "1 of 2 sessions not computable",
+        },
+    )
+
+    report = check_regression(compare_runs(base, current))
+
+    assert (
+        report.passed,
+        [(v.metric, v.passed, v.current_value, v.reason) for v in report.verdicts],
+    ) == (
+        False,
+        [
+            (
+                "precision_lenient",
+                False,
+                None,
+                "Precision lenient not computable (1 of 2 sessions not computable)",
+            ),
+            (
+                "precision_strict",
+                False,
+                None,
+                "Precision strict not computable (1 of 2 sessions not computable)",
+            ),
+            ("llm_calls", True, 100.0, "llm_calls within tolerance (0.0% <= 20.0%)"),
+        ],
+    )
+
+
+def test_only_a_figure_neither_run_recorded_goes_without_a_verdict() -> None:
+    """κ the baseline had fails; κ neither had and calls one run never made get no verdict."""
+    base = _score_run(precision_lenient=0.20, stability_kappa=0.50)
+    current = _score_run(precision_lenient=0.20, stability_jaccard=0.30, median_llm_calls=10)
+
+    report = check_regression(compare_runs(base, current))
+
+    assert (report.passed, [(v.metric, v.passed) for v in report.verdicts]) == (
+        False,
+        [("precision_lenient", True), ("stability_jaccard", True), ("stability_kappa", False)],
+    )
+
+
+def test_cli_runs_check_takes_the_score_tolerances(run_env: Path) -> None:
+    base = _score_run(precision_lenient=0.20, median_llm_calls=100)
+    current = _score_run(precision_lenient=0.19, median_llm_calls=110)
+    unlabelled = _score_run(
+        median_llm_calls=100, not_computable={"precision_lenient": "1 of 1 sessions not computable"}
+    )
+    for run in (base, current, unlabelled):
+        save_run(run)
+
+    def check(*flags: str, run: RunRecord = current) -> int:
+        args = ["ai", "runs", "check", run.run_id, "--baseline", base.run_id, *flags]
+        return cli.invoke(app, args).exit_code
+
+    args = ["ai", "runs", "check", unlabelled.run_id, "--baseline", base.run_id]
+    blind = cli.invoke(app, [*args, "--max-precision-drop", "1.0"])
+
+    assert (
+        check(),
+        check("--max-precision-drop", "0.06"),
+        check("--max-precision-drop", "0.06", "--max-calls-increase", "0.05"),
+        check("--max-stability-drop", "0.5", "--max-precision-drop", "0.06"),
+        (blind.exit_code, "not computable" in blind.stdout),
+    ) == (1, 0, 1, 0, (1, True))
+
+
 def test_cli_runs_list_and_show(run_env: Path) -> None:
     """Verify devops ai runs list and show outputs."""
     rec = _sample_run()

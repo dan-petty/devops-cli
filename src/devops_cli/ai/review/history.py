@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from devops_cli.ai.review.profile import ReviewProfile
 from devops_cli.ai.review_schema import (
+    CitedCode,
     assign_category,
     normalize_finding_status,
     parse_finding_references,
@@ -77,6 +78,10 @@ class HistoryFinding(BaseModel):
     """
 
     title: str = ""
+    location: str = ""
+    severity: str = ""
+    # The file and line the location cites, repository-relative, as the review read them (#950).
+    cited_code: CitedCode | None = None
     category: str | None = None
     category_raw: str | None = None
     references: list[str] = Field(default_factory=list)
@@ -101,8 +106,8 @@ class HistoryFinding(BaseModel):
         return self
 
 
-class _HistoryPayload(BaseModel):
-    """The fields of findings.json and candidates.json that history reads."""
+class HistoryPayload(BaseModel):
+    """The fields of findings.json and candidates.json that history and the review scorer read."""
 
     generated_at: str = ""
     subject: dict[str, str] = Field(default_factory=dict)
@@ -201,7 +206,7 @@ def _count_once_per_subject(
 
 def _read_session(session_dir: Path) -> ReviewSessionRecord:
     """Read a session; an unreadable findings.json leaves it with no findings and no subject."""
-    reported = _read_payload(session_dir / CONST_REVIEW_FINDINGS_FILENAME) or _HistoryPayload()
+    reported = _read_payload(session_dir / CONST_REVIEW_FINDINGS_FILENAME) or HistoryPayload()
     candidates = _read_payload(session_dir / CONST_REVIEW_CANDIDATES_FILENAME)
     profile = ReviewProfile.load(session_dir)
     return ReviewSessionRecord(
@@ -214,12 +219,12 @@ def _read_session(session_dir: Path) -> ReviewSessionRecord:
     )
 
 
-def _read_payload(path: Path) -> _HistoryPayload | None:
+def _read_payload(path: Path) -> HistoryPayload | None:
     """The history fields of a session file; None when it is missing or cannot be read."""
     if not path.is_file():
         return None
     try:
-        return _HistoryPayload.model_validate_json(path.read_bytes())
+        return HistoryPayload.model_validate_json(path.read_bytes())
     except (OSError, ValueError) as exc:
         logger.debug("Skipping unreadable review session file %s: %s", path, exc)
         return None

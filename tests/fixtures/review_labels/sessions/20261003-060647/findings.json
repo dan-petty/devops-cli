@@ -1,0 +1,366 @@
+{
+  "subject": {
+    "type": "branch",
+    "ref": "release/v0.2.25",
+    "input": "197b2f088fcf1557"
+  },
+  "findings": [
+    {
+      "location": "app/shell.py:4",
+      "status": "VERIFIED",
+      "severity": "HIGH",
+      "reportable": true,
+      "verified_by": "llm"
+    },
+    {
+      "location": "k8s/otel/networkpolicy.yaml:30-32",
+      "status": "VERIFIED",
+      "severity": "HIGH",
+      "reportable": true,
+      "verified_by": "llm"
+    },
+    {
+      "location": "/workspaces/devops-cli/src/devops_cli/ai/__init__.py:12",
+      "status": "VERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": "llm"
+    },
+    {
+      "location": "/workspaces/devops-cli/src/devops_cli/ai/rag/indexer.py:12",
+      "status": "VERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": "llm"
+    },
+    {
+      "location": "/workspaces/devops-cli/src/devops_cli/commands/workspace.py:43",
+      "status": "VERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": "llm"
+    },
+    {
+      "location": "/workspaces/devops-cli/src/devops_cli/main.py:84",
+      "status": "VERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": "llm"
+    },
+    {
+      "location": "tests/test_host_sandbox.py:310",
+      "status": "VERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": "llm"
+    },
+    {
+      "location": "src/devops_cli/commands/gh.py:333",
+      "status": "UNVERIFIED",
+      "severity": "HIGH",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "/workspaces/devops-cli/k8s/llm/profiles/ollama-profiles.yaml:53",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "/workspaces/devops-cli/src/devops_cli/commands/release.py:60",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/cloudflared/deployment.yaml:Deployment/cloudflared",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/ollama-profiles.yaml:DaemonSet/ollama-128gib",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/ollama-profiles.yaml:DaemonSet/ollama-16gib",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/ollama-profiles.yaml:DaemonSet/ollama-24gib",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/ollama-profiles.yaml:DaemonSet/ollama-32gib",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/ollama-profiles.yaml:DaemonSet/ollama-48gib",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/ollama-profiles.yaml:DaemonSet/ollama-48gib-slow",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/ollama-profiles.yaml:DaemonSet/ollama-64gib",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/ollama-profiles.yaml:DaemonSet/ollama-72gib",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/ollama-profiles.yaml:DaemonSet/ollama-96gib",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/services.yaml:Service/ollama-128gib",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/services.yaml:Service/ollama-32gib",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/services.yaml:Service/ollama-48gib-fast",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/services.yaml:Service/ollama-48gib-slow",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/services.yaml:Service/ollama-64gib",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/services.yaml:Service/ollama-64gib-standard",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/services.yaml:Service/ollama-72gib",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/services.yaml:Service/ollama-96gib",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/services.yaml:Service/ollama-fast",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/services.yaml:Service/ollama-slow",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/llm/profiles/services.yaml:Service/ollama-standard",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/monitoring/service-aliases.yaml:Service/kube-prometheus-grafana",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/monitoring/service-aliases.yaml:Service/kube-prometheus-kube-prome-prometheus",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/monitoring/service-aliases.yaml:Service/prometheus",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "k8s/monitoring/service-aliases.yaml:Service/pyroscope",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "src/devops_cli/ai/review/verdicts.py:55",
+      "status": "UNVERIFIED",
+      "severity": "MEDIUM",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "/workspaces/devops-cli/k8s/llm/profiles/ollama-profiles.yaml:36",
+      "status": "UNVERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "/workspaces/devops-cli/src/devops_cli/ai/rag/qdrant.py:18",
+      "status": "UNVERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "/workspaces/devops-cli/src/devops_cli/config/settings.py:19",
+      "status": "UNVERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "src/devops_cli/ai/mcp/server.py:202",
+      "status": "UNVERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "src/devops_cli/ai/review_schema.py:618",
+      "status": "UNVERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "tests/fixtures/review_recall/recall_set.json:9",
+      "status": "UNVERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "tests/fixtures/review_recall/recall_set.json:17",
+      "status": "UNVERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "tests/fixtures/review_recall/recall_set.json:25",
+      "status": "UNVERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "tests/fixtures/review_recall/recall_set.json:41",
+      "status": "UNVERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "tests/fixtures/review_recall/recall_set.json:49",
+      "status": "UNVERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "tests/test_ai_request_priority.py:201-202",
+      "status": "UNVERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "tests/test_batch_2_review_defects.py:182",
+      "status": "UNVERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "tests/test_k8s_tls.py:85",
+      "status": "UNVERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "tests/test_review_scope.py:131",
+      "status": "UNVERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": null
+    },
+    {
+      "location": "tests/test_review_verification.py:439",
+      "status": "UNVERIFIED",
+      "severity": "LOW",
+      "reportable": true,
+      "verified_by": null
+    }
+  ]
+}
