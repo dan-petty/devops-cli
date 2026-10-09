@@ -465,7 +465,8 @@ def audit_stream(
 # =============================================================================
 
 
-def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str]:
+def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str] | None:
+    """Return the secret-named keys holding a value in ``cfg_file``, or None if it is unreadable."""
     import yaml
 
     from devops_cli.config.options import KEYRING_KEYS
@@ -486,18 +487,29 @@ def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str]:
                 if value and is_secret_field(str(opt_name), composite, secret_options):
                     leaks.append(f"{cfg_file.name}:{composite}")
         return leaks
-    except (yaml.YAMLError, OSError, UnicodeDecodeError) as err:
-        logger.warning("Failed to parse config file %s for secrets audit: %s", cfg_file, err)
-        return []
+    except (yaml.YAMLError, OSError, ValueError) as err:
+        # The error's message and mark quote the file's content, which may hold the value.
+        mark = err.problem_mark if isinstance(err, yaml.MarkedYAMLError) else None
+        where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+        logger.warning("Could not audit config file %s: %s%s", cfg_file, type(err).__name__, where)
+        return None
 
 
-def _detect_keyring_secret_leaks(scanned_files: list[Path]) -> list[str]:
-    """Find any plaintext secret values saved in YAML configs instead of OS Keyring."""
+def _detect_keyring_secret_leaks(scanned_files: list[Path]) -> tuple[list[str], list[Path]]:
+    """Find plaintext secret values saved in YAML configs instead of OS Keyring.
+
+    Returns the leaks and the files that could not be read or parsed, which are unaudited.
+    """
     unique_files = sorted(list({p.resolve() for p in scanned_files if p.exists()}))
     leaks: list[str] = []
+    unaudited: list[Path] = []
     for cfg_file in unique_files:
-        leaks.extend(_scan_yaml_for_secret_keys(cfg_file))
-    return leaks
+        file_leaks = _scan_yaml_for_secret_keys(cfg_file)
+        if file_leaks is None:
+            unaudited.append(cfg_file)
+        else:
+            leaks.extend(file_leaks)
+    return leaks, unaudited
 
 
 @app.command("audit-keys")
@@ -511,7 +523,7 @@ def audit_keys_cmd(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Audit OS Keyring token health, backend status, and zero-plaintext secret compliance."""
+    """Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. Exits 1 when a config file cannot be read or parsed, reporting it unaudited."""
     if dry_run:
         render_dry_run_result(
             command="devops config audit-keys",
@@ -542,7 +554,7 @@ def audit_keys_cmd(
         Path.cwd() / ".devops" / "config.yaml",
     ]
     unique_files = sorted(list({p.resolve() for p in scanned_files if p.exists()}))
-    plaintext_leaks = _detect_keyring_secret_leaks(scanned_files)
+    plaintext_leaks, unaudited_files = _detect_keyring_secret_leaks(scanned_files)
 
     rows: list[list[str]] = []
     key_audit_records: list[dict[str, Any]] = []
@@ -558,18 +570,18 @@ def audit_keys_cmd(
 
         keyring_state = "[green]STORED[/green]" if has_keyring else "[dim]EMPTY[/dim]"
         env_state = f"[cyan]OVERRIDE ({env_var})[/cyan]" if has_env else "[dim]NONE[/dim]"
-        leak_state = (
-            "[red]LEAK DETECTED[/red]" if is_leaked else "[green]CLEAN (0 Plaintext)[/green]"
-        )
-        comp_state = (
-            "[red]NON-COMPLIANT[/red]"
-            if is_leaked
-            else (
+        if is_leaked:
+            leak_state = "[red]LEAK DETECTED[/red]"
+            comp_state = "[red]NON-COMPLIANT[/red]"
+        elif unaudited_files:
+            leak_state = comp_state = "[yellow]UNAUDITED[/yellow]"
+        else:
+            leak_state = "[green]CLEAN (0 Plaintext)[/green]"
+            comp_state = (
                 "[green]COMPLIANT[/green]"
                 if effective == "CONFIGURED"
                 else "[yellow]UNSET[/yellow]"
             )
-        )
 
         rows.append(
             [
@@ -591,11 +603,11 @@ def audit_keys_cmd(
                 "has_env": has_env,
                 "effective_status": effective,
                 "plaintext_leak": is_leaked,
-                "compliant": not is_leaked,
+                "compliant": not is_leaked and not unaudited_files,
             }
         )
 
-    is_overall_compliant = len(plaintext_leaks) == 0
+    is_overall_compliant = not plaintext_leaks and not unaudited_files
 
     if json_output:
         report = {
@@ -605,10 +617,13 @@ def audit_keys_cmd(
             "plaintext_leak_count": len(plaintext_leaks),
             "has_plaintext_leaks": len(plaintext_leaks) > 0,
             "plaintext_leaks": plaintext_leaks,
+            "unaudited_config_files": [str(p) for p in unaudited_files],
             "is_compliant": is_overall_compliant,
             "keys": key_audit_records,
         }
         write_stdout(json.dumps(report, indent=2) + "\n")
+        if unaudited_files:
+            raise typer.Exit(1)
         return
 
     print_info(
@@ -636,7 +651,14 @@ def audit_keys_cmd(
             "and delete any key that is not a config option.",
             prefix=False,
         )
-    else:
+    if unaudited_files:
+        print_error(
+            f"Unaudited: could not read or parse {', '.join(str(p) for p in unaudited_files)}; "
+            "fix the file and re-run 'devops config audit-keys'.",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+    if not plaintext_leaks:
         print_success(
             "✓ Zero-Trust Secret Isolation: All configuration files verified free of plaintext secrets.",
             prefix=False,
