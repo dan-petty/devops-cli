@@ -330,6 +330,32 @@ def resolve_review_data_path(path: Path) -> Path:
     return path if path.is_absolute() else (review_data_root() / path).resolve()
 
 
+def resolve_store_path(
+    name: str | Path,
+    explicit: Path | str | None = None,
+    start_path: Path | str | None = None,
+) -> Path:
+    """Resolve a store's default path under the data directory, using an explicit path as given (#1036).
+
+    A path passed explicitly (`state_file=`, `output_dir=`, an absolute configured path) is used
+    as given. Otherwise, the store's name or relative path is joined with `data.dir` and resolved
+    under the repository or user data directory via `resolve_data_path`.
+    """
+    if explicit is not None:
+        return Path(explicit)
+
+    from devops_cli.config.settings import load_settings
+
+    try:
+        data_dir = load_settings().data.dir
+    except Exception:
+        from devops_cli.config.defaults import DEFAULT_DATA_DIR
+
+        data_dir = DEFAULT_DATA_DIR
+
+    return resolve_data_path(data_dir / name, start_path=start_path)
+
+
 def read_gitignore_patterns(repo_root: Path) -> list[str]:
     """Dynamically read .gitignore patterns from the repository root at runtime."""
     gitignore_file = repo_root / ".gitignore"
