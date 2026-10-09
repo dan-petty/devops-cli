@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from devops_cli.security.sanitizer import (
     mask_dict_secrets,
     mask_secrets,
     mask_uri_credentials,
     redact_text,
 )
+from tests.github_token_samples import installation_token
 
 
 def test_redact_text() -> None:
@@ -333,9 +336,6 @@ def test_mask_secrets_preserves_task_file_paths() -> None:
     assert mask_secrets(fake_key) == "<masked-openai-key>"
 
     # Verify underscore-delimited tokens/keys are correctly redacted
-    underscore_ghp = "my_github_token_ghp_1234567890abcdef1234"
-    assert mask_secrets(underscore_ghp) == "my_github_token_<masked-github-token>"
-
     underscore_sk = "service_openai_key_sk-proj-1234567890abcdef12345678"
     assert mask_secrets(underscore_sk) == "service_openai_key_<masked-openai-key>"
 
@@ -473,3 +473,51 @@ def test_assigned_credentials_are_unaffected_by_the_guard() -> None:
 
     masked = mask_secrets("export AWS_SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE")
     assert "AKIAIOSFODNN7EXAMPLE" not in masked
+
+
+# =============================================================================
+# GitHub token prefixes
+# =============================================================================
+
+_TOKEN_BODY = "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"  # 36 characters, the legacy body length
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        pytest.param("ghp_" + _TOKEN_BODY, id="personal-access-token"),
+        pytest.param("gho_" + _TOKEN_BODY, id="oauth-access-token"),
+        pytest.param("ghu_" + _TOKEN_BODY, id="user-to-server-token"),
+        pytest.param("ghs_" + _TOKEN_BODY, id="legacy-installation-token"),
+        pytest.param("ghr_" + _TOKEN_BODY, id="refresh-token"),
+        pytest.param(
+            "github_pat_" + _TOKEN_BODY[:22] + "_" + (_TOKEN_BODY * 2)[:59],
+            id="fine-grained-personal-access-token",
+        ),
+        pytest.param(installation_token(), id="installation-token-with-jwt"),
+    ],
+)
+def test_every_github_token_prefix_is_masked_whole(token: str) -> None:
+    """Comparing the whole line proves no part of the token is printed."""
+    assert mask_secrets(f"remote: {token} rejected") == "remote: <masked-github-token> rejected"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("ghu_123456789", id="body-below-10-characters"),
+        pytest.param("ghs_" + "a" * 35, id="installation-body-below-36-characters"),
+        pytest.param("github_pat_" + "a" * 19, id="fine-grained-body-below-20-characters"),
+        pytest.param("xghr_1234567890abcdef", id="prefix-inside-a-longer-word"),
+        pytest.param("def test_it_reads_ghu_login_of_the_user():", id="identifier-containing-ghu"),
+        pytest.param(
+            "def test_refresh_reads_ghr_record_of_the_account():", id="identifier-containing-ghr"
+        ),
+        pytest.param(
+            "test_plan_says_it_read_ghs_record_of_the_machine_account_and_its_owner",
+            id="identifier-containing-ghs",
+        ),
+    ],
+)
+def test_a_near_miss_github_token_is_left_alone(text: str) -> None:
+    assert mask_secrets(text) == text

@@ -20,7 +20,6 @@ _SECRET_PATTERNS = [
         r"(?:api[_-]?key|auth[_-]?token|bearer|password|secret|client[_-]?secret)\s*[:=]\s*['\"]?([A-Za-z0-9_\-\.]{8,})['\"]?",
         re.IGNORECASE,
     ),
-    re.compile(r"(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36}"),
     re.compile(r"sk-[A-Za-z0-9]{20,48}"),
     re.compile(r"AKIA[0-9A-Z]{16}"),
 ]
