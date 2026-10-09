@@ -356,7 +356,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-          version: v0.70.0
+          version: v0.75.0
 
       # Pushed by digest only: the tags move to the digest once its provenance is attested, so
       # a tag never names an unattested image and a failed attestation is retried by a re-run.

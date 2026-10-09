@@ -251,7 +251,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-          version: v0.70.0
+          version: v0.75.0
 
 
   # Advisory only: reports newer upstream releases without gating any merge. Scheduled so
