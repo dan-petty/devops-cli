@@ -9,6 +9,7 @@ import pytest
 
 from devops_cli.ai.diff.difftastic import get_structural_diff
 from devops_cli.exceptions import SecurityError
+from tests.github_token_samples import installation_token
 
 
 def test_get_structural_diff_unified_fallback(tmp_path: Path) -> None:
@@ -74,6 +75,16 @@ def test_sanitize_diff_output_secrets() -> None:
     assert "ghp_" not in sanitized
     assert "AKIA" not in sanitized
     assert "[REDACTED_SECRET]" in sanitized
+
+
+def test_sanitize_diff_output_masks_a_whole_installation_token() -> None:
+    """A ``ghs_APPID_JWT`` token is masked whole, its JWT payload and signature included."""
+    from devops_cli.ai.diff.difftastic import sanitize_diff_output
+
+    assert (
+        sanitize_diff_output(f"+ remote: {installation_token()} rejected\n")
+        == "+ remote: <masked-github-token> rejected\n"
+    )
 
 
 def test_get_structural_diff_file_size_limit(tmp_path: Path) -> None:
