@@ -2,7 +2,7 @@
 
 ## 1. Overview & Purpose
 
-Retrieval-Augmented Generation (RAG) in `devops-cli` indexes codebase documentation, architecture decisions, CLI commands, and operational procedures into a local vector database. When executing AI code reviews or natural language queries, relevant semantic chunks are retrieved and injected into prompt context to ground LLM responses in concrete repository facts.
+Retrieval-Augmented Generation (RAG) in `devops-cli` indexes codebase documentation, architecture decisions, CLI commands, and operational procedures into a local vector database. A natural language query retrieves the chunks most similar to its text and injects them into the prompt context. A code review asks the index in two places: each page's persona prompt gets up to three chunks retrieved with the page's file path and symbol names, not with what a finding names, and the verifier gets up to two chunks per finding, retrieved with the finding's title and description. Both are marked as untrusted context. A review writes nothing to the index, so it gets only what `devops ai rag index` and `index-kb` put there, and nothing when the index is empty or RAG is off.
 
 ---
 
@@ -15,7 +15,8 @@ graph TD
     C --> D[Vector Index (Qdrant)]
     D --> E[Semantic Similarity Query cosine distance]
     E --> F[Top-K Context Chunks]
-    F --> G[Grounded AI Review / Chat Prompt]
+    F --> G[Query & Chat Prompt]
+    F --> H[Review Page & Verifier Prompts: untrusted context]
 ```
 
 - **Vector Storage**: Connects to a Qdrant server by URL (`qdrant.url`, or the in-cluster `llm/qdrant` service via the Kubernetes API proxy); no embedded mode is used; `.data/rag/` holds only the local index cache.

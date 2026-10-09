@@ -1,0 +1,8 @@
+{
+  "session_id": "20261003-102523",
+  "target": "release/v0.2.25",
+  "llm_calls": 407,
+  "prompt_tokens": 3716743,
+  "total_wall_seconds": 1472.511,
+  "cost_usd": 0.0
+}

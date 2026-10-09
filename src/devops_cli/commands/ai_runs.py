@@ -373,7 +373,7 @@ def _render_regression_report(report: RegressionReport) -> None:
             [
                 v.metric,
                 f"{v.base_value:.4g}",
-                f"{v.current_value:.4g}",
+                f"{v.current_value:.4g}" if v.current_value is not None else "not computable",
                 change_str,
                 f"{v.tolerance_pct:.1f}%",
                 verdict_str,
@@ -630,6 +630,27 @@ def check_cmd(
             help="Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%).",
         ),
     ] = 0.20,
+    max_precision_drop: Annotated[
+        float,
+        typer.Option(
+            "--max-precision-drop",
+            help="Maximum allowable relative drop in a review score's lenient and strict precision (e.g. 0.05 for 5%).",
+        ),
+    ] = 0.0,
+    max_stability_drop: Annotated[
+        float,
+        typer.Option(
+            "--max-stability-drop",
+            help="Maximum allowable relative drop in a review score's Jaccard and Fleiss kappa (e.g. 0.05 for 5%).",
+        ),
+    ] = 0.0,
+    max_calls_increase: Annotated[
+        float,
+        typer.Option(
+            "--max-calls-increase",
+            help="Maximum allowable relative increase in model calls, a review's cost (e.g. 0.20 for 20%).",
+        ),
+    ] = 0.20,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
@@ -654,6 +675,9 @@ def check_cmd(
         max_recall_drop=max_recall_drop,
         max_duration_increase=max_duration_increase,
         max_tokens_increase=max_tokens_increase,
+        max_precision_drop=max_precision_drop,
+        max_stability_drop=max_stability_drop,
+        max_calls_increase=max_calls_increase,
     )
     comparison = compare_runs(base_record, record)
     report = check_regression(comparison, tolerances)

@@ -37,6 +37,14 @@ if TYPE_CHECKING:
     from devops_cli.config.settings import AIConfig
 
 INDEX_PREFIX = f"{CONST_CACHE_NAMESPACE_ROOT}:runs"
+# The figures a `devops review score` run records that a later run may not let fall, each with
+# the `RegressionTolerances` field that bounds its drop (#1138).
+_SCORE_DROP_METRICS = {
+    "precision_lenient": "max_precision_drop",
+    "precision_strict": "max_precision_drop",
+    "stability_jaccard": "max_stability_drop",
+    "stability_kappa": "max_stability_drop",
+}
 
 
 class Mechanism(StrEnum):
@@ -45,6 +53,7 @@ class Mechanism(StrEnum):
     REVIEW_BENCHMARK = "review-benchmark"
     SAMPLE_VALIDATION = "sample-validation"
     CORPUS_SCORE = "corpus-score"
+    REVIEW_SCORE = "review-score"
     GATEWAY_TUNE = "gateway-tune"
     PROMPT_EVAL = "prompt-eval"
     AI_BENCHMARK = "ai-benchmark"
@@ -539,7 +548,12 @@ def _extract_prompt_tokens(results: dict[str, Any]) -> float | None:
         stage_sum = _extract_stage_token_sum(stages, "median_prompt_tokens")
         if stage_sum is not None:
             return stage_sum
-    for key in ("prompt_tokens", "total_prompt_tokens", "total_input_tokens"):
+    for key in (
+        "prompt_tokens",
+        "median_prompt_tokens",
+        "total_prompt_tokens",
+        "total_input_tokens",
+    ):
         val = results.get(key)
         if isinstance(val, (int, float)):
             return float(val)
@@ -610,6 +624,8 @@ def _extract_core_metrics(res: dict[str, Any]) -> dict[str, float]:
     _extract_metric_item(metrics, "recall", _extract_recall(res), 4)
     calls = res.get("median_llm_calls") or res.get("llm_calls") or res.get("total_calls")
     _extract_metric_item(metrics, "llm_calls", calls, 1)
+    for key in _SCORE_DROP_METRICS:
+        _extract_metric_item(metrics, key, res.get(key), 4)
     for key in (
         "total_sites",
         "parse_failures",
@@ -722,6 +738,11 @@ class RegressionTolerances(BaseModel):
     max_recall_drop: float = 0.0
     max_duration_increase: float = 0.15
     max_tokens_increase: float = 0.20
+    # `devops review score` runs (#1138): precision and stability may not drop, and the model
+    # calls a review makes are its cost, since the self-hosted models record no price.
+    max_precision_drop: float = 0.0
+    max_stability_drop: float = 0.0
+    max_calls_increase: float = 0.20
 
 
 class MetricVerdict(BaseModel):
@@ -729,7 +750,8 @@ class MetricVerdict(BaseModel):
 
     metric: str
     base_value: float
-    current_value: float
+    # None when the current run could not compute a figure the baseline recorded.
+    current_value: float | None
     change_pct: float | None
     tolerance_pct: float
     passed: bool
@@ -745,16 +767,17 @@ class RegressionReport(BaseModel):
     verdicts: list[MetricVerdict]
 
 
-def _evaluate_recall_verdict(m: MetricDiff, max_drop: float) -> MetricVerdict:
+def _evaluate_drop_verdict(m: MetricDiff, metric_name: str, max_drop: float) -> MetricVerdict:
     drop = (m.base_value - m.current_value) / m.base_value if m.base_value > 0 else 0.0
     passed = drop <= max_drop
+    label = metric_name.replace("_", " ").capitalize()
     reason = (
-        f"Recall dropped by {drop:.1%}, exceeds tolerance {max_drop:.1%}"
+        f"{label} dropped by {drop:.1%}, exceeds tolerance {max_drop:.1%}"
         if not passed
-        else f"Recall within tolerance ({drop:.1%} <= {max_drop:.1%})"
+        else f"{label} within tolerance ({drop:.1%} <= {max_drop:.1%})"
     )
     return MetricVerdict(
-        metric="recall",
+        metric=metric_name,
         base_value=m.base_value,
         current_value=m.current_value,
         change_pct=m.percent_change,
@@ -789,6 +812,49 @@ def _evaluate_increase_verdict(
     )
 
 
+def _not_computable_verdict(m: MetricDiff, max_drop: float, reason: str) -> MetricVerdict:
+    """A failed verdict on a figure the baseline recorded and the current run could not compute."""
+    return MetricVerdict(
+        metric=m.name,
+        base_value=m.base_value,
+        current_value=None,
+        change_pct=None,
+        tolerance_pct=round(max_drop * 100, 2),
+        passed=False,
+        reason=f"{m.name.replace('_', ' ').capitalize()} not computable ({reason})",
+    )
+
+
+def _score_verdicts(comparison: RunComparison, tol: RegressionTolerances) -> list[MetricVerdict]:
+    """Verdicts on a review score's precision and stability, and on model calls.
+
+    A precision or stability figure either run recorded gets a verdict, and one the baseline
+    recorded fails when the current run could not compute it, with the score's reason; model
+    calls are judged when both runs recorded them. `comparison.metrics` reads a figure a run
+    did not record as 0.0, so which run recorded which figure comes from the runs themselves.
+    """
+    base = extract_metrics(comparison.base_run)[0]
+    current = extract_metrics(comparison.current_run)[0]
+    reasons = comparison.current_run.results.get("not_computable")
+    verdicts = []
+    for name, tolerance in _SCORE_DROP_METRICS.items():
+        limit: float = getattr(tol, tolerance)
+        if name in base and name not in current:
+            reason = reasons.get(name) if isinstance(reasons, dict) else None
+            verdicts.append(
+                _not_computable_verdict(comparison.metrics[name], limit, reason or "not recorded")
+            )
+        elif name in current:
+            verdicts.append(_evaluate_drop_verdict(comparison.metrics[name], name, limit))
+    if "llm_calls" in base and "llm_calls" in current:
+        verdicts.append(
+            _evaluate_increase_verdict(
+                comparison.metrics["llm_calls"], "llm_calls", tol.max_calls_increase
+            )
+        )
+    return verdicts
+
+
 def check_regression(
     comparison: RunComparison, tolerances: RegressionTolerances | None = None
 ) -> RegressionReport:
@@ -798,7 +864,7 @@ def check_regression(
     for r_name in ("recall", "recall_found", "recall_reported"):
         if r_name in comparison.metrics:
             verdicts.append(
-                _evaluate_recall_verdict(comparison.metrics[r_name], tol.max_recall_drop)
+                _evaluate_drop_verdict(comparison.metrics[r_name], "recall", tol.max_recall_drop)
             )
     if "wall_seconds" in comparison.metrics:
         verdicts.append(
@@ -822,6 +888,7 @@ def check_regression(
                 comparison.metrics["comment_collisions"], "comment_collisions", 0.0
             )
         )
+    verdicts.extend(_score_verdicts(comparison, tol))
     return RegressionReport(
         passed=bool(verdicts) and all(v.passed for v in verdicts),
         base_run_id=comparison.base_run.run_id,

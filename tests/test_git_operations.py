@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -19,6 +20,7 @@ from devops_cli.git.operations import (
     _ensure_known_host,
     _normalize_clone_url,
     clone_repo,
+    commit_snapshot,
     create_branch,
     delete_merged_branches,
     fetch_all,
@@ -542,3 +544,34 @@ def test_revision_helpers_report_a_failed_git_call(tmp_path: Path) -> None:
         )
 
     assert results == (None, "main", [])
+
+
+def test_commit_snapshot_makes_the_same_one_commit_of_the_same_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The id is the one `git commit` gives these files with that identity, date and message."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    when = datetime(2026, 10, 3, tzinfo=UTC)
+    commits = []
+    for name in ("one", "two"):
+        (tmp_path / name / "app").mkdir(parents=True)
+        (tmp_path / name / "app" / "db.py").write_text("query = f'{x}'\n")
+        (tmp_path / name / "a.py").write_text("x = 1\n")
+        commits.append(
+            commit_snapshot(
+                tmp_path / name,
+                ["app/db.py", "a.py"],
+                "The golden review set's files, for a path review\n",
+                author="devops-cli golden",
+                email="",
+                date=when,
+            )
+        )
+    repo = gitlib.Repo(tmp_path / "one")
+
+    assert (commits, repo.active_branch.name, len(list(repo.iter_commits()))) == (
+        ["63b6e3c00959a24f7f5badfa9508a96cca4504ae"] * 2,
+        "main",
+        1,
+    )

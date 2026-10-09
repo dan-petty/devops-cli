@@ -112,6 +112,8 @@ from devops_cli.config.constants import (
     CONST_REVIEW_CONSOLE_PANEL_SEVERITIES,
     CONST_REVIEW_CONSOLE_TABLE_SEVERITIES,
     CONST_REVIEW_GENERATED_FILES,
+    CONST_REVIEW_PAGES_DIRNAME,
+    CONST_REVIEW_SARIF_FILENAME,
     CONST_REVIEW_STATUS_ORDER,
     CONST_REVIEW_SYMBOL_DELTA_CHANGE_TYPES,
     CONST_SEVERITY_CRITICAL,
@@ -2372,7 +2374,7 @@ class ReviewPipelineOrchestrator:
         self.session_dir = _checked_session_dir(
             session_dir or _get_reviews_base_dir().resolve() / self.session_id
         )
-        self.files_dir = self.session_dir / "files"
+        self.files_dir = self.session_dir / CONST_REVIEW_PAGES_DIRNAME
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.files_dir.mkdir(parents=True, exist_ok=True)
         self.llm_client = llm_client or LLMClient()
@@ -4907,7 +4909,7 @@ class ReviewPipelineOrchestrator:
                     logical_locations=loc_tuple,
                 )
             )
-        write_sarif(sarif_findings, self.session_dir / "findings.sarif")
+        write_sarif(sarif_findings, self.session_dir / CONST_REVIEW_SARIF_FILENAME)
 
         if profiler := active_profiler():
             profiler.set_findings(

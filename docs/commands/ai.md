@@ -759,6 +759,28 @@ devops ai review benchmark [OPTIONS] <targets>
 | `--no-static-scan` | `boolean` | - | Disable static security scanning. |
 | `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
 
+### `devops ai review score`
+
+**Score saved review sessions against a label file: precision, recall and stability, each with its n.**
+
+```bash
+devops ai review score [OPTIONS] <sessions>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<sessions>` | `path` | No | Review session directories to score. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--labels` | `path` | - | Label file: the labelled inputs, the row map of each mapped session and the labels, such as tests/fixtures/review_labels/labels.json. |
+| `--materialise-golden` | `path` | - | Write the label file's golden set into this directory as a git repository with one fixed commit, for a path review, and list the defects no tool can express. Takes no sessions. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 ### `devops ai review export-feedback`
 
 **Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.**
@@ -1692,7 +1714,7 @@ devops ai runs reindex [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Only index runs of this mechanism. |
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|review-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Only index runs of this mechanism. |
 
 ### `devops ai runs connect`
 
@@ -1723,7 +1745,7 @@ devops ai runs list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Only list runs of this mechanism. |
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|review-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Only list runs of this mechanism. |
 | `--subject-key`, `-s` | `string` | - | Only list runs matching this subject key or prefix. |
 | `--limit`, `-n` | `integer` | `20` | Maximum number of runs to show. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
@@ -1791,6 +1813,9 @@ devops ai runs check [OPTIONS] <run_id>
 | `--max-recall-drop` | `float` | `0.0` | Maximum allowable relative drop in recall (e.g. 0.05 for 5%). |
 | `--max-duration-increase` | `float` | `0.15` | Maximum allowable relative increase in duration (e.g. 0.15 for 15%). |
 | `--max-tokens-increase` | `float` | `0.2` | Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%). |
+| `--max-precision-drop` | `float` | `0.0` | Maximum allowable relative drop in a review score's lenient and strict precision (e.g. 0.05 for 5%). |
+| `--max-stability-drop` | `float` | `0.0` | Maximum allowable relative drop in a review score's Jaccard and Fleiss kappa (e.g. 0.05 for 5%). |
+| `--max-calls-increase` | `float` | `0.2` | Maximum allowable relative increase in model calls, a review's cost (e.g. 0.20 for 20%). |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops ai runs baseline`
@@ -1845,7 +1870,7 @@ devops ai runs baseline show [OPTIONS] <subject_or_run>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Mechanism for subject lookup. |
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|review-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Mechanism for subject lookup. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ---

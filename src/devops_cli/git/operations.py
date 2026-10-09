@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Generator
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 import git as gitlib
 
 from devops_cli.config.constants import (
     CONST_GIT_DIR_NAME,
+    CONST_GIT_MAIN_BRANCH,
     CONST_GIT_NAME_STATUS_CHANGE_TYPES,
     CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS,
     CONST_GIT_SYMLINK_MODE,
@@ -245,6 +247,34 @@ def create_branch(repo_dir: Path, branch_name: str) -> None:
             operation="branch_create",
             details={"branch_name": branch_name[:CONST_MAX_ERROR_DETAIL_LENGTH]},
         )
+
+
+def commit_snapshot(
+    repo_dir: Path,
+    paths: list[str],
+    message: str,
+    *,
+    author: str,
+    email: str,
+    date: datetime,
+) -> str:
+    """Make `repo_dir` a new repository whose one commit holds `paths`, and return its id.
+
+    The author, committer and both dates are the ones given, no hook runs and nothing is signed,
+    so the same files always give the same commit, whatever the git configuration.
+    """
+    repo = gitlib.Repo.init(str(repo_dir), initial_branch=CONST_GIT_MAIN_BRANCH)
+    repo.index.add(sorted(paths))
+    actor = gitlib.Actor(author, email)
+    commit = repo.index.commit(
+        message,
+        author=actor,
+        committer=actor,
+        author_date=date,
+        commit_date=date,
+        skip_hooks=True,
+    )
+    return str(commit.hexsha)
 
 
 def list_branches(

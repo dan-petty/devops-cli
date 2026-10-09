@@ -279,6 +279,30 @@ devops review benchmark [OPTIONS] <targets>
 
 ---
 
+## `devops review score`
+
+**Score saved review sessions against a label file: precision, recall and stability, each with its n.**
+
+```bash
+devops review score [OPTIONS] <sessions>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<sessions>` | `path` | No | Review session directories to score. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--labels` | `path` | - | Label file: the labelled inputs, the row map of each mapped session and the labels, such as tests/fixtures/review_labels/labels.json. |
+| `--materialise-golden` | `path` | - | Write the label file's golden set into this directory as a git repository with one fixed commit, for a path review, and list the defects no tool can express. Takes no sessions. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+---
+
 ## `devops review export-feedback`
 
 **Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.**
