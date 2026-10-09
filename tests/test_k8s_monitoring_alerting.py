@@ -43,8 +43,8 @@ SERVED_SERIES = frozenset(
         # are host directories), so the rule over them stays silent until one does.
         "kubelet_volume_stats_available_bytes",
         "kubelet_volume_stats_capacity_bytes",
-        # node-exporter, scraped by k8s-monitoring's host metrics; boot time and systemd unit
-        # state come from its allow list in #1080.
+        # node-exporter, scraped by k8s-monitoring's host metrics with no allow list (#1129);
+        # systemd unit state comes from the collector #1080 turned on.
         "node_boot_time_seconds",
         "node_filesystem_avail_bytes",
         "node_filesystem_size_bytes",
