@@ -92,6 +92,7 @@ dev = [
     "hypothesis==6.168.3",
     "h11==0.16.0",
     "deptry==0.25.1",
+    "mutmut==3.8.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -186,6 +187,45 @@ directory = ".data/htmlcov"
 
 [tool.coverage.json]
 output = ".data/coverage.json"
+
+# `devops ci mutate` (#853). mutmut copies src, tests, pyproject.toml and uv.lock into mutants/
+# itself; `also_copy` adds the other top-level entries the tests read. `.claude` holds local
+# worktrees and `.vscode` local settings, and mutmut 3.8.0 cannot copy a nested file path.
+[tool.mutmut]
+source_paths = ["src/devops_cli"]
+# Appended after addopts, so `-n 0` overrides `-n logical`: mutmut runs the tests in its process.
+pytest_add_cli_args = ["-n", "0"]
+# The suite runs from mutants/, whose src holds mutmut's generated code, which holds no git
+# checkout and no .venv. A test is left out only when it reads src as data (it sees the generated
+# code, or scans the 475 MB tree), relies on git tracking the checkout, or relies on its .venv:
+# whole modules of source-tree invariants, and single tests elsewhere.
+pytest_add_cli_args_test_selection = [
+    # src as data
+    "--ignore=tests/test_architectural_invariants.py",
+    "--ignore=tests/test_public_export_surface.py",
+    "--ignore=tests/test_docs.py",
+    "--ignore=tests/test_docs_source_argv_collector.py",
+    "--ignore=tests/test_ai_task_loader.py",
+    "--deselect=tests/test_output.py::test_rich_imports_confined_to_output_submodule",
+    "--deselect=tests/test_review_verification.py::test_check_missing_header_hallucination_requires_assignment_and_dispatch",
+    # The caller it records is mutmut's trampoline, generated code between the test and the span.
+    "--deselect=tests/test_telemetry.py::test_span_caller_location_and_runtime_attributes",
+    # git tracking of the checkout
+    "--deselect=tests/test_k8s_devops_runtime.py::test_kustomization_lists_every_manifest_and_pins_no_image_and_stays_out_of_the_root",
+    "--deselect=tests/test_run_store.py::test_a_record_names_its_setup_and_subject_by_content",
+    "--deselect=tests/test_url_credential_masking.py::test_no_forbidden_constructs_remain",
+    # Without the checkout's git origin it fetches the pull request's head from GitHub.
+    "--deselect=tests/test_review_scope.py::test_the_pr_command_reviews_against_the_pr_head",
+    # the checkout's .venv
+    "--deselect=tests/test_host_sandbox.py::test_every_allowlisted_criteria_binary_resolves_inside_the_sandbox_mounts",
+]
+also_copy = [
+    ".devcontainer", ".devops", ".dockerignore", ".editorconfig", ".gitattributes", ".github",
+    ".gitignore", ".mcp.json", ".pre-commit-config.yaml", ".python-version", ".trivyignore",
+    "AGENTS.md", "ARCHITECTURE.md", "CHANGELOG.md", "CLAUDE.md", "CONTEXT.md", "CONTRIBUTING.md",
+    "Dockerfile", "LICENSE", "README.md", "RELEASE_CYCLE.md", "SECURITY.md", "changelog.d",
+    "config.example.yaml", "docs", "k8s", "tf",
+]
 
 [tool.uv]
 preview-features = ["malware-check", "check-command"]

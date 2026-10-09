@@ -93,6 +93,7 @@ This document provides an overview of the main command groups implemented in `de
 | **`ci`** | `devops ci` | Run every check of the local quality gate | `--fix/--no-fix`, `--check`, `--cache`, `--force`, `--files` |
 | | `devops ci run` | Same as `devops ci` | `--fix` |
 | | `devops ci audit` | Check dependencies for known CVEs (uv audit) | |
+| | `devops ci mutate` | Mutation-test changed functions with mutmut and show the survivors; never a gate | `paths`, `--changed`, `--base` |
 | **`release`** | `devops release prepare` | Bump version, update changelog, sync docs | `version`, `--create-pr`, `--type` |
 | | `devops release pr` | Create release branch and release PR | `--version`, `--base`, `--push` |
 | | `devops release check` | Verify release readiness | |

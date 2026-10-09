@@ -307,6 +307,10 @@ DEFAULT_REVIEW_TIMEOUT_SECONDS: float = 1200.0
 DEFAULT_REVIEW_WINDOW_SIZE_FACTOR: float = 0.8
 DEFAULT_REVIEW_OVERLAP_FACTOR: float = 0.1
 DEFAULT_SUBPROCESS_TIMEOUT_SECONDS: float = 1800.0  # 30 minutes (kubectl, helm, minikube, git, gh)
+# `devops ci mutate`'s `mutmut run`. The first run mutates the whole source tree (about 196,000
+# mutants, 506 s with 8 processes at a load average of 25) and then runs the test suite once,
+# serially, for its stats.
+DEFAULT_CI_MUTATE_TIMEOUT_SECONDS: float = 14400.0  # 4 hours
 DEFAULT_HTTP_TIMEOUT_SECONDS: float = 3600.0  # 1 hour (API requests & downloads)
 DEFAULT_HTTP_MAX_REDIRECTS: int = 10  # hops the HTTP broker follows; httpx2 allows 20
 DEFAULT_DNS_TIMEOUT_SECONDS: float = 15.0  # 15 seconds (socket DNS resolution)

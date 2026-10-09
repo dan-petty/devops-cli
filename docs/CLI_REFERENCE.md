@@ -2625,6 +2625,32 @@ devops ci run [OPTIONS]
 | `--fix` / `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops ci mutate`
+
+**Mutation-test functions with mutmut and show each mutant no test killed; never a gate.**
+
+Mutation-test functions with mutmut and show each mutant no test killed; never a gate.
+
+Each surviving mutant is shown with its diff, then the killed, survived, timeout and no-tests counts. There is no score, and the command exits 0 whatever survives. The first run copies the whole source tree into mutants/, mutates it and runs the test suite once, serially, which can take hours; later runs reuse mutants/ and its test stats. `rm -rf mutants` resets it. If none of the selected functions gives mutmut a mutant, as when their bodies are only `...`, mutmut fails with 'nothing matches'; on a first run, only after the test suite has run.
+
+```bash
+devops ci mutate [OPTIONS] <paths>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<paths>` | `path` | No | Source files or directories under src/ to mutate: every function in them, or with --changed only the changed ones. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--changed` | `boolean` | - | Mutate the functions the working tree changed since its merge base with --base, untracked files included unless git ignores them. |
+| `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## devops uv
