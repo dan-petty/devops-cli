@@ -167,6 +167,8 @@ _HELM_RELEASES: list[dict[str, str]] = _HELM_RELEASES_BY_STACK["infra"]
 
 _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "infra": [
+        DEFAULT_K8S_DIR / "argocd" / "networkpolicy.yaml",
+        DEFAULT_K8S_DIR / "otel" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "otel" / "jaeger.yaml",
     ],
     "llm": [

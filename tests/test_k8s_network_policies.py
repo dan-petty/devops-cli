@@ -21,15 +21,6 @@ K8S_DIR = REPO_ROOT / "k8s"
 # only what deploy-stack applies (#913). Delete an entry once its policy gains a deploy-stack path
 # or leaves its file; the guard below fails until then.
 UNDEPLOYED_NETWORK_POLICIES: dict[tuple[str, str], tuple[str, str]] = {
-    ("argocd", "argocd-default-perimeter"): (
-        "k8s/argocd/networkpolicy.yaml",
-        "#1371: as written it cuts Argo CD off from the API server",
-    ),
-    ("otel", "otel-default-perimeter"): (
-        "k8s/otel/networkpolicy.yaml",
-        "Argo CD's otel Application; deploy-stack in #1371, as its 8888 rule "
-        "would break the otel-metrics route",
-    ),
     ("llm", "vllm-profiles-perimeter"): (
         "k8s/llm/profiles/networkpolicy.yaml",
         "#820, which deletes it with the vLLM leftovers",
@@ -238,6 +229,53 @@ def test_monitoring_ingress_admits_no_world_cidr() -> None:
         [cidr for cidr in cidrs if ipaddress.ip_network(cidr).num_addresses > 1],
         traefik_rules,
     ) == ([], [([TRAEFIK_PEER], MONITORING_TRAEFIK_PORTS)])
+
+
+@pytest.mark.parametrize("namespace", ("argocd", "otel"))
+def test_ingress_admits_no_world_cidr(namespace: str) -> None:
+    """Verify ingress perimeter defines no ingress ipBlocks (#1371).
+
+    kube-router matches ingress CIDRs against pod addresses, so an ingress 0.0.0.0/0
+    admitted every pod in the cluster.
+    """
+    doc = yaml.safe_load((K8S_DIR / namespace / "networkpolicy.yaml").read_text("utf-8"))
+    cidrs = [
+        peer["ipBlock"]["cidr"]
+        for rule in doc["spec"]["ingress"]
+        for peer in rule.get("from", [])
+        if "ipBlock" in peer
+    ]
+    assert cidrs == []
+
+
+def test_argocd_api_server_egress_admits_6443_through_ipblock() -> None:
+    """Verify Argo CD's API-server egress admits 6443 through an ipBlock peer (#1371).
+
+    Namespace-only selectors (default, kube-system) never match the node IP the
+    `kubernetes` service resolves to. An ipBlock peer with metadata SSRF protection
+    allows Argo CD to reach the API server on 6443.
+    """
+    doc = yaml.safe_load((K8S_DIR / "argocd" / "networkpolicy.yaml").read_text("utf-8"))
+    egress = doc["spec"]["egress"]
+    rule = next(r for r in egress if any(p.get("port") == 6443 for p in r.get("ports", [])))
+    ip_blocks = [to["ipBlock"] for to in rule.get("to", []) if "ipBlock" in to]
+    assert (
+        len(ip_blocks),
+        ip_blocks[0]["cidr"],
+        METADATA_SSRF_IP in ip_blocks[0].get("except", []),
+    ) == (1, "0.0.0.0/0", True)
+
+
+def test_otel_rule_4_admits_traefik_on_8888() -> None:
+    """Verify otel rule 4 admits Traefik on 8888 for otel-metrics route (#1371)."""
+    doc = yaml.safe_load((K8S_DIR / "otel" / "networkpolicy.yaml").read_text("utf-8"))
+    rule_4 = doc["spec"]["ingress"][3]
+    ports = [p["port"] for p in rule_4.get("ports", [])]
+    from_peers = rule_4.get("from", [])
+    assert (
+        8888 in ports,
+        TRAEFIK_PEER in from_peers,
+    ) == (True, True)
 
 
 def test_readme_proxy_caveat_names_every_monitoring_proxy_target() -> None:
