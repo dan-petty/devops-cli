@@ -440,7 +440,7 @@ def scrape_prometheus_metrics(
             metrics = parse_prometheus_exposition(resp.text)
             return PrometheusScrapeResult(metrics, error=None)
     except Exception as exc:
-        err_msg = redact_text(mask_uri_credentials(str(exc)))
+        err_msg = redact_text(str(exc))
         return PrometheusScrapeResult(
             [],
             error=_truncate(f"Scrape request failed for {safe_url}: {err_msg}"),

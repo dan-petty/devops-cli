@@ -211,12 +211,19 @@ def test_validate_vault_path() -> None:
 
 # 9. Telemetry probe latency & endpoint sanitization
 def test_telemetry_endpoint_sanitization() -> None:
-    from devops_cli.server.routes.telemetry import _sanitize_telemetry_endpoint
+    from devops_cli.security.sanitizer import sanitize_telemetry_endpoint
 
-    assert _sanitize_telemetry_endpoint("http://localhost:4318") == "http://localhost:4318"
-    assert _sanitize_telemetry_endpoint("http://127.0.0.1:4318") == "http://127.0.0.1:4318"
-    assert _sanitize_telemetry_endpoint("http://10.244.0.15:4318") == "http://<internal-ip>:4318"
-    assert _sanitize_telemetry_endpoint("http://192.168.1.50:4318") == "http://<internal-ip>:4318"
+    assert (
+        sanitize_telemetry_endpoint("http://localhost:4318"),
+        sanitize_telemetry_endpoint("http://127.0.0.1:4318"),
+        sanitize_telemetry_endpoint("http://10.244.0.15:4318"),
+        sanitize_telemetry_endpoint("http://192.168.1.50:4318"),
+    ) == (
+        "http://localhost:4318",
+        "http://127.0.0.1:4318",
+        "http://internal-ip:4318",
+        "http://internal-ip:4318",
+    )
 
 
 # 10. Docker sandbox container wait timeout

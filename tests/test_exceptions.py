@@ -57,7 +57,7 @@ def test_ssrf_blocked_error_credentials_and_length_bounded() -> None:
     long_path = "a" * 500
     err = SSRFBlockedError(f"http://user:supersecret@10.0.0.1:8080/{long_path}")
     assert "supersecret" not in err.details["target_url"]
-    assert "<auth>@" in err.details["target_url"]
+    assert "user:***@" in err.details["target_url"]
     assert len(err.details["target_url"]) <= 256
 
 

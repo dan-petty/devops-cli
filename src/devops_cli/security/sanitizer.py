@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
-from devops_cli.config.constants import CONST_CODE_EXEMPTION_RECEIVERS
+import httpx2
+
+from devops_cli.config.constants import (
+    CONST_CODE_EXEMPTION_RECEIVERS,
+    CONST_URL_CANDIDATE_RE,
+)
 
 # The keyword patterns below match a word following "secret", "token" or "password". In
 # prose that word is usually English: "unify secret resolution" was rewritten to "unify
@@ -43,6 +49,33 @@ def _mask_credential_like_value(match: re.Match[str]) -> str:
     if not _looks_like_a_credential(value):
         return match.group(0)
     return match.group(0).replace(value, "<masked-token>")
+
+
+def _mask_url_candidate(match: re.Match[str]) -> str:
+    """Redact embedded credentials from candidate URL found in free text."""
+    candidate = match.group(0)
+    has_at = "@" in candidate
+    try:
+        parts = urlsplit(candidate)
+    except Exception:
+        return "<masked-url>" if has_at else candidate
+
+    if parts.password is not None:
+        scheme_end = candidate.find("://") + 3
+        userinfo_len = len(parts.username or "") + 1 + len(parts.password)
+        return (
+            f"{candidate[:scheme_end]}"
+            f"<masked-user>:<masked-password>"
+            f"{candidate[scheme_end + userinfo_len :]}"
+        )
+
+    if has_at:
+        try:
+            _ = parts.port
+        except ValueError:
+            return "<masked-url>"
+
+    return candidate
 
 
 # A replacement is a literal for a pattern whose whole match is the secret, or a
@@ -241,9 +274,8 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], _Replacement], ...] = (
         lambda match: "<masked-private-key>" + "\n" * match.group(0).count("\n"),
     ),
     (
-        # user:password@ only; "host:8080/path?email=a@b.com" holds no credentials.
-        re.compile(r"https?://[^:/\s@]+:[^@/\s?#]+@"),
-        "https://<masked-user>:<masked-password>@",
+        CONST_URL_CANDIDATE_RE,
+        _mask_url_candidate,
     ),
     (
         re.compile(r"\b(?:hvs\.[A-Za-z0-9_-]{20,}|s\.[A-Za-z0-9]{24}|hvb\.[A-Za-z0-9_-]{20,})\b"),
@@ -298,21 +330,16 @@ def mask_uri_credentials(uri: str) -> str:
     if not uri:
         return ""
     try:
-        parts = urlsplit(uri)
-        if parts.password:
-            user = parts.username or ""
-            host = parts.hostname or ""
-            port = f":{parts.port}" if parts.port else ""
-            netloc = f"{user}:***@{host}{port}" if user else f"***@{host}{port}"
-            return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
-    except ValueError, TypeError, AttributeError:
-        pass
-    # Regex fallback
-    return re.sub(
-        r"://([^:]*):([^@]+)@",
-        lambda m: f"://{m.group(1)}:***@" if m.group(1) else "://***@",
-        uri,
-    )
+        u = httpx2.URL(uri)
+    except httpx2.InvalidURL:
+        return "<masked-url>"
+    if "@" in uri and not u.userinfo:
+        return "<masked-url>"
+    if u.password:
+        if u.username:
+            return str(u.copy_with(username=u.username, password="***"))
+        return str(u.copy_with(username="***", password=None))
+    return uri
 
 
 def is_secret_field(key: str, full_path: str, secret_options: frozenset[str]) -> bool:
@@ -360,22 +387,28 @@ def sanitize_telemetry_endpoint(endpoint: str) -> str:
     try:
         parsed = urlsplit(endpoint)
         host = parsed.hostname or ""
-        port = f":{parsed.port}" if parsed.port is not None else ""
-
+        if not host:
+            return "<internal-endpoint>"
+        port = parsed.port
         if host in ("localhost", "127.0.0.1", "::1"):
             clean_host = host
         else:
             try:
-                import ipaddress
-
                 ip = ipaddress.ip_address(host)
-                clean_host = "<internal-ip>" if (ip.is_private or ip.is_loopback) else host
+                clean_host = host if ip.is_loopback or ip.is_global else "internal-ip"
             except ValueError:
                 clean_host = host
 
-        clean_netloc = f"{clean_host}{port}"
-        return parsed._replace(netloc=clean_netloc).geturl()
-    except ValueError, TypeError, AttributeError:
+        clean_url = httpx2.URL(
+            scheme=parsed.scheme or "http",
+            host=clean_host,
+            port=port,
+            path=parsed.path or "",
+            query=parsed.query.encode("utf-8") if parsed.query else None,
+            fragment=parsed.fragment or None,
+        )
+        return str(clean_url)
+    except ValueError, TypeError, AttributeError, httpx2.InvalidURL:
         return "<internal-endpoint>"
 
 
