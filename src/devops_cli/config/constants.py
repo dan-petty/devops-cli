@@ -3852,3 +3852,7 @@ CONST_SQLITE_PER_CONNECTION_DATABASES: Final[frozenset[str]] = frozenset({":memo
 # Ruff rule codes and process return object attributes inspected by the ratchet (#1347).
 CONST_SWALLOWED_FAILURES_RUFF_RULES: Final[tuple[str, ...]] = ("BLE001", "S110", "S112")
 CONST_SWALLOWED_FAILURES_CHECK_ATTRS: Final[tuple[str, ...]] = ("returncode", "stdout", "stderr")
+
+# ── Review Evidence (Ruff & Mypy) ─────────────────────────────────────────────
+CONST_DEFAULT_REVIEW_ADVISORY_RULES: Final[tuple[str, ...]] = ("BLE001",)
+CONST_COMPLEXITY_SOURCE: Final[str] = "mccabe (ruff C901)"

@@ -100,6 +100,7 @@ from devops_cli.config.commands import (
     BIN_TRIVY,
 )
 from devops_cli.config.constants import (
+    CONST_DEFAULT_REVIEW_ADVISORY_RULES,
     CONST_DEPENDENCY_SEVERITY_CLEAN,
     CONST_DEPENDENCY_VULNERABLE_SEVERITIES,
     CONST_MAX_FILE_SIZE_BYTES,
@@ -123,6 +124,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_LOCATION_CONTEXT_LINES,
+    DEFAULT_MAX_COMPLEXITY,
     DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS,
     DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
     DEFAULT_REVIEW_RETRY_ATTEMPTS,
@@ -1367,6 +1369,8 @@ def _resolve_single_tool_state(state: str, reason: str | None) -> str:
         return reason
     if reason == "canary failed":
         return "canary failed"
+    if state == "coverage_gap" or (reason and "uv.lock hash does not match" in str(reason)):
+        return f"coverage gap ({reason})" if reason else "coverage gap"
     if state == ANALYZER_FAILED:
         return f"failed({reason})" if reason else "failed"
     if state == ANALYZER_NOT_INSTALLED:
@@ -2319,6 +2323,71 @@ def _audit_single_dep(
     return vulns
 
 
+def _parse_review_toml_advisory_and_complexity(
+    parsed_cfg: dict[str, Any],
+) -> tuple[list[str], int, int | None]:
+    """Extract advisory rules, complexity cap and max increase from review.toml dict (#873)."""
+    rules = list(CONST_DEFAULT_REVIEW_ADVISORY_RULES)
+    cap = DEFAULT_MAX_COMPLEXITY
+    max_inc = None
+
+    if "advisory" in parsed_cfg and isinstance(parsed_cfg["advisory"], dict):
+        cfg_rules = parsed_cfg["advisory"].get("rules")
+        if isinstance(cfg_rules, list):
+            rules = [str(r).strip() for r in cfg_rules if str(r).strip()]
+    elif "advisory_rules" in parsed_cfg and isinstance(parsed_cfg["advisory_rules"], list):
+        rules = [str(r).strip() for r in parsed_cfg["advisory_rules"] if str(r).strip()]
+
+    if "complexity" in parsed_cfg and isinstance(parsed_cfg["complexity"], dict):
+        c_cap = parsed_cfg["complexity"].get("max_complexity", parsed_cfg["complexity"].get("cap"))
+        if isinstance(c_cap, int):
+            cap = c_cap
+        c_inc = parsed_cfg["complexity"].get("max_increase")
+        if isinstance(c_inc, int):
+            max_inc = c_inc
+
+    return rules, cap, max_inc
+
+
+def _evaluate_session_complexity_deltas(
+    python_paths: Sequence[Path],
+    target_dir: Path,
+    base_revision: Any,
+    cap: int,
+    max_increase: int | None,
+) -> tuple[list[dict[str, Any]], list[Finding]]:
+    """Compute complexity deltas and findings across reviewed python files (#873)."""
+    if not python_paths:
+        return [], []
+    from devops_cli.security.complexity import compute_complexity_deltas
+
+    base_files: dict[str, str] = {}
+    head_files: dict[str, str] = {}
+    wt = reviewed_tree(target_dir)
+    for py_p in python_paths:
+        try:
+            rel_p = py_p.relative_to(wt).as_posix()
+        except ValueError, RuntimeError:
+            rel_p = py_p.name
+        try:
+            head_files[rel_p] = py_p.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            logger.debug("Failed reading head file %s: %s", rel_p, exc)
+        if base_revision is not None and getattr(base_revision, "read", None):
+            try:
+                base_content = base_revision.read(rel_p)
+                if base_content is not None:
+                    base_files[rel_p] = base_content
+            except (OSError, KeyError, ValueError, RuntimeError) as exc:
+                logger.debug("Failed reading base file %s: %s", rel_p, exc)
+    return compute_complexity_deltas(
+        base_files,
+        head_files,
+        cap=cap,
+        max_increase=max_increase,
+    )
+
+
 class ReviewPipelineOrchestrator:
     """Orchestrates 6-stage multi-agent code reviews with per-file payloads and AI scratchpads."""
 
@@ -2390,6 +2459,10 @@ class ReviewPipelineOrchestrator:
         self.admitted_scanner_findings: list[Any] = []
         self.base_fingerprints: set[str] = set()
         self.suppressions: list[Any] = []
+        self.complexity_deltas: list[dict[str, Any]] = []
+        self.advisory_rules: list[str] = list(CONST_DEFAULT_REVIEW_ADVISORY_RULES)
+        self.complexity_cap: int = DEFAULT_MAX_COMPLEXITY
+        self.complexity_max_increase: int | None = None
         try:
             import tomllib
 
@@ -2398,7 +2471,11 @@ class ReviewPipelineOrchestrator:
 
             cfg_text = _read_config_content(base_revision, repo_root)
             if cfg_text:
-                self.suppressions = load_review_suppressions(tomllib.loads(cfg_text))
+                parsed_cfg = tomllib.loads(cfg_text)
+                self.suppressions = load_review_suppressions(parsed_cfg)
+                self.advisory_rules, self.complexity_cap, self.complexity_max_increase = (
+                    _parse_review_toml_advisory_and_complexity(parsed_cfg)
+                )
         except Exception:
             self.suppressions = []
         self._conventions_by_dir: dict[Path, str] = {}
@@ -2678,6 +2755,83 @@ class ReviewPipelineOrchestrator:
             logger.debug("Static security scanning failed or skipped: %s", exc)
 
         return static_findings_by_file
+
+    def _run_review_evidence(
+        self,
+        file_paths: list[str],
+        added_diff_lines: set[tuple[str, int]] | None = None,
+    ) -> dict[str, list[SavedFinding]]:
+        """Run Ruff, mypy, and C901 complexity evidence with project settings (#873)."""
+        evidence_findings_by_file: dict[str, list[SavedFinding]] = {}
+        all_evidence: list[SavedFinding] = []
+        try:
+            from devops_cli.core.repo import main_worktree_root
+            from devops_cli.security.mypy import run_mypy_scan
+            from devops_cli.security.ruff import run_ruff_scan
+
+            py_paths = [
+                self._resolve_file_path(f)
+                for f in file_paths
+                if f.endswith(".py") and self._resolve_file_path(f).is_file()
+            ]
+            if not py_paths:
+                return evidence_findings_by_file
+
+            checkout_root = main_worktree_root(self.target_dir) if self.target_dir else None
+            is_branch_pr = self.subject.get("type") in ("branch", "pr")
+            hunks = getattr(self, "diff_hunks", None)
+            ruff_res = run_ruff_scan(
+                py_paths,
+                advisory_rules=self.advisory_rules,
+                diff_hunks=hunks,
+                is_branch_or_pr=is_branch_pr,
+                isolated=True,
+            )
+            all_evidence.extend(_wrap_static_findings(ruff_res.findings, tool="ruff"))
+
+            mypy_res = run_mypy_scan(
+                py_paths,
+                tree=reviewed_tree(self.target_dir),
+                checkout_root=checkout_root,
+            )
+            all_evidence.extend(_wrap_static_findings(mypy_res.findings, tool="mypy"))
+
+            deltas, c901_findings = _evaluate_session_complexity_deltas(
+                py_paths,
+                self.target_dir,
+                self.base_revision,
+                self.complexity_cap,
+                self.complexity_max_increase,
+            )
+            self.complexity_deltas = deltas
+            if c901_findings:
+                all_evidence.extend(_wrap_static_findings(c901_findings, tool="c901"))
+
+            eff_added = (
+                added_diff_lines
+                if added_diff_lines is not None
+                else getattr(self, "added_diff_lines", None)
+            )
+            rejections: dict[str, int] = {}
+            admitted_frozen, admitted_saved = _admit_scanner_findings(
+                all_evidence,
+                session_id=self.session_id,
+                worktree_root=reviewed_tree(self.target_dir),
+                file_paths=file_paths,
+                secret_scan_files=self.secret_scan_files,
+                resolve_file_path=self._resolve_file_path,
+                path_classes=self.path_classes,
+                suppressions=getattr(self, "suppressions", None),
+                added_diff_lines=eff_added,
+                base_fingerprints=getattr(self, "base_fingerprints", None),
+                rejection_counts=rejections,
+            )
+            self.admitted_scanner_findings.extend(admitted_frozen)
+            evidence_findings_by_file = _match_static_findings_to_files(admitted_saved, file_paths)
+        except (OSError, RuntimeError, ValueError) as exc:
+            logger.debug("Review evidence scanning failed: %s", exc)
+
+        return evidence_findings_by_file
 
     def _record_static_analyzers(
         self,
@@ -3096,6 +3250,17 @@ class ReviewPipelineOrchestrator:
             pages,
             diff_text_by_file,
         )
+        from devops_cli.ai.review.chunker import extract_file_diff_hunks
+
+        if pages:
+            self.diff_hunks = extract_file_diff_hunks(pages)
+        elif diff_text_by_file:
+            self.diff_hunks = extract_file_diff_hunks(diff_text_by_file.values())
+        else:
+            self.diff_hunks = {}
+        if not self.diff_hunks and self.added_diff_lines:
+            for p, line in self.added_diff_lines:
+                self.diff_hunks.setdefault(p, []).append((line, line))
 
         n_paths = len(file_paths)
         with trace_span("review.init_payloads", attributes={"file_count": n_paths}):
@@ -3116,6 +3281,12 @@ class ReviewPipelineOrchestrator:
                 static_findings_by_file = self._run_static_scanners(
                     file_paths, added_diff_lines=self.added_diff_lines
                 )
+
+            evidence_findings_by_file = self._run_review_evidence(
+                file_paths, added_diff_lines=self.added_diff_lines
+            )
+            for f_path, f_items in evidence_findings_by_file.items():
+                static_findings_by_file.setdefault(f_path, []).extend(f_items)
 
             # Parse dependencies and network references across target files
             raw_file_data, unique_deps, unique_nets = (
@@ -4270,6 +4441,7 @@ class ReviewPipelineOrchestrator:
         lines.extend(self._build_introduced_findings_section(reportable_findings))
         lines.extend(self._build_preexisting_findings_section(reportable_findings))
         lines.extend(self._build_suppressed_findings_section(all_findings or reportable_findings))
+        lines.extend(self._build_complexity_section())
         lines.extend(self._build_dependencies_table(all_deps))
         lines.extend(self._build_network_table(all_nets))
 
@@ -4409,6 +4581,23 @@ class ReviewPipelineOrchestrator:
             "## Suppressed Findings",
             "| Severity | Location | Reason | Expiry | Suppressed By |",
             "|---|---|---|---|---|",
+            *rows,
+            "",
+        ]
+
+    def _build_complexity_section(self) -> list[str]:
+        """Render before/after Complexity table for changed functions in review.md (#873)."""
+        deltas = getattr(self, "complexity_deltas", [])
+        if not deltas:
+            return []
+        rows = [
+            f"| `{d['file']}` | `{d['function']}` | {d['before'] if d['before'] is not None else '—'} | {d['after'] if d['after'] is not None else '—'} |"
+            for d in deltas
+        ]
+        return [
+            "## Complexity",
+            "| File | Function | Before | After |",
+            "|---|---|---|---|",
             *rows,
             "",
         ]
@@ -4869,6 +5058,7 @@ class ReviewPipelineOrchestrator:
             network_references=all_nets,
             removed_symbol_findings_count=removed_count,
             symbol_delta_summary=symbol_delta,
+            complexity_delta=getattr(self, "complexity_deltas", []),
         )
 
         assert_verdict_invariants(all_findings)
