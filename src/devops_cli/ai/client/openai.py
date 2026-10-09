@@ -15,11 +15,15 @@ from devops_cli.ai.client.models import (
     is_reasoning_model,
     provider_finish_reason,
 )
-from devops_cli.ai.client.network import reply_schema, request_limited_json, stream_served_by
+from devops_cli.ai.client.network import (
+    extract_served_by,
+    reply_schema,
+    request_limited_json,
+    stream_served_by,
+)
 from devops_cli.ai.client.streaming import _openai_stream_frame, _read_event_stream
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
-    CONST_AI_GATEWAY_SERVED_BY_HEADER,
     CONST_OPENAI_FINISH_REASONS,
     CONST_URL_GITHUB_COPILOT_API_BASE,
     CONST_URL_OPENAI_API_BASE,
@@ -190,7 +194,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                 timeout=self._request_timeout(),
             )
             wall_elapsed = time.monotonic() - start_time
-            served_by = reply_headers.get(CONST_AI_GATEWAY_SERVED_BY_HEADER)
+            served_by = extract_served_by(reply_headers)
             return self._parse_compat_response(raw_json, wall_elapsed, served_by)
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
@@ -220,7 +224,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                 if response.status_code >= 400:
                     response.read()
                 response.raise_for_status()
-                stream_served_by.set(response.headers.get(CONST_AI_GATEWAY_SERVED_BY_HEADER))
+                stream_served_by.set(extract_served_by(response.headers))
                 yield from _read_event_stream(response, _openai_stream_frame, "Provider")
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc

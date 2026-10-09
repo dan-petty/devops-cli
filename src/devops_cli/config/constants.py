@@ -3811,6 +3811,15 @@ CONST_CODE_EXEMPTION_RECEIVERS: Final[frozenset[str]] = frozenset(
     }
 )
 
+# No library finds arbitrary URLs embedded inside prose. linkify-it-py 2.2.0
+# misses non-http schemes (mysql://, postgres://) and fails on passwords with '@'.
+# Candidate URLs are located by RFC 3986 scheme grammar capped at 32 chars and
+# parsed strictly via urllib.parse.urlsplit.
+CONST_URL_CANDIDATE_RE: Final[re.Pattern[str]] = re.compile(
+    r"[A-Za-z][A-Za-z0-9+.-]{0,31}://(?:(?![A-Za-z][A-Za-z0-9+.-]{0,31}://)\S)*"
+)
+
+
 # ── HTTP Retryable Status Codes ──────────────────────────────────────────────
 # Transient HTTP status codes indicating retryable server, gateway, or rate limit conditions.
 CONST_RETRYABLE_HTTP_STATUS_CODES: Final[tuple[int, ...]] = (

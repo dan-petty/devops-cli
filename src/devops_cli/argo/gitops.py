@@ -31,7 +31,7 @@ from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.http.validation import validate_service_url
 from devops_cli.k8s.credentials import get_or_mint_argocd_token
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
-from devops_cli.security.sanitizer import mask_secrets, mask_uri_credentials
+from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import trace_span
 
@@ -396,7 +396,7 @@ def trigger_argocd_sync(
             )
         except Exception as exc:
             duration = round(time.monotonic() - start, 3)
-            sanitized_error = mask_secrets(mask_uri_credentials(str(exc)))[:256]
+            sanitized_error = mask_secrets(str(exc))[:256]
             GLOBAL_METRICS.increment_counter(
                 "devops_cli_argo_gitops_sync_total",
                 value=1.0,

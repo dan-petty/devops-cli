@@ -110,7 +110,7 @@ class ModelGatewayUnreachableError(LLMInferenceError):
     def __init__(self, gateway: str, cause: Exception, *, consequence: str) -> None:
         from devops_cli.security.sanitizer import mask_secrets, mask_uri_credentials
 
-        safe_gateway = mask_uri_credentials(str(gateway))
+        safe_gateway = mask_uri_credentials(gateway)
         safe_cause = mask_secrets(str(cause)[:200])
         super().__init__(
             f"The model gateway {safe_gateway} did not answer ({type(cause).__name__}: "
