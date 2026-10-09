@@ -6,6 +6,8 @@
 **Priority**: priority/p1-high
 **Scope**: type/bug, scope/release, priority/p1-high
 
+> **Superseded in part by #1514.** An admitted fix descopes an item only once it takes the cut release over its limit, `release_cap + release_slots`, not its cap. `test_a_fix_that_takes_a_cut_release_over_its_cap_descopes_its_lowest_ranked_unstarted_item` is now `test_a_fix_that_takes_a_cut_release_over_its_limit_descopes_its_lowest_ranked_unstarted_item`.
+
 ## Description
 
 On 2026-10-07 `devops roadmap reprioritize` moved #1290, a P0 fix for a regression v0.2.28 itself introduced, out of cut v0.2.28 with "v0.2.28 is cut, so nothing joins it until its release pull request is closed; a critical fix goes first into the next release". One row did it: `(CUT, FIX_JOINED) -> TO_NEXT`. Intake asks the same table, so it placed such a fix in the next release too. The owner wants the release branch to hold every change before the release pull request merges.

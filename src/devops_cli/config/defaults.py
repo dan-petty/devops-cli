@@ -822,6 +822,9 @@ DEFAULT_GH_PROJECT_ITEMS_PER_ISSUE: int = 20
 DEFAULT_ROADMAP_STALL_CHECK_HOURS: int = 24
 # `.github/roadmap.toml` keys a repository may leave out. `board` has no default.
 DEFAULT_ROADMAP_RELEASE_CAP: int = 12
+# Items a release holds above its cap before a start trims it or a joining critical fix
+# descopes one (#1514).
+DEFAULT_ROADMAP_RELEASE_SLOTS: int = 4
 DEFAULT_ROADMAP_REFINE_LIMIT: int = 3
 # The most candidates one Service round of intake decides, one model call each (#1360).
 DEFAULT_ROADMAP_INTAKE_LIMIT: int = 5

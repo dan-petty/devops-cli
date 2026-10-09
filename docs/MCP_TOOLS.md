@@ -119,7 +119,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`roadmap_migrate`](#roadmap-migrate) | Preview the one-time move of the roadmap's source to GitHub: its plan and report.  It never writes. `mode="plan"`, the default, reads GitHub and ends with the GraphQL points spent and left; `mode="dry-run"` makes no request and returns the requests a run makes. A person reviews the plan and runs `devops roadmap migrate --confirm`. |
 | [`roadmap_refine`](#roadmap-refine) | Run a dry run of item refinement: returns the refinement plan without making any writes.  It never accepts a confirm argument, ensuring it is strictly read-only. When the model call fails for an item, the tool fails, and its error still carries the plan naming that item. |
 | [`roadmap_render`](#roadmap-render) | Render docs/ROADMAP.md from GitHub's issues, milestones and board.  `mode="plan"`, the default, reads GitHub and prints the file without writing it, ending with the GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a run makes; `mode="write"` writes the file. |
-| [`roadmap_reprioritize`](#roadmap-reprioritize) | Hold the current release to its admission rule, cap and stall window, and start the next release once it ships; prints each change with its reason.  `mode="plan"`, the default, previews: it reads GitHub, writes nothing, and ends with the GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a run makes; `mode="confirm"` makes the changes. |
+| [`roadmap_reprioritize`](#roadmap-reprioritize) | Hold the current release to its admission rule, size limit and stall window, and start the next release once it ships; prints each change with its reason.  `mode="plan"`, the default, previews: it reads GitHub, writes nothing, and ends with the GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a run makes; `mode="confirm"` makes the changes. |
 | [`roadmap_run`](#roadmap-run) | Report the roadmap jobs that are due: runs nothing and returns the due tuple. |
 | [`sandbox_deploy`](#sandbox-deploy) | Deploy an isolated workload container sandbox with security containment and port allocation. |
 | [`sandbox_exec`](#sandbox-exec) | Execute a command inside an active sandbox container. |
@@ -1448,8 +1448,8 @@ requests a run makes; `mode="write"` writes the file.
 
 ### `roadmap_reprioritize`
 
-Hold the current release to its admission rule, cap and stall window, and start the next
-release once it ships; prints each change with its reason.
+Hold the current release to its admission rule, size limit and stall window, and start
+the next release once it ships; prints each change with its reason.
 
 `mode="plan"`, the default, previews: it reads GitHub, writes nothing, and ends with the
 GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a

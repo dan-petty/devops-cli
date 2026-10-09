@@ -70,8 +70,16 @@ OPTIONS = {
     ItemField.EFFORT: ("Low", "Medium", "High"),
 }
 CAP = 3
+SLOTS = 1
+LIMIT = CAP + SLOTS
 STALL_DAYS = 14
-CONFIG = RoadmapConfig(board=1, release_cap=CAP, planning_horizon=2, stall_days=STALL_DAYS)
+CONFIG = RoadmapConfig(
+    board=1,
+    release_cap=CAP,
+    release_slots=SLOTS,
+    planning_horizon=2,
+    stall_days=STALL_DAYS,
+)
 REPO = "example/roadmap"
 START = datetime(2026, 10, 2, tzinfo=UTC)
 STARTED = frozenset({"In Progress", "In Review", "Done"})
@@ -102,8 +110,8 @@ INVARIANTS = MappingProxyType(
         ),
         "size": (
             "Current release: after the release starts, while its size is above the larger of "
-            "the cap and its size at start, every unstarted item in it is an admitted critical "
-            "fix or was placed by a person."
+            "its limit, the cap plus the slots, and its size at start, every unstarted item in "
+            "it is an admitted critical fix or was placed by a person."
         ),
         "cut": (
             "Cut: the start of a release a person cut before it pulls nothing in, and once the "
@@ -619,10 +627,10 @@ class RoadmapLifecycle(RuleBasedStateMachine):
     @initialize(
         target=items,
         held=st.lists(
-            st.sampled_from(("Ready", "In Progress", "New", "Blocked")), max_size=CAP + 1
+            st.sampled_from(("Ready", "In Progress", "New", "Blocked")), max_size=LIMIT + 1
         ),
         waiting=st.lists(st.sampled_from(("feature", "p0_feature")), max_size=2),
-        stops_at=st.integers(0, CAP + 2),
+        stops_at=st.integers(0, LIMIT + 2),
         shipped=st.sampled_from((None, None, False, True)),
     )
     def start(
@@ -906,7 +914,7 @@ class RoadmapLifecycle(RuleBasedStateMachine):
         assert (admitted, moved) == (held, []), INVARIANTS["first_run"]
 
     @invariant()
-    def size_beyond_the_cap_is_only_critical_fixes(self) -> None:
+    def size_beyond_the_limit_is_only_critical_fixes(self) -> None:
         """Checked after each run. A person setting an item's Status back to the value the job
         last set reads as the job's own change, which is no trigger (ADR 0002), so the job sees
         that item back in Ready at its next run, at the latest the next day's stall check."""
@@ -914,7 +922,7 @@ class RoadmapLifecycle(RuleBasedStateMachine):
         members = self.members(current)
         if self.last_run is None or self.started != current:
             return
-        if len(members) <= max(CAP, self.size_at_start):
+        if len(members) <= max(LIMIT, self.size_at_start):
             return
         assert all(
             item.status in STARTED
@@ -1442,17 +1450,17 @@ def test_a_release_whose_only_admitted_item_was_descoped_is_not_started_again() 
 
 
 def test_an_item_moved_back_to_ready_once_a_fix_filled_the_release_leaves_it() -> None:
-    """The reviewer's replay of the size: three started items, a fix joins with nothing to
-    descope, then a person moves one back to Ready. The release holds four, above both its cap
+    """The reviewer's replay of the size: four started items, a fix joins with nothing to
+    descope, then a person moves one back to Ready. The release holds five, above both its limit
     and its size at start, so the unstarted feature leaves for v1.0.1."""
     state = RoadmapLifecycle()
-    held = state.start(held=["In Progress"] * CAP, waiting=[]).values  # type: ignore[attr-defined]
+    held = state.start(held=["In Progress"] * LIMIT, waiting=[]).values  # type: ignore[attr-defined]
     replay(
         state,
         lambda: state.critical_fix_filed(kind="bug", status="Ready"),
         lambda: state.item_goes_back_to_ready(item=held[0]),
     )
-    assert (len(state.members(state.current())), state.view[held[0]].release) == (CAP, "v1.0.1")
+    assert (len(state.members(state.current())), state.view[held[0]].release) == (LIMIT, "v1.0.1")
 
 
 def test_a_merged_release_pull_request_locks_the_release_until_it_is_published() -> None:
@@ -1571,7 +1579,9 @@ def test_a_status_set_back_to_the_jobs_own_value_is_judged_at_the_next_run() -> 
     run follows, and the size invariant failed before the next one. The machine checks the size
     after each run; the next day's stall check descopes the item.
 
-    Hypothesis printed (seed 3, 300 examples of 40 steps, `PYTHONHASHSEED=33`): the steps below.
+    Hypothesis printed (seed 3, 300 examples of 40 steps, `PYTHONHASHSEED=33`): the steps below,
+    with one more critical fix before the item goes back to Ready, which keeps the release over
+    its limit, the cap plus its slot (#1514).
     """
     state = RoadmapLifecycle()
     started = state.start(
@@ -1588,6 +1598,7 @@ def test_a_status_set_back_to_the_jobs_own_value_is_judged_at_the_next_run() -> 
         lambda: state.cut(draft=False),
         lambda: state.uncut(),
         lambda: state.item_moves_on(change="In Progress", item=stalls),
+        lambda: state.critical_fix_filed(kind="bug", status="New"),
         lambda: state.critical_fix_filed(kind="bug", status="New"),
         lambda: state.item_goes_back_to_ready(item=stalls),
     )
@@ -2674,7 +2685,7 @@ def _a_cap_descope_announced_by_a_stopped_rerun(state: RoadmapLifecycle) -> int:
     """(b): a fix filed into the full release descopes a held feature, whose written mark
     fails; the rerun posts the comment and stops at its last write; a person puts the feature
     back the next day."""
-    *_, victim = state.start(held=["Ready"] * CAP, waiting=[]).values  # type: ignore[attr-defined]
+    *_, victim = state.start(held=["Ready"] * LIMIT, waiting=[]).values  # type: ignore[attr-defined]
     replay(
         state,
         lambda: state.next_run_stops(at=4, later=True),
@@ -2830,7 +2841,7 @@ def _before_a_top_up() -> RoadmapLifecycle:
 def _before_a_trim() -> RoadmapLifecycle:
     state = RoadmapLifecycle()
     state.start(held=["Ready"], waiting=[])
-    for n, kind in enumerate(("feature", "p0_feature", "feature", "feature", "feature")):
+    for n, kind in enumerate(("feature", "p0_feature", "feature", "feature", "feature", "feature")):
         state.file(f"next {n}", kind, "Ready", "v1.0.1")
     state.file("new", "feature", "New", "v1.0.1")
     state.file("blocked fix", "bug", "Blocked", "v1.0.1")
@@ -2846,9 +2857,9 @@ def _before_a_first_run_at_a_ship() -> RoadmapLifecycle:
 
 
 def _before_the_rules() -> RoadmapLifecycle:
-    """Admission of a feature, a P0 feature and a fix, the cap, Blocked, a stall and a nudge."""
+    """Admission of a feature, a P0 feature and a fix, the limit, Blocked, a stall and a nudge."""
     state = RoadmapLifecycle()
-    held = state.start(held=["Ready"] * CAP + ["In Progress", "In Review"], waiting=[]).values  # type: ignore[attr-defined]
+    held = state.start(held=["Ready"] * LIMIT + ["In Progress", "In Review"], waiting=[]).values  # type: ignore[attr-defined]
     state.now += timedelta(days=STALL_DAYS + 1)
     state.person.set_field(state.store.item(held[0]), ItemField.STATUS, "Blocked")  # type: ignore[arg-type]
     for title, kind in (("late feature", "feature"), ("p0 feature", "p0_feature"), ("fix", "bug")):
@@ -2899,10 +2910,14 @@ def _before_a_pulled_in_item_stalls() -> RoadmapLifecycle:
 
 
 def _before_a_pulled_in_item_makes_room() -> RoadmapLifecycle:
-    """The job pulled a feature into v1.0.1, which a person filled to its cap, and a critical
-    fix is filed into it: the feature, the newest of the lowest-ranked, makes room."""
+    """The job pulled a feature into v1.0.1, which a person filled to its cap and critical fixes
+    to its limit, and one more critical fix is filed into it: the feature, the newest of the
+    lowest-ranked, makes room."""
     state = RoadmapLifecycle()
     _pulled_in(state, next_items=CAP - 1)
+    for n in range(SLOTS):
+        state.file(f"fix {n}", "bug", "Ready", "v1.0.1")
+    state.poll()
     state.file("fix", "bug", "Ready", "v1.0.1")
     return state
 
@@ -3202,7 +3217,7 @@ def test_a_fix_readied_or_nudged_as_it_joins_whose_gh_calls_fail_ends_as_the_run
 def _a_cap_descope_then_a_cut(state: RoadmapLifecycle) -> int:
     """Seed 502: a fix filed into the full release descopes a held feature, whose milestone call
     lands and whose written mark fails; the release is cut before the rerun."""
-    *_, victim = state.start(held=["Ready"] * CAP, waiting=[]).values  # type: ignore[attr-defined]
+    *_, victim = state.start(held=["Ready"] * LIMIT, waiting=[]).values  # type: ignore[attr-defined]
     replay(
         state,
         lambda: state.next_run_stops(at=4, later=True),
@@ -3231,11 +3246,11 @@ def _a_lock_move_then_a_ship(state: RoadmapLifecycle) -> int:
 
 
 def _a_size_descope_then_a_reprioritization(state: RoadmapLifecycle) -> int:
-    """Seed 512: four fixes fill a release that started empty; a person makes the last one P1,
+    """Seed 512: five fixes fill a release that started empty; a person makes the last one P1,
     so the size descopes it, its milestone call lands and its written mark fails; the person
     makes it P0 again before the rerun."""
     state.start(held=[], waiting=[])
-    fixes = [state.critical_fix_filed(kind="bug", status="New") for _ in range(CAP + 1)]
+    fixes = [state.critical_fix_filed(kind="bug", status="New") for _ in range(LIMIT + 1)]
     replay(
         state,
         lambda: state.next_run_stops(at=4, later=True),

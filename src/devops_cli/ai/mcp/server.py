@@ -779,8 +779,8 @@ def roadmap_reprioritize(
     ref: str | None = None,
     mode: Literal["dry-run", "plan", "confirm"] = "plan",
 ) -> str:
-    """Hold the current release to its admission rule, cap and stall window, and start the next
-    release once it ships; prints each change with its reason.
+    """Hold the current release to its admission rule, size limit and stall window, and start
+    the next release once it ships; prints each change with its reason.
 
     `mode="plan"`, the default, previews: it reads GitHub, writes nothing, and ends with the
     GraphQL points spent and left. `mode="dry-run"` makes no request and returns the requests a

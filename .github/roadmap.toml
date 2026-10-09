@@ -33,5 +33,6 @@ release_item_target = 50
 release_cap = 16
 
 # Keys left out take these defaults:
+# release_slots = 4         # items a release holds above release_cap before a start trims it or a critical fix descopes one
 # discovery_threshold = 24  # backlog size below which discovery looks for candidates
 # stall_days = 14           # days without activity before an in-progress item stalls
