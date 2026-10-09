@@ -3847,3 +3847,8 @@ CONST_RETRYABLE_HTTP_STATUS_CODES: Final[tuple[int, ...]] = (
 # connection closes. Without `uri=True` no other name does that, so the set is complete. A store
 # that opens a connection per call loses every write to either.
 CONST_SQLITE_PER_CONNECTION_DATABASES: Final[frozenset[str]] = frozenset({":memory:", ""})
+
+# ── Swallowed Failures Ratchet Invariant ───────────────────────────────────────
+# Ruff rule codes and process return object attributes inspected by the ratchet (#1347).
+CONST_SWALLOWED_FAILURES_RUFF_RULES: Final[tuple[str, ...]] = ("BLE001", "S110", "S112")
+CONST_SWALLOWED_FAILURES_CHECK_ATTRS: Final[tuple[str, ...]] = ("returncode", "stdout", "stderr")
