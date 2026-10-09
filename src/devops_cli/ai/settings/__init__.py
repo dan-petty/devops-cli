@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from httpx import Timeout
 from pydantic_ai.agent import AgentModelSettings
 from pydantic_ai.settings import (
     ModelSettings,
@@ -31,7 +30,7 @@ def create_model_settings(
     temperature: float | None = None,
     top_p: float | None = None,
     max_tokens: int | None = None,
-    timeout: float | Timeout | None = None,
+    timeout: float | None = None,
     parallel_tool_calls: bool | None = None,
     tool_choice: ToolChoice | None = None,
     seed: int | None = None,
@@ -123,11 +122,13 @@ def normalize_tool_choice(choice: Any) -> ToolChoice | None:
 def resolve_runtime_model_settings(
     base: ModelSettings | None,
     overrides: ModelSettings | None = None,
+    *,
+    timeout: float | None = None,
     **kwargs: Any,
 ) -> ModelSettings:
     """Merge base and override ModelSettings with additional keyword parameters."""
     merged: ModelSettings = merge_model_settings(base, overrides) or {}
-    extra = create_model_settings(**kwargs)
+    extra = create_model_settings(timeout=timeout, **kwargs)
     if extra:
         return merge_model_settings(merged, extra) or merged
     return merged
@@ -139,7 +140,6 @@ __all__ = [
     "ServiceTier",
     "ThinkingEffort",
     "ThinkingLevel",
-    "Timeout",
     "ToolChoice",
     "ToolChoiceScalar",
     "ToolOrOutput",

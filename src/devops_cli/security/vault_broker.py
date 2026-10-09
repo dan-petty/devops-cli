@@ -39,6 +39,7 @@ from devops_cli.models.vault import (
     VaultSyncReport,
     VaultTokenSource,
 )
+from devops_cli.security.sanitizer import mask_uri_credentials
 from devops_cli.security.secrets import SecretRef, resolve_secret
 from devops_cli.security.vault_http import vault_request
 from devops_cli.telemetry import trace_span
@@ -342,7 +343,8 @@ class VaultSecretBroker:
     def get_status(self) -> VaultStatus:
         """Inspect Vault health. `sys/health` is unauthenticated, so no token is ever sent."""
         with trace_span(
-            "security.vault_broker.get_status", attributes={"vault_addr": self.vault_addr}
+            "security.vault_broker.get_status",
+            attributes={"vault_addr": mask_uri_credentials(self.vault_addr)},
         ):
             try:
                 response = vault_request(

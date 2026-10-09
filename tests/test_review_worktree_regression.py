@@ -83,7 +83,10 @@ def test_branch_review_worktree_isolation_regression(tmp_path: Path) -> None:
         base_rev="main",
         session_id=session_id,
     ) as rw:
-        assert rw.commit_worktree is not None
+        assert (
+            rw.commit_worktree is not None,
+            rw.commit_worktree.is_relative_to(tmp_path),
+        ) == (True, True)
         orchestrator = ReviewPipelineOrchestrator(
             session_id=session_id,
             target_dir=rw.commit_worktree,

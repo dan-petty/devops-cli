@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "bandit",
+          "informationUri": "https://github.com/dan-petty/devops-cli",
+          "rules": [
+            {
+              "id": "B602",
+              "name": "B602",
+              "shortDescription": {
+                "text": "subprocess call with shell=True"
+              },
+              "fullDescription": {
+                "text": "subprocess call with shell=True"
+              },
+              "help": {
+                "text": "subprocess call with shell=True"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "bandit"
+                ],
+                "security-severity": "7.5"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "B602",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "subprocess call with shell=True"
+          },
+          "partialFingerprints": {
+            "devopsCli/v2": "19227d34cc30f79e188a26626d20c75af663231c02d2a0e6a79476f3abb760d2"
+          },
+          "properties": {
+            "tool": "bandit",
+            "severity": "HIGH"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/app.py"
+                },
+                "region": {
+                  "startLine": 4
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "B602",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "subprocess call with shell=True"
+          },
+          "partialFingerprints": {
+            "devopsCli/v2": "22d8c3aa39d17d2f705b923594dff772493bfe6a04c4fbdca5fcf3f10a5455e2"
+          },
+          "properties": {
+            "tool": "bandit",
+            "severity": "HIGH"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "manifests/prometheus.yaml"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "Service/monitoring/prometheus"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tool": {
+        "driver": {
+          "name": "semgrep",
+          "informationUri": "https://github.com/dan-petty/devops-cli",
+          "rules": [
+            {
+              "id": "python.lang.security.deserialization",
+              "name": "python.lang.security.deserialization",
+              "shortDescription": {
+                "text": "Avoid using pickle"
+              },
+              "fullDescription": {
+                "text": "Avoid using pickle"
+              },
+              "help": {
+                "text": "Avoid using pickle"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "semgrep"
+                ],
+                "security-severity": "7.5"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "python.lang.security.deserialization",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "Avoid using pickle"
+          },
+          "partialFingerprints": {
+            "devopsCli/v2": "9a6565333c71882f8e028ee3fd8241570e070c48671b49bce17c7b9de6ce90c9"
+          },
+          "properties": {
+            "tool": "semgrep",
+            "severity": "HIGH"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/loader.py"
+                },
+                "region": {
+                  "startLine": 12
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tool": {
+        "driver": {
+          "name": "trivy",
+          "informationUri": "https://github.com/dan-petty/devops-cli",
+          "rules": [
+            {
+              "id": "CVE-2023-1234",
+              "name": "CVE-2023-1234",
+              "shortDescription": {
+                "text": "vulnerable package dependency"
+              },
+              "fullDescription": {
+                "text": "vulnerable package dependency"
+              },
+              "help": {
+                "text": "vulnerable package dependency"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "trivy"
+                ],
+                "security-severity": "9.5"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "CVE-2023-1234",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "vulnerable package dependency"
+          },
+          "partialFingerprints": {
+            "devopsCli/v2": "7b2e0b7673b70b6c45c65db5e5acc709930bb6243003372ed59757ba32e426ab"
+          },
+          "properties": {
+            "tool": "trivy",
+            "severity": "CRITICAL"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "package-lock.json"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

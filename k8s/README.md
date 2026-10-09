@@ -374,7 +374,7 @@ Teardown leaves the `prometheus-operator-crds` release's CRDs in the cluster. De
 Argo CD maintains the declared state of the homelab cluster directly from this repository. A two-level application topology decouples cluster bootstrap from leaf applications:
 
 1. **`bootstrap` (`k8s/argocd/bootstrap/bootstrap.yaml`)**: Tracks `main`. Syncs the root `cluster` Application.
-2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 20 leaf Applications (8 raw leaf applications and 12 multi-source Helm applications).
+2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 21 leaf Applications (8 raw leaf applications and 13 multi-source Helm applications).
 
 When the root `cluster` Application is present in the cluster, `devops k8s deploy-stack` delegates manifest and Helm reconciliation to Argo CD, and `devops k8s teardown-stack` refuses execution to prevent configuration drift.
 
@@ -400,11 +400,29 @@ These values exist only in the cluster and in `config.yaml`. Once `cluster` has 
 
 1. The Applications track `main` (`devops release check` holds them there), so a merge moves `main` forward and the host patches stay in place. Run `devops k8s deploy-stack --stack devops --argocd-revision release/vX.Y.Z` from a checkout of the release, right before merging, when the release changes `k8s/devops/configmap.example.yaml` (the ConfigMap follows only deploy-stack) or adds, removes, renames or reorders an Ingress or IngressRoute, or a host in one. If the release moved a host that `main` also renders, the Application shows the ComparisonError `testing value <pointer> failed` until the merge, and its live Ingresses stay as they were.
 2. Merge. Argo CD builds the release with the staged hosts.
-3. The `devops` Application pins roadmap-service and CronJob `devops-cli` to `service:vX.Y.Z`, which the Release Orchestration workflow published from `release/vX.Y.Z` before the merge. Each push to that branch, once it holds version X.Y.Z, builds, smoke-tests, scans, attests and tags the image when its inputs (`SERVICE_IMAGE_INPUTS` in `release.yml`) changed, and the release pull request shows the result as the **Build & Publish Service Image** check; merge only with it green. So Argo CD's sync after the merge pulls an image that exists, and roadmap-service, which uses the Recreate strategy, is down only while its pod restarts. Until the merge each such push replaces `service:vX.Y.Z`, so don't run that tag on the cluster before then: with `imagePullPolicy: IfNotPresent` a node keeps the image it pulled first. Once `main` holds the version, a branch run no longer moves the tag: it checks `main` again right before it tags and fails instead (only a merge in the seconds between that check and the tag slips past it), so a merge while the check runs ships the image without that push's change. The workflow's run on `main` points `latest` at the same image once its provenance from `release.yml` verifies. When the image was built from other inputs than `main`'s tree (`main` moved after the branch's last push, or a later push to `main` changed them), it warns and leaves the image alone; ship the difference in the next release. If no image has the tag, because the release merged over a failed check, that run builds it and roadmap-service is down until it is published; then run `kubectl -n devops rollout restart deploy/roadmap-service`.
-4. Check: `devops argo cd apps status devops` and `devops argo cd apps status ingress` are Synced and Healthy, `kubectl get ingress,ingressroute -A -o yaml | grep example.com` prints nothing, and `kubectl -n devops get configmap devops-cli-config -o yaml` holds the configured repositories and the release's template values (gateway URL, models, context windows).
+3. The Release Orchestration workflow publishes `service:vX.Y.Z` from `release/vX.Y.Z` before the merge. Each push to that branch, once it holds version X.Y.Z, builds, smoke-tests, scans, attests and tags the image when its inputs (`SERVICE_IMAGE_INPUTS` in `release.yml`) changed, and the release pull request shows the result as the **Build & Publish Service Image** check; merge only with it green. Until the merge each such push replaces `service:vX.Y.Z`, so don't run that tag on the cluster before then: with `imagePullPolicy: IfNotPresent` a node keeps the image it pulled first. Once `main` holds the version, a branch run no longer moves the tag: it checks `main` again right before it tags and fails instead (only a merge in the seconds between that check and the tag slips past it), so a merge while the check runs ships the image without that push's change. The workflow's run on `main` points `latest` at the same image once its provenance from `release.yml` verifies. When the image was built from other inputs than `main`'s tree (`main` moved after the branch's last push, or a later push to `main` changed them), it warns and leaves the image alone; ship the difference in the next release. If no image has the tag, because the release merged over a failed check, that run builds it and tags it `latest` too. Within one poll of `latest` moving, Image Updater puts the `devops` Application on its new digest ([Service Image Updates](#service-image-updates)), and roadmap-service, which uses the Recreate strategy, is down only while its pod restarts. Until then both workloads keep the previous release's digest, although `main` pins `service:vX.Y.Z`, so the sync after the merge never waits for an image that is not published yet.
+4. Check: `devops argo cd apps status devops` and `devops argo cd apps status ingress` are Synced and Healthy, ImageUpdater `devops` is Ready and the `devops` Application's `spec.source.kustomize.images` names the digest `service:latest` points at ([Service Image Updates](#service-image-updates)), `kubectl get ingress,ingressroute -A -o yaml | grep example.com` prints nothing, and `kubectl -n devops get configmap devops-cli-config -o yaml` holds the configured repositories and the release's template values (gateway URL, models, context windows).
 
 > [!NOTE]
 > `k8s/coredns/` remains managed outside Argo CD to preserve cluster DNS resolution during bootstrap and recovery cycles.
+
+### Service Image Updates
+
+Application `argocd-image-updater` runs [Argo CD Image Updater](https://argocd-image-updater.readthedocs.io/en/stable/) in namespace `argocd`, from the argo-helm chart pinned to a version like the other chart Applications. Its one ImageUpdater, `devops` in `k8s/argocd/image-updater-values.yaml`, keeps the `devops` Application on the digest `ghcr.io/dan-petty/devops-cli/service:latest` points at:
+
+- Every two minutes it reads that digest. When the Application runs another one, it writes `ghcr.io/dan-petty/devops-cli/service:latest@sha256:<digest>` into the Application's `spec.source.kustomize.images`, and Argo CD rolls roadmap-service and CronJob `devops-cli` onto it. That entry outranks the `newTag` pin in `k8s/devops/kustomization.yaml`.
+- It commits nothing to git. The `cluster` Application leaves `spec.source.kustomize` on `devops` alone, as it does for the host patches, and deploy-stack's merge patch replaces only `kustomize.patches`. If the `devops` Application is re-created, it renders the git pin until the next poll writes the digest again.
+- Both containers set `imagePullPolicy: IfNotPresent`, so a node pulls a digest once, and a registry outage does not block a restart onto an image the node holds.
+- It acts only on Argo CD Applications, so a native `devops k8s deploy-stack` installs no release of it: a cluster without Argo CD has no Application to update, and its devops stack runs the untagged image, `latest`.
+
+Read what it deployed:
+
+```bash
+kubectl -n argocd get imageupdater devops          # Ready, and when it last checked
+kubectl -n argocd get imageupdater devops -o jsonpath='{.status.recentUpdates}'
+kubectl -n argocd get application devops -o jsonpath='{.spec.source.kustomize.images}'
+kubectl -n argocd logs deploy/argocd-image-updater-controller --tail=50
+```
 
 ### Bootstrap & Adoption
 
@@ -545,7 +563,7 @@ k8s/
 │   ├── deployment.yaml       # Multi-replica non-root cloudflared deployment
 │   └── networkpolicy.yaml    # Network isolation for tunnel ingress and egress
 ├── devops/                   # In-cluster devops-cli runtime; not in the root kustomization
-│   ├── kustomization.yaml    # Its resources, and the service image's tag (`devops release prepare` sets it)
+│   ├── kustomization.yaml    # Its resources, and the service image's tag (`devops release prepare` sets it; Image Updater's digest on Application devops outranks it)
 │   ├── serviceaccount.yaml   # devops-cli service account without an API token
 │   ├── configmap.example.yaml # devops-cli config template: deploy-stack renders ConfigMap devops-cli-config from it and config.yaml
 │   ├── cronjob.yaml          # Suspended CronJob devops-cli, the template of every cluster job
@@ -564,10 +582,11 @@ k8s/
 ├── argocd/
 │   ├── kustomization.yaml    # Kustomize overlay for Argo CD
 │   ├── values.yaml           # Helm values for argo/argo-cd
+│   ├── image-updater-values.yaml # Helm values for argo/argocd-image-updater: the ImageUpdater for Application devops
 │   ├── bootstrap/            # Two-level bootstrap applications
 │   │   ├── bootstrap.yaml    # Root app tracking main, reconciles cluster app
 │   │   └── cluster.yaml      # Cluster app tracking release branch, reconciles projects & leaf apps
-│   └── apps/                 # AppProjects and 20 leaf Applications (8 raw + 12 Helm)
+│   └── apps/                 # AppProjects and 21 leaf Applications (8 raw + 13 Helm)
 │       └── projects.yaml     # AppProjects: homelab and homelab-system
 ├── overlays/
 │   └── homelab/              # Homelab overlays the Applications devops and ingress render; hosts stay under example.com

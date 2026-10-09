@@ -420,3 +420,78 @@ def test_a_status_check_with_no_state_file_creates_nothing(tmp_path: Path) -> No
     listed = PortForwardDaemonManager(state_file=state_file).list_forwards()
 
     assert (listed, state_file.parent.exists()) == ([], False)
+
+
+def test_default_state_file_resolves_under_data_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When state_file is omitted, PortForwardDaemonManager resolves under data.dir (#1036)."""
+    from devops_cli.config.settings import reset_settings_cache
+
+    custom_data = tmp_path / "k8s_data"
+    custom_data.mkdir()
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(custom_data))
+    reset_settings_cache()
+
+    mgr = PortForwardDaemonManager()
+    assert (
+        mgr.state_file.resolve().is_relative_to(custom_data.resolve()),
+        mgr.state_file.name,
+    ) == (True, "port_forwards.json")
+
+
+def test_forward_record_saved_at_repo_root_is_listed_from_subdirectory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A forward saved with cwd at repo root is listed from a subdirectory (#810, #1036)."""
+    from devops_cli.config.settings import reset_settings_cache
+
+    custom_data = tmp_path / "shared_data"
+    custom_data.mkdir()
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(custom_data))
+    reset_settings_cache()
+
+    mgr1 = PortForwardDaemonManager()
+    forward = PortForwardInfo(
+        pid=os.getpid(),
+        service="monitoring-prom",
+        namespace="monitoring",
+        local_port=9090,
+        remote_port=9090,
+        start_ticks=_own_start_ticks(),
+    )
+    with mgr1.locked():
+        mgr1.save_forwards([forward])
+
+    sub_dir = tmp_path / "sub"
+    sub_dir.mkdir()
+    monkeypatch.chdir(sub_dir)
+
+    mgr2 = PortForwardDaemonManager()
+    assert (
+        mgr1.state_file == mgr2.state_file,
+        len(mgr2.list_forwards()),
+        mgr2.list_forwards()[0].service,
+    ) == (True, 1, "monitoring-prom")
+
+
+def test_symlink_state_file_is_refused(tmp_path: Path) -> None:
+    """A symlink state file is ignored by _read and refused by save_forwards (#810)."""
+    target = tmp_path / "real_file.json"
+    target.write_text("[]", encoding="utf-8")
+    link = tmp_path / "link.json"
+    link.symlink_to(target)
+
+    mgr = PortForwardDaemonManager(state_file=link)
+    forward = PortForwardInfo(
+        pid=os.getpid(),
+        service="test-svc",
+        namespace="default",
+        local_port=8080,
+        remote_port=8080,
+        start_ticks=_own_start_ticks(),
+    )
+    with mgr.locked():
+        mgr.save_forwards([forward])
+
+    assert (mgr._read(), target.read_text(encoding="utf-8")) == ([], "[]")

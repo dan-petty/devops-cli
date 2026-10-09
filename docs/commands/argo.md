@@ -198,7 +198,7 @@ devops argo cd apps status [OPTIONS] <name>
 
 #### `devops argo cd apps bootstrap-gitops`
 
-**Bootstrap local GitOps project orchestration via ArgoCD and the Git daemon.**
+**Apply the GitOps root Application to bootstrap local project orchestration.**
 
 ```bash
 devops argo cd apps bootstrap-gitops [OPTIONS]

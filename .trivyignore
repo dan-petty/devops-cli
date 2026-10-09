@@ -1,2 +1,8 @@
 # Trivy vulnerability ignore file.
 # Pinned findings that cannot be remediated immediately must record a reason and expiration date (exp: YYYY-MM-DD).
+
+# gh v2.102.0 (Dockerfile), the newest GitHub CLI release, is built with Go 1.27.1. Both are Go
+# standard-library denial-of-service fixes in Go 1.27.2 (net/http and crypto/tls); gh is a client.
+# cli/cli moved to Go 1.27.2 on trunk on 2026-10-09; bump gh and drop these entries in #1492.
+CVE-2026-78667 exp:2026-10-23
+CVE-2026-97031 exp:2026-10-23

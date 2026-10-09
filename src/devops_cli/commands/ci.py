@@ -487,6 +487,13 @@ def get_check_specs() -> list[CheckSpec]:
             metric_step="outdated",
         ),
         CheckSpec(
+            name="deps",
+            display_title=MESSAGES.ci.deps,
+            cmd=["uv", "run", "deptry", "src"],
+            span_name="ci.step.deps",
+            metric_step="deps",
+        ),
+        CheckSpec(
             name="devcontainer",
             display_title=MESSAGES.ci.devcontainer_validation,
             cmd=["uv", "run", "devops", "devcontainer", "validate", "--workspace", "."],
@@ -1688,6 +1695,23 @@ def devcontainer(
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     spec = get_check_spec("devcontainer")
+    if not _run(spec.cmd):
+        raise typer.Exit(1)
+
+
+@app.command()
+def deps(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Validate dependency hygiene and imports via deptry."""
+    if dry_run:
+        set_dry_run(True)
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    spec = get_check_spec("deps")
     if not _run(spec.cmd):
         raise typer.Exit(1)
 

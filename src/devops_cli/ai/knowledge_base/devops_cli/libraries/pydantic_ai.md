@@ -78,11 +78,11 @@ agent = PydanticAgent(
 
 ### MCP Client Sampling & Custom TLS Configuration
 ```python
-import httpx
+import httpx2
 from devops_cli.ai.agents import PydanticAgent, MCPToolset
 
 # Custom HTTP client with homelab TLS certificates
-http_client = httpx.AsyncClient(timeout=httpx.Timeout(15.0))
+http_client = httpx2.AsyncClient(timeout=httpx2.Timeout(15.0))
 
 async with MCPToolset(
     url="http://localhost:8000/sse",

@@ -145,6 +145,7 @@ class WorkloadSandboxRunner:
 
     def build_dry_run_details(self) -> dict[str, Any]:
         """Construct structured summary for dry-run inspection."""
+        ws_resolved = self._validate_workspace_dir()
         user_str = (
             f"{os.getuid()}:{os.getgid()}"
             if self.config.rootless and hasattr(os, "getuid")
@@ -153,7 +154,7 @@ class WorkloadSandboxRunner:
         return {
             "image": self.config.image,
             "command": self.config.command,
-            "workspace_dir": str(self.config.workspace_dir.resolve()),
+            "workspace_dir": str(ws_resolved),
             "read_only": self.config.read_only,
             "memory_limit": self.config.memory_limit,
             "cpu_limit": self.config.cpu_limit,

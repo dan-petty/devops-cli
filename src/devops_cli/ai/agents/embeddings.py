@@ -6,7 +6,10 @@ import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from pydantic_ai.embeddings.openai import OpenAIEmbeddingModel
 
 from pydantic import BaseModel
 from pydantic_ai.embeddings import (
@@ -21,7 +24,6 @@ from pydantic_ai.embeddings import (
 from pydantic_ai.embeddings import (
     EmbeddingResult as PydanticEmbeddingResult,
 )
-from pydantic_ai.embeddings.openai import OpenAIEmbeddingModel
 from pydantic_ai.usage import RequestUsage
 
 from devops_cli.config.defaults import (
@@ -309,6 +311,14 @@ class Embedder(PydanticEmbedder):
         **kwargs: Any,
     ) -> EmbeddingResult:
         return self._run_sync(super().embed_sync, inputs, input_type=input_type, **kwargs)
+
+
+def __getattr__(name: str) -> Any:
+    if name == "OpenAIEmbeddingModel":
+        from pydantic_ai.embeddings.openai import OpenAIEmbeddingModel
+
+        return OpenAIEmbeddingModel
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [

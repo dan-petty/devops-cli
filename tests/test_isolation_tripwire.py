@@ -15,14 +15,19 @@ from tests.conftest import (
     _check_forbidden_test_paths,
     _check_test_paths_isolated,
     _check_tracked_diff,
+    _check_worker_home_leaks,
     _evaluate_workspace_tripwire,
+    _find_location_leaks,
     _get_git_tracked_files,
     _is_xdist_worker,
     _snapshot_tracked_files,
+    _worker_home_locations,
     pytest_sessionfinish,
     pytest_sessionstart,
     pytest_terminal_summary,
 )
+
+pytest_plugins = ("pytester",)
 
 
 def test_is_xdist_worker_detection() -> None:
@@ -250,3 +255,78 @@ def test_terminal_summary_reporting() -> None:
         reporter.section.called,
         reporter.write_line.called,
     ) == (True, True)
+
+
+def test_worker_home_locations_and_leaks(tmp_path: Path) -> None:
+    """Verify _worker_home_locations identifies key paths and _find_location_leaks detects leaks (#1311)."""
+    fake_home = tmp_path / "home"
+    locs = _worker_home_locations(fake_home)
+    assert locs == (
+        fake_home / ".config" / "devops-cli",
+        fake_home / ".local" / "share" / "devops-cli",
+        fake_home / ".ssh",
+        fake_home / ".local" / "bin",
+    )
+
+    # Empty location does not leak
+    cfg_dir = fake_home / ".config" / "devops-cli"
+    assert (
+        _find_location_leaks(cfg_dir),
+        _check_worker_home_leaks({"worker_homes": [fake_home]}),
+    ) == ([], [])
+
+    # Leaked file in config dir
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    leak_file = cfg_dir / "test.yaml"
+    leak_file.write_text("leak: true", encoding="utf-8")
+
+    # Leaked directory in ssh
+    ssh_dir = fake_home / ".ssh"
+    ssh_dir.mkdir(parents=True, exist_ok=True)
+
+    leaks = _check_worker_home_leaks({"worker_homes": [fake_home]})
+    assert (
+        f"{leak_file} (state left in worker home)" in leaks,
+        f"{ssh_dir} (state left in worker home)" in leaks,
+    ) == (True, True)
+
+
+def test_tripwire_fails_when_test_writes_under_const_config_dir(
+    pytester: pytest.Pytester,
+) -> None:
+    """A pytester test shows a test that writes under CONST_CONFIG_DIR failing the session with that path (#1311)."""
+    repo_root = Path(__file__).resolve().parent.parent
+    pytester.makeconftest(
+        "from tests.conftest import pytest_configure, pytest_sessionstart, pytest_sessionfinish, pytest_terminal_summary\n"
+    )
+    pytester.makepyfile(
+        """
+import pytest
+from devops_cli.config.constants import CONST_CONFIG_DIR
+
+def test_mutates_config_dir():
+    leak = CONST_CONFIG_DIR / "leaked_settings.yaml"
+    leak.parent.mkdir(parents=True, exist_ok=True)
+    leak.write_text("leaked: true\\n", encoding="utf-8")
+"""
+    )
+    res = pytester.runpytest_subprocess("-o", f"pythonpath={repo_root}")
+    stdout = res.stdout.str()
+    assert (
+        res.ret == pytest.ExitCode.TESTS_FAILED,
+        "TRIPWIRE FAILURE: Workspace mutated during test run" in stdout,
+        "leaked_settings.yaml" in stdout,
+    ) == (True, True, True)
+
+
+def test_tripwire_passes_when_no_leaks(
+    pytester: pytest.Pytester,
+) -> None:
+    """Verify tripwire succeeds when test creates no state in devops-cli locations (#1311)."""
+    repo_root = Path(__file__).resolve().parent.parent
+    pytester.makeconftest(
+        "from tests.conftest import pytest_configure, pytest_sessionstart, pytest_sessionfinish, pytest_terminal_summary\n"
+    )
+    pytester.makepyfile("def test_clean(): pass\n")
+    res = pytester.runpytest_subprocess("-o", f"pythonpath={repo_root}")
+    assert res.ret == pytest.ExitCode.OK

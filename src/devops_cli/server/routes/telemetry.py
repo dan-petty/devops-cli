@@ -18,11 +18,6 @@ _SERVICE_START_TIME = time.time()
 _REQUEST_COUNTER: dict[str, int] = {}
 
 
-def _sanitize_telemetry_endpoint(endpoint: str) -> str:
-    """Sanitize OTLP collector URL to prevent leaking internal network topology and credentials."""
-    return sanitize_telemetry_endpoint(endpoint)
-
-
 class TelemetryStatusResponse(BaseModel):
     """Telemetry status schema."""
 
@@ -45,7 +40,7 @@ async def get_telemetry() -> TelemetryStatusResponse:
     tracer = get_tracer()
     ok, _msg, latency = tracer.test_connection(timeout=0.5)
     safe_msg = "Connected successfully" if ok else "Collector probe failed or unreachable"
-    safe_endpoint = _sanitize_telemetry_endpoint(tracer.endpoint)
+    safe_endpoint = sanitize_telemetry_endpoint(tracer.endpoint)
     return TelemetryStatusResponse(
         enabled=tracer.enabled,
         endpoint=safe_endpoint,

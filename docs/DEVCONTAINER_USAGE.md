@@ -84,15 +84,6 @@ For existing repositories or custom setups, create `.devcontainer/devcontainer.j
     "UV_MALWARE_CHECK": "1",
     "UV_CACHE_DIR": "${containerWorkspaceFolder}/.uv"
   },
-  "forwardPorts": [
-    9418
-  ],
-  "portsAttributes": {
-    "9418": {
-      "label": "Git Daemon",
-      "onAutoForward": "ignore"
-    }
-  },
   "postCreateCommand": "uv sync",
   "postStartCommand": "uv run pre-commit install",
   "customizations": {

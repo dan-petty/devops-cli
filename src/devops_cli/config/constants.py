@@ -2129,16 +2129,6 @@ CONST_ARGO_WORKFLOW_TERMINAL_PHASES: Final[frozenset[str]] = (
 CONST_DOCKER_CPU_WARNING_PERCENT: Final[float] = 50.0
 CONST_DOCKER_CPU_CRITICAL_PERCENT: Final[float] = 80.0
 
-# Default rootful and rootless Docker daemon Unix domain socket endpoints. The
-# Engine API is spoken directly over these sockets, eliminating `docker` CLI churn.
-CONST_DOCKER_UNIX_SOCKET_PATH: Final[str] = "/var/run/docker.sock"
-CONST_DOCKER_UNIX_SOCKET_URL: Final[str] = "unix:///var/run/docker.sock"
-CONST_DOCKER_HOST_ENV_VAR: Final[str] = "DOCKER_HOST"
-
-# DOCKER_HOST schemes that address a network endpoint and therefore require SSRF
-# validation before the Engine API client is constructed. Closed, exhaustive set
-# defined by the Docker Engine daemon socket grammar (`dockerd -H`).
-CONST_DOCKER_NETWORK_HOST_SCHEMES: Final[tuple[str, ...]] = ("tcp://", "http://", "https://")
 # The scheme docker-py's `parse_host` gives a unix socket endpoint; its client then speaks over
 # the socket its `UnixHTTPAdapter` derives from that URL.
 CONST_DOCKER_UNIX_ADAPTER_SCHEME: Final[str] = "http+unix"
@@ -3043,7 +3033,7 @@ CONST_SARIF_LEVELS: Final[frozenset[str]] = frozenset(
 CONST_SARIF_SECURITY_SEVERITY_PROPERTY: Final[str] = "security-severity"
 # Fingerprint key. SARIF requires a versioned name so a later change to the scheme does
 # not silently re-open every previously suppressed result.
-CONST_SARIF_FINGERPRINT_KEY: Final[str] = "devopsCli/v1"
+CONST_SARIF_FINGERPRINT_KEY: Final[str] = "devopsCli/v2"
 
 # ── Security Finding Taxonomy ────────────────────────────────────────────────
 CONST_SEVERITY_CRITICAL: Final[str] = "CRITICAL"
@@ -3820,6 +3810,15 @@ CONST_CODE_EXEMPTION_RECEIVERS: Final[frozenset[str]] = frozenset(
         "session",
     }
 )
+
+# No library finds arbitrary URLs embedded inside prose. linkify-it-py 2.2.0
+# misses non-http schemes (mysql://, postgres://) and fails on passwords with '@'.
+# Candidate URLs are located by RFC 3986 scheme grammar capped at 32 chars and
+# parsed strictly via urllib.parse.urlsplit.
+CONST_URL_CANDIDATE_RE: Final[re.Pattern[str]] = re.compile(
+    r"[A-Za-z][A-Za-z0-9+.-]{0,31}://(?:(?![A-Za-z][A-Za-z0-9+.-]{0,31}://)\S)*"
+)
+
 
 # ── HTTP Retryable Status Codes ──────────────────────────────────────────────
 # Transient HTTP status codes indicating retryable server, gateway, or rate limit conditions.

@@ -1420,3 +1420,76 @@ def test_manifests_by_stack_files_exist() -> None:
         if not (path.exists() or (path.parent / f"{path.stem}.example{path.suffix}").exists())
     ]
     assert missing_manifests == []
+
+
+def _inspect_data_path_call(node: ast.Call, rel_path: str) -> str | None:
+    func = node.func
+    is_path = (isinstance(func, ast.Name) and func.id == "Path") or (
+        isinstance(func, ast.Attribute) and func.attr == "Path"
+    )
+    if not is_path:
+        return None
+    for arg in node.args:
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+            if arg.value == ".data" or arg.value.startswith((".data/", "./.data")):
+                return f'{rel_path}:{node.lineno}: Path("{arg.value}")'
+        if isinstance(arg, ast.Name) and arg.id == "DEFAULT_DATA_DIR":
+            return f"{rel_path}:{node.lineno}: Path(DEFAULT_DATA_DIR)"
+    return None
+
+
+def _inspect_data_path_binop(node: ast.BinOp, rel_path: str) -> str | None:
+    if isinstance(node.op, ast.Div) and isinstance(node.left, ast.Name):
+        if node.left.id == "DEFAULT_DATA_DIR":
+            return f"{rel_path}:{node.lineno}: DEFAULT_DATA_DIR / ..."
+    return None
+
+
+def _inspect_data_path_node(node: ast.AST, rel_posix: str) -> str | None:
+    if isinstance(node, ast.Call):
+        return _inspect_data_path_call(node, rel_posix)
+    if isinstance(node, ast.BinOp):
+        return _inspect_data_path_binop(node, rel_posix)
+    return None
+
+
+def _file_data_path_violations(py_file: Path, repo_root: Path) -> list[str]:
+    rel_posix = py_file.relative_to(repo_root).as_posix()
+    if rel_posix == "src/devops_cli/config/defaults.py":
+        return []
+    tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+    return [
+        violation
+        for node in ast.walk(tree)
+        if (violation := _inspect_data_path_node(node, rel_posix)) is not None
+    ]
+
+
+def test_no_direct_data_dir_path_construction_in_src() -> None:
+    """An invariant test fails on any Path built from a .data literal or from DEFAULT_DATA_DIR
+    in src/ outside config/defaults.py that does not go through the helper (#1036).
+    """
+    repo_root = Path(__file__).parent.parent
+    src_root = repo_root / "src"
+    violations = [
+        v
+        for py_file in sorted(src_root.rglob("*.py"))
+        for v in _file_data_path_violations(py_file, repo_root)
+    ]
+    assert violations == [], (
+        f"Found direct Path construction from .data literal or DEFAULT_DATA_DIR outside "
+        f"config/defaults.py: {violations}. Route through resolve_store_path instead (#1036)."
+    )
+
+
+def test_data_dir_invariant_detects_violations() -> None:
+    """Verify AST inspector correctly flags .data literals and DEFAULT_DATA_DIR construction."""
+    sample = ast.parse(
+        'p1 = Path(".data/k8s")\np2 = DEFAULT_DATA_DIR / "sub"\np3 = Path(DEFAULT_DATA_DIR)\n'
+    )
+    detected = [
+        violation
+        for node in ast.walk(sample)
+        if (violation := _inspect_data_path_node(node, "sample.py")) is not None
+    ]
+    assert len(detected) == 3

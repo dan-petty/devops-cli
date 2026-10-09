@@ -5,10 +5,7 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-try:
-    import httpx2 as httpx
-except ImportError:
-    import httpx  # type: ignore[no-redef]
+import httpx2
 
 from devops_cli.config.constants import CONST_HTTP_EGRESS_POLICY_EXTENSION
 from devops_cli.config.defaults import DEFAULT_HTTP_MAX_REDIRECTS, DEFAULT_HTTP_TIMEOUT_SECONDS
@@ -35,8 +32,8 @@ class HttpClientBroker:
         self.timeout = timeout
         self.enable_http2 = enable_http2
         self._lock = threading.Lock()
-        self._sync_clients: dict[EgressLevel, httpx.Client] = {}
-        self._async_clients: dict[EgressLevel, httpx.AsyncClient] = {}
+        self._sync_clients: dict[EgressLevel, httpx2.Client] = {}
+        self._async_clients: dict[EgressLevel, httpx2.AsyncClient] = {}
 
     def build_headers(self, headers: dict[str, str] | None = None) -> dict[str, str]:
         """Construct request headers with OpenTelemetry traceparent context propagation."""
@@ -45,7 +42,7 @@ class HttpClientBroker:
         return inject_traceparent_headers(base_headers)
 
     @staticmethod
-    def _validate_request(request: httpx.Request) -> None:
+    def _validate_request(request: httpx2.Request) -> None:
         """Veto the request and each redirect hop before it is sent.
 
         A request carrying its own egress policy is held to that policy, and every hop must be
@@ -59,7 +56,7 @@ class HttpClientBroker:
                 str(request.url)[:256], reason="Only http and https URLs may be requested"
             )
 
-    def new_client(self, level: EgressLevel) -> httpx.Client:
+    def new_client(self, level: EgressLevel) -> httpx2.Client:
         """Return a synchronous client of its own at `level`, which the caller closes.
 
         It follows the broker's redirect limit and vetoes each hop as the shared clients do, but
@@ -74,7 +71,7 @@ class HttpClientBroker:
             event_hooks={"request": [self._validate_request]},
         )
 
-    def get_client(self, level: EgressLevel) -> httpx.Client:
+    def get_client(self, level: EgressLevel) -> httpx2.Client:
         """Return the thread-safe shared synchronous client for `level`."""
         with self._lock:
             client = self._sync_clients.get(level)
@@ -82,11 +79,11 @@ class HttpClientBroker:
                 client = self._sync_clients[level] = self.new_client(level)
             return client
 
-    async def _async_validate_request(self, request: httpx.Request) -> None:
+    async def _async_validate_request(self, request: httpx2.Request) -> None:
         """Veto each async request and redirect hop; like the sync hook, it does no lookup."""
         self._validate_request(request)
 
-    async def get_async_client(self, level: EgressLevel) -> httpx.AsyncClient:
+    async def get_async_client(self, level: EgressLevel) -> httpx2.AsyncClient:
         """Return the shared asynchronous client for `level`."""
         with self._lock:
             client = self._async_clients.get(level)
@@ -110,7 +107,7 @@ class HttpClientBroker:
         headers: dict[str, str] | None = None,
         timeout: float | None = None,
         **kwargs: Any,
-    ) -> httpx.Response:
+    ) -> httpx2.Response:
         """Perform a synchronous HTTP request through the shared client for `level`."""
         client = self.get_client(level)
         req = client.build_request(
@@ -131,7 +128,7 @@ class HttpClientBroker:
         headers: dict[str, str] | None = None,
         timeout: float | None = None,
         **kwargs: Any,
-    ) -> httpx.Response:
+    ) -> httpx2.Response:
         """Perform an asynchronous HTTP request through the shared client for `level`."""
         client = await self.get_async_client(level)
         req = client.build_request(

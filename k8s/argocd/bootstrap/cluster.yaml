@@ -13,7 +13,9 @@ spec:
     server: https://kubernetes.default.svc
     namespace: argocd
   # `devops k8s deploy-stack` sets the homelab's hosts on these Applications as Kustomize
-  # overrides from config.yaml, so they never enter git; this app-of-apps leaves that field to it
+  # overrides from config.yaml, so they never enter git, and Argo CD Image Updater sets the
+  # Service image's digest on `devops` (k8s/argocd/image-updater-values.yaml); this app-of-apps
+  # leaves that field to them
   # (https://argo-cd.readthedocs.io/en/stable/operator-manual/cluster-bootstrapping/#ignoring-differences-in-child-applications).
   ignoreDifferences:
   - group: argoproj.io

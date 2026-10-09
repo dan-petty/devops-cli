@@ -37,20 +37,25 @@ class SSRFBlockedError(SecurityError):
         reason: str = CONST_MSG_SSRF_RESOLVES_PRIVATE,
         details: dict[str, Any] | None = None,
     ) -> None:
-        from urllib.parse import urlparse
+        import httpx2
 
-        parsed = urlparse(target_url)
-        safe_host = "<masked>" if parsed.hostname else "<invalid-target>"
-        port_str = f":{parsed.port}" if parsed.port else ""
-        scheme_str = f"{parsed.scheme}://" if parsed.scheme else ""
-        safe_url = f"{scheme_str}{safe_host}{port_str}{parsed.path or ''}"
-        msg = f"SSRF blocked: {safe_url} ({reason})"
-        clean_target = str(target_url)
-        if parsed.password or parsed.username:
-            netloc = parsed.netloc
-            if "@" in netloc:
-                _, _, host_part = netloc.partition("@")
-                clean_target = parsed._replace(netloc=f"<auth>@{host_part}").geturl()
+        from devops_cli.security.sanitizer import mask_uri_credentials
+
+        clean_target = mask_uri_credentials(target_url)
+        if clean_target == "<masked-url>":
+            msg = f"SSRF blocked: <masked-url> ({reason})"
+        else:
+            try:
+                parsed = httpx2.URL(clean_target)
+                scheme_str = f"{parsed.scheme}://" if parsed.scheme else ""
+                port_str = f":{parsed.port}" if parsed.port is not None else ""
+                path_str = parsed.path or ""
+                safe_url = f"{scheme_str}<masked>{port_str}{path_str}"
+                msg = f"SSRF blocked: {safe_url} ({reason})"
+            except httpx2.InvalidURL:
+                clean_target = "<masked-url>"
+                msg = f"SSRF blocked: <masked-url> ({reason})"
+
         bounded_target = clean_target[:256]
         bounded_reason = str(reason)[:256]
         err_details: dict[str, Any] = {"target_url": bounded_target, "reason": bounded_reason}
@@ -62,6 +67,7 @@ class SSRFBlockedError(SecurityError):
             error_code="SSRF_BLOCKED",
             details=err_details,
         )
+        self.details["target_url"] = bounded_target
 
 
 class KeyringUnavailableError(SecurityError):

@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.31] - 2026-10-09
+
+### Added
+- `deptry` quality gate step enforcing that `pyproject.toml` declares all directly imported dependencies and flags unused or transitive packages (#1120).
+- Argo CD Image Updater keeps the `devops` Application on the digest `ghcr.io/dan-petty/devops-cli/service:latest` points at. Application `argocd-image-updater` installs the argo-helm chart pinned to 1.3.1 in namespace `argocd`, and its one ImageUpdater (`k8s/argocd/image-updater-values.yaml`) writes `service:latest@sha256:<digest>` into the Application's `spec.source.kustomize.images` within one 2-minute poll of `latest` moving, with no git write-back. roadmap-service and CronJob `devops-cli` roll onto a release once `release.yml` points `latest` at it, and the `newTag` pin in `k8s/devops/kustomization.yaml` no longer decides the running image. `k8s/README.md` shows how to read the deployed digest (#1485).
+
+### Changed
+- Test worker startup latency and test collection time reduced by ~25% (saving 9.50s on 16 workers, and 11.27s on the full test run) by deferring heavy LLM and vector client SDK imports (`anthropic`, `google.genai`, `kubernetes`, `qdrant_client`, `openai`) across `devops_cli.ai` agents, models, and provider packages until first use (#1338).
+
+### Removed
+- `Timeout` re-export removed from `devops_cli.ai.settings` and `devops_cli.ai.agents`; `create_model_settings` and `resolve_runtime_model_settings` accept numeric seconds as `float | None` (#1120).
+- **Unauthenticated Git daemon service and port 9418**:
+  - Removed the background Git daemon service stub and its step from `devops devcontainer post-start`, eliminating unauthenticated serving of repository clones under `repos/` on port 9418 (#1122).
+  - Dropped `DEVOPS_GIT_DAEMON_AUTOSTART` and `DEVOPS_GIT_DAEMON_PATHS` configuration environment variables (#1122).
+  - Dropped port 9418 forwarding and attributes from `.devcontainer/devcontainer.json` and the devcontainer template, and removed port 9418 egress from Argo CD network policy (#1122).
+
+### Fixed
+- The durable-run store (`durable_runs.db`), Kubernetes port-forward daemon state file (`k8s/port_forwards.json`), and docs-ingestion directory now resolve their default paths through `resolve_store_path` under the repository data directory, respecting `DEVOPS_CLI_DATA_DIR` and `data.dir` settings instead of resolving relative to the working directory. An architectural invariant prevents direct `.data` path construction across `src/` (#1036).
+- Test consoles render CLI help at the conftest width (`COLUMNS=250`) in every environment by preventing Typer's GitHub Actions detection from forcing an 80-column terminal under `TERM=dumb`, eliminating width-dependent test discrepancies between local runs and GitHub Actions CI (#1041).
+- `devops docker push` now supports custom registry endpoints with port specifications (e.g. `localhost:5000/app:1.0`, `example.com:443/app:1.0`), delegating repository validation directly to docker-py and the daemon while safely escaping progress output (#1108).
+- Prevent credential leakage in `SSRFBlockedError` details by masking single target URLs before bounding string length, eliminating legacy string partitioning (#1109).
+- Ensure deduplication and correlation produce identical finding sets and cluster sequences regardless of input order across all permutations (#1141).
+- Enforce complete linkage in correlation clustering so findings only join when correlating against every cluster member, leaving 2 clusters for bridging-first chains (#1141).
+- Select cluster representatives and scalars deterministically using highest severity, narrowest parsed region span, and total finding key, sorting locations numerically (`a.py:9` before `a.py:10`) (#1141).
+- Tests touch no state outside temporary directories: each pytest worker process runs with an isolated home under pytest basetemp before devops-cli is first imported, with a git identity on `example.com` (#1311).
+- TLS test passes `--tls-dir`, user data root resolves through `DEVOPS_CLI_USER_DATA_ROOT` across `git/worktree.py`, `core/repo.py`, and `tools_lock`, and worktree tests assert paths stay under `tmp_path` (#1311).
+- The Ollama round-robin index lives under `DEVOPS_CLI_DATA_DIR` instead of the system temp directory, and `tempfile.gettempdir()` resolves under `tmp_path` for every test (#1311).
+- The floor's patches of `CONFIG_PATH` and `CONST_USER_DATA_ROOT` in `tests/conftest.py` are removed (#1311).
+- The session workspace tripwire verifies that worker homes leave no state at devops-cli's locations (`CONST_CONFIG_DIR`, `CONST_USER_DATA_ROOT`, `DEFAULT_SSH_KEY_DIR`, `DEFAULT_LOCAL_BIN_DIR`) and fails the session naming each leaked path (#1311).
+- `k8s/otel/networkpolicy.yaml` rule 4 now admits Traefik on TCP 8888, allowing the `otel-metrics-ingress` route to reach the OpenTelemetry collector through Traefik (#1371).
+- `devops k8s deploy-stack` now deploys both `argocd/networkpolicy.yaml` and `otel/networkpolicy.yaml` natively under the `infra` stack manifests, removing both exemptions from the undeployed network policy guard suite (#1371).
+- **Docker sandbox and test sandbox dry runs validate the workspace**:
+  - `devops docker sandbox --dry-run` and `devops test sandbox --dry-run` now validate the workspace directory via `WorkloadSandboxRunner.build_dry_run_details()`, refusing forbidden roots, home directories, socket directories, and sensitive paths with `DockerSandboxError` before executing any commands or container engine calls (#1383).
+  - Preserved request-free dry-run behavior for remote tcp engine hosts (`DOCKER_HOST`) without DNS egress lookups or container client dialing (#1383).
+
+### Security
+- **Finding fingerprint and run-store digest regression pins**:
+  - Pinned finding fingerprints (`NormalizedFinding.fingerprint`) across multiple scanners, symbols, and canonicalisation formats to literal 32-character SHA-256 hashes, ensuring algorithm changes cannot silently invalidate suppression policies (#855).
+  - Pinned `CONST_SARIF_FINGERPRINT_KEY` to `"devopsCli/v1"` with regression tests enforcing version bumps on any algorithm changes (#855).
+  - Added golden OASIS SARIF 2.1.0 report (`tests/golden/sarif_report.json`) validated against schema and asserted against SARIF emission output (#855).
+  - Pinned run-store content digests (`run_store.digest`) to literal 16-character SHA-256 hashes for primitive and nested payloads, preventing baseline key orphaning (#855).
+- The Docker daemon endpoint check now covers the exact endpoint the SDK dials, resolving endpoints in priority order across `DOCKER_HOST`, `DOCKER_CONTEXT`, `currentContext` in `config.json`, and the default socket. Uppercase schemes, bare address-and-port endpoints (e.g. `192.0.2.1:2375`), and Docker-context TCP endpoints are now validated against SSRF egress policies, requiring `ai.allow_private_network` for private network targets. Missing contexts now fail fast with an informative error instead of silently falling back to the default socket (#1108).
+- Standardize URL credential masking and redaction on library parsers (`urllib.parse` and `httpx2`), covering arbitrary schemes (`postgres://`, `redis://`, `mysql://`, `custom://`, `http://`, `https://`), passwords containing `@`, `#`, or `/`, and empty-username URLs (`redis://:pw@...`, `http://:secret@...`) while keeping IPv6 host brackets intact and preserving original `http://` schemes without rewriting (#1109).
+- Introduce the `<masked-url>` fail-closed placeholder for whole URLs that cannot be parsed safely or contain anomalous userinfo delimiters (#1109).
+- Sanitize OpenTelemetry collector endpoints via strict parsing and IP classification, masking private, CGNAT, link-local, and documentation IPs to the URL-safe `internal-ip` placeholder (#1109).
+- Strip userinfo credentials from gateway `served_by` headers (`x-litellm-model-api-base`) across both blocking and streaming LLM responses before storing into the spend ledger, event payloads, and trace span attributes (#1109).
+- Migrate `devops scan` and `NormalizedFinding` to Fingerprint v2 (`devopsCli/v2`), hashing tool, rule ID, repository-relative path, enclosing qualified symbol from AST, and a 100-character non-whitespace window starting from the flagged line, with occurrence indexing for collisions (#1141).
+- Identify region-less findings via SARIF `logicalLocations` (`kind/namespace/name[/container]` for Kubernetes resources, `purl@version` for dependency advisories) (#1141).
+- Dropped the `0.0.0.0/0` ingress peer from `k8s/argocd/networkpolicy.yaml` and `k8s/otel/networkpolicy.yaml`, admitting Traefik by its selector instead of world CIDRs that admitted every pod in the cluster under kube-router. Argo CD's API-server egress now admits TCP 6443 through an `ipBlock` peer with cloud metadata SSRF protection, allowing GitOps reconciliation against the Kubernetes API server (#1371).
+
 ## [0.2.30] - 2026-10-09
 
 ### Added

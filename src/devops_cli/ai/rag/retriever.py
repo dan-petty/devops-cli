@@ -7,13 +7,15 @@ import logging
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from devops_cli.ai.lexical import bm25_scores
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.rag.models import CodeChunk, RAGContext, SearchResult
-from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.ai.rag.reranker import SearchReranker
+
+if TYPE_CHECKING:
+    from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.config.defaults import (
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
@@ -527,3 +529,12 @@ class SemanticRetriever:
             category=category,
             rerank=True,
         )
+
+
+def __getattr__(name: str) -> Any:
+    if name == "QdrantClient":
+        from devops_cli.ai.rag.qdrant import QdrantClient
+
+        globals()["QdrantClient"] = QdrantClient
+        return QdrantClient
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -1,0 +1,23 @@
+# Helm values for argo/argocd-image-updater (Application argocd-image-updater, #1485).
+#
+# The ImageUpdater below is its only configuration. It ships with the chart, so it syncs with
+# its CRD and Argo CD skips its dry run until the CRD exists. It keeps Application devops on the
+# digest service:latest points at: with no writeBackConfig, Image Updater writes
+# `service:latest@sha256:<digest>` into the Application's spec.source.kustomize.images and
+# nothing into git. The cluster app-of-apps leaves that field alone
+# (k8s/argocd/bootstrap/cluster.yaml). The GHCR package is public, so no registry entry or
+# credential is needed.
+extraObjects:
+  - apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+    kind: ImageUpdater
+    metadata:
+      name: devops
+      namespace: argocd
+    spec:
+      applicationRefs:
+        - namePattern: devops
+          images:
+            - alias: service
+              imageName: ghcr.io/dan-petty/devops-cli/service:latest
+              commonUpdateSettings:
+                updateStrategy: digest

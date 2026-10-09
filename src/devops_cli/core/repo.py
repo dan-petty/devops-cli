@@ -291,6 +291,12 @@ def is_own_source_repository(start_path: Path | str | None = None) -> bool:
     return source == _repository_at(os.path.abspath(start_path or os.getcwd()))
 
 
+def user_data_root() -> Path:
+    """The user-level data root directory, honoring DEVOPS_CLI_USER_DATA_ROOT if set (#1311)."""
+    env_root = os.environ.get("DEVOPS_CLI_USER_DATA_ROOT")
+    return Path(env_root).resolve() if env_root else CONST_USER_DATA_ROOT
+
+
 def resolve_data_path(path: Path, start_path: Path | str | None = None) -> Path:
     """A configured data path: as given when absolute, else under the main worktree.
 
@@ -306,7 +312,7 @@ def resolve_data_path(path: Path, start_path: Path | str | None = None) -> Path:
     """
     if path.is_absolute():
         return path
-    base = CONST_USER_DATA_ROOT if reads_untrusted_trees() else main_worktree_root(start_path)
+    base = user_data_root() if reads_untrusted_trees() else main_worktree_root(start_path)
     return (base / path).resolve()
 
 
@@ -315,7 +321,7 @@ def review_data_root() -> Path:
     working directory is in devops-cli's own repository (`is_own_source_repository`), as every
     data path there does, else the user-level data root, where a review started anywhere else
     keeps it."""
-    return main_worktree_root() if is_own_source_repository() else CONST_USER_DATA_ROOT
+    return main_worktree_root() if is_own_source_repository() else user_data_root()
 
 
 def resolve_review_data_path(path: Path) -> Path:
@@ -328,6 +334,32 @@ def resolve_review_data_path(path: Path) -> Path:
     they resolve each there too, or a review's data would be in one place and theirs in another.
     """
     return path if path.is_absolute() else (review_data_root() / path).resolve()
+
+
+def resolve_store_path(
+    name: str | Path,
+    explicit: Path | str | None = None,
+    start_path: Path | str | None = None,
+) -> Path:
+    """Resolve a store's default path under the data directory, using an explicit path as given (#1036).
+
+    A path passed explicitly (`state_file=`, `output_dir=`, an absolute configured path) is used
+    as given. Otherwise, the store's name or relative path is joined with `data.dir` and resolved
+    under the repository or user data directory via `resolve_data_path`.
+    """
+    if explicit is not None:
+        return Path(explicit)
+
+    from devops_cli.config.settings import load_settings
+
+    try:
+        data_dir = load_settings().data.dir
+    except Exception:
+        from devops_cli.config.defaults import DEFAULT_DATA_DIR
+
+        data_dir = DEFAULT_DATA_DIR
+
+    return resolve_data_path(data_dir / name, start_path=start_path)
 
 
 def read_gitignore_patterns(repo_root: Path) -> list[str]:

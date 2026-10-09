@@ -42,7 +42,6 @@
   "containerEnv": {
     "DEVOPS_CLI_CONFIG": "${containerWorkspaceFolder}/config.yaml",
     "DEVOPS_K8S_AUTO_DEPLOY": "true",
-    "DEVOPS_GIT_DAEMON_AUTOSTART": "true",
     "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
     "GIT_CONFIG_COUNT": "4",
     "GIT_CONFIG_KEY_0": "credential.https://github.com.helper",
@@ -77,8 +76,7 @@
     8090,
     16686,
     6333,
-    11434,
-    9418
+    11434
   ],
   "portsAttributes": {
     "8080": {
@@ -103,20 +101,6 @@
     },
     "11434": {
       "label": "Ollama LLM Engine",
-      "onAutoForward": "ignore"
-    },
-    "9418": {
-      "label": "Git Daemon",
-      "onAutoForward": "ignore"
-    }
-  },
-  {% else %}
-  "forwardPorts": [
-    9418
-  ],
-  "portsAttributes": {
-    "9418": {
-      "label": "Git Daemon",
       "onAutoForward": "ignore"
     }
   },

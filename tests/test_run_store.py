@@ -8,6 +8,7 @@ index that can be rebuilt from the files, and every mechanism works without Valk
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -24,6 +25,7 @@ from devops_cli.ai.run_store import (
     INDEX_PREFIX,
     Mechanism,
     RunIndex,
+    digest,
     get_run,
     load_runs,
     new_run,
@@ -91,6 +93,24 @@ def valkey(monkeypatch: pytest.MonkeyPatch) -> FakeValkey:
     fake = FakeValkey()
     monkeypatch.setattr(RunIndex, "from_settings", classmethod(lambda cls: cls(fake)))  # type: ignore[arg-type]
     return fake
+
+
+def test_digest_pinned_to_literal_values() -> None:
+    """Fixed inputs map to literal 16-hex sha256 digests."""
+    d1 = {"a": 1, "b": "hello"}
+    d2 = {
+        "model": "qwen2.5-coder:7b",
+        "nested": {"count": 42, "items": [1, 2, 3]},
+        "temperature": 0.2,
+    }
+    assert (digest(d1), digest(d2)) == ("d84ab9f857534737", "d9c365f360f72c16")
+
+
+def test_digest_fails_when_json_options_differ() -> None:
+    """Changing json.dumps options (such as separators or sort_keys) changes the digest."""
+    d1 = {"a": 1, "b": "hello"}
+    default_sep = json.dumps(d1, sort_keys=True)
+    assert hashlib.sha256(default_sep.encode()).hexdigest()[:16] != digest(d1)
 
 
 def test_a_record_names_its_setup_and_subject_by_content() -> None:

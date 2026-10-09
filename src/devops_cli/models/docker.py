@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DockerPruneRequest(BaseModel):
@@ -236,4 +236,17 @@ class BuildCacheReport(BaseModel):
     shared_count: int = Field(default=0, description="Number of records shared across builds")
     reuse_ratio: float = Field(
         default=0.0, description="Fraction of cache bytes reused by at least one build (0.0 - 1.0)"
+    )
+
+
+class DockerEndpoint(BaseModel):
+    """Resolved and validated Docker engine endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    source: str = Field(..., description="Source where the endpoint was configured")
+    raw: str = Field(..., description="Raw endpoint as provided by the source")
+    base_url: str = Field(..., description="Normalised base URL verified by egress check")
+    params: dict[str, Any] = Field(
+        default_factory=dict, description="docker.DockerClient initialization parameters"
     )

@@ -408,3 +408,34 @@ def test_durable_agent_does_not_swallow_a_configuration_error(
 
     with pytest.raises(ConfigurationError, match=r"^ai\.api_base_url cannot serve model"):
         create_durable_pydantic_agent("openai:gpt-4o", engine="memory")
+
+
+def test_durable_store_opens_under_data_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With DEVOPS_CLI_DATA_DIR set to tmp_path, the durable store opens under it and leaves
+    nothing in the working directory (#1036)."""
+    from devops_cli.config.settings import reset_settings_cache
+
+    custom_data = tmp_path / "custom_data"
+    custom_data.mkdir()
+    (Path.cwd() / ".data" / "durable_runs.db").unlink(missing_ok=True)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(custom_data))
+    reset_settings_cache()
+
+    cap = resolve_durability_capability("local", name="isolated_agent")
+    assert isinstance(cap, LocalDurabilityCapability)
+    assert isinstance(cap.store, SqliteStepStore)
+
+    # Explicit store_path is used as given
+    explicit_file = tmp_path / "explicit.db"
+    explicit_cap = resolve_durability_capability(
+        "local", name="explicit_agent", store_path=explicit_file
+    )
+    assert isinstance(explicit_cap.store, SqliteStepStore)
+
+    assert (
+        Path(cap.store.db_path).resolve().is_relative_to(custom_data.resolve()),
+        (Path.cwd() / ".data" / "durable_runs.db").exists(),
+        Path(explicit_cap.store.db_path).resolve(),
+    ) == (True, False, explicit_file.resolve())

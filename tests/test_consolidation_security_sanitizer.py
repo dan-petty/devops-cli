@@ -273,11 +273,11 @@ def test_sanitize_telemetry_endpoint() -> None:
     # Internal private IP redacted
     assert (
         sanitize_telemetry_endpoint("http://192.168.1.150:4318/v1/traces")
-        == "http://<internal-ip>:4318/v1/traces"
+        == "http://internal-ip:4318/v1/traces"
     )
     assert (
         sanitize_telemetry_endpoint("http://10.0.0.5:4318/v1/traces")
-        == "http://<internal-ip>:4318/v1/traces"
+        == "http://internal-ip:4318/v1/traces"
     )
 
     # Empty or malformed

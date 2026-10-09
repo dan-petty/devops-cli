@@ -236,6 +236,22 @@ devops ci devcontainer [OPTIONS]
 
 ---
 
+## `devops ci deps`
+
+**Validate dependency hygiene and imports via deptry.**
+
+```bash
+devops ci deps [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops ci maintain`
 
 **Run automated toolchain, dependency freshness, and lockfile maintenance checks.**

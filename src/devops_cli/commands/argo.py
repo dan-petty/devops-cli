@@ -339,7 +339,7 @@ def cd_apps_bootstrap_gitops(
         typer.Option("--context", "-c", help=HELP.options.context),
     ] = None,
 ) -> None:
-    """Bootstrap local GitOps project orchestration via ArgoCD and the Git daemon."""
+    """Apply the GitOps root Application to bootstrap local project orchestration."""
     resolved_manifest = root_app_path.resolve()
     if not resolved_manifest.exists() or not resolved_manifest.is_file():
         print_error(f"Root app manifest not found or not a file: {root_app_path}", prefix=False)

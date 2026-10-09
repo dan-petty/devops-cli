@@ -1932,7 +1932,7 @@ devops argo cd apps status [OPTIONS] <name>
 
 ##### `devops argo cd apps bootstrap-gitops`
 
-**Bootstrap local GitOps project orchestration via ArgoCD and the Git daemon.**
+**Apply the GitOps root Application to bootstrap local project orchestration.**
 
 ```bash
 devops argo cd apps bootstrap-gitops [OPTIONS]
@@ -2571,6 +2571,20 @@ devops ci outdated [OPTIONS]
 
 ```bash
 devops ci devcontainer [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ci deps`
+
+**Validate dependency hygiene and imports via deptry.**
+
+```bash
+devops ci deps [OPTIONS]
 ```
 
 **Options:**

@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel, Field
-from pydantic_ai.tools import RunContext as NativeRunContext
+from pydantic_ai._run_context import RunContext as NativeRunContext
 
 DepsT = TypeVar("DepsT")
 

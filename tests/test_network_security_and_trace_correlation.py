@@ -11,8 +11,8 @@ import pytest
 from devops_cli.ai.review.verification import _deterministic_pre_verification
 from devops_cli.ai.review_schema import Finding
 from devops_cli.commands.k8s.cluster_context import apply as k8s_apply
+from devops_cli.security.sanitizer import sanitize_telemetry_endpoint
 from devops_cli.security.vault_broker import VaultSecretBroker, parse_vault_uri
-from devops_cli.server.routes.telemetry import _sanitize_telemetry_endpoint
 from devops_cli.telemetry.logging_bridge import (
     TraceCorrelationFilter,
     get_current_trace_correlation,
@@ -64,24 +64,30 @@ def test_vault_broker_get_secret_rejects_traversal_path() -> None:
 
 
 def test_sanitize_telemetry_endpoint_strips_user_credentials() -> None:
-    """_sanitize_telemetry_endpoint strips userinfo credentials from OTLP URLs."""
+    """sanitize_telemetry_endpoint strips userinfo credentials from OTLP URLs."""
     # Internal IP with credentials
-    res_internal = _sanitize_telemetry_endpoint("http://admin:supersecret@10.0.0.5:4318/v1/traces")
-    assert "supersecret" not in res_internal
-    assert "admin" not in res_internal
-    assert "<internal-ip>" in res_internal
+    res_internal = sanitize_telemetry_endpoint("http://admin:supersecret@10.0.0.5:4318/v1/traces")
+    assert (
+        "supersecret" not in res_internal,
+        "admin" not in res_internal,
+        "internal-ip" in res_internal,
+    ) == (True, True, True)
 
     # Localhost with credentials
-    res_local = _sanitize_telemetry_endpoint("http://user:password123@localhost:4318/v1/traces")
-    assert "password123" not in res_local
-    assert "user" not in res_local
-    assert "localhost:4318" in res_local
+    res_local = sanitize_telemetry_endpoint("http://user:password123@localhost:4318/v1/traces")
+    assert (
+        "password123" not in res_local,
+        "user" not in res_local,
+        "localhost:4318" in res_local,
+    ) == (True, True, True)
 
     # Public domain with credentials
-    res_public = _sanitize_telemetry_endpoint("https://apikey:token456@otlp.cloud.io:4318")
-    assert "token456" not in res_public
-    assert "apikey" not in res_public
-    assert "otlp.cloud.io:4318" in res_public
+    res_public = sanitize_telemetry_endpoint("https://apikey:token456@otlp.cloud.io:4318")
+    assert (
+        "token456" not in res_public,
+        "apikey" not in res_public,
+        "otlp.cloud.io:4318" in res_public,
+    ) == (True, True, True)
 
 
 # ── Finding #15: Logging Bridge Defensive Guard for None Context ─────────────

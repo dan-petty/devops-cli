@@ -18,7 +18,6 @@ from devops_cli.output.file_writer import write_json_file
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_STATE_FILE = Path(".data/k8s/port_forwards.json")
 _PROC_ROOT = Path("/proc")
 
 
@@ -115,7 +114,9 @@ class PortForwardDaemonManager:
     """
 
     def __init__(self, state_file: Path | None = None) -> None:
-        self.state_file = state_file or _DEFAULT_STATE_FILE
+        from devops_cli.core.repo import resolve_store_path
+
+        self.state_file = resolve_store_path("k8s/port_forwards.json", state_file)
 
     @contextmanager
     def locked(self) -> Iterator[None]:

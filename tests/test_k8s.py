@@ -699,7 +699,9 @@ def test_k8s_tls_secret_and_audit(tmp_path: Path) -> None:
         assert result.exit_code == 0
 
     with patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(0, "success")):
-        result = runner.invoke(app, ["enable-tls", "--stack", "all"])
+        result = runner.invoke(
+            app, ["enable-tls", "--stack", "all", "--tls-dir", str(tmp_path / "tls")]
+        )
         assert result.exit_code == 0
 
 
@@ -1821,6 +1823,47 @@ def test_deploy_stack_on_argo_cd_applies_the_config_map_and_sets_hosts_from_each
         [_APPLY_STDIN, _DEVOPS_HOSTS, _INGRESS_HOSTS],
         "devops-cli-config",
         (["owner/repo"], "devops-bot"),
+    )
+
+
+def test_deploy_stack_leaves_the_service_digest_image_updater_set_on_application_devops(
+    isolate_devops_cli_config: Path, applications_repo: Path, tmp_path: Path
+) -> None:
+    """The host patch replaces `kustomize.patches` alone, so `kustomize.images` stays (#1485).
+
+    kubectl applies the patch deploy-stack sends, with the type it sends, to a live Application
+    that holds Image Updater's digest and an older host patch, as the API server would.
+    """
+    _configure_service(isolate_devops_cli_config)
+    cluster = _Cluster(applications_repo)
+    res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
+    sent = next(cmd for cmd in cluster.writes() if cmd[1:4] == ["patch", "application", "devops"])
+    images = [f"ghcr.io/dan-petty/devops-cli/service:latest@sha256:{'0' * 64}"]
+    older = [{"target": {"kind": "Ingress", "name": "roadmap-service"}, "patch": "[]"}]
+    live = tmp_path / "devops.json"
+    live.write_text(
+        json.dumps(
+            {
+                "apiVersion": "argoproj.io/v1alpha1",
+                "kind": "Application",
+                "metadata": {"name": "devops", "namespace": "argocd"},
+                "spec": {"source": {"kustomize": {"images": images, "patches": older}}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    patched = subprocess.run(
+        ["kubectl", "patch", "--local", "-f", str(live), "-o", "json"]
+        + sent[sent.index("--type") : sent.index("-p") + 2],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    hosts = json.loads(sent[sent.index("-p") + 1])["spec"]["source"]["kustomize"]["patches"]
+    assert (res.exit_code, json.loads(patched.stdout)["spec"]["source"]["kustomize"]) == (
+        0,
+        {"images": images, "patches": hosts},
     )
 
 

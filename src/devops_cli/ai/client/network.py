@@ -5,20 +5,19 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 import httpx2
 
 from devops_cli.ai.client.models import AIClientError, RequestPriority
+from devops_cli.config.constants import CONST_AI_GATEWAY_SERVED_BY_HEADER
 from devops_cli.config.defaults import (
     DEFAULT_AI_MAX_RESPONSE_BYTES,
     DEFAULT_OLLAMA_MAX_PARALLEL,
@@ -50,6 +49,24 @@ global_ollama_url_lock = threading.Lock()
 # The backend a gateway named in a streamed response's headers. A stream is a generator consumed
 # in the caller's context, so its spend is recorded after the last chunk, not where headers arrive.
 stream_served_by: ContextVar[str | None] = ContextVar("stream_served_by", default=None)
+
+
+def extract_served_by(headers: Mapping[str, str] | None) -> str | None:
+    """Extract backend URL from gateway response headers, stripping any userinfo."""
+    if not headers:
+        return None
+    val = headers.get(CONST_AI_GATEWAY_SERVED_BY_HEADER)
+    if not val:
+        return None
+    try:
+        u = httpx2.URL(val)
+    except httpx2.InvalidURL:
+        return None
+    if "@" in val and not u.userinfo:
+        return None
+    return str(u.copy_with(userinfo=b""))
+
+
 # Why a streamed reply ended, set by the stream reader when the provider's final frame arrives.
 # A generator's return value would be lost in the caller's `for` loop and the sanitizer wrapping
 # it, so the reason travels like the serving backend.
@@ -115,7 +132,13 @@ def load_and_increment_rr_index(n: int) -> int:
     if n <= 1:
         return 0
     uid = os.getuid() if hasattr(os, "getuid") else 0
-    state_file = Path(tempfile.gettempdir()) / f"devops_cli_ollama_rr_{uid}"
+    from devops_cli.core.repo import resolve_store_path
+
+    state_file = resolve_store_path(f"devops_cli_ollama_rr_{uid}")
+    try:
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
     with global_ollama_url_lock:
         idx = global_ollama_url_index
         try:

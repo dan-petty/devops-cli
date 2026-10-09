@@ -480,50 +480,48 @@ class LocalDurabilityCapability(BaseDurabilityCapability[AgentDepsT]):
 # ── Durability Capability Resolver ────────────────────────────────────────────
 
 
-@trace_span("pydantic_ai.durable.resolve_capability")
-def resolve_durability_capability(
-    engine: str = DEFAULT_AI_DURABLE_ENGINE,
-    *,
-    name: str | None = None,
-    store: StepStore | None = None,
-    store_path: str | Path | None = None,
-    models: Mapping[str, Model] | None = None,
-    event_stream_handler: EventStreamHandler[Any] | None = None,
+def _configured_store_target(
+    store_path: str | Path | None,
+) -> tuple[str | Path | None, str]:
+    """Determine explicit path or target filename for the durable SQLite store."""
+    if store_path is not None:
+        return store_path, "durable_runs.db"
+    try:
+        from devops_cli.config.settings import load_settings
+
+        cfg_path = load_settings().ai.durable.store_path
+        if cfg_path and cfg_path.is_absolute():
+            return cfg_path, "durable_runs.db"
+        if cfg_path and cfg_path.name:
+            return None, cfg_path.name
+    except Exception:
+        pass
+    return None, "durable_runs.db"
+
+
+def _resolve_sqlite_store(
+    store: StepStore | None,
+    store_path: str | Path | None,
+) -> StepStore:
+    """Resolve or construct the SqliteStepStore instance."""
+    if store is not None:
+        return store
+    from devops_cli.core.repo import resolve_store_path
+
+    chosen, name = _configured_store_target(store_path)
+    db_path = str(resolve_store_path(name, explicit=chosen))
+    return SqliteStepStore(db_path=db_path)
+
+
+def _resolve_external_engine(
+    engine: str,
+    name: str | None,
+    models: Mapping[str, Model] | None,
+    event_stream_handler: EventStreamHandler[Any] | None,
     **kwargs: Any,
 ) -> BaseDurabilityCapability[Any]:
-    """Resolve and instantiate a durability capability matching the requested engine.
-
-    Supported engines:
-    - 'sqlite', 'local': Native LocalDurabilityCapability backed by SqliteStepStore.
-    - 'memory': Native LocalDurabilityCapability backed by InMemoryStepStore.
-    - 'temporal': TemporalDurability via temporalio driver.
-    - 'dbos': DBOSDurability via dbos driver.
-    - 'prefect': PrefectDurability via prefect driver.
-    """
+    """Instantiate external durable engine capability or raise ConfigurationError."""
     engine_key = engine.strip().lower()
-
-    if engine_key in ("sqlite", "local"):
-        resolved_store = store
-        if resolved_store is None:
-            db_path = str(store_path or DEFAULT_AI_DURABLE_STORE_PATH)
-            resolved_store = SqliteStepStore(db_path=db_path)
-        return LocalDurabilityCapability(
-            name=name,
-            store=resolved_store,
-            models=models,
-            event_stream_handler=event_stream_handler,
-            **kwargs,
-        )
-
-    if engine_key == "memory":
-        resolved_store = store or InMemoryStepStore()
-        return LocalDurabilityCapability(
-            name=name,
-            store=resolved_store,
-            models=models,
-            event_stream_handler=event_stream_handler,
-            **kwargs,
-        )
 
     if engine_key == "temporal":
         if not is_temporal_available():
@@ -573,6 +571,55 @@ def resolve_durability_capability(
     raise ConfigurationError(
         f"Unknown durable execution engine: {engine!r}. "
         "Supported engines: 'sqlite', 'memory', 'local', 'temporal', 'dbos', 'prefect'."
+    )
+
+
+@trace_span("pydantic_ai.durable.resolve_capability")
+def resolve_durability_capability(
+    engine: str = DEFAULT_AI_DURABLE_ENGINE,
+    *,
+    name: str | None = None,
+    store: StepStore | None = None,
+    store_path: str | Path | None = None,
+    models: Mapping[str, Model] | None = None,
+    event_stream_handler: EventStreamHandler[Any] | None = None,
+    **kwargs: Any,
+) -> BaseDurabilityCapability[Any]:
+    """Resolve and instantiate a durability capability matching the requested engine.
+
+    Supported engines:
+    - 'sqlite', 'local': Native LocalDurabilityCapability backed by SqliteStepStore.
+    - 'memory': Native LocalDurabilityCapability backed by InMemoryStepStore.
+    - 'temporal': TemporalDurability via temporalio driver.
+    - 'dbos': DBOSDurability via dbos driver.
+    - 'prefect': PrefectDurability via prefect driver.
+    """
+    engine_key = engine.strip().lower()
+
+    if engine_key in ("sqlite", "local"):
+        return LocalDurabilityCapability(
+            name=name,
+            store=_resolve_sqlite_store(store, store_path),
+            models=models,
+            event_stream_handler=event_stream_handler,
+            **kwargs,
+        )
+
+    if engine_key == "memory":
+        return LocalDurabilityCapability(
+            name=name,
+            store=store or InMemoryStepStore(),
+            models=models,
+            event_stream_handler=event_stream_handler,
+            **kwargs,
+        )
+
+    return _resolve_external_engine(
+        engine,
+        name=name,
+        models=models,
+        event_stream_handler=event_stream_handler,
+        **kwargs,
     )
 
 
