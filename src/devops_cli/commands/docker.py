@@ -56,7 +56,7 @@ def _engine() -> DockerEngineService:
     try:
         engine.client()
     except DockerError as exc:
-        print_error(ERRORS.docker.cannot_connect.format(exc=exc), prefix=False)
+        print_error(ERRORS.docker.cannot_connect.format(exc=exc), prefix=False, safe=True)
         raise typer.Exit(1) from exc
     return engine
 
@@ -158,19 +158,34 @@ def push(
             details={"image": image},
         )
         return
-    if not re.match(r"^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*(?::[a-zA-Z0-9_.-]+)?$", image):
-        print_error(ERRORS.docker.invalid_image_name.format(image=image), prefix=False)
-        raise typer.Exit(1)
+    from http import HTTPStatus
+
+    from docker.errors import APIError, InvalidRepository  # type: ignore[import-untyped]
+
     client = _engine().client()
-    print_info(MESSAGES.docker.pushing_image.format(image=image), prefix=False)
-    for chunk in client.images.push(image, stream=True, decode=True):
-        if "status" in chunk and "progressDetail" not in chunk:
-            clean_status = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["status"]))
-            print_info(clean_status, prefix=False, safe=True)
-        elif "error" in chunk:
-            clean_err = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["error"]))
-            print_error(clean_err, prefix=False, safe=True)
-            raise typer.Exit(1)
+    print_info(MESSAGES.docker.pushing_image.format(image=escape_text(image)), prefix=False)
+    try:
+        for chunk in client.images.push(image, stream=True, decode=True):
+            if "status" in chunk and "progressDetail" not in chunk:
+                clean_status = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["status"]))
+                print_info(clean_status, prefix=False, safe=True)
+            elif "error" in chunk:
+                clean_err = re.sub(r"[\x00-\x1f\x7f]", "", str(chunk["error"]))
+                print_error(clean_err, prefix=False, safe=True)
+                raise typer.Exit(1)
+    except (InvalidRepository, APIError) as exc:
+        is_bad_request = isinstance(exc, APIError) and exc.status_code == HTTPStatus.BAD_REQUEST
+        if isinstance(exc, InvalidRepository) or is_bad_request:
+            print_error(
+                ERRORS.docker.invalid_image_name.format(image=image), prefix=False, safe=True
+            )
+            reason = getattr(exc, "explanation", None) or str(exc)
+            if reason:
+                print_error(str(reason), prefix=False, safe=True)
+        else:
+            reason = getattr(exc, "explanation", None) or str(exc)
+            print_error(str(reason), prefix=False, safe=True)
+        raise typer.Exit(1) from exc
     print_success(MESSAGES.docker.pushed_success)
 
 

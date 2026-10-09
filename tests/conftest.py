@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 from unittest.mock import MagicMock, patch
 
 import pytest
+import typer.rich_utils
 
 if TYPE_CHECKING:
     from devops_cli.ai.spend.ledger import SpendLedger
@@ -256,6 +257,11 @@ def stub_web(monkeypatch: pytest.MonkeyPatch, public_dns: str) -> Iterator[StubW
 _TERMINAL_ENV = {"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"}
 os.environ.update(_TERMINAL_ENV)
 
+# Typer forces a terminal when GITHUB_ACTIONS, FORCE_COLOR or PY_COLORS is set, which under TERM=dumb
+# causes Rich to report an 80x25 terminal size and ignore COLUMNS. Clear FORCE_TERMINAL so test
+# consoles always honour COLUMNS in every environment (#1041).
+typer.rich_utils.FORCE_TERMINAL = None
+
 
 @pytest.fixture(autouse=True)
 def preserve_cwd():
@@ -276,6 +282,7 @@ def reset_dry_run_state():
     import devops_cli.dry_run.state as dry_run_state
     import devops_cli.output.console as console_module
 
+    typer.rich_utils.FORCE_TERMINAL = None
     os.environ.update(_TERMINAL_ENV)
     os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
     dry_run_state.mark_dry_run_invocation(False)
@@ -314,7 +321,10 @@ def spend_ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SpendLedger
 @pytest.fixture
 def tracer() -> Iterator[Any]:
     """An enabled tracer with a clean span buffer and no trace context inherited from the run."""
-    from devops_cli.config.constants import CONST_TRACEPARENT_ENV_VAR, CONST_TRACEPARENT_HEADER
+    from devops_cli.config.constants import (
+        CONST_TRACEPARENT_ENV_VAR,
+        CONST_TRACEPARENT_HEADER,
+    )
     from devops_cli.telemetry.tracer import clear_span_buffer, get_tracer, reset_tracer
 
     environment = dict(os.environ)
@@ -840,6 +850,64 @@ def reset_docker_engine_singleton():
     DockerEngineService.reset_instance()
     yield
     DockerEngineService.reset_instance()
+
+
+@pytest.fixture
+def docker_endpoint_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Provide an isolated environment for Docker endpoint resolution tests (#1108)."""
+    import hashlib
+    import json
+
+    from devops_cli.config.settings import reset_settings_cache
+    from devops_cli.docker.engine import DockerEngineService
+
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
+    monkeypatch.delenv("DOCKER_CONTEXT", raising=False)
+    monkeypatch.delenv("DOCKER_TLS_VERIFY", raising=False)
+    monkeypatch.delenv("DOCKER_CERT_PATH", raising=False)
+    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
+
+    endpoint_config = tmp_path / "devops_endpoint_config.yaml"
+    endpoint_config.write_text(
+        "telemetry:\n  enabled: true\n  endpoint: http://localhost:4318\n"
+        "ai:\n  allow_private_network: false\n  rag:\n    enabled: false\n"
+        "qdrant:\n  url: http://localhost:6333\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(endpoint_config))
+    reset_settings_cache()
+
+    config_file = tmp_path / "config.json"
+    config_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("DOCKER_CONFIG", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    DockerEngineService.reset_instance()
+
+    def write_context(name: str, host: str, skip_tls_verify: bool = False) -> Path:
+        name_hash = hashlib.sha256(name.encode("utf-8")).hexdigest()
+        meta_dir = tmp_path / "contexts" / "meta" / name_hash
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        meta = {
+            "Name": name,
+            "Metadata": {},
+            "Endpoints": {
+                "docker": {
+                    "Host": host,
+                    "SkipTLSVerify": skip_tls_verify,
+                }
+            },
+        }
+        meta_path = meta_dir / "meta.json"
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        return meta_path
+
+    write_context.tmp_path = tmp_path  # type: ignore[attr-defined]
+    write_context.config_file = config_file  # type: ignore[attr-defined]
+    write_context.write_context = write_context  # type: ignore[attr-defined]
+    yield write_context
+    DockerEngineService.reset_instance()
+    reset_settings_cache()
 
 
 # =============================================================================

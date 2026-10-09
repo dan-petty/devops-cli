@@ -239,7 +239,7 @@ def test_a_context_missing_from_the_kubeconfig_is_reported_as_missing(
     ) == (True, True, False)
 
 
-def test_fetch_docker_status_success() -> None:
+def test_fetch_docker_status_success(docker_engine: Any) -> None:
     """fetch_docker_status returns container records when Docker daemon is available."""
     mock_container = MagicMock()
     mock_container.id = "c1a2b3c4d5e6f7a8"
@@ -250,25 +250,48 @@ def test_fetch_docker_status_success() -> None:
     mock_client = MagicMock()
     mock_client.containers.list.return_value = [mock_container]
 
-    with patch("devops_cli.ui.data_providers._get_docker_client", return_value=mock_client):
+    with docker_engine(mock_client):
         summary = fetch_docker_status()
-        assert isinstance(summary, DockerSummary)
-        assert summary.connected is True
-        assert len(summary.containers) == 1
-        assert summary.containers[0]["name"] == "valkey-cache"
-        assert summary.containers[0]["status"] == "running"
+
+    assert (
+        isinstance(summary, DockerSummary),
+        summary.connected,
+        len(summary.containers),
+        summary.containers[0]["name"],
+        summary.containers[0]["status"],
+    ) == (True, True, 1, "valkey-cache", "running")
 
 
 def test_fetch_docker_status_failure() -> None:
     """fetch_docker_status gracefully returns disconnected summary on daemon error."""
     with patch(
-        "devops_cli.ui.data_providers._get_docker_client",
+        "devops_cli.docker.engine.DockerEngineService.client",
         side_effect=Exception("Daemon down"),
     ):
         summary = fetch_docker_status()
-        assert isinstance(summary, DockerSummary)
-        assert summary.connected is False
-        assert summary.containers == []
+
+    assert (isinstance(summary, DockerSummary), summary.connected, summary.containers) == (
+        True,
+        False,
+        [],
+    )
+
+
+def test_fetch_docker_status_refused_endpoint(
+    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """fetch_docker_status reports connected=False with refusal message on SSRF violation."""
+    monkeypatch.setenv("DOCKER_HOST", "tcp://192.0.2.1:2375")
+    with patch("docker.DockerClient") as mock_docker_client:
+        summary = fetch_docker_status()
+
+    assert (
+        isinstance(summary, DockerSummary),
+        summary.connected,
+        summary.containers,
+        mock_docker_client.called,
+        "DOCKER_HOST" in (summary.error_message or ""),
+    ) == (True, False, [], False, True)
 
 
 def test_fetch_telemetry_status() -> None:

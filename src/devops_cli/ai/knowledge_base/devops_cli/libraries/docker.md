@@ -35,10 +35,11 @@ In `devops-cli`:
 ## 4. Key Concepts & Core Patterns
 
 1. **`DockerClient` Initialization**:
+   In `devops-cli`, obtain the negotiated Engine API client via `get_engine().client()`, which validates the endpoint against egress policies:
    ```python
-   import docker
+   from devops_cli.docker.engine import get_engine
 
-   client = docker.from_env()
+   client = get_engine().client()
    ```
 2. **Container Collections**:
    - `client.containers.list(all=True)`: Lists all active/stopped containers.
@@ -52,13 +53,14 @@ In `devops-cli`:
 
 ### Collecting Real-Time Container Resource Statistics
 ```python
-import docker
 from docker.errors import DockerException
+
+from devops_cli.docker.engine import get_engine
 
 
 def get_container_metrics() -> list[dict]:
     try:
-        client = docker.from_env()
+        client = get_engine().client()
         containers = client.containers.list()
     except DockerException as exc:
         return [{"error": f"Docker daemon unreachable: {exc}"}]
@@ -91,5 +93,5 @@ def get_container_metrics() -> list[dict]:
 ## 6. Best Practices & Security Standards
 
 1. **Lazy SDK Loading**: Dynamically import `docker` only when Docker subcommands are invoked.
-2. **Defensive Daemon Probing**: `docker.from_env()` should always be wrapped in a `try...except DockerException` block with clear instructions for starting the daemon.
+2. **Defensive Daemon Probing**: Client retrieval via `get_engine().client()` should always be wrapped in a `try...except DockerDaemonUnavailableError` or `try...except DockerException` block with clear instructions for starting the daemon.
 3. **Close Client Sessions**: Explicitly call `client.close()` when long-running background tasks terminate.

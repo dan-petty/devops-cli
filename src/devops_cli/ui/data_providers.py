@@ -214,13 +214,6 @@ def describe_api_error(exc: Exception) -> str:
     return mask_secrets(f"{type(exc).__name__}: {first_line}")[:256]
 
 
-def _get_docker_client() -> Any:
-    """Retrieve connected Docker client."""
-    import docker  # type: ignore[import-untyped]
-
-    return docker.from_env()
-
-
 # =============================================================================
 # Data Provider Functions
 # =============================================================================
@@ -396,8 +389,10 @@ def fetch_docker_status() -> DockerSummary:
     Every Docker sub-tab is projected from this one summary, so the panel costs a single
     set of daemon queries per refresh no matter how many resource views are displayed.
     """
+    from devops_cli.docker.engine import get_engine
+
     try:
-        client = _get_docker_client()
+        client = get_engine().client()
     except Exception as exc:
         return DockerSummary(connected=False, error_message=str(exc))
 
