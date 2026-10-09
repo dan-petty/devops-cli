@@ -1998,6 +1998,19 @@ def test_bootstrap_managed_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         assert any("Warning: Failed to bootstrap managed DevOps tools" in a for a in warn_actions)
 
 
+def test_post_create_leaves_semgrep_to_the_tools_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Post-create installs no Semgrep of its own: `install_managed_tools` installs the locked
+    one, so only one Semgrep is on PATH (#1142)."""
+    from devops_cli.commands.devcontainer import _bootstrap_developer_tools
+
+    calls = _record_subprocess_calls(monkeypatch)
+    monkeypatch.setattr("shutil.which", lambda prog: None)
+
+    _bootstrap_developer_tools()
+
+    assert (bool(calls), [cmd for cmd, _ in calls if "semgrep" in " ".join(cmd)]) == (True, [])
+
+
 def test_post_create_skip_tools_flag(tmp_path: Path, runner: CliRunner) -> None:
     """Verify devops devcontainer post-create --skip-tools passes skip_tools flag."""
     from unittest.mock import patch

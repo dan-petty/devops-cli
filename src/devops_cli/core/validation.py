@@ -30,7 +30,6 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_DNS_TIMEOUT_SECONDS
 from devops_cli.exceptions import (
     InvalidURLError,
-    InvalidVersionError,
     SSRFBlockedError,
     ValidationError,
 )
@@ -670,20 +669,6 @@ def validate_k8s_context_name(value: str, label: str = "context name") -> str:
         )
         raise typer.Exit(1)
     return clean_val
-
-
-def validate_version_str(version: str, tool_name: str = "tool") -> str:
-    """Validate that a version string matches standard PEP 440 / SemVer pattern."""
-    clean_version = version.strip()
-    if not clean_version:
-        raise InvalidVersionError(version, tool_name=tool_name)
-    try:
-        from packaging.version import InvalidVersion, Version
-
-        Version(clean_version.lstrip("v"))
-    except (InvalidVersion, ValueError) as exc:
-        raise InvalidVersionError(version, tool_name=tool_name) from exc
-    return clean_version.lstrip("v")
 
 
 def validate_session_id(session_id: str) -> str:

@@ -1381,8 +1381,10 @@ class InstallCommandHelp:
     all_cmd: str = "Install all required DevOps CLI binaries."
     status: str = "Check installed DevOps toolchain versions."
     tool: str = "Install a specific tool."
-    version: str = "Specific version, e.g. v1.30.0."
-    only_missing: str = "Only install tools that are not already found in PATH."
+    only_missing: str = "Only install tools that are not linked at their locked version."
+    check: str = (
+        "Install nothing: report each tool not linked at its locked version, and exit 1 if any."
+    )
 
 
 @dataclass(frozen=True)

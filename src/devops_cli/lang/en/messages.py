@@ -45,6 +45,11 @@ class ReviewMessages:
     fetching_pr: str = "Fetching PR #{number} from {repo}..."
     findings_saved: str = "  ✓ findings saved → {path}"
     review_saved: str = "Review saved → {path}"
+    code_changed_during_run: str = (
+        "devops-cli's own source changed while this review ran, by a commit or an edit to its "
+        "checkout, so its later stages may have run different code than its earlier ones. "
+        "Run reviews from a checkout that stays put."
+    )
     outside_boundary: str = "Error: Target path '{target}' is outside allowed boundaries."
     exceeds_max_size: str = "Error: Target file '{target}' exceeds maximum size ({max_mb}MB)."
     git_diff_failed: str = "git diff failed: {error}"
@@ -172,11 +177,14 @@ class ConfigMessages:
 class InstallMessages:
     status_title: str = "DevOps Tool Status"
     checking_tools: str = "Checking DevOps toolchain versions..."
-    fetching_latest: str = "Fetching latest version for [cyan]{name}[/cyan]..."
     installing_tool: str = "Installing [cyan]{name}[/cyan] {version}..."
     tool_installed: str = "✓ {name} {version} installed to {path}"
     tool_already_installed: str = "✓ {name} is already installed ({version})"
     download_failed: str = "Error downloading {name} from {url}: {exc}"
+    at_pin: str = "at pin"
+    not_installed: str = "not installed"
+    check_off_pin: str = "{name} {version}: {installed}"
+    check_all_pinned: str = "All {count} tools are linked at their locked versions in {path}."
     path_hint: str = (
         'Note: {path} is not in your PATH.\nAdd to your shell config:  export PATH="{path}:$PATH"'
     )
