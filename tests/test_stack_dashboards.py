@@ -31,8 +31,9 @@ DASHBOARDS = K8S / "monitoring" / "dashboards"
 CAPTURES = ROOT / "tests" / "fixtures" / "metrics"
 
 # Series Prometheus records about every scrape itself, whatever the target serves. Alloy
-# forwards all of them for its ServiceMonitor targets (the gateway, DCGM); its cluster-metrics
-# jobs keep only `up` and `scrape_samples_scraped`.
+# forwards all of them for the gateway's ServiceMonitor, the DCGM integration, the pods its
+# annotation autodiscovery finds and kube-dns; its other cluster-metrics jobs keep only `up`
+# and `scrape_samples_scraped`.
 SYNTHETIC_SERIES = frozenset(
     {
         "up",
@@ -53,7 +54,7 @@ _TYPE_SERIES: dict[str, dict[str, frozenset[str]]] = {
 
 
 def _yaml(path: Path) -> dict[str, Any]:
-    loaded: dict[str, Any] = yaml.safe_load(path.read_text(encoding="utf-8"))
+    loaded: dict[str, Any] = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
     return loaded
 
 
@@ -68,15 +69,32 @@ def _gateway_monitored(values: dict[str, Any]) -> bool:
 
 
 def _dcgm_monitored(values: dict[str, Any]) -> bool:
-    """The DCGM chart creates its own ServiceMonitor."""
-    return values.get("serviceMonitor", {}).get("enabled") is True
+    """k8s-monitoring's dcgm-exporter integration has an instance that selects the exporter."""
+    integrations = values.get("integrations", {})
+    instances = integrations.get("dcgm-exporter", {}).get("instances", [])
+    return bool(integrations.get("collector")) and any(
+        instance.get("labelSelectors") for instance in instances
+    )
 
 
 def _collector_annotated(values: dict[str, Any]) -> bool:
-    """The server's kubernetes-pods job keeps pods annotated for scraping, on their port."""
+    """The server's kubernetes-pods job keeps the collector's namespace and its pods annotated
+    for scraping, on their port."""
     wanted = {"prometheus.io/scrape": "true", "prometheus.io/port": "8888"}
     annotations = values.get("podAnnotations") or {}
-    return wanted.items() <= annotations.items() and values["ports"]["metrics"]["enabled"] is True
+    server = _yaml(K8S / "monitoring" / "prometheus-values.yaml")
+    pods_job = server["scrapeConfigs"]["kubernetes-pods"]
+    keeps = [
+        rule.get("regex")
+        for rule in yaml.safe_load(pods_job.get("pre_relabel_configs") or "[]")
+        if rule.get("action") == "keep"
+        and rule.get("source_labels") == ["__meta_kubernetes_namespace"]
+    ]
+    return (
+        wanted.items() <= annotations.items()
+        and values["ports"]["metrics"]["enabled"] is True
+        and keeps == ["otel"]
+    )
 
 
 def _server_jobs_enabled(values: dict[str, Any]) -> bool:
@@ -97,7 +115,7 @@ class Exporter:
 
 EXPORTERS = {
     "litellm": Exporter(K8S / "monitoring" / "k8s-monitoring-values.yaml", _gateway_monitored),
-    "dcgm-exporter": Exporter(K8S / "monitoring" / "dcgm-exporter-values.yaml", _dcgm_monitored),
+    "dcgm-exporter": Exporter(K8S / "monitoring" / "k8s-monitoring-values.yaml", _dcgm_monitored),
     "otel-collector": Exporter(K8S / "otel" / "values.yaml", _collector_annotated),
     "prometheus-server": Exporter(
         K8S / "monitoring" / "prometheus-values.yaml", _server_jobs_enabled

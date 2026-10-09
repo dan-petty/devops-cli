@@ -49,10 +49,13 @@ alertmanager:
     limits:
       cpu: 100m
       memory: 128Mi
-  # The server's kubernetes-pods job scrapes Alertmanager's own metrics for its health rules.
+  # k8s-monitoring's annotation autodiscovery scrapes Alertmanager's own metrics for its health
+  # rules. It also finds the config-reloader sidecar and rewrites that target to the annotated
+  # port, so the container key keeps it from scraping Alertmanager a second time.
   podAnnotations:
     prometheus.io/scrape: "true"
     prometheus.io/port: "9093"
+    k8s.grafana.com/metrics.container: alertmanager
   extraSecretMounts:
     - name: webhook-url
       mountPath: /etc/alertmanager-webhook
@@ -100,43 +103,45 @@ kube-state-metrics:
 prometheus-pushgateway:
   enabled: false
 
-# The stack dashboards read the server's self-scrape (prometheus-server.json) and the
-# collector, scraped by the kubernetes-pods job through its pod annotations
-# (otel-collector.json). Both are on by chart default; they are set here because
-# deploy-stack installs the chart without pinning the version that supplies that default.
+# The server scrapes only itself (prometheus-server.json) and the otel collector
+# (otel-collector.json); k8s-monitoring discovers every other target (k8s/README.md, Scrape
+# Ownership). The chart turns each of its default jobs on unless it is set `enabled: false`.
 scrapeConfigs:
+  # Both jobs label their series with the cluster, the k8s-monitoring `cluster.name` Alloy
+  # writes. Prometheus adds `external_labels` only to remote write, federation and alerts, not
+  # to the series it stores.
   prometheus:
     enabled: true
+    post_relabel_configs: &cluster |
+      - action: replace
+        target_label: cluster
+        replacement: homelab-k3s
+  # Only the collector, which the server scrapes directly rather than through Alloy, so the
+  # export failures it counts stay visible when Alloy is what fails (k8s/README.md). Its pods
+  # carry the `prometheus.io/*` annotations, and k8s-monitoring's autodiscovery skips `otel`.
+  kubernetes-pods:
+    enabled: true
+    pre_relabel_configs: |
+      - source_labels: [__meta_kubernetes_namespace]
+        action: keep
+        regex: otel
+    post_relabel_configs: *cluster
+  kubernetes-api-servers:
+    enabled: false
   kubernetes-nodes:
     enabled: false
   kubernetes-nodes-cadvisor:
     enabled: false
-  kubernetes-api-servers:
-    post_relabel_configs: |
-      - action: replace
-        target_label: cluster
-        replacement: homelab-k3s
-  kubernetes-pods:
-    enabled: true
-    post_relabel_configs: |
-      - action: replace
-        target_label: cluster
-        replacement: homelab-k3s
-  kubernetes-pods-slow:
-    post_relabel_configs: |
-      - action: replace
-        target_label: cluster
-        replacement: homelab-k3s
   kubernetes-service-endpoints:
-    post_relabel_configs: |
-      - action: replace
-        target_label: cluster
-        replacement: homelab-k3s
+    enabled: false
   kubernetes-service-endpoints-slow:
-    post_relabel_configs: |
-      - action: replace
-        target_label: cluster
-        replacement: homelab-k3s
+    enabled: false
+  kubernetes-services:
+    enabled: false
+  kubernetes-pods-slow:
+    enabled: false
+  prometheus-pushgateway:
+    enabled: false
 
 # Alert rules (#549, #550). Every rule carries `severity` (critical or warning, both routed to
 # the webhook) and, when it concerns one node, `node`, so one `node=<name>` silence covers a node
@@ -414,10 +419,9 @@ serverFiles:
               description: "Over 5% of Loki's {{ $labels.route }} requests have returned a 5xx status for 15 minutes."
           # Loki keeps logs 30 days (`retention_period: 720h`), but only its compactor's retention
           # deletes them, on every compaction (every 10 minutes). #550 turns that retention on
-          # (`compactor.retention_enabled`). It takes effect with #550's Loki migration, whose Loki
-          # upgrade also adds the pod annotations this rule's scrape needs, so before it this rule
-          # has no series; after it, it fires if the compactor stops applying retention.
-          # Loki and its metrics come with the logging stack; without it this stays silent.
+          # (`compactor.retention_enabled`), and it takes effect with #550's Loki migration; this
+          # rule fires if the compactor stops applying it. Loki's series come from k8s-monitoring's
+          # Loki integration wherever the logging stack runs; without that stack this stays silent.
           - alert: LokiRetentionNotRunning
             expr: time() - loki_compactor_apply_retention_last_successful_run_timestamp_seconds > 3600
             for: 30m

@@ -127,7 +127,7 @@
           "refId": "A"
         }
       ],
-      "description": "The slowest scrape in each job: the server's own jobs and Alloy's ServiceMonitor targets (the gateway, DCGM). Alloy's cluster-metrics jobs do not forward this series."
+      "description": "The slowest scrape in each job: the server's own jobs (prometheus, kubernetes-pods), Alloy's ServiceMonitor target (the gateway), the DCGM integration, kube-dns and the pods Alloy finds by annotation. Alloy's other cluster-metrics jobs and the Loki integration keep only up and scrape_samples_scraped."
     },
     {
       "id": 4,

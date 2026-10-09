@@ -115,7 +115,8 @@ def test_the_gateway_serves_its_prometheus_metrics() -> None:
 
 def test_the_dcgm_exporter_runs_on_every_gpu_node_without_extra_privileges() -> None:
     """Verify the exporter is installed with the monitoring stack, scheduled onto GPU nodes with
-    the NVIDIA runtime, and holds SYS_ADMIN capability required for datacenter GPUs."""
+    the NVIDIA runtime, and holds SYS_ADMIN capability required for datacenter GPUs. Its own
+    ServiceMonitor stays off: k8s-monitoring's dcgm-exporter integration scrapes it (#1130)."""
     values = yaml.safe_load((K8S / "monitoring/dcgm-exporter-values.yaml").read_text("utf-8"))
     release = next(r for r in _HELM_RELEASES_BY_STACK["infra"] if r["name"] == "dcgm-exporter")
     repo = release["chart"].split("/")[0]
@@ -132,7 +133,7 @@ def test_the_dcgm_exporter_runs_on_every_gpu_node_without_extra_privileges() -> 
         True,
         ["SYS_ADMIN"],
         "50%",
-        True,
+        False,
         ("monitoring", "dcgm-exporter-values.yaml", True),
     )
 

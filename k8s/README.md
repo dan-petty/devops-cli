@@ -152,6 +152,25 @@ The `monitoring` perimeter (`monitoring/networkpolicy.yaml`) admits Grafana, Pro
 - `--addressing fqdn` goes through Traefik.
 - `--addressing proxy` writes `k8s://` addresses that the API server proxies from the control-plane node's host network. kube-router admits host-network traffic only to pods on the same node, so Grafana, Prometheus and Pyroscope answer this way only while they run on the control-plane node. Elsewhere, use port-forward or `fqdn`. The same holds for any namespace behind a perimeter, `llm` included.
 
+## Scrape Ownership
+
+Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.yaml`), scrapes every target but two and remote-writes to the Prometheus server: the kubelet, cAdvisor, kube-state-metrics, node-exporter, the `llm-gateway` ServiceMonitor, CoreDNS (`clusterMetrics.kubeDNS`), the pods annotated for scraping (`annotationAutodiscovery`), and Loki and the DCGM exporter (`integrations`). The Prometheus server scrapes only itself and the OpenTelemetry Collector (#1130). These monitoring components run outside k8s-monitoring:
+
+| Component | Owner | Reason |
+| :--- | :--- | :--- |
+| Prometheus server and Alertmanager | Their own `prometheus` release (`monitoring/prometheus-values.yaml`) | k8s-monitoring ships collectors, not a metrics store or an alert router. Alloy writes to this server, which evaluates the alert rules and sends alerts to Alertmanager. The server scrapes itself, and Alloy scrapes Alertmanager through its pod annotations |
+| Grafana | Its own `grafana` release (`monitoring/grafana-values.yaml`) | k8s-monitoring does not deploy Grafana. Nothing scrapes it yet; #1131 adds its scrape |
+| Loki | Its own `loki` release, in the `logging` stack (`logging/loki-values.yaml`) | Loki belongs to the logging stack, so k8s-monitoring's Loki integration scrapes it only where that stack runs |
+| Pyroscope server | Its own `pyroscope` release | k8s-monitoring collects telemetry; it does not deploy the server that stores profiles |
+| Trace backend (Jaeger) | Its own manifests in `otel/` | k8s-monitoring deploys no trace store |
+| dcgm-exporter | Its own `dcgm-exporter` chart (`monitoring/dcgm-exporter-values.yaml`) | k8s-monitoring's dcgm-exporter integration scrapes the exporter but ships none, so the chart deploys it on every GPU node; the chart's own ServiceMonitor stays off |
+| otel-collector | Its own `otel-collector` release (`otel/values.yaml`), scraped by the Prometheus server's `kubernetes-pods` job, which keeps only namespace `otel` | devops-cli exports delta temporality, and Alloy's `deltatocumulative` is experimental only, so k8s-monitoring cannot replace the collector (#1132). The server scrapes it, not Alloy, so the collector's export failures stay visible when Alloy is what fails |
+| prometheus-operator-crds | Its own release, installed first | The `llm-gateway` ServiceMonitor and #823's Qdrant monitor need the `monitoring.coreos.com` CRDs, which k8s-monitoring 4.x no longer ships |
+
+cloudflared, Traefik, Alertmanager and roadmap-service are found by annotation autodiscovery, through the `prometheus.io/*` annotations they already carry, each with the pod's `app.kubernetes.io/name` as its job; CoreDNS comes through `clusterMetrics.kubeDNS`.
+
+`devops prometheus targets` reads the server's `/api/v1/targets`, so it lists only the server's two jobs; Alloy's targets appear in Prometheus as their `up` series.
+
 ## Grafana Dashboards
 
 Dashboards live in `monitoring/dashboards/`. Its `kustomization.yaml` generates four ConfigMaps labelled `grafana_dashboard: "1"`, and the Grafana dashboard sidecar (`monitoring/grafana-values.yaml`) loads every ConfigMap with that label:
@@ -170,9 +189,9 @@ The stack dashboards chart the cluster workloads and infrastructure services:
 | Dashboard | Exporter / Sources | How Prometheus / Loki gets its series |
 | :--- | :--- | :--- |
 | `sre-service.json`, "SRE Service & Logs" (`devops-sre-service`) | cAdvisor container CPU, memory, network packets/drops, Loki service logs, and Pyroscope flamegraphs | Metrics scraped by Alloy from cAdvisor/Kubelet and Kube State Metrics; logs pushed to Loki via Alloy or OpenTelemetry collector; continuous profiles queried from Pyroscope datasource |
-| `ingress-tunnel.json`, "SRE / Ingress & Cloudflare Tunnel" (`devops-ingress-tunnel`) | Traefik ingress metrics (port 9100) and Cloudflare Tunnel metrics (port 2000) | Scraped directly by the Prometheus server's `kubernetes-pods` job via pod annotations; network policy allows monitoring to scrape Cloudflare Tunnel |
-| `llm-stack.json`, "LLM Gateway & GPUs" (`devops-llm-stack`) | LiteLLM's Prometheus callback on the gateway (`/metrics/`), and the NVIDIA DCGM exporter on every GPU node | The `llm-gateway` ServiceMonitor in `monitoring/k8s-monitoring-values.yaml` and the DCGM chart's own ServiceMonitor (`serviceMonitor.enabled` in `monitoring/dcgm-exporter-values.yaml`), read by Alloy, which remote-writes to the server |
-| `otel-collector.json`, "OpenTelemetry Collector" (`devops-otel-traces`) | The collector's own telemetry on port 8888 | The server's `kubernetes-pods` job, through the `prometheus.io/scrape` and `prometheus.io/port` pod annotations in `otel/values.yaml`; not through Alloy, so the collector's export failures stay visible when Alloy is what fails |
+| `ingress-tunnel.json`, "SRE / Ingress & Cloudflare Tunnel" (`devops-ingress-tunnel`) | Traefik ingress metrics (port 9100) and Cloudflare Tunnel metrics (port 2000) | Alloy's annotation autodiscovery (`annotationAutodiscovery` in `monitoring/k8s-monitoring-values.yaml`), through the pods' `prometheus.io/*` annotations; network policy allows monitoring to scrape both ports |
+| `llm-stack.json`, "LLM Gateway & GPUs" (`devops-llm-stack`) | LiteLLM's Prometheus callback on the gateway (`/metrics/`), and the NVIDIA DCGM exporter on every GPU node | The `llm-gateway` ServiceMonitor and the `dcgm-exporter` integration (`integrations` in `monitoring/k8s-monitoring-values.yaml`), run by Alloy, which remote-writes to the server |
+| `otel-collector.json`, "OpenTelemetry Collector" (`devops-otel-traces`) | The collector's own telemetry on port 8888 | The server's `kubernetes-pods` job, which keeps only namespace `otel`, through the `prometheus.io/scrape` and `prometheus.io/port` pod annotations in `otel/values.yaml`; not through Alloy, whose annotation autodiscovery skips `otel`, so the collector's export failures stay visible when Alloy is what fails |
 | `prometheus-server.json`, "Prometheus Server" (`devops-prometheus-server`) | The Prometheus server's own `/metrics`, and `up` for every target | The server's `prometheus` job, which scrapes itself (`scrapeConfigs.prometheus` in `monitoring/prometheus-values.yaml`) |
 | `pyroscope.json`, "Continuous Profiling / Pyroscope Flamegraphs" (`devops-pyroscope`) | Grafana Pyroscope continuous profiling (CPU, memory, goroutines) | Continuous profiles collected by the Alloy profiling agent and scraped by the Pyroscope backend |
 
@@ -204,7 +223,7 @@ Two alerts in `serverFiles.alerting_rules.yml` (`monitoring/prometheus-values.ya
 
 They route like every other rule (Alerting, below), and are listed there with the rest.
 
-Loki's compactor retention takes effect once #550's Loki migration has been applied, a step a person runs: the volume rebind above, then the Loki upgrade. Until then Loki deletes no logs by age. The same upgrade adds the pod annotations through which Prometheus scrapes Loki, so `LokiRetentionNotRunning` has no series before it; after it, the alert fires if the compactor stops applying retention.
+Loki's compactor retention takes effect once #550's Loki migration has been applied, a step a person runs: the volume rebind above, then the Loki upgrade. Until then Loki deletes no logs by age. k8s-monitoring's Loki integration scrapes Loki wherever the logging stack runs (Scrape Ownership, above), and the migration only turns retention on; `LokiRetentionNotRunning` fires if the compactor stops applying it.
 
 ## Host Journals and Health Metrics
 
@@ -240,7 +259,7 @@ Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prome
 | `PrometheusNearRetentionSizeCap` | Prometheus's data uses over 80% of `server.retentionSize`, before the cap deletes blocks younger than 30 days | 1h | warning |
 | `PrometheusSizeLimitCutHistory` | Prometheus deleted blocks to stay under its size cap | — | warning |
 | `PrometheusStorageNearClaim` | Prometheus's data uses over 80% of the `prometheus-server` claim, which with the cap at 80% of the claim means the cap is not holding it | 1h | warning |
-| `LokiRetentionNotRunning` | Loki's compactor has not applied retention for over an hour; silent until #550's Loki migration, whose upgrade turns retention on and starts the Loki scrape | 30m | warning |
+| `LokiRetentionNotRunning` | Loki's compactor has not applied retention for over an hour; retention runs once #550's Loki migration has turned it on | 30m | warning |
 | `LokiRequestErrors` | Over 5% of a Loki route's requests return 5xx | 15m | warning |
 | `ClusterMetricsMissing` | `kube_node_status_condition` is absent, so the node rules cannot fire | 10m | critical |
 | `PrometheusConfigReloadFailed`, `PrometheusRuleEvaluationFailures`, `PrometheusNotConnectedToAlertmanager`, `PrometheusDroppingAlerts`, `PrometheusCompactionsFailing` | Prometheus's own health | 0–15m | warning |
@@ -266,7 +285,7 @@ The monitoring perimeter lets Alertmanager reach ports 80 and 443 outside the cl
 
 ### Planned maintenance
 
-Silence the node, then drain it. Every alert about one node carries a `node` label: node-exporter's rules copy it from `instance`, the kubernetes-pods job sets it on the pods it scrapes, and `LogOrMetricVolumeDiskLow` takes it from the pod holding the claim. So one silence covers the node, its scrape targets, its units and the `NodeRebooted` that follows. Make it last the work plus 30 minutes:
+Silence the node, then drain it. Every alert about one node carries a `node` label: node-exporter's rules copy it from `instance`; the discovery rules of Alloy's annotation autodiscovery, kube-dns job and DCGM integration, and the server's `kubernetes-pods` job for the collector, set it on the pods they scrape; the Loki integration puts Loki's node in `instance`, which `TargetDown` falls back to; and `LogOrMetricVolumeDiskLow` takes it from the pod holding the claim. So one silence covers the node, its scrape targets, its units and the `NodeRebooted` that follows. Make it last the work plus 30 minutes:
 
 ```bash
 kubectl -n monitoring exec statefulset/prometheus-alertmanager -c alertmanager -- \
@@ -275,7 +294,7 @@ kubectl -n monitoring exec statefulset/prometheus-alertmanager -c alertmanager -
 kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
 ```
 
-The drain matters because a few cluster-wide alerts have no `node` label. One pod, `k8s-monitoring-alloy-metrics-0`, forwards every series from kube-state-metrics, node-exporter and the DCGM exporter. Drained, it starts again on another node. Left on a node that powers off, it stays bound there until the node returns. Those series stop, no other node's `NodeNotReady` can fire, and after about 15 minutes `ClusterMetricsMissing` (critical, no `node` label) pages, because the node silence does not match it. Pods on `local-path` volumes (Prometheus, Loki, Grafana, Pyroscope and Alertmanager) cannot move and wait for their node. While the node holding Prometheus or Alertmanager is down, no alert is evaluated or sent at all.
+The drain matters because a few cluster-wide alerts have no `node` label. One pod, `k8s-monitoring-alloy-metrics-0`, forwards every series from kube-state-metrics, node-exporter and the DCGM exporter, and scrapes the annotated pods, Loki and CoreDNS. Drained, it starts again on another node. Left on a node that powers off, it stays bound there until the node returns. Those series stop: the `up` series of the targets it scrapes go stale instead of reporting 0, so no `TargetDown` fires for them, and no other node's `NodeNotReady` can fire. After about 15 minutes `ClusterMetricsMissing` (critical, no `node` label) pages, because the node silence does not match it. Pods on `local-path` volumes (Prometheus, Loki, Grafana, Pyroscope and Alertmanager) cannot move and wait for their node. While the node holding Prometheus or Alertmanager is down, no alert is evaluated or sent at all.
 
 After the work, let pods back onto the node, and expire the silence if the work ended early:
 
@@ -600,7 +619,7 @@ k8s/
 │   ├── service-aliases.yaml  # Alias Services for Prometheus and Grafana; the root kustomization lists them
 │   ├── dcgm-exporter-values.yaml # Helm values for nvidia/dcgm-exporter (GPU metrics)
 │   ├── grafana-values.yaml   # Helm values for grafana/grafana (datasources, dashboard sidecar)
-│   ├── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, node journals, and gateway monitors)
+│   ├── k8s-monitoring-values.yaml # Helm values for grafana/k8s-monitoring (Alloy, kube-state-metrics, node-exporter, node journals, gateway monitors, annotation autodiscovery, CoreDNS, and the Loki and DCGM integrations)
 │   ├── prometheus-operator-crds-values.yaml # Helm values for prometheus-community/prometheus-operator-crds (ServiceMonitor and other monitoring.coreos.com CRDs)
 │   ├── prometheus-values.yaml # Helm values for prometheus-community/prometheus (server, Alertmanager and alert rules)
 │   └── dashboards/

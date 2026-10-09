@@ -14,8 +14,8 @@ taken_from: >-
   format (version 0.0.4) through the Kubernetes API service proxy.
 scraped_by: >-
   The server's own prometheus job, which scrapes localhost:9090 (scrapeConfigs.prometheus in
-  k8s/monitoring/prometheus-values.yaml). Its relabelling adds no cluster label.
-target_labels: [instance, job]
+  k8s/monitoring/prometheus-values.yaml). Its relabelling adds the cluster label.
+target_labels: [cluster, instance, job]
 families:
   go_gc_cleanups_executed_cleanups_total: {type: counter, labels: []}
   go_gc_cleanups_queued_cleanups_total: {type: counter, labels: []}

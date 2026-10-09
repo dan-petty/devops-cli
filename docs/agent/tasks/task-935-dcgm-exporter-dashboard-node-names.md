@@ -17,6 +17,7 @@ Unlike `node-exporter`, which relabels `__meta_kubernetes_pod_node_name` to `ins
      - Relabel `__meta_kubernetes_pod_node_name` to `node` (action: `replace`, targetLabel: `node`).
      - Relabel `__meta_kubernetes_pod_node_name` to `instance` (action: `replace`, targetLabel: `instance`).
    - Ensures all `DCGM_FI_*` metrics published by DCGM Exporter carry both `node` and `instance` labels set to the Kubernetes node name.
+   - Since #1130 the k8s-monitoring dcgm-exporter integration scrapes the exporter, its discovery rules set `node` and `instance` the same way, and the chart's ServiceMonitor is off.
 2. **Metrics Fixtures & Test Assertions**:
    - Updated `tests/fixtures/metrics/dcgm-exporter.yaml` to include `node` in `target_labels`.
    - Updated `tests/test_k8s_monitoring_integration.py` (`test_dcgm_exporter_values_timeout_and_capabilities`) to verify `serviceMonitor.relabelings` mapping `__meta_kubernetes_pod_node_name` to both `node` and `instance`.
@@ -28,7 +29,7 @@ Unlike `node-exporter`, which relabels `__meta_kubernetes_pod_node_name` to `ins
    - Verified DCGM Exporter metrics and Grafana dashboard panels resolve Kubernetes node names.
 
 ## Acceptance Criteria
-- [x] `k8s/monitoring/dcgm-exporter-values.yaml` defines `serviceMonitor.relabelings` replacing `node` and `instance` with `__meta_kubernetes_pod_node_name`.
+- [x] `k8s/monitoring/dcgm-exporter-values.yaml` defines `serviceMonitor.relabelings` replacing `node` and `instance` with `__meta_kubernetes_pod_node_name` (since #1130, the dcgm-exporter integration's discovery rules in `k8s/monitoring/k8s-monitoring-values.yaml`).
 - [x] Metrics fixtures in `tests/fixtures/metrics/dcgm-exporter.yaml` declare `node` target label.
 - [x] Unit test `test_dcgm_exporter_values_timeout_and_capabilities` passes and validates relabelings.
 - [x] OpenTelemetry Collector deploys cleanly with `otlp_http/loki` exporter.
