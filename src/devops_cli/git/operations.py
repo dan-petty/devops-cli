@@ -127,7 +127,10 @@ def _verified_host_key(hostname: str, scan_output: str) -> HostKey:
 
 
 def _ensure_known_host(
-    hostname: str = CONST_GITHUB_HOST, *, allow_unverified: bool = False
+    hostname: str = CONST_GITHUB_HOST,
+    *,
+    allow_unverified: bool = False,
+    known_hosts: Path | None = None,
 ) -> None:
     """Add *hostname* to ~/.ssh/known_hosts, verifying the key before trusting it.
 
@@ -139,10 +142,9 @@ def _ensure_known_host(
     `allow_unverified` restores trust-on-first-use for hosts that publish no fingerprints,
     and is refused for hosts that do -- there, an unverifiable key is a signal, not a gap.
     """
-    ssh_dir = Path.home() / ".ssh"
-    known_hosts = ssh_dir / "known_hosts"
-    ssh_dir.mkdir(mode=CONST_PERM_DIR, parents=True, exist_ok=True)
-    if _is_host_in_known_hosts(hostname, known_hosts):
+    known_hosts_file = known_hosts or (Path.home() / ".ssh" / "known_hosts")
+    known_hosts_file.parent.mkdir(mode=CONST_PERM_DIR, parents=True, exist_ok=True)
+    if _is_host_in_known_hosts(hostname, known_hosts_file):
         return
 
     scan_output = _scan_host_key(hostname)
@@ -160,14 +162,14 @@ def _ensure_known_host(
             keys[0].fingerprint,
         )
         _append_known_host_entry(
-            known_hosts, format_entry(hostname, keys[0].key_type, keys[0].key_data)
+            known_hosts_file, format_entry(hostname, keys[0].key_type, keys[0].key_data)
         )
         return
 
     key = _verified_host_key(hostname, scan_output)
     # Written under the hostname that was requested, not the one the scan claimed, so a
     # response naming a different host cannot pin a key under that name.
-    _append_known_host_entry(known_hosts, format_entry(hostname, key.key_type, key.key_data))
+    _append_known_host_entry(known_hosts_file, format_entry(hostname, key.key_type, key.key_data))
 
 
 def _validate_clone_dest(dest: Path) -> None:

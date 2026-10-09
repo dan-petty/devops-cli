@@ -355,11 +355,27 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterato
 def isolate_user_data_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Keep the user-level data root, where a review's relative data paths resolve (#972) and
     locked tools install (#1142), in the test's temporary directory rather than the developer's
-    home."""
+    home (#1311)."""
     user_data_root = (tmp_path / "user-data").resolve()
-    monkeypatch.setattr("devops_cli.core.repo.CONST_USER_DATA_ROOT", user_data_root)
-    monkeypatch.setattr("devops_cli.tools_lock.CONST_USER_DATA_ROOT", user_data_root)
+    monkeypatch.setenv("DEVOPS_CLI_USER_DATA_ROOT", str(user_data_root))
     return user_data_root
+
+
+@pytest.fixture(autouse=True)
+def isolate_tempdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """Ensure tempfile.gettempdir() returns a directory under tmp_path for each test (#1311)."""
+    import tempfile
+
+    test_temp_str = str(tmp_path)
+    monkeypatch.setenv("TMPDIR", test_temp_str)
+    monkeypatch.setenv("TEMP", test_temp_str)
+    monkeypatch.setenv("TMP", test_temp_str)
+    prev_tempdir = tempfile.tempdir
+    tempfile.tempdir = test_temp_str
+    try:
+        yield tmp_path
+    finally:
+        tempfile.tempdir = prev_tempdir
 
 
 @pytest.fixture(autouse=True)
@@ -566,8 +582,7 @@ def isolate_devops_cli_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(test_config))
     monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENDPOINT", "http://localhost:4318")
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
-    with patch("devops_cli.config.settings.CONFIG_PATH", test_config):
-        yield test_config
+    yield test_config
     reset_settings_cache()
     reset_tracer()
 
@@ -920,6 +935,38 @@ def _is_xdist_worker(config: pytest.Config) -> bool:
     return getattr(config, "workerinput", None) is not None
 
 
+@pytest.hookimpl(trylast=True)
+def pytest_configure(config: pytest.Config) -> None:
+    """Isolate HOME into an empty directory under pytest basetemp before devops-cli is imported (#1311)."""
+    factory = getattr(config, "_tmp_path_factory", None)
+    if factory is None:
+        from _pytest.tmpdir import TempPathFactory
+
+        factory = TempPathFactory.from_config(config, _ispytest=True)
+        config._tmp_path_factory = factory  # type: ignore[attr-defined]
+
+    basetemp = factory.getbasetemp()
+    is_worker = _is_xdist_worker(config)
+    home_dir = basetemp / "home"
+    home_dir.mkdir(parents=True, exist_ok=True)
+    gitconfig = home_dir / ".gitconfig"
+    if not gitconfig.exists():
+        gitconfig.write_text(
+            "[user]\n\tname = Test User\n\temail = test@example.com\n",
+            encoding="utf-8",
+        )
+    os.environ["HOME"] = str(home_dir)
+
+    shared = basetemp.parent if is_worker else basetemp
+    config._tripwire_basetemp = shared  # type: ignore[attr-defined]
+    reg = shared / ".worker_homes"
+    try:
+        with open(reg, "a", encoding="utf-8") as f:
+            f.write(f"{home_dir}\n")
+    except OSError:
+        pass
+
+
 def _get_git_tracked_files(repo_root: Path) -> list[str]:
     """Return relative paths of all git-tracked files in the repository."""
     try:
@@ -1009,6 +1056,54 @@ def _check_forbidden_test_paths(repo_root: Path) -> list[str]:
     return diffs
 
 
+def _worker_home_locations(home: Path) -> tuple[Path, ...]:
+    """Return the devops-cli locations inside a worker home (#1311)."""
+    from devops_cli.config.constants import CONST_APP_NAME
+
+    return (
+        home / ".config" / CONST_APP_NAME,
+        home / ".local" / "share" / CONST_APP_NAME,
+        home / ".ssh",
+        home / ".local" / "bin",
+    )
+
+
+def _find_location_leaks(loc: Path) -> list[Path]:
+    """Find all files or non-empty directories left at *loc* (#1311)."""
+    if not loc.exists():
+        return []
+    if loc.is_file() or loc.is_symlink():
+        return [loc]
+    entries = sorted(p for p in loc.rglob("*") if not p.is_dir())
+    return entries or [loc]
+
+
+def _get_snapshot_homes(snapshot: dict[str, Any]) -> list[Path]:
+    """Retrieve list of unique worker home paths recorded during session (#1311)."""
+    if "worker_homes" in snapshot:
+        return [Path(h) for h in snapshot["worker_homes"]]
+    basetemp = snapshot.get("basetemp")
+    if not basetemp:
+        return []
+    reg = Path(basetemp) / ".worker_homes"
+    if not reg.exists():
+        return []
+    return [
+        Path(line.strip()) for line in reg.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+
+
+def _check_worker_home_leaks(snapshot: dict[str, Any]) -> list[str]:
+    """Detect state left in devops-cli locations within worker homes (#1311)."""
+    homes = _get_snapshot_homes(snapshot)
+    diffs: list[str] = []
+    for home in sorted(set(homes)):
+        for loc in _worker_home_locations(home):
+            for leaked in _find_location_leaks(loc):
+                diffs.append(f"{leaked} (state left in worker home)")
+    return diffs
+
+
 def _evaluate_workspace_tripwire(snapshot: dict[str, Any]) -> list[str]:
     """Evaluate all workspace isolation tripwire checks against initial session snapshot."""
     repo_root = snapshot["repo_root"]
@@ -1018,6 +1113,7 @@ def _evaluate_workspace_tripwire(snapshot: dict[str, Any]) -> list[str]:
         failures.append(cfg_diff)
     failures.extend(_check_tracked_diff(repo_root, snapshot.get("tracked_snapshot", {})))
     failures.extend(_check_forbidden_test_paths(repo_root))
+    failures.extend(_check_worker_home_leaks(snapshot))
     return failures
 
 
@@ -1043,6 +1139,7 @@ def pytest_sessionstart(session: pytest.Session) -> None:
         "repo_root": repo_root,
         "config_state": cfg_path.read_bytes() if cfg_path.exists() else None,
         "tracked_snapshot": _snapshot_tracked_files(repo_root, tracked),
+        "basetemp": getattr(session.config, "_tripwire_basetemp", None),
     }
 
 

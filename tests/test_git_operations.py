@@ -308,7 +308,7 @@ def test_git_operations_edge_cases(tmp_path: Path) -> None:
     # 3. _ensure_known_host when keyscan fails
     with patch("devops_cli.git.operations.run_subprocess") as mock_run:
         mock_run.side_effect = [MagicMock(returncode=1), MagicMock(returncode=1, stdout="")]
-        _ensure_known_host("example.com")
+        _ensure_known_host("example.com", known_hosts=tmp_path / ".ssh" / "known_hosts")
 
 
 def test_append_known_host_entry(tmp_path: Path) -> None:

@@ -8,7 +8,6 @@ preventing uncommitted checkout edits from corrupting review findings and metada
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -16,9 +15,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from devops_cli.config.constants import CONST_USER_DATA_ROOT
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.repo import user_data_root
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +26,7 @@ _WORKTREE_DIR_NAME: Final[str] = "worktrees"
 
 def get_user_worktrees_dir() -> Path:
     """The directory under user data root where review worktrees live."""
-    env_root = os.environ.get("DEVOPS_CLI_USER_DATA_ROOT")
-    root = Path(env_root).resolve() if env_root else CONST_USER_DATA_ROOT
-    worktrees_dir = root / _WORKTREE_DIR_NAME
+    worktrees_dir = user_data_root() / _WORKTREE_DIR_NAME
     worktrees_dir.mkdir(parents=True, exist_ok=True)
     return worktrees_dir
 

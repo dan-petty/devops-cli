@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
+import tempfile
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import httpx2
@@ -174,3 +177,29 @@ def test_the_stream_processor_names_its_limit_in_kb() -> None:
         processor.feed("x" * (_LIMIT + 1))
 
     assert str(caught.value) == "Stream exceeded maximum size limit of 4KB."
+
+
+def test_ollama_round_robin_index_lives_under_data_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify load_and_increment_rr_index writes under DEVOPS_CLI_DATA_DIR and nowhere in temp."""
+    from devops_cli.ai.client.network import load_and_increment_rr_index
+
+    data_dir = tmp_path / "custom_data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(data_dir))
+
+    system_temp = Path(tempfile.gettempdir())
+    uid = os.getuid() if hasattr(os, "getuid") else 0
+    temp_target = system_temp / f"devops_cli_ollama_rr_{uid}"
+    if temp_target.exists():
+        temp_target.unlink()
+
+    idx = load_and_increment_rr_index(3)
+    expected_file = data_dir / f"devops_cli_ollama_rr_{uid}"
+
+    assert (
+        idx >= 0,
+        expected_file.exists(),
+        temp_target.exists(),
+    ) == (True, True, False)

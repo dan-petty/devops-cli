@@ -699,7 +699,9 @@ def test_k8s_tls_secret_and_audit(tmp_path: Path) -> None:
         assert result.exit_code == 0
 
     with patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(0, "success")):
-        result = runner.invoke(app, ["enable-tls", "--stack", "all"])
+        result = runner.invoke(
+            app, ["enable-tls", "--stack", "all", "--tls-dir", str(tmp_path / "tls")]
+        )
         assert result.exit_code == 0
 
 
