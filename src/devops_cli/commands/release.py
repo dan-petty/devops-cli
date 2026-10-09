@@ -824,6 +824,10 @@ def release_prepare(
         Path | None,
         typer.Option("--root", "-r", help=HELP.options.root),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Bump version across pyproject.toml and source, update changelog, and sync docs."""
     clean_version = version.lstrip("v").strip()
@@ -835,7 +839,7 @@ def release_prepare(
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     collection = _plan_changelog_or_exit(repo_root, clean_version, today, update_changelog)
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops release prepare",
             action="prepare_release_version",
@@ -1631,6 +1635,10 @@ def release_notes(
         Path | None,
         typer.Option("--root", "-r", help=HELP.options.root),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Print markdown release notes for a specified or current release version.
 
@@ -1656,7 +1664,7 @@ def release_notes(
         print_warning(MESSAGES.release.notes_not_found.format(version=target_ver), prefix=False)
         raise typer.Exit(1)
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops release notes",
             action="extract_release_notes",
@@ -1727,6 +1735,10 @@ def release_sync_notes(
         Path | None,
         typer.Option("--root", "-r", help=HELP.options.root),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Republish GitHub release descriptions from CHANGELOG.md.
 
@@ -1745,8 +1757,11 @@ def release_sync_notes(
         _get("print_error")("Cannot resolve target repository.")
         raise typer.Exit(1)
 
+    active_dry_run = dry_run or is_dry_run()
     if all_releases:
-        tags = list_published_releases(target_repo)
+        tags = (
+            ["<all published releases>"] if active_dry_run else list_published_releases(target_repo)
+        )
     else:
         target_ver = (version or _get_pyproject_version(repo_root) or "").lstrip("v")
         if not target_ver:
@@ -1754,16 +1769,16 @@ def release_sync_notes(
             raise typer.Exit(1)
         tags = [f"v{target_ver}"]
 
-    dry_run = is_dry_run()
-    if dry_run:
+    if active_dry_run:
         render_dry_run_result(
             command="devops release sync-notes",
             action="republish_release_notes",
             details={"repo": target_repo, "releases": ", ".join(tags)},
         )
+        return
 
     for tag in tags:
-        _get("print_info")(_sync_one_release(target_repo, tag, repo_root, dry_run))
+        _get("print_info")(_sync_one_release(target_repo, tag, repo_root, False))
 
 
 # =============================================================================
@@ -1793,6 +1808,10 @@ def release_changelog(
         Path | None,
         typer.Option("--root", "-r", help=HELP.options.root),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Compile and generate changelog entries from git commits or PR deliverables."""
     from devops_cli.output import (
@@ -1815,7 +1834,7 @@ def release_changelog(
         or f"### Changes in v{target_ver}\n\n* Release v{target_ver}"
     )
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops release changelog",
             action="compile_release_changelog",
@@ -1912,6 +1931,10 @@ def release_tag(
         Path | None,
         typer.Option("--root", "-r", help=HELP.options.root),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Create release commit and annotated git tag."""
     repo_root = _get_project_root(root)
@@ -1921,7 +1944,7 @@ def release_tag(
     release_title = _format_release_title(target_ver, prefix=release_type, breaking=breaking)
     tag_msg = message or release_title
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops release tag",
             action="create_annotated_git_tag",

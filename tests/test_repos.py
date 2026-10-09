@@ -994,8 +994,7 @@ def test_repos_reload_workspace_and_resolve(tmp_path: Path) -> None:
 def test_repos_clone_org_dry_run_and_missing_org() -> None:
     """Verify clone-org handles --dry-run and missing org configuration."""
     result = runner.invoke(app, ["--dry-run", "repos", "clone-org", "test-org"])
-    assert result.exit_code == 0
-    assert "Would run delegated command" in result.output
+    assert (result.exit_code, "devops repos clone-org" in result.output) == (0, True)
 
     with patch("devops_cli.commands.repos.load_settings") as mock_load:
         settings = MagicMock()
@@ -1008,8 +1007,7 @@ def test_repos_clone_org_dry_run_and_missing_org() -> None:
 def test_repos_sync_and_status_dry_run() -> None:
     """Verify sync and status commands handle --dry-run."""
     res_sync = runner.invoke(app, ["--dry-run", "repos", "sync"])
-    assert res_sync.exit_code == 0
-    assert "Would run delegated command" in res_sync.output
+    assert (res_sync.exit_code, "devops repos sync" in res_sync.output) == (0, True)
 
 
 def test_repo_origin_lru_caching(tmp_path: Path) -> None:
@@ -1026,6 +1024,5 @@ def test_repo_origin_lru_caching(tmp_path: Path) -> None:
         res2 = get_repo_origin_name(tmp_path)
         assert (res1, res2, mock_sub.call_count) == ("org/cached-repo", "org/cached-repo", 1)
 
-    res_status = runner.invoke(app, ["--dry-run", "repos", "status"])
-    assert res_status.exit_code == 0
-    assert "Would run delegated command" in res_status.output
+    res_list = runner.invoke(app, ["--dry-run", "repos", "list"])
+    assert (res_list.exit_code, "devops repos list" in res_list.output) == (0, True)

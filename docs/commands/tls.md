@@ -23,6 +23,7 @@ devops tls ca [OPTIONS]
 | `--validity-days`, `-d` | `integer` | `3650` | Validity period in days. |
 | `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096). |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -47,6 +48,7 @@ devops tls cert [OPTIONS]
 | `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096). |
 | `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -66,6 +68,7 @@ devops tls homelab [OPTIONS]
 | `--domain`, `-d` | `string` | - | Additional custom domains to include in SANs. |
 | `--ip`, `-i` | `string` | - | Additional custom IP addresses to include in SANs. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -124,5 +127,6 @@ devops tls enable-k8s [OPTIONS]
 | `--secret-name` | `string` | `homelab-tls` | Kubernetes TLS secret name to create. |
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

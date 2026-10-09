@@ -10,8 +10,8 @@ class MainHelp:
     app: str = "DevOps CLI — manage repos, SSH keys, Kubernetes, and more."
     version: str = "Show version and exit."
     dry_run: str = (
-        "Show debug output of commands and AI requests without executing delegated "
-        "subcommands or external write actions."
+        "Preview execution plan without mutating external state. A delegated command "
+        "previews only if it declares --dry-run."
     )
 
 

@@ -69,9 +69,13 @@ def _engine() -> DockerEngineService:
 @app.command("images")
 def list_images(
     name: Annotated[str | None, typer.Option("--name", "-n", help=HELP.docker.name_filter)] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List local Docker images."""
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops docker images",
             action="list_docker_images",
@@ -108,9 +112,13 @@ def build(
         Path | None, typer.Option("--file", "-f", help=HELP.docker.dockerfile)
     ] = None,
     no_cache: Annotated[bool, typer.Option("--no-cache", help=HELP.docker.no_cache)] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Build a Docker image."""
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops docker build",
             target=str(context),
@@ -148,9 +156,13 @@ def build(
 @app.command()
 def push(
     image: Annotated[str, typer.Argument(help=HELP.docker.image_name)],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Push a Docker image to a registry."""
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops docker push",
             target=image,
@@ -198,9 +210,13 @@ def push(
 def prune(
     volumes: Annotated[bool, typer.Option("--volumes", help=HELP.docker.volumes)] = False,
     force: Annotated[bool, typer.Option("--force", "-f", help=HELP.options.force)] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Remove unused containers, images, and networks."""
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops docker prune",
             action="prune_docker_resources",

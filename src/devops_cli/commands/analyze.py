@@ -278,6 +278,10 @@ def analyze_path(  # noqa: C901
         bool,
         typer.Option("--explain", "-x", help=HELP.analyze.explain),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Analyze all repository files under target path and save metadata to .data/analysis/."""
     if explain:
@@ -303,7 +307,7 @@ def analyze_path(  # noqa: C901
         collected_paths = [p for p in collected_paths if fnmatch.fnmatch(p.name, pattern)]
 
     ai_client = None
-    if enhanced and not is_dry_run():
+    if enhanced and not (dry_run or is_dry_run()):
         try:
             from devops_cli.ai.client import LLMClient
             from devops_cli.config.settings import get_ai_api_key, load_settings
@@ -338,9 +342,11 @@ def analyze_path(  # noqa: C901
             file_metas.append(meta)
 
     title = f"{repo.name} path analysis: {ref_str}"
-    out_file = save_analysis_metadata("path", ref_str, title, file_metas, repo, enhanced=enhanced)
+    out_file = save_analysis_metadata(
+        "path", ref_str, title, file_metas, repo, enhanced=enhanced, dry_run=dry_run
+    )
 
-    if not is_dry_run():
+    if not (dry_run or is_dry_run()):
         payload_data = json.loads(out_file.read_text(encoding="utf-8"))
         _render_analysis_summary(AnalysisMetadata.model_validate(payload_data), out_file)
 
@@ -376,6 +382,10 @@ def analyze_branch(
         bool,
         typer.Option("--explain", "-x", help=HELP.analyze.explain),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Analyze a git branch diff against base and save metadata to .data/analysis/."""
     if explain:
@@ -392,7 +402,7 @@ def analyze_branch(
         raise typer.Exit(1)
 
     ai_client = None
-    if enhanced and not is_dry_run():
+    if enhanced and not (dry_run or is_dry_run()):
         try:
             from devops_cli.ai.client import LLMClient
             from devops_cli.config.settings import get_ai_api_key, load_settings
@@ -433,10 +443,10 @@ def analyze_branch(
 
     title = f"{repo.name} branch analysis: {target_branch} vs {base}"
     out_file = save_analysis_metadata(
-        "branch", cache_ref, title, file_metas, repo, enhanced=enhanced
+        "branch", cache_ref, title, file_metas, repo, enhanced=enhanced, dry_run=dry_run
     )
 
-    if not is_dry_run():
+    if not (dry_run or is_dry_run()):
         payload_data = json.loads(out_file.read_text(encoding="utf-8"))
         _render_analysis_summary(AnalysisMetadata.model_validate(payload_data), out_file)
 
@@ -469,6 +479,10 @@ def analyze_pr(  # noqa: C901
         bool,
         typer.Option("--explain", "-x", help=HELP.analyze.explain),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Analyze a GitHub Pull Request and save metadata to .data/analysis/."""
     if explain:
@@ -483,7 +497,7 @@ def analyze_pr(  # noqa: C901
         session = get_github_session()
 
     ai_client = None
-    if enhanced and not is_dry_run():
+    if enhanced and not (dry_run or is_dry_run()):
         try:
             settings = load_settings()
             ai_client = LLMClient(settings.ai, api_key=get_ai_api_key(settings))
@@ -556,8 +570,10 @@ def analyze_pr(  # noqa: C901
 
     title = f"{repo.name} PR #{pr_number} analysis: {pull.title}"
     ref_str = str(pr_number)
-    out_file = save_analysis_metadata("pr", ref_str, title, file_metas, repo, enhanced=enhanced)
+    out_file = save_analysis_metadata(
+        "pr", ref_str, title, file_metas, repo, enhanced=enhanced, dry_run=dry_run
+    )
 
-    if not is_dry_run():
+    if not (dry_run or is_dry_run()):
         payload_data = json.loads(out_file.read_text(encoding="utf-8"))
         _render_analysis_summary(AnalysisMetadata.model_validate(payload_data), out_file)

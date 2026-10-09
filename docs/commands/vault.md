@@ -129,6 +129,7 @@ devops vault login [OPTIONS]
 | `--role-id` | `string` | - | AppRole role_id |
 | `--secret-id` | `string` | - | AppRole secret_id |
 | `--store` / `--no-store` | `boolean` | `True` | Keep the issued token in the OS keyring, for this Vault address and namespace only. --no-store checks the credentials without keeping the token: the form for CI and in-cluster runs, which take VAULT_TOKEN from their Vault integration. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -143,8 +144,14 @@ now. The local copy is deleted even when the revoke fails, for example because V
 unreachable or the token has expired, and the output says the revoke did not happen.
 
 ```bash
-devops vault logout
+devops vault logout [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -166,6 +173,7 @@ devops vault leases [OPTIONS]
 |---|---|---|---|
 | `--renew` | `boolean` | - | Renew every tracked lease nearing expiry |
 | `--revoke` | `string` | - | Revoke a single lease by id |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

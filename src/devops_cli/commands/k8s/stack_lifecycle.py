@@ -436,6 +436,10 @@ def bootstrap_openwebui(
             help="Display generated admin password in plain text instead of masking.",
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Bootstrap or activate a local administrator account for Open-WebUI."""
     creds = _get_openwebui_bootstrap_credentials()
@@ -448,7 +452,7 @@ def bootstrap_openwebui(
         runtime._validate_kubeconfig_context_name(effective_context, "context")
 
     display_email = _mask_email_display(email)
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s bootstrap-openwebui",
             target=display_email,

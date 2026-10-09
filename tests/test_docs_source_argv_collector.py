@@ -10,7 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.docs import app as docs_app
-from devops_cli.docs.command_resolver import ArgvPlaceholder, module_click_command
+from devops_cli.core.command_resolver import ArgvPlaceholder, module_click_command
 from devops_cli.docs.generator import DocGenerator
 from devops_cli.docs.source_argv_collector import (
     ArgvChoice,
@@ -244,7 +244,7 @@ def test_the_collector_reads_every_module_and_both_prefixes(
             "src/devops_cli/commands/devcontainer.py",
             ("k8s", "deploy-stack", "--stack", _single("stack")),
         ),
-        ("src/devops_cli/core/cli.py", (_single("cmd_name"), _spread("*list(ctx.args)"))),
+        ("src/devops_cli/core/cli.py", (_single("cmd_name"), _spread("*args"))),
         (
             "src/devops_cli/ai/mcp/server.py",
             ("config", "output", ArgvChoice(alternatives=("--json", "--export"))),

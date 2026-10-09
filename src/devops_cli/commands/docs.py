@@ -82,6 +82,10 @@ def generate(  # noqa: C901
             help=HELP.docs.check,
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Generate comprehensive Markdown or JSON documentation for all CLI commands and tools."""
     target_dir = (output_dir or _get_default_docs_dir()).resolve()
@@ -100,7 +104,7 @@ def generate(  # noqa: C901
             print_success(MESSAGES.docs.docs_up_to_date, prefix=False)
             return
 
-        if is_dry_run():
+        if dry_run or is_dry_run():
             render_dry_run_result(
                 command="devops docs generate",
                 action="generate_cli_documentation_json",
@@ -127,7 +131,7 @@ def generate(  # noqa: C901
         print_success(MESSAGES.docs.docs_up_to_date, prefix=False)
         return
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops docs generate",
             action="generate_cli_documentation",
@@ -207,6 +211,10 @@ def sync_readme_cmd(
             help=HELP.docs.check,
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Synchronize the Complete Command Matrix table in README.md with live CLI commands."""
     from devops_cli.docs.generator import DocGenerator
@@ -221,7 +229,7 @@ def sync_readme_cmd(
         print_success(MESSAGES.docs.docs_up_to_date, prefix=False)
         return
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         target = generator._find_readme(readme_path)
         render_dry_run_result(
             command="devops docs sync-readme",
@@ -334,7 +342,7 @@ def compact_cmd(
         bool,
         typer.Option(
             "--dry-run",
-            help=HELP.main.dry_run,
+            help=HELP.options.dry_run,
         ),
     ] = False,
 ) -> None:

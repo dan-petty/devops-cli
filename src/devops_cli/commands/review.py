@@ -2202,11 +2202,15 @@ def samples_fetch(
         list[SampleCategory] | None,
         typer.Option("--category", "-c", help=HELP.review.samples_category),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Fetch samples at their pinned commits, verifying commit, licence files and paths."""
     samples = _select_samples(names, category)
     root = samples_dir()
-    if is_dry_run():
+    if dry_run or is_dry_run():
         for sample in samples:
             print_info(f"Would fetch {sample.repository} at {sample.commit} → {root / sample.name}")
         return

@@ -593,7 +593,8 @@ class BenchmarkRunner:
             is_dry_run=dry_run,
         )
 
-        self._save_report(report)
+        if not dry_run:
+            self._save_report(report)
         return report
 
     def _evaluate_response(

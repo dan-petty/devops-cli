@@ -1211,6 +1211,10 @@ def pipeline(
             help=HELP.ai.pipeline_stage_context_tokens,
         ),
     ] = DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context."""
     from devops_cli.ai.agents import PydanticAgent
@@ -1232,7 +1236,7 @@ def pipeline(
             raise typer.Exit(1)
         valid_personas.append(Persona(name))
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops ai pipeline",
             target=prompt,

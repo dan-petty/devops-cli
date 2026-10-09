@@ -192,6 +192,10 @@ def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
 def cd_apps_list(
     watch: Annotated[bool, typer.Option("--watch", "-w", help=HELP.argo.watch)] = False,
     interval: Annotated[float, typer.Option("--interval", "-i", help=HELP.argo.interval)] = 3.0,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List all ArgoCD applications."""
 
@@ -338,6 +342,10 @@ def cd_apps_bootstrap_gitops(
         str | None,
         typer.Option("--context", "-c", help=HELP.options.context),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Apply the GitOps root Application to bootstrap local project orchestration."""
     resolved_manifest = root_app_path.resolve()
@@ -552,6 +560,10 @@ def fleet_sync(
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Synchronize an application across a fleet of Kubernetes clusters with bounded concurrency."""
     _validate_k8s_name(app_name, "application name")
@@ -649,6 +661,10 @@ def rollouts_promote(
             "--full", help="Skip all remaining steps and promote directly to full release"
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Promote an in-progress Argo Rollout to the next progressive step or full release."""
     from devops_cli.argo.rollouts import promote_rollout
@@ -675,6 +691,10 @@ def rollouts_abort(
     namespace: Annotated[
         str, typer.Option("--namespace", "-n", help=HELP.options.namespace)
     ] = "default",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Abort an in-progress Argo Rollout and revert immediately to the stable replica set."""
     from devops_cli.argo.rollouts import abort_rollout
@@ -698,6 +718,10 @@ def rollouts_restart(
     namespace: Annotated[
         str, typer.Option("--namespace", "-n", help=HELP.options.namespace)
     ] = "default",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Perform a restart rollout across all pods in an Argo Rollout."""
     from devops_cli.argo.rollouts import restart_rollout
@@ -733,6 +757,10 @@ def rollouts_analyze(
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Evaluate metric rollback gates and trigger automated rollback on threshold violation."""
     from devops_cli.argo.rollouts import evaluate_rollout_gate, render_rollout_analysis_table
@@ -753,7 +781,7 @@ def rollouts_analyze(
         namespace=namespace,
         thresholds=thresholds,
         auto_abort=auto_abort,
-        dry_run=is_dry_run(),
+        dry_run=dry_run or is_dry_run(),
     )
 
     if json_output:

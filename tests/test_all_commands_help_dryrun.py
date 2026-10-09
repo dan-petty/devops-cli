@@ -20,13 +20,13 @@ from devops_cli.main import app as main_app
 
 COMMAND_SPECS = [
     (main_app, ["--help"]),
-    (main_app, ["--dry-run", "repos", "status"]),
+    (main_app, ["--dry-run", "repos", "list"]),
     (main_app, ["--dry-run", "config", "show"]),
-    (main_app, ["--dry-run", "repos", "status"]),
+    (main_app, ["--dry-run", "repos", "sync"]),
     (main_app, ["--dry-run", "k8s", "status"]),
     (main_app, ["--dry-run", "k8s", "port-forward"]),
-    (main_app, ["--dry-run", "argo", "list"]),
-    (main_app, ["--dry-run", "argo", "status"]),
+    (main_app, ["--dry-run", "argo", "cd", "apps", "list"]),
+    (main_app, ["--dry-run", "argo", "rollouts", "list"]),
     (main_app, ["--dry-run", "tls", "homelab"]),
     (main_app, ["--dry-run", "telemetry", "status"]),
     (ai_app, ["--help"]),

@@ -355,9 +355,13 @@ def validate(
 @app.command("list")
 def list_devcontainers(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List repos with their devcontainer status."""
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops devcontainer list",
             action="list_devcontainers",

@@ -59,12 +59,16 @@ def rbac_audit(
     namespace: Annotated[
         str | None, typer.Option("--namespace", "-n", help=HELP.k8s.rbac_namespace)
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Audit RBAC RoleBindings and ServiceAccounts for overprivileged access."""
     if namespace:
         runtime._validate_k8s_identifier(namespace, "namespace", namespace=True)
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s rbac-audit",
             action="rbac_audit_scan",

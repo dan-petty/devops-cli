@@ -167,6 +167,7 @@ devops ai pipeline [OPTIONS] <prompt>
 | `--rag` / `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
 | `--thinking` / `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
 | `--stage-context-tokens` | `integer` | `4096` | Maximum context tokens from previous stages to carry into each pipeline stage (0 to disable budget). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -894,6 +895,7 @@ devops ai review samples fetch [OPTIONS] <names>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai review samples validate`
 
@@ -1053,6 +1055,7 @@ devops ai analyze path [OPTIONS] <target>
 | `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai analyze branch`
 
@@ -1076,6 +1079,7 @@ devops ai analyze branch [OPTIONS] <branch>
 | `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai analyze pr`
 
@@ -1098,6 +1102,7 @@ devops ai analyze pr [OPTIONS] <pr_number>
 | `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -1138,6 +1143,7 @@ devops ai rag index [OPTIONS] <path>
 | `--include-kb` / `--no-include-kb` | `boolean` | `True` | Include bundled DevOps CLI Knowledge Base in docs collection. |
 | `--collection`, `-c` | `string` | - | Target collection override. |
 | `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai rag index-kb`
 
@@ -1154,6 +1160,7 @@ devops ai rag index-kb [OPTIONS]
 | `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--collection`, `-c` | `string` | - | Target collection override. |
 | `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai rag search`
 
@@ -1181,6 +1188,7 @@ devops ai rag search [OPTIONS] <query>
 | `--collection` | `string` | - | Target collection override. |
 | `--file`, `-f` | `string` | - | Filter by filepath glob pattern. |
 | `--explain` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai rag query`
 
@@ -1208,6 +1216,7 @@ devops ai rag query [OPTIONS] <query>
 | `--collection` | `string` | - | Target collection override. |
 | `--file`, `-f` | `string` | - | Filter by filepath glob pattern. |
 | `--explain` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai rag status`
 
@@ -1311,8 +1320,14 @@ devops ai cache status [OPTIONS]
 **Purge all in-memory and persistent disk cache entries.**
 
 ```bash
-devops ai cache clear
+devops ai cache clear [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

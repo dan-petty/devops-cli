@@ -902,6 +902,10 @@ def configure_urls(
     addressing: Annotated[
         str | None, typer.Option("--addressing", "-a", help=HELP.k8s.addressing)
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Auto-detect Kubernetes stack URLs and update CLI config."""
     settings = load_settings()
@@ -918,7 +922,7 @@ def configure_urls(
 
     selected_stacks = _resolve_stacks(stack)
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s configure-urls",
             action="configure_monitoring_urls",
@@ -1118,6 +1122,10 @@ def port_forward(
             help=HELP.k8s.update_config_flag,
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Port-forward k8s monitoring / LLM stack services to localhost ports."""
     import time
@@ -1140,7 +1148,7 @@ def port_forward(
         "valkey": valkey_port,
     }
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s port-forward",
             action="k8s_port_forward",
