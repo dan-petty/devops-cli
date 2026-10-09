@@ -1,0 +1,154 @@
+{
+  "Reports": [
+    {
+      "Check": "no-anti-affinity",
+      "Diagnostic": {
+        "Message": "object has 2 replicas but does not specify inter pod anti-affinity"
+      },
+      "Object": {
+        "Metadata": {
+          "FilePath": "k8s/cloudflared/deployment.yaml"
+        },
+        "K8sObject": {
+          "Namespace": "cloudflared",
+          "Name": "cloudflared",
+          "GroupVersionKind": {
+            "Group": "apps",
+            "Version": "v1",
+            "Kind": "Deployment"
+          }
+        }
+      },
+      "Remediation": "Specify anti-affinity in your pod specification to ensure that the orchestrator attempts to schedule replicas on different nodes. Using podAntiAffinity, specify a labelSelector that matches pods for the deployment, and set the topologyKey to kubernetes.io/hostname. Refer to https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#inter-pod-affinity-and-anti-affinity for details."
+    },
+    {
+      "Check": "no-read-only-root-fs",
+      "Diagnostic": {
+        "Message": "container \"registry\" does not have a read-only root file system"
+      },
+      "Object": {
+        "Metadata": {
+          "FilePath": "k8s/registry/deployment.yaml"
+        },
+        "K8sObject": {
+          "Namespace": "registry",
+          "Name": "registry",
+          "GroupVersionKind": {
+            "Group": "apps",
+            "Version": "v1",
+            "Kind": "Deployment"
+          }
+        }
+      },
+      "Remediation": "Set readOnlyRootFilesystem to true in the container securityContext."
+    },
+    {
+      "Check": "run-as-non-root",
+      "Diagnostic": {
+        "Message": "container \"registry\" is not set to runAsNonRoot"
+      },
+      "Object": {
+        "Metadata": {
+          "FilePath": "k8s/registry/deployment.yaml"
+        },
+        "K8sObject": {
+          "Namespace": "registry",
+          "Name": "registry",
+          "GroupVersionKind": {
+            "Group": "apps",
+            "Version": "v1",
+            "Kind": "Deployment"
+          }
+        }
+      },
+      "Remediation": "Set runAsUser to a non-zero number and runAsNonRoot to true in your pod or container securityContext. Refer to https://kubernetes.io/docs/tasks/configure-pod-container/security-context/ for details."
+    },
+    {
+      "Check": "dangling-service",
+      "Diagnostic": {
+        "Message": "no pods found matching service labels (map[app.kubernetes.io/component:server app.kubernetes.io/name:prometheus])"
+      },
+      "Object": {
+        "Metadata": {
+          "FilePath": "k8s/monitoring/service-aliases.yaml"
+        },
+        "K8sObject": {
+          "Namespace": "monitoring",
+          "Name": "prometheus",
+          "GroupVersionKind": {
+            "Group": "",
+            "Version": "v1",
+            "Kind": "Service"
+          }
+        }
+      },
+      "Remediation": "Confirm that your service's selector correctly matches the labels on one of your deployments."
+    },
+    {
+      "Check": "dangling-service",
+      "Diagnostic": {
+        "Message": "no pods found matching service labels (map[app.kubernetes.io/component:server app.kubernetes.io/name:prometheus])"
+      },
+      "Object": {
+        "Metadata": {
+          "FilePath": "k8s/monitoring/service-aliases.yaml"
+        },
+        "K8sObject": {
+          "Namespace": "monitoring",
+          "Name": "kube-prometheus-kube-prome-prometheus",
+          "GroupVersionKind": {
+            "Group": "",
+            "Version": "v1",
+            "Kind": "Service"
+          }
+        }
+      },
+      "Remediation": "Confirm that your service's selector correctly matches the labels on one of your deployments."
+    },
+    {
+      "Check": "dangling-service",
+      "Diagnostic": {
+        "Message": "no pods found matching service labels (map[app.kubernetes.io/instance:grafana app.kubernetes.io/name:grafana])"
+      },
+      "Object": {
+        "Metadata": {
+          "FilePath": "k8s/monitoring/service-aliases.yaml"
+        },
+        "K8sObject": {
+          "Namespace": "monitoring",
+          "Name": "kube-prometheus-grafana",
+          "GroupVersionKind": {
+            "Group": "",
+            "Version": "v1",
+            "Kind": "Service"
+          }
+        }
+      },
+      "Remediation": "Confirm that your service's selector correctly matches the labels on one of your deployments."
+    },
+    {
+      "Check": "dangling-service",
+      "Diagnostic": {
+        "Message": "no pods found matching service labels (map[app.kubernetes.io/instance:pyroscope app.kubernetes.io/name:pyroscope])"
+      },
+      "Object": {
+        "Metadata": {
+          "FilePath": "k8s/monitoring/service-aliases.yaml"
+        },
+        "K8sObject": {
+          "Namespace": "monitoring",
+          "Name": "pyroscope",
+          "GroupVersionKind": {
+            "Group": "",
+            "Version": "v1",
+            "Kind": "Service"
+          }
+        }
+      },
+      "Remediation": "Confirm that your service's selector correctly matches the labels on one of your deployments."
+    }
+  ],
+  "Summary": {
+    "KubeLinterVersion": "0.8.3"
+  }
+}

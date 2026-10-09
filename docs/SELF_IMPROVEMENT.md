@@ -1236,7 +1236,7 @@ claim is matched on:
   stated only in prose cannot be told from another claim about the same line.
 
 The tool, persona and wording are not part of the match. Findings whose location names no line,
-such as kube-linter's `Kind/name` objects, are not suppressed. Any later verdict on the finding
+such as kube-linter's `Kind/namespace/name` objects, are not suppressed. Any later verdict on the finding
 but INVALIDATED withdraws the entry, whether VERIFIED, MITIGATED or a reset to UNVERIFIED, so a
 claim a person changes their mind about is raised again.
 

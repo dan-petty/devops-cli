@@ -88,6 +88,7 @@ class ScanReport:
                 {
                     "path": cluster.representative.path,
                     "line": cluster.representative.line,
+                    "symbol": cluster.representative.symbol,
                     "severity": cluster.severity,
                     "tools": list(cluster.tools),
                     "confirmations": cluster.confirmations,

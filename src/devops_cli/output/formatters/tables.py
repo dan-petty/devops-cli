@@ -536,9 +536,9 @@ def format_k8s_lint_table(findings: list[Any], target_name: str) -> TablePayload
     rows = [
         [
             getattr(f, "severity", ""),
-            getattr(f, "location", ""),
-            getattr(f, "title", ""),
-            getattr(f, "fix", None) or "-",
+            escape_text(str(getattr(f, "location", ""))),
+            escape_text(str(getattr(f, "title", ""))),
+            escape_text(str(getattr(f, "fix", None) or "-")),
         ]
         for f in findings
     ]
