@@ -13,7 +13,8 @@ import pytest
 
 from devops_cli.ai.review.review_environment import execute_criterion_command
 from devops_cli.config.constants import CONST_ALLOWED_CRITERIA_BINARIES
-from devops_cli.sandbox.host import HostSandbox
+from devops_cli.exceptions.sandbox import SandboxValidationError
+from devops_cli.sandbox.host import DEFAULT_HOST_SANDBOX_POLICY, HostSandbox
 from devops_cli.sandbox.models import SandboxPolicy
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -235,24 +236,45 @@ def test_host_sandbox_consumes_custom_policy(tmp_path: Path) -> None:
     ) == (True, True, True, True, True, True, True, True)
 
 
-@pytest.mark.bwrap
-def test_host_sandbox_kills_process_exceeding_output_cap(tmp_path: Path) -> None:
-    """Verify that process generating unbounded output is terminated and output is capped (#663)."""
+def test_host_sandbox_default_policy_mounts_tmp_as_declared(tmp_path: Path) -> None:
+    """The host policy declares only what bubblewrap applies to `/tmp`: its size (#798)."""
     sandbox = HostSandbox()
-    res = sandbox.execute(
-        [
-            "python3",
-            "-c",
-            "import sys; sys.stdout.write('A' * 50000); sys.stdout.flush()",
-        ],
-        cwd=tmp_path,
-        max_output_bytes=1024,
+    options = _sandbox_options(sandbox.build_bwrap_args(["true"], cwd=tmp_path))
+    at = options.index("--tmpfs")
+    assert (sandbox.policy.tmpfs, options[at - 2 : at + 2]) == (
+        {"/tmp": "size=64m"},  # nosec B108
+        ["--size", "67108864", "--tmpfs", "/tmp"],  # nosec B108
     )
+
+
+@pytest.mark.parametrize(
+    ("options", "refused"),
+    [("size=64m,noexec", "'noexec'"), ("size=50%", "'size=50%'")],
+)
+def test_host_sandbox_refuses_a_tmpfs_option_bubblewrap_cannot_apply(
+    options: str, refused: str
+) -> None:
+    """A tmpfs option bubblewrap cannot apply fails the sandbox's construction, naming it (#798)."""
+    with pytest.raises(SandboxValidationError, match=refused):
+        HostSandbox(policy=SandboxPolicy(tmpfs={"/tmp": options}))  # nosec B108
+
+
+@pytest.mark.bwrap
+def test_host_sandbox_kills_an_endless_writer_at_the_output_cap(tmp_path: Path) -> None:
+    """A writer that survives its pipes closing ends only by the kill at the output cap (#798).
+
+    The writer ignores SIGPIPE, so closing the pipes does not end it. Without the kill at the cap,
+    the run lasts until the reap's kill after its 1 s grace.
+    """
+    writer = ["sh", "-c", "trap '' PIPE; while :; do echo y; done 2>/dev/null"]
+    res = HostSandbox().execute(writer, cwd=tmp_path, timeout=30.0, max_output_bytes=1024)
     assert (
         res.passed,
+        res.timed_out,
         len(res.stdout) <= 1024,
         "Output exceeded maximum limit" in str(res.error),
-    ) == (False, True, True)
+        res.duration_seconds < 1.0,
+    ) == (False, False, True, True, True)
 
 
 @pytest.mark.bwrap
@@ -420,7 +442,9 @@ def test_sandbox_binds_the_virtualenv_interpreter_installation_read_only(
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     installation = tmp_path / "home" / ".local" / "share" / "uv" / "python" / "cpython-3.14"
     repo = _repo_with_virtualenv(tmp_path / "repo", _python_installation(installation))
-    sandbox = HostSandbox(policy=SandboxPolicy(read_only=False))
+    sandbox = HostSandbox(
+        policy=DEFAULT_HOST_SANDBOX_POLICY.model_copy(update={"read_only": False})
+    )
     args = sandbox.build_bwrap_args(["true"], cwd=repo)
     assert (_sandbox_path(args), _repo_binds(args)) == (
         f"{repo / '.venv' / 'bin'}:{_SYSTEM_PATH}",
