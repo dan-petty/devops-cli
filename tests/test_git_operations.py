@@ -10,6 +10,11 @@ from unittest.mock import MagicMock, patch
 import git as gitlib
 import pytest
 
+from devops_cli.exceptions import (
+    BranchAlreadyExistsError,
+    GitOperationError,
+    InvalidBranchNameError,
+)
 from devops_cli.git.operations import (
     _ensure_known_host,
     _normalize_clone_url,
@@ -144,26 +149,48 @@ def test_pull_tracking(tmp_path: Path) -> None:
         mock_remote.pull.assert_called_once_with("main")
 
 
-def test_create_branch(tmp_path: Path) -> None:
-    """Verify create_branch checks input and runs checkout."""
-    # Invalid name starting with hyphen
-    with pytest.raises(ValueError, match="cannot start with a hyphen"):
+def _init_repo(git: Callable[..., None], repo: Path) -> None:
+    git(repo, "init", "--quiet", "-b", "main")
+    git(repo, "commit", "--quiet", "--allow-empty", "-m", "init")
+
+
+def _current_branch(repo: Path) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo), "branch", "--show-current"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def test_create_branch(tmp_path: Path, git: Callable[..., None]) -> None:
+    """create_branch creates the branch from HEAD and checks it out; bad or taken names raise."""
+    # The hyphen guard runs before the repository is opened.
+    with pytest.raises(InvalidBranchNameError, match="cannot start with a hyphen"):
         create_branch(tmp_path, "-invalid")
 
-    with patch("devops_cli.git.operations.gitlib.Repo") as mock_repo_cls:
-        mock_repo = MagicMock()
-        mock_b1 = MagicMock(name="main")
-        mock_b1.name = "main"
-        mock_repo.branches = [mock_b1]
-        mock_repo_cls.return_value = mock_repo
+    _init_repo(git, tmp_path)
+    with pytest.raises(BranchAlreadyExistsError, match="already exists"):
+        create_branch(tmp_path, "main")
 
-        # Already exists
-        with pytest.raises(ValueError, match="already exists"):
-            create_branch(tmp_path, "main")
+    create_branch(tmp_path, "feat/test")
+    assert _current_branch(tmp_path) == "feat/test"
 
-        # Success
-        create_branch(tmp_path, "feat/test")
-        mock_repo.git.checkout.assert_called_once_with("-b", "--", "feat/test")
+
+def test_create_branch_raises_gits_reason_when_git_refuses(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """A branch git refuses raises GitOperationError with git's own reason."""
+    _init_repo(git, tmp_path)
+    git(tmp_path, "branch", "feature")
+
+    with pytest.raises(GitOperationError, match="'refs/heads/feature' exists") as raised:
+        create_branch(tmp_path, "feature/x")
+
+    assert (raised.value.details["operation"], raised.value.details["branch_name"]) == (
+        "branch_create",
+        "feature/x",
+    )
 
 
 def test_list_branches(tmp_path: Path) -> None:
