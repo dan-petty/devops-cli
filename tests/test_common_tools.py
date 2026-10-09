@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from markdown_it import MarkdownIt
 
 from devops_cli.ai.common_tools import (
     duckduckgo_search_tool,
@@ -26,6 +27,13 @@ from tests.web_fakes import (
     rebinding,
     record_connects,
     scripted_resolver,
+)
+
+_LISTING = "\n\n".join(f"line {n} of the listing" for n in range(6))
+_FIRST_BLOCK = (
+    '<pre class="language-python">'
+    + "\n".join(f"line {n} of the listing" for n in range(6))
+    + "</pre><p>After.</p>"
 )
 
 
@@ -145,6 +153,54 @@ def test_render_untrusted_page_blank_line_cut_budget() -> None:
         "Section 1" in res.markdown,
         "Section 3" in res.markdown,
     ) == (True, True, True, False)
+
+
+@pytest.mark.parametrize(
+    ("html_page", "budget"),
+    [
+        pytest.param(
+            f"<p>Intro paragraph.</p><pre>{_LISTING}</pre><p>After.</p>",
+            120,
+            id="blank-lines-after-a-paragraph",
+        ),
+        pytest.param(_FIRST_BLOCK, 120, id="first-block-mid-listing"),
+        pytest.param(
+            _FIRST_BLOCK, len(DEFAULT_TRUNCATION_SUFFIX) + 4, id="first-block-opening-line"
+        ),
+        pytest.param(
+            _FIRST_BLOCK,
+            len(DEFAULT_TRUNCATION_SUFFIX) + 2,
+            id="first-block-partial-opening-line",
+        ),
+        pytest.param(
+            f"<blockquote><pre>{_LISTING}</pre></blockquote><p>After.</p>",
+            120,
+            id="in-a-blockquote",
+        ),
+        pytest.param(
+            f"<ol><li><pre>{_LISTING}</pre></li></ol><p>After.</p>", 120, id="in-a-list-item"
+        ),
+        pytest.param(
+            f"<pre>a\rb\rc</pre><p>Middle.</p><pre>{_LISTING}</pre><p>After.</p>",
+            120,
+            id="after-carriage-return-line-endings",
+        ),
+    ],
+)
+def test_render_untrusted_page_budget_cut_inside_code_block_closes_the_fence(
+    html_page: str, budget: int
+) -> None:
+    """A budget cut inside a code block leaves the truncation note and the boundary tag outside every fence."""
+    res = render_untrusted_page(html_page, url="https://example.com/docs", budget=budget)
+    fenced = [t.content for t in MarkdownIt("commonmark").parse(res.markdown) if t.type == "fence"]
+    assert (
+        res.truncated,
+        [
+            c
+            for c in fenced
+            if "</untrusted_web_page>" in c or DEFAULT_TRUNCATION_SUFFIX.strip() in c
+        ],
+    ) == (True, [])
 
 
 def test_render_untrusted_page_flags_injection_suspected_without_blocking() -> None:
