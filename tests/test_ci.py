@@ -1963,6 +1963,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "test",
             "Changed-Line Coverage",
         ): "Advisory diff-cover report in the job summary, never a check table row",
+        (
+            "changed-tests",
+            "Detect Changed Test Files",
+        ): "Git diff to list the pull request's changed test files",
     }
 
     all_specs = get_check_specs()

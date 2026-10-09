@@ -25,6 +25,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
+    DEFAULT_CI_TEST_REPEAT_RUNS,
     DEFAULT_PYTHON_VERSION,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
@@ -1363,6 +1364,35 @@ def _build_test_cmd(
     return cmd
 
 
+def _head_seed(root: Path) -> int:
+    """A shuffle seed derived from HEAD: its commit hash's leading eight hex digits."""
+    result = _get("run_subprocess")(["git", "rev-parse", "HEAD"], cwd=root, quiet=True)
+    if result.returncode != 0:
+        _get("print_error")(MESSAGES.ci.repeat_seed_unavailable, prefix=False)
+        raise typer.Exit(1)
+    return int(result.stdout[:8], 16)
+
+
+def _run_shuffled_repeats(
+    base_cmd: list[str], targets: list[str] | None, runs: int, seed: int | None
+) -> None:
+    """Run the targets `runs` times, one run after another, shuffled by pytest-randomly with
+    seeds `seed` to `seed + runs - 1`, stopping at the first failure with its seed and command.
+    """
+    if targets is None:
+        _get("print_error")(MESSAGES.ci.repeat_needs_targets, prefix=False)
+        raise typer.Exit(1)
+    first = _head_seed(_get_project_root()) if seed is None else seed
+    for run, run_seed in enumerate(range(first, first + runs), start=1):
+        cmd = [*base_cmd, "-p", "randomly", f"--randomly-seed={run_seed}", *targets]
+        if not _run(cmd):
+            failed = MESSAGES.ci.repeat_failed.format(
+                run=run, runs=runs, seed=run_seed, command=shlex.join(cmd)
+            )
+            _get("print_error")(failed, prefix=False, safe=True)
+            raise typer.Exit(1)
+
+
 @app.command()
 def test(
     paths: Annotated[list[Path] | None, typer.Argument(help=HELP.ci.test_paths)] = None,
@@ -1375,6 +1405,10 @@ def test(
     fallback: Annotated[
         bool, typer.Option("--fallback/--no-fallback", help=HELP.ci.selection_fallback)
     ] = True,
+    repeat: Annotated[
+        int, typer.Option("--repeat", min=0, help=HELP.ci.repeat)
+    ] = DEFAULT_CI_TEST_REPEAT_RUNS,
+    seed: Annotated[int | None, typer.Option("--seed", help=HELP.ci.seed)] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -1399,6 +1433,10 @@ def test(
     if k and k.startswith("-"):
         _get("print_error")("Invalid keyword filter expression.", prefix=False)
         raise typer.Exit(1)
+
+    if repeat:
+        _run_shuffled_repeats(_build_test_cmd("0", verbose, k, x, None), targets, repeat, seed)
+        return
 
     cmd = _build_test_cmd(numprocesses, verbose, k, x, targets)
     if not _run(cmd):

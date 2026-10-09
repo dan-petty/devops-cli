@@ -448,6 +448,8 @@ DEFAULT_REVIEW_RATE_LIMIT: float = 10.0
 DEFAULT_REVIEW_RATE_CAPACITY: float = 10.0
 DEFAULT_INVALIDATED_STATUS: str = "INVALIDATED"
 DEFAULT_BANDIT_SEVERITY: str = "medium"
+# `devops ci test --repeat`: 0 is a single run in file order; ci.yml's pull-request job passes 3.
+DEFAULT_CI_TEST_REPEAT_RUNS: Final[int] = 0
 DEFAULT_TRIVY_HIGH_SEVERITY: str = "HIGH,CRITICAL"
 DEFAULT_KUBECONFORM_VERSION: str = "master"
 DEFAULT_PACKAGE_ECOSYSTEM: str = "PyPI"

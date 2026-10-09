@@ -254,6 +254,7 @@ The development environment leverages modern Python engineering tools managed vi
 | **`pytest-mock`** | `3.16.0` | Thin wrapper around standard library `unittest.mock` for clean fixture patching. | Included in pytest suite |
 | **`pytest-cov`** | `7.1.0` | Code coverage measurement enforcing strict $\ge 90\%$ minimum threshold project-wide. | `uv run pytest --cov=src` |
 | **`pytest-xdist`** | `3.8.0` | Multi-core parallel test execution distribution across worker subprocesses. | `uv run pytest -n auto` |
+| **`pytest-randomly`** | `5.0.0` | Shuffles test order and reseeds `random` for each test; blocked in `addopts` (`-p no:randomly`) and enabled only by `devops ci test --repeat`. | `uv run devops ci test --repeat 3 <test files>` |
 | **`bandit`** | `1.9.4` | AST-based Python security analyzer detecting insecure patterns (CWE checks). | `uv run bandit -r src/` |
 | **`actionlint-py`** | `1.7.12.25` | GitHub Actions workflow syntax and expression validation engine. | `uv run actionlint` |
 | **`pre-commit`** | `4.6.2` | Multi-hook manager orchestrating git commit quality gates. | `uv run pre-commit run --all-files` |

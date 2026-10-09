@@ -205,6 +205,7 @@ uv run devops release prepare X.Y.Z --create-pr
    - Pytest unit tests and test coverage thresholds
    - Changed-line coverage against the pull request's base branch (diff-cover, advisory, in the job summary)
    - Bandit static security scanning
+   - On pull requests, the advisory **Changed-Test Independence** job: each added or modified test file runs three times, one run after another, each in a shuffled order (`devops ci test --repeat 3`)
 2. `ci.yml`'s **Service Image** job builds, smoke-tests and scans the release PR's image without pushing; `release.yml` publishes it after the merge (Step 5).
 3. Maintainers review the release diff, changelog, and documentation updates.
 
