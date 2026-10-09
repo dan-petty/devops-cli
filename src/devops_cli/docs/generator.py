@@ -27,7 +27,7 @@ from devops_cli.config.env import (
     EnvVarSpec,
     get_all_env_var_specs,
 )
-from devops_cli.docs.command_resolver import module_click_command
+from devops_cli.core.command_resolver import module_click_command
 from devops_cli.output import write_text_file
 from devops_cli.telemetry import trace_span
 

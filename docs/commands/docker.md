@@ -17,6 +17,7 @@ devops docker images [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--name`, `-n` | `string` | - | Filter containers or images by name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -41,6 +42,7 @@ devops docker build [OPTIONS] <context>
 | `--tag`, `-t` | `string` | - | Image tag name. |
 | `--file`, `-f` | `path` | - | Path to Dockerfile. |
 | `--no-cache` | `boolean` | - | Do not use cached image layers when building. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -49,7 +51,7 @@ devops docker build [OPTIONS] <context>
 **Push a Docker image to a registry.**
 
 ```bash
-devops docker push <image>
+devops docker push [OPTIONS] <image>
 ```
 
 **Arguments:**
@@ -57,6 +59,12 @@ devops docker push <image>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<image>` | `string` | Yes | Docker image name or repository tag. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -74,6 +82,7 @@ devops docker prune [OPTIONS]
 |---|---|---|---|
 | `--volumes` | `boolean` | - | Include or prune volumes. |
 | `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

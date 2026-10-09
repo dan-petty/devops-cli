@@ -63,7 +63,12 @@ app.add_typer(semconv_app, name="semconv", help=HELP.telemetry.semconv)
 
 
 @app.command("status")
-def telemetry_status_cmd() -> None:
+def telemetry_status_cmd(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status."""
     tracer = get_tracer()
     endpoint = tracer.endpoint
@@ -80,7 +85,7 @@ def telemetry_status_cmd() -> None:
         jaeger_cfg.url if jaeger_cfg and hasattr(jaeger_cfg, "url") else "http://localhost:16686"
     )
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops telemetry status",
             action="check_telemetry_status",
@@ -248,11 +253,15 @@ def telemetry_test_cmd(
         bool,
         typer.Option("--logfire", help=HELP.telemetry.test_logfire),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Emit a test OpenTelemetry trace span and metric to the configured collector."""
     tracer = get_tracer()
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops telemetry test",
             action="emit_test_telemetry",
@@ -501,6 +510,10 @@ def telemetry_open_ui_cmd() -> None:
 @semconv_app.command("refresh")
 def telemetry_semconv_refresh_cmd(
     commit: Annotated[str, typer.Option("--commit", help=HELP.telemetry.semconv_commit)],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Resolve the GenAI semantic conventions at a commit with weaver and rewrite the snapshot."""
     from devops_cli.exceptions import DevOpsCLIError
@@ -510,7 +523,7 @@ def telemetry_semconv_refresh_cmd(
         weaver_package_argv,
     )
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops telemetry semconv refresh",
             action="refresh_semconv_snapshot",

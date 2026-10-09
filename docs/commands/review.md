@@ -420,6 +420,7 @@ devops review samples fetch [OPTIONS] <names>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops review samples validate`
 

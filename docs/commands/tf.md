@@ -24,6 +24,7 @@ devops tf init [OPTIONS] <directory>
 |---|---|---|---|
 | `--upgrade`, `-u` | `boolean` | - | Upgrade modules and plugins. |
 | `--reconfigure` | `boolean` | - | Reconfigure backend, ignoring existing state. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -48,6 +49,7 @@ devops tf plan [OPTIONS] <directory>
 | `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
 | `--out`, `-o` | `path` | - | Write generated plan to file. |
 | `--destroy` | `boolean` | - | Generate a plan to destroy all resources. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -72,6 +74,7 @@ devops tf apply [OPTIONS] <directory>
 | `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
 | `--plan-file`, `-p` | `path` | - | Explicit plan file to apply. |
 | `--auto-approve` | `boolean` | - | Skip interactive confirmation prompts. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -95,6 +98,7 @@ devops tf destroy [OPTIONS] <directory>
 |---|---|---|---|
 | `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
 | `--auto-approve` | `boolean` | - | Skip interactive confirmation prompts. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -118,6 +122,7 @@ devops tf output [OPTIONS] <directory>
 |---|---|---|---|
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 | `--raw`, `-r` | `boolean` | - | Output raw string without formatting or shell escapes. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -140,6 +145,7 @@ devops tf validate [OPTIONS] <directory>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--no-color` | `boolean` | - | Disable color codes. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -163,6 +169,7 @@ devops tf fmt [OPTIONS] <directory>
 |---|---|---|---|
 | `--check`, `-c` | `boolean` | - | Check formatting without writing files. |
 | `--recursive`, `-r` | `boolean` | `True` | Format subdirectories recursively. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -202,6 +209,7 @@ devops tf graph [OPTIONS] <directory>
 |---|---|---|---|
 | `--resource`, `-r` | `string` | - | Resource address to compute blast radius for, e.g. aws_vpc.main. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -224,6 +232,7 @@ devops tf drift [OPTIONS] <directory>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -242,6 +251,7 @@ devops tf deploy-cloud [OPTIONS]
 | `--provider`, `-p` | `string` | - | AI or cloud provider. |
 | `--auto-approve` | `boolean` | - | Skip interactive confirmation prompts. |
 | `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -315,6 +325,7 @@ devops tf cost breakdown [OPTIONS] <directory>
 | `--mock` | `boolean` | - | Use deterministic mock cost output |
 | `--max-monthly-cost` | `float` | - | Maximum allowable monthly cost budget threshold |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tf cost diff`
 
@@ -338,5 +349,6 @@ devops tf cost diff [OPTIONS] <directory>
 | `--mock` | `boolean` | - | Use deterministic mock cost output |
 | `--max-monthly-cost` | `float` | - | Maximum allowable monthly cost budget threshold |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

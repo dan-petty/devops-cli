@@ -150,9 +150,13 @@ def clone_org(
     ] = None,
     private: Annotated[bool, typer.Option("--private/--no-private")] = True,
     forks: Annotated[bool, typer.Option("--forks/--no-forks")] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Clone all repos from a GitHub org into `repos/<org>/.`."""
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops repos clone-org",
             target=org,
@@ -234,13 +238,17 @@ def clone(
     base_dir: Annotated[
         Path | None, typer.Option("--base-dir", "-d", help=HELP.options.base_dir)
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Clone an individual repository into `repos/<org>/<name>/.` (or `repos/_standalone/<name>/.`)."""
     if url.startswith("-"):
         print_error(MESSAGES.repos.invalid_url_hyphen, prefix=False)
         raise typer.Exit(1)
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops repos clone",
             target=mask_secrets(url),
@@ -291,9 +299,13 @@ def clone(
 @app.command("list")
 def list_repos(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List all cloned repositories."""
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops repos list",
             action="list_cloned_repositories",

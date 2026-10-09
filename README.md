@@ -189,9 +189,9 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops workspace open [OPTIONS]` | Open the workspace in VS Code. |
 |  | `devops workspace clean [OPTIONS]` | Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory. |
 | **install-tools** | `devops install-tools status [OPTIONS]` | Show each tool's locked version and where its command is installed, without a request. |
-| **k8s** | `devops k8s contexts` | List kubeconfig contexts and mark the active one. |
-|  | `devops k8s switch-context <name>` | Switch active kubeconfig context and ensure cluster is running. |
-|  | `devops k8s status` | Show node and pod summary for the current context. |
+| **k8s** | `devops k8s contexts [OPTIONS]` | List kubeconfig contexts and mark the active one. |
+|  | `devops k8s switch-context [OPTIONS] <name>` | Switch active kubeconfig context and ensure cluster is running. |
+|  | `devops k8s status [OPTIONS]` | Show node and pod summary for the current context. |
 |  | `devops k8s apply [OPTIONS] <path>` | Apply a Kubernetes manifest (delegates to kubectl). |
 |  | `devops k8s render [OPTIONS] <path>` | Render Kubernetes manifest templates with domain and variables substituted. |
 |  | `devops k8s logs [OPTIONS] <pod> <query_arg>` | Stream pod logs or execute LogQL queries across cluster log streams. |
@@ -227,7 +227,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops kustomize apply [OPTIONS] <path>` | Apply a kustomization (delegates to kubectl apply -k). |
 | **docker** | `devops docker images [OPTIONS]` | List local Docker images. |
 |  | `devops docker build [OPTIONS] <context>` | Build a Docker image. |
-|  | `devops docker push <image>` | Push a Docker image to a registry. |
+|  | `devops docker push [OPTIONS] <image>` | Push a Docker image to a registry. |
 |  | `devops docker prune [OPTIONS]` | Remove unused containers, images, and networks. |
 |  | `devops docker stats [OPTIONS]` | Display live container CPU, memory, and network I/O statistics. |
 |  | `devops docker cache [OPTIONS]` | Introspect BuildKit multi-stage layer cache occupancy, reuse, and reclaimable space. |
@@ -409,7 +409,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops tls inspect <cert_path>` | Inspect and display metadata of an X.509 certificate. |
 |  | `devops tls verify [OPTIONS] <cert_path>` | Verify an X.509 certificate cryptographic chain against a CA certificate. |
 |  | `devops tls enable-k8s [OPTIONS]` | Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces. |
-| **telemetry** | `devops telemetry status` | Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status. |
+| **telemetry** | `devops telemetry status [OPTIONS]` | Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status. |
 |  | `devops telemetry connect [OPTIONS]` | Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there. |
 |  | `devops telemetry logfire [OPTIONS]` | Display Logfire structured observability bridge status and token metrics. |
 |  | `devops telemetry test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
@@ -432,7 +432,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops vault set [OPTIONS] <path> <key_values>` | Store secret key-value pairs in HashiCorp Vault KV-v2 engine. |
 |  | `devops vault sync [OPTIONS] <path>` | Synchronize secrets from Vault into OS Keyring for offline/local CLI operations. |
 |  | `devops vault login [OPTIONS]` | Authenticate with Vault natively via AppRole or the in-cluster ServiceAccount. |
-|  | `devops vault logout` | Revoke the token `devops vault login` stored, at the Vault that issued it, and delete it. |
+|  | `devops vault logout [OPTIONS]` | Revoke the token `devops vault login` stored, at the Vault that issued it, and delete it. |
 |  | `devops vault leases [OPTIONS]` | Inspect, renew, or revoke tracked Vault dynamic secret leases. |
 |  | `devops vault audit [OPTIONS]` | Show which provider satisfied each credential lookup in this session. |
 | **valkey** | `devops valkey ping [OPTIONS]` | Test connection and measure round-trip latency to the Valkey server. |

@@ -39,5 +39,4 @@ def test_pipeline_dry_run_with_rag() -> None:
         main_app,
         ["--dry-run", "ai", "pipeline", "Review Kubernetes manifests"],
     )
-    assert res.exit_code == 0
-    assert "delegated command" in res.stdout or "dry-run" in res.stdout
+    assert (res.exit_code, "devops ai pipeline" in res.stdout) == (0, True)

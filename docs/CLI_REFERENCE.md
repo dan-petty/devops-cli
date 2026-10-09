@@ -71,6 +71,7 @@ devops repos clone-org [OPTIONS] <org>
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
 | `--private` / `--no-private` | `boolean` | `True` | - |
 | `--forks` / `--no-forks` | `boolean` | - | - |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops repos clone`
 
@@ -91,6 +92,7 @@ devops repos clone [OPTIONS] <url>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops repos list`
 
@@ -105,6 +107,7 @@ devops repos list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops repos update`
 
@@ -159,6 +162,7 @@ devops ssh generate [OPTIONS]
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--comment`, `-c` | `string` | `` | Comment to include in public key. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ssh register`
 
@@ -173,6 +177,7 @@ devops ssh register [OPTIONS]
 | `--key-file`, `-k` | `path` | - | Path to private key. |
 | `--title` | `string` | - | Title for the item or entity. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ssh rotate`
 
@@ -193,6 +198,7 @@ devops ssh rotate [OPTIONS]
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--force`, `-f` | `boolean` | - | Rotate even if not yet due. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ssh list`
 
@@ -208,6 +214,7 @@ devops ssh list [OPTIONS]
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ssh audit`
 
@@ -223,6 +230,7 @@ devops ssh audit [OPTIONS]
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ssh status`
 
@@ -238,6 +246,7 @@ devops ssh status [OPTIONS]
 |---|---|---|---|
 | `--key-dir` | `path` | - | Directory where SSH keys are stored. |
 | `--prefix`, `-p` | `string` | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -405,6 +414,7 @@ devops devcontainer list [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops devcontainer unlock-keyring`
 
@@ -605,15 +615,21 @@ Manage Kubernetes clusters, pods, services, and workloads.
 **List kubeconfig contexts and mark the active one.**
 
 ```bash
-devops k8s contexts
+devops k8s contexts [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s switch-context`
 
 **Switch active kubeconfig context and ensure cluster is running.**
 
 ```bash
-devops k8s switch-context <name>
+devops k8s switch-context [OPTIONS] <name>
 ```
 
 **Arguments:**
@@ -622,13 +638,25 @@ devops k8s switch-context <name>
 |---|---|---|---|
 | `<name>` | `string` | Yes | Target context name to switch to. |
 
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops k8s status`
 
 **Show node and pod summary for the current context.**
 
 ```bash
-devops k8s status
+devops k8s status [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s apply`
 
@@ -718,6 +746,7 @@ devops k8s bootstrap [OPTIONS]
 | `--dir`, `-d` | `path` | `k8s` | Directory containing Kubernetes manifests. |
 | `--auto-start` / `--no-auto-start` | `boolean` | `True` | Auto-start minikube if stopped. |
 | `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | all. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s bootstrap-openwebui`
 
@@ -736,6 +765,7 @@ devops k8s bootstrap-openwebui [OPTIONS]
 | `--name`, `-n` | `string` | `Local Administrator` | Full display name for the administrator. |
 | `--context`, `-c` | `string` | - | Kubernetes context to target (defaults to config default or active). |
 | `--show-password` | `boolean` | - | Display generated admin password in plain text instead of masking. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s deploy-stack`
 
@@ -846,6 +876,7 @@ devops k8s configure-urls [OPTIONS]
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--addressing`, `-a` | `string` | - | How to record endpoints: 'nodeport' writes a cluster-specific host and port, 'proxy' writes portable k8s:// service addresses needing no port-forward, 'fqdn' discovers Ingress hostnames and writes domain-based URLs. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s service-url`
 
@@ -899,6 +930,7 @@ devops k8s port-forward [OPTIONS]
 | `--valkey-port` | `integer` | `6379` | Local port for Valkey. |
 | `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding. |
 | `--update-config` / `--no-update-config` | `boolean` | - | Update devops-cli configuration with port-forwarded service URLs. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s port-forward-status`
 
@@ -952,6 +984,7 @@ devops k8s rbac-audit [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | - | Audit only this namespace's RoleBindings and Roles; ClusterRoleBindings are always read. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s lint`
 
@@ -1029,6 +1062,7 @@ devops k8s create-tls-secret [OPTIONS] <secret_name>
 | `--cert` | `path` | `~/.config/devops-cli/tls/tls.crt` | Path to TLS certificate file (.crt or .pem). |
 | `--key` | `path` | `~/.config/devops-cli/tls/tls.key` | Path to TLS private key file (.key or .pem). |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s enable-tls`
 
@@ -1047,6 +1081,7 @@ devops k8s enable-tls [OPTIONS]
 | `--secret-name` | `string` | `homelab-tls` | Name of the Kubernetes TLS secret to create or update. |
 | `--stack`, `-s` | `string` | `all` | Stack to operate on: infra | llm | all. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files or resources if they exist. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s validate`
 
@@ -1325,6 +1360,7 @@ devops docker images [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--name`, `-n` | `string` | - | Filter containers or images by name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops docker build`
 
@@ -1347,13 +1383,14 @@ devops docker build [OPTIONS] <context>
 | `--tag`, `-t` | `string` | - | Image tag name. |
 | `--file`, `-f` | `path` | - | Path to Dockerfile. |
 | `--no-cache` | `boolean` | - | Do not use cached image layers when building. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops docker push`
 
 **Push a Docker image to a registry.**
 
 ```bash
-devops docker push <image>
+devops docker push [OPTIONS] <image>
 ```
 
 **Arguments:**
@@ -1361,6 +1398,12 @@ devops docker push <image>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<image>` | `string` | Yes | Docker image name or repository tag. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops docker prune`
 
@@ -1376,6 +1419,7 @@ devops docker prune [OPTIONS]
 |---|---|---|---|
 | `--volumes` | `boolean` | - | Include or prune volumes. |
 | `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops docker stats`
 
@@ -1559,8 +1603,14 @@ devops grafana dashboards COMMAND [ARGS]...
 **List all dashboards.**
 
 ```bash
-devops grafana dashboards list
+devops grafana dashboards list [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops grafana dashboards export`
 
@@ -1601,6 +1651,7 @@ devops grafana dashboards import [OPTIONS] <file>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--folder-id` | `integer` | `0` | Target Grafana folder ID for dashboard import. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops grafana dashboards sync`
 
@@ -1620,6 +1671,7 @@ devops grafana dashboards sync [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--dir`, `-d` | `path` | - | Directory path containing dashboard definitions. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops grafana dashboards lint`
 
@@ -1646,6 +1698,7 @@ devops grafana dashboards lint [OPTIONS] <path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -1672,6 +1725,7 @@ devops prometheus query [OPTIONS] <expr>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--time`, `-t` | `string` | - | Evaluation timestamp for instant vector query. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops prometheus query-range`
 
@@ -1717,6 +1771,7 @@ devops prometheus analyze [OPTIONS] <expr>
 | `--step` | `string` | `60s` | Query resolution step interval. |
 | `--threshold`, `-t` | `float` | `3.0` | Z-score threshold before a sample is reported as anomalous. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops prometheus rules`
 
@@ -1802,6 +1857,7 @@ devops argo cd fleet sync [OPTIONS] <app_name>
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops argo cd gitops`
 
@@ -1887,6 +1943,7 @@ devops argo cd apps list [OPTIONS]
 |---|---|---|---|
 | `--watch`, `-w` | `boolean` | - | Watch application status changes live. |
 | `--interval`, `-i` | `float` | `3.0` | Auto-refresh polling interval in seconds. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ##### `devops argo cd apps sync`
 
@@ -1944,6 +2001,7 @@ devops argo cd apps bootstrap-gitops [OPTIONS]
 |---|---|---|---|
 | `--root-app`, `-f` | `path` | `k8s/argocd/bootstrap/bootstrap.yaml` | Path to root ArgoCD App-of-Apps manifest. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops argo workflows`
 
@@ -2068,6 +2126,7 @@ devops argo rollouts promote [OPTIONS] <name>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
 | `--full` | `boolean` | - | Skip all remaining steps and promote directly to full release |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops argo rollouts abort`
 
@@ -2088,6 +2147,7 @@ devops argo rollouts abort [OPTIONS] <name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops argo rollouts restart`
 
@@ -2108,6 +2168,7 @@ devops argo rollouts restart [OPTIONS] <name>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops argo rollouts analyze`
 
@@ -2131,6 +2192,7 @@ devops argo rollouts analyze [OPTIONS] <name>
 | `--error-rate-threshold`, `-e` | `float` | `1.0` | Maximum allowable HTTP 5xx error rate percentage before triggering automated rollback |
 | `--auto-abort` / `--no-auto-abort` | `boolean` | `True` | Automatically trigger rollout abort when metric analysis violates threshold |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops argo fleet`
 
@@ -2162,6 +2224,7 @@ devops argo fleet sync [OPTIONS] <app_name>
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops argo gitops`
 
@@ -3101,6 +3164,7 @@ devops ai pipeline [OPTIONS] <prompt>
 | `--rag` / `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
 | `--thinking` / `--no-thinking` | `boolean` | `True` | Enable model reasoning/thinking. |
 | `--stage-context-tokens` | `integer` | `4096` | Maximum context tokens from previous stages to carry into each pipeline stage (0 to disable budget). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai token-count`
 
@@ -3798,6 +3862,7 @@ devops ai review samples fetch [OPTIONS] <names>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ##### `devops ai review samples validate`
 
@@ -3955,6 +4020,7 @@ devops ai analyze path [OPTIONS] <target>
 | `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai analyze branch`
 
@@ -3978,6 +4044,7 @@ devops ai analyze branch [OPTIONS] <branch>
 | `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai analyze pr`
 
@@ -4000,6 +4067,7 @@ devops ai analyze pr [OPTIONS] <pr_number>
 | `--enhanced`, `-e` / `--no-enhanced` | `boolean` | `True` | Generate AI-enhanced metadata (pseudocode, complexity, last_updated). |
 | `--update-all`, `-u` | `boolean` | - | Regenerate all enhanced metadata fields regardless of last_* timestamps. |
 | `--explain`, `-x` | `boolean` | - | Explain static code analysis metrics and terminology. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai rag`
 
@@ -4038,6 +4106,7 @@ devops ai rag index [OPTIONS] <path>
 | `--include-kb` / `--no-include-kb` | `boolean` | `True` | Include bundled DevOps CLI Knowledge Base in docs collection. |
 | `--collection`, `-c` | `string` | - | Target collection override. |
 | `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai rag index-kb`
 
@@ -4054,6 +4123,7 @@ devops ai rag index-kb [OPTIONS]
 | `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--collection`, `-c` | `string` | - | Target collection override. |
 | `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai rag search`
 
@@ -4081,6 +4151,7 @@ devops ai rag search [OPTIONS] <query>
 | `--collection` | `string` | - | Target collection override. |
 | `--file`, `-f` | `string` | - | Filter by filepath glob pattern. |
 | `--explain` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai rag query`
 
@@ -4108,6 +4179,7 @@ devops ai rag query [OPTIONS] <query>
 | `--collection` | `string` | - | Target collection override. |
 | `--file`, `-f` | `string` | - | Filter by filepath glob pattern. |
 | `--explain` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops ai rag status`
 
@@ -4207,8 +4279,14 @@ devops ai cache status [OPTIONS]
 **Purge all in-memory and persistent disk cache entries.**
 
 ```bash
-devops ai cache clear
+devops ai cache clear [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai harness`
 
@@ -5411,6 +5489,7 @@ devops review samples fetch [OPTIONS] <names>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops review samples validate`
 
@@ -5599,6 +5678,7 @@ devops docs generate [OPTIONS]
 | `--format`, `-f` | `string` | `markdown` | Output format type (table, json, yaml, markdown). |
 | `--sync-readme` / `--no-sync-readme` | `boolean` | `True` | Synchronize Complete Command Matrix in README.md. |
 | `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops docs check`
 
@@ -5629,6 +5709,7 @@ devops docs sync-readme [OPTIONS]
 |---|---|---|---|
 | `--readme-path`, `-r` | `path` | - | Path to README.md file (default: workspace root README.md). |
 | `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops docs compact`
 
@@ -5649,7 +5730,7 @@ devops docs compact [OPTIONS]
 | `--roadmap-only` | `boolean` | - | Only compact docs/ROADMAP.md. |
 | `--release-notes-only` | `boolean` | - | Only compact docs/RELEASE_NOTES.md. |
 | `--log-only` | `boolean` | - | Only compact docs/LOG.md. |
-| `--dry-run` | `boolean` | - | Show debug output of commands and AI requests without executing delegated subcommands or external write actions. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -5698,6 +5779,7 @@ devops release prepare [OPTIONS] <version>
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
 | `--draft` / `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops release pr`
 
@@ -5756,6 +5838,7 @@ devops release notes [OPTIONS]
 | `--version`, `-v` | `string` | - | Target version string. |
 | `--raw` | `boolean` | - | Output raw string without formatting or shell escapes. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops release sync-notes`
 
@@ -5781,6 +5864,7 @@ devops release sync-notes [OPTIONS]
 | `--all` | `boolean` | - | Sync every published release rather than one version. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops release changelog`
 
@@ -5799,6 +5883,7 @@ devops release changelog [OPTIONS]
 | `--from-tag` | `string` | - | Starting git tag or ref for changelog compilation. |
 | `--raw` | `boolean` | - | Output raw string without formatting or shell escapes. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops release tag`
 
@@ -5818,6 +5903,7 @@ devops release tag [OPTIONS]
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
 | `--message`, `-m` | `string` | - | Custom tag annotation message. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -7471,6 +7557,7 @@ devops tf init [OPTIONS] <directory>
 |---|---|---|---|
 | `--upgrade`, `-u` | `boolean` | - | Upgrade modules and plugins. |
 | `--reconfigure` | `boolean` | - | Reconfigure backend, ignoring existing state. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tf plan`
 
@@ -7493,6 +7580,7 @@ devops tf plan [OPTIONS] <directory>
 | `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
 | `--out`, `-o` | `path` | - | Write generated plan to file. |
 | `--destroy` | `boolean` | - | Generate a plan to destroy all resources. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tf apply`
 
@@ -7515,6 +7603,7 @@ devops tf apply [OPTIONS] <directory>
 | `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
 | `--plan-file`, `-p` | `path` | - | Explicit plan file to apply. |
 | `--auto-approve` | `boolean` | - | Skip interactive confirmation prompts. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tf destroy`
 
@@ -7536,6 +7625,7 @@ devops tf destroy [OPTIONS] <directory>
 |---|---|---|---|
 | `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
 | `--auto-approve` | `boolean` | - | Skip interactive confirmation prompts. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tf output`
 
@@ -7557,6 +7647,7 @@ devops tf output [OPTIONS] <directory>
 |---|---|---|---|
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 | `--raw`, `-r` | `boolean` | - | Output raw string without formatting or shell escapes. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tf validate`
 
@@ -7577,6 +7668,7 @@ devops tf validate [OPTIONS] <directory>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--no-color` | `boolean` | - | Disable color codes. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tf fmt`
 
@@ -7598,6 +7690,7 @@ devops tf fmt [OPTIONS] <directory>
 |---|---|---|---|
 | `--check`, `-c` | `boolean` | - | Check formatting without writing files. |
 | `--recursive`, `-r` | `boolean` | `True` | Format subdirectories recursively. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tf status`
 
@@ -7633,6 +7726,7 @@ devops tf graph [OPTIONS] <directory>
 |---|---|---|---|
 | `--resource`, `-r` | `string` | - | Resource address to compute blast radius for, e.g. aws_vpc.main. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tf drift`
 
@@ -7653,6 +7747,7 @@ devops tf drift [OPTIONS] <directory>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tf deploy-cloud`
 
@@ -7669,6 +7764,7 @@ devops tf deploy-cloud [OPTIONS]
 | `--provider`, `-p` | `string` | - | AI or cloud provider. |
 | `--auto-approve` | `boolean` | - | Skip interactive confirmation prompts. |
 | `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tf lint`
 
@@ -7736,6 +7832,7 @@ devops tf cost breakdown [OPTIONS] <directory>
 | `--mock` | `boolean` | - | Use deterministic mock cost output |
 | `--max-monthly-cost` | `float` | - | Maximum allowable monthly cost budget threshold |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 #### `devops tf cost diff`
 
@@ -7759,6 +7856,7 @@ devops tf cost diff [OPTIONS] <directory>
 | `--mock` | `boolean` | - | Use deterministic mock cost output |
 | `--max-monthly-cost` | `float` | - | Maximum allowable monthly cost budget threshold |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -7785,6 +7883,7 @@ devops tls ca [OPTIONS]
 | `--validity-days`, `-d` | `integer` | `3650` | Validity period in days. |
 | `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096). |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tls cert`
 
@@ -7807,6 +7906,7 @@ devops tls cert [OPTIONS]
 | `--key-size`, `-k` | `integer` | `2048` | RSA key size in bits (2048 or 4096). |
 | `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tls homelab`
 
@@ -7824,6 +7924,7 @@ devops tls homelab [OPTIONS]
 | `--domain`, `-d` | `string` | - | Additional custom domains to include in SANs. |
 | `--ip`, `-i` | `string` | - | Additional custom IP addresses to include in SANs. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops tls inspect`
 
@@ -7876,6 +7977,7 @@ devops tls enable-k8s [OPTIONS]
 | `--secret-name` | `string` | `homelab-tls` | Kubernetes TLS secret name to create. |
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--overwrite`, `-f` | `boolean` | - | Overwrite existing files. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -7888,8 +7990,14 @@ OpenTelemetry tracing, metrics, and Jaeger observability.
 **Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status.**
 
 ```bash
-devops telemetry status
+devops telemetry status [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops telemetry connect`
 
@@ -7936,6 +8044,7 @@ devops telemetry test [OPTIONS]
 |---|---|---|---|
 | `--name`, `-n` | `string` | `devops-cli.manual_test` | Name for test span. |
 | `--logfire` | `boolean` | - | Emit test span via Logfire bridge. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops telemetry profile`
 
@@ -7988,6 +8097,7 @@ devops telemetry semconv refresh [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--commit` | `string` | - | Full 40-character commit SHA of open-telemetry/semantic-conventions-genai to resolve. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -8484,6 +8594,7 @@ devops vault login [OPTIONS]
 | `--role-id` | `string` | - | AppRole role_id |
 | `--secret-id` | `string` | - | AppRole secret_id |
 | `--store` / `--no-store` | `boolean` | `True` | Keep the issued token in the OS keyring, for this Vault address and namespace only. --no-store checks the credentials without keeping the token: the form for CI and in-cluster runs, which take VAULT_TOKEN from their Vault integration. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops vault logout`
 
@@ -8496,8 +8607,14 @@ now. The local copy is deleted even when the revoke fails, for example because V
 unreachable or the token has expired, and the output says the revoke did not happen.
 
 ```bash
-devops vault logout
+devops vault logout [OPTIONS]
 ```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops vault leases`
 
@@ -8517,6 +8634,7 @@ devops vault leases [OPTIONS]
 |---|---|---|---|
 | `--renew` | `boolean` | - | Renew every tracked lease nearing expiry |
 | `--revoke` | `string` | - | Revoke a single lease by id |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops vault audit`
 

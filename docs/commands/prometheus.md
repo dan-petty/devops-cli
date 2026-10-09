@@ -23,6 +23,7 @@ devops prometheus query [OPTIONS] <expr>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--time`, `-t` | `string` | - | Evaluation timestamp for instant vector query. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -72,6 +73,7 @@ devops prometheus analyze [OPTIONS] <expr>
 | `--step` | `string` | `60s` | Query resolution step interval. |
 | `--threshold`, `-t` | `float` | `3.0` | Z-score threshold before a sample is reported as anomalous. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

@@ -48,13 +48,13 @@ app = new_typer(
 # =============================================================================
 
 
-def _resolve_tf_binary() -> str:
+def _resolve_tf_binary(dry_run: bool = False) -> str:
     """Find available OpenTofu or Terraform executable in PATH."""
     for binary_name in CONST_OPENTOFU_BINARIES:
         if check_binary(binary_name):
             return binary_name
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         return "tofu"
 
     print_error(MESSAGES.tf.binary_not_found, prefix=False)
@@ -95,10 +95,11 @@ def tf_init(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     upgrade: Annotated[bool, typer.Option("--upgrade", "-u", help=HELP.tf.upgrade_modules)] = False,
     reconfigure: Annotated[bool, typer.Option("--reconfigure", help=HELP.tf.reconfigure)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Initialize an OpenTofu working directory."""
     target = validate_dir(directory)
-    binary = _resolve_tf_binary()
+    binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
 
     cmd = [binary, "init"]
     if upgrade:
@@ -107,7 +108,7 @@ def tf_init(
         cmd.append("-reconfigure")
 
     print_info(MESSAGES.tf.init_header.format(path=str(target)), prefix=False)
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=" ".join(cmd),
             action="init",
@@ -138,10 +139,11 @@ def tf_plan(
     ] = None,
     out: Annotated[Path | None, typer.Option("--out", "-o", help=HELP.tf.out_plan)] = None,
     destroy: Annotated[bool, typer.Option("--destroy", help=HELP.tf.destroy_plan)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Generate and show an OpenTofu execution plan."""
     target = validate_dir(directory)
-    binary = _resolve_tf_binary()
+    binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
 
     cmd = [binary, "plan"]
     if var_file:
@@ -152,7 +154,7 @@ def tf_plan(
         cmd.append("-destroy")
 
     print_info(MESSAGES.tf.plan_header.format(path=str(target)), prefix=False)
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=" ".join(cmd),
             action="plan",
@@ -187,10 +189,11 @@ def tf_apply(
     auto_approve: Annotated[
         bool, typer.Option("--auto-approve", help=HELP.options.auto_approve)
     ] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Create or update OpenTofu infrastructure."""
     target = validate_dir(directory)
-    binary = _resolve_tf_binary()
+    binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
 
     cmd = [binary, "apply"]
     if plan_file:
@@ -202,7 +205,7 @@ def tf_apply(
             cmd.append("-auto-approve")
 
     print_info(MESSAGES.tf.apply_header.format(path=str(target)), prefix=False)
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=" ".join(cmd),
             action="apply",
@@ -234,10 +237,11 @@ def tf_destroy(
     auto_approve: Annotated[
         bool, typer.Option("--auto-approve", help=HELP.options.auto_approve)
     ] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Destroy OpenTofu-managed infrastructure."""
     target = validate_dir(directory)
-    binary = _resolve_tf_binary()
+    binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
 
     cmd = [binary, "destroy"]
     if var_file:
@@ -246,7 +250,7 @@ def tf_destroy(
         cmd.append("-auto-approve")
 
     print_info(MESSAGES.tf.destroy_header.format(path=str(target)), prefix=False)
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=" ".join(cmd),
             action="destroy",
@@ -276,10 +280,11 @@ def tf_output(
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
     raw: Annotated[bool, typer.Option("--raw", "-r", help=HELP.options.raw)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Read an output variable from the OpenTofu state."""
     target = validate_dir(directory)
-    binary = _resolve_tf_binary()
+    binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
 
     cmd = [binary, "output"]
     if json_output:
@@ -287,7 +292,7 @@ def tf_output(
     elif raw:
         cmd.append("-raw")
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=" ".join(cmd),
             action="output",
@@ -315,17 +320,18 @@ def tf_output(
 def tf_validate(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     no_color: Annotated[bool, typer.Option("--no-color", help=HELP.tf.no_color)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Validate the OpenTofu configuration files in a directory."""
     target = validate_dir(directory)
-    binary = _resolve_tf_binary()
+    binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
 
     cmd = [binary, "validate"]
     if no_color:
         cmd.append("-no-color")
 
     print_info(MESSAGES.tf.validate_header.format(path=str(target)), prefix=False)
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=" ".join(cmd),
             action="validate",
@@ -355,10 +361,11 @@ def tf_fmt(
     recursive: Annotated[
         bool, typer.Option("--recursive", "-r", help=HELP.tf.recursive_fmt)
     ] = True,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Rewrites OpenTofu configuration files to canonical format."""
     target = validate_dir(directory)
-    binary = _resolve_tf_binary()
+    binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
 
     cmd = [binary, "fmt"]
     if check:
@@ -367,7 +374,7 @@ def tf_fmt(
         cmd.append("-recursive")
 
     print_info(MESSAGES.tf.fmt_header.format(path=str(target)), prefix=False)
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=" ".join(cmd),
             action="fmt",
@@ -446,6 +453,7 @@ def tf_graph(
         str | None, typer.Option("--resource", "-r", help=HELP.tf.resource_address)
     ] = None,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Inspect the in-memory resource dependency graph and blast radius."""
     from devops_cli.output import format_json
@@ -456,7 +464,7 @@ def tf_graph(
     )
 
     target = validate_dir(directory)
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=f"devops tf graph {directory}",
             action="analyze_iac_dependency_graph",
@@ -532,13 +540,14 @@ def tf_graph(
 def tf_drift(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Compare declared configuration against recorded state."""
     from devops_cli.output import format_json
     from devops_cli.tf.analysis import analyze_directory, detect_drift
 
     target = validate_dir(directory)
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=f"devops tf drift {directory}",
             action="detect_iac_configuration_drift",
@@ -586,7 +595,12 @@ def tf_drift(
 
 
 def _confirm_deploy_without_checkout_state(
-    provider: str, repo_root: Path, cloud_dir: Path, *, auto_approve: bool
+    provider: str,
+    repo_root: Path,
+    cloud_dir: Path,
+    *,
+    auto_approve: bool,
+    dry_run: bool = False,
 ) -> None:
     """Stop a deploy from a linked worktree that would start from empty local state.
 
@@ -610,7 +624,7 @@ def _confirm_deploy_without_checkout_state(
         MESSAGES.tf.deploy_cloud_state_in_checkout.format(path=cloud_dir, checkout=checkout_dir),
         safe=True,
     )
-    if is_dry_run():
+    if dry_run or is_dry_run():
         return
     if auto_approve:
         print_error(MESSAGES.tf.deploy_cloud_state_auto_approve_refused, prefix=False)
@@ -628,15 +642,16 @@ def deploy_cloud(
     var_file: Annotated[
         Path | None, typer.Option("--var-file", "-v", help=HELP.tf.var_file)
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP."""
     repo_root = find_worktree_root(Path.cwd())
     cloud_dir = _get_cloud_dir(provider, repo_root)
     _confirm_deploy_without_checkout_state(
-        provider, repo_root, cloud_dir, auto_approve=auto_approve
+        provider, repo_root, cloud_dir, auto_approve=auto_approve, dry_run=dry_run
     )
     resolved_var_file = var_file or _get_default_var_file(provider, repo_root)
-    binary = _resolve_tf_binary()
+    binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
 
     print_info(
         MESSAGES.tf.deploy_cloud_header.format(provider=provider.upper(), path=str(cloud_dir)),
@@ -645,7 +660,7 @@ def deploy_cloud(
 
     # Step 1: Init
     init_cmd = [binary, "init"]
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=" ".join(init_cmd),
             action="init",
@@ -666,7 +681,7 @@ def deploy_cloud(
     if auto_approve:
         apply_cmd.append("-auto-approve")
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=" ".join(apply_cmd),
             action="apply",
@@ -829,12 +844,13 @@ def tf_cost_breakdown(
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Estimate monthly and hourly cloud infrastructure costs using Infracost."""
     from devops_cli.tf.cost import render_cost_table, run_infracost_breakdown, validate_cost_budget
 
     target = validate_dir(directory)
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=f"devops tf cost breakdown {target}",
             action="cost_breakdown",
@@ -876,12 +892,13 @@ def tf_cost_diff(
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Calculate cost delta between local Terraform code and baseline state using Infracost."""
     from devops_cli.tf.cost import render_cost_table, run_infracost_diff, validate_cost_budget
 
     target = validate_dir(directory)
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command=f"devops tf cost diff {target}",
             action="cost_diff",

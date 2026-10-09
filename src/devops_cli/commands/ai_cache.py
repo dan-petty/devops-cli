@@ -73,12 +73,17 @@ def cache_status(
 
 
 @app.command(name="clear")
-def cache_clear() -> None:
+def cache_clear(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
     """Purge all in-memory and persistent disk cache entries."""
     from devops_cli.dry_run import is_dry_run, render_dry_run_result
     from devops_cli.output import print_success
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops ai cache clear",
             action="clear_llm_cache",

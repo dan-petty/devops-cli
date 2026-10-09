@@ -40,6 +40,10 @@ def bootstrap(
         str,
         typer.Option("--stack", "-s", help=HELP.k8s.stack),
     ] = DEFAULT_K8S_ALL_STACK,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack."""
     if not runtime._minikube_running():

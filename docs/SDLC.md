@@ -142,7 +142,7 @@ graph TD
    - **Filesystem Containment & Traversal Defense**: Always use `safe_resolve_subpath(base_dir, subpath)` (`devops_cli.core.paths`) rather than ad-hoc string-based `".."` checks or manual `.resolve()` guards to defend against path traversal, symlink escapes, and directory spoofing.
    - **Subprocess Safety & JSON Deserialization**: Always use `run_json_subprocess(cmd, ...)` (`devops_cli.core.process`) and `extract_json_block(text)` (`devops_cli.core.serialization`) rather than raw `subprocess.run` / `json.loads` procedural blocks.
    - **Declarative Security Scanner Architecture**: Security scanners must inherit from `BaseSecurityScanner` (`devops_cli.security.base`) and register with `ScannerRegistry` (`devops_cli.security.registry`), standardizing execution, fallbacks, and normalized `Finding` translation.
-   - **Declarative Dry-Run Execution**: State-mutating CLI commands must utilize `@dry_run_command` (`devops_cli.dry_run.decorator`), eliminating procedural dry-run branch checks.
+   - **Declarative Dry-Run Execution**: State-mutating CLI commands must declare `--dry-run` (a command previews only if it declares `--dry-run`).
 
 ---
 

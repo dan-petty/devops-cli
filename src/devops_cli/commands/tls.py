@@ -87,9 +87,13 @@ def cmd_ca(
         bool,
         typer.Option("--overwrite", "-f", help=HELP.tls.overwrite),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Generate a self-signed Root Certificate Authority (CA) key pair."""
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops tls ca",
             action="generate_root_ca",
@@ -178,6 +182,10 @@ def generate_cert_cmd(
         bool,
         typer.Option("--overwrite", "-f", help=HELP.tls.overwrite),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Generate an X.509 TLS certificate signed by local CA or self-signed."""
     # Default to standard CA path if it exists and no CA specified
@@ -194,7 +202,7 @@ def generate_cert_cmd(
     if not san_list:
         san_list = [common_name, "127.0.0.1"]
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops tls cert",
             action="generate_tls_certificate",
@@ -271,9 +279,13 @@ def generate_homelab_cmd(
         bool,
         typer.Option("--overwrite", "-f", help=HELP.tls.overwrite),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert)."""
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops tls homelab",
             action="generate_homelab_tls_bundle",
@@ -436,6 +448,10 @@ def enable_k8s_cmd(
         bool,
         typer.Option("--overwrite", "-f", help=HELP.tls.overwrite),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces."""
     target_namespaces = namespaces or ["argocd", "monitoring", "llm", "otel", "default"]
@@ -448,7 +464,7 @@ def enable_k8s_cmd(
     cert_path = tls_dir / CONST_SERVER_CERT_NAME
     key_path = tls_dir / CONST_SERVER_KEY_NAME
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops tls enable-k8s",
             action="apply_k8s_tls_secrets",

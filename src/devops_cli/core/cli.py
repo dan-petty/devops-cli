@@ -108,6 +108,36 @@ def _execute_traced_cli_command(
 _CommandFunc = TypeVar("_CommandFunc", bound=Callable[..., Any])
 
 
+def _handle_lazy_proxy_dry_run(target: str, cmd_name: str, args: list[str]) -> None:
+    """Handle delegated command proxy routing under dry-run mode."""
+    own_args = args[: args.index("--")] if "--" in args else args
+    from devops_cli.main import _delegate
+
+    mod_path, _, _ = target.partition(":")
+    if any(a in ("-h", "--help") for a in own_args):
+        _delegate(mod_path, cmd_name, args)
+        return
+
+    import click
+    import typer._click.exceptions as click_exc
+
+    from devops_cli.core.command_resolver import resolve_proxy_dry_run
+
+    try:
+        declares_dry_run, forwarded_args = resolve_proxy_dry_run(mod_path, cmd_name, args)
+    except (click_exc.ClickException, click.ClickException) as exc:
+        exc.show()
+        raise typer.Exit(getattr(exc, "exit_code", 2)) from exc
+
+    if declares_dry_run and forwarded_args is not None:
+        _delegate(mod_path, cmd_name, forwarded_args)
+        return
+
+    from devops_cli.output import print_dry_run_command
+
+    print_dry_run_command(["devops", cmd_name, *args], delegated=True)
+
+
 class OTelTyper(typer.Typer):
     """Subclass of Typer that wraps every registered command in an OpenTelemetry trace span and supports lazy string module paths.
 
@@ -137,10 +167,7 @@ class OTelTyper(typer.Typer):
                 from devops_cli.dry_run import is_dry_run
 
                 if is_dry_run():
-                    args = ["devops", cmd_name, *list(ctx.args)]
-                    from devops_cli.output import print_dry_run_command
-
-                    print_dry_run_command(args, delegated=True)
+                    _handle_lazy_proxy_dry_run(target, cmd_name, list(ctx.args))
                     return
 
                 from devops_cli.main import _delegate

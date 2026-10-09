@@ -15,7 +15,7 @@ from pathlib import Path, PurePosixPath
 from devops_cli.ai.review.exporter import export_invalidated_feedback
 from devops_cli.config.constants import CONST_FEEDBACK_DATASET_NAME
 from devops_cli.config.defaults import DEFAULT_DATA_DIR, DEFAULT_FEEDBACK_DATASET_PATH
-from devops_cli.docs.command_resolver import (
+from devops_cli.core.command_resolver import (
     ArgvToken,
     CommandReferenceFinding,
     resolve_devops_argv,

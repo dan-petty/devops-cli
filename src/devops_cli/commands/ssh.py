@@ -77,6 +77,10 @@ def generate(
             help="Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd).",
         ),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Generate a new Ed25519 SSH key with prefix and YYYYMMDD date suffix."""
     from devops_cli.config.settings import load_settings
@@ -86,7 +90,7 @@ def generate(
     )
     from devops_cli.dry_run import is_dry_run
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops ssh generate",
             action="generate_ed25519_ssh_key",
@@ -146,13 +150,17 @@ def register(
             help=HELP.ssh.prefix,
         ),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     from devops_cli.config.settings import load_settings
     from devops_cli.crypto.ssh_keys import find_newest_key, get_ssh_key_prefix
     from devops_cli.dry_run import is_dry_run
     from devops_cli.github.ssh import SSHRegistrationError, register_key_on_github
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops ssh register",
             action="register_ssh_key_on_github",
@@ -222,6 +230,10 @@ def rotate(
             help=HELP.ssh.prefix,
         ),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Rotate keys older than rotation_days (default 90).
 
@@ -237,7 +249,7 @@ def rotate(
     from devops_cli.dry_run import is_dry_run
     from devops_cli.github.ssh import SSHRegistrationError, register_key_on_github
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops ssh rotate",
             action="rotate_ssh_keys",
@@ -329,13 +341,17 @@ def list_keys(
             help=HELP.ssh.prefix,
         ),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """List all managed SSH keys with their age and rotation status."""
     from devops_cli.config.settings import load_settings
     from devops_cli.crypto.ssh_keys import list_managed_keys_info
     from devops_cli.dry_run import is_dry_run
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops ssh list",
             action="audit_ssh_keys",
@@ -378,13 +394,17 @@ def status(
             help=HELP.ssh.prefix,
         ),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
 ) -> None:
     """Show the active SSH key and days until rotation."""
     from devops_cli.config.settings import load_settings
     from devops_cli.crypto.ssh_keys import find_newest_key, get_key_age_days, get_ssh_key_prefix
     from devops_cli.dry_run import is_dry_run
 
-    if is_dry_run():
+    if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops ssh status",
             action="get_ssh_key_status",
