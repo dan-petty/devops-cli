@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import re
 import subprocess
 from pathlib import Path
@@ -416,6 +417,79 @@ def test_no_homelab_application_sets_kustomize_overrides_in_git() -> None:
     assert [
         name for name in HOMELAB_APPLICATIONS if "kustomize" in apps[name]["spec"]["source"]
     ] == []
+
+
+# ── Argo CD Image Updater (#1485) ────────────────────────────────────────────
+
+
+def test_image_updater_runs_the_pinned_argo_helm_chart_in_the_argocd_namespace() -> None:
+    """Its project admits the chart repository and the namespace; the chart brings the CRD."""
+    spec = _all_applications()["argocd-image-updater"]["spec"]
+    homelab = next(
+        doc["spec"]
+        for doc in _load_yaml_all(APPS_DIR / "projects.yaml")
+        if doc["metadata"]["name"] == spec["project"]
+    )
+    chart = spec["sources"][0]
+    assert (
+        chart,
+        spec["destination"],
+        chart["repoURL"] in homelab["sourceRepos"],
+        spec["destination"] in homelab["destinations"],
+        {"group": "*", "kind": "*"} in homelab["clusterResourceWhitelist"],
+    ) == (
+        {
+            "repoURL": "https://argoproj.github.io/argo-helm",
+            "chart": "argocd-image-updater",
+            "targetRevision": "1.3.1",
+            "helm": {"valueFiles": ["$values/k8s/argocd/image-updater-values.yaml"]},
+        },
+        {"server": "https://kubernetes.default.svc", "namespace": "argocd"},
+        True,
+        True,
+        True,
+    )
+
+
+def test_image_updater_keeps_only_application_devops_on_the_digest_of_service_latest() -> None:
+    """One ImageUpdater, with no git write-back, so the digest goes onto the Application.
+
+    The chart renders `extraObjects` as written. Without `writeBackConfig` the method is
+    `argocd`: Image Updater sets `spec.source.kustomize.images` on the Application it selects,
+    which the `cluster` app-of-apps leaves alone, and commits nothing.
+    """
+    values = _load_yaml(ARGOCD_DIR / "image-updater-values.yaml")
+    (updater,) = values["extraObjects"]
+    (ref,) = updater["spec"]["applicationRefs"]
+    assert (
+        values,
+        [name for name in _all_applications() if fnmatch.fnmatchcase(name, ref["namePattern"])],
+    ) == (
+        {
+            "extraObjects": [
+                {
+                    "apiVersion": "argocd-image-updater.argoproj.io/v1alpha1",
+                    "kind": "ImageUpdater",
+                    "metadata": {"name": "devops", "namespace": "argocd"},
+                    "spec": {
+                        "applicationRefs": [
+                            {
+                                "namePattern": "devops",
+                                "images": [
+                                    {
+                                        "alias": "service",
+                                        "imageName": "ghcr.io/dan-petty/devops-cli/service:latest",
+                                        "commonUpdateSettings": {"updateStrategy": "digest"},
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                }
+            ]
+        },
+        ["devops"],
+    )
 
 
 def test_no_application_renders_the_devops_cli_config_map_and_no_commit_holds_it() -> None:
