@@ -129,6 +129,8 @@ Open WebUI uses the same key: on a fresh install it connects to the gateway auto
 ### GPU Placement: Ollama tiers
 Ollama runs as one DaemonSet per total-VRAM tier (`ollama-16gib` … `ollama-128gib`, `llm/profiles/ollama-profiles.yaml`), scheduled by the node label `nvidia.com/gpu.total-vram-gib`. The gateway reaches each tier through its ClusterIP Service `ollama-<n>gib`.
 
+Every tier runs ollama as UID and GID 10001, which no host login account uses, with RuntimeDefault seccomp, no privilege escalation, all capabilities dropped and a read-only root filesystem; `/tmp` is an emptyDir. `HOME` is `/home/ollama`, so the key and `models/` stay in the hostPath `/var/lib/ollama` on each GPU node, mounted at `/home/ollama/.ollama`. `fsGroup` does not apply to a hostPath volume, so the initContainer `own-model-directory` gives that directory to 10001 at every start (`chown -R`). It runs as root with `CAP_CHOWN` alone, no privilege escalation and a read-only root filesystem, and exits before ollama starts. It is the one exception to kube-linter's `run-as-non-root` in `ollama-profiles.yaml`, recorded in the manifest's header rather than suppressed with an ignore annotation.
+
 Inference workloads pull models directly and are reachable inside the cluster through the gateway.
 
 ## Port Forwarding & Automated Configuration
