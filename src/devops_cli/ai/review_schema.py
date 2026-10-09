@@ -1343,6 +1343,7 @@ class ReviewSessionPayload(BaseModel):
     network_reputations: list[NetworkReputationRecord] = Field(default_factory=list)
     removed_symbol_findings_count: int = 0
     symbol_delta_summary: dict[str, int] = Field(default_factory=dict)
+    complexity_delta: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("findings", mode="after")
     @classmethod
