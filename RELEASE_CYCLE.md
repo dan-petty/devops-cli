@@ -127,7 +127,7 @@ uv run devops ci
 12. **Lockfile Validation (`uv lock --check`)**: Verifies `uv.lock` remains strictly synchronized with `pyproject.toml`.
 13. **Dependency Freshness (`uv tree --outdated`)**: Inspects dependency tree for outdated packages.
 
-CI (`ci.yml`) additionally runs `devops devcontainer validate --workspace .`.
+CI (`ci.yml`) additionally runs `devops devcontainer validate --workspace .`. On pull requests, the Tests & Coverage job also writes an advisory changed-line coverage report (diff-cover) against the base branch to its job summary.
 
 ---
 
@@ -203,6 +203,7 @@ uv run devops release prepare X.Y.Z --create-pr
    - Mypy strict type checking (`mypy --strict src`)
    - Documentation freshness (`devops docs check`)
    - Pytest unit tests and test coverage thresholds
+   - Changed-line coverage against the pull request's base branch (diff-cover, advisory, in the job summary)
    - Bandit static security scanning
 2. `ci.yml`'s **Service Image** job builds, smoke-tests and scans the release PR's image without pushing; `release.yml` publishes it after the merge (Step 5).
 3. Maintainers review the release diff, changelog, and documentation updates.

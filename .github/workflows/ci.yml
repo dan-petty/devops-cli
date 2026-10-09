@@ -57,8 +57,11 @@ jobs:
       contents: read
 
     steps:
+      # Full history so the changed-line coverage step can find the merge base.
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
 
       - name: Set up uv toolchain
         uses: ./.github/actions/setup-toolchain
@@ -69,6 +72,24 @@ jobs:
 
       - name: Tests & Coverage Quality Gate
         run: uv run devops ci --check --no-cache --only test
+
+      # Advisory changed-line coverage against the pull request's own base branch (#850).
+      # No --fail-under: it reports in the job summary and never fails on the figure.
+      # diff-cover truncates its output file, so it writes first and the pragma list
+      # is appended after it.
+      - name: Changed-Line Coverage
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF"
+          uv run diff-cover .data/coverage.xml --compare-branch="origin/${BASE_REF}" --format "markdown:${GITHUB_STEP_SUMMARY}"
+          {
+            echo "### Added pragma: no cover lines"
+            echo "~~~diff"
+            git diff --unified=0 -G 'pragma: no cover' "origin/${BASE_REF}...HEAD" -- src | grep -e '^+++ ' -e '^+.*pragma: no cover' || echo 'None.'
+            echo "~~~"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # The published image packages devops-cli itself, so it is rebuilt only for pull
   # requests targeting main, and only when the change actually alters image content.
