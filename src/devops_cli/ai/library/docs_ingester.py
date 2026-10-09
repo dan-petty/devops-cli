@@ -14,6 +14,7 @@ from urllib.parse import urldefrag, urljoin, urlparse
 
 import httpx2
 
+from devops_cli.core.repo import resolve_store_path
 from devops_cli.exceptions.ai import DocsIngestionError
 from devops_cli.http.validation import validate_service_url
 from devops_cli.models.library import DocChunk, IngestDocResult
@@ -190,7 +191,10 @@ class DocsIngester:
         if not src_path.exists():
             raise DocsIngestionError(f"Documentation path '{docs_path}' does not exist")
 
-        target_dir = Path(output_dir) if output_dir else Path(".data/docs_ingest") / src_path.stem
+        target_dir = resolve_store_path(
+            Path("docs_ingest") / src_path.stem,
+            explicit=output_dir,
+        )
 
         files_to_process: list[Path] = []
         if src_path.is_file():
@@ -238,7 +242,10 @@ class DocsIngester:
         base_slug = (
             parsed_origin.path.strip("/").replace("/", "_") or parsed_origin.netloc
         ) or "remote_doc"
-        target_dir = Path(output_dir) if output_dir else Path(".data/docs_ingest") / base_slug
+        target_dir = resolve_store_path(
+            Path("docs_ingest") / base_slug,
+            explicit=output_dir,
+        )
 
         queue: list[str] = [url]
         visited: set[str] = set()

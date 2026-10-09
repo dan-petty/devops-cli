@@ -41,7 +41,10 @@ def resolve_ledger_path(path: Path | None = None) -> Path:
     try:
         data_dir = load_settings().data.dir
     except Exception:
-        data_dir = Path(".data")
+        from devops_cli.config.defaults import DEFAULT_DATA_DIR
+
+        data_dir = DEFAULT_DATA_DIR
+
     return resolve_review_data_path(data_dir / DEFAULT_MITIGATIONS_LEDGER_PATH)
 
 
