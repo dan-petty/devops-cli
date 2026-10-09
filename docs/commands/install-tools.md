@@ -6,7 +6,7 @@ Install and manage DevOps tool binaries.
 
 ## `devops install-tools status`
 
-**Show installation status and versions for all managed tools.**
+**Show each tool's locked version and where its command is installed, without a request.**
 
 ```bash
 devops install-tools status [OPTIONS]
@@ -16,6 +16,6 @@ devops install-tools status [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--target-dir`, `-d` | `path` | `~/.local/bin` | - |
+| `--target-dir`, `-d` | `path` | `~/.local/bin` | Target directory path for operation. |
 
 ---

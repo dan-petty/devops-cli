@@ -326,10 +326,12 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterato
 
 @pytest.fixture(autouse=True)
 def isolate_user_data_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Keep the user-level data root, where a review's relative data paths resolve (#972), in
-    the test's temporary directory rather than the developer's home."""
+    """Keep the user-level data root, where a review's relative data paths resolve (#972) and
+    locked tools install (#1142), in the test's temporary directory rather than the developer's
+    home."""
     user_data_root = (tmp_path / "user-data").resolve()
     monkeypatch.setattr("devops_cli.core.repo.CONST_USER_DATA_ROOT", user_data_root)
+    monkeypatch.setattr("devops_cli.tools_lock.CONST_USER_DATA_ROOT", user_data_root)
     return user_data_root
 
 

@@ -1,430 +1,464 @@
-"""Tests for install-tools command and registry."""
+"""`devops install-tools`: every tool from the tools lock, at its exact version (#1142)."""
 
 from __future__ import annotations
 
 import gzip
 import hashlib
 import io
+import os
 import subprocess
 import tarfile
 from pathlib import Path
-from unittest.mock import patch
+from urllib.parse import urlsplit
 
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.commands import install_tools
 from devops_cli.commands.install_tools import (
-    _ARCH,
-    _OS,
-    TOOLS,
-    _current_version,
+    _PLATFORM,
     _download,
-    _install_argo,
-    _install_argocd,
-    _install_helm,
-    _install_k9s,
-    _install_kubectl,
-    _install_kubelinter,
-    _install_kustomize,
-    _install_pluto,
-    _install_popeye,
-    _install_rollouts,
-    _install_trivy,
-    _parse_checksum_file,
     _verify_sha256,
+    install_binary,
     install_managed_tools,
-    is_tool_installed,
+    install_python_tool,
 )
 from devops_cli.commands.install_tools import app as install_tools_app
-from devops_cli.exceptions import SSRFBlockedError, ToolDownloadError
-from devops_cli.main import app as main_app
+from devops_cli.exceptions import (
+    ChecksumMismatchError,
+    SSRFBlockedError,
+    ToolDownloadError,
+    ToolExecutionError,
+)
+from devops_cli.tools_lock import (
+    LOCK_DIR,
+    Artifact,
+    BinaryTool,
+    PythonTool,
+    ToolsLock,
+    installed_commands,
+    load_tools_lock,
+)
 from tests.web_fakes import StubWeb
 
 runner = CliRunner()
 
-
-def test_tool_registry_has_required_entries() -> None:
-    expected = {
-        "kubectl",
-        "kustomize",
-        "helm",
-        "argo",
-        "argocd",
-        "kubectl-argo-rollouts",
-        "trivy",
-        "kube-linter",
-        "popeye",
-        "pluto",
-        "k9s",
-    }
-    assert expected.issubset(set(TOOLS.keys()))
+ASSET_URL = "https://example.com/releases/mytool"
+EXECUTABLE = b"#!/bin/sh\necho mytool\n"
 
 
-def test_tool_spec_fields_populated() -> None:
-    for name, tool in TOOLS.items():
-        assert tool.name == name, f"{name}: name mismatch"
-        assert tool.description, f"{name}: description empty"
-        assert tool.bin_name, f"{name}: bin_name empty"
-        assert tool.version_cmd, f"{name}: version_cmd empty"
-        assert callable(tool.get_latest), f"{name}: get_latest not callable"
-        assert callable(tool.install), f"{name}: install not callable"
-
-
-def test_current_version_returns_none_for_missing_command() -> None:
-    assert _current_version(["__nonexistent_binary_xyz_9999__"]) is None
-
-
-def test_current_version_extracts_semver() -> None:
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = subprocess.CompletedProcess(
-            args=[],
-            returncode=0,
-            stdout="Client Version: v1.30.2\n",
-            stderr="",
-        )
-        result = _current_version(["kubectl", "version", "--client"])
-    assert result == "v1.30.2"
-
-
-def test_current_version_returns_installed_on_no_version_string() -> None:
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = subprocess.CompletedProcess(
-            args=[],
-            returncode=0,
-            stdout="OK\n",
-            stderr="",
-        )
-        result = _current_version(["sometool"])
-    assert result == "installed"
-
-
-def test_current_version_returns_none_on_nonzero_exit() -> None:
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = subprocess.CompletedProcess(
-            args=[],
-            returncode=1,
-            stdout="",
-            stderr="command not found",
-        )
-        result = _current_version(["sometool"])
-    assert result is None
-
-
-def test_verify_sha256_passes_for_correct_hash() -> None:
-    data = b"hello world"
-    expected = hashlib.sha256(data).hexdigest()
-    _verify_sha256(data, expected)
-
-
-def test_verify_sha256_passes_with_surrounding_whitespace() -> None:
-    data = b"hello world"
-    expected = "  " + hashlib.sha256(data).hexdigest() + "\n"
-    _verify_sha256(data, expected)
-
-
-def test_verify_sha256_raises_on_mismatch() -> None:
-    with pytest.raises(ValueError, match="SHA-256"):
-        _verify_sha256(b"hello", "deadbeef" * 8)
-
-
-def test_parse_checksum_file_finds_entry() -> None:
-    text = "abc123  kubectl\ndef456  kubectl.sha256\n"
-    assert _parse_checksum_file(text, "kubectl") == "abc123"
-
-
-def test_parse_checksum_file_handles_asterisk_prefix() -> None:
-    """Some tools emit `hash *filename` (binary mode marker)."""
-    text = "abc123 *myfile.tar.gz\n"
-    assert _parse_checksum_file(text, "myfile.tar.gz") == "abc123"
-
-
-def test_parse_checksum_file_raises_when_not_found() -> None:
-    with pytest.raises(ValueError, match="No checksum entry"):
-        _parse_checksum_file("abc123  other-file\n", "missing-file")
-
-
-def test_install_tools_commands(tmp_path: Path) -> None:
-    """Verify install-tools status and all subcommands."""
-    with (
-        patch("shutil.which", return_value="/usr/local/bin/kubectl"),
-        patch("devops_cli.commands.install_tools._current_version", return_value="v1.28.0"),
-    ):
-        res_stat = runner.invoke(main_app, ["install-tools", "status"])
-        assert res_stat.exit_code == 0
-
-        res_direct = runner.invoke(install_tools_app, ["status"])
-        assert res_direct.exit_code == 0
-
-
-def test_install_tool_execution(tmp_path: Path) -> None:
-    """Verify install callback with specific tool."""
-    with patch.object(TOOLS["kubectl"], "install") as mock_inst:
-        res = runner.invoke(
-            install_tools_app,
-            ["--tool", "kubectl", "--version", "v1.30.0", "--target-dir", str(tmp_path)],
-        )
-        assert res.exit_code == 0
-        mock_inst.assert_called_once()
-
-
-def test_install_all_and_error_branches(tmp_path: Path) -> None:
-    """Verify install callback validation errors, get_latest failures, and path hints."""
-    # Invalid version format
-    res_bad_ver = runner.invoke(install_tools_app, ["--version", "invalid_ver!"])
-    assert res_bad_ver.exit_code == 1
-
-    # Unknown tool
-    res_unk = runner.invoke(install_tools_app, ["--tool", "unknown_tool_xyz"])
-    assert res_unk.exit_code == 1
-
-    # Tool get_latest error & install error handled gracefully
-    with (
-        patch.object(TOOLS["kubectl"], "get_latest", side_effect=Exception("Network error")),
-        patch.object(TOOLS["helm"], "get_latest", return_value="v3.15.0"),
-        patch.object(TOOLS["helm"], "install", side_effect=Exception("Write error")),
-    ):
-        res = runner.invoke(install_tools_app, ["--tool", "kubectl", "--target-dir", str(tmp_path)])
-        assert res.exit_code == 0
-
-
-def _make_tar_archive(members: dict[str, bytes]) -> bytes:
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+def _tar_gz(members: dict[str, bytes]) -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
         for name, data in members.items():
-            ti = tarfile.TarInfo(name=name)
-            ti.size = len(data)
-            tf.addfile(ti, io.BytesIO(data))
-    return buf.getvalue()
+            info = tarfile.TarInfo(name=name)
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    return buffer.getvalue()
 
 
-def test_install_k8s_core_tools(tmp_path: Path) -> None:
-    """Verify kubectl, kustomize, and helm installer logic with mock archives."""
-    bin_content = b"#!/bin/sh\necho test\n"
-    bin_sha = hashlib.sha256(bin_content).hexdigest()
-
-    # 1. Kubectl
-    def mock_download_kubectl(url: str) -> bytes:
-        return f"{bin_sha}  kubectl\n".encode() if url.endswith(".sha256") else bin_content
-
-    with patch("devops_cli.commands.install_tools._download", side_effect=mock_download_kubectl):
-        _install_kubectl("1.30.0", tmp_path)
-
-    # 2. Kustomize
-    tar_kust = _make_tar_archive({"kustomize": bin_content})
-    kust_sha = hashlib.sha256(tar_kust).hexdigest()
-    tar_kust_name = f"kustomize_v5.4.0_{_OS}_{_ARCH}.tar.gz"
-
-    def mock_download_kustomize(url: str) -> bytes:
-        return f"{kust_sha}  {tar_kust_name}\n".encode() if "checksums.txt" in url else tar_kust
-
-    with patch("devops_cli.commands.install_tools._download", side_effect=mock_download_kustomize):
-        _install_kustomize("v5.4.0", tmp_path)
-
-    # 3. Helm
-    tar_helm = _make_tar_archive({f"{_OS}-{_ARCH}/helm": bin_content})
-    helm_sha = hashlib.sha256(tar_helm).hexdigest()
-    tar_helm_name = f"helm-v3.15.0-{_OS}-{_ARCH}.tar.gz"
-
-    def mock_download_helm(url: str) -> bytes:
-        return f"{helm_sha}  {tar_helm_name}\n".encode() if url.endswith(".sha256sum") else tar_helm
-
-    with patch("devops_cli.commands.install_tools._download", side_effect=mock_download_helm):
-        _install_helm("v3.15.0", tmp_path)
-
-    assert (
-        (tmp_path / "kubectl").exists(),
-        (tmp_path / "kustomize").exists(),
-        (tmp_path / "helm").exists(),
-    ) == (True, True, True)
-
-
-def test_install_argo_ecosystem_tools(tmp_path: Path) -> None:
-    """Verify argo, argocd, and rollouts installers with checksum resolution and fallbacks."""
-    bin_content = b"#!/bin/sh\necho test\n"
-    bin_sha = hashlib.sha256(bin_content).hexdigest()
-    gz_argo = gzip.compress(bin_content)
-    argo_sha = hashlib.sha256(gz_argo).hexdigest()
-    gz_name = f"argo-{_OS}-{_ARCH}.gz"
-
-    # Argo with modern argo-workflows-cli-checksums.txt
-    def mock_download_argo(url: str) -> bytes:
-        if "argo-workflows-cli-checksums.txt" in url:
-            return f"{argo_sha}  {gz_name}\n".encode()
-        return gz_argo
-
-    with patch("devops_cli.commands.install_tools._download", side_effect=mock_download_argo):
-        _install_argo("v4.1.4", tmp_path)
-
-    # ArgoCD
-    argocd_bin_name = f"argocd-{_OS}-{_ARCH}"
-
-    def mock_download_argocd(url: str) -> bytes:
-        if "cli_checksums.txt" in url:
-            return f"{bin_sha}  {argocd_bin_name}\n".encode()
-        return bin_content
-
-    with patch("devops_cli.commands.install_tools._download", side_effect=mock_download_argocd):
-        _install_argocd("v2.11.0", tmp_path)
-
-    # Rollouts with modern argo-rollouts-checksums.txt
-    rollouts_bin_name = f"kubectl-argo-rollouts-{_OS}-{_ARCH}"
-
-    def mock_download_rollouts(url: str) -> bytes:
-        if "argo-rollouts-checksums.txt" in url or "sha256checksums.txt" in url:
-            return f"{bin_sha}  {rollouts_bin_name}\n".encode()
-        return bin_content
-
-    with patch("devops_cli.commands.install_tools._download", side_effect=mock_download_rollouts):
-        _install_rollouts("v1.10.0", tmp_path)
-
-    assert (
-        (tmp_path / "argo").exists(),
-        (tmp_path / "argocd").exists(),
-        (tmp_path / "kubectl-argo-rollouts").exists(),
-    ) == (True, True, True)
-
-
-def test_resolve_argo_expected_checksum_fallback() -> None:
-    """Verify argo checksum resolver falls back to legacy sha file on download/validation error."""
-    from devops_cli.commands.install_tools import _resolve_argo_expected_checksum
-    from devops_cli.exceptions import ToolDownloadError
-
-    calls: list[str] = []
-
-    def mock_download(url: str) -> bytes:
-        calls.append(url)
-        if "checksums.txt" in url:
-            raise ToolDownloadError(url, "404 Not Found")
-        return b"abcdef1234567890  argo-linux-amd64.gz\n"
-
-    with patch("devops_cli.commands.install_tools._download", side_effect=mock_download):
-        sha = _resolve_argo_expected_checksum(
-            "http://example.com/checksums.txt",
-            "http://example.com/legacy.sha256",
-            "argo-linux-amd64.gz",
-        )
-    assert (sha, len(calls)) == ("abcdef1234567890", 2)
-
-
-def test_install_cluster_sanitizers(tmp_path: Path) -> None:
-    """Verify trivy, kube-linter, popeye, pluto, and k9s installers."""
-    bin_content = b"#!/bin/sh\necho test\n"
-
-    tar_trivy = _make_tar_archive({"trivy": bin_content})
-    tar_kubelinter = _make_tar_archive({"kube-linter": bin_content})
-    tar_popeye = _make_tar_archive({"popeye": bin_content})
-    tar_pluto = _make_tar_archive({"pluto": bin_content})
-    tar_k9s = _make_tar_archive({"k9s": bin_content})
-
-    with patch("devops_cli.commands.install_tools._download", return_value=tar_trivy):
-        _install_trivy("0.50.0", tmp_path)
-    with patch("devops_cli.commands.install_tools._download", return_value=tar_kubelinter):
-        _install_kubelinter("0.8.3", tmp_path)
-    with patch("devops_cli.commands.install_tools._download", return_value=tar_popeye):
-        _install_popeye("0.21.0", tmp_path)
-    with patch("devops_cli.commands.install_tools._download", return_value=tar_pluto):
-        _install_pluto("5.19.0", tmp_path)
-    with patch("devops_cli.commands.install_tools._download", return_value=tar_k9s):
-        _install_k9s("v0.32.0", tmp_path)
-
-    assert (
-        (tmp_path / "trivy").exists(),
-        (tmp_path / "kube-linter").exists(),
-        (tmp_path / "popeye").exists(),
-        (tmp_path / "pluto").exists(),
-        (tmp_path / "k9s").exists(),
-    ) == (True, True, True, True, True)
-
-
-def test_is_tool_installed(tmp_path: Path) -> None:
-    """Verify is_tool_installed checks target_dir and system PATH."""
-    spec = TOOLS["k9s"]
-    with patch("shutil.which", return_value=None):
-        assert is_tool_installed(spec, tmp_path) is False
-
-        # Place binary in target directory
-        dummy_bin = tmp_path / spec.bin_name
-        dummy_bin.write_bytes(b"dummy")
-        assert is_tool_installed(spec, tmp_path) is True
-
-    # When not in target directory, but on system PATH
-    tmp_empty = tmp_path / "empty"
-    tmp_empty.mkdir()
-    with patch("shutil.which", return_value="/usr/local/bin/k9s"):
-        assert is_tool_installed(spec, tmp_empty) is True
-
-
-def test_install_all_only_missing(tmp_path: Path) -> None:
-    """Verify --only-missing installs only tools missing from target_dir and PATH."""
-    installed_calls: list[str] = []
-
-    def mock_install_fn(name: str):
-        def _installer(version: str, target_dir: Path) -> None:
-            installed_calls.append(name)
-            (target_dir / name).write_text("ok", encoding="utf-8")
-
-        return _installer
-
-    with (
-        patch(
-            "shutil.which",
-            side_effect=lambda bin_name: "/usr/bin/" + bin_name if bin_name == "kubectl" else None,
-        ),
-        patch.object(TOOLS["kubectl"], "install", side_effect=mock_install_fn("kubectl")),
-        patch.object(TOOLS["k9s"], "get_latest", return_value="v0.51.0"),
-        patch.object(TOOLS["k9s"], "install", side_effect=mock_install_fn("k9s")),
-    ):
-        res = runner.invoke(
-            install_tools_app,
-            ["--tool", "kubectl", "--only-missing", "--target-dir", str(tmp_path)],
-        )
-        assert (res.exit_code, "kubectl" not in installed_calls) == (0, True)
-
-        res_k9s = runner.invoke(
-            install_tools_app,
-            ["--tool", "k9s", "--only-missing", "--target-dir", str(tmp_path)],
-        )
-        assert (res_k9s.exit_code, "k9s" in installed_calls) == (0, True)
-
-
-def test_install_managed_tools_programmatic(tmp_path: Path) -> None:
-    """Verify install_managed_tools helper returns formatted actions and handles errors."""
-    mock_ok = TOOLS["k9s"].model_copy(
-        update={
-            "name": "mock-tool-ok",
-            "bin_name": "mock-tool-ok",
-            "get_latest": lambda: "v1.0.0",
-            "install": lambda v, d: (d / "mock-tool-ok").write_text("ok", encoding="utf-8"),
-        }
-    )
-
-    def _failing_install(v: str, d: Path) -> None:
-        raise RuntimeError("disk full")
-
-    mock_fail = TOOLS["k9s"].model_copy(
-        update={
-            "name": "mock-tool-fail",
-            "bin_name": "mock-tool-fail",
-            "get_latest": lambda: "v1.0.0",
-            "install": _failing_install,
-        }
-    )
-
-    with (
-        patch("shutil.which", return_value=None),
-        patch.dict(
-            TOOLS,
-            {
-                "mock-tool-ok": mock_ok,
-                "mock-tool-fail": mock_fail,
+def _binary_entry(
+    artifact: bytes,
+    *,
+    name: str = "mytool",
+    archive_format: str = "binary",
+    member: str | None = None,
+) -> BinaryTool:
+    """A lock entry for `name` 1.2.3 whose build for this platform is `artifact`, served at
+    `https://example.com/releases/<name>`."""
+    return BinaryTool.model_validate(
+        {
+            "version": "1.2.3",
+            "description": "A tool under test",
+            "source": f"https://example.com/{name}",
+            "bin": name,
+            "format": archive_format,
+            "platforms": {
+                _PLATFORM: {
+                    "url": f"https://example.com/releases/{name}",
+                    "sha256": hashlib.sha256(artifact).hexdigest(),
+                    "member": member,
+                }
             },
-            clear=True,
-        ),
-    ):
-        actions = install_managed_tools(target_dir=tmp_path, only_missing=True)
-        assert len(actions) == 2
-        assert "Installed mock-tool-ok v1.0.0" in actions[0]
-        assert "Warning: Failed to install mock-tool-fail (disk full)" in actions[1]
+        }
+    )
+
+
+def _python_entry() -> PythonTool:
+    """A lock entry for a Semgrep installed from the packaged hashed requirements."""
+    return PythonTool(
+        version="9.9.9",
+        description="Semgrep under test",
+        source="https://example.com/semgrep",
+        requirements="semgrep.txt",
+        entry_points=["semgrep"],
+    )
+
+
+def _tool_requests(stub_web: StubWeb) -> list[str]:
+    """The requests the stub received, leaving out the telemetry exporter's to its loopback
+    collector, which a command may flush as it exits."""
+    return [url for url in stub_web.requested if urlsplit(url).hostname != "localhost"]
+
+
+def _link_at_pin(name: str, target_dir: Path) -> None:
+    """Install the packaged lock's `name` as install-tools leaves it, without downloading it."""
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for command, installed in installed_commands(name, load_tools_lock().tools()[name]).items():
+        installed.parent.mkdir(parents=True, exist_ok=True)
+        installed.write_bytes(EXECUTABLE)
+        (target_dir / command).symlink_to(installed)
+
+
+# ── Binary tools ──────────────────────────────────────────────────────────────
+
+
+def test_a_verified_binary_is_pinned_and_linked_from_its_url_alone(
+    stub_web: StubWeb, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """The lock's URL is the only request: no latest-release lookup and no checksum file. The
+    verified binary lands in the tool's version directory and the target directory links to it."""
+    stub_web.content(ASSET_URL, EXECUTABLE)
+    target = tmp_path / "bin"
+
+    install_binary("mytool", _binary_entry(EXECUTABLE), target)
+
+    pinned = isolate_user_data_root / "tools" / "mytool" / "1.2.3" / "mytool"
+    assert (
+        _tool_requests(stub_web),
+        (target / "mytool").is_symlink(),
+        (target / "mytool").resolve(),
+        pinned.read_bytes(),
+        os.access(pinned, os.X_OK),
+        sorted(path.name for path in pinned.parent.parent.iterdir()),
+    ) == ([ASSET_URL], True, pinned, EXECUTABLE, True, ["1.2.3"])
+
+
+def test_an_install_removes_the_tools_other_versions(
+    stub_web: StubWeb, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """Once the command links the locked version, the version directory of an earlier pin goes,
+    so a pin bump does not leave the old build or virtual environment behind."""
+    stub_web.content(ASSET_URL, EXECUTABLE)
+    earlier = isolate_user_data_root / "tools" / "mytool" / "1.0.0"
+    earlier.mkdir(parents=True)
+    (earlier / "mytool").write_bytes(b"the earlier pin")
+
+    install_binary("mytool", _binary_entry(EXECUTABLE), tmp_path / "bin")
+
+    assert [path.name for path in earlier.parent.iterdir()] == ["1.2.3"]
+
+
+def test_a_build_whose_bytes_differ_from_the_lock_is_refused(
+    stub_web: StubWeb, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """A mismatch names the tool and leaves no version directory, no staging directory and no
+    link behind."""
+    stub_web.content(ASSET_URL, b"tampered")
+    target = tmp_path / "bin"
+
+    with pytest.raises(ChecksumMismatchError, match="mytool"):
+        install_binary("mytool", _binary_entry(EXECUTABLE), target)
+
+    assert (
+        list((isolate_user_data_root / "tools" / "mytool").iterdir()),
+        os.path.lexists(target / "mytool"),
+    ) == ([], False)
+
+
+@pytest.mark.parametrize(
+    ("archive_format", "artifact", "member"),
+    [
+        ("binary", EXECUTABLE, None),
+        ("gzip", gzip.compress(EXECUTABLE), None),
+        ("tar.gz", _tar_gz({"README.md": b"docs", "dist/mytool": EXECUTABLE}), "dist/mytool"),
+    ],
+    # The archives' gzip headers carry the time they were built, so the bytes cannot name a test
+    # that each xdist worker collects alike.
+    ids=["binary", "gzip", "tar.gz"],
+)
+def test_each_archive_format_unpacks_to_the_tool(
+    stub_web: StubWeb,
+    tmp_path: Path,
+    isolate_user_data_root: Path,
+    archive_format: str,
+    artifact: bytes,
+    member: str | None,
+) -> None:
+    """A bare binary, a gzip file and a tar.gz member all become the same executable."""
+    stub_web.content(ASSET_URL, artifact)
+
+    install_binary(
+        "mytool",
+        _binary_entry(artifact, archive_format=archive_format, member=member),
+        tmp_path / "bin",
+    )
+
+    assert (tmp_path / "bin" / "mytool").read_bytes() == EXECUTABLE
+
+
+def test_a_platform_the_lock_has_no_build_for_is_named(stub_web: StubWeb, tmp_path: Path) -> None:
+    """A platform missing from the lock fails before any request, naming the tool and platform."""
+    entry = _binary_entry(EXECUTABLE).model_copy(update={"platforms": {}})
+
+    with pytest.raises(ToolExecutionError) as raised:
+        install_binary("mytool", entry, tmp_path / "bin")
+
+    assert (
+        "mytool" in str(raised.value),
+        _PLATFORM in str(raised.value),
+        _tool_requests(stub_web),
+    ) == (
+        True,
+        True,
+        [],
+    )
+
+
+def test_verify_sha256_names_the_tool_on_a_mismatch() -> None:
+    """The checksum check passes the locked digest and refuses any other."""
+    _verify_sha256("mytool", EXECUTABLE, hashlib.sha256(EXECUTABLE).hexdigest())
+
+    with pytest.raises(ChecksumMismatchError, match="SHA-256 checksum mismatch for 'mytool'"):
+        _verify_sha256("mytool", b"hello", "deadbeef" * 8)
+
+
+# ── Python tools ──────────────────────────────────────────────────────────────
+
+
+def _record_uv(
+    monkeypatch: pytest.MonkeyPatch, *, sync_fails: bool = False
+) -> list[tuple[list[str], object]]:
+    """Stand in for uv: `venv` makes the stage's bin directory, `pip sync` writes the entry point.
+    Each call is recorded with the environment keys it keeps beyond the default ones."""
+    calls: list[tuple[list[str], object]] = []
+
+    def run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append((cmd, kwargs.get("extra_allowed_env")))
+        if cmd[:3] == ["uv", "--no-config", "venv"]:
+            (Path(cmd[-1]) / "bin").mkdir(parents=True)
+        elif sync_fails:
+            return subprocess.CompletedProcess(cmd, 1, "", "  Hash mismatch for `rich==15.0.0`\n")
+        else:
+            (Path(cmd[cmd.index("-p") + 1]).parent / "semgrep").write_bytes(EXECUTABLE)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(install_tools, "run_subprocess", run)
+    monkeypatch.setattr("shutil.which", lambda name, *args, **kwargs: f"/usr/bin/{name}")
+    return calls
+
+
+def test_a_python_tool_installs_its_hashed_requirements_into_a_relocatable_venv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """uv builds a relocatable environment beside the version directory, installs exactly the
+    hashed requirements into it, and the environment becomes the version directory. Neither call
+    reads a uv configuration file, and both keep the devcontainer's malware check, cache directory
+    and link mode. The link replaces the Semgrep that `uv tool install` once put on PATH."""
+    calls = _record_uv(monkeypatch)
+    target = tmp_path / "bin"
+    target.mkdir()
+    (target / "semgrep").write_text("the uv tool's semgrep", encoding="utf-8")
+
+    install_python_tool("semgrep", _python_entry(), target)
+
+    stage = Path(calls[0][0][-1])
+    pinned = isolate_user_data_root / "tools" / "semgrep" / "9.9.9"
+    uv_env = {"UV_MALWARE_CHECK", "UV_CACHE_DIR", "UV_LINK_MODE"}
+    assert (
+        calls,
+        stage.parent,
+        stage.exists(),
+        (target / "semgrep").resolve(),
+        (target / "semgrep").read_bytes(),
+    ) == (
+        [
+            (
+                ["uv", "--no-config", "venv", "--relocatable", "--python", "3.14", str(stage)],
+                uv_env,
+            ),
+            (
+                [
+                    "uv",
+                    "--no-config",
+                    "pip",
+                    "sync",
+                    "--require-hashes",
+                    "-p",
+                    str(stage / "bin" / "python"),
+                    str(LOCK_DIR / "semgrep.txt"),
+                ],
+                uv_env,
+            ),
+        ],
+        pinned.parent,
+        False,
+        pinned / "bin" / "semgrep",
+        EXECUTABLE,
+    )
+
+
+def test_a_failed_python_install_leaves_no_stage_and_no_link(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
+) -> None:
+    """A requirement uv refuses fails the install with uv's reason, removes the half-built
+    environment and links nothing."""
+    _record_uv(monkeypatch, sync_fails=True)
+
+    with pytest.raises(ToolExecutionError, match=r"semgrep: Hash mismatch for `rich==15\.0\.0`"):
+        install_python_tool("semgrep", _python_entry(), tmp_path / "bin")
+
+    assert (
+        list((isolate_user_data_root / "tools" / "semgrep").iterdir()),
+        os.path.lexists(tmp_path / "bin" / "semgrep"),
+    ) == ([], False)
+
+
+# ── The command ───────────────────────────────────────────────────────────────
+
+
+def test_only_missing_skips_a_tool_at_its_pin_and_reinstalls_one_linked_elsewhere(
+    stub_web: StubWeb, tmp_path: Path
+) -> None:
+    """`--only-missing` installs a tool unless its command links to its locked version."""
+    target = tmp_path / "bin"
+    _link_at_pin("gitleaks", target)
+    elsewhere = tmp_path / "elsewhere" / "osv-scanner"
+    elsewhere.parent.mkdir()
+    elsewhere.write_bytes(EXECUTABLE)
+    (target / "osv-scanner").symlink_to(elsewhere)
+    osv_url = load_tools_lock().binary["osv-scanner"].platforms[_PLATFORM].url
+
+    for tool in ("gitleaks", "osv-scanner"):
+        runner.invoke(
+            install_tools_app, ["--tool", tool, "--only-missing", "--target-dir", str(target)]
+        )
+
+    assert _tool_requests(stub_web) == [osv_url]
+
+
+def test_check_passes_only_when_every_tool_is_at_its_pin(
+    stub_web: StubWeb, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--check` makes no request, exits 0 with every tool at its pin, and exits 1 naming each
+    tool that is not."""
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    target = tmp_path / "bin"
+    names = list(load_tools_lock().tools())
+    for name in names:
+        if name not in ("k9s", "semgrep"):
+            _link_at_pin(name, target)
+
+    failing = runner.invoke(install_tools_app, ["--check", "--target-dir", str(target)])
+    for name in ("k9s", "semgrep"):
+        _link_at_pin(name, target)
+    passing = runner.invoke(install_tools_app, ["--check", "--target-dir", str(target)])
+
+    named = [name for name in names if f"{name} " in failing.output]
+    assert (failing.exit_code, named, passing.exit_code, _tool_requests(stub_web)) == (
+        1,
+        ["k9s", "semgrep"],
+        0,
+        [],
+    )
+
+
+@pytest.mark.parametrize(
+    ("served", "exit_code", "linked"),
+    [(EXECUTABLE, 0, True), (b"tampered", 1, False)],
+    ids=["verified", "tampered"],
+)
+def test_install_tools_exits_1_when_it_refuses_a_build(
+    stub_web: StubWeb,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    served: bytes,
+    exit_code: int,
+    linked: bool,
+) -> None:
+    """A build refused for its checksum fails the command, so `install-tools && ...` stops there,
+    and leaves no link."""
+    stub_web.content(ASSET_URL, served)
+    lock = ToolsLock(python_version="3.14", binary={"mytool": _binary_entry(EXECUTABLE)}, python={})
+    monkeypatch.setattr(install_tools, "load_tools_lock", lambda: lock)
+    target = tmp_path / "bin"
+
+    result = runner.invoke(install_tools_app, ["--target-dir", str(target)])
+
+    assert (result.exit_code, os.path.lexists(target / "mytool")) == (exit_code, linked)
+
+
+def test_status_shows_each_pin_and_what_is_installed_without_a_request(
+    stub_web: StubWeb, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`status` reads the lock and the target directory only."""
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    target = tmp_path / "bin"
+    _link_at_pin("gitleaks", target)
+    gitleaks = load_tools_lock().binary["gitleaks"]
+
+    result = runner.invoke(install_tools_app, ["status", "--target-dir", str(target)])
+
+    gitleaks_row = next(line for line in result.output.splitlines() if "gitleaks" in line)
+    assert (
+        result.exit_code,
+        all(column in result.output for column in ("Pinned", "Installed")),
+        gitleaks.version in gitleaks_row,
+        "at pin" in gitleaks_row,
+        "not installed" in result.output,
+        _tool_requests(stub_web),
+    ) == (0, True, True, True, True, [])
+
+
+def test_version_is_no_longer_an_option(tmp_path: Path) -> None:
+    """The lock is the only version source."""
+    result = runner.invoke(
+        install_tools_app, ["--version", "v1.0.0", "--target-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code == 2
+
+
+def test_an_unknown_tool_is_refused(tmp_path: Path) -> None:
+    """`--tool` names a tool in the lock."""
+    result = runner.invoke(
+        install_tools_app, ["--tool", "unknown-tool", "--target-dir", str(tmp_path)]
+    )
+
+    assert result.exit_code == 1
+
+
+def test_install_managed_tools_reports_one_line_per_tool(
+    stub_web: StubWeb, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Post-create's installer installs every tool the lock holds, and one tool's failure is one
+    warning line."""
+    stub_web.content(ASSET_URL, EXECUTABLE)
+    lock = ToolsLock(
+        python_version="3.14",
+        binary={
+            "mytool": _binary_entry(EXECUTABLE),
+            "broken": _binary_entry(EXECUTABLE, name="broken"),
+        },
+        python={},
+    )
+    monkeypatch.setattr(install_tools, "load_tools_lock", lambda: lock)
+
+    actions = install_managed_tools(tmp_path / "bin")
+    again = install_managed_tools(tmp_path / "bin")
+
+    assert (len(actions), actions[0].startswith("Installed mytool 1.2.3 into"), again) == (
+        2,
+        True,
+        [actions[1]],
+    )
+    assert actions[1].startswith("Warning: Failed to install broken (")
+
+
+def test_artifact_rejects_unknown_fields() -> None:
+    """A typo in the lock fails the load rather than being ignored."""
+    with pytest.raises(ValueError, match="extra"):
+        Artifact.model_validate({"url": ASSET_URL, "sha256": "00" * 32, "sha512": "00"})
 
 
 # ── Download egress ───────────────────────────────────────────────────────────

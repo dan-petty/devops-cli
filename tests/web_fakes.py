@@ -218,7 +218,7 @@ class StubWeb:
     """Canned pages answered by httpx2's MockTransport, recording every request it receives."""
 
     def __init__(self) -> None:
-        self.routes: dict[str, tuple[int, dict[str, str], str]] = {}
+        self.routes: dict[str, tuple[int, dict[str, str], bytes]] = {}
         self.sent: list[httpx2.Request] = []
 
     @property
@@ -231,18 +231,22 @@ class StubWeb:
         self.routes[url] = (
             200,
             {"content-type": "text/html; charset=utf-8", **(headers or {})},
-            html,
+            html.encode(),
         )
+
+    def content(self, url: str, body: bytes) -> None:
+        """Serve the raw `body` bytes at `url`, as a release asset or an archive is served."""
+        self.routes[url] = (200, {"content-type": "application/octet-stream"}, body)
 
     def redirect(self, url: str, location: str, status: int = 302) -> None:
         """Answer `url` with a redirect to `location`; a 307 or 308 keeps the method and body."""
-        self.routes[url] = (status, {"location": location}, "")
+        self.routes[url] = (status, {"location": location}, b"")
 
     def handle(self, request: httpx2.Request) -> httpx2.Response:
         """Record `request` and answer it from the routes, or with a 404."""
         self.sent.append(request)
-        status, headers, body = self.routes.get(str(request.url), (404, {}, ""))
-        return httpx2.Response(status, headers=headers, content=body.encode())
+        status, headers, body = self.routes.get(str(request.url), (404, {}, b""))
+        return httpx2.Response(status, headers=headers, content=body)
 
     def vetting_handler(
         self, level: EgressLevel | None

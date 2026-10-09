@@ -664,19 +664,6 @@ CONST_CLOUDFLARE_STATUS_KEY_COMPONENTS: Final[tuple[str, ...]] = (
 CONST_STATUS_COMMAND_SERVICES: Final[tuple[str, ...]] = ("all", "github", "cloudflare")
 
 
-CONST_URL_K8S_DOWNLOAD_BASE = "https://dl.k8s.io"
-CONST_URL_HELM_DOWNLOAD_BASE = "https://get.helm.sh"
-CONST_URL_GITHUB_KUSTOMIZE_RELEASES_BASE = (
-    "https://github.com/kubernetes-sigs/kustomize/releases/download"
-)
-CONST_URL_GITHUB_ARGO_WORKFLOWS_RELEASES_BASE = (
-    "https://github.com/argoproj/argo-workflows/releases/download"
-)
-CONST_URL_GITHUB_ARGOCD_RELEASES_BASE = "https://github.com/argoproj/argo-cd/releases/download"
-CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE = (
-    "https://github.com/argoproj/argo-rollouts/releases/download"
-)
-
 # ── Kubernetes & RFC 1123 Patterns ────────────────────────────────────────────
 CONST_K8S_LABEL_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 CONST_K8S_SUBDOMAIN_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9.\-]{0,251}[a-z0-9])?$")

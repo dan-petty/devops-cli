@@ -29,7 +29,6 @@ _CORE_EXPORTS: dict[str, tuple[str, str]] = {
     "validate_safe_key_path": ("devops_cli.core.validation", "validate_safe_key_path"),
     "validate_service_url": ("devops_cli.core.validation", "validate_service_url"),
     "validate_url": ("devops_cli.core.validation", "validate_url"),
-    "validate_version_str": ("devops_cli.core.validation", "validate_version_str"),
     "format_command": ("devops_cli.dry_run", "format_command"),
     "is_dry_run": ("devops_cli.dry_run", "is_dry_run"),
     "set_dry_run": ("devops_cli.dry_run", "set_dry_run"),
@@ -90,5 +89,4 @@ __all__ = [
     "validate_safe_key_path",
     "validate_service_url",
     "validate_url",
-    "validate_version_str",
 ]

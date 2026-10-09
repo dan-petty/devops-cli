@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -235,6 +236,32 @@ def _source_repository(package_dir: Path) -> Path | None:
         return None
     checkout = _nearest_checkout(package_dir)
     return _own_common_dir(checkout) if checkout is not None else None
+
+
+def own_source_state() -> tuple[str, str] | None:
+    """The commit and the uncommitted changes of the checkout holding the running devops-cli's
+    source, as `(HEAD, SHA-256 of git diff HEAD)`, or None for an installed copy or one outside
+    any checkout (#1142).
+
+    devops-cli runs from its checkout as an editable install and imports some modules lazily, so
+    a commit or an edit there while a review runs makes its later stages run other code than its
+    earlier ones. A review compares this at its start and its end. Hashing the diff, not the list
+    of changed files, sees a further edit to a file that is already modified; files git does not
+    track are not devops-cli's code and do not count.
+    """
+    package_dir = _own_source_dir()
+    checkout = None if _is_installed_copy(package_dir) else _nearest_checkout(package_dir)
+    if checkout is None:
+        return None
+    head, diff = (
+        run_subprocess(
+            ["git", "-C", str(checkout), *args],
+            quiet=True,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        ).stdout
+        for args in (["rev-parse", "HEAD"], ["diff", "HEAD"])
+    )
+    return head.strip(), hashlib.sha256(diff.encode()).hexdigest()
 
 
 @functools.lru_cache(maxsize=64)

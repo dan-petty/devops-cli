@@ -2097,6 +2097,10 @@ def _write_review_profile(
     profile = profiler.build(session_id=orchestrator.session_id, target=target, files=files)
     path = profile.write(orchestrator.session_dir)
     report_profile(profile)
+    if profile.code_changed_during_run:
+        from devops_cli.lang import MESSAGES
+
+        print_warning(MESSAGES.review.code_changed_during_run, prefix=False)
     stages = ", ".join(
         f"{s.name} {format_duration(s.wall_seconds)} ({s.llm_calls} calls)"
         for s in profile.stages

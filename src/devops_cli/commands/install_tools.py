@@ -1,49 +1,38 @@
-"""Install DevOps tool binaries."""
+"""Install DevOps tools from the tools lock, each at its exact version (#1142).
+
+The lock (`devops_cli.tools_lock`) is the registry: nothing installs at a version it does not
+name. A binary tool's build for this platform is downloaded from the lock's URL alone and refused
+unless its SHA-256 is the lock's. A Python tool installs from its hashed requirements file into a
+relocatable virtual environment of its own. Each install is staged beside its version directory,
+moved into place with one rename, and linked from the target directory, so a tool is at its pin
+exactly when its command links into that version directory. Once linked, the tool's other version
+directories are removed.
+"""
 
 from __future__ import annotations
 
 import gzip
 import hashlib
 import io
-import logging
 import os
 import platform
-import re
 import shutil
-import subprocess
 import tarfile
-from collections.abc import Callable
+import tempfile
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated, Final
 
 import httpx2
 import typer
-from pydantic import BaseModel, ConfigDict
 
-from devops_cli.config.constants import (
-    CONST_PERM_EXEC,
-    CONST_URL_GITHUB_API_BASE,
-    CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE,
-    CONST_URL_GITHUB_ARGO_WORKFLOWS_RELEASES_BASE,
-    CONST_URL_GITHUB_ARGOCD_RELEASES_BASE,
-    CONST_URL_GITHUB_KUSTOMIZE_RELEASES_BASE,
-    CONST_URL_HELM_DOWNLOAD_BASE,
-    CONST_URL_K8S_DOWNLOAD_BASE,
-)
-from devops_cli.config.defaults import (
-    DEFAULT_HTTP_TIMEOUT_SECONDS,
-    DEFAULT_LOCAL_BIN_DIR,
-    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-)
+from devops_cli.config.constants import CONST_PERM_EXEC
+from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS, DEFAULT_LOCAL_BIN_DIR
+from devops_cli.core.binaries import require_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
-from devops_cli.core.validation import validate_version_str
-from devops_cli.exceptions import (
-    ChecksumMismatchError,
-    ToolDownloadError,
-    ToolExecutionError,
-    ValidationError,
-)
+from devops_cli.exceptions import ChecksumMismatchError, ToolDownloadError, ToolExecutionError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
 from devops_cli.lang import HELP, MESSAGES
@@ -54,14 +43,21 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
-
-logger = logging.getLogger(__name__)
+from devops_cli.tools_lock import (
+    LOCK_DIR,
+    Artifact,
+    BinaryTool,
+    PythonTool,
+    installed_commands,
+    load_tools_lock,
+    tool_install_dir,
+)
 
 app = new_typer(help=HELP.install.app, no_args_is_help=True)
 
 
 # =============================================================================
-# Platform Detection & Binary Extension Helpers
+# Platform Detection
 # =============================================================================
 
 
@@ -75,8 +71,8 @@ def _sys_info() -> tuple[str, str]:
     return os_name, arch_name
 
 
-_OS, _ARCH = _sys_info()
-_EXE = ".exe" if _OS == "windows" else ""
+# The lock's key for this machine's builds, such as `linux-amd64`.
+_PLATFORM: Final[str] = "-".join(_sys_info())
 
 
 # ── Download helpers ──────────────────────────────────────────────────────────
@@ -103,17 +99,6 @@ def _download_client() -> httpx2.Client:
     )
 
 
-def _gh_latest(repo: str) -> str:
-    with _download_client() as c:
-        r = c.get(
-            f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/releases/latest",
-            headers={"Accept": "application/vnd.github+json"},
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        r.raise_for_status()
-        return str(r.json()["tag_name"])
-
-
 def _download(url: str) -> bytes:
     with _download_client() as c:
         r = c.get(url, timeout=DEFAULT_HTTP_TIMEOUT_SECONDS)
@@ -121,25 +106,14 @@ def _download(url: str) -> bytes:
         return r.content
 
 
-def _verify_sha256(data: bytes, expected_hex: str) -> None:
-    """Raise ChecksumMismatchError if SHA-256 of data doesn't match expected_hex."""
-    actual = hashlib.sha256(data).hexdigest().lower()
-    if actual != expected_hex.strip().lower():
-        raise ChecksumMismatchError(
-            "tool_archive", actual_checksum=actual, expected_checksum=expected_hex
-        )
+def _verify_sha256(name: str, data: bytes, expected_hex: str) -> None:
+    """Refuse `data` unless its SHA-256 is the one the lock gives for tool `name`."""
+    actual = hashlib.sha256(data).hexdigest()
+    if actual != expected_hex.lower():
+        raise ChecksumMismatchError(name, actual_checksum=actual, expected_checksum=expected_hex)
 
 
-def _parse_checksum_file(text: str, filename: str) -> str:
-    """Extract hex digest for filename from a multi-entry checksums file."""
-    for line in text.splitlines():
-        line = line.strip().replace("\r", "")
-        if not line:
-            continue
-        parts = line.split()
-        if len(parts) >= 2 and parts[1].lstrip("*").strip() == filename:
-            return parts[0].strip()
-    raise ValidationError(f"No checksum entry found for {filename!r}", field="checksum")
+# ── Unpacking ─────────────────────────────────────────────────────────────────
 
 
 def _write_binary(data: bytes, dest: Path) -> None:
@@ -149,426 +123,187 @@ def _write_binary(data: bytes, dest: Path) -> None:
 
 
 def _extract_tar_member(data: bytes, member: str, dest: Path) -> None:
-    import shutil
-
-    from devops_cli.core.paths import validate_no_path_traversal
-
-    validate_no_path_traversal(member, error_cls=ToolExecutionError, label="archive member")
-    if member.startswith("/"):
-        raise ToolExecutionError(f"Path traversal detected in archive member '{member}'")
-
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    """Copy the verified archive's `member`, the one the lock names, to the new file `dest`."""
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
         f = tf.extractfile(member)
         if f is None:
-            raise FileNotFoundError(f"Member '{member}' not found in archive")
+            raise ToolExecutionError(f"Archive member '{member}' is not a file")
         with dest.open("wb") as out:
             shutil.copyfileobj(f, out)
-
-    # Symlink-safe check: verify resolved dest stays within intended directory.
-    resolved = dest.resolve()
-    target_dir = dest.parent.resolve()
-    if not resolved.is_relative_to(target_dir):
-        dest.unlink(missing_ok=True)
-        raise ToolExecutionError(
-            f"Extracted path '{resolved}' escapes target directory '{target_dir}'"
-        )
-
     dest.chmod(CONST_PERM_EXEC)
 
 
-def _current_version(cmd: list[str]) -> str | None:
-    try:
-        r = run_subprocess(
-            cmd,
-            capture_output=True,
-            text=True,
-            quiet=True,
-            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-        )
-        m = re.search(r"v?(\d+\.\d+[\.\d]*)", r.stdout + r.stderr)
-        return f"v{m.group(1)}" if m else ("installed" if r.returncode == 0 else None)
-    except FileNotFoundError, subprocess.TimeoutExpired, OSError:
-        return None
-
-
-# ── Per-tool install functions ────────────────────────────────────────────────
-
-
-def _install_kubectl(version: str, target_dir: Path) -> None:
-    v = version.lstrip("v")
-    url = f"{CONST_URL_K8S_DOWNLOAD_BASE}/release/v{v}/bin/{_OS}/{_ARCH}/kubectl{_EXE}"
-    data = _download(url)
-    sha256_text = _download(f"{url}.sha256").decode()
-    _verify_sha256(data, sha256_text.split()[0])
-    _write_binary(data, target_dir / f"kubectl{_EXE}")
-
-
-def _latest_kubectl() -> str:
-    with _download_client() as c:
-        r = c.get(
-            f"{CONST_URL_K8S_DOWNLOAD_BASE}/release/stable.txt",
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        r.raise_for_status()
-        return r.text.strip()
-
-
-def _install_kustomize(version: str, target_dir: Path) -> None:
-    v = validate_version_str(version, "kustomize")
-    tar_name = f"kustomize_v{v}_{_OS}_{_ARCH}.tar.gz"
-    url = f"{CONST_URL_GITHUB_KUSTOMIZE_RELEASES_BASE}/kustomize%2Fv{v}/{tar_name}"
-    checksums_url = f"{CONST_URL_GITHUB_KUSTOMIZE_RELEASES_BASE}/kustomize%2Fv{v}/checksums.txt"
-    data = _download(url)
-    expected = _parse_checksum_file(_download(checksums_url).decode(), tar_name)
-    _verify_sha256(data, expected)
-    _extract_tar_member(data, "kustomize", target_dir / f"kustomize{_EXE}")
-
-
-def _install_helm(version: str, target_dir: Path) -> None:
-    v = validate_version_str(version, "helm")
-    tar_name = f"helm-v{v}-{_OS}-{_ARCH}.tar.gz"
-    url = f"{CONST_URL_HELM_DOWNLOAD_BASE}/{tar_name}"
-    data = _download(url)
-    sha256_text = _download(f"{url}.sha256sum").decode()
-    expected = _parse_checksum_file(sha256_text, tar_name)
-    _verify_sha256(data, expected)
-    _extract_tar_member(data, f"{_OS}-{_ARCH}/helm", target_dir / f"helm{_EXE}")
-
-
-def _resolve_argo_expected_checksum(checksums_url: str, legacy_sha_url: str, gz_name: str) -> str:
-    try:
-        checksums_text = _download(checksums_url).decode()
-        return _parse_checksum_file(checksums_text, gz_name)
-    except httpx2.HTTPError, ValidationError, ToolDownloadError:
-        sha256_text = _download(legacy_sha_url).decode()
-        tokens = sha256_text.split()
-        if not tokens:
-            raise ValidationError(
-                f"No checksum found in {legacy_sha_url}", field="checksum"
-            ) from None
-        return tokens[0]
-
-
-def _install_argo(version: str, target_dir: Path) -> None:
-    v = validate_version_str(version, "argo")
-    gz_name = f"argo-{_OS}-{_ARCH}.gz"
-    url = f"{CONST_URL_GITHUB_ARGO_WORKFLOWS_RELEASES_BASE}/v{v}/{gz_name}"
-    data = _download(url)
-    checksums_url = (
-        f"{CONST_URL_GITHUB_ARGO_WORKFLOWS_RELEASES_BASE}/v{v}/argo-workflows-cli-checksums.txt"
-    )
-    expected = _resolve_argo_expected_checksum(checksums_url, f"{url}.sha256", gz_name)
-    _verify_sha256(data, expected)
-    _write_binary(gzip.decompress(data), target_dir / f"argo{_EXE}")
-
-
-def _install_argocd(version: str, target_dir: Path) -> None:
-    v = validate_version_str(version, "argocd")
-    bin_name = f"argocd-{_OS}-{_ARCH}{_EXE}"
-    url = f"{CONST_URL_GITHUB_ARGOCD_RELEASES_BASE}/v{v}/{bin_name}"
-    data = _download(url)
-    checksums_text = _download(
-        f"{CONST_URL_GITHUB_ARGOCD_RELEASES_BASE}/v{v}/cli_checksums.txt"
-    ).decode()
-    expected = _parse_checksum_file(checksums_text, bin_name)
-    _verify_sha256(data, expected)
-    _write_binary(data, target_dir / f"argocd{_EXE}")
-
-
-def _resolve_rollouts_expected_checksum(primary_url: str, fallback_url: str, bin_name: str) -> str:
-    try:
-        checksums_text = _download(primary_url).decode()
-        return _parse_checksum_file(checksums_text, bin_name)
-    except httpx2.HTTPError, ValidationError, ToolDownloadError:
-        checksums_text = _download(fallback_url).decode()
-        return _parse_checksum_file(checksums_text, bin_name)
-
-
-def _install_rollouts(version: str, target_dir: Path) -> None:
-    v = validate_version_str(version, "rollouts")
-    bin_name = f"kubectl-argo-rollouts-{_OS}-{_ARCH}{_EXE}"
-    url = f"{CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE}/v{v}/{bin_name}"
-    data = _download(url)
-    checksums_url = (
-        f"{CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE}/v{v}/argo-rollouts-checksums.txt"
-    )
-    legacy_url = f"{CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE}/v{v}/sha256checksums.txt"
-    expected = _resolve_rollouts_expected_checksum(checksums_url, legacy_url, bin_name)
-    _verify_sha256(data, expected)
-    _write_binary(data, target_dir / f"kubectl-argo-rollouts{_EXE}")
-
-
-def _download_and_extract_tar_binary(
-    tar_url: str,
-    bin_name: str,
-    target_dir: Path,
-    *,
-    tar_name: str | None = None,
-    checksums_url: str | None = None,
-    member_path: str | None = None,
-) -> None:
-    """Download tar archive, verify checksum if provided, and extract binary."""
-    data = _download(tar_url)
-    if checksums_url and tar_name:
-        try:
-            expected = _parse_checksum_file(_download(checksums_url).decode(), tar_name)
-            _verify_sha256(data, expected)
-        except ChecksumMismatchError:
-            raise
-        except Exception as exc:
-            logger.warning(
-                "Failed to download or parse checksums for %s from %s: %s",
-                tar_name,
-                checksums_url,
-                exc,
-            )
-    target_member = member_path or f"{bin_name}{_EXE}"
-    _extract_tar_member(data, target_member, target_dir / f"{bin_name}{_EXE}")
-
-
-def _install_trivy(version: str, target_dir: Path) -> None:
-    v = validate_version_str(version, "trivy")
-    arch_str = "64bit" if _ARCH == "amd64" else "ARM64"
-    tar_name = f"trivy_{v}_Linux-{arch_str}.tar.gz"
-    _download_and_extract_tar_binary(
-        f"https://github.com/aquasecurity/trivy/releases/download/v{v}/{tar_name}",
-        "trivy",
-        target_dir,
-        tar_name=tar_name,
-        checksums_url=f"https://github.com/aquasecurity/trivy/releases/download/v{v}/trivy_{v}_checksums.txt",
-    )
-
-
-def _install_kubelinter(version: str, target_dir: Path) -> None:
-    v = version.lstrip("v")
-    candidate_names = (
-        ("kube-linter-linux.tar.gz", f"kube-linter-linux-{_ARCH}.tar.gz")
-        if _ARCH == "amd64"
-        else (f"kube-linter-linux_{_ARCH}.tar.gz", f"kube-linter-linux-{_ARCH}.tar.gz")
-    )
-    last_exc: Exception | None = None
-    for tar_name in candidate_names:
-        url = f"https://github.com/stackrox/kube-linter/releases/download/v{v}/{tar_name}"
-        try:
-            _download_and_extract_tar_binary(url, "kube-linter", target_dir)
-            return
-        except Exception as exc:
-            last_exc = exc
-    if last_exc:
-        raise last_exc
-
-
-def _install_popeye(version: str, target_dir: Path) -> None:
-    v = version.lstrip("v")
-    tar_name = f"popeye_linux_{_ARCH}.tar.gz"
-    _download_and_extract_tar_binary(
-        f"https://github.com/derailed/popeye/releases/download/v{v}/{tar_name}",
-        "popeye",
-        target_dir,
-        tar_name=tar_name,
-        checksums_url=f"https://github.com/derailed/popeye/releases/download/v{v}/checksums.sha256",
-    )
-
-
-def _install_pluto(version: str, target_dir: Path) -> None:
-    v = version.lstrip("v")
-    tar_name = f"pluto_{v}_linux_{_ARCH}.tar.gz"
-    _download_and_extract_tar_binary(
-        f"https://github.com/FairwindsOps/pluto/releases/download/v{v}/{tar_name}",
-        "pluto",
-        target_dir,
-        tar_name=tar_name,
-        checksums_url=f"https://github.com/FairwindsOps/pluto/releases/download/v{v}/checksums.txt",
-    )
-
-
-def _install_k9s(version: str, target_dir: Path) -> None:
-    v = version if version.startswith("v") else f"v{version}"
-    os_cap = "Linux" if _OS == "linux" else ("Darwin" if _OS == "darwin" else "Windows")
-    tar_name = f"k9s_{os_cap}_{_ARCH}.tar.gz"
-    _download_and_extract_tar_binary(
-        f"https://github.com/derailed/k9s/releases/download/{v}/{tar_name}",
-        "k9s",
-        target_dir,
-        tar_name=tar_name,
-        checksums_url=f"https://github.com/derailed/k9s/releases/download/{v}/checksums.sha256",
-    )
-
-
-# ── Tool registry ─────────────────────────────────────────────────────────────
-
-
-class Tool(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    name: str
-    description: str
-    bin_name: str
-    version_cmd: list[str]
-    get_latest: Callable[[], str]
-    install: Callable[[str, Path], None]
-
-
-TOOLS: Final[dict[str, Tool]] = {
-    "kubectl": Tool(
-        name="kubectl",
-        description="Kubernetes CLI",
-        bin_name="kubectl",
-        version_cmd=["kubectl", "version", "--client"],
-        get_latest=_latest_kubectl,
-        install=_install_kubectl,
-    ),
-    "kustomize": Tool(
-        name="kustomize",
-        description="Kustomize config management",
-        bin_name="kustomize",
-        version_cmd=["kustomize", "version"],
-        get_latest=lambda: _gh_latest("kubernetes-sigs/kustomize").replace("kustomize/", ""),
-        install=_install_kustomize,
-    ),
-    "helm": Tool(
-        name="helm",
-        description="Kubernetes package manager",
-        bin_name="helm",
-        version_cmd=["helm", "version", "--short"],
-        get_latest=lambda: _gh_latest("helm/helm"),
-        install=_install_helm,
-    ),
-    "argo": Tool(
-        name="argo",
-        description="Argo Workflows CLI",
-        bin_name="argo",
-        version_cmd=["argo", "version", "--short"],
-        get_latest=lambda: _gh_latest("argoproj/argo-workflows"),
-        install=_install_argo,
-    ),
-    "argocd": Tool(
-        name="argocd",
-        description="ArgoCD CLI",
-        bin_name="argocd",
-        version_cmd=["argocd", "version", "--client", "--short"],
-        get_latest=lambda: _gh_latest("argoproj/argo-cd"),
-        install=_install_argocd,
-    ),
-    "kubectl-argo-rollouts": Tool(
-        name="kubectl-argo-rollouts",
-        description="Argo Rollouts kubectl plugin",
-        bin_name="kubectl-argo-rollouts",
-        version_cmd=["kubectl-argo-rollouts", "version"],
-        get_latest=lambda: _gh_latest("argoproj/argo-rollouts"),
-        install=_install_rollouts,
-    ),
-    "trivy": Tool(
-        name="trivy",
-        description="Aqua Trivy vulnerability, secret & IaC scanner",
-        bin_name="trivy",
-        version_cmd=["trivy", "version"],
-        get_latest=lambda: _gh_latest("aquasecurity/trivy"),
-        install=_install_trivy,
-    ),
-    "kube-linter": Tool(
-        name="kube-linter",
-        description="Red Hat Kube-linter static K8s manifest linter",
-        bin_name="kube-linter",
-        version_cmd=["kube-linter", "version"],
-        get_latest=lambda: _gh_latest("stackrox/kube-linter"),
-        install=_install_kubelinter,
-    ),
-    "popeye": Tool(
-        name="popeye",
-        description="Derailed Popeye K8s cluster health sanitizer",
-        bin_name="popeye",
-        version_cmd=["popeye", "version"],
-        get_latest=lambda: _gh_latest("derailed/popeye"),
-        install=_install_popeye,
-    ),
-    "pluto": Tool(
-        name="pluto",
-        description="Fairwinds Pluto K8s deprecated API scanner",
-        bin_name="pluto",
-        version_cmd=["pluto", "version"],
-        get_latest=lambda: _gh_latest("FairwindsOps/pluto"),
-        install=_install_pluto,
-    ),
-    "k9s": Tool(
-        name="k9s",
-        description="Derailed K9s Kubernetes CLI TUI dashboard",
-        bin_name="k9s",
-        version_cmd=["k9s", "version", "--short"],
-        get_latest=lambda: _gh_latest("derailed/k9s"),
-        install=_install_k9s,
+# Writes a verified build's executable to its destination, by the lock's `format`.
+_UNPACKERS: Final[dict[str, Callable[[bytes, Artifact, Path], None]]] = {
+    "binary": lambda data, artifact, dest: _write_binary(data, dest),
+    "gzip": lambda data, artifact, dest: _write_binary(gzip.decompress(data), dest),
+    "tar.gz": lambda data, artifact, dest: _extract_tar_member(
+        data, artifact.member or dest.name, dest
     ),
 }
 
 
-# =============================================================================
-# Command: devops install (install_all)
-# =============================================================================
+# ── Installing at the pin ─────────────────────────────────────────────────────
 
 
-def is_tool_installed(spec: Tool, target_dir: Path = DEFAULT_LOCAL_BIN_DIR) -> bool:
-    """Return True if tool binary is found in target_dir or on system PATH."""
-    target_bin = target_dir / f"{spec.bin_name}{_EXE}"
-    return target_bin.is_file() or shutil.which(spec.bin_name) is not None
+@contextmanager
+def _staged(pinned: Path) -> Iterator[Path]:
+    """A new directory beside `pinned` that becomes `pinned` when the block completes.
+
+    It sits on the same filesystem as `pinned`, so one rename moves it into place, and it is
+    removed when the block fails, leaving any earlier install of that version untouched.
+    """
+    pinned.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=".stage-", dir=pinned.parent))
+    try:
+        yield stage
+        shutil.rmtree(pinned, ignore_errors=True)
+        os.replace(stage, pinned)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
 
 
-def _validate_install_args(version: str | None, tool: str | None) -> None:
-    if version and not re.match(r"^v?\d+\.\d+(\.\d+)*(-\w+)?$", version):
-        print_error(
-            f"Invalid version format '{version}'. Expected semver e.g. v1.30.0",
-            prefix=False,
+def _link(command: Path, installed: Path) -> None:
+    """Point `command` at `installed` with one rename, replacing any file or link there."""
+    command.parent.mkdir(parents=True, exist_ok=True)
+    temporary = command.with_name(f".{command.name}.{os.getpid()}.link")
+    temporary.unlink(missing_ok=True)
+    temporary.symlink_to(installed)
+    os.replace(temporary, command)
+
+
+def _link_commands(name: str, entry: BinaryTool | PythonTool, target_dir: Path) -> None:
+    """Link the tool's commands to its locked version, then remove the tool's other versions."""
+    for command, installed in installed_commands(name, entry).items():
+        _link(target_dir / command, installed)
+    pinned = tool_install_dir(name, entry.version)
+    for other in pinned.parent.iterdir():
+        if other != pinned:
+            shutil.rmtree(other, ignore_errors=True)
+
+
+def install_binary(name: str, entry: BinaryTool, target_dir: Path) -> None:
+    """Install this platform's build of `name`, verified against the lock, and link it."""
+    artifact = entry.platforms.get(_PLATFORM)
+    if artifact is None:
+        raise ToolExecutionError(f"tools.lock has no {_PLATFORM} build of {name}", tool_name=name)
+    with _staged(tool_install_dir(name, entry.version)) as stage:
+        data = _download(artifact.url)
+        _verify_sha256(name, data, artifact.sha256)
+        _UNPACKERS[entry.format](data, artifact, stage / entry.bin)
+    _link_commands(name, entry, target_dir)
+
+
+# The uv settings a locked install keeps from the environment, those the devcontainer sets that
+# cannot change what it installs: the malware check can only refuse a distribution, and the cache
+# directory and link mode only decide where and how its bytes are kept.
+_UV_ENV: Final[frozenset[str]] = frozenset({"UV_MALWARE_CHECK", "UV_CACHE_DIR", "UV_LINK_MODE"})
+
+
+def _run_uv(name: str, args: list[str]) -> None:
+    """Run `uv --no-config <args>`, so a `uv.toml` or `[tool.uv]` in the current directory cannot
+    change the install, and raise with uv's reason when it fails."""
+    result = run_subprocess(["uv", "--no-config", *args], quiet=True, extra_allowed_env=_UV_ENV)
+    if result.returncode != 0:
+        raise ToolExecutionError(
+            f"uv could not install {name}: {result.stderr.strip()[-256:]}", tool_name=name
         )
+
+
+def install_python_tool(name: str, entry: PythonTool, target_dir: Path) -> None:
+    """Install `name` from its hashed requirements into a relocatable virtual environment of its
+    own, and link its entry points.
+
+    The environment is created relocatable (`uv venv --relocatable`) so that it survives the
+    rename from its staging directory into place; uv refuses any distribution whose hash the
+    requirements file does not list.
+    """
+    require_binary("uv")
+    with _staged(tool_install_dir(name, entry.version)) as stage:
+        python_version = load_tools_lock().python_version
+        _run_uv(name, ["venv", "--relocatable", "--python", python_version, str(stage)])
+        python = str(stage / "bin" / "python")
+        requirements = str(LOCK_DIR / entry.requirements)
+        _run_uv(name, ["pip", "sync", "--require-hashes", "-p", python, requirements])
+    _link_commands(name, entry, target_dir)
+
+
+def install_tool(name: str, entry: BinaryTool | PythonTool, target_dir: Path) -> None:
+    """Install `name` at its locked version and link its commands into `target_dir`."""
+    if isinstance(entry, PythonTool):
+        install_python_tool(name, entry, target_dir)
+    else:
+        install_binary(name, entry, target_dir)
+
+
+def _at_pin(name: str, entry: BinaryTool | PythonTool, target_dir: Path) -> bool:
+    """Whether each of the tool's commands in `target_dir` links to its locked version."""
+    return all(
+        installed.is_file() and (target_dir / command).resolve() == installed.resolve()
+        for command, installed in installed_commands(name, entry).items()
+    )
+
+
+def _off_pin(
+    tools: dict[str, BinaryTool | PythonTool], target_dir: Path
+) -> dict[str, BinaryTool | PythonTool]:
+    """The tools whose commands in `target_dir` do not link to their locked versions."""
+    return {name: entry for name, entry in tools.items() if not _at_pin(name, entry, target_dir)}
+
+
+def _installed(name: str, entry: BinaryTool | PythonTool, target_dir: Path) -> str:
+    """`at pin`; else the command PATH finds, searching `target_dir` first; else `not installed`."""
+    if _at_pin(name, entry, target_dir):
+        return MESSAGES.install.at_pin
+    search_path = os.pathsep.join((str(target_dir), os.environ.get("PATH", "")))
+    found = shutil.which(entry.commands[0], path=search_path)
+    return found or MESSAGES.install.not_installed
+
+
+# =============================================================================
+# Command: devops install-tools
+# =============================================================================
+
+
+def _resolve_install_targets(tool: str | None) -> dict[str, BinaryTool | PythonTool]:
+    tools = load_tools_lock().tools()
+    if tool is None:
+        return tools
+    if tool not in tools:
+        print_error(f"Unknown tool '{tool}'. Available: {', '.join(tools)}", prefix=False)
         raise typer.Exit(1)
-
-    if tool and tool not in TOOLS:
-        print_error(
-            f"Unknown tool '{tool}'. Available: {', '.join(TOOLS)}",
-            prefix=False,
-        )
-        raise typer.Exit(1)
+    return {tool: tools[tool]}
 
 
-def _resolve_install_targets(
-    tool: str | None,
-    target_dir: Path,
-    *,
-    only_missing: bool = False,
-) -> dict[str, Tool]:
-    raw_targets = {tool: TOOLS[tool]} if tool else TOOLS
-    if not only_missing:
-        return raw_targets
-    return {
-        name: spec for name, spec in raw_targets.items() if not is_tool_installed(spec, target_dir)
-    }
-
-
-def _install_single_target(
-    name: str,
-    spec: Tool,
-    version: str | None,
-    target_dir: Path,
-) -> bool:
-    ver = version
-    if not ver:
-        print_info(MESSAGES.install.fetching_latest.format(name=name), prefix=False)
-        try:
-            ver = spec.get_latest()
-        except Exception as exc:
-            print_error(f"{name}: could not determine latest — {exc}")
-            return False
-
+def _install_single_target(name: str, entry: BinaryTool | PythonTool, target_dir: Path) -> bool:
+    """Install one tool, printing its command's path or why it was refused; whether it installed."""
     print_info(
-        MESSAGES.install.installing_tool.format(name=name, version=ver),
+        MESSAGES.install.installing_tool.format(name=name, version=entry.version),
         prefix=False,
     )
     try:
-        spec.install(ver, target_dir)
-        print_success(str(target_dir / (spec.bin_name + _EXE)))
-        return True
+        install_tool(name, entry, target_dir)
     except Exception as exc:
         print_error(f"{name}: {exc}")
         return False
+    print_success(str(target_dir / entry.commands[0]))
+    return True
+
+
+def _check_pins(targets: dict[str, BinaryTool | PythonTool], target_dir: Path) -> None:
+    """Print each tool not at its pin and exit 1, or confirm that every tool is."""
+    off_pin = _off_pin(targets, target_dir)
+    for name, entry in off_pin.items():
+        installed = _installed(name, entry, target_dir)
+        print_error(
+            MESSAGES.install.check_off_pin.format(
+                name=name, version=entry.version, installed=installed
+            ),
+            prefix=False,
+        )
+    if off_pin:
+        raise typer.Exit(1)
+    print_success(MESSAGES.install.check_all_pinned.format(count=len(targets), path=target_dir))
 
 
 def install_managed_tools(
@@ -576,22 +311,16 @@ def install_managed_tools(
     *,
     only_missing: bool = True,
 ) -> list[str]:
-    """Programmatically install managed DevOps tools into target_dir.
+    """Install the locked tools into target_dir, as post-create does.
 
-    Returns a list of human-readable action messages describing what was installed or failed.
+    Returns one human-readable line per tool it installed or failed to install.
     """
-    target_path = Path(target_dir)
-    target_path.mkdir(parents=True, exist_ok=True)
-    targets = _resolve_install_targets(None, target_path, only_missing=only_missing)
-    if not targets:
-        return []
-
+    tools = load_tools_lock().tools()
     actions: list[str] = []
-    for name, spec in targets.items():
+    for name, entry in (_off_pin(tools, target_dir) if only_missing else tools).items():
         try:
-            ver = spec.get_latest()
-            spec.install(ver, target_path)
-            actions.append(f"Installed {name} {ver} into {target_path}")
+            install_tool(name, entry, target_dir)
+            actions.append(f"Installed {name} {entry.version} into {target_dir}")
         except Exception as exc:
             actions.append(f"Warning: Failed to install {name} ({exc})")
     return actions
@@ -601,51 +330,54 @@ def install_managed_tools(
 def install_all(
     ctx: typer.Context,
     tool: Annotated[str | None, typer.Option("--tool", "-t", help=HELP.install.tool)] = None,
-    version: Annotated[str | None, typer.Option("--version", help=HELP.install.version)] = None,
     target_dir: Annotated[
         Path, typer.Option("--target-dir", "-d", help=HELP.options.target_dir)
     ] = DEFAULT_LOCAL_BIN_DIR,
     only_missing: Annotated[
         bool, typer.Option("--only-missing", help=HELP.install.only_missing)
     ] = False,
+    check: Annotated[bool, typer.Option("--check", help=HELP.install.check)] = False,
 ) -> None:
-    """Install DevOps tool binaries. Without --tool, installs all tools."""
+    """Install DevOps tools at their locked versions. Without --tool, installs all tools.
+
+    Exits 1 when any tool did not install, such as a build refused for its checksum.
+    """
     if ctx.invoked_subcommand is not None:
         return
 
-    _validate_install_args(version, tool)
-    targets = _resolve_install_targets(tool, target_dir, only_missing=only_missing)
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    for name, spec in targets.items():
-        _install_single_target(name, spec, version, target_dir)
+    targets = _resolve_install_targets(tool)
+    if check:
+        _check_pins(targets, target_dir)
+        return
+    installed = [
+        _install_single_target(name, entry, target_dir)
+        for name, entry in (_off_pin(targets, target_dir) if only_missing else targets).items()
+    ]
 
     _path_hint(target_dir)
+    if not all(installed):
+        raise typer.Exit(1)
 
 
 # =============================================================================
-# Command: devops install status
+# Command: devops install-tools status
 # =============================================================================
 
 
 @app.command()
 def status(
-    target_dir: Annotated[Path, typer.Option("--target-dir", "-d")] = DEFAULT_LOCAL_BIN_DIR,
+    target_dir: Annotated[
+        Path, typer.Option("--target-dir", "-d", help=HELP.options.target_dir)
+    ] = DEFAULT_LOCAL_BIN_DIR,
 ) -> None:
-    """Show installation status and versions for all managed tools."""
-    rows: list[list[str]] = []
-    for name, spec in TOOLS.items():
-        current = _current_version(spec.version_cmd)
-        installed = f"[green]{current}[/green]" if current else "[red]not installed[/red]"
-        try:
-            latest = spec.get_latest()
-        except Exception:
-            latest = "unknown"
-        rows.append([name, spec.description, installed, latest])
-
+    """Show each tool's locked version and where its command is installed, without a request."""
+    rows = [
+        [name, entry.description, entry.version, _installed(name, entry, target_dir)]
+        for name, entry in load_tools_lock().tools().items()
+    ]
     print_table(
         title=MESSAGES.install.status_title,
-        columns=[("Tool", "cyan"), "Description", "Installed", ("Latest", "dim")],
+        columns=[("Tool", "cyan"), "Description", "Pinned", "Installed"],
         rows=rows,
     )
 
