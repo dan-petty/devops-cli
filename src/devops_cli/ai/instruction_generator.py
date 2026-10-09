@@ -220,6 +220,10 @@ devops --help                        # Access global DevOps automation CLI
         "      - Continuous daemon running in namespace `devops` (`deployment/roadmap-service`) executing `devops serve --service --workers 1` to process webhooks and batch jobs (`intake`, `close`, `reprioritize`, `refine`, `metrics`).\n"
         "      - When active, agents must avoid running overlapping mutating commands (`devops roadmap close --confirm`, `devops roadmap intake --confirm`) to prevent rate limit depletion and git lock contention. Preview with `--plan` or `--dry-run`.\n"
         "      - Inspect liveness via `kubectl -n devops get deployment roadmap-service` or HTTP probe `GET /readyz` on port 8000; fall back to manual execution only if confirmed offline.\n"
+        "    - **Feasibility Check & Stop Rather Than Add Compensating Code ([#1348](https://github.com/dan-petty/devops-cli/issues/1348))**:\n"
+        "      - Before authoring code or tests, perform a feasibility check confirming the premise against the real system (upstream docs, library source, cluster state, CLI runtime) and record how in the task file's `**Feasibility**` field.\n"
+        '      - When an item cannot be built as specified, or requires an architectural refactor beyond its scope, write no compensating code. Comment on the issue with the evidence and proposed re-scope/refactor, return the item to `New` (`devops roadmap return <number> --comment "<evidence>" --confirm`, which supports `--dry-run`), and stop.\n'
+        "      - Signals to stop rather than add code: swallowing an error; product code that detects tests; a second fix on top of a fix in the same area within one release; a review loop that keeps finding new defects in the same feature.\n"
         if meta.is_devops_cli
         else ""
     )

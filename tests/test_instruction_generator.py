@@ -410,6 +410,8 @@ def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:
         "source/agent",
         "budget/borrowed",
         "open_issue_limit",
+        "Feasibility Check & Stop Rather Than Add Compensating Code",
+        "devops roadmap return",
     )
     missing_devops = [p for p in devops_expected if p not in devops_content]
     # Intake is the one way in (#742): the ingestion rules that filed straight into a release

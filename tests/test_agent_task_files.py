@@ -10,6 +10,8 @@ import pytest
 TASKS_DIR = Path("docs/agent/tasks")
 TASK_FILES = sorted(TASKS_DIR.glob("task-*.md"))
 STATUSES = ("Backlog", "Ready", "In Progress", "Done")
+_BASELINE_FILE = Path(__file__).parent / "fixtures" / "task_files_baseline.txt"
+_BASELINE_TASK_FILES = frozenset(_BASELINE_FILE.read_text(encoding="utf-8").splitlines())
 # A fenced code block, from its opening fence through a closing fence of the same character at
 # least as long, or through the end of the file when it is never closed (CommonMark 4.5).
 _FENCED_BLOCK_RE = re.compile(
@@ -43,16 +45,22 @@ def test_task_file_links_its_issue_and_ticks_only_done_work(task_file: Path) -> 
     A box is ticked only for work that is done. Work that was not done is a plain bullet naming
     its follow-up issue, and a check only a person can run is a plain bullet starting
     "Pending a person:". Before this rule, 15 files marked Done still held unchecked boxes.
+    New task files must also include a **Feasibility** line stating how the item's premise
+    was verified against the real system before coding.
     """
     text = task_file.read_text(encoding="utf-8")
     issue = _field(text, "Issue") or ""
+    is_new = task_file.name not in _BASELINE_TASK_FILES
+    feasibility = _field(text, "Feasibility")
+    feasibility_valid = bool(feasibility) if is_new else True
 
     assert (
         bool(re.search(r"\[#\d+\]\(https://github\.com/[^)]+/(?:issues|pull)/\d+\)", issue)),
         _field(text, "PR"),
         _field(text, "Status") in STATUSES,
         unchecked_boxes(text),
-    ) == (True, None, True, [])
+        feasibility_valid,
+    ) == (True, None, True, [], True)
 
 
 @pytest.mark.parametrize(
@@ -75,3 +83,17 @@ def test_an_unchecked_box_outside_a_fence_fails(text: str, found: list[str]) -> 
 def test_task_files_exist() -> None:
     """Guard the parametrised check against silently running over nothing."""
     assert len(TASK_FILES) > 100
+
+
+def test_feasibility_field_extraction() -> None:
+    """A task file's Feasibility line is extracted correctly."""
+    without_feasibility = (
+        "# Task: Something (#123)\n\n"
+        "**Issue**: [#123](https://github.com/dan-petty/devops-cli/issues/123)\n"
+        "**Status**: Done\n"
+    )
+    with_feasibility = without_feasibility + "**Feasibility**: Verified against upstream docs.\n"
+    assert (
+        _field(without_feasibility, "Feasibility"),
+        _field(with_feasibility, "Feasibility"),
+    ) == (None, "Verified against upstream docs.")

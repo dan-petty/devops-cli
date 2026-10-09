@@ -5,6 +5,7 @@ Generate a comprehensive `AGENTS.md` file providing structured guidance and engi
 
 ### Step 2: Verification & Workflow Scaffolding
 - Detail the progressive testing strategy and mandatory iterative CI loop: make all planned code changes, run the primary CI verification gate (e.g. `devops ci` or project test suite), fix reported issues, and run verification again until passing.
+- Define pre-coding feasibility checks (confirming premises against real systems) and stopping with an evidence comment rather than adding compensating code when an item cannot be built as specified.
 - Define Git hygiene: topic branch hierarchy (`feat/*`, `fix/*` targeting `release/v*`), Conventional Commits, and remote CI checks monitoring.
 
 ### Step 3: Architecture & Security Synthesis

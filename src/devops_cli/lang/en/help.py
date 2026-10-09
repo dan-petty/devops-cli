@@ -1135,6 +1135,18 @@ class RoadmapCommandHelp:
     refine_source: str = "Path to the repository checkout (defaults to current directory)."
     refine_confirm: str = "Refine the items and write the proposed designs to GitHub. Without it, refine prints its plan only."
     refine_dry_run: str = "Make no request and change no git ref: print what refine would plan and run, with placeholders."
+    return_item: str = (
+        "Return an item to New on the roadmap board with an evidence comment, handing it back to "
+        "refinement when it cannot be built as specified or needs a refactor beyond its scope."
+    )
+    return_item_arg: str = "The issue or item number to return to New."
+    return_comment: str = "Evidence comment explaining why the item cannot be built as specified."
+    return_comment_file: str = "Path to file containing the evidence comment."
+    return_confirm: str = "Make the writes to GitHub (post comment and set Status to New)."
+    return_dry_run: str = (
+        "Make no request: print the requests a run makes, in order, with placeholders for "
+        "values a read gives."
+    )
 
 
 @dataclass(frozen=True)
