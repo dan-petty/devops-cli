@@ -1124,3 +1124,22 @@ def test_no_flag_means_the_human_readable_default() -> None:
     from devops_cli.output.serialization import resolve_format
 
     assert resolve_format() == "table"
+
+
+def test_cli_help_panel_renders_at_conftest_width_under_github_actions(monkeypatch) -> None:
+    """With GITHUB_ACTIONS=true in the environment, CliRunner renders help at conftest width (#1041)."""
+    import typer.rich_utils
+    from typer.testing import CliRunner
+
+    from devops_cli.main import app
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    result = CliRunner().invoke(app, ["--help"])
+    lines = [line for line in result.output.splitlines() if line.strip()]
+
+    assert (
+        result.exit_code,
+        typer.rich_utils.FORCE_TERMINAL is None,
+        max(len(line) for line in lines),
+        any(len(line) > 80 for line in lines),
+    ) == (0, True, 250, True)

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 from unittest.mock import MagicMock, patch
 
 import pytest
+import typer.rich_utils
 
 if TYPE_CHECKING:
     from devops_cli.ai.spend.ledger import SpendLedger
@@ -256,6 +257,11 @@ def stub_web(monkeypatch: pytest.MonkeyPatch, public_dns: str) -> Iterator[StubW
 _TERMINAL_ENV = {"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"}
 os.environ.update(_TERMINAL_ENV)
 
+# Typer forces a terminal when GITHUB_ACTIONS, FORCE_COLOR or PY_COLORS is set, which under TERM=dumb
+# causes Rich to report an 80x25 terminal size and ignore COLUMNS. Clear FORCE_TERMINAL so test
+# consoles always honour COLUMNS in every environment (#1041).
+typer.rich_utils.FORCE_TERMINAL = None
+
 
 @pytest.fixture(autouse=True)
 def preserve_cwd():
@@ -276,6 +282,7 @@ def reset_dry_run_state():
     import devops_cli.dry_run.state as dry_run_state
     import devops_cli.output.console as console_module
 
+    typer.rich_utils.FORCE_TERMINAL = None
     os.environ.update(_TERMINAL_ENV)
     os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
     dry_run_state.mark_dry_run_invocation(False)
