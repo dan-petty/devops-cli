@@ -1207,7 +1207,7 @@ class RoadmapMessages:
     render_backlog: str = "## Backlog"
     render_empty: str = "No items."
     # `devops roadmap reprioritize` (#740). Each reason completes its action's comment, and the
-    # placeholders are {release}, {next}, {cap}, {days} and {detail}.
+    # placeholders are {release}, {next}, {cap}, {limit}, {days} and {detail}.
     reasons: dict[str, str] = field(
         default_factory=lambda: {
             "critical_fix": "a critical fix can join {release} after it starts.",
@@ -1230,11 +1230,11 @@ class RoadmapMessages:
                 "longer ship in it and goes first into the next release."
             ),
             "cap": (
-                "critical fix {detail} took {release} over its size of {cap} items, and this "
+                "critical fix {detail} took {release} over its limit of {limit} items, and this "
                 "was its lowest-ranked unstarted item."
             ),
             "over_size": (
-                "{release} holds {detail} items, more than its size of {cap} and more than it "
+                "{release} holds {detail} items, more than its limit of {limit} and more than it "
                 "held when it started, and this was its lowest-ranked unstarted item."
             ),
             "blocked": "it is Blocked and had not started.",
@@ -1267,7 +1267,7 @@ class RoadmapMessages:
                 "{detail} from Ready items, critical fixes and P0 features first."
             ),
             "trim": (
-                "{release} started with more than {cap} items, and this was its lowest-ranked "
+                "{release} started with more than {limit} items, and this was its lowest-ranked "
                 "unstarted item."
             ),
         }

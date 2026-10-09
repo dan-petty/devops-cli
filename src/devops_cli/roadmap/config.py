@@ -23,6 +23,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_RELEASE_CREDIT_BASE,
     DEFAULT_ROADMAP_RELEASE_CREDIT_PER_DELIVERED_ITEM,
     DEFAULT_ROADMAP_RELEASE_ITEM_TARGET,
+    DEFAULT_ROADMAP_RELEASE_SLOTS,
     DEFAULT_ROADMAP_STALL_DAYS,
     DEFAULT_ROADMAP_THROTTLE_START_FRACTION,
 )
@@ -41,6 +42,7 @@ class RoadmapConfig(BaseModel):
 
     board: int = Field(ge=1)
     release_cap: int = Field(default=DEFAULT_ROADMAP_RELEASE_CAP, ge=1)
+    release_slots: int = Field(default=DEFAULT_ROADMAP_RELEASE_SLOTS, ge=0)
     discovery_threshold: int = Field(default=DEFAULT_ROADMAP_DISCOVERY_THRESHOLD, ge=0)
     planning_horizon: int = Field(default=DEFAULT_ROADMAP_PLANNING_HORIZON, ge=0)
     stall_days: int = Field(default=DEFAULT_ROADMAP_STALL_DAYS, ge=1)
@@ -56,6 +58,12 @@ class RoadmapConfig(BaseModel):
         default=DEFAULT_ROADMAP_RELEASE_CREDIT_PER_DELIVERED_ITEM, ge=0
     )
     release_item_target: int = Field(default=DEFAULT_ROADMAP_RELEASE_ITEM_TARGET, ge=1)
+
+    @property
+    def release_limit(self) -> int:
+        """The most items a release holds before a start trims it or a joining critical fix
+        descopes one: its cap plus its slots."""
+        return self.release_cap + self.release_slots
 
 
 def parse_roadmap_config(text: str) -> RoadmapConfig:

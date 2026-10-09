@@ -78,7 +78,7 @@ That holds while a change a stopped run began to move the item waits too, unless
 that change's milestone call never landed, as below. The first run's promise covers admission: a
 condition already present then, such as an item already Blocked, is judged by the next run's
 descoping rules. The size binds from the start: while the release holds more than the larger of
-its cap and its size at start, its lowest-ranked unstarted items that are not critical fixes are
+its limit and its size at start, its lowest-ranked unstarted items that are not critical fixes are
 descoped, so an item a person moves back to Ready after a fix has filled the release makes room.
 
 Each change to an item is finished before the next begins: its `Pending` mark records the
@@ -241,9 +241,10 @@ class Event(StrEnum):
     PR_JOINED = "pr_joined"
     P0_FEATURE_JOINED = "p0_feature_joined"
     ITEM_JOINED = "item_joined"
-    # An admitted critical fix took the release over the cap, and this item makes room.
+    # An admitted critical fix took the release over its limit, the cap plus the slots, and this
+    # item makes room.
     OVER_CAP = "over_cap"
-    # The release holds more than the larger of the cap and its size at start, and this item
+    # The release holds more than the larger of its limit and its size at start, and this item
     # makes room: one a person moved back to Ready after a fix had joined.
     OVER_SIZE = "over_size"
     # An unstarted item's reasons to be descoped.
@@ -343,7 +344,7 @@ TRANSITIONS: Mapping[tuple[ReleaseState, Event], Transition] = MappingProxyType(
         # The lock: once the release pull request has merged, a critical fix goes first into
         # the next release.
         (_M, Event.FIX_JOINED): Transition(Action.TO_NEXT, Reason.MERGED),
-        # The cap: an admitted critical fix that takes the release over it descopes one item.
+        # The limit: an admitted critical fix that takes the release over it descopes one item.
         (_S, Event.OVER_CAP): Transition(Action.TO_NEXT, Reason.CAP),
         (_S, Event.OVER_SIZE): Transition(Action.TO_NEXT, Reason.OVER_SIZE),
         # Descoping.
@@ -937,6 +938,7 @@ class _Run:
             release=release,
             next=target or "",
             cap=self.config.release_cap,
+            limit=self.config.release_limit,
             days=self.config.stall_days,
             detail=detail,
         )
@@ -1453,21 +1455,21 @@ def _cap_decisions(
 ) -> list[Decision]:
     """The items descoped to hold the release to its size, lowest-ranked first.
 
-    Each critical fix the run admits that takes the release over its cap descopes at most one
-    item: the lowest-ranked unstarted item that is not a critical fix. With none left, the fix
-    joins anyway. Beyond those, while the release holds more than the larger of the cap and its
-    size at start, as the run record gives it, such items leave too: one a person moved back to
-    Ready after a fix had joined makes room then.
+    Each critical fix the run admits that takes the release over its limit (the cap plus the
+    slots) descopes at most one item: the lowest-ranked unstarted item that is not a critical
+    fix. With none left, the fix joins anyway. Beyond those, while the release holds more than
+    the larger of the limit and its size at start, as the run record gives it, such items leave
+    too: one a person moved back to Ready after a fix had joined makes room then.
     """
-    cap, title = run.config.release_cap, current.title
+    limit, title = run.config.release_limit, current.title
     planned_remaining = [
         item
         for item in remaining
         if item.number not in joined_now and joined_release(item) != current.number
     ]
-    for_fixes = max(0, min(len(planned_remaining) - cap, len(admitted_now)))
+    for_fixes = max(0, min(len(planned_remaining) - limit, len(admitted_now)))
     known = run.size_at_start is not None and run.started == current.number
-    over = len(planned_remaining) - max(cap, run.size_at_start or 0) if known else 0
+    over = len(planned_remaining) - max(limit, run.size_at_start or 0) if known else 0
     candidates = sorted(
         (
             item
@@ -1565,7 +1567,7 @@ def _moved(decisions: Iterable[Decision]) -> frozenset[int]:
 
 
 def _plan_rules(run: _Run, current: Release, state: ReleaseState) -> ReprioritizationPlan:
-    """Admission, descoping, the stall window and the cap, in that order, for one run.
+    """Admission, descoping, the stall window and the limit, in that order, for one run.
 
     An admitted critical fix meets the descoping and stall rules in the same run, and joins the
     admitted set unless one of them moves it out. Each item gets one decision, the last that
@@ -1589,7 +1591,7 @@ def _plan_rules(run: _Run, current: Release, state: ReleaseState) -> Reprioritiz
     moving = {number: d for number, d in joined.items() if d.action is not Action.ADMIT}
     decisions = joined | _descope_decisions(run, state, current.title, target, moving.keys())
     leaving = {number for number, decision in decisions.items() if decision.leaves}
-    # A fix the run admits takes the release over the cap at most once.
+    # A fix the run admits takes the release over its limit at most once.
     admitted_now = [
         d.item
         for n, d in joined.items()
@@ -1711,10 +1713,11 @@ def _is_cut(run: _Run, title: str) -> bool:
 def _fill_or_trim(
     run: _Run, starting: str, later: str, kept: list[Item]
 ) -> tuple[list[Decision], list[tuple[Item, str]]]:
-    """Top the starting release up to the cap, or trim it down to it; with the backlog items a
-    person took out of a Release, which stay out (`_candidates`). A release a person cut before
-    any run started it, its release pull request open or merged, is topped up with nothing."""
-    cap = run.config.release_cap
+    """Top the starting release up to the cap, or trim it to its limit, the cap plus the slots;
+    with the backlog items a person took out of a Release, which stay out (`_candidates`). A
+    release a person cut before any run started it, its release pull request open or merged, is
+    topped up with nothing."""
+    cap, limit = run.config.release_cap, run.config.release_limit
     if len(kept) < cap and _is_cut(run, starting):
         return [], []
     if len(kept) < cap:
@@ -1725,6 +1728,8 @@ def _fill_or_trim(
             run.decision(ReleaseState.PLANNED, Event.CANDIDATE, item, starting, starting, size)
             for item in pulled
         ], kept_out
+    if len(kept) <= limit:
+        return [], []
     unstarted = sorted(
         (
             item
@@ -1735,7 +1740,7 @@ def _fill_or_trim(
     )
     return [
         run.decision(ReleaseState.PLANNED, Event.OVER_CAP_AT_START, item, starting, later)
-        for item in unstarted[: len(kept) - cap]
+        for item in unstarted[: len(kept) - limit]
     ], []
 
 
@@ -2253,7 +2258,7 @@ def apply_reprioritization(store: RoadmapStore, plan: ReprioritizationPlan) -> N
     change at a time, then the admitted set, then the run record, and last the closes of the
     shipped releases. A first run names its release in the run record before its marks.
 
-    Admissions come after every other change. The cap counts only the fixes a run admits, so
+    Admissions come after every other change. The limit counts only the fixes a run admits, so
     the item a fix makes room for leaves before the fix is admitted: a run that stops between
     the two leaves the fix to the next run, which admits it with its room already made.
     """

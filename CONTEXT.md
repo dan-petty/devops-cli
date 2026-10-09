@@ -111,7 +111,7 @@ Answering an item's key questions until it is ready.
 _Avoid_: grooming, triage
 
 **Reprioritization**:
-Re-ranking items, moving them between planned releases and the backlog, starting each release by filling it to size, and holding the current release to its admission rule and size. A person's ranking and placement stand: an item a person places in a release stays there, and the jobs comment on a rule it breaks rather than moving it out. The admission rule and the cut bind everyone else, and the merged release's lock binds everyone.
+Re-ranking items, moving them between planned releases and the backlog, starting each release by filling it to size, and holding the current release to its admission rule and its limit, its size plus a few slots, so that a late P0 or P1 item joins without moving another out. A person's ranking and placement stand: an item a person places in a release stays there, and the jobs comment on a rule it breaks rather than moving it out. The admission rule and the cut bind everyone else, and the merged release's lock binds everyone.
 _Avoid_: guard, governor, scope governor
 
 **Closure**:

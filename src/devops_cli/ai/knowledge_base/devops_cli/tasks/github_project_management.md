@@ -124,7 +124,7 @@ devops gh milestones list
 devops roadmap render --ref release/v0.2.25
 
 # List the requests a reprioritize run makes, making none (--dry-run); preview its admission,
-# cap, descoping and stall decisions, reading GitHub (--plan); then make them
+# size limit, descoping and stall decisions, reading GitHub (--plan); then make them
 devops roadmap reprioritize --dry-run
 devops roadmap reprioritize --plan
 devops roadmap reprioritize --confirm
