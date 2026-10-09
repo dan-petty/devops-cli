@@ -25,7 +25,6 @@ K8S = Path(__file__).resolve().parents[1] / "k8s"
 PROMETHEUS_VALUES = K8S / "monitoring" / "prometheus-values.yaml"
 GRAFANA_VALUES = K8S / "monitoring" / "grafana-values.yaml"
 K8S_MONITORING_VALUES = K8S / "monitoring" / "k8s-monitoring-values.yaml"
-LOKI_VALUES = K8S / "logging" / "loki-values.yaml"
 
 # Every series an alert rule may select, by what serves it.
 SERVED_SERIES = frozenset(
@@ -50,7 +49,7 @@ SERVED_SERIES = frozenset(
         "node_filesystem_size_bytes",
         "node_systemd_unit_state",
         "node_time_seconds",
-        # The DCGM exporter on every GPU node, through its own ServiceMonitor.
+        # The DCGM exporter on every GPU node, through k8s-monitoring's dcgm-exporter integration.
         "DCGM_FI_DEV_GPU_TEMP",
         "DCGM_FI_DEV_POWER_USAGE",
         # The Prometheus server's self-scrape (`scrapeConfigs.prometheus`).
@@ -64,11 +63,12 @@ SERVED_SERIES = frozenset(
         "prometheus_tsdb_size_retentions_total",
         "prometheus_tsdb_storage_blocks_bytes",
         "prometheus_tsdb_wal_storage_size_bytes",
-        # Loki, scraped by the server's kubernetes-pods job through the pod annotations in
-        # `k8s/logging/loki-values.yaml`, so only where the logging stack runs.
+        # Loki, scraped by k8s-monitoring's Loki integration within its default allow list, which
+        # finds Loki's pods only where the logging stack runs.
         "loki_compactor_apply_retention_last_successful_run_timestamp_seconds",
         "loki_request_duration_seconds_count",
-        # Alertmanager, scraped by the server's kubernetes-pods job through its annotations.
+        # Alertmanager, found through its pod annotations by k8s-monitoring's annotation
+        # autodiscovery.
         "alertmanager_config_last_reload_successful",
         "alertmanager_notifications_failed_total",
     }
@@ -248,23 +248,32 @@ def test_alertmanager_inhibits_follow_on_alerts() -> None:
     ]
 
 
-def test_prometheus_scrapes_loki_and_alertmanager_for_their_health() -> None:
-    """Loki and Alertmanager are scraped through their own pod annotations, with their stacks.
+def test_k8s_monitoring_scrapes_loki_and_alertmanager_for_their_health() -> None:
+    """Loki and Alertmanager are found by k8s-monitoring where they run, with their stacks (#1130).
 
     The Prometheus values belong to the infra stack, and Loki only to the logging stack, so a
     static Loki target in them would be down for good on an infra-only cluster and keep
-    `TargetDown` firing. The kubernetes-pods job finds an annotated pod only where it runs.
+    `TargetDown` firing. The Loki integration selects Loki's pods by label, and annotation
+    autodiscovery finds Alertmanager through its pod annotations; the container annotation keeps
+    the config-reloader sidecar from being scraped on Alertmanager's port a second time.
     """
     values = _yaml(PROMETHEUS_VALUES)
-    loki = _yaml(LOKI_VALUES)["singleBinary"]["podAnnotations"]
+    (loki,) = _yaml(K8S_MONITORING_VALUES)["integrations"]["loki"]["instances"]
     alertmanager = values["alertmanager"]["podAnnotations"]
 
     assert (
-        (loki["prometheus.io/scrape"], loki["prometheus.io/port"]),
-        (alertmanager["prometheus.io/scrape"], alertmanager["prometheus.io/port"]),
-        values["scrapeConfigs"]["kubernetes-pods"]["enabled"],
+        loki["labelSelectors"],
+        alertmanager,
         "extraScrapeConfigs" in values,
-    ) == (("true", "3100"), ("true", "9093"), True, False)
+    ) == (
+        {"app.kubernetes.io/name": "loki", "app.kubernetes.io/component": "single-binary"},
+        {
+            "prometheus.io/scrape": "true",
+            "prometheus.io/port": "9093",
+            "k8s.grafana.com/metrics.container": "alertmanager",
+        },
+        False,
+    )
 
 
 def test_the_claim_rule_divides_one_series_by_one() -> None:

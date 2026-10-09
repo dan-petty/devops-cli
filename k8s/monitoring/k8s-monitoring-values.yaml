@@ -60,6 +60,17 @@ clusterMetrics:
         - kube_pod_container_status_terminated
         - kube_pod_container_status_waiting
         - kube_deployment_status_replicas_unavailable
+  # CoreDNS (#1130), which the Prometheus server's service-endpoints job scraped before. The rule
+  # keeps each CoreDNS pod's node as `node`, as that job set it, so the node-maintenance silence
+  # and the NodeNotReady inhibition cover its TargetDown (k8s/README.md, Alerting). The other
+  # Alloy jobs that took over the server's targets reuse it.
+  kubeDNS:
+    enabled: true
+    extraDiscoveryRules: &node_rule |
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        target_label  = "node"
+      }
 
 hostMetrics:
   enabled: true
@@ -139,6 +150,61 @@ prometheusOperatorObjects:
 prometheusMetricsReceiver:
   enabled: true
   collector: alloy-metrics
+
+# Pods annotated for scraping (#1130): cloudflared, Traefik, Alertmanager and roadmap-service,
+# found through the `prometheus.io/*` keys they already carry. The job is the pod's
+# app.kubernetes.io/name. `otel` is left to the Prometheus server, which scrapes the collector
+# so its export failures stay visible when Alloy is what fails. The only annotated Service is
+# kube-dns, which clusterMetrics.kubeDNS scrapes, so Service discovery stays off. No annotated
+# target needs the ServiceAccount token, which must not go to every annotated pod over plain
+# HTTP, so it is not sent.
+annotationAutodiscovery:
+  enabled: true
+  collector: alloy-metrics
+  annotations:
+    scrape: prometheus.io/scrape
+    metricsPortNumber: prometheus.io/port
+    metricsPath: prometheus.io/path
+  excludeNamespaces:
+    - otel
+  services:
+    enabled: false
+  bearerToken:
+    enabled: false
+  extraDiscoveryRules: *node_rule
+
+# Service integrations (#1130), each a plain list of instances.
+integrations:
+  collector: alloy-metrics
+  # Loki's own metrics, within the integration's default allow list, wherever the logging stack
+  # runs; the component selector leaves out the Loki canary pods. Metrics only: Loki's own pod
+  # logs stay as podLogsViaLoki ships them, without the integration's log processing.
+  loki:
+    instances:
+      - name: loki
+        labelSelectors:
+          app.kubernetes.io/name: loki
+          app.kubernetes.io/component: single-binary
+        logs:
+          enabled: false
+  # The DCGM exporter on every GPU node. Its series carry the GPU's node as `node`, which the GPU
+  # rules group by, and as `instance`, which dashboard 12239 lists.
+  dcgm-exporter:
+    instances:
+      - name: dcgm-exporter
+        labelSelectors:
+          app.kubernetes.io/name: dcgm-exporter
+        metrics:
+          scrapeInterval: 15s
+        extraDiscoveryRules: |
+          rule {
+            source_labels = ["__meta_kubernetes_pod_node_name"]
+            target_label  = "node"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_pod_node_name"]
+            target_label  = "instance"
+          }
 
 # ── Telemetry Services ───────────────────────────────────────────────────────
 telemetryServices:

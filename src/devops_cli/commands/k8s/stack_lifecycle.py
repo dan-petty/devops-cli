@@ -77,8 +77,8 @@ _HELM_REPOS: dict[str, str] = {
 
 _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
     "infra": [
-        # First: k8s-monitoring's extraObjects and dcgm-exporter render ServiceMonitors, and no
-        # other chart ships their CRD (k8s-monitoring 4.x dropped it).
+        # First: only k8s-monitoring's extraObjects render ServiceMonitors, and no other chart
+        # ships their CRD (k8s-monitoring 4.x dropped it).
         {
             "name": "prometheus-operator-crds",
             "chart": "prometheus-community/prometheus-operator-crds",

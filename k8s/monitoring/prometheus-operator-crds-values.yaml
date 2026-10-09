@@ -3,9 +3,9 @@
 # Repo:  https://prometheus-community.github.io/helm-charts
 #
 # k8s-monitoring 4.x no longer bundles these CRDs and asks for this chart to be installed first
-# (its UPGRADING.md, "Prometheus Operator Object CRDs removed"). Its extraObjects and the
-# dcgm-exporter chart render ServiceMonitors, and Alloy's prometheusOperatorObjects feature
-# watches ServiceMonitors, PodMonitors and Probes. Deleting a CRD deletes every object of its
+# (its UPGRADING.md, "Prometheus Operator Object CRDs removed"). Only its extraObjects render
+# ServiceMonitors, and Alloy's prometheusOperatorObjects feature watches ServiceMonitors,
+# PodMonitors and Probes. Deleting a CRD deletes every object of its
 # kind in the cluster, so teardown-stack never uninstalls this release.
 
 crds:

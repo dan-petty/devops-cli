@@ -25,7 +25,7 @@ Resolves missing metrics and empty/zero-value panels across the Kubernetes Grafa
    - The OpenTelemetry Collector is scraped through its pod annotations by the Prometheus server's `kubernetes-pods` job (#693). A ServiceMonitor would have Alloy scrape it a second time and double every collector series, so none is added.
    - Qdrant runs with an API key, so its scrape needs credentials, and no dashboard reads Qdrant since #693 removed the unverified row. The authenticated scrape and its dashboard row are #823.
 4. **CoreDNS NetworkPolicy Egress**:
-   - In `monitoring/networkpolicy.yaml`, egress to `kube-system` allowed port 53 (DNS) but omitted port 9153 (CoreDNS metrics endpoint). The `kube-dns` Service carries `prometheus.io/scrape: "true"` and `prometheus.io/port: "9153"`, so the Prometheus server's `kubernetes-service-endpoints` job tries to scrape CoreDNS, and the perimeter dropped it. The CoreDNS dashboard itself is #822.
+   - In `monitoring/networkpolicy.yaml`, egress to `kube-system` allowed port 53 (DNS) but omitted port 9153 (CoreDNS metrics endpoint). The `kube-dns` Service carries `prometheus.io/scrape: "true"` and `prometheus.io/port: "9153"`, so the Prometheus server's `kubernetes-service-endpoints` job tries to scrape CoreDNS, and the perimeter dropped it. The CoreDNS dashboard itself is #822. Since #1130 k8s-monitoring's `clusterMetrics.kubeDNS` scrapes CoreDNS through the same egress rule.
 
 ---
 
@@ -37,5 +37,5 @@ Resolves missing metrics and empty/zero-value panels across the Kubernetes Grafa
   - Added missing container status and workload label metrics to `clusterMetrics.kube-state-metrics.metricsTuning.includeMetrics`.
   - Added port 9153 (TCP) to `monitoring-default-perimeter` NetworkPolicy egress to allow CoreDNS metrics scraping.
 - [x] **Automated Regression Test Suite** (`tests/test_k8s_monitoring_integration.py`, `tests/test_k8s.py`):
-  - Authored unit test assertions verifying cAdvisor and KSM metrics tuning, KSM metric labels allowlist, collectors extra, monitoring NetworkPolicy egress rules, the DCGM exporter's scrape timeout and capability, and that the OTel collector is scraped once, through its pod annotations, with no ServiceMonitor.
+  - Authored unit test assertions verifying cAdvisor and KSM metrics tuning, KSM metric labels allowlist, collectors extra, monitoring NetworkPolicy egress rules, the DCGM exporter's scrape timeout and capability (since #1130, the integration's 15s interval with the chart's ServiceMonitor off), and that the OTel collector is scraped once, through its pod annotations, with no ServiceMonitor.
   - Verified 100% test pass rate with zero flaky tests.
