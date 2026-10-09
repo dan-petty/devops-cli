@@ -1967,6 +1967,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "changed-tests",
             "Detect Changed Test Files",
         ): "Git diff to list the pull request's changed test files",
+        (
+            "static",
+            "Security Scan",
+        ): "Runs devops scan report to generate SARIF findings for GitHub code scanning",
     }
 
     all_specs = get_check_specs()
@@ -2031,3 +2035,36 @@ def test_ci_workflow_parity_mutations_fail() -> None:
     mut3["jobs"]["static"]["name"] = "Fast Linting"
     with pytest.raises(AssertionError, match="Pinned job 'Static Analysis' missing or renamed"):
         _validate_ci_workflow_parity(mut3)
+
+
+def test_ci_workflow_publishes_scanner_sarif_to_code_scanning() -> None:
+    """Verify ci.yml static job uploads scanner findings SARIF under category /devops-scan (#419)."""
+    import yaml
+
+    ci_yaml_path = Path(".github/workflows/ci.yml")
+    assert ci_yaml_path.is_file()
+    workflow_data = yaml.safe_load(ci_yaml_path.read_text(encoding="utf-8")) or {}
+    static_job = workflow_data.get("jobs", {}).get("static", {})
+    permissions = static_job.get("permissions", {})
+    steps = static_job.get("steps", [])
+
+    scan_step = next((s for s in steps if s.get("name") == "Security Scan"), {})
+    upload_step = next((s for s in steps if s.get("name") == "Upload Security Scan SARIF"), {})
+
+    assert (
+        permissions.get("security-events"),
+        scan_step.get("run"),
+        scan_step.get("if"),
+        "upload-sarif" in str(upload_step.get("uses", "")),
+        upload_step.get("with", {}).get("sarif_file"),
+        upload_step.get("with", {}).get("category"),
+        upload_step.get("if"),
+    ) == (
+        "write",
+        "uv run devops scan report --sarif .data/scan.sarif",
+        "always()",
+        True,
+        ".data/scan.sarif",
+        "/devops-scan",
+        "always()",
+    )
