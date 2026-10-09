@@ -851,6 +851,12 @@ class CIMessages:
         "Refusing to report success without running any tests. Re-run with --fallback "
         "to verify via the full suite, or add a covering test."
     )
+    repeat_failed: str = "Run {run}/{runs} failed with seed {seed}. Reproduce it with: {command}"
+    repeat_needs_targets: str = (
+        "--repeat needs test files to narrow the run; shuffling the whole suite is not "
+        "supported yet."
+    )
+    repeat_seed_unavailable: str = "Could not read HEAD to derive a shuffle seed; pass --seed."
     pytest_coverage: str = "pytest & coverage"
     ruff_check: str = "ruff check"
     ruff_format: str = "ruff format"

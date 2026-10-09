@@ -85,6 +85,7 @@ dev = [
     "pytest-cov==7.1.0",
     "diff-cover==10.6.0",
     "pytest-xdist==3.8.0",
+    "pytest-randomly==5.0.0",
     "bandit==1.9.4",
     "actionlint-py==1.7.12.25",
     "pre-commit==4.6.2",
@@ -147,7 +148,9 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
 # Pytest workers: logical cores (ext4 benchmark: 8 workers ~4.2s vs 4 workers ~6.8s)
-addopts = "-n logical -p no:logfire -p no:pytest_logfire"
+# pytest-randomly is installed for `devops ci test --repeat` and blocked here (-p no:randomly),
+# so every other run keeps file order.
+addopts = "-n logical -p no:logfire -p no:pytest_logfire -p no:randomly"
 markers = [
     "bwrap: live sandbox tests requiring bubblewrap; skipped where bwrap is not installed",
 ]

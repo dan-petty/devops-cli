@@ -578,6 +578,15 @@ class CICommandHelp:
         "Run the full suite when a changed source has no covering tests, rather than "
         "reporting success without verifying it."
     )
+    repeat: str = (
+        "Run the selected test files N times, one run after another on one process (-n is "
+        "ignored), each in a shuffled order, with seeds counting up from --seed. 0 runs them "
+        "once in file order. Refuses the whole suite."
+    )
+    seed: str = (
+        "First shuffle seed for --repeat. Defaults to one derived from HEAD's commit hash; "
+        "has no effect without --repeat."
+    )
     html_report: str = "Generate HTML coverage report in .data/htmlcov/."
     build_index: str = "Build on-demand coverage reverse index for fast test selection."
     auto_fix: str = "Auto-fix violations where possible."

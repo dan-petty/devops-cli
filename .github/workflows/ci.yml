@@ -299,3 +299,49 @@ jobs:
 
       - name: Report Outdated Dependencies
         run: uv run devops ci outdated
+
+  # Advisory: reruns the pull request's added or modified test files three times, one run after
+  # another, each in a shuffled order, to catch tests that depend on the order they run in.
+  # Shuffling the whole suite waits for thread-leak isolation.
+  changed-tests:
+    name: Changed-Test Independence
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect Changed Test Files
+        id: changed_tests
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF"
+          git diff --name-only --diff-filter=AMR "origin/${BASE_REF}...HEAD" -- ':(glob)tests/**/test_*.py' > "$RUNNER_TEMP/changed-tests.txt"
+          if [ -s "$RUNNER_TEMP/changed-tests.txt" ]; then
+            cat "$RUNNER_TEMP/changed-tests.txt"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No test file changed; skipping."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up uv toolchain
+        if: steps.changed_tests.outputs.changed == 'true'
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: changed-tests
+          tooling-cache-paths: |
+            .pytest_cache
+
+      - name: Run Changed Tests in Shuffled Order
+        if: steps.changed_tests.outputs.changed == 'true'
+        run: |
+          readarray -t CHANGED_TESTS < "$RUNNER_TEMP/changed-tests.txt"
+          uv run devops ci test --repeat 3 -- "${CHANGED_TESTS[@]}"
