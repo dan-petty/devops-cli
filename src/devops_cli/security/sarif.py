@@ -92,7 +92,10 @@ def _location_for(finding: NormalizedFinding) -> list[dict[str, Any]]:
         # SARIF regions are one-based; a zero or negative line is not expressible, so it is
         # dropped rather than written as an invalid region a consumer would reject.
         if finding.line > 0:
-            physical["region"] = {"startLine": finding.line}
+            reg: dict[str, Any] = {"startLine": finding.line}
+            if finding.end_line is not None and finding.end_line >= finding.line:
+                reg["endLine"] = finding.end_line
+            physical["region"] = reg
     location: dict[str, Any] = {"physicalLocation": physical}
     logical: list[dict[str, Any]] = []
     if finding.symbol:
@@ -375,37 +378,43 @@ def _text_of(container: Any, key: str) -> str:
     return ""
 
 
-def _location_of(result: dict[str, Any]) -> tuple[str, int | None, str | None]:
-    """Extract path, line and logical name from a result's first location."""
-    locations = result.get("locations")
-    if not isinstance(locations, list) or not locations:
+def _physical_location_of(location: dict[str, Any]) -> tuple[str, int | None, int | None]:
+    physical = location.get("physicalLocation")
+    if not isinstance(physical, dict):
         return "", None, None
-    first = locations[0]
-    if not isinstance(first, dict):
-        return "", None, None
+    path, line, end_line = "", None, None
+    artifact = physical.get("artifactLocation")
+    if isinstance(artifact, dict) and isinstance(artifact.get("uri"), str):
+        path = artifact["uri"]
+    region = physical.get("region")
+    if isinstance(region, dict):
+        start = region.get("startLine")
+        if isinstance(start, int) and start > 0:
+            line = start
+        end = region.get("endLine")
+        if isinstance(end, int) and end > 0:
+            end_line = end
+    return path, line, end_line
 
-    physical = first.get("physicalLocation")
-    path, line = "", None
-    if isinstance(physical, dict):
-        artifact = physical.get("artifactLocation")
-        if isinstance(artifact, dict):
-            uri = artifact.get("uri")
-            if isinstance(uri, str):
-                path = uri
-        region = physical.get("region")
-        if isinstance(region, dict):
-            start = region.get("startLine")
-            if isinstance(start, int) and start > 0:
-                line = start
 
-    symbol = None
-    logical = first.get("logicalLocations")
+def _logical_symbol_of(location: dict[str, Any]) -> str | None:
+    logical = location.get("logicalLocations")
     if isinstance(logical, list) and logical and isinstance(logical[0], dict):
         name = logical[0].get("name")
         if isinstance(name, str) and name.strip():
-            symbol = name.strip()
+            return name.strip()
+    return None
 
-    return path, line, symbol
+
+def _location_of(result: dict[str, Any]) -> tuple[str, int | None, int | None, str | None]:
+    """Extract path, line, end line, and logical name from a result's first location."""
+    locations = result.get("locations")
+    if not isinstance(locations, list) or not locations or not isinstance(locations[0], dict):
+        return "", None, None, None
+    first = locations[0]
+    path, line, end_line = _physical_location_of(first)
+    symbol = _logical_symbol_of(first)
+    return path, line, end_line, symbol
 
 
 def _driver_version(run: dict[str, Any]) -> str | None:
@@ -443,7 +452,7 @@ def _finding_from_result(
     """Convert one SARIF result into a normalized finding."""
     rule = _resolve_rule(result, rules)
     rule_id = result.get("ruleId") or rule.get("id") or f"{tool}.unknown"
-    path, line, symbol = _location_of(result)
+    path, line, end_line, symbol = _location_of(result)
     message = _text_of(result, "message") or _text_of(rule, "shortDescription")
     raw_fps = result.get("partialFingerprints")
     partial_fps = raw_fps if isinstance(raw_fps, dict) else {}
@@ -460,6 +469,7 @@ def _finding_from_result(
         message=message or str(rule_id),
         path=path,
         line=line,
+        end_line=end_line,
         symbol=symbol,
         description=_text_of(rule, "fullDescription") or message,
         fix=_text_of(rule, "help"),

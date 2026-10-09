@@ -11,7 +11,6 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -114,22 +113,13 @@ def load_and_increment_rr_index(n: int) -> int:
     if n <= 1:
         return 0
     uid = os.getuid() if hasattr(os, "getuid") else 0
-    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
-    if env_data_dir:
-        data_dir = Path(env_data_dir)
-    else:
-        try:
-            from devops_cli.config.settings import load_settings
-            from devops_cli.core.repo import resolve_data_path
+    from devops_cli.core.repo import resolve_store_path
 
-            data_dir = resolve_data_path(load_settings().data.dir)
-        except Exception:
-            data_dir = Path(".data")
+    state_file = resolve_store_path(f"devops_cli_ollama_rr_{uid}")
     try:
-        data_dir.mkdir(parents=True, exist_ok=True)
+        state_file.parent.mkdir(parents=True, exist_ok=True)
     except OSError:
         pass
-    state_file = data_dir / f"devops_cli_ollama_rr_{uid}"
     with global_ollama_url_lock:
         idx = global_ollama_url_index
         try:
