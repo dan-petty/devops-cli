@@ -37,7 +37,8 @@ _SERVER_ERROR = _gh_reply("", 1, "gh: Server Error (HTTP 500)")
 def _readiness_gh(
     pr_payload: str = "{}", routes: dict[str, MagicMock] | None = None
 ) -> Callable[..., MagicMock]:
-    """Answer `run_gh` by the endpoint it is given, its last argument.
+    """Answer `run_gh` by the endpoint it is given, its last argument, from the longest route
+    in it, so `/contents/CHANGELOG.md` is not the task directory's `/contents/`.
 
     Unless `routes` says otherwise the repository keeps no task files and the PR changes no
     files; anything unrouted gets the PR payload.
@@ -45,9 +46,8 @@ def _readiness_gh(
     replies = {"/contents/": _NOT_FOUND, "/files?": _gh_reply([]), **(routes or {})}
 
     def answer(args: list[str], **_: object) -> MagicMock:
-        return next(
-            (reply for key, reply in replies.items() if key in args[-1]), _gh_reply(pr_payload)
-        )
+        route = max((key for key in replies if key in args[-1]), key=len, default=None)
+        return replies[route] if route is not None else _gh_reply(pr_payload)
 
     return answer
 
@@ -2135,6 +2135,110 @@ def test_the_release_file_blocker_reads_in_full() -> None:
         "PR #335 changes CHANGELOG.md: a PR into release/v0.2.25 leaves them to the cut, so "
         "open PRs never conflict on them. Add its changelog entry as changelog.d/704.md instead."
     ]
+
+
+# After the cut, a critical fix edits CHANGELOG.md's version section in its own PR (#1450).
+_CHANGELOG_ROUTE = "/contents/CHANGELOG.md"
+_CHANGELOG_READ = [
+    "gh",
+    "api",
+    "-H",
+    "Accept: application/vnd.github.raw+json",
+    "repos/dan-petty/devops-cli/contents/CHANGELOG.md?ref=release%2Fv0.2.25",
+]
+_CUT_CHANGELOG = (
+    "# Changelog\n\n## [Unreleased]\n\n## [0.2.25] - 2026-10-09\n\n### Added\n- A (#700).\n\n"
+    "## [0.2.24] - 2026-10-01\n\n### Fixed\n- B (#600).\n"
+)
+
+
+def _changelog_gh(files: list[dict[str, str]], changelog: MagicMock) -> MagicMock:
+    """`_grounding_gh`, with the base branch's raw CHANGELOG.md answering `changelog`."""
+    routes = {
+        "/contents/": _gh_reply(),
+        "/files?": _gh_reply(files),
+        "/issues/": _issue(),
+        _CHANGELOG_ROUTE: changelog,
+    }
+    return MagicMock(side_effect=_readiness_gh(routes=routes))
+
+
+def test_after_the_cut_a_pr_may_edit_the_versions_changelog_section() -> None:
+    """The cut wrote `## [0.2.25]` on release/v0.2.25, so a critical fix edits it in place.
+
+    CHANGELOG.md is read raw at the branch's tip: the JSON contents API returns no content
+    above 1 MB, and the base commit can predate the cut.
+    """
+    gh = _changelog_gh([_TASK_704, _file("CHANGELOG.md")], _gh_reply(_CUT_CHANGELOG))
+    blockers = _blockers(_ready_pr(), gh=gh)
+    reads = [c.args[0] for c in gh.call_args_list if _CHANGELOG_ROUTE in c.args[0][-1]]
+    assert (blockers, reads) == ([], [_CHANGELOG_READ])
+
+
+@pytest.mark.parametrize(
+    "changelog",
+    [
+        "# Changelog\n\n## [Unreleased]\n\n## [0.2.24] - 2026-10-01\n\n### Fixed\n- B (#600).\n",
+        "# Changelog\n\n## [Unreleased]\n\n## [0.2.25]\n\n## [0.2.24] - 2026-10-01\n",
+    ],
+    ids=["no-section", "empty-section"],
+)
+def test_before_the_cut_a_pr_that_edits_the_changelog_is_blocked(changelog: str) -> None:
+    """Without the version's section the release is not cut, so the fragment is the entry."""
+    gh = _changelog_gh([_TASK_704, _file("CHANGELOG.md")], _gh_reply(changelog))
+    assert _blockers(_ready_pr(), gh=gh) == [
+        "PR #335 changes CHANGELOG.md: a PR into release/v0.2.25 leaves them to the cut, so "
+        "open PRs never conflict on them. Add its changelog entry as changelog.d/704.md instead."
+    ]
+
+
+def test_an_unread_base_changelog_is_one_blocker_naming_the_error() -> None:
+    """Whether the cut wrote the section is unknown, so the PR is not judged ready."""
+    gh = _changelog_gh([_TASK_704, _file("CHANGELOG.md")], _SERVER_ERROR)
+    assert _blockers(_ready_pr(), gh=gh) == [
+        "PR #335 changes CHANGELOG.md, but release/v0.2.25's CHANGELOG.md could not be read to "
+        "see whether the cut wrote its section (gh: Server Error (HTTP 500))."
+    ]
+
+
+def test_after_the_cut_docs_roadmap_md_is_still_left_to_the_cut() -> None:
+    """Only the changelog section is a critical fix's to edit; the roadmap stays rendered.
+
+    The PR already edits the section, so the blocker gives no fragment to add instead.
+    """
+    files = [_TASK_704, _file("CHANGELOG.md"), _file("docs/ROADMAP.md")]
+    blockers = _blockers(_ready_pr(), gh=_changelog_gh(files, _gh_reply(_CUT_CHANGELOG)))
+    assert blockers == [
+        "PR #335 changes docs/ROADMAP.md: a PR into release/v0.2.25 leaves them to the cut, so "
+        "open PRs never conflict on them."
+    ]
+
+
+@pytest.mark.parametrize(
+    ("change", "blocked"),
+    [
+        (_file("docs/ROADMAP.md"), "changes docs/ROADMAP.md:"),
+        (_file("CHANGELOG.md", "removed"), "changes CHANGELOG.md:"),
+        (
+            {
+                "filename": "docs/HISTORY.md",
+                "status": "renamed",
+                "previous_filename": "CHANGELOG.md",
+            },
+            "changes CHANGELOG.md:",
+        ),
+    ],
+    ids=["roadmap-only", "changelog-removed", "changelog-renamed-away"],
+)
+def test_a_pr_that_does_not_edit_the_changelog_reads_none(
+    change: dict[str, str], blocked: str
+) -> None:
+    """Only a PR into a release branch that edits CHANGELOG.md in place costs the extra request;
+    removing or renaming the file is never a critical fix's, so it stays blocked."""
+    gh = _changelog_gh([_TASK_704, change], _gh_reply(_CUT_CHANGELOG))
+    blockers = _blockers(_ready_pr(), gh=gh)
+    reads = [c for c in gh.call_args_list if _CHANGELOG_ROUTE in c.args[0][-1]]
+    assert ([blocked in blocker for blocker in blockers], reads) == ([True], []), blockers
 
 
 _RELEASE_FILES = [_file("CHANGELOG.md"), _file("docs/ROADMAP.md")]

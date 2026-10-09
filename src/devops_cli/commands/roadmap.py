@@ -481,6 +481,7 @@ def _close(
                 is_prepare=True,
                 repo_root=root.resolve(),
                 edits=write_roadmap,
+                missing_fragments=planned.missing_fragments,
             )
 
         with _exit_on_failure("Closure stopped part-way; run it again to continue"):

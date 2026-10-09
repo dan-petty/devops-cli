@@ -48,7 +48,9 @@ from devops_cli.exceptions import (
     ReleasePushRefusedError,
     ReleaseRemoteFetchError,
     ReleaseWorkingTreeDirtyError,
+    ValidationError,
 )
+from devops_cli.lang import ERRORS
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState
 from tests.conftest import PINNED_GITHUB_TOKEN, fail_the_github_lookup
@@ -1908,6 +1910,9 @@ def git_release_repo(tmp_path: Path) -> tuple[Path, Path]:
         'version = 1\nrevision = 3\nrequires-python = ">=3.14"\n\n[[package]]\nname = "devops-cli"\nversion = "0.2.25"\nsource = { virtual = "." }\n',
         encoding="utf-8",
     )
+    (clone / "changelog.d").mkdir()
+    (clone / "changelog.d" / "README.md").write_text("# Changelog fragments\n", encoding="utf-8")
+    (clone / "changelog.d" / "1.md").write_text("### Added\n- One (#1).\n", encoding="utf-8")
 
     subprocess.run(["git", "add", "-A"], cwd=clone, check=True, capture_output=True)
     subprocess.run(
@@ -2077,7 +2082,13 @@ def test_release_cut_pushes_from_remote_release_tip_and_leaves_main_untouched(
         True,
         True,
         True,
-        ["pyproject.toml", "src/devops_cli/__init__.py", "uv.lock"],
+        [
+            "CHANGELOG.md",
+            "changelog.d/1.md",
+            "pyproject.toml",
+            "src/devops_cli/__init__.py",
+            "uv.lock",
+        ],
         1,
         False,
     )
@@ -2097,6 +2108,92 @@ def test_release_cut_pushes_from_remote_release_tip_and_leaves_main_untouched(
         "release",
         "v0.2.26",
         True,
+    )
+
+
+def _git_out(cwd: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def test_a_bad_fragment_stops_the_automatic_cut_before_it_writes_or_pushes(
+    git_release_repo: tuple[Path, Path],
+) -> None:
+    """The cut reads every fragment before its first write (#1450).
+
+    The clone stays on the release tip it checked out, with nothing changed, and neither git
+    nor gh reaches origin.
+    """
+    origin, clone = git_release_repo
+    _git_out(clone, "checkout", "-q", "release/v0.2.26")
+    (clone / "changelog.d" / "7.md").write_text("### Improvements\n- x (#7).\n", encoding="utf-8")
+    _git_out(clone, "add", "-A")
+    _git_out(clone, "commit", "-q", "-m", "feat: 7")
+    _git_out(clone, "push", "-q", "origin", "release/v0.2.26")
+    _git_out(clone, "checkout", "-q", "feature/my-work")
+    tip, refs = _git_out(origin, "rev-parse", "release/v0.2.26"), _git_out(origin, "for-each-ref")
+    gh_calls: list[list[str]] = []
+
+    def mock_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        gh_calls.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    from devops_cli.commands.release import cut_release
+
+    with (
+        patch("devops_cli.commands.release.run_gh", side_effect=mock_gh),
+        pytest.raises(ValidationError) as refused,
+    ):
+        cut_release(version="0.2.26", repo_root=clone, is_prepare=True, sync_docs=False)
+
+    assert (
+        "changelog.d/7.md:1 '### Improvements' is not" in refused.value.message,
+        _git_out(clone, "branch", "--show-current"),
+        _git_out(clone, "rev-parse", "HEAD"),
+        _git_out(clone, "status", "--porcelain"),
+        _git_out(origin, "for-each-ref"),
+        gh_calls,
+    ) == (True, "release/v0.2.26", tip, "", refs, [])
+
+
+@pytest.mark.parametrize(
+    "remove",
+    [
+        lambda clone: (clone / "changelog.d" / "1.md").unlink(),
+        lambda clone: (clone / "CHANGELOG.md").write_text("# Changelog\n", encoding="utf-8"),
+    ],
+    ids=["no-fragment", "no-heading"],
+)
+def test_a_cut_with_no_entries_for_its_version_names_both_causes_before_it_pushes(
+    git_release_repo: tuple[Path, Path], remove: Callable[[Path], object]
+) -> None:
+    """With no fragment, or no `## [` heading to place one under, the section would be empty.
+
+    `release prepare --create-pr` has no plan of the completed items, so the error says where
+    they are listed (#1450).
+    """
+    origin, clone = git_release_repo
+    _git_out(clone, "checkout", "-q", "release/v0.2.26")
+    remove(clone)
+    _git_out(clone, "commit", "-q", "-am", "chore: no entries")
+    _git_out(clone, "push", "-q", "origin", "release/v0.2.26")
+    _git_out(clone, "checkout", "-q", "feature/my-work")
+    refs = _git_out(origin, "for-each-ref")
+
+    from devops_cli.commands.release import cut_release
+
+    with (
+        patch("devops_cli.commands.release.run_gh", side_effect=AssertionError("gh was called")),
+        pytest.raises(ValidationError) as stopped,
+    ):
+        cut_release(version="0.2.26", repo_root=clone, is_prepare=True, sync_docs=False)
+
+    assert (stopped.value.message, _git_out(origin, "for-each-ref")) == (
+        ERRORS.release.cut_changelog_missing.format(
+            version="0.2.26", missing=ERRORS.release.cut_changelog_missing_plan
+        ),
+        refs,
     )
 
 
@@ -2709,7 +2806,7 @@ def test_release_cut_ruleset_refusal_raises_typed_error(
         patch("devops_cli.commands.release.run_gh", side_effect=mock_gh),
         pytest.raises(ReleasePushRefusedError) as exc_info,
     ):
-        cut_release(version="0.2.26", repo_root=clone, is_prepare=True)
+        cut_release(version="0.2.26", repo_root=clone, is_prepare=True, sync_docs=False)
 
     exc = exc_info.value
     assert (
@@ -2722,7 +2819,9 @@ def test_release_cut_ruleset_refusal_raises_typed_error(
 
     # CLI command invocation wraps and reports ruleset refusal
     with patch("devops_cli.commands.release.run_gh", side_effect=mock_gh):
-        res = runner.invoke(app, ["prepare", "0.2.26", "--create-pr", "--root", str(clone)])
+        res = runner.invoke(
+            app, ["prepare", "0.2.26", "--create-pr", "--no-sync-docs", "--root", str(clone)]
+        )
     assert (
         res.exit_code,
         gh_called,

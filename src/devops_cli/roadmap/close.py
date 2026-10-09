@@ -23,7 +23,9 @@ before.
 The current release is the lowest-numbered open Release. It is due to be cut when it holds no
 open item, at least one item closed as completed, and no release pull request, open or merged:
 one from `release/vX.Y.Z` into the default branch with the `release` label and the Release's
-milestone. The cut itself is the caller's: `devops roadmap close` runs #982's `cut_release`.
+milestone. The cut itself is the caller's: `devops roadmap close` runs #982's `cut_release`,
+whose commit bumps the version, collects `changelog.d/` into the version's `CHANGELOG.md`
+section, deleting the fragments, and renders `docs/ROADMAP.md` (#1450).
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from pathlib import PurePosixPath
 
 from devops_cli.config.constants import (
     CONST_AGENT_TASKS_DIR,
+    CONST_CHANGELOG_FILENAME,
     CONST_CHANGELOG_FRAGMENTS_DIR,
     CONST_GH_ISSUE_STATE_REASON_REOPENED,
     CONST_INIT_PY_PATH,
@@ -70,9 +73,10 @@ CUT_FILES: tuple[str, ...] = (
     CONST_PYPROJECT_FILENAME,
     str(CONST_INIT_PY_PATH),
     CONST_UV_LOCK_FILENAME,
+    CONST_CHANGELOG_FILENAME,
     CONST_ROADMAP_DOCUMENT_PATH,
 )
-"""The files the cut commit changes."""
+"""The files the cut commit changes, besides the fragments it deletes."""
 
 
 class Hold(StrEnum):
@@ -599,7 +603,9 @@ def _cut_lines(cut: Cut) -> list[str]:
     lines = [
         texts.close_cut.format(branch=cut.branch, base=cut.base, title=cut.title),
         texts.close_cut_files.format(files=", ".join(cut.files)),
-        texts.close_cut_fragments.format(fragments=", ".join(cut.fragments) or texts.close_none),
+        texts.close_cut_fragments.format(
+            version=cut.version, fragments=", ".join(cut.fragments) or texts.close_none
+        ),
     ]
     if cut.missing_fragments:
         missing = ", ".join(f"#{number}" for number in cut.missing_fragments)

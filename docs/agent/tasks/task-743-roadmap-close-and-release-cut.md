@@ -8,7 +8,7 @@
 
 ## Description
 
-`devops roadmap close` is the closure job. One run reads every pull request merged into the current release's branch, closes each item they deliver with a two-part summary, and, once the release holds no open item, cuts it through #982's shared `cut_release`. The cut writes no changelog section: fragments reach `main` uncollected (owner decision, #1103).
+`devops roadmap close` is the closure job. One run reads every pull request merged into the current release's branch, closes each item they deliver with a two-part summary, and, once the release holds no open item, cuts it through #982's shared `cut_release`. The cut writes no changelog section: fragments reach `main` uncollected (owner decision, #1103). Superseded by [#1450](https://github.com/dan-petty/devops-cli/issues/1450) (the cut collects).
 
 - **Store slice**: `RoadmapStore.merged_pull_requests(base)` returns `MergedPullRequest` records (number, URL, body, labels, milestone, merge commit, head commit, changed paths). The GitHub adapter reads `repos/{repo}/pulls?state=closed&base=…` and each merged pull request's `files` listing a full page at a time, failing closed on any page; the in-memory adapter adds `merge_pull_request`. Its existing `job_writes()` log is what tests read.
 - **Closure** (`src/devops_cli/roadmap/close.py`): closing keywords are parsed by `extract_linked_issues` with the repository, so `Part N of #M`, keywords in code or quotes, other repositories' issues and pull request numbers close nothing. The comment is a fixed template: the pull request link and merge commit, the first section of the body quoted and capped at `DEFAULT_ROADMAP_CLOSE_SUMMARY_CHARS`, the changed-file count, each check run at the head commit with its bucket, and the Acceptance Criteria of each `docs/agent/tasks/task-<N>-*.md` the pull request changed, read at the merge commit (or "No task file"). Markdown sections are found with markdown-it-py, task-file names with `PurePosixPath.full_match`.
@@ -35,7 +35,7 @@
 
 **Cut mechanics**
 - [x] From a clone on another branch, `chore/cut-v0.2.26` is pushed with the remote `release/v0.2.26` tip as parent; `release/v0.2.26` and `main` don't move; the commit changes exactly `docs/ROADMAP.md`, `pyproject.toml`, `src/devops_cli/__init__.py` and `uv.lock`; `gh pr create` gets base `main`, head `chore/cut-v0.2.26`, title `feat(release): v0.2.26`, label `release`, milestone `v0.2.26`, no `--draft`; a completed item without a fragment is named; `gh` never gets `pr merge` or `pr review`: `::test_the_cut_pushes_the_cut_branch_from_the_release_tip_and_opens_a_ready_pr`.
-- [x] After the release PR closes unmerged and another item merges, the next run rebuilds the cut from the new tip with the new fragment uncollected and `CHANGELOG.md` identical to the tip: `::test_a_cut_after_an_unmerged_release_pr_rebuilds_from_the_new_tip`.
+- [x] After the release PR closes unmerged and another item merges, the next run rebuilds the cut from the new tip with the new fragment uncollected and `CHANGELOG.md` identical to the tip: `::test_a_cut_after_an_unmerged_release_pr_rebuilds_from_the_new_tip`. Superseded by [#1450](https://github.com/dan-petty/devops-cli/issues/1450) (the cut collects).
 - [x] The cut names the missing fragments and the fragments present: `::test_the_cut_names_the_branch_base_title_and_missing_fragments`.
 
 **Dry run and preview**

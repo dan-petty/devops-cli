@@ -619,6 +619,32 @@ def test_cached_resource_attributes_enrichment() -> None:
     }.issubset(res_keys)
 
 
+def test_a_new_tracer_starts_no_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Creating the tracer reads its resource attributes without starting a process.
+
+    `platform.platform()` runs `uname -p`, so a dry run that created the tracer first started a
+    process, depending on whether an earlier caller had cached it.
+    """
+    import platform
+    import subprocess
+
+    started: list[object] = []
+
+    def refuse(args: object, *_: object, **__: object) -> None:
+        started.append(args)
+        raise AssertionError("the tracer started a process")
+
+    platform._uname_cache = None  # type: ignore[attr-defined]  # the first-call path the dry run hit
+    monkeypatch.setattr(subprocess, "Popen", refuse)
+    client = OTelTelemetryClient(enabled=True)
+    description = next(
+        attr["value"]["stringValue"]
+        for attr in client._cached_resource_attributes
+        if attr["key"] == "os.description"
+    )
+    assert (started, description) == ([], f"{platform.system()} {platform.release()}")
+
+
 def test_response_span_attributes_enriched() -> None:
     """The reply's model and serving backend are recorded; a port-less host sets no port."""
     client = OTelTelemetryClient(enabled=True)

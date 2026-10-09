@@ -486,6 +486,7 @@ def _run_close_adapter(
                 is_prepare=True,
                 repo_root=clone_path.resolve(),
                 edits=write_roadmap,
+                missing_fragments=planned.missing_fragments,
             )
 
         apply_close(store, plan, cut)

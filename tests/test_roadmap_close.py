@@ -10,6 +10,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -17,10 +18,12 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.commands.release import app as release_app
 from devops_cli.commands.roadmap import app
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.validation import ValidationError
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import ERRORS, MESSAGES
 from devops_cli.roadmap.close import (
     ClosePlan,
     Cut,
@@ -32,6 +35,7 @@ from devops_cli.roadmap.close import (
     render_close,
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.run import DEFAULT_DUE_TABLE
 from devops_cli.roadmap.store import CloseReason, GitHubState, IssueRecord, MergedPullRequest
 
 REPO = "example/roadmap"
@@ -319,9 +323,15 @@ def test_the_cut_names_the_branch_base_title_and_missing_fragments(
             missing_fragments=(without,),
         )
     ]
-    assert f"no changelog fragment (a person adds it on the release pull request): #{without}" in (
-        render_close(plan)
-    )
+    text = " ".join(render_close(plan).split())
+    files = "pyproject.toml, src/devops_cli/__init__.py, uv.lock, CHANGELOG.md, docs/ROADMAP.md"
+    assert (
+        f"The cut commit changes {files}." in text,
+        f"collects into CHANGELOG.md's [0.2.26] section and deletes: changelog.d/{with_fragment}.md"
+        in text,
+        f"with no changelog fragment: #{without}. Before the cut, add changelog.d/<issue>.md"
+        in text,
+    ) == (True, True, True), text
 
 
 def test_no_open_release_holds_with_no_release(roadmap_store: InMemoryRoadmapStore) -> None:
@@ -583,67 +593,188 @@ def _close(clone: Path, *flags: str) -> Any:
     return runner.invoke(app, ["close", "--repo", REPO, "--root", str(clone), *flags])
 
 
+def _today() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%d")
+
+
+def _undated(changelog: str, since: str) -> str:
+    """`changelog` with the cut's date, `since` or a later today when the run crosses midnight
+    UTC, as DATE."""
+    for day in {since, _today()}:
+        changelog = changelog.replace(f"] - {day}\n", "] - DATE\n")
+    return changelog
+
+
+def _release_check(work: Path) -> Any:
+    """`devops release check` as release.yml runs it on the merge, docs taken as fresh.
+
+    `check_docs` is patched, as in `tests/test_release.py`: release check has no docs skip, docs
+    freshness is not this test's subject, and a real generation takes about 3 s.
+    """
+    with patch("devops_cli.commands.release.DocGenerator.check_docs", return_value=(True, [])):
+        return runner.invoke(
+            release_app, ["check", "--allow-dirty", "--skip-ci", "--root", str(work)]
+        )
+
+
 def test_the_cut_pushes_the_cut_branch_from_the_release_tip_and_opens_a_ready_pr(
     roadmap: InMemoryRoadmapStore, clone: tuple[Path, Path], fake_gh: list[list[str]]
 ) -> None:
+    """The cut commit collects changelog.d/ into the version's section and deletes the
+    fragments, so release.yml's `release check` passes on the merge (#1450)."""
     origin, work = clone
     tip, main = _git(origin, "rev-parse", BRANCH), _git(origin, "rev-parse", "main")
+    since = _today()
     roadmap.seed_file("changelog.d/1.md", "### Added\n- one\n", ref=BRANCH)
     _deliver(roadmap, _issue(roadmap, "with fragment"))
     _deliver(roadmap, _issue(roadmap, "without fragment"))
     result = _close(work, "--confirm")
     cut = _git(origin, "rev-parse", CUT_BRANCH)
-    changed = _git(origin, "diff", "--name-only", f"{cut}^", cut).splitlines()
+    changed = _git(origin, "diff", "--name-status", f"{cut}^", cut).splitlines()
     (create,) = [call for call in fake_gh if call[1:3] == ["pr", "create"]]
     assert result.exit_code == 0, result.output
+    check = _release_check(work)
     assert (
         _git(origin, "rev-parse", f"{cut}^"),
         _git(origin, "rev-parse", BRANCH),
         _git(origin, "rev-parse", "main"),
-        sorted(changed),
+        sorted(tuple(line.split("\t")[::-1]) for line in changed),
         _git(origin, "show", f"{cut}:docs/ROADMAP.md").startswith("<!--"),
+        _undated(_git(origin, "show", f"{cut}:CHANGELOG.md"), since),
         [create[create.index(flag) + 1] for flag in ("--base", "--head", "--title", "--label")],
         create[create.index("--milestone") + 1],
         "--draft" in create,
         [c for c in fake_gh if {"merge", "review"} & set(c[1:3])],
         "with no changelog fragment" in result.output and "#2" in result.output,
+        check.exit_code,
     ) == (
         tip,
         cut,
         main,
-        ["docs/ROADMAP.md", "pyproject.toml", "src/devops_cli/__init__.py", "uv.lock"],
+        [
+            ("CHANGELOG.md", "M"),
+            ("changelog.d/1.md", "D"),
+            ("docs/ROADMAP.md", "M"),
+            ("pyproject.toml", "M"),
+            ("src/devops_cli/__init__.py", "M"),
+            ("uv.lock", "M"),
+        ],
         True,
+        "# Changelog\n\n## [Unreleased]\n\n## [0.2.26] - DATE\n\n### Added\n- one",
         ["main", CUT_BRANCH, "feat(release): v0.2.26", "release"],
         RELEASE,
         False,
         [],
         True,
-    )
+        0,
+    ), check.output
+
+
+def _push_to_the_release_branch(work: Path, change: Callable[[], object], message: str) -> str:
+    """Merge a change into the release branch on origin, as an item PR does; its new tip."""
+    _git(work, "checkout", "-q", "-B", "feat/more", f"origin/{BRANCH}")
+    change()
+    _git(work, "add", "-A")
+    _git(work, "commit", "-q", "-m", message)
+    _git(work, "push", "-q", "origin", f"HEAD:{BRANCH}")
+    return _git(work, "rev-parse", "HEAD")
 
 
 def test_a_cut_after_an_unmerged_release_pr_rebuilds_from_the_new_tip(
     roadmap: InMemoryRoadmapStore, clone: tuple[Path, Path], fake_gh: list[list[str]]
 ) -> None:
+    """A fragment merged after a cut whose PR closed unmerged joins the version's section."""
     origin, work = clone
+    since = _today()
     _deliver(roadmap, _issue(roadmap, "first"))
     assert _close(work, "--confirm").exit_code == 0
     roadmap.close_pull_request(_open_release_pr(roadmap))
-    _git(work, "checkout", "-q", "-B", "feat/more", f"origin/{BRANCH}")
-    (work / "changelog.d" / "9.md").write_text("### Fixed\n- nine\n")
-    _git(work, "add", "-A")
-    _git(work, "commit", "-q", "-m", "fix: nine")
-    _git(work, "push", "-q", "origin", f"HEAD:{BRANCH}")
-    prev_tip = _git(origin, "rev-parse", BRANCH)
+    prev_tip = _push_to_the_release_branch(
+        work, lambda: (work / "changelog.d" / "9.md").write_text("### Fixed\n- nine\n"), "fix: 9"
+    )
     _deliver(roadmap, _issue(roadmap, "second"))
     result = _close(work, "--confirm")
     cut = _git(origin, "rev-parse", CUT_BRANCH)
     assert (
         result.exit_code,
         _git(origin, "rev-parse", f"{cut}^") == prev_tip,
-        _git(origin, "show", f"{cut}:changelog.d/9.md"),
-        _git(origin, "show", f"{cut}:CHANGELOG.md")
-        == _git(origin, "show", f"{BRANCH}:CHANGELOG.md"),
-    ) == (0, True, "### Fixed\n- nine", True), result.output
+        _git(origin, "ls-tree", "--name-only", cut, "changelog.d/"),
+        _undated(_git(origin, "show", f"{cut}:CHANGELOG.md"), since),
+    ) == (
+        0,
+        True,
+        "",
+        "# Changelog\n\n## [Unreleased]\n\n## [0.2.26] - DATE\n\n"
+        "### Added\n- one\n\n### Fixed\n- nine",
+    ), result.output
+
+
+def _drop_the_fragment(work: Path) -> None:
+    """Leave the release branch with no fragment and an empty `## [0.2.26]`."""
+    _push_to_the_release_branch(
+        work, lambda: _git(work, "rm", "-q", "changelog.d/1.md"), "chore: drop 1"
+    )
+
+
+def test_a_cut_with_no_fragment_and_no_entries_for_its_version_fails_before_it_pushes(
+    roadmap: InMemoryRoadmapStore, clone: tuple[Path, Path], fake_gh: list[list[str]]
+) -> None:
+    """A release PR without its version's section would fail release.yml on the merge."""
+    origin, work = clone
+    _drop_the_fragment(work)
+    refs = _git(origin, "for-each-ref")
+    number = _issue(roadmap, "no entry")
+    _deliver(roadmap, number)
+    result = _close(work, "--confirm")
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        [name in output for name in ("v0.2.26", "release/v0.2.26", "## [0.2.26]")],
+        ERRORS.release.cut_changelog_missing_items.format(items=f"#{number}") in output,
+        "Nothing was pushed" in output,
+        _git(origin, "for-each-ref") == refs,
+        [call for call in fake_gh if call[1:3] == ["pr", "create"]],
+    ) == (1, [True, True, True], True, True, True, []), result.output
+
+
+def test_the_services_close_job_names_the_items_with_no_fragment_when_the_cut_stops(
+    roadmap: InMemoryRoadmapStore, clone: tuple[Path, Path], fake_gh: list[list[str]]
+) -> None:
+    """The Service renders no plan, so the error its log shows names the missing entries."""
+    origin, work = clone
+    _drop_the_fragment(work)
+    refs = _git(origin, "for-each-ref")
+    numbers = [_issue(roadmap, "no entry"), _issue(roadmap, "nor this")]
+    for number in numbers:
+        _deliver(roadmap, number)
+    close_job = next(row.runner for row in DEFAULT_DUE_TABLE if row.name == "close")
+    with pytest.raises(ValidationError) as stopped:
+        close_job(store=roadmap, repo=REPO, clone_path=work)
+    items = ", ".join(f"#{number}" for number in numbers)
+    assert (
+        ERRORS.release.cut_changelog_missing_items.format(items=items) in str(stopped.value),
+        _git(origin, "for-each-ref") == refs,
+        [call for call in fake_gh if call[1:3] == ["pr", "create"]],
+    ) == (True, True, []), str(stopped.value)
+
+
+def test_a_re_cut_whose_tip_holds_the_version_section_keeps_it(
+    roadmap: InMemoryRoadmapStore, clone: tuple[Path, Path], fake_gh: list[list[str]]
+) -> None:
+    """The first cut collected every fragment, so a re-cut with none keeps that section."""
+    origin, work = clone
+    _deliver(roadmap, _issue(roadmap, "first"))
+    assert _close(work, "--confirm").exit_code == 0
+    roadmap.close_pull_request(_open_release_pr(roadmap))
+    tip = _git(origin, "rev-parse", BRANCH)
+    _deliver(roadmap, _issue(roadmap, "second, with no fragment"))
+    result = _close(work, "--confirm")
+    cut = _git(origin, "rev-parse", CUT_BRANCH)
+    assert (
+        result.exit_code,
+        _git(origin, "rev-parse", f"{cut}:CHANGELOG.md")
+        == _git(origin, "rev-parse", f"{tip}:CHANGELOG.md"),
+    ) == (0, True), result.output
 
 
 def test_a_run_without_confirm_previews_and_changes_nothing(
@@ -711,9 +842,11 @@ def test_the_dry_run_command_makes_no_request_and_names_the_cut_files(
     monkeypatch.setattr(store_module, "get_roadmap_store", refuse)
     monkeypatch.setattr(subprocess, "Popen", refuse)
     result = runner.invoke(app, ["close", "--repo", REPO, "--dry-run", "--root", "/nonexistent"])
+    output = " ".join(result.output.split())
+    files = "pyproject.toml, src/devops_cli/__init__.py, uv.lock, CHANGELOG.md, docs/ROADMAP.md"
     assert (
         result.exit_code,
-        "Dry run: no request was made" in result.output,
-        "pyproject.toml, src/devops_cli/__init__.py, uv.lock, docs/ROADMAP.md" in result.output,
-        "--draft" in result.output,
+        "Dry run: no request was made" in output,
+        f"A cut commits {files} on release/<release>" in output,
+        "--draft" in output,
     ) == (0, True, True, False), result.output
