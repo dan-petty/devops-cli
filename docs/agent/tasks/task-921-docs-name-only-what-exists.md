@@ -9,13 +9,13 @@
 ## Description
 The hand-written documentation files (`ARCHITECTURE.md`, `README.md`, `RELEASE_CYCLE.md`, `docs/SDLC.md`, `docs/ROUTINE_TASKS.md`, `docs/DEVCONTAINER_USAGE.md`, `docs/VISION.md`, `k8s/README.md`, and `k8s/llm/profiles/README.md`) contained references to non-existent or deprecated commands, incorrect option flags, removed architecture classes/protocols (`ProcessExecutionPipeline`, `@cli_command_handler`, `StagePipeline`), out-of-date GPU inference profiles/tiers, and inaccurate CI/SDLC checks.
 
-To permanently prevent documentation drift, the static Markdown command line argv collector was extended to collect and validate command references across all hand-written documentation files. The collector recognizes standard documentation placeholders and option bracket notation (`[-v <ver>]`, `[ARGS]...`), mapping them to `ArgvPlaceholder`. Hand-written documentation validation is integrated directly into `DocGenerator.check_docs()` and executed on `devops docs check` and throughout CI. All verified defects across the 9 hand-written documentation files were rectified.
+To permanently prevent documentation drift, the static Markdown command line argv collector was extended to collect and validate command references across all hand-written documentation files. The collector maps standard documentation placeholders such as `<ver>]` and `[ARGS]...` to `ArgvPlaceholder`; since #1299, an option written inside optional-group brackets (`[-v`) is validated as that option. Hand-written documentation validation is integrated directly into `DocGenerator.check_docs()` and executed on `devops docs check` and throughout CI. All verified defects across the 9 hand-written documentation files were rectified.
 
 ## Key Changes
 - **Constants & Configuration** (`src/devops_cli/config/constants.py`):
   - Defined `CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS` (`COMMAND`, `ARGS`, `OPTIONS`, `SUBCOMMAND`, `PARAMS`) and `CONST_HANDWRITTEN_DOCS_PATHS` covering the 9 canonical hand-written documentation paths.
 - **Markdown Argv Collector & Placeholders** (`src/devops_cli/docs/markdown_argv_collector.py`):
-  - Updated `is_placeholder()` to recognize known uppercase placeholder tokens and bracketed option patterns (e.g., `[-v`, `<ver>]`).
+  - Updated `is_placeholder()` to recognize known uppercase placeholder tokens and bracketed words (e.g., `<ver>]`); since #1299, the option in `[-v` is validated rather than read as a placeholder.
   - Added `collect_handwritten_docs_argv_references(root_dir)` and `check_handwritten_docs_argv(root_dir)`.
 - **Docs Check Integration** (`src/devops_cli/docs/generator.py`):
   - Wired `check_handwritten_docs_argv(self.root_dir)` into `DocGenerator.check_docs()` so `devops docs check` continuously audits hand-written documentation alongside MCP tools and the offline knowledge base.
