@@ -305,7 +305,7 @@ def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path)
     )
     c_refine_intake = _eval(
         batch={CONST_ROADMAP_INTAKE_BATCH_KEYS[0]: 1},
-        schedule_init={"intake": t59, "close": t59, "reprioritize": t59},
+        schedule_init={"intake": t59, "close": t59, "reprioritize": t59, "refine": t59},
         table=tbl_crit,
     )
 
@@ -319,7 +319,11 @@ def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path)
     )
     c_refine_reprio = _eval(
         batch={CONST_ROADMAP_CLOSURE_BATCH_KEYS[0]: 1},
-        schedule_init={"intake": t59, "close": t59, "reprioritize": t59},
+        schedule_init={"intake": t59, "close": t59, "reprioritize": t59, "refine": t59},
+        table=tbl_reprio,
+    )
+    c_refine_idle = _eval(
+        schedule_init={"intake": t59, "close": t59, "reprioritize": t59, "refine": t59},
         table=tbl_reprio,
     )
 
@@ -336,6 +340,7 @@ def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path)
         c_close_miss,
         c_refine_intake,
         c_refine_reprio,
+        c_refine_idle,
     ) == (
         (),
         ("intake",),
@@ -349,6 +354,7 @@ def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path)
         ("close",),
         ("intake", "refine"),
         ("close", "reprioritize", "refine"),
+        (),
     )
 
 
@@ -435,7 +441,7 @@ def test_order_and_cross_job_triggers(seeded_store: InMemoryRoadmapStore, tmp_pa
     )
 
     t59 = (NOW - timedelta(minutes=59)).isoformat()
-    sched = {"intake": t59, "close": t59, "reprioritize": t59}
+    sched = {"intake": t59, "close": t59, "reprioritize": t59, "refine": t59}
     sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
     sched_file.write_text(json.dumps(sched), encoding="utf-8")
 
@@ -519,6 +525,41 @@ def test_order_and_cross_job_triggers(seeded_store: InMemoryRoadmapStore, tmp_pa
         ("close", "reprioritize"),
         ("intake", "refine"),
         (),
+    )
+
+
+def test_refine_is_due_an_hour_after_its_last_success_and_on_a_first_run(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no reprioritize run in the round, refine is due 60 min after its last success, not
+    at 59, and on a first run; the CLI's dry run lists it (#1515)."""
+    table = build_stub_table(include_refine=True)
+    sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
+    sched_file.parent.mkdir(parents=True)
+
+    def schedule(refine_age: timedelta | None, now: datetime) -> None:
+        others = {job: now - timedelta(minutes=59) for job in ("close", "reprioritize", "intake")}
+        ages = others | ({} if refine_age is None else {"refine": now - refine_age})
+        sched_file.write_text(json.dumps({job: at.isoformat() for job, at in ages.items()}))
+
+    def due(refine_age: timedelta | None) -> tuple[str, ...]:
+        schedule(refine_age, NOW)
+        return run_due_jobs(
+            REPO, seeded_store, table=table, data_dir=tmp_path, dry_run=True, now=NOW
+        )
+
+    at_60, at_59, first = due(timedelta(minutes=60)), due(timedelta(minutes=59)), due(None)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    schedule(timedelta(minutes=61), datetime.now(UTC))
+    with patch("devops_cli.roadmap.run.DEFAULT_DUE_TABLE", table):
+        cli = runner.invoke(roadmap_app, ["run", "--dry-run", "-R", REPO])
+
+    assert (at_60, at_59, first, cli.exit_code, "Due: refine\n" in cli.output) == (
+        ("refine",),
+        (),
+        ("refine",),
+        0,
+        True,
     )
 
 
@@ -1011,7 +1052,7 @@ def test_idle_records_zero_or_one_store_calls(
     """Empty batch records 0 store calls; empty poll records exactly 1 changes_since call."""
     t30 = (NOW - timedelta(minutes=30)).isoformat()
     t5 = (NOW - timedelta(minutes=5)).isoformat()
-    sched = {"intake": t30, "close": t30, "reprioritize": t30, "metrics": t5}
+    sched = {"intake": t30, "close": t30, "reprioritize": t30, "refine": t30, "metrics": t5}
     sched_file = tmp_path / "roadmap" / "example" / "roadmap" / "schedule.json"
     sched_file.parent.mkdir(parents=True, exist_ok=True)
     sched_file.write_text(json.dumps(sched), encoding="utf-8")
