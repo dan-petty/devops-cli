@@ -2019,6 +2019,29 @@ CONST_TEST_FILE_PREFIX: Final[str] = "test_"
 CONST_PYTHON_FILE_SUFFIX: Final[str] = ".py"
 CONST_PYTHON_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset({".py", ".pyi"})
 
+# ── Mutation Testing (mutmut 3.8, `devops ci mutate`) ────────────────────────
+# How mutmut names what it mutates, a closed domain it defines (`mangle_function_name`): a
+# module-level function is `<module>.x_<function>`, a method of a module-level class
+# `<module>.xǁ<Class>ǁ<method>`, and each of their mutants that name, `__mutmut_` and a number.
+CONST_MUTMUT_FUNCTION_PREFIX: Final[str] = "x_"
+CONST_MUTMUT_CLASS_SEPARATOR: Final[str] = "ǁ"
+CONST_MUTMUT_METHOD_PREFIX: Final[str] = f"x{CONST_MUTMUT_CLASS_SEPARATOR}"
+CONST_MUTMUT_MUTANT_INFIX: Final[str] = "__mutmut_"
+# mutmut leaves a decorated function alone unless this is its one, bare, decorator.
+CONST_MUTMUT_MUTABLE_DECORATORS: Final[frozenset[str]] = frozenset({"staticmethod", "classmethod"})
+# The function names mutmut never mutates (`NEVER_MUTATE_FUNCTION_NAMES`).
+CONST_MUTMUT_NEVER_MUTATED_NAMES: Final[frozenset[str]] = frozenset(
+    {"__getattribute__", "__setattr__", "__new__"}
+)
+# `mutmut results` statuses: those the report counts, and those of a mutant no test killed.
+CONST_MUTMUT_COUNTED_STATUSES: Final[tuple[str, ...]] = (
+    "killed",
+    "survived",
+    "timeout",
+    "no tests",
+)
+CONST_MUTMUT_SURVIVING_STATUSES: Final[tuple[str, ...]] = ("survived", "no tests")
+
 # ── Terraform / OpenTofu HCL AST Analysis ────────────────────────────────────
 # HCL configuration file extensions recognised by Terraform and OpenTofu.
 CONST_HCL_FILE_EXTENSIONS: Final[tuple[str, ...]] = (".tf",)

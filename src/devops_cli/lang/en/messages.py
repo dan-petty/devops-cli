@@ -914,6 +914,22 @@ class CIMessages:
         "Refusing to narrow tests because {file} changed. Run without --no-fallback "
         "or run the full suite."
     )
+    mutate_needs_target: str = (
+        "Name the source files to mutate, or pass --changed to mutate the functions changed "
+        "since the merge base with --base."
+    )
+    mutate_nothing: str = (
+        "Nothing to mutate: the selection holds no function mutmut mutates. mutmut leaves out "
+        "__new__, __getattribute__, __setattr__ and a decorated function unless its one "
+        "decorator is @staticmethod or @classmethod."
+    )
+    mutate_base_refused: str = "Refusing to diff against '{base}': it is not a git revision name."
+    mutate_base_missing: str = (
+        "Cannot diff against '{base}': it names no commit in this clone. Fetch it, or pass "
+        "--base a branch, tag or commit the clone has."
+    )
+    mutate_survivor: str = "{path}:{line} {qualname}"
+    mutate_counts: str = "Mutants of the selected functions: {counts}."
 
 
 @dataclass(frozen=True)

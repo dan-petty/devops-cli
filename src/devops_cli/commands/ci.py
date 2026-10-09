@@ -12,7 +12,7 @@ import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 from pydantic import BaseModel, ConfigDict
@@ -22,18 +22,23 @@ from devops_cli.config.constants import (
     CONST_CI_SLOWEST_TESTS_SHOWN,
     CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY,
     CONST_CI_TEST_BUDGET_SECONDS,
+    CONST_GIT_MAIN_BRANCH,
 )
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
+    DEFAULT_CI_MUTATE_TIMEOUT_SECONDS,
     DEFAULT_CI_TEST_REPEAT_RUNS,
     DEFAULT_PYTHON_VERSION,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
-from devops_cli.core.cli import new_typer
+from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success
+
+if TYPE_CHECKING:
+    from devops_cli.ci.mutate import MutationTarget
 
 
 def _asks_for_help(ctx: Any, args: list[str]) -> bool:
@@ -1825,3 +1830,79 @@ def run(
     if not is_dry_run() and not any(res.dry_run for res in results):
         if not all(res.passed for res in results):
             raise typer.Exit(1)
+
+
+_MUTMUT = ["uv", "run", "mutmut"]
+_MUTMUT_RESULTS = [*_MUTMUT, "results", "--all", "true"]
+
+
+def _capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run a command in the checked tree as `_run` would, returning its captured output."""
+    argv = list(_planned_request_for_cmd(cmd).argv)
+    completed: subprocess.CompletedProcess[str] = _get("run_subprocess")(
+        argv, cwd=_get_project_root(), capture_output=True
+    )
+    return completed
+
+
+def _plan_mutation(run_cmd: list[str]) -> None:
+    """The dry run's requests: the mutmut run, its results, and a show for each survivor."""
+    requests = [
+        _planned_request_for_cmd(run_cmd),
+        _planned_request_for_cmd(_MUTMUT_RESULTS),
+        _planned_request_for_cmd([*_MUTMUT, "show", "<mutant>"], repeat="each surviving mutant"),
+    ]
+    render_request_plan(MESSAGES.ci.ci_dry_run_heading, requests)
+
+
+def _report_mutation(results_text: str, targets: Sequence[MutationTarget]) -> None:
+    """Show each surviving mutant of the targets with its diff, then the status counts."""
+    from devops_cli.ci.mutate import tally
+
+    report = tally(results_text, targets)
+    for mutant, target in report.survivors:
+        location = MESSAGES.ci.mutate_survivor.format(
+            path=target.path, line=target.line, qualname=target.qualname
+        )
+        _get("print_warning")(location, prefix=False, safe=True)
+        _get("write_stdout")(_capture([*_MUTMUT, "show", mutant]).stdout)
+    counts = ", ".join(f"{status} {count}" for status, count in report.counts.items())
+    _get("print_info")(MESSAGES.ci.mutate_counts.format(counts=counts), prefix=False, safe=True)
+
+
+@app.command(help=HELP.ci.mutate)
+def mutate(
+    paths: Annotated[list[Path] | None, typer.Argument(help=HELP.ci.mutate_paths)] = None,
+    changed: Annotated[bool, typer.Option("--changed", help=HELP.ci.mutate_changed)] = False,
+    base: Annotated[
+        str, typer.Option("--base", "-b", help=HELP.options.base_branch)
+    ] = CONST_GIT_MAIN_BRANCH,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Mutation-test the selected functions with mutmut and show what survives (#853)."""
+    if not (paths or changed):
+        _get("print_error")(MESSAGES.ci.mutate_needs_target, prefix=False)
+        raise typer.Exit(2)
+    if dry_run:
+        set_dry_run(True)
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    from devops_cli.ci.mutate import select_targets
+    from devops_cli.exceptions import GitOperationError
+
+    with exit_on_error(GitOperationError):
+        targets = select_targets(_get_project_root(), paths or [], changed=changed, base=base)
+    if not targets:
+        _get("print_muted")(MESSAGES.ci.mutate_nothing)
+        return
+    run_cmd = [*_MUTMUT, "run", *(glob for target in targets for glob in target.run_globs)]
+    if is_dry_run():
+        _plan_mutation(run_cmd)
+        return
+    if not _run(run_cmd, timeout=DEFAULT_CI_MUTATE_TIMEOUT_SECONDS):
+        raise typer.Exit(1)
+    results = _capture(_MUTMUT_RESULTS)
+    if results.returncode != 0:
+        _get("write_stderr")(results.stderr)
+        raise typer.Exit(1)
+    _report_mutation(results.stdout, targets)

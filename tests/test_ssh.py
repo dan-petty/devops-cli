@@ -562,7 +562,9 @@ def test_crypto_ssh_keys_edge_cases(tmp_path: Path) -> None:
     assert parse_key_prefix(Path("my-prefix-id_ed25519-20260901")) == "my-prefix"
 
 
-def test_crypto_ssh_keys_devcontainer_config_resolution(tmp_path: Path) -> None:
+def test_crypto_ssh_keys_devcontainer_config_resolution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Verify get_ssh_key_prefix resolves key_prefix from .devcontainer/config.yaml and ancestors."""
     from devops_cli.config.settings import _find_project_config_path
     from devops_cli.crypto.ssh_keys import get_ssh_key_prefix
@@ -588,6 +590,6 @@ def test_crypto_ssh_keys_devcontainer_config_resolution(tmp_path: Path) -> None:
     assert get_ssh_key_prefix(root_proj) == "custom-root-prefix"
 
     # 3. Verify _find_project_config_path detects .devcontainer/config.yaml
-    with patch("devops_cli.config.settings.os.environ.get", return_value=None):
-        found = _find_project_config_path(base_dir=sub_dir)
-        assert found == (dev_dir / "config.yaml").resolve()
+    monkeypatch.delenv("DEVOPS_CLI_CONFIG", raising=False)
+    found = _find_project_config_path(base_dir=sub_dir)
+    assert found == (dev_dir / "config.yaml").resolve()

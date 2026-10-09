@@ -392,20 +392,22 @@ def isolate_own_source_repository(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def isolate_vault_token() -> Iterator[None]:
-    """Keep a Vault token from outliving the test that left it (#709).
+    """Keep a Vault token, or any other ephemeral CI secret, from outliving the test that left
+    it (#709).
 
     Brokers read the `devops vault login` record from the in-process secret store, the
     process-wide resolver's `VaultProvider` keeps the broker it built, token and all, and `vault
     leases` keeps its session registry. Each would let a later test reach Vault with a token. The
     store is cleared in place, since tests hold the dict itself; the registry is dropped only once
-    something has imported the command.
+    something has imported the command. Every secret in the store is cleared, not only the Vault
+    record: in a serial run, a `DEVOPS_CLI_HEADLESS_AUTH` secret `test_config_commands` stored
+    reached `test_embedding_benchmark` (#853, one slice of #1310).
     """
     yield
-    from devops_cli.config.constants import CONST_VAULT_LOGIN_KEYRING_KEY
     from devops_cli.config.settings import _EPHEMERAL_CI_SECRETS
     from devops_cli.security.secrets import reset_resolver
 
-    _EPHEMERAL_CI_SECRETS.pop(CONST_VAULT_LOGIN_KEYRING_KEY, None)
+    _EPHEMERAL_CI_SECRETS.clear()
     reset_resolver()
     vault_commands = sys.modules.get("devops_cli.commands.vault")
     if vault_commands is not None:

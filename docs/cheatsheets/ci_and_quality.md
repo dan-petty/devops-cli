@@ -17,6 +17,7 @@ Compare disparate linters, formatters, type checkers, and test runners with the 
 | **Coverage Measurement** | `pytest --cov=src --cov-report=html` | `devops ci coverage [--html]` | Computes coverage percentages and generates interactive HTML coverage reports in `.data/coverage/`. |
 | **GitHub Actions Linting** | `actionlint .github/workflows/*.yml` | `devops ci actionlint` | Validates YAML syntax, context expressions, and security permissions in GitHub Actions workflows. |
 | **Doc Freshness Check** | `python tools/check_docs.py` | `devops ci docs` | Asserts that CLI command reference and README command matrix match live Typer definitions. |
+| **Mutation Testing of Changed Functions** | `mutmut run "<module>.x_<function>__mutmut_*" "*<module>.x_<function>"` | `devops ci mutate --changed --base release/vX.Y.Z` | On demand, never a gate: maps the functions changed since the merge base to mutmut's names and shows each surviving mutant with its diff, not a percentage. |
 
 ---
 
