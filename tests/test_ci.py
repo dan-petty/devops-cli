@@ -581,18 +581,20 @@ def test_github_workflows_caching_configuration() -> None:
 
     for wf_file in sorted(workflows_dir.glob("*.yml")):
         content = yaml.safe_load(wf_file.read_text(encoding="utf-8")) or {}
-        jobs = content.get("jobs", {})
-        for job_name, job_data in jobs.items():
-            steps = job_data.get("steps", []) if isinstance(job_data, dict) else []
-            for step in steps:
-                if not isinstance(step, dict):
-                    continue
-                uses = str(step.get("uses", ""))
-                context_tag = f"{wf_file.name}:{job_name}:{step.get('name', 'unnamed')}"
-                if "astral-sh/setup-uv" in uses:
-                    _validate_setup_uv_step(step, context_tag)
-                elif "devcontainers/ci" in uses:
-                    _validate_devcontainer_step(step, context_tag)
+        steps = [
+            (job_name, step)
+            for job_name, job_data in content.get("jobs", {}).items()
+            if isinstance(job_data, dict)
+            for step in job_data.get("steps", [])
+            if isinstance(step, dict)
+        ]
+        for job_name, step in steps:
+            uses = str(step.get("uses", ""))
+            context_tag = f"{wf_file.name}:{job_name}:{step.get('name', 'unnamed')}"
+            if "astral-sh/setup-uv" in uses:
+                _validate_setup_uv_step(step, context_tag)
+            elif "devcontainers/ci" in uses:
+                _validate_devcontainer_step(step, context_tag)
 
 
 def test_ci_workflow_has_tooling_cache_step() -> None:

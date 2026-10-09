@@ -11,21 +11,20 @@ K8S_DIR = REPO_ROOT / "k8s"
 
 def _extract_images_from_yaml(data: Any) -> list[str]:
     """Recursively extract all image field values from parsed YAML structures."""
+    if isinstance(data, list):
+        return [image for item in data for image in _extract_images_from_yaml(item)]
+    if not isinstance(data, dict):
+        return []
     extracted: list[str] = []
-    if isinstance(data, dict):
-        for k, v in data.items():
-            if k == "image":
-                if isinstance(v, str):
-                    extracted.append(v)
-                elif isinstance(v, dict) and "repository" in v:
-                    repo = v.get("repository", "")
-                    tag = v.get("tag", "")
-                    extracted.append(f"{repo}:{tag}" if tag else str(repo))
-            else:
-                extracted.extend(_extract_images_from_yaml(v))
-    elif isinstance(data, list):
-        for item in data:
-            extracted.extend(_extract_images_from_yaml(item))
+    for k, v in data.items():
+        if k != "image":
+            extracted.extend(_extract_images_from_yaml(v))
+        elif isinstance(v, str):
+            extracted.append(v)
+        elif isinstance(v, dict) and "repository" in v:
+            repo = v.get("repository", "")
+            tag = v.get("tag", "")
+            extracted.append(f"{repo}:{tag}" if tag else str(repo))
     return extracted
 
 

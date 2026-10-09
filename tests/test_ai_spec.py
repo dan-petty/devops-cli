@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.spec.verifier import verify_architecture_spec
@@ -52,6 +53,63 @@ def test_verify_architecture_spec_violations(tmp_path: Path) -> None:
     assert report.failed_rules >= 1
     assert any(r.rule_type == "max_indentation" and not r.passed for r in report.rule_results)
     assert any(r.rule_type == "forbidden_import" and not r.passed for r in report.rule_results)
+
+
+_DEEP_IN_EXCEPT = """
+def handled():
+    try:
+        return 0
+    except ValueError:
+        if 1:
+            if 2:
+                if 3:
+                    if 4:
+                        return 1
+"""
+
+_FOUR_IFS_IN_TRY = """
+def guarded():
+    try:
+        if 1:
+            if 2:
+                if 3:
+                    if 4:
+                        return 1
+    except ValueError:
+        return 0
+"""
+
+
+@pytest.mark.parametrize(
+    ("source", "indentation"),
+    [
+        pytest.param(
+            _DEEP_IN_EXCEPT,
+            [(False, "src/mod.py:handled", "Function depth 6 exceeds limit 5.")],
+            id="an-except-handler-opens-a-level",
+        ),
+        pytest.param(
+            _FOUR_IFS_IN_TRY,
+            [(True, "src/mod.py", "Compliant with <6 indentation levels.")],
+            id="a-try-body-opens-none",
+        ),
+    ],
+)
+def test_the_indentation_rule_counts_nesting_as_the_commit_hook_does(
+    tmp_path: Path, source: str, indentation: list[tuple[bool, str, str]]
+) -> None:
+    """An `except` block opens a level and a `try` body does not, as in `core.code_metrics`."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "mod.py").write_text(source, encoding="utf-8")
+
+    report = verify_architecture_spec(target_dir=tmp_path)
+
+    assert [
+        (rule.passed, rule.target_path, rule.details)
+        for rule in report.rule_results
+        if rule.rule_type == "max_indentation"
+    ] == indentation
 
 
 def test_cli_ai_spec_dry_run() -> None:

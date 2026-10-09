@@ -683,35 +683,37 @@ def test_telemetry_tracing_instrumentation() -> None:
         workspace_dir="/tmp",
         created_at="2026-09-12T13:00:00Z",
     )
-    with patch.object(engine.registry, "get_instance", return_value=mock_inst):
-        with patch("devops_cli.sandbox.engine.trace_span") as mock_eng_span:
-            with patch("devops_cli.sandbox.engine.record_metric") as mock_eng_metric:
-                with patch("devops_cli.sandbox.metrics.collect_sandbox_metrics") as mock_collect:
-                    mock_collect.return_value = SandboxMetricsSnapshot(
-                        instance_id="inst-tracer",
-                        target="tracer-svc",
-                        cgroup=None,
-                        prometheus_metrics=[],
-                        warnings=[],
-                        timestamp="2026-09-12T13:00:00Z",
-                    )
-                    mock_eng_span.return_value.__enter__.return_value = MagicMock()
-                    res = engine.metrics("inst-tracer")
-                    assert res.instance_id == "inst-tracer"
-                    mock_eng_span.assert_called_once_with(
-                        "sandbox.engine.metrics",
-                        attributes={
-                            "sandbox.identifier": "inst-tracer",
-                            "sandbox.container_id": "cont-tracer",
-                            "sandbox.prom_endpoint": "/metrics",
-                        },
-                    )
-                    mock_eng_metric.assert_called_once_with(
-                        "devops_cli.sandbox.metrics_collected",
-                        1.0,
-                        unit="1",
-                        attributes={"healthy": True},
-                    )
+    with (
+        patch.object(engine.registry, "get_instance", return_value=mock_inst),
+        patch("devops_cli.sandbox.engine.trace_span") as mock_eng_span,
+        patch("devops_cli.sandbox.engine.record_metric") as mock_eng_metric,
+        patch("devops_cli.sandbox.metrics.collect_sandbox_metrics") as mock_collect,
+    ):
+        mock_collect.return_value = SandboxMetricsSnapshot(
+            instance_id="inst-tracer",
+            target="tracer-svc",
+            cgroup=None,
+            prometheus_metrics=[],
+            warnings=[],
+            timestamp="2026-09-12T13:00:00Z",
+        )
+        mock_eng_span.return_value.__enter__.return_value = MagicMock()
+        res = engine.metrics("inst-tracer")
+        assert res.instance_id == "inst-tracer"
+        mock_eng_span.assert_called_once_with(
+            "sandbox.engine.metrics",
+            attributes={
+                "sandbox.identifier": "inst-tracer",
+                "sandbox.container_id": "cont-tracer",
+                "sandbox.prom_endpoint": "/metrics",
+            },
+        )
+        mock_eng_metric.assert_called_once_with(
+            "devops_cli.sandbox.metrics_collected",
+            1.0,
+            unit="1",
+            attributes={"healthy": True},
+        )
 
 
 def test_parse_cgroup_v2_cpu_delta_calculation(tmp_path: Path) -> None:

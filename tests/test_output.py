@@ -671,14 +671,15 @@ def test_rich_imports_confined_to_output_submodule() -> None:
 
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name == "rich" or alias.name.startswith("rich."):
-                        violations.append(f"{py_file.relative_to(src_dir)}: import {alias.name}")
-            elif isinstance(node, ast.ImportFrom):
-                if node.module == "rich" or (node.module and node.module.startswith("rich.")):
-                    violations.append(
-                        f"{py_file.relative_to(src_dir)}: from {node.module} import ..."
-                    )
+                violations.extend(
+                    f"{py_file.relative_to(src_dir)}: import {alias.name}"
+                    for alias in node.names
+                    if alias.name == "rich" or alias.name.startswith("rich.")
+                )
+            elif isinstance(node, ast.ImportFrom) and (
+                node.module == "rich" or (node.module and node.module.startswith("rich."))
+            ):
+                violations.append(f"{py_file.relative_to(src_dir)}: from {node.module} import ...")
 
     assert not violations, "Direct 'rich' imports found outside 'output' submodule:\n" + "\n".join(
         violations
