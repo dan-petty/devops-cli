@@ -28,8 +28,6 @@ spec:
           podSelector:
             matchLabels:
               app.kubernetes.io/name: traefik
-        - ipBlock:
-            cidr: 0.0.0.0/0
       ports:
         - protocol: TCP
           port: 16686
@@ -43,11 +41,17 @@ spec:
           port: 4318
         - protocol: TCP
           port: 14268
-    # 4. Prometheus scrape on metrics ports (8888 for collector, 14269 for Jaeger)
+    # 4. Prometheus scrape on metrics ports (8888 for collector, 14269 for Jaeger) and Traefik metrics route
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
       ports:
         - protocol: TCP
           port: 8888

@@ -14,10 +14,14 @@ spec:
     # 1. Allow intra-namespace pod communications (server, repo-server, controller, valkey/redis)
     - from:
         - podSelector: {}
-    # 2. Allow external ingress to ArgoCD Server UI and API (ports 8080, 443) via NodePort, LoadBalancer, or ingress controllers (0.0.0.0/0)
+    # 2. Allow Traefik ingress to ArgoCD Server UI and API (ports 8080, 443)
     - from:
-        - ipBlock:
-            cidr: 0.0.0.0/0
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
       ports:
         - protocol: TCP
           port: 8080
@@ -57,6 +61,10 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
       ports:
         - protocol: TCP
           port: 443
