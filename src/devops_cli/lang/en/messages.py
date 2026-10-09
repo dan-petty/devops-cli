@@ -1365,6 +1365,10 @@ class RoadmapMessages:
     refine_split_comment: str = (
         "Proposal needs splitting into {count} items at {sha} (see proposed design in issue body)."
     )
+    refine_back_to_new_comment: str = (
+        "Status set back to New at {sha}: refine found it not ready (see Key questions, Fit and "
+        "Suspected block in the proposed design in the issue body)."
+    )
     refine_title: str = "# Refinement plan for {repo}"
     refine_none: str = "No items to refine."
     refine_failed_heading: str = "## Failed Items"

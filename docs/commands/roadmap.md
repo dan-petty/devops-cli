@@ -114,7 +114,7 @@ devops roadmap close [OPTIONS]
 
 ## `devops roadmap refine`
 
-**Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria. Evaluates Next-release and Backlog New items using code, documentation, and external research. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1.**
+**Refine roadmap items to Ready with proposed design, tasks, and acceptance criteria, using code, documentation, and external research. Without --item, refine takes items nearest place first: the current release's New items, then each planned release's, nearest first, then the backlog's P0 and P1 items, each place by priority. In a planned release and among the backlog's P0 and P1 items it also takes Ready items it has no record of, and sets one back to New when it finds it not ready. The backlog's other New items follow while fewer than the configured release_cap items are Ready across the next planned release and the backlog. Items unchanged since their last refine are skipped. An item whose model call fails is skipped and reported; the others are still refined, and refine then exits 1.**
 
 ```bash
 devops roadmap refine [OPTIONS]
@@ -128,7 +128,7 @@ devops roadmap refine [OPTIONS]
 | `--ref` | `string` | - | Branch, tag or commit to read .github/roadmap.toml, the board template and docs/ROADMAP.md at (default: the repository's default branch). |
 | `--source` | `path` | `.` | Path to the repository checkout (defaults to current directory). |
 | `--item` | `integer` | - | Specific issue number to refine instead of selecting by priority. |
-| `--limit` | `integer` | `3` | Maximum number of New items to refine in this run (default 3). |
+| `--limit` | `integer` | `3` | Maximum number of items to refine in this run (default 3). |
 | `--dry-run` | `boolean` | - | Make no request and change no git ref: print what refine would plan and run, with placeholders. |
 | `--confirm` | `boolean` | - | Refine the items and write the proposed designs to GitHub. Without it, refine prints its plan only. |
 
@@ -136,7 +136,7 @@ devops roadmap refine [OPTIONS]
 
 ## `devops roadmap run`
 
-**Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then intake and refine, and record each one's last success. Reprioritize is due on a ship, a cut or an un-cut the poll reads, on a change to an item in the current release, and once a day; intake decides at most 5 candidates a run and keeps a record of those it left beside the schedule. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
+**Run the roadmap jobs that are due, in order: close, reprioritize and metrics, then intake and refine, and record each one's last success. Reprioritize is due on a ship, a cut or an un-cut the poll reads, on a change to an item in the current release, and once a day; intake decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every hour, on a first run, and after a reprioritize run or an intake that placed a critical fix or a P0 item. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
 
 ```bash
 devops roadmap run [OPTIONS]

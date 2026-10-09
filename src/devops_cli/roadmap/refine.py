@@ -1,8 +1,13 @@
 """`devops roadmap refine`: item refinement to Ready with proposed design, tasks and acceptance criteria.
 
-Without `--item`, refine picks New items in the next planned release by priority, then New items in the
-backlog by priority, until 12 Ready items or `--limit` (default 3) are reached.
-It skips items that are Ready, Blocked, started, or unchanged since their last run.
+Without `--item`, refine picks up to `--limit` (default 3) items, nearest place first (#1515): the
+current release's New items; each planned release's, nearest release first; the backlog's P0 and
+P1 items; each place by priority. Then it takes the backlog's other New items while fewer than
+the configured `release_cap` items are Ready across the next planned release and the backlog.
+A planned release and the backlog's P0/P1 items also give their Ready items no refine round has
+recorded, which refine confirms Ready or sets back to New. It skips items that are Blocked,
+started, or unchanged since their last run, and items whose section a person edited
+(`check_person_edits`), so none of them takes one of the `--limit` places.
 Inputs are minimized from `--source` at HEAD SHA (docs, cited files/lines, identifiers, repo map).
 Two model steps run with `ai.for_task("analysis")`: research plan (Tavily search when public) and proposal.
 Their prompts are `roadmap_refine_research.md` and `roadmap_refine_proposal.md`, and the issue reaches the
@@ -45,6 +50,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES,
     CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY,
     CONST_ROADMAP_REFINE_START_MARKER,
+    CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.defaults import (
@@ -64,7 +70,6 @@ from devops_cli.roadmap.store import (
     ItemField,
     JobRecord,
     RefineRecordKey,
-    Release,
     RoadmapStore,
 )
 
@@ -669,17 +674,12 @@ _PRIORITY_ORDER: Final[dict[str | None, int]] = {
 }
 
 
+# The backlog's items at this rank or higher (P0 and P1) are refined whatever the Ready count.
+_BACKLOG_FIRST_RANK: Final[int] = _PRIORITY_ORDER["P1-High"]
+
+
 def _priority_rank(priority: str | None) -> int:
     return _PRIORITY_ORDER.get(priority, 5)
-
-
-def _find_next_planned_release(releases: Sequence[Release]) -> Release | None:
-    open_releases = [r for r in releases if r.state is GitHubState.OPEN]
-    if not open_releases:
-        return None
-    current = min(open_releases, key=lambda r: r.version)
-    later = [r for r in open_releases if r.version > current.version]
-    return min(later, key=lambda r: r.version, default=None)
 
 
 def _select_single_candidate(
@@ -704,18 +704,43 @@ def _select_single_candidate(
     return [item], []
 
 
+def _is_unrefined_ready(item: Item) -> bool:
+    """Whether `item` is Ready with no record of a refine round: migrate, sync or a person set
+    it Ready without a design (#1515). The record, not the body, tells: a section refine wrote
+    before #1470 ends in `[end-marker]`, so its body reads as holding none."""
+    return (
+        item.status == CONST_ROADMAP_STATUS_READY
+        and item.job_record.get(RefineRecordKey.SECTION_HASH) is None
+    )
+
+
+def _refinable(items: Sequence[Item], *, unrefined_ready: bool) -> list[Item]:
+    """`items`' open New items, and their unrefined Ready ones when `unrefined_ready`, highest
+    priority first."""
+    picked = [
+        it
+        for it in items
+        if it.state is GitHubState.OPEN
+        and (it.status == CONST_ROADMAP_STATUS_NEW or (unrefined_ready and _is_unrefined_ready(it)))
+    ]
+    return sorted(picked, key=lambda it: _priority_rank(it.priority))
+
+
 def select_candidates(
     store: RoadmapStore,
     *,
     item_number: int | None = None,
     limit: int = DEFAULT_ROADMAP_REFINE_LIMIT,
+    release_cap: int = DEFAULT_ROADMAP_RELEASE_CAP,
 ) -> tuple[list[Item], list[tuple[Item, str]]]:
-    """Selects items to refine based on rules, returning (selected, skipped)."""
+    """Selects items to refine, nearest place first as the module's docstring orders them,
+    returning (selected, skipped)."""
     if item_number is not None:
         return _select_single_candidate(store, item_number)
 
-    next_rel = _find_next_planned_release(store.releases())
-    next_items = store.items(release=next_rel.title) if next_rel else []
+    open_releases = [r for r in store.releases() if r.state is GitHubState.OPEN]
+    current_items, *planned = [store.items(release=r.title) for r in open_releases] or [[]]
+    next_items = planned[0] if planned else []
     backlog_items = store.backlog()
 
     # Count ready items across next planned and backlog
@@ -723,14 +748,20 @@ def select_candidates(
         1 for it in (*next_items, *backlog_items) if it.status == CONST_ROADMAP_STATUS_READY
     )
 
-    # Filter New items
-    next_new = [it for it in next_items if it.status == "New" and it.state is GitHubState.OPEN]
-    backlog_new = [
-        it for it in backlog_items if it.status == "New" and it.state is GitHubState.OPEN
+    ordered = [
+        *_refinable(current_items, unrefined_ready=False),
+        *(it for items in planned for it in _refinable(items, unrefined_ready=True)),
+        *(
+            it
+            for it in _refinable(backlog_items, unrefined_ready=True)
+            if _priority_rank(it.priority) <= _BACKLOG_FIRST_RANK
+        ),
     ]
-
-    next_new.sort(key=lambda it: _priority_rank(it.priority))
-    backlog_new.sort(key=lambda it: _priority_rank(it.priority))
+    backlog_rest = [
+        it
+        for it in _refinable(backlog_items, unrefined_ready=False)
+        if _priority_rank(it.priority) > _BACKLOG_FIRST_RANK
+    ]
 
     selected: list[Item] = []
     skipped: list[tuple[Item, str]] = []
@@ -745,19 +776,23 @@ def select_candidates(
         ):
             skipped.append((it, "unchanged"))
             return False
+        # An item refine_one_item would skip for a person's edit takes no place (#1515).
+        edit_problem = check_person_edits(it, body)
+        if edit_problem:
+            skipped.append((it, edit_problem))
+            return False
         selected.append(it)
         return True
 
-    # 1. Next release New items
-    for it in next_new:
+    # 1. The releases' items, nearest first, then the backlog's P0 and P1 items
+    for it in ordered:
         if len(selected) >= limit:
             break
         _consider(it)
 
-    # 2. Backlog New items until ready + selected reaches cap
-    cap = DEFAULT_ROADMAP_RELEASE_CAP
-    for it in backlog_new:
-        if len(selected) >= limit or (ready_count + len(selected)) >= cap:
+    # 2. The other backlog New items until ready + selected reaches the cap
+    for it in backlog_rest:
+        if len(selected) >= limit or (ready_count + len(selected)) >= release_cap:
             break
         _consider(it)
 
@@ -854,10 +889,12 @@ def refine_one_item(
             skip_reason=f"new body would exceed {CONST_ROADMAP_REFINE_MAX_BODY_CHARS} characters",
         )
 
-    # Reason comment
+    # Reason comment: a Ready item refine finds not ready goes back to New (#1515)
     comment: str | None = None
     if is_ready:
         comment = MESSAGES.roadmap.refine_ready_comment.format(sha=sha[:12])
+    elif item.status == CONST_ROADMAP_STATUS_READY:
+        comment = MESSAGES.roadmap.refine_back_to_new_comment.format(sha=sha[:12])
     elif needs_split:
         count = len(proposal.split_offs) or 2
         comment = MESSAGES.roadmap.refine_split_comment.format(count=count, sha=sha[:12])
@@ -900,7 +937,10 @@ def plan_refine(
     source_path = Path(source)
     sha, branch = inspect_checkout(source_path, repo)
 
-    candidates, skipped = select_candidates(store, item_number=item_number, limit=limit)
+    release_cap = config.release_cap if config else DEFAULT_ROADMAP_RELEASE_CAP
+    candidates, skipped = select_candidates(
+        store, item_number=item_number, limit=limit, release_cap=release_cap
+    )
     if not candidates:
         return RefinePlan(
             repo=repo, sha=sha, branch=branch, skipped_items=skipped, has_writes=False
@@ -1006,10 +1046,12 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
             RefineRecordKey.NEEDS_SPLIT: "true" if r.needs_split else "false",
         }
 
-        # Status change & marks
+        # Status change & marks: a Ready item refine finds not ready goes back to New (#1515)
         if r.is_ready:
             store.set_field(r.item, ItemField.STATUS, CONST_ROADMAP_STATUS_READY, marks=marks)
             readied_count += 1
+        elif r.item.status == CONST_ROADMAP_STATUS_READY:
+            store.set_field(r.item, ItemField.STATUS, CONST_ROADMAP_STATUS_NEW, marks=marks)
         else:
             store.set_marks(r.item, marks)
 

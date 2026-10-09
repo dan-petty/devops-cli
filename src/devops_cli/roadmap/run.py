@@ -6,7 +6,8 @@ interval, by a webhook hint in the batch, or by its due rule, which judges the c
 since the row last succeeded: reprioritize's is `reprioritize.is_due`, the rule the lifecycle
 machine runs, given the current release; intake's is an issue reopened, or a fresh candidate its
 last round left (`IntakeRecord`, kept beside `schedule.json`). A round's intake decides at most
-`DEFAULT_ROADMAP_INTAKE_LIMIT` candidates.
+`DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every hour and on a first run, and in a
+round where reprioritize ran or intake placed a critical fix or a P0 item (#1515).
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_LIMIT,
     DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
 )
 from devops_cli.config.env import ENV_DATA_DIR
 from devops_cli.core.paths import (
@@ -646,8 +648,10 @@ DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (
     ),
     JobRow(
         name="refine",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES),
         runner=_run_refine_adapter,
         needs_clone=True,
+        first_run_due=True,
         cross_job_predicate=_refine_cross_job,
     ),
 )
