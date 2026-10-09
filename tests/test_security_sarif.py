@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from datetime import date
@@ -255,6 +256,90 @@ def test_a_fingerprint_ignores_whitespace_differences_in_the_message() -> None:
         make(message="shell=True  identified").fingerprint
         == make(message="shell=True identified").fingerprint
     )
+
+
+_PINNED_FINDINGS: tuple[NormalizedFinding, ...] = (
+    NormalizedFinding(
+        tool="bandit",
+        rule_id="B602",
+        severity="HIGH",
+        message="subprocess call with shell=True",
+        path="src/app.py",
+        line=4,
+    ),
+    NormalizedFinding(
+        tool="bandit",
+        rule_id="B602",
+        severity="HIGH",
+        message="subprocess call with shell=True",
+        path="manifests/prometheus.yaml",
+        symbol="Service/monitoring/prometheus",
+    ),
+    NormalizedFinding(
+        tool="semgrep",
+        rule_id="python.lang.security.deserialization",
+        severity="HIGH",
+        message="Avoid using pickle",
+        path="src/loader.py",
+        line=12,
+    ),
+    NormalizedFinding(
+        tool="trivy",
+        rule_id="CVE-2023-1234",
+        severity="CRITICAL",
+        message="vulnerable package dependency",
+        path="package-lock.json",
+    ),
+)
+
+
+def test_finding_fingerprints_are_pinned_to_literal_values() -> None:
+    """Fixed findings have fixed 32-hex sha256 fingerprints."""
+    f_canonical = NormalizedFinding(
+        tool="bandit",
+        rule_id="B602",
+        severity="HIGH",
+        message="  [B602]  subprocess   call\nwith shell=True  ",
+        path="src/app.py",
+        line=4,
+    )
+    assert (
+        _PINNED_FINDINGS[0].fingerprint,
+        _PINNED_FINDINGS[1].fingerprint,
+        _PINNED_FINDINGS[2].fingerprint,
+        _PINNED_FINDINGS[3].fingerprint,
+        f_canonical.fingerprint,
+    ) == (
+        "628a47241e8969b848c97efe8db7637c",
+        "40482e72d0dcaade80accc33db82fc2f",
+        "ab21f9c159aa64114de3a9d700a44d00",
+        "b6e0f08ed374c5d6f6ecd6425d83c35d",
+        "628a47241e8969b848c97efe8db7637c",
+    )
+
+
+def test_sarif_fingerprint_key_pinned() -> None:
+    """Rule: an algorithm change bumps the key, updates the pins and adds a CHANGELOG line in the same commit."""
+    assert CONST_SARIF_FINGERPRINT_KEY == "devopsCli/v1"
+
+
+def test_swapping_parts_or_changing_separator_or_canonicalisation_alters_fingerprint() -> None:
+    """Verify that swapping parts, altering separator, or changing canonicalisation breaks literal pin."""
+    swapped = hashlib.sha256(
+        "B602␟bandit␟src/app.py␟subprocess call with shell=true".encode()
+    ).hexdigest()[:32]
+    colon_sep = hashlib.sha256(
+        b"bandit:B602:src/app.py:subprocess call with shell=true"
+    ).hexdigest()[:32]
+    uncanonical = hashlib.sha256(
+        "bandit␟B602␟src/app.py␟subprocess call with shell=True".encode()
+    ).hexdigest()[:32]
+
+    assert (
+        swapped != _PINNED_FINDINGS[0].fingerprint,
+        colon_sep != _PINNED_FINDINGS[0].fingerprint,
+        uncanonical != _PINNED_FINDINGS[0].fingerprint,
+    ) == (True, True, True)
 
 
 def test_a_finding_without_a_symbol_keeps_its_fingerprint() -> None:
@@ -1514,3 +1599,13 @@ def test_the_report_command_records_why_scanners_did_not_run(tmp_path: Path) -> 
         ["bandit", "gitleaks"],
     )
     _assert_valid_sarif(document)
+
+
+def test_golden_sarif_report_matches_and_validates_against_schema() -> None:
+    """Golden SARIF report conforms to OASIS SARIF 2.1.0 schema and equals to_sarif output."""
+    golden_path = Path(__file__).parent / "golden" / "sarif_report.json"
+    golden_document = json.loads(golden_path.read_text(encoding="utf-8"))
+    emitted_document = to_sarif(list(_PINNED_FINDINGS))
+
+    assert emitted_document == golden_document
+    _assert_valid_sarif(golden_document)
