@@ -700,6 +700,45 @@ def test_ci_workflow_has_tooling_cache_step() -> None:
     assert ".pytest_cache" in str(setup.get("with", {}).get("tooling-cache-paths", ""))
 
 
+def test_changed_line_coverage_step_is_advisory_on_pull_requests() -> None:
+    """Pull requests get an advisory diff-cover report against their own base branch (#850).
+
+    The step reads the coverage.xml the gate already wrote, runs only on pull requests,
+    takes the base ref through env rather than an inline expression, and stays advisory
+    (no --fail-under). It is never part of the pre-push gate, so no check row runs it.
+    """
+    import yaml
+
+    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
+    steps = ci["jobs"]["test"]["steps"]
+    names = [s.get("name") for s in steps]
+    step = steps[names.index("Changed-Line Coverage")]
+    run = str(step.get("run", ""))
+    checkout = next(s for s in steps if "actions/checkout" in str(s.get("uses", "")))
+
+    assert (
+        names.index("Changed-Line Coverage") > names.index("Tests & Coverage Quality Gate"),
+        step.get("if"),
+        step.get("env"),
+        "diff-cover .data/coverage.xml" in run and '--compare-branch="origin/${BASE_REF}"' in run,
+        "GITHUB_STEP_SUMMARY" in run and "pragma: no cover" in run,
+        "--fail-under" in run,
+        "${{" in run,
+        checkout.get("with", {}).get("fetch-depth"),
+        any("diff-cover" in " ".join(s.cmd) for s in get_check_specs()),
+    ) == (
+        True,
+        "github.event_name == 'pull_request'",
+        {"BASE_REF": "${{ github.base_ref }}"},
+        True,
+        True,
+        False,
+        False,
+        0,
+        False,
+    )
+
+
 def test_ci_workflow_parallelizes_quality_gates() -> None:
     """Static analysis, tests, and the image build run as independent parallel jobs.
 
@@ -1920,6 +1959,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "Detect Image Content Changes",
         ): "Git diff to check changed service image sources",
         ("service-image", "Run Service Image Smoke Test"): "Docker container curl/smoke tests",
+        (
+            "test",
+            "Changed-Line Coverage",
+        ): "Advisory diff-cover report in the job summary, never a check table row",
     }
 
     all_specs = get_check_specs()
