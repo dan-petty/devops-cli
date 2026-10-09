@@ -25,7 +25,7 @@ All code authored in or evaluated by DevOps CLI must strictly adhere to the foll
 3. **Subprocess Bounded Execution**: All external commands (`git`, `helm`, `kubectl`, `tofu`, `docker`) are executed via bounded argument lists (preventing shell injection) with mandatory non-infinite timeouts.
 4. **Data Isolation**: Agent-generated review logs, benchmarks, and temporary telemetry artifacts are isolated under dedicated agent subfolders (`<data_dir>/agent`, e.g. `./.data/agent`), completely segregated from the primary user workspace data tier (`DEVOPS_CLI_DATA_DIR` / `data.dir`).
 5. **Least Privilege Runtime**: Kubernetes pods, Docker containers, and CI jobs run under unprivileged, non-root user contexts (`USER 1000:1000`).
-6. **Host Sandbox Confinement**: Executable verification criteria and model-generated shell commands are confined within Linux unprivileged namespaces via `bubblewrap` (`bwrap`), enforcing unshared namespaces, cleared environment, read-only repository and system mounts, zero network egress, and isolated POSIX process groups.
+6. **Host Sandbox Confinement**: Executable verification criteria and model-generated shell commands are confined within Linux unprivileged namespaces via `bubblewrap` (`bwrap`), enforcing unshared namespaces, cleared environment, read-only repository and system mounts, zero network egress, and isolated POSIX process groups. The host sandbox's `/tmp` is a private 64 MiB tmpfs mounted nosuid and nodev, which the confined command can write to and execute from, because bubblewrap has no noexec option for a tmpfs.
 
 ---
 

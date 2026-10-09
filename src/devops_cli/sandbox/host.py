@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import os
-import re
 import selectors
 import shutil
 import signal
@@ -29,7 +28,14 @@ from devops_cli.core.repo import (
     _linked_worktree_common_dir,
     _repo_root_candidates,
 )
-from devops_cli.sandbox.models import DEFAULT_SANDBOX_POLICY, SandboxPolicy
+from devops_cli.exceptions.sandbox import SandboxValidationError
+from devops_cli.sandbox.models import SandboxPolicy
+
+# bubblewrap mounts a tmpfs nosuid,nodev but has no noexec option, so the host policy declares
+# only the size, and the container policy (DEFAULT_SANDBOX_POLICY) keeps noexec.
+DEFAULT_HOST_SANDBOX_POLICY: Final[SandboxPolicy] = SandboxPolicy(
+    tmpfs={"/tmp": "size=64m"}  # nosec B108
+)
 
 
 @dataclass(frozen=True)
@@ -74,15 +80,28 @@ def _terminate_process_group(pid: int, sig: signal.Signals = signal.SIGTERM) -> 
         pass
 
 
-def _parse_tmpfs_size_bytes(opts: str) -> int | None:
-    """Parse size limit in bytes from tmpfs mount options string."""
-    m = re.search(r"\bsize=(\d+)([kmgKMG]?)\b", opts)
-    if not m:
-        return None
-    num = int(m.group(1))
-    unit = m.group(2).lower()
-    multipliers = {"": 1, "k": 1024, "m": 1024 * 1024, "g": 1024 * 1024 * 1024}
-    return num * multipliers.get(unit, 1)
+def _tmpfs_mount_args(path: str, options: str) -> list[str]:
+    """The bubblewrap options that mount a tmpfs at `path` with its declared mount options.
+
+    bubblewrap can set only a tmpfs's size, in bytes, so any other option, or a size it cannot
+    express in bytes (such as `size=50%`), is refused rather than dropped.
+    """
+    from docker.errors import DockerException  # type: ignore[import-untyped]
+    from docker.utils import parse_bytes  # type: ignore[import-untyped]
+
+    args: list[str] = []
+    for option in filter(None, options.split(",")):
+        name, _, value = option.partition("=")
+        refused = SandboxValidationError(
+            f"bubblewrap cannot apply the tmpfs option '{option}' on {path}", path=path
+        )
+        if name != "size":
+            raise refused
+        try:
+            args.extend(["--size", str(parse_bytes(value))])
+        except DockerException as exc:
+            raise refused from exc
+    return [*args, "--tmpfs", path]
 
 
 def _is_mock_subprocess(proc: Any) -> bool:
@@ -402,7 +421,15 @@ class HostSandbox:
     ) -> None:
         resolved = bwrap_binary or shutil.which("bwrap") or DEFAULT_HOST_SANDBOX_BINARY
         self.bwrap_binary: Final[Path] = Path(resolved)
-        self.policy: Final[SandboxPolicy] = policy if policy is not None else DEFAULT_SANDBOX_POLICY
+        self.policy: Final[SandboxPolicy] = (
+            policy if policy is not None else DEFAULT_HOST_SANDBOX_POLICY
+        )
+        # Built here so a policy whose tmpfs bubblewrap cannot apply fails at construction.
+        self._tmpfs_args: Final[list[str]] = [
+            arg
+            for path, options in self.policy.tmpfs.items()
+            for arg in _tmpfs_mount_args(path, options)
+        ]
 
     def is_available(self) -> bool:
         """Verify whether the bubblewrap binary exists and is executable."""
@@ -435,13 +462,7 @@ class HostSandbox:
         resolved_cwd = cwd.resolve()
         effective_root = _effective_repo_root(resolved_cwd, repo_root)
 
-        mount_args: list[str] = []
-        for tmp_dir, opts in self.policy.tmpfs.items():
-            size_bytes = _parse_tmpfs_size_bytes(opts)
-            if size_bytes is not None:
-                mount_args.extend(["--size", str(size_bytes)])
-            mount_args.extend(["--tmpfs", tmp_dir])  # nosec B108
-
+        mount_args = [*self._tmpfs_args]
         bind_flag = "--ro-bind" if self.policy.read_only else "--bind"
         mount_args.extend([bind_flag, str(effective_root), str(effective_root)])
         if not resolved_cwd.is_relative_to(effective_root):
