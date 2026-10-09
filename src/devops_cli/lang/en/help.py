@@ -578,6 +578,15 @@ class CICommandHelp:
         "Run the full suite when a changed source has no covering tests, rather than "
         "reporting success without verifying it."
     )
+    repeat: str = (
+        "Run the selected test files N times, one run after another on one process (-n is "
+        "ignored), each in a shuffled order, with seeds counting up from --seed. 0 runs them "
+        "once in file order. Refuses the whole suite."
+    )
+    seed: str = (
+        "First shuffle seed for --repeat. Defaults to one derived from HEAD's commit hash; "
+        "has no effect without --repeat."
+    )
     html_report: str = "Generate HTML coverage report in .data/htmlcov/."
     build_index: str = "Build on-demand coverage reverse index for fast test selection."
     auto_fix: str = "Auto-fix violations where possible."
@@ -601,6 +610,25 @@ class CICommandHelp:
         "Reuse a cached verdict when the codebase is unchanged. Results are recorded either way."
     )
     force: str = "Bypass CI execution cache and force re-execution of all quality gates."
+    mutate: str = (
+        "Mutation-test functions with mutmut and show each mutant no test killed; never a gate."
+        "\n\n"
+        "Each surviving mutant is shown with its diff, then the killed, survived, timeout and "
+        "no-tests counts. There is no score, and the command exits 0 whatever survives. The "
+        "first run copies the whole source tree into mutants/, mutates it and runs the test "
+        "suite once, serially, which can take hours; later runs reuse mutants/ and its test "
+        "stats. `rm -rf mutants` resets it. If none of the selected functions gives mutmut a "
+        "mutant, as when their bodies are only `...`, mutmut fails with 'nothing matches'; on a "
+        "first run, only after the test suite has run."
+    )
+    mutate_paths: str = (
+        "Source files or directories under src/ to mutate: every function in them, or with "
+        "--changed only the changed ones."
+    )
+    mutate_changed: str = (
+        "Mutate the functions the working tree changed since its merge base with --base, "
+        "untracked files included unless git ignores them."
+    )
 
 
 @dataclass(frozen=True)

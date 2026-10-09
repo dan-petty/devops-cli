@@ -21,8 +21,10 @@ OTLP_HTTP = NodePortSpec(
 
 def collector_endpoint(context: str | None, namespace: str, service: str) -> str:
     """The OTLP HTTP endpoint of the cluster's collector, as a workstation reaches it."""
+    import httpx2
+
     host, port = node_port_address(context, namespace, service, OTLP_HTTP)
-    return f"http://{host}:{port}"
+    return str(httpx2.URL(scheme="http", host=host, port=port))
 
 
 __all__ = ["OTLP_HTTP", "collector_endpoint"]

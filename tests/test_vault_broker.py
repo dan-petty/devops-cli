@@ -107,10 +107,12 @@ def test_parse_vault_uri() -> None:
         parse_vault_uri("vault://secret/data/devops/creds#github_token"),
         parse_vault_uri("vault://secret/data/ci/database"),
         parse_vault_uri("secret/data/plain"),
+        parse_vault_uri("VAULT://secret/data/x#k"),
     ) == (
         ("secret/data/devops/creds", "github_token"),
         ("secret/data/ci/database", None),
         ("secret/data/plain", None),
+        ("secret/data/x", "k"),
     )
 
 

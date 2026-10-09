@@ -9,15 +9,16 @@
 # the release asset's `digest` (`gh api repos/<owner>/<repo>/releases/tags/<tag>`), checked
 # against the publisher's checksum file. Where the release has no digest, the publisher's file
 # alone gives it: popeye's `checksums.sha256`, get.helm.sh's `<archive>.sha256sum` and
-# dl.k8s.io's `kubectl.sha256`.
+# dl.k8s.io's `kubectl.sha256`. Trivy's version is also the `version` of every
+# `aquasecurity/trivy-action` step in `.github/workflows/`.
 #
 # To bump a Python tool, set its `version` here and in `<name>.in`, then, in this directory, run
 #   uv pip compile --universal --generate-hashes --python-version 3.14 <name>.in -o <name>.txt
 # Bandit's version is the project's dev dependency in pyproject.toml.
 #
-# Then run `uv run pytest tests/test_tools_lock.py tests/test_install_tools.py`, and
-# `devops install-tools --target-dir <dir>` followed by `devops install-tools --check --target-dir
-# <dir>` to install and confirm every pin.
+# Then run `uv run pytest tests/test_tools_lock.py tests/test_install_tools.py
+# tests/test_workflow_contracts.py`, and `devops install-tools --target-dir <dir>` followed by
+# `devops install-tools --check --target-dir <dir>` to install and confirm every pin.
 
 python_version = "3.14"
 

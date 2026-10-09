@@ -39,9 +39,6 @@ CONST_PRE_COMMIT_CONFIG_FILENAME = ".pre-commit-config.yaml"
 CONST_CHANGELOG_FILENAME = "CHANGELOG.md"
 CONST_README_FILENAME = "README.md"
 CONST_INIT_PY_PATH = Path("src/devops_cli/__init__.py")
-# The in-cluster runtime's kustomization pins the service image to the release's tag (#741).
-CONST_SERVICE_IMAGE = "ghcr.io/dan-petty/devops-cli/service"
-CONST_SERVICE_IMAGE_KUSTOMIZATION = Path("k8s/devops/kustomization.yaml")
 CONST_CONVENTIONAL_COMMIT_CATEGORIES: Final[dict[str, str]] = {
     "feat": "Added",
     "fix": "Fixed & Hardened",
@@ -310,10 +307,7 @@ CONST_BENCHMARKS_DIR_NAME = "benchmarks"
 # The kinds of run `devops ai benchmark --type` takes: `auto` picks embedding when a model's name
 # says it embeds and chat otherwise. Any other value is refused rather than run as chat (#950).
 CONST_BENCHMARK_TYPES: Final[tuple[str, ...]] = ("auto", "chat", "embedding")
-# What makes a `--models` entry name the server it runs on: `model@endpoint`, or a URL. Only a
-# person at the command line names one; an MCP client is refused, so a model never takes the AI
-# key to a host the client chose (#954).
-CONST_MODEL_ENDPOINT_MARKERS: Final[tuple[str, ...]] = ("@", "://")
+
 CONST_AUDIT_LOG_NAME = "audit.jsonl"
 CONST_FEEDBACK_DATASET_NAME = "feedback_dataset.jsonl"
 CONST_EMBEDDING_REPORT_FILENAME = "embedding_report.json"
@@ -2025,6 +2019,29 @@ CONST_TEST_FILE_PREFIX: Final[str] = "test_"
 CONST_PYTHON_FILE_SUFFIX: Final[str] = ".py"
 CONST_PYTHON_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset({".py", ".pyi"})
 
+# ── Mutation Testing (mutmut 3.8, `devops ci mutate`) ────────────────────────
+# How mutmut names what it mutates, a closed domain it defines (`mangle_function_name`): a
+# module-level function is `<module>.x_<function>`, a method of a module-level class
+# `<module>.xǁ<Class>ǁ<method>`, and each of their mutants that name, `__mutmut_` and a number.
+CONST_MUTMUT_FUNCTION_PREFIX: Final[str] = "x_"
+CONST_MUTMUT_CLASS_SEPARATOR: Final[str] = "ǁ"
+CONST_MUTMUT_METHOD_PREFIX: Final[str] = f"x{CONST_MUTMUT_CLASS_SEPARATOR}"
+CONST_MUTMUT_MUTANT_INFIX: Final[str] = "__mutmut_"
+# mutmut leaves a decorated function alone unless this is its one, bare, decorator.
+CONST_MUTMUT_MUTABLE_DECORATORS: Final[frozenset[str]] = frozenset({"staticmethod", "classmethod"})
+# The function names mutmut never mutates (`NEVER_MUTATE_FUNCTION_NAMES`).
+CONST_MUTMUT_NEVER_MUTATED_NAMES: Final[frozenset[str]] = frozenset(
+    {"__getattribute__", "__setattr__", "__new__"}
+)
+# `mutmut results` statuses: those the report counts, and those of a mutant no test killed.
+CONST_MUTMUT_COUNTED_STATUSES: Final[tuple[str, ...]] = (
+    "killed",
+    "survived",
+    "timeout",
+    "no tests",
+)
+CONST_MUTMUT_SURVIVING_STATUSES: Final[tuple[str, ...]] = ("survived", "no tests")
+
 # ── Terraform / OpenTofu HCL AST Analysis ────────────────────────────────────
 # HCL configuration file extensions recognised by Terraform and OpenTofu.
 CONST_HCL_FILE_EXTENSIONS: Final[tuple[str, ...]] = (".tf",)
@@ -3114,38 +3131,21 @@ CONST_DEPENDENCY_SEVERITY_CLEAN: Final[str] = "CLEAN"
 # clear error rather than recursing until the interpreter stops it.
 CONST_SUPPRESSION_MAX_INHERITANCE_DEPTH: Final[int] = 10
 
-# ── OpenSSH known_hosts ──────────────────────────────────────────────────────
-# Hashed host fields are written as |1|<base64 salt>|<base64 HMAC-SHA1 digest>.
-CONST_KNOWN_HOSTS_HASH_PREFIX: Final[str] = "|1|"
-CONST_KNOWN_HOSTS_MARKER_REVOKED: Final[str] = "@revoked"
-CONST_KNOWN_HOSTS_MARKER_CERT_AUTHORITY: Final[str] = "@cert-authority"
-
-# ── SSH Host Key Verification ────────────────────────────────────────────────
-CONST_SSH_FINGERPRINT_PREFIX: Final[str] = "SHA256:"
-# Host key algorithms accepted from a scan. Types outside this set are ignored rather than
-# written to known_hosts, where an unusable entry silently breaks later connections.
-CONST_SSH_HOST_KEY_TYPES: Final[frozenset[str]] = frozenset(
-    {
-        "ssh-ed25519",
-        "ecdsa-sha2-nistp256",
-        "ecdsa-sha2-nistp384",
-        "ecdsa-sha2-nistp521",
-        "ssh-rsa",
-        "rsa-sha2-256",
-        "rsa-sha2-512",
-    }
+# ── GitHub SSH Host Keys ─────────────────────────────────────────────────────
+# GitHub's published OpenSSH known_hosts lines, published at https://api.github.com/meta
+# (.ssh_keys) and documented at "GitHub's SSH key fingerprints":
+# https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+CONST_GITHUB_KNOWN_HOSTS_LINES: Final[tuple[str, ...]] = (
+    "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
+    (
+        "github.com ecdsa-sha2-nistp256"
+        " AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg="
+    ),
+    (
+        "github.com ssh-rsa"
+        " AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk="
+    ),
 )
-# GitHub publishes these at https://api.github.com/meta over TLS, so pinning them lets the
-# SSH host key be verified against a channel that is already authenticated rather than
-# trusting whatever answers the first connection. Refresh with `devops git host-keys`.
-CONST_GITHUB_HOST_KEY_FINGERPRINTS: Final[frozenset[str]] = frozenset(
-    {
-        "SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU",  # ssh-ed25519
-        "SHA256:p2QAMXNIC1TJYWeIOttrVc98/R1BUFWu3/LiyKgUfQM",  # ecdsa-sha2-nistp256
-        "SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s",  # ssh-rsa
-    }
-)
-CONST_GITHUB_META_URL: Final[str] = "https://api.github.com/meta"
 
 # ── Issue Closure From Merged Pull Requests ──────────────────────────────────
 # GitHub's closing keywords. A pull request body using any of these links the issue, but

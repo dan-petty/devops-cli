@@ -8,6 +8,7 @@ from typing import Annotated, Any
 import typer
 from pydantic import BaseModel
 
+from devops_cli.ai.benchmark.model_spec import parse_model_list
 from devops_cli.config.constants import CONST_BENCHMARK_TYPES
 from devops_cli.config.defaults import (
     DEFAULT_BENCHMARK_CONCURRENCY,
@@ -53,13 +54,6 @@ def _validate_benchmark_type(benchmark_type: str) -> None:
             ),
             field="type",
         )
-
-
-def _parse_model_list(models: str | None, default_model: str) -> list[str]:
-    """Parse comma-separated model string into list of models."""
-    if models:
-        return [m.strip() for m in models.split(",") if m.strip()]
-    return [default_model]
 
 
 def _parse_server_list(servers: str | None) -> list[str] | None:
@@ -313,7 +307,7 @@ def run_benchmark(
     from devops_cli.config.settings import load_settings
 
     settings = load_settings()
-    model_list = _parse_model_list(models, settings.ai.model)
+    model_list = parse_model_list(models, settings.ai.model)
     safe_concurrency = max(1, min(concurrency, 32))
     server_list = _parse_server_list(servers)
 

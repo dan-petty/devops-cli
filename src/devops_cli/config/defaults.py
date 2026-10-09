@@ -307,6 +307,10 @@ DEFAULT_REVIEW_TIMEOUT_SECONDS: float = 1200.0
 DEFAULT_REVIEW_WINDOW_SIZE_FACTOR: float = 0.8
 DEFAULT_REVIEW_OVERLAP_FACTOR: float = 0.1
 DEFAULT_SUBPROCESS_TIMEOUT_SECONDS: float = 1800.0  # 30 minutes (kubectl, helm, minikube, git, gh)
+# `devops ci mutate`'s `mutmut run`. The first run mutates the whole source tree (about 196,000
+# mutants, 506 s with 8 processes at a load average of 25) and then runs the test suite once,
+# serially, for its stats.
+DEFAULT_CI_MUTATE_TIMEOUT_SECONDS: float = 14400.0  # 4 hours
 DEFAULT_HTTP_TIMEOUT_SECONDS: float = 3600.0  # 1 hour (API requests & downloads)
 DEFAULT_HTTP_MAX_REDIRECTS: int = 10  # hops the HTTP broker follows; httpx2 allows 20
 DEFAULT_DNS_TIMEOUT_SECONDS: float = 15.0  # 15 seconds (socket DNS resolution)
@@ -448,6 +452,8 @@ DEFAULT_REVIEW_RATE_LIMIT: float = 10.0
 DEFAULT_REVIEW_RATE_CAPACITY: float = 10.0
 DEFAULT_INVALIDATED_STATUS: str = "INVALIDATED"
 DEFAULT_BANDIT_SEVERITY: str = "medium"
+# `devops ci test --repeat`: 0 is a single run in file order; ci.yml's pull-request job passes 3.
+DEFAULT_CI_TEST_REPEAT_RUNS: Final[int] = 0
 DEFAULT_TRIVY_HIGH_SEVERITY: str = "HIGH,CRITICAL"
 DEFAULT_KUBECONFORM_VERSION: str = "master"
 DEFAULT_PACKAGE_ECOSYSTEM: str = "PyPI"

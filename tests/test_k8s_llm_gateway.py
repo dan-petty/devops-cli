@@ -29,6 +29,8 @@ OPEN_WEBUI_VALUES = Path("k8s/llm/values-open-webui.yaml")
 GATEWAY_IMAGE = "ghcr.io/berriai/litellm:v1.103.0"
 GATEWAY_SECRET = "llm-gateway-secrets"
 GATEWAY_SECRET_KEY = "master-key"
+# The UID and GID every ollama tier runs as; no host login account uses it (#1060).
+OLLAMA_UID = 10001
 
 
 def _load_kind(path: Path, kind: str) -> dict[str, Any]:
@@ -85,6 +87,42 @@ def _kustomized_files(directory: Path) -> set[Path]:
     return {entry for entry in entries if not entry.is_dir()} | {
         path for entry in entries if entry.is_dir() for path in _kustomized_files(entry)
     }
+
+
+def _mounts(container: dict[str, Any]) -> dict[str, str]:
+    """Return a container's volume mounts as {mountPath: volume name}."""
+    return {mount["mountPath"]: mount["name"] for mount in container.get("volumeMounts", [])}
+
+
+def _ollama_privileges(pod: dict[str, Any]) -> tuple[Any, ...]:
+    """Return who an ollama tier's pod runs as and where it may write.
+
+    In order: the pod and `ollama` container security contexts, HOME and OLLAMA_MODELS, the
+    container's mounts, the pod's volumes, and each initContainer as (name, runs the `ollama`
+    image, command, security context, mounts).
+    """
+    ollama = next(c for c in pod.get("containers", []) if c.get("name") == "ollama")
+    env = {var["name"]: var.get("value") for var in ollama.get("env", [])}
+    return (
+        pod.get("securityContext"),
+        ollama.get("securityContext"),
+        (env.get("HOME"), env.get("OLLAMA_MODELS")),
+        _mounts(ollama),
+        {
+            volume["name"]: {key: value for key, value in volume.items() if key != "name"}
+            for volume in pod.get("volumes", [])
+        },
+        [
+            (
+                init.get("name"),
+                init.get("image") == ollama.get("image"),
+                init.get("command"),
+                init.get("securityContext"),
+                _mounts(init),
+            )
+            for init in pod.get("initContainers", [])
+        ],
+    )
 
 
 class TestK8sLLMGatewayManifests:
@@ -446,6 +484,59 @@ class TestK8sLLMGatewayManifests:
         }
 
         assert settings == expected
+
+    def test_every_ollama_tier_runs_unprivileged(self) -> None:
+        """Verify every tier runs ollama as one non-root UID with no privilege to gain (#1060).
+
+        The one root step is the `own-model-directory` initContainer: fsGroup does not reach a
+        hostPath volume, so it hands the model directory to that UID holding CAP_CHOWN alone.
+        HOME keeps the key and models on the same hostPath, so nothing is downloaded again. The
+        initContainer runs the ollama image, so a tag bump cannot leave two images on a node.
+        """
+        docs = yaml.safe_load_all(OLLAMA_PROFILES_MANIFEST.read_text(encoding="utf-8"))
+        observed = {
+            d["metadata"]["name"]: _ollama_privileges(d["spec"]["template"]["spec"])
+            for d in docs
+            if d and d.get("kind") == "DaemonSet"
+        }
+        expected = (
+            {
+                "runAsNonRoot": True,
+                "runAsUser": OLLAMA_UID,
+                "runAsGroup": OLLAMA_UID,
+                "seccompProfile": {"type": "RuntimeDefault"},
+            },
+            {
+                "allowPrivilegeEscalation": False,
+                "readOnlyRootFilesystem": True,
+                "capabilities": {"drop": ["ALL"]},
+            },
+            ("/home/ollama", "/home/ollama/.ollama/models"),
+            {"/home/ollama/.ollama": "ollama-data", "/tmp": "tmp"},
+            {
+                "ollama-data": {
+                    "hostPath": {"path": "/var/lib/ollama", "type": "DirectoryOrCreate"}
+                },
+                "tmp": {"emptyDir": {}},
+            },
+            [
+                (
+                    "own-model-directory",
+                    True,
+                    ["chown", "-R", f"{OLLAMA_UID}:{OLLAMA_UID}", "/home/ollama/.ollama"],
+                    {
+                        "runAsUser": 0,
+                        "runAsNonRoot": False,
+                        "allowPrivilegeEscalation": False,
+                        "readOnlyRootFilesystem": True,
+                        "capabilities": {"drop": ["ALL"], "add": ["CHOWN"]},
+                    },
+                    {"/home/ollama/.ollama": "ollama-data"},
+                )
+            ],
+        )
+
+        assert observed == {name: expected for name in observed}
 
     @pytest.mark.parametrize("service_name", ["ollama-16gib", "ollama-48gib"])
     def test_ollama_services_stay_behind_the_gateway(self, service_name: str) -> None:

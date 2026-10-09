@@ -567,30 +567,6 @@ def test_image_path_filter_covers_dockerfile_sources(job_name: str, dockerfile_r
     )
 
 
-def test_release_service_image_inputs_are_what_the_image_is_built_from() -> None:
-    """release.yml's SERVICE_IMAGE_INPUTS names every COPY source, the build definition and itself.
-
-    The release branch labels the Service image with the hash of these paths, and main's run
-    points `latest` at that image only when its own tree hashes the same (#1451). A COPY source
-    left out would let main promote an image built from other code; a path the image is not
-    built from (CHANGELOG.md, docs) would republish on every push and fail a merge whose image
-    is right.
-    """
-    import yaml
-
-    repo_root = Path(__file__).resolve().parents[1]
-    workflow = yaml.safe_load(
-        (repo_root / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-    )
-    declared = set(workflow["jobs"]["service-image"]["env"]["SERVICE_IMAGE_INPUTS"].split())
-    expected = _dockerfile_build_context_sources(repo_root / "Dockerfile") | {
-        "Dockerfile",
-        ".dockerignore",
-        ".github/workflows/release.yml",
-    }
-    assert declared == expected
-
-
 def _find_workflow_runner_mutations(workflow_path: Path, pattern: re.Pattern[str]) -> list[str]:
     """Find commands in workflow run steps that mutate the runner environment (#832)."""
     import yaml
@@ -1493,3 +1469,32 @@ def test_data_dir_invariant_detects_violations() -> None:
         if (violation := _inspect_data_path_node(node, "sample.py")) is not None
     ]
     assert len(detected) == 3
+
+
+# mutmut reads a comment holding both as a `no mutate` pragma (`_parse_pragma_token`). They stay
+# here, not in src, where a line holding both would itself be one.
+_MUTMUT_PRAGMA_MARKERS = ("# pragma:", "no mutate")
+
+
+def _no_mutate_pragmas(root: Path) -> list[str]:
+    """Each `file:line` under `root/src` holding a mutmut `no mutate` pragma."""
+    return [
+        f"{path.relative_to(root).as_posix()}:{number}"
+        for path in sorted((root / "src").rglob("*.py"))
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        if all(marker in line for marker in _MUTMUT_PRAGMA_MARKERS)
+    ]
+
+
+def test_no_source_line_exempts_itself_from_mutation() -> None:
+    """`devops ci mutate` reports what survives; a pragma under src would hide it (#853)."""
+    assert _no_mutate_pragmas(Path(__file__).resolve().parents[1]) == []
+
+
+def test_a_no_mutate_pragma_is_reported(tmp_path: Path) -> None:
+    """The check names the file and line of a pragma, and passes a line without one."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "mod.py").write_text(
+        "y = 2  # pragma: no cover\nx = 1  # pragma: no mutate\n", encoding="utf-8"
+    )
+    assert _no_mutate_pragmas(tmp_path) == ["src/mod.py:2"]

@@ -438,9 +438,6 @@ class ReleaseMessages:
     preparing_release: str = "Preparing release version [cyan]{version}[/cyan]..."
     updated_pyproject: str = "✓ Updated pyproject.toml to version [bold]{version}[/bold]"
     updated_init: str = "✓ Updated src/devops_cli/__init__.py to version [bold]{version}[/bold]"
-    updated_service_image_tag: str = (
-        "✓ Pinned the service image in k8s/devops/kustomization.yaml to [bold]v{version}[/bold]"
-    )
     updated_changelog: str = (
         "✓ Updated CHANGELOG.md with release header [bold][{version}] - {date}[/bold]"
     )
@@ -854,6 +851,12 @@ class CIMessages:
         "Refusing to report success without running any tests. Re-run with --fallback "
         "to verify via the full suite, or add a covering test."
     )
+    repeat_failed: str = "Run {run}/{runs} failed with seed {seed}. Reproduce it with: {command}"
+    repeat_needs_targets: str = (
+        "--repeat needs test files to narrow the run; shuffling the whole suite is not "
+        "supported yet."
+    )
+    repeat_seed_unavailable: str = "Could not read HEAD to derive a shuffle seed; pass --seed."
     pytest_coverage: str = "pytest & coverage"
     ruff_check: str = "ruff check"
     ruff_format: str = "ruff format"
@@ -911,6 +914,22 @@ class CIMessages:
         "Refusing to narrow tests because {file} changed. Run without --no-fallback "
         "or run the full suite."
     )
+    mutate_needs_target: str = (
+        "Name the source files to mutate, or pass --changed to mutate the functions changed "
+        "since the merge base with --base."
+    )
+    mutate_nothing: str = (
+        "Nothing to mutate: the selection holds no function mutmut mutates. mutmut leaves out "
+        "__new__, __getattribute__, __setattr__ and a decorated function unless its one "
+        "decorator is @staticmethod or @classmethod."
+    )
+    mutate_base_refused: str = "Refusing to diff against '{base}': it is not a git revision name."
+    mutate_base_missing: str = (
+        "Cannot diff against '{base}': it names no commit in this clone. Fetch it, or pass "
+        "--base a branch, tag or commit the clone has."
+    )
+    mutate_survivor: str = "{path}:{line} {qualname}"
+    mutate_counts: str = "Mutants of the selected functions: {counts}."
 
 
 @dataclass(frozen=True)

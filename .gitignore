@@ -75,6 +75,9 @@ secrets/
 .claude/*
 !.claude/settings.json
 
+# mutmut's copy of the tree, mutated by `devops ci mutate`; `rm -rf mutants` resets it
+/mutants/
+
 # Kilo Code
 .kilo/
 

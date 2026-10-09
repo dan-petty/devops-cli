@@ -32,8 +32,6 @@ from devops_cli.config.constants import (
     CONST_INIT_PY_PATH,
     CONST_PYPROJECT_FILENAME,
     CONST_README_FILENAME,
-    CONST_SERVICE_IMAGE,
-    CONST_SERVICE_IMAGE_KUSTOMIZATION,
     CONST_UV_LOCK_FILENAME,
 )
 from devops_cli.config.defaults import (
@@ -153,166 +151,6 @@ def _get_init_version(root: Path) -> str | None:
     if "__version__" in content:
         return _get_pyproject_version(root)
     return None
-
-
-def _service_image_entries(document: Any) -> list[dict[str, Any]]:
-    """The kustomization's `images:` entries for the service image."""
-    images = document.get("images") if isinstance(document, dict) else None
-    return [
-        image
-        for image in images or []
-        if isinstance(image, dict) and image.get("name") == CONST_SERVICE_IMAGE
-    ]
-
-
-def _load_service_image_kustomization(root: Path) -> tuple[Path, Any] | None:
-    """The runtime kustomization's path and parsed document, or None where there is none."""
-    import yaml
-
-    path = _resolve_safe_project_path(root, CONST_SERVICE_IMAGE_KUSTOMIZATION)
-    if not path.exists():
-        return None
-    return path, yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
-def _get_service_image_tag(root: Path) -> str | None:
-    """The tag the runtime kustomization pins the service image to, or None where it has none."""
-    loaded = _load_service_image_kustomization(root)
-    entries = _service_image_entries(loaded[1]) if loaded else []
-    return str(entries[0].get("newTag")) if entries else None
-
-
-def _update_service_image_tag(root: Path, new_version: str) -> bool:
-    """Pin the runtime kustomization's service image to `v<version>`; False where it has none."""
-    import yaml
-
-    from devops_cli.output import write_text_file
-
-    loaded = _load_service_image_kustomization(root)
-    entries = _service_image_entries(loaded[1]) if loaded else []
-    if not loaded or not entries:
-        return False
-    for entry in entries:
-        entry["newTag"] = f"v{new_version}"
-    write_text_file(loaded[0], yaml.safe_dump(loaded[1], sort_keys=False))
-    return True
-
-
-def _extract_git_revisions_from_doc(doc: Any) -> list[str]:
-    """Extract git targetRevision values from an Argo CD Application doc."""
-    if not isinstance(doc, dict) or doc.get("kind") != "Application":
-        return []
-    spec = doc.get("spec", {})
-    revisions: list[str] = []
-    source = spec.get("source")
-    if isinstance(source, dict) and "chart" not in source and "targetRevision" in source:
-        revisions.append(str(source["targetRevision"]))
-    for s in spec.get("sources", []):
-        if isinstance(s, dict) and "chart" not in s and "targetRevision" in s:
-            revisions.append(str(s["targetRevision"]))
-    return revisions
-
-
-def _get_argocd_git_target_revisions(root: Path) -> list[tuple[Path, str]]:
-    """Return (file_path, target_revision) for every git source in Applications under k8s/argocd/."""
-    import yaml
-
-    argocd_dir = root / "k8s" / "argocd"
-    if not argocd_dir.is_dir():
-        return []
-
-    results: list[tuple[Path, str]] = []
-    for path in sorted(argocd_dir.rglob("*.yaml")):
-        try:
-            content = path.read_text(encoding="utf-8")
-            for doc in yaml.safe_load_all(content):
-                for rev in _extract_git_revisions_from_doc(doc):
-                    results.append((path, rev))
-        except Exception:
-            continue
-    return results
-
-
-def _resolve_argocd_next_revision(root: Path, current_version: str) -> str | None:
-    """Resolve targetRevision for Argo CD manifests to 'main'."""
-    git_revisions = _get_argocd_git_target_revisions(root)
-    if not git_revisions:
-        return None
-    return "main"
-
-
-def _apply_git_revision_to_doc(doc: Any, next_revision: str) -> bool:
-    """Update git-source targetRevisions in an Application doc to next_revision."""
-    if not isinstance(doc, dict) or doc.get("kind") != "Application":
-        return False
-    spec = doc.get("spec", {})
-    changed = False
-    source = spec.get("source")
-    if isinstance(source, dict) and "chart" not in source and "targetRevision" in source:
-        if source["targetRevision"] != next_revision:
-            source["targetRevision"] = next_revision
-            changed = True
-    for s in spec.get("sources", []):
-        if isinstance(s, dict) and "chart" not in s and "targetRevision" in s:
-            if s["targetRevision"] != next_revision:
-                s["targetRevision"] = next_revision
-                changed = True
-    return changed
-
-
-def _apply_argocd_target_revisions(root: Path, next_revision: str) -> bool:
-    """Rewrite git-source targetRevisions under k8s/argocd/ to next_revision."""
-    import yaml
-
-    from devops_cli.output import write_text_file
-
-    argocd_dir = root / "k8s" / "argocd"
-    if not argocd_dir.is_dir():
-        return False
-
-    updated = False
-    for path in sorted(argocd_dir.rglob("*.yaml")):
-        try:
-            docs = list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
-        except Exception:
-            continue
-
-        file_changed = any(_apply_git_revision_to_doc(d, next_revision) for d in docs)
-        if file_changed:
-            content = (
-                yaml.safe_dump_all(docs, sort_keys=False)
-                if len(docs) > 1
-                else yaml.safe_dump(docs[0], sort_keys=False)
-            )
-            write_text_file(path, content)
-            updated = True
-    return updated
-
-
-def _verify_argocd_target_revisions(repo_root: Path, pyproject_ver: str) -> None:
-    """Verify git targetRevisions under k8s/argocd/ are uniform and match 'main'."""
-    revisions = _get_argocd_git_target_revisions(repo_root)
-    if not revisions:
-        return
-
-    rev_set = {rev for _, rev in revisions}
-    if len(rev_set) > 1:
-        _get("print_error")(
-            f"Argo CD git-source targetRevisions mismatch under k8s/argocd/: found multiple revisions {sorted(rev_set)}. "
-            "They must be uniform.",
-            prefix=False,
-        )
-        raise typer.Exit(1)
-
-    rev = next(iter(rev_set))
-    expected = "main"
-    if rev != expected:
-        _get("print_error")(
-            f"Version mismatch: Argo CD git-source targetRevision '{rev}' does not match expected '{expected}'. "
-            f"Run `devops release prepare {pyproject_ver}`.",
-            prefix=False,
-        )
-        raise typer.Exit(1)
 
 
 def _get_latest_git_tag(root: Path) -> str | None:
@@ -786,8 +624,7 @@ def _release_paths(root: Path) -> list[str]:
     """The paths a release commit stages.
 
     `changelog.d/` is among them where it exists, so the commit records the fragments the cut
-    deleted, and so is the runtime kustomization whose image tag the bump sets; naming a path
-    that does not exist would fail the whole `git add`.
+    deleted; naming a path that does not exist would fail the whole `git add`.
     """
     paths = [
         CONST_PYPROJECT_FILENAME,
@@ -800,10 +637,6 @@ def _release_paths(root: Path) -> list[str]:
         paths.append(CONST_UV_LOCK_FILENAME)
     if (root / CONST_CHANGELOG_FRAGMENTS_DIR).is_dir():
         paths.append(f"{CONST_CHANGELOG_FRAGMENTS_DIR}/")
-    if (root / CONST_SERVICE_IMAGE_KUSTOMIZATION).is_file():
-        paths.append(str(CONST_SERVICE_IMAGE_KUSTOMIZATION))
-    if (root / "k8s" / "argocd").is_dir():
-        paths.append("k8s/argocd/")
     return paths
 
 
@@ -1196,22 +1029,11 @@ def _checkout_cut_branch(root: Path, cut_branch: str, remote_ref: str) -> None:
 
 
 def _apply_cut_modifications(root: Path, version: str, sync_docs: bool) -> None:
-    """Apply version bumps to pyproject, init, image tag, uv.lock, argocd revisions, and optionally sync docs."""
-    next_revision = _resolve_argocd_next_revision(root, version)
+    """Apply version bumps to pyproject, init, uv.lock, and optionally docs."""
     if _update_pyproject_version(root, version):
         _get("print_info")(MESSAGES.release.updated_pyproject.format(version=version), prefix=False)
     if _update_init_version(root, version):
         _get("print_info")(MESSAGES.release.updated_init.format(version=version), prefix=False)
-    if _update_service_image_tag(root, version):
-        _get("print_info")(
-            MESSAGES.release.updated_service_image_tag.format(version=version),
-            prefix=False,
-        )
-    if next_revision and _apply_argocd_target_revisions(root, next_revision):
-        _get("print_info")(
-            f"Updated Argo CD git-source targetRevisions under k8s/argocd/ to {next_revision}.",
-            prefix=False,
-        )
     if _update_uv_lock_version(root, version):
         _get("print_info")(f"Updated {CONST_UV_LOCK_FILENAME} to version {version}.", prefix=False)
     if sync_docs:
@@ -1640,8 +1462,7 @@ def release_pr(
 
 
 def _verify_release_versions(repo_root: Path) -> str:
-    """Verify version consistency across pyproject.toml, __init__.py, the service image tag and
-    CHANGELOG.md."""
+    """Verify version consistency across pyproject.toml, __init__.py and CHANGELOG.md."""
     pyproject_ver = _get_pyproject_version(repo_root)
     init_ver = _get_init_version(repo_root)
     changelog_ver = _get_latest_changelog_version(repo_root)
@@ -1650,15 +1471,6 @@ def _verify_release_versions(repo_root: Path) -> str:
         _get("print_error")(
             f"Version mismatch: pyproject.toml ({pyproject_ver}) != "
             f"src/devops_cli/__init__.py ({init_ver})",
-            prefix=False,
-        )
-        raise typer.Exit(1)
-
-    image_tag = _get_service_image_tag(repo_root)
-    if image_tag is not None and image_tag != f"v{pyproject_ver}":
-        _get("print_error")(
-            f"Version mismatch: {CONST_SERVICE_IMAGE_KUSTOMIZATION} pins {CONST_SERVICE_IMAGE} "
-            f"to {image_tag}, not v{pyproject_ver}. Run `devops release prepare {pyproject_ver}`.",
             prefix=False,
         )
         raise typer.Exit(1)
@@ -1679,8 +1491,6 @@ def _verify_release_versions(repo_root: Path) -> str:
             prefix=False,
         )
         raise typer.Exit(1)
-
-    _verify_argocd_target_revisions(repo_root, pyproject_ver)
 
     return pyproject_ver
 

@@ -12,7 +12,7 @@ import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 from pydantic import BaseModel, ConfigDict
@@ -22,17 +22,23 @@ from devops_cli.config.constants import (
     CONST_CI_SLOWEST_TESTS_SHOWN,
     CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY,
     CONST_CI_TEST_BUDGET_SECONDS,
+    CONST_GIT_MAIN_BRANCH,
 )
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
+    DEFAULT_CI_MUTATE_TIMEOUT_SECONDS,
+    DEFAULT_CI_TEST_REPEAT_RUNS,
     DEFAULT_PYTHON_VERSION,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
-from devops_cli.core.cli import new_typer
+from devops_cli.core.cli import exit_on_error, new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success
+
+if TYPE_CHECKING:
+    from devops_cli.ci.mutate import MutationTarget
 
 
 def _asks_for_help(ctx: Any, args: list[str]) -> bool:
@@ -1363,6 +1369,35 @@ def _build_test_cmd(
     return cmd
 
 
+def _head_seed(root: Path) -> int:
+    """A shuffle seed derived from HEAD: its commit hash's leading eight hex digits."""
+    result = _get("run_subprocess")(["git", "rev-parse", "HEAD"], cwd=root, quiet=True)
+    if result.returncode != 0:
+        _get("print_error")(MESSAGES.ci.repeat_seed_unavailable, prefix=False)
+        raise typer.Exit(1)
+    return int(result.stdout[:8], 16)
+
+
+def _run_shuffled_repeats(
+    base_cmd: list[str], targets: list[str] | None, runs: int, seed: int | None
+) -> None:
+    """Run the targets `runs` times, one run after another, shuffled by pytest-randomly with
+    seeds `seed` to `seed + runs - 1`, stopping at the first failure with its seed and command.
+    """
+    if targets is None:
+        _get("print_error")(MESSAGES.ci.repeat_needs_targets, prefix=False)
+        raise typer.Exit(1)
+    first = _head_seed(_get_project_root()) if seed is None else seed
+    for run, run_seed in enumerate(range(first, first + runs), start=1):
+        cmd = [*base_cmd, "-p", "randomly", f"--randomly-seed={run_seed}", *targets]
+        if not _run(cmd):
+            failed = MESSAGES.ci.repeat_failed.format(
+                run=run, runs=runs, seed=run_seed, command=shlex.join(cmd)
+            )
+            _get("print_error")(failed, prefix=False, safe=True)
+            raise typer.Exit(1)
+
+
 @app.command()
 def test(
     paths: Annotated[list[Path] | None, typer.Argument(help=HELP.ci.test_paths)] = None,
@@ -1375,6 +1410,10 @@ def test(
     fallback: Annotated[
         bool, typer.Option("--fallback/--no-fallback", help=HELP.ci.selection_fallback)
     ] = True,
+    repeat: Annotated[
+        int, typer.Option("--repeat", min=0, help=HELP.ci.repeat)
+    ] = DEFAULT_CI_TEST_REPEAT_RUNS,
+    seed: Annotated[int | None, typer.Option("--seed", help=HELP.ci.seed)] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -1399,6 +1438,10 @@ def test(
     if k and k.startswith("-"):
         _get("print_error")("Invalid keyword filter expression.", prefix=False)
         raise typer.Exit(1)
+
+    if repeat:
+        _run_shuffled_repeats(_build_test_cmd("0", verbose, k, x, None), targets, repeat, seed)
+        return
 
     cmd = _build_test_cmd(numprocesses, verbose, k, x, targets)
     if not _run(cmd):
@@ -1787,3 +1830,79 @@ def run(
     if not is_dry_run() and not any(res.dry_run for res in results):
         if not all(res.passed for res in results):
             raise typer.Exit(1)
+
+
+_MUTMUT = ["uv", "run", "mutmut"]
+_MUTMUT_RESULTS = [*_MUTMUT, "results", "--all", "true"]
+
+
+def _capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run a command in the checked tree as `_run` would, returning its captured output."""
+    argv = list(_planned_request_for_cmd(cmd).argv)
+    completed: subprocess.CompletedProcess[str] = _get("run_subprocess")(
+        argv, cwd=_get_project_root(), capture_output=True
+    )
+    return completed
+
+
+def _plan_mutation(run_cmd: list[str]) -> None:
+    """The dry run's requests: the mutmut run, its results, and a show for each survivor."""
+    requests = [
+        _planned_request_for_cmd(run_cmd),
+        _planned_request_for_cmd(_MUTMUT_RESULTS),
+        _planned_request_for_cmd([*_MUTMUT, "show", "<mutant>"], repeat="each surviving mutant"),
+    ]
+    render_request_plan(MESSAGES.ci.ci_dry_run_heading, requests)
+
+
+def _report_mutation(results_text: str, targets: Sequence[MutationTarget]) -> None:
+    """Show each surviving mutant of the targets with its diff, then the status counts."""
+    from devops_cli.ci.mutate import tally
+
+    report = tally(results_text, targets)
+    for mutant, target in report.survivors:
+        location = MESSAGES.ci.mutate_survivor.format(
+            path=target.path, line=target.line, qualname=target.qualname
+        )
+        _get("print_warning")(location, prefix=False, safe=True)
+        _get("write_stdout")(_capture([*_MUTMUT, "show", mutant]).stdout)
+    counts = ", ".join(f"{status} {count}" for status, count in report.counts.items())
+    _get("print_info")(MESSAGES.ci.mutate_counts.format(counts=counts), prefix=False, safe=True)
+
+
+@app.command(help=HELP.ci.mutate)
+def mutate(
+    paths: Annotated[list[Path] | None, typer.Argument(help=HELP.ci.mutate_paths)] = None,
+    changed: Annotated[bool, typer.Option("--changed", help=HELP.ci.mutate_changed)] = False,
+    base: Annotated[
+        str, typer.Option("--base", "-b", help=HELP.options.base_branch)
+    ] = CONST_GIT_MAIN_BRANCH,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Mutation-test the selected functions with mutmut and show what survives (#853)."""
+    if not (paths or changed):
+        _get("print_error")(MESSAGES.ci.mutate_needs_target, prefix=False)
+        raise typer.Exit(2)
+    if dry_run:
+        set_dry_run(True)
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    from devops_cli.ci.mutate import select_targets
+    from devops_cli.exceptions import GitOperationError
+
+    with exit_on_error(GitOperationError):
+        targets = select_targets(_get_project_root(), paths or [], changed=changed, base=base)
+    if not targets:
+        _get("print_muted")(MESSAGES.ci.mutate_nothing)
+        return
+    run_cmd = [*_MUTMUT, "run", *(glob for target in targets for glob in target.run_globs)]
+    if is_dry_run():
+        _plan_mutation(run_cmd)
+        return
+    if not _run(run_cmd, timeout=DEFAULT_CI_MUTATE_TIMEOUT_SECONDS):
+        raise typer.Exit(1)
+    results = _capture(_MUTMUT_RESULTS)
+    if results.returncode != 0:
+        _get("write_stderr")(results.stderr)
+        raise typer.Exit(1)
+    _report_mutation(results.stdout, targets)

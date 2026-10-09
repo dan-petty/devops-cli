@@ -13,6 +13,8 @@ from typing import Any
 import pytest
 import yaml
 
+from devops_cli.tools_lock import load_tools_lock
+
 WORKFLOWS_DIR = Path(".github/workflows")
 RELEASE_PATH = WORKFLOWS_DIR / "release.yml"
 
@@ -81,3 +83,16 @@ def test_release_workflow_attest_build_provenance_mutation() -> None:
 
     with pytest.raises(AssertionError, match="has subject-digest without subject-name"):
         _assert_attest_build_provenance_contract(mutated)
+
+
+def test_every_trivy_scan_runs_the_trivy_tools_lock_pins() -> None:
+    """CI's Trivy scans run the Trivy `devops install-tools` installs, so CI and local scans agree (#1499)."""
+    pinned = f"v{load_tools_lock().binary['trivy'].version}"
+
+    assert [
+        (path.name, job_id, step.get("with", {}).get("version"))
+        for path in sorted(WORKFLOWS_DIR.glob("*.yml"))
+        for job_id, step in _extract_steps_with_action(
+            _load_workflow(path), "aquasecurity/trivy-action"
+        )
+    ] == [("ci.yml", "service-image", pinned), ("release.yml", "service-image", pinned)]

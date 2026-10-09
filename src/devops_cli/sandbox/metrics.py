@@ -641,9 +641,26 @@ def _resolve_instance_port(instance: SandboxInstance) -> int:
 
 def _build_scrape_url(target: str, prom_endpoint: str) -> str:
     """Build normalized Prometheus scrape URL."""
-    base = target if target.startswith("http") else f"http://{target}"
-    ep = prom_endpoint if prom_endpoint.startswith("/") else f"/{prom_endpoint}"
-    return f"{base.rstrip('/')}{ep}"
+    from devops_cli.http.urls import read_url_or_authority
+
+    parsed = read_url_or_authority(target)
+    if parsed is None or not parsed.hostname:
+        raise ValueError(f"Scrape target '{target}' names no valid host.")
+
+    scheme = parsed.scheme.lower() if parsed.scheme else "http"
+    if scheme not in ("http", "https"):
+        raise ValueError(f"Invalid scrape target scheme '{scheme}': must be http or https")
+
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError(f"Invalid scrape target port: {exc}") from exc
+
+    target_path = parsed.path.rstrip("/")
+    ep = prom_endpoint.lstrip("/")
+    full_path = f"{target_path}/{ep}" if target_path else f"/{ep}"
+
+    return str(httpx2.URL(scheme=scheme, host=parsed.hostname, port=port, path=full_path))
 
 
 __all__ = [

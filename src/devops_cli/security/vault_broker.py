@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from typing import Any, Literal
-from urllib.parse import urlparse
+from urllib.parse import urldefrag, urlsplit
 
 import httpx2
 from pydantic import BaseModel, ValidationError
@@ -69,17 +69,13 @@ def parse_vault_uri(uri: str) -> tuple[str, str | None]:
         vault://secret/data/devops/creds#github_token -> ('secret/data/devops/creds', 'github_token')
         secret/data/ci/database -> ('secret/data/ci/database', None)
     """
-    cleaned = uri.strip()
-    key: str | None = None
-
-    if "#" in cleaned:
-        cleaned, key = cleaned.split("#", 1)
-        key = key.strip() or None
+    cleaned, frag = urldefrag(uri.strip())
+    key = frag.strip() or None
 
     validate_no_path_traversal(cleaned, error_cls=VaultConfigurationError, label="Vault URI")
 
-    if cleaned.startswith("vault://"):
-        parsed = urlparse(cleaned)
+    parsed = urlsplit(cleaned)
+    if parsed.scheme.lower() == "vault":
         path = f"{parsed.netloc}{parsed.path}".lstrip("/")
         validate_no_path_traversal(path, error_cls=VaultConfigurationError, label="Vault URI")
         return path, key
@@ -141,7 +137,7 @@ class VaultSecretBroker:
             or os.getenv("DEVOPS_CLI_VAULT_ADDR")
             or "http://127.0.0.1:8200"
         ).rstrip("/")
-        parsed = urlparse(self.vault_addr)
+        parsed = urlsplit(self.vault_addr)
         if parsed.scheme not in ("http", "https"):
             raise VaultConfigurationError(
                 f"Invalid Vault address scheme '{parsed.scheme}'; expected 'http' or 'https'"

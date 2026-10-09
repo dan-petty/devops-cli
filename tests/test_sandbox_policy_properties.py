@@ -10,6 +10,7 @@ import ipaddress
 from pathlib import Path
 from typing import Any
 
+import pytest
 from hypothesis import Phase, example, given, settings
 from hypothesis import strategies as st
 
@@ -63,7 +64,14 @@ def _check_raises(func: Any, *args: Any, expected_exc: type[Exception], **kwargs
 # =============================================================================
 
 _TRAVERSAL_PREFIXES = ("../", "..\\", "%2e%2e/", "%2e%2e\\", "%2E%2E/", "%2E%2E\\")
-_TRAVERSAL_SEGMENTS = ("/../", "\\..\\", "/%2e%2e/", "\\%2e%2e\\", "/%2E%2E/", "\\%2E%2E\\")
+_TRAVERSAL_SEGMENTS = (
+    "/../",
+    "\\..\\",
+    "/%2e%2e/",
+    "\\%2e%2e\\",
+    "/%2E%2E/",
+    "\\%2E%2E\\",
+)
 
 
 @_DERANDOMIZED
@@ -148,7 +156,9 @@ def test_property_nul_bytes_in_subpath_raise_error_cls(head: str, tail: str) -> 
 )
 @example(path_suffix="etc/passwd")
 @example(path_suffix=".ssh/id_rsa")
-def test_property_absolute_tilde_and_file_schemes_denied_when_not_allowed(path_suffix: str) -> None:
+def test_property_absolute_tilde_and_file_schemes_denied_when_not_allowed(
+    path_suffix: str,
+) -> None:
     """Property: Absolute paths, tilde, and file:// URIs are denied when allow_absolute=False."""
     disallowed_forms = [
         f"/{path_suffix}",
@@ -236,6 +246,36 @@ def test_property_parse_whitelist_entry_reads_ipv6_hosts_and_ports_oracle(
     )
 
 
+def test_parse_whitelist_entry_host_extraction_and_rejections() -> None:
+    """Verify lowercase normalization, userinfo stripping, and empty port rejection in whitelist entries."""
+    from devops_cli.sandbox.models import (
+        _parse_whitelist_entry,
+        _validate_public_whitelist_item,
+    )
+
+    assert (
+        _parse_whitelist_entry("Example.COM"),
+        _parse_whitelist_entry("user@example.com:22"),
+    ) == (
+        ("example.com", 443),
+        ("example.com", 22),
+    )
+
+    for entry in (
+        "http://:8080",
+        "https://",
+        "http:///x",
+        "example.com:",
+        "example.com:/x",
+    ):
+        with pytest.raises(ValueError, match="Whitelist entry"):
+            _parse_whitelist_entry(entry)
+
+    for invalid_item in ("example.com:", "example.com:/x"):
+        with pytest.raises(ValueError, match="Whitelist entry"):
+            _validate_public_whitelist_item(invalid_item)
+
+
 # =============================================================================
 # 3. Cloud Metadata & Link-Local Containment Oracle Across All Six Sites
 # =============================================================================
@@ -263,7 +303,9 @@ _METADATA_ORACLE_TARGETS = (
 
 @_DERANDOMIZED
 @given(target=st.sampled_from(_METADATA_ORACLE_TARGETS))
-def test_property_cloud_metadata_superset_containment_at_all_six_sites(target: str) -> None:
+def test_property_cloud_metadata_superset_containment_at_all_six_sites(
+    target: str,
+) -> None:
     """Property: Unified cloud metadata superset is rejected with 1.0 containment at every site.
 
     The sandbox probe and Jaeger no longer keep checks of their own: both dial through the
@@ -290,12 +332,18 @@ def test_property_cloud_metadata_superset_containment_at_all_six_sites(target: s
 
     # 4. http/egress.py: the connect-time policy, at the loopback level
     connect_blocked = _check_raises(
-        vet_addresses, clean_host, 80, EgressLevel.LOOPBACK, expected_exc=SSRFBlockedError
+        vet_addresses,
+        clean_host,
+        80,
+        EgressLevel.LOOPBACK,
+        expected_exc=SSRFBlockedError,
     )
 
     # 5. sandbox/models.py: local whitelist and local host
     whitelist_blocked = _check_raises(
-        _validate_local_whitelist_item, f"http://{url_target}:80", expected_exc=ValueError
+        _validate_local_whitelist_item,
+        f"http://{url_target}:80",
+        expected_exc=ValueError,
     )
     models_host_blocked = _check_raises(_resolve_local_host, target, expected_exc=ValueError)
 

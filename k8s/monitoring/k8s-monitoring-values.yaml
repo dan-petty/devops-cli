@@ -10,6 +10,9 @@ destinations:
   localPrometheus:
     type: prometheus
     url: http://prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+    # Dashboards and rules key on `cluster`; the chart default would also write `k8s_cluster_name`.
+    clusterLabels:
+      - cluster
   localLoki:
     type: loki
     url: http://loki.logging.svc.cluster.local:3100/loki/api/v1/push
@@ -52,7 +55,6 @@ clusterMetrics:
         - kube_pod_container_status_running
         - kube_pod_status_qos_class
         - kube_pod_status_reason
-        - kube_hpa_labels
         - kube_pod_container_status_ready
         - kube_pod_container_status_last_terminated_exitcode
         - kube_pod_container_status_terminated
@@ -64,30 +66,16 @@ hostMetrics:
   collector: alloy-metrics
   linuxHosts:
     enabled: true
+    # No allow list: node-exporter's collector flags (telemetryServices.node-exporter.extraArgs)
+    # decide what is collected, and Prometheus keeps every series it serves. With the default list,
+    # the integration list and includeMetrics all empty, the chart renders no keep rule; its
+    # ramfs/tmpfs filesystem drop stays. An allow list cannot follow a third-party dashboard (Node
+    # Exporter Full), and each release that widened or narrowed it left different panels empty
+    # (#1129). The series that explain a host failure (#1080) come through because node-exporter
+    # serves them, with the systemd collector turned on under telemetryServices.
     metricsTuning:
-      useIntegrationAllowList: true
-      # Beyond the chart's default list, the series that explain a host failure (#1080): boot time
-      # (an unclean restart), temperatures with their chip names, pressure stalls, memory errors
-      # (EDAC), the NVMe disk, free filesystem space, and the host units' state. node-exporter runs
-      # every collector these need by default except systemd, turned on under telemetryServices.
-      # Setting useIntegrationAllowList to true includes the chart's integration list, and includeMetrics
-      # guarantees node_uname_info (for Node Exporter Full dropdowns), load, disk I/O, and TCP metrics.
-      includeMetrics:
-        - node_time_seconds
-        - node_boot_time_seconds
-        - node_hwmon_temp_celsius
-        - node_hwmon_chip_names
-        - node_systemd_unit_state
-        - node_pressure_.*
-        - node_edac_correctable_errors_total
-        - node_edac_uncorrectable_errors_total
-        - node_nvme_info
-        - node_filesystem_avail_bytes
-        - node_filesystem_size_bytes
-        - node_uname_info
-        - node_load.*
-        - node_disk_io_now
-        - node_netstat_Tcp_CurrEstab
+      useDefaultAllowList: false
+      useIntegrationAllowList: false
 
 clusterEvents:
   enabled: true
@@ -212,6 +200,9 @@ collectors:
           cpu: 1000m
           memory: 1024Mi
   alloy-singleton:
+    # clusterEvents runs unclustered, so exactly one pod watches and ships the events.
+    presets:
+      - singleton
     alloy:
       enableReporting: false
       resources:

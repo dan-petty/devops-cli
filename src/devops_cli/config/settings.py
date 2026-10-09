@@ -523,12 +523,27 @@ class AIConfig(BaseModel):
         if not self.ollama_urls:
             return list(DEFAULT_OLLAMA_URLS)
 
+        from urllib.parse import urlsplit, urlunsplit
+
+        from devops_cli.exceptions.config import ConfigurationError
+
         cleaned: list[str] = []
         for u in self.ollama_urls:
             raw = (u or "").strip().rstrip("/")
             if not raw:
                 continue
-            cleaned.append(raw if raw.startswith(("http://", "https://")) else f"http://{raw}")
+            parts = urlsplit(raw)
+            scheme = parts.scheme.lower()
+            if scheme not in ("http", "https") or not parts.netloc or not parts.hostname:
+                raise ConfigurationError(
+                    f"Invalid ai.ollama_urls entry '{u}': must have http or https scheme and host",
+                    key="ai.ollama_urls",
+                )
+            cleaned.append(
+                urlunsplit((scheme, parts.netloc, parts.path, parts.query, parts.fragment)).rstrip(
+                    "/"
+                )
+            )
         return cleaned or list(DEFAULT_OLLAMA_URLS)
 
     def for_task(self, task: str) -> AIConfig:

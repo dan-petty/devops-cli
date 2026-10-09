@@ -249,5 +249,77 @@ def test_ingest_remote_docs_multipage_traversal(tmp_path: Path) -> None:
             output_dir=tmp_path,
             max_pages=2,
         )
-        assert result.total_pages == 2
-        assert result.total_chunks >= 2
+        assert (result.total_pages, result.total_chunks >= 2) == (2, True)
+
+
+def test_ingest_remote_docs_origin_filtering(tmp_path: Path) -> None:
+    """Ensure links are only followed when origin matches start URL origin."""
+    ingester = DocsIngester()
+
+    page1_html = """<html><body>
+    <h1>Root Page</h1>
+    <a href="https://EXAMPLE.COM/a">Upper Host Same Origin</a>
+    <a href="https://example.com:443/b">Explicit Default Port Same Origin</a>
+    <a href="http://example.com/c">Downgrade Scheme Different Origin</a>
+    <a href="https://example.com\\@192.0.2.1/d">Backslash Host Different Origin</a>
+    <a href="https://example.com/tab\tlink">Invalid Tab Link</a>
+    </body></html>"""
+
+    visited_urls: list[str] = []
+
+    def mock_get(url: str) -> MagicMock:
+        visited_urls.append(url)
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.headers = {"content-type": "text/html"}
+        resp.text = page1_html
+        return resp
+
+    with (
+        patch("devops_cli.ai.library.docs_ingester.validate_service_url"),
+        patch("httpx2.Client.get", side_effect=mock_get),
+    ):
+        result = ingester.ingest_remote_docs(
+            "https://example.com/root",
+            output_dir=tmp_path,
+            max_pages=10,
+        )
+        assert (
+            "https://example.com/a" in visited_urls,
+            "https://example.com/b" in visited_urls,
+            "http://example.com/c" in visited_urls,
+            any("192.0.2.1" in u for u in visited_urls),
+            result.total_pages,
+        ) == (True, True, False, False, 3)
+
+
+def test_ingest_remote_docs_slug_sanitization() -> None:
+    """Ensure userinfo is stripped from directory slug and %2e%2e does not escape ingest root."""
+    from devops_cli.core.repo import resolve_store_path
+
+    ingester = DocsIngester()
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.headers = {"content-type": "text/html"}
+    resp.text = "<html><body><h1>Doc</h1><p>Content</p></body></html>"
+
+    with (
+        patch("devops_cli.ai.library.docs_ingester.validate_service_url"),
+        patch("httpx2.Client.get", return_value=resp),
+    ):
+        res1 = ingester.ingest_remote_docs(
+            "https://myuser:secrettoken@example.com",
+            max_pages=1,
+        )
+        res2 = ingester.ingest_remote_docs(
+            "https://example.com/%2e%2e",
+            max_pages=1,
+        )
+        out_path = Path(res2.output_dir).resolve()
+        ingest_root = resolve_store_path(Path("docs_ingest")).resolve()
+
+        assert (
+            "myuser" not in res1.output_dir,
+            "secrettoken" not in res1.output_dir,
+            out_path.parent == ingest_root,
+        ) == (True, True, True)

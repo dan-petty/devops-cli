@@ -75,46 +75,41 @@ def test_iter_workspace_repos(tmp_path: Path) -> None:
     assert discovered == [repo_1]
 
 
-GITHUB_ED25519_KEY = "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
-
-
 def test_ensure_known_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _ensure_known_host checks membership and writes only verified host keys."""
+    """Verify _ensure_known_host writes GitHub's pinned lines and sets permissions."""
+    from devops_cli.config.constants import CONST_GITHUB_KNOWN_HOSTS_LINES
+
+    _ensure_known_host.cache_clear()
     fake_home = tmp_path / "home"
     monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
 
-    # 1. Host already known in known_hosts: no scan is attempted at all. Membership is
-    #    now determined in-process, so ssh-keygen is never spawned for the check either.
     known_hosts = fake_home / ".ssh" / "known_hosts"
-    known_hosts.parent.mkdir(parents=True, exist_ok=True)
-    known_hosts.write_text(f"github.com ssh-ed25519 {GITHUB_ED25519_KEY}\n", encoding="utf-8")
+    _ensure_known_host()
 
-    with patch("devops_cli.git.operations.run_subprocess") as mock_run:
-        _ensure_known_host("github.com")
-        mock_run.assert_not_called()
+    content = known_hosts.read_text(encoding="utf-8")
+    for line in CONST_GITHUB_KNOWN_HOSTS_LINES:
+        assert line in content
+    assert (
+        oct(known_hosts.stat().st_mode & 0o777),
+        oct(known_hosts.parent.stat().st_mode & 0o777),
+    ) == ("0o600", "0o700")
 
-    # 2. Host missing from known_hosts -> scan, verify against GitHub's published
-    #    fingerprints, then record it.
-    known_hosts.write_text("", encoding="utf-8")
-    with patch("devops_cli.git.operations.run_subprocess") as mock_run:
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout=f"github.com ssh-ed25519 {GITHUB_ED25519_KEY}\n"
-        )
-        _ensure_known_host("github.com")
-
-        content = known_hosts.read_text(encoding="utf-8")
-        assert GITHUB_ED25519_KEY in content
+    # A second run adds nothing
+    _ensure_known_host.cache_clear()
+    _ensure_known_host()
+    assert known_hosts.read_text(encoding="utf-8") == content
 
 
-def test_clone_repo_ensures_github_known_host_for_ssh_urls(tmp_path: Path) -> None:
+def test_clone_repo_ensures_github_known_host_for_all_urls(tmp_path: Path) -> None:
+    """Verify clone_repo ensures host keys are known for all clone URLs."""
     with (
         patch("devops_cli.git.operations._ensure_known_host") as mock_known_host,
         patch("devops_cli.git.operations.gitlib.Repo.clone_from") as mock_clone_from,
     ):
         clone_repo("git@github.com:example/repo.git", tmp_path / "repo")
+        clone_repo("https://github.com/example/repo2.git", tmp_path / "repo2")
 
-    mock_known_host.assert_called_once_with()
-    mock_clone_from.assert_called_once()
+    assert (mock_known_host.call_count, mock_clone_from.call_count) == (2, 2)
 
 
 def test_fetch_all(tmp_path: Path) -> None:
@@ -305,76 +300,13 @@ def test_git_operations_edge_cases(tmp_path: Path) -> None:
         mock_repo_cls.return_value = mock_repo
         assert delete_merged_branches(tmp_path) == []
 
-    # 3. _ensure_known_host when keyscan fails
-    with patch("devops_cli.git.operations.run_subprocess") as mock_run:
-        mock_run.side_effect = [MagicMock(returncode=1), MagicMock(returncode=1, stdout="")]
-        _ensure_known_host("example.com", known_hosts=tmp_path / ".ssh" / "known_hosts")
 
-
-def test_append_known_host_entry(tmp_path: Path) -> None:
-    """Verify _append_known_host_entry safely writes host keys and sets permissions."""
-    from devops_cli.git.operations import _append_known_host_entry
-
-    known_hosts = tmp_path / "known_hosts"
-    _append_known_host_entry(known_hosts, "example.com ssh-ed25519 AAAAC3NzaC1\n")
-    assert "example.com" in known_hosts.read_text(encoding="utf-8")
-    assert oct(known_hosts.stat().st_mode & 0o777) == "0o600"
-
-    # Append second entry when existing content already ends with newline (prevent blank lines)
-    _append_known_host_entry(known_hosts, "example.com key2\n")
-    content = known_hosts.read_text(encoding="utf-8")
-    assert content == "example.com ssh-ed25519 AAAAC3NzaC1\nexample.com key2\n"
-    assert "\n\n" not in content
-
-    # Append third entry when existing content lacks trailing newline
-    known_hosts.write_text("example.com key1", encoding="utf-8")
-    _append_known_host_entry(known_hosts, "example.com key3\n")
-    content = known_hosts.read_text(encoding="utf-8")
-    assert content == "example.com key1\nexample.com key3\n"
-
-    # Empty or whitespace entry should be a no-op
-    _append_known_host_entry(known_hosts, "   \n")
-    assert known_hosts.read_text(encoding="utf-8") == content
-
-    # Gracefully handle OS error when directory is read-only
-    invalid_path = tmp_path / "nonexistent_dir" / "known_hosts"
-    _append_known_host_entry(invalid_path, "example.com key4\n")
-
-
-def test_host_key_and_clone_prep_helpers(tmp_path: Path) -> None:
-    """Verify _is_host_in_known_hosts, _scan_host_key, _validate_clone_dest, and _prepare_clone_url."""
+def test_validate_clone_dest_and_prepare_clone_url(tmp_path: Path) -> None:
+    """Verify _validate_clone_dest traversal checks and _prepare_clone_url host key seeding."""
     from devops_cli.exceptions import GitOperationError
-    from devops_cli.git.operations import (
-        _is_host_in_known_hosts,
-        _prepare_clone_url,
-        _scan_host_key,
-        _validate_clone_dest,
-    )
+    from devops_cli.git.operations import _prepare_clone_url, _validate_clone_dest
 
-    # 1. _is_host_in_known_hosts when file missing
-    missing_file = tmp_path / "nonexistent_known_hosts"
-    assert not _is_host_in_known_hosts("github.com", missing_file)
-
-    # 2. _is_host_in_known_hosts reads the file directly rather than spawning ssh-keygen
-    existing_file = tmp_path / "known_hosts"
-    existing_file.write_text("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5\n", encoding="utf-8")
-    assert _is_host_in_known_hosts("github.com", existing_file)
-    assert not _is_host_in_known_hosts("gitlab.example.com", existing_file)
-
-    # 3. _scan_host_key successes and failures
-    with patch("devops_cli.git.operations.run_subprocess") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout="github.com ssh-ed25519 AAAAC3N\n")
-        assert _scan_host_key("github.com") == "github.com ssh-ed25519 AAAAC3N\n"
-
-        mock_run.return_value = MagicMock(returncode=1, stdout="")
-        assert _scan_host_key("github.com") is None
-
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout="otherhost.com ssh-ed25519 AAAAC3N\n"
-        )
-        assert _scan_host_key("github.com") is None
-
-    # 4. _validate_clone_dest path traversal rejection
+    # Path traversal rejection
     with pytest.raises(GitOperationError, match="Path traversal detected"):
         _validate_clone_dest(Path("../unsafe_path"))
 
@@ -397,16 +329,14 @@ def test_host_key_and_clone_prep_helpers(tmp_path: Path) -> None:
     with pytest.raises(GitOperationError, match="forbidden system path"):
         _validate_clone_dest(Path("/etc/git-dest"))
 
-    # 5. _prepare_clone_url
+    # _prepare_clone_url calls _ensure_known_host for both SSH and HTTPS
     with patch("devops_cli.git.operations._ensure_known_host") as mock_ensure:
         url_ssh = _prepare_clone_url("git@github.com:org/repo.git")
-        assert url_ssh == "git@github.com:org/repo.git"
-        mock_ensure.assert_called_once()
+        assert (url_ssh, mock_ensure.call_count) == ("git@github.com:org/repo.git", 1)
 
     with patch("devops_cli.git.operations._ensure_known_host") as mock_ensure:
         url_https = _prepare_clone_url("https://github.com/org/repo.git")
-        assert url_https == "https://github.com/org/repo.git"
-        mock_ensure.assert_not_called()
+        assert (url_https, mock_ensure.call_count) == ("https://github.com/org/repo.git", 1)
 
 
 def test_read_file_at_revision_reads_the_base_revision(symbol_removal_repo: Path) -> None:

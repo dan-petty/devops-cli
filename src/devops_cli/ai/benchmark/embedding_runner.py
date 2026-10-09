@@ -18,6 +18,7 @@ from devops_cli.ai.benchmark.document_chunker import (
 from devops_cli.ai.benchmark.embedding_tasks import (
     EmbeddingEvalPair,
 )
+from devops_cli.ai.benchmark.model_spec import parse_model_spec
 from devops_cli.ai.benchmark.runner import _get_benchmarks_base_dir, _key_for_endpoint
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.vector_similarity import cosine_similarity
@@ -252,21 +253,35 @@ class EmbeddingBenchmarkRunner:
 
     def _engine_for_model(self, model_name: str, server_url: str | None = None) -> EmbeddingsEngine:
         """Instantiate an EmbeddingsEngine configured for the specified model and server."""
+        from devops_cli.ai.benchmark.model_spec import parse_model_spec
         from devops_cli.core.validation import validate_url
+        from devops_cli.exceptions import ValidationError
+        from devops_cli.http.urls import get_url_origin
 
         endpoint = server_url
-        clean_model = model_name
-        if "@" in model_name:
-            clean_model, _, explicit_endpoint = model_name.partition("@")
-            if explicit_endpoint:
-                endpoint = explicit_endpoint
+        clean_model, explicit_endpoint = parse_model_spec(model_name)
+        if explicit_endpoint:
+            endpoint = explicit_endpoint
 
         if not endpoint and self.servers:
             endpoint = self.servers[0]
 
         resolved_provider = self.provider
-        if endpoint and (":11434" in endpoint or "ollama" in endpoint):
-            resolved_provider = "ollama"
+        if endpoint:
+            endpoint_origin = get_url_origin(endpoint)
+            ollama_origins = {
+                origin for u in self.settings.ai.ollama_urls if (origin := get_url_origin(u))
+            }
+            gateway_origin = get_url_origin(self.settings.ai.gateway_url or "")
+            if endpoint_origin and endpoint_origin in ollama_origins:
+                resolved_provider = "ollama"
+            elif endpoint_origin and gateway_origin and endpoint_origin == gateway_origin:
+                resolved_provider = "gateway"
+            elif self.provider == "gateway":
+                raise ValidationError(
+                    f"Embedding benchmark endpoint '{endpoint}' does not match configured gateway_url "
+                    f"'{self.settings.ai.gateway_url}'. Specify --provider to benchmark an explicit endpoint under another provider."
+                )
 
         allow_priv = self.settings.ai.allow_private_network
         ai_kwargs: dict[str, Any] = {
@@ -292,10 +307,9 @@ class EmbeddingBenchmarkRunner:
     ) -> EmbeddingBenchmarkResult:
         """Execute full benchmark evaluation for a single model."""
         endpoint = server_url
-        if "@" in model_name:
-            _clean_model, _, explicit_endpoint = model_name.partition("@")
-            if explicit_endpoint:
-                endpoint = explicit_endpoint
+        _clean_model, explicit_endpoint = parse_model_spec(model_name)
+        if explicit_endpoint:
+            endpoint = explicit_endpoint
         if not endpoint:
             endpoint = self.servers[0] if self.servers else "default"
         return self.evaluate_model_on_server(model_name, endpoint, pairs, corpus)
@@ -308,7 +322,7 @@ class EmbeddingBenchmarkRunner:
         corpus: list[str],
     ) -> EmbeddingBenchmarkResult:
         """Execute full benchmark evaluation for a single model on a specific server."""
-        clean_model = model_name.split("@")[0]
+        clean_model, _ = parse_model_spec(model_name)
 
         with self._print_lock:
             print_info(
@@ -534,8 +548,8 @@ class EmbeddingBenchmarkRunner:
         # Build Cartesian product of (model, server) if multiple servers provided
         target_runs: list[tuple[str, str]] = []
         for m in self.models:
-            if "@" in m:
-                clean_m, _, srv = m.partition("@")
+            clean_m, srv = parse_model_spec(m)
+            if srv:
                 target_runs.append((clean_m, srv))
             elif len(self.servers) > 1:
                 for srv in self.servers:

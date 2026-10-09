@@ -19,13 +19,19 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # uv runs only its own CPython builds, never the runner image's Python: setup-uv exports
+  # UV_PYTHON=3.14, which a runner's own 3.14 would otherwise satisfy (#1494). Never also set
+  # UV_PYTHON_PREFERENCE; uv refuses to run with both.
+  UV_MANAGED_PYTHON: "1"
+
 jobs:
   # Fast-failing static gates. Split from the test suite so lint, typing, and formatting
   # errors surface in roughly a minute instead of queuing behind the full suite.
   static:
     name: Static Analysis
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 15
     permissions:
       contents: read
@@ -45,14 +51,17 @@ jobs:
   test:
     name: Tests & Coverage
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 30
     permissions:
       contents: read
 
     steps:
+      # Full history so the changed-line coverage step can find the merge base.
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
 
       - name: Set up uv toolchain
         uses: ./.github/actions/setup-toolchain
@@ -64,12 +73,30 @@ jobs:
       - name: Tests & Coverage Quality Gate
         run: uv run devops ci --check --no-cache --only test
 
+      # Advisory changed-line coverage against the pull request's own base branch (#850).
+      # No --fail-under: it reports in the job summary and never fails on the figure.
+      # diff-cover truncates its output file, so it writes first and the pragma list
+      # is appended after it.
+      - name: Changed-Line Coverage
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF"
+          uv run diff-cover .data/coverage.xml --compare-branch="origin/${BASE_REF}" --format "markdown:${GITHUB_STEP_SUMMARY}"
+          {
+            echo "### Added pragma: no cover lines"
+            echo "~~~diff"
+            git diff --unified=0 -G 'pragma: no cover' "origin/${BASE_REF}...HEAD" -- src | grep -e '^+++ ' -e '^+.*pragma: no cover' || echo 'None.'
+            echo "~~~"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # The published image packages devops-cli itself, so it is rebuilt only for pull
   # requests targeting main, and only when the change actually alters image content.
   devcontainer:
     name: DevContainer Image
     if: github.event_name == 'pull_request' && github.base_ref == 'main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 30
     permissions:
       contents: read
@@ -157,17 +184,14 @@ jobs:
           imageTag: pr-${{ github.event.pull_request.number }}
           push: "always"
 
-  # A release pull request's head is this repository's release/vX.Y.Z, whose every push runs
-  # release.yml's Build & Publish Service Image on the same tree (#1451), so this job builds
-  # every other pull request into main.
+  # Builds, smoke-tests and scans the Service image of every pull request into main, release
+  # pull requests included, without pushing it; release.yml publishes it after the merge (#1486).
   service-image:
     name: Service Image
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' && github.base_ref == 'main' &&
-       !(startsWith(github.head_ref, 'release/v') &&
-         github.event.pull_request.head.repo.full_name == github.repository))
-    runs-on: ubuntu-latest
+      (github.event_name == 'pull_request' && github.base_ref == 'main')
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 30
     permissions:
       contents: read
@@ -251,7 +275,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-          version: v0.70.0
+          version: v0.75.0
 
 
   # Advisory only: reports newer upstream releases without gating any merge. Scheduled so
@@ -259,7 +283,7 @@ jobs:
   dependency-freshness:
     name: Dependency Freshness
     if: github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 15
     permissions:
       contents: read
@@ -275,3 +299,49 @@ jobs:
 
       - name: Report Outdated Dependencies
         run: uv run devops ci outdated
+
+  # Advisory: reruns the pull request's added or modified test files three times, one run after
+  # another, each in a shuffled order, to catch tests that depend on the order they run in.
+  # Shuffling the whole suite waits for thread-leak isolation.
+  changed-tests:
+    name: Changed-Test Independence
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect Changed Test Files
+        id: changed_tests
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF"
+          git diff --name-only --diff-filter=AMR "origin/${BASE_REF}...HEAD" -- ':(glob)tests/**/test_*.py' > "$RUNNER_TEMP/changed-tests.txt"
+          if [ -s "$RUNNER_TEMP/changed-tests.txt" ]; then
+            cat "$RUNNER_TEMP/changed-tests.txt"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No test file changed; skipping."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up uv toolchain
+        if: steps.changed_tests.outputs.changed == 'true'
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: changed-tests
+          tooling-cache-paths: |
+            .pytest_cache
+
+      - name: Run Changed Tests in Shuffled Order
+        if: steps.changed_tests.outputs.changed == 'true'
+        run: |
+          readarray -t CHANGED_TESTS < "$RUNNER_TEMP/changed-tests.txt"
+          uv run devops ci test --repeat 3 -- "${CHANGED_TESTS[@]}"
