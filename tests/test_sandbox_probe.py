@@ -491,20 +491,29 @@ def test_engine_probe_raises_when_not_found() -> None:
 
 
 def test_parse_target_endpoint_variations() -> None:
-    """Test _parse_target_endpoint with multiple formats and schemes."""
+    """Test _parse_target_endpoint returns httpx2.Origin with scheme, host, and port."""
+    from devops_cli.exceptions import ValidationError
     from devops_cli.sandbox.probe import _parse_target_endpoint
 
-    h1, p1 = _parse_target_endpoint("https://example.com")
-    assert h1 == "example.com"
-    assert p1 == 443
+    cases = [
+        ("https://example.com", ("https", "example.com", 443)),
+        ("127.0.0.1:9090", ("http", "127.0.0.1", 9090)),
+        ("localhost", ("http", "localhost", 80)),
+        ("[::1]:8080", ("http", "::1", 8080)),
+        ("HTTPS://example.com:8443", ("https", "example.com", 8443)),
+    ]
+    for target, (expected_scheme, expected_host, expected_port) in cases:
+        orig = _parse_target_endpoint(target)
+        assert (orig.scheme, orig.host, orig.port) == (
+            expected_scheme,
+            expected_host,
+            expected_port,
+        )
 
-    h2, p2 = _parse_target_endpoint("127.0.0.1:9090")
-    assert h2 == "127.0.0.1"
-    assert p2 == 9090
-
-    h3, p3 = _parse_target_endpoint("localhost")
-    assert h3 == "localhost"
-    assert p3 == 80
+    for invalid_target in ("http://:8080", "example.com:abc"):
+        with pytest.raises(ValidationError) as exc_info:
+            _parse_target_endpoint(invalid_target)
+        assert invalid_target in str(exc_info.value)
 
 
 def test_run_sandbox_probes_with_openapi_and_grpc() -> None:

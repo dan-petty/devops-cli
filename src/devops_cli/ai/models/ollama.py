@@ -51,21 +51,16 @@ def normalize_ollama_base_url(url: str, *, allow_private: bool = True) -> str:
     if not clean_url:
         clean_url = DEFAULT_OLLAMA_BASE_URL
 
-    if "://" in clean_url:
-        scheme = clean_url.split("://", 1)[0].lower()
-        if scheme not in ("http", "https"):
-            raise InvalidURLError(
-                clean_url,
-                reason=f"Invalid Ollama URL scheme '{scheme}': must be http or https",
-            )
-    elif not clean_url.startswith(("http://", "https://")):
-        clean_url = f"http://{clean_url}"
-
     parsed = urlsplit(clean_url)
-    if parsed.scheme not in ("http", "https"):
+    if parsed.scheme.lower() not in ("http", "https"):
         raise InvalidURLError(
             clean_url,
             reason=f"Invalid Ollama URL scheme '{parsed.scheme}': must be http or https",
+        )
+    if not parsed.netloc:
+        raise InvalidURLError(
+            clean_url,
+            reason=f"Invalid Ollama URL '{clean_url}': missing host or authority",
         )
 
     host = (parsed.hostname or "").lower()

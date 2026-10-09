@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -69,10 +68,15 @@ class SandboxNetworkMode(StrEnum):
 def _ip_entry_host(entry: str) -> str | None:
     """The address or CIDR a whitelist entry is, or None when it is neither."""
     try:
+        ip = ipaddress.ip_address(entry)
+        return str(ip)
+    except ValueError:
+        pass
+    try:
         net = ipaddress.ip_network(entry, strict=False)
+        return str(net)
     except ValueError:
         return None
-    return str(net) if "/" in entry else str(net.network_address)
 
 
 def _parse_whitelist_entry(entry: str) -> tuple[str, int]:
@@ -88,15 +92,20 @@ def _parse_whitelist_entry(entry: str) -> tuple[str, int]:
     ip_host = _ip_entry_host(clean)
     if ip_host is not None:
         return ip_host, CONST_SANDBOX_WHITELIST_DEFAULT_PORTS[""]
-    has_scheme = "://" in clean
+
+    from devops_cli.http.urls import read_url_or_authority
+
+    parts = read_url_or_authority(clean)
+    if parts is None or not parts.hostname:
+        raise ValueError(f"Whitelist entry '{entry}' names no host.")
+
+    host = parts.hostname
     try:
-        parts = urlsplit(clean if has_scheme else f"//{clean}")
-        host, port = parts.hostname, parts.port
+        port = parts.port
     except ValueError as exc:
         raise ValueError(f"Whitelist entry '{entry}' is not a host, URL or CIDR: {exc}") from exc
-    if not host:
-        raise ValueError(f"Whitelist entry '{entry}' names no host.")
-    if not has_scheme and (parts.path or parts.query or parts.fragment):
+
+    if not parts.scheme and (parts.path or parts.query or parts.fragment):
         raise ValueError(
             f"Whitelist entry '{entry}' has a path but no scheme; write host:port, or a URL."
         )

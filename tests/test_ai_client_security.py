@@ -142,11 +142,26 @@ def test_ollama_non_thinking_400_raises_ai_client_error(
 
 
 def test_get_ollama_urls_parsing() -> None:
+    from devops_cli.ai.models.ollama import normalize_ollama_base_url
+    from devops_cli.exceptions import InvalidURLError
+    from devops_cli.exceptions.config import ConfigurationError
+
     cfg1 = AIConfig(ollama_urls=["http://172.16.0.1:11434", "http://172.16.0.2:11434/"])
     assert cfg1.get_ollama_urls == ["http://172.16.0.1:11434", "http://172.16.0.2:11434"]
 
     cfg2 = AIConfig(ollama_urls=["http://10.0.0.1:11434/", "http://10.0.0.2:11434"])
     assert cfg2.get_ollama_urls == ["http://10.0.0.1:11434", "http://10.0.0.2:11434"]
+
+    cfg_upper = AIConfig(ollama_urls=["HTTP://example.com:11434"])
+    assert cfg_upper.get_ollama_urls == ["http://example.com:11434"]
+
+    cfg_schemeless = AIConfig(ollama_urls=["example.com:11434"])
+    with pytest.raises(ConfigurationError) as exc_info:
+        _ = cfg_schemeless.get_ollama_urls
+    assert "ai.ollama_urls" in str(exc_info.value)
+
+    with pytest.raises(InvalidURLError):
+        normalize_ollama_base_url("example.com:11434")
 
 
 def test_ollama_multiserver_failover(monkeypatch: pytest.MonkeyPatch) -> None:

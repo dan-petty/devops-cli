@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
-from urllib.parse import urlparse
 
 
 class InstrumentKind(StrEnum):
@@ -281,7 +280,9 @@ def backend_name(served_by: str | None) -> str:
     """A serving backend's short name: its host's first label, e.g. `vllm` or `ollama-0`."""
     if not served_by:
         return ""
-    host = urlparse(served_by if "://" in served_by else f"//{served_by}").hostname or served_by
+    from devops_cli.http.urls import extract_domain_target
+
+    host = extract_domain_target(served_by) or served_by
     return host.split(".", 1)[0]
 
 

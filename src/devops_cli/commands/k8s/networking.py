@@ -215,15 +215,15 @@ def _detect_service_url(service: str, namespace: str, context: str | None = None
 def _verify_url_reachability(url: str, timeout: float = DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS) -> bool:
     """Check if target HTTP URL host and port can accept socket connections."""
     import socket
-    from urllib.parse import urlparse
+
+    from devops_cli.http.urls import get_url_origin
 
     try:
-        parsed = urlparse(url)
-        host = parsed.hostname
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
-        if not host:
+        origin = get_url_origin(url)
+        if not origin or not origin.host:
             return False
-        with socket.create_connection((host, port), timeout=timeout):
+        port = origin.port or 80
+        with socket.create_connection((origin.host, port), timeout=timeout):
             return True
     except Exception as exc:
         logger.debug("URL %s reachability check failed: %s", url, exc)

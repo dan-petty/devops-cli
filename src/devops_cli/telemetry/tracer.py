@@ -302,7 +302,9 @@ def _assign_waterfall_depth(node: SpanWaterfallNode, current_depth: int) -> None
         _assign_waterfall_depth(child, current_depth + 1)
 
 
-def _link_waterfall_hierarchy(nodes: dict[str, SpanWaterfallNode]) -> list[SpanWaterfallNode]:
+def _link_waterfall_hierarchy(
+    nodes: dict[str, SpanWaterfallNode],
+) -> list[SpanWaterfallNode]:
     """Assemble flat nodes into parent-child tree hierarchy and order by start time."""
     roots: list[SpanWaterfallNode] = []
     for n in nodes.values():
@@ -701,15 +703,18 @@ class OTelTelemetryClient:
     ) -> None:
         self.endpoint = endpoint.rstrip("/")
         env_protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
-        self.protocol = (
-            protocol
-            or env_protocol
-            or (
-                "grpc"
-                if (":4317" in self.endpoint or self.endpoint.startswith("grpc://"))
-                else "http/json"
-            )
-        )
+        from devops_cli.http.urls import read_url_or_authority
+
+        parsed_target = read_url_or_authority(self.endpoint)
+        is_grpc = False
+        if parsed_target:
+            try:
+                ep_port = parsed_target.port
+            except ValueError:
+                ep_port = None
+            is_grpc = parsed_target.scheme.lower() == "grpc" or ep_port == 4317
+
+        self.protocol = protocol or env_protocol or ("grpc" if is_grpc else "http/json")
         self.service_name = service_name
         self.service_version = service_version or self._detect_version()
         self.host_name = platform.node() or "localhost"
@@ -741,9 +746,15 @@ class OTelTelemetryClient:
             {"key": "os.type", "value": {"stringValue": self.os_type}},
             {"key": "os.description", "value": {"stringValue": platform.platform()}},
             {"key": "process.pid", "value": {"stringValue": str(os.getpid())}},
-            {"key": "process.executable.name", "value": {"stringValue": Path(sys.executable).name}},
+            {
+                "key": "process.executable.name",
+                "value": {"stringValue": Path(sys.executable).name},
+            },
             {"key": "process.runtime.name", "value": {"stringValue": "cpython"}},
-            {"key": "process.runtime.version", "value": {"stringValue": platform.python_version()}},
+            {
+                "key": "process.runtime.version",
+                "value": {"stringValue": platform.python_version()},
+            },
             {"key": "telemetry.sdk.name", "value": {"stringValue": "devops-cli-otel"}},
             {"key": "telemetry.sdk.language", "value": {"stringValue": "python"}},
             *vcs_res_attrs,
@@ -1105,20 +1116,15 @@ class OTelTelemetryClient:
         """Get or initialize thread-safe gRPC span exporter with persistent multiplexed connection."""
         with self._client_lock:
             if self._grpc_exporter is None:
+                from urllib.parse import urlsplit
+
                 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
                     OTLPSpanExporter,
                 )
 
-                clean_ep = (
-                    self.endpoint.replace("http://", "")
-                    .replace("https://", "")
-                    .replace("grpc://", "")
-                )
-                if not clean_ep:
-                    clean_ep = "localhost:4317"
-                insecure = not self.endpoint.startswith("https://")
+                insecure = urlsplit(self.endpoint).scheme.lower() != "https"
                 self._grpc_exporter = OTLPSpanExporter(
-                    endpoint=clean_ep,
+                    endpoint=self.endpoint,
                     insecure=insecure,
                     timeout=DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS,
                 )
@@ -1129,17 +1135,18 @@ class OTelTelemetryClient:
     ) -> tuple[bool, str, float]:
         """Test reachability of the OTLP collector endpoint and measure latency."""
         start = time.perf_counter()
-        if self.protocol == "grpc" or ":4317" in self.endpoint:
+        if self.protocol == "grpc":
             try:
                 import socket
 
-                clean_ep = (
-                    self.endpoint.replace("http://", "")
-                    .replace("https://", "")
-                    .replace("grpc://", "")
-                )
-                host, _, port_str = clean_ep.partition(":")
-                port = int(port_str) if port_str else 4317
+                from devops_cli.http.urls import read_url_or_authority
+
+                parsed = read_url_or_authority(self.endpoint)
+                host = parsed.hostname if parsed else "localhost"
+                try:
+                    port = (parsed.port if parsed else None) or 4317
+                except ValueError:
+                    port = 4317
                 sock = socket.create_connection((host, port), timeout=timeout)
                 sock.close()
                 elapsed_ms = (time.perf_counter() - start) * 1000

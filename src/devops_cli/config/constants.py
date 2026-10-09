@@ -307,10 +307,7 @@ CONST_BENCHMARKS_DIR_NAME = "benchmarks"
 # The kinds of run `devops ai benchmark --type` takes: `auto` picks embedding when a model's name
 # says it embeds and chat otherwise. Any other value is refused rather than run as chat (#950).
 CONST_BENCHMARK_TYPES: Final[tuple[str, ...]] = ("auto", "chat", "embedding")
-# What makes a `--models` entry name the server it runs on: `model@endpoint`, or a URL. Only a
-# person at the command line names one; an MCP client is refused, so a model never takes the AI
-# key to a host the client chose (#954).
-CONST_MODEL_ENDPOINT_MARKERS: Final[tuple[str, ...]] = ("@", "://")
+
 CONST_AUDIT_LOG_NAME = "audit.jsonl"
 CONST_FEEDBACK_DATASET_NAME = "feedback_dataset.jsonl"
 CONST_EMBEDDING_REPORT_FILENAME = "embedding_report.json"

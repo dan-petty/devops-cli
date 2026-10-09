@@ -22,14 +22,23 @@ from devops_cli.telemetry.tracer import trace_span
 logger = logging.getLogger(__name__)
 
 
-def _clean_service_base_url(base_url: str) -> str:
-    """Ensure base URL has scheme and no trailing slash."""
+def _clean_service_base_url(base_url: str, setting_name: str = "service URL") -> str:
+    """Ensure base URL has valid http/https scheme and host, returning urlunsplit without trailing slash."""
     clean = (base_url or "").strip().rstrip("/")
     if not clean:
         return ""
-    if not clean.startswith(("http://", "https://")):
-        return f"http://{clean}"
-    return clean
+    from urllib.parse import urlsplit, urlunsplit
+
+    from devops_cli.exceptions.config import ConfigurationError
+
+    parts = urlsplit(clean)
+    scheme = parts.scheme.lower()
+    if scheme not in ("http", "https") or not parts.netloc or not parts.hostname:
+        raise ConfigurationError(
+            f"Invalid {setting_name} '{base_url}': must have http or https scheme and host",
+            key=setting_name,
+        )
+    return urlunsplit((scheme, parts.netloc, parts.path, parts.query, parts.fragment)).rstrip("/")
 
 
 def _safe_keyring_set(key: str, value: str) -> bool:
@@ -207,7 +216,7 @@ def mint_argocd_token(
 
     from devops_cli.http.validation import validate_service_url
 
-    clean_base = _clean_service_base_url(base_url)
+    clean_base = _clean_service_base_url(base_url, "argocd.url")
     if not clean_base or not password:
         return None
     try:
@@ -302,7 +311,7 @@ def mint_grafana_token(
 
     from devops_cli.http.validation import validate_service_url
 
-    clean_base = _clean_service_base_url(base_url)
+    clean_base = _clean_service_base_url(base_url, "grafana.url")
     if not clean_base or not password:
         return None
     try:
@@ -387,9 +396,13 @@ def verify_argocd_token(
     """Verify that an ArgoCD session token is valid and active."""
     import httpx2
 
+    from devops_cli.exceptions.config import ConfigurationError
     from devops_cli.http.validation import validate_service_url
 
-    clean_base = _clean_service_base_url(base_url)
+    try:
+        clean_base = _clean_service_base_url(base_url, "argocd.url")
+    except ConfigurationError:
+        return False
     if not clean_base or not token:
         return False
     try:
@@ -418,9 +431,13 @@ def verify_grafana_token(
     """Verify that a Grafana API or Service Account token is valid and active."""
     import httpx2
 
+    from devops_cli.exceptions.config import ConfigurationError
     from devops_cli.http.validation import validate_service_url
 
-    clean_base = _clean_service_base_url(base_url)
+    try:
+        clean_base = _clean_service_base_url(base_url, "grafana.url")
+    except ConfigurationError:
+        return False
     if not clean_base or not token:
         return False
     try:
