@@ -438,9 +438,6 @@ class ReleaseMessages:
     preparing_release: str = "Preparing release version [cyan]{version}[/cyan]..."
     updated_pyproject: str = "✓ Updated pyproject.toml to version [bold]{version}[/bold]"
     updated_init: str = "✓ Updated src/devops_cli/__init__.py to version [bold]{version}[/bold]"
-    updated_service_image_tag: str = (
-        "✓ Pinned the service image in k8s/devops/kustomization.yaml to [bold]v{version}[/bold]"
-    )
     updated_changelog: str = (
         "✓ Updated CHANGELOG.md with release header [bold][{version}] - {date}[/bold]"
     )

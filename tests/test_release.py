@@ -266,142 +266,52 @@ def test_release_check_version_mismatch(sample_project_dir: Path) -> None:
     assert "Version mismatch" in result.output
 
 
-def _write_runtime_kustomization(root: Path, tag: str) -> Path:
-    path = root / "k8s" / "devops" / "kustomization.yaml"
-    path.parent.mkdir(parents=True)
-    document = {
-        "resources": ["cronjob.yaml"],
-        "images": [{"name": "ghcr.io/dan-petty/devops-cli/service", "newTag": tag}],
-    }
-    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
-    return path
+def test_release_prepare_leaves_k8s_untouched(sample_project_dir: Path) -> None:
+    """The cut neither bumps a service image tag nor rewrites an Argo CD targetRevision (#1486).
 
-
-def test_release_prepare_pins_the_service_image_to_the_new_version(
-    sample_project_dir: Path,
-) -> None:
-    path = _write_runtime_kustomization(sample_project_dir, "v0.1.7")
-    with patch("devops_cli.commands.release.DocGenerator.write_all_docs"):
-        result = runner.invoke(app, ["prepare", "0.1.8", "--root", str(sample_project_dir)])
-    images = yaml.safe_load(path.read_text(encoding="utf-8"))["images"]
-    assert (result.exit_code, images[0]["newTag"]) == (0, "v0.1.8")
-
-
-def test_release_paths_stage_the_runtime_kustomization(tmp_path: Path) -> None:
-    _write_runtime_kustomization(tmp_path, "v0.1.7")
-    assert "k8s/devops/kustomization.yaml" in _release_paths(tmp_path)
-
-
-def test_release_check_fails_when_the_service_image_tag_is_out_of_step(
-    sample_project_dir: Path,
-) -> None:
-    _write_runtime_kustomization(sample_project_dir, "v0.1.6")
-    result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--allow-dirty"])
-    output = " ".join(result.output.split())
-    assert (result.exit_code, "k8s/devops/kustomization.yaml pins" in output) == (
-        1,
-        True,
-    )
-
-
-def _write_argocd_application(
-    root: Path,
-    name: str = "test-app",
-    git_revision: str = "main",
-    chart_revision: str = "1.2.3",
-) -> Path:
-    path = root / "k8s" / "argocd" / "apps" / f"{name}.yaml"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    doc = {
-        "apiVersion": "argoproj.io/v1alpha1",
-        "kind": "Application",
-        "metadata": {"name": name, "namespace": "argocd"},
-        "spec": {
-            "project": "default",
-            "sources": [
-                {
-                    "repoURL": "https://charts.example.com",
-                    "chart": "test-chart",
-                    "targetRevision": chart_revision,
-                },
-                {
-                    "repoURL": "https://github.com/dan-petty/devops-cli",
-                    "targetRevision": git_revision,
-                    "path": "k8s/test",
-                },
-            ],
-            "destination": {
-                "server": "https://kubernetes.default.svc",
-                "namespace": "test",
+    Image Updater rolls the Service onto the digest `service:latest` moves to, so a release
+    writes nothing under k8s/ and stages nothing there.
+    """
+    kustomization = sample_project_dir / "k8s" / "devops" / "kustomization.yaml"
+    application = sample_project_dir / "k8s" / "argocd" / "apps" / "test-app.yaml"
+    kustomization.parent.mkdir(parents=True)
+    application.parent.mkdir(parents=True)
+    kustomization.write_text(
+        yaml.safe_dump(
+            {
+                "resources": ["cronjob.yaml"],
+                "images": [{"name": "ghcr.io/dan-petty/devops-cli/service", "newTag": "v0.1.7"}],
             },
-        },
-    }
-    path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
-    return path
-
-
-def test_release_paths_stage_argocd(tmp_path: Path) -> None:
-    _write_argocd_application(tmp_path)
-    assert "k8s/argocd/" in _release_paths(tmp_path)
-
-
-def test_release_prepare_rewrites_argocd_target_revisions(
-    sample_project_dir: Path,
-) -> None:
-    app_path = _write_argocd_application(sample_project_dir, git_revision="release/v0.1.7")
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    application.write_text(
+        yaml.safe_dump(
+            {
+                "apiVersion": "argoproj.io/v1alpha1",
+                "kind": "Application",
+                "metadata": {"name": "test-app", "namespace": "argocd"},
+                "spec": {
+                    "source": {
+                        "repoURL": "https://example.com/devops-cli.git",
+                        "targetRevision": "release/v0.1.7",
+                        "path": "k8s/test",
+                    },
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    before = (kustomization.read_bytes(), application.read_bytes())
     with patch("devops_cli.commands.release.DocGenerator.write_all_docs"):
         result = runner.invoke(app, ["prepare", "0.1.8", "--root", str(sample_project_dir)])
-    assert result.exit_code == 0
-    doc = yaml.safe_load(app_path.read_text(encoding="utf-8"))
-    sources = doc["spec"]["sources"]
-    assert (sources[0]["targetRevision"], sources[1]["targetRevision"]) == (
-        "1.2.3",
-        "main",
-    )
-
-
-def test_release_check_fails_on_mismatched_argocd_target_revisions(
-    sample_project_dir: Path,
-) -> None:
-    _write_argocd_application(sample_project_dir, name="app1", git_revision="main")
-    _write_argocd_application(sample_project_dir, name="app2", git_revision="release/v0.1.8")
-    result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--allow-dirty"])
-    assert (result.exit_code, "Argo CD git-source targetRevisions mismatch" in result.output) == (
-        1,
-        True,
-    )
-
-
-def test_release_check_fails_on_argocd_target_revision_not_matching_main(
-    sample_project_dir: Path,
-) -> None:
-    _write_argocd_application(sample_project_dir, git_revision="release/v0.1.6")
-    result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--allow-dirty"])
     assert (
         result.exit_code,
-        "does not match expected 'main'" in result.output,
-    ) == (1, True)
-
-
-def test_release_check_succeeds_with_matching_argocd_target_revisions(
-    sample_project_dir: Path,
-) -> None:
-    _write_argocd_application(sample_project_dir, git_revision="main")
-    with (
-        patch(
-            "devops_cli.commands.release.DocGenerator.check_docs",
-            return_value=(True, []),
-        ),
-        patch("devops_cli.commands.release.run_subprocess") as mock_sub,
-    ):
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["uv", "run", "devops", "ci", "run"],
-            returncode=0,
-            stdout="All checks passed!",
-            stderr="",
-        )
-        result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--allow-dirty"])
-    assert result.exit_code == 0
+        (kustomization.read_bytes(), application.read_bytes()) == before,
+        [p for p in _release_paths(sample_project_dir) if p.startswith("k8s")],
+    ) == (0, True, [])
 
 
 def test_release_check_dirty_repo(sample_project_dir: Path) -> None:

@@ -697,12 +697,9 @@ def test_service_image_ci_job_invariants() -> None:
         "github.event_name == 'workflow_dispatch'" in condition,
         job.get("permissions"),
     ) == (True, True, True, {"contents": "read"})
-    # A release pull request from this repository is built, scanned and published by
-    # release.yml on each push to its head (#1451); a fork's release/v* head still builds here.
-    assert (
-        "!(startsWith(github.head_ref, 'release/v') &&" in condition,
-        "github.event.pull_request.head.repo.full_name == github.repository" in condition,
-    ) == (True, True)
+    # Every pull request into main builds here, the release pull request included: release.yml
+    # publishes the image only after the merge (#1486).
+    assert ("release/v" in condition, "head.repo.full_name" in condition) == (False, False)
 
     build_step = next(s for s in job["steps"] if s.get("name") == "Build and Load Service Image")
     assert (
@@ -717,18 +714,30 @@ def test_service_image_ci_job_invariants() -> None:
 
 
 def test_service_image_release_job_invariants() -> None:
-    """The release service-image job verifies needs, permissions, step order, and Trivy inputs."""
+    """release.yml publishes the Service image only from main, after the release job (#1486).
+
+    It builds, smoke-tests and scans the image, pushes it by digest and attests it, and only then
+    tags it `vX.Y.Z` and `latest`, so a tag never names an unattested image. No release branch
+    publishes it, and no plan decides whether to build: Image Updater rolls the cluster onto the
+    digest `latest` moves to.
+    """
     import yaml
 
     release_wf = (
         yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8")) or {}
     )
     job = release_wf["jobs"]["service-image"]
+    steps = job["steps"]
 
     assert (
+        "release/v*" in release_wf[True]["push"]["branches"],
+        job["if"],
         job.get("needs"),
         job.get("permissions"),
+        "SERVICE_IMAGE_INPUTS" in job.get("env", {}),
     ) == (
+        False,
+        "github.ref == 'refs/heads/main'",
         "release",
         {
             "contents": "read",
@@ -736,44 +745,16 @@ def test_service_image_release_job_invariants() -> None:
             "id-token": "write",
             "attestations": "write",
         },
+        False,
     )
-
-    # A release branch publishes the image main pins before main pins it (#1451): the job runs on
-    # a push to release/v* (where the release job does not), and on main only after the release
-    # job succeeds. Only the plan step decides whether anything is built or pushed.
-    assert "release/v*" in release_wf[True]["push"]["branches"]
     assert (
-        "!cancelled()" in job["if"],
-        "needs.release.result == 'success'" in job["if"],
-        "startsWith(github.ref, 'refs/heads/release/v')" in job["if"],
-        "refs/heads/release/" not in release_wf["jobs"]["release"]["if"],
-    ) == (True, True, True, True)
-    plan_index = next(i for i, s in enumerate(job["steps"]) if s.get("id") == "plan")
-    # The plan and tag steps run under pipefail (`shell: bash`), as their tests run them, so a
-    # failed `git ls-remote` stops them. The plan verifies provenance with the job's token.
-    tag_index = next(i for i, s in enumerate(job["steps"]) if s.get("id") == "tag")
-    assert (
-        job["steps"][plan_index].get("shell"),
-        job["steps"][tag_index].get("shell"),
-        job["steps"][plan_index]["env"].get("GH_TOKEN"),
-    ) == ("bash", "bash", "${{ github.token }}")
-    gated = {
-        s["name"]: s.get("if")
-        for s in job["steps"][plan_index + 1 :]
-        if s.get("name") != "Point latest at the Published Service Image"
-    }
-    assert set(gated.values()) == {"steps.plan.outputs.action == 'publish'"}, gated
-    promote = next(
-        s for s in job["steps"] if s.get("name") == "Point latest at the Published Service Image"
-    )
-    assert (promote["if"], "imagetools create" in promote["run"]) == (
-        "steps.plan.outputs.action == 'promote'",
-        True,
-    )
+        [s.get("name") for s in steps if s.get("id") == "plan"],
+        [s.get("name") for s in steps if "steps.plan" in str(s.get("if", ""))],
+        "Point latest at the Published Service Image" in [s.get("name") for s in steps],
+    ) == ([], [], False)
 
-    step_names = [s.get("name", "") for s in job["steps"]]
+    step_names = [s.get("name", "") for s in steps]
     indices = (
-        step_names.index("Plan Service Image Publication"),
         step_names.index("Build and Load Service Image"),
         step_names.index("Run Service Image Smoke Test"),
         step_names.index("Scan Service Image for Vulnerabilities"),
@@ -783,23 +764,32 @@ def test_service_image_release_job_invariants() -> None:
     )
     assert indices == tuple(sorted(indices)), f"Steps out of order: {indices}"
 
-    # The image is pushed by digest and tagged only after its provenance is attested, so a tag
-    # never names an unattested image (#1451).
-    push_with = next(
-        s for s in job["steps"] if s.get("name") == "Build and Push Service Image"
-    ).get("with", {})
-    tag_step = next(s for s in job["steps"] if s.get("name") == "Tag the Attested Service Image")
+    meta_tags = next(s for s in steps if s.get("id") == "meta")["with"]["tags"]
+    push_with = next(s for s in steps if s.get("name") == "Build and Push Service Image")["with"]
+    tag_step = next(s for s in steps if s.get("name") == "Tag the Attested Service Image")
     assert (
+        [line.strip() for line in meta_tags.splitlines() if line.strip()],
         "push-by-digest=true" in str(push_with.get("outputs", "")),
         "tags" in push_with,
-        "imagetools create" in tag_step["run"],
+        push_with.get("sbom") in (True, "true"),
+        tag_step.get("shell"),
         tag_step["env"]["DIGEST"],
-    ) == (True, False, True, "${{ steps.push.outputs.digest }}")
-
-    trivy_step = next(
-        s for s in job["steps"] if s.get("name") == "Scan Service Image for Vulnerabilities"
+        "imagetools create" in tag_step["run"],
+        "refs/heads/release" in tag_step["run"],
+    ) == (
+        ["type=raw,value=v${{ needs.release.outputs.version }}", "type=raw,value=latest"],
+        True,
+        False,
+        True,
+        "bash",
+        "${{ steps.push.outputs.digest }}",
+        True,
+        False,
     )
-    trivy_with = trivy_step.get("with", {})
+
+    trivy_with = next(
+        s for s in steps if s.get("name") == "Scan Service Image for Vulnerabilities"
+    ).get("with", {})
     assert (
         trivy_with.get("scanners"),
         trivy_with.get("severity"),
@@ -807,10 +797,7 @@ def test_service_image_release_job_invariants() -> None:
         str(trivy_with.get("exit-code")),
     ) == ("vuln", "HIGH,CRITICAL", True, "1")
 
-    push_step = next(s for s in job["steps"] if s.get("name") == "Build and Push Service Image")
-    assert push_step.get("with", {}).get("sbom") in (True, "true")
-
-    interpolated_runs = [s.get("name", "") for s in job["steps"] if "${{" in s.get("run", "")]
+    interpolated_runs = [s.get("name", "") for s in steps if "${{" in s.get("run", "")]
     assert not interpolated_runs, (
         f"run: blocks in service-image release job must not contain ${{}}: {interpolated_runs}"
     )

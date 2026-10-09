@@ -157,16 +157,13 @@ jobs:
           imageTag: pr-${{ github.event.pull_request.number }}
           push: "always"
 
-  # A release pull request's head is this repository's release/vX.Y.Z, whose every push runs
-  # release.yml's Build & Publish Service Image on the same tree (#1451), so this job builds
-  # every other pull request into main.
+  # Builds, smoke-tests and scans the Service image of every pull request into main, release
+  # pull requests included, without pushing it; release.yml publishes it after the merge (#1486).
   service-image:
     name: Service Image
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' && github.base_ref == 'main' &&
-       !(startsWith(github.head_ref, 'release/v') &&
-         github.event.pull_request.head.repo.full_name == github.repository))
+      (github.event_name == 'pull_request' && github.base_ref == 'main')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

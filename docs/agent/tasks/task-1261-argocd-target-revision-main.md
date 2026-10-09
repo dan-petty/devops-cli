@@ -6,6 +6,8 @@
 **Priority**: priority/p1-high
 **Scope**: type/bug, scope/k8s
 
+> **Superseded in part by #1486.** It removed the cut's `targetRevision` rewrite and `devops release check`'s check, and the service-image pin; `tests/test_k8s_argocd_apps.py` holds the git sources on `main`.
+
 ---
 
 ## 1. Description & Objectives

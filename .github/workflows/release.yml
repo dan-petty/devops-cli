@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main
-      # A release branch publishes the Service image its version pins, so the image exists
-      # before main pins it (#1451).
-      - "release/v*"
     tags:
       - "v*"
   workflow_dispatch:
@@ -157,13 +154,10 @@ jobs:
   service-image:
     name: Build & Publish Service Image
     needs: release
-    # A push to release/vX.Y.Z publishes service:vX.Y.Z once the branch holds X.Y.Z; the release
-    # job does not run there. On main, after the release job, the image the release branch
-    # published gets `latest` once its provenance verifies, and is never replaced (#1451).
-    if: >-
-      !cancelled() && (
-        needs.release.result == 'success' ||
-        (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/v')))
+    # On main (a push, or a dispatch from main), after the release job, it builds, smoke-tests,
+    # scans, pushes by digest and attests service:vX.Y.Z, then tags it vX.Y.Z and latest; Image
+    # Updater rolls the cluster onto the new digest (#1486).
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -173,18 +167,10 @@ jobs:
       attestations: write
     env:
       SERVICE_IMAGE: ghcr.io/${{ github.repository }}/service
-      # What the image is built from: every path the Dockerfile copies out of the build context,
-      # the Dockerfile and .dockerignore, and this workflow, which builds it. The image's
-      # io.github.dan-petty.devops-cli.image-inputs label holds the hash of their git entries, so
-      # a run can tell whether a published image was built from its own tree.
-      # tests/test_architectural_invariants.py keeps this list in step with the Dockerfile.
-      SERVICE_IMAGE_INPUTS: Dockerfile .dockerignore pyproject.toml uv.lock src .github/workflows/release.yml
 
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
 
       - name: Log in to GitHub Container Registry (GHCR)
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
@@ -193,134 +179,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Decides `action`: publish (build, push, attest, then tag), promote (point `latest` at the
-      # published image) or none. A tag main pins is never overwritten: main's run builds only a
-      # tag no image has, and a release branch stops publishing once main holds its version. An
-      # image counts as published only when release.yml attested it on main or on the release
-      # branch: a label is just its pusher's claim. `shell: bash` runs it with pipefail, as
-      # tests/test_release_service_image_plan.py does, and every command whose failure decides
-      # something sits in an assignment of its own, so errexit stops the step instead.
-      - name: Plan Service Image Publication
-        id: plan
-        shell: bash
-        env:
-          REF_NAME: ${{ github.ref_name }}
-          RELEASE_VERSION: ${{ needs.release.outputs.version }}
-          LABEL: io.github.dan-petty.devops-cli.image-inputs
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          read -ra INPUT_PATHS <<< "$SERVICE_IMAGE_INPUTS"
-          INPUTS=$(git ls-tree HEAD -- "${INPUT_PATHS[@]}" | sha256sum | cut -d' ' -f1)
-          HEAD_VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
-          FORMAT="{{ .Manifest.Digest }} {{ index .Image.Config.Labels \"${LABEL}\" }}"
-          {
-            echo "inputs=${INPUTS}"
-            echo "label=${LABEL}"
-            echo "version=${HEAD_VERSION}"
-          } >> "$GITHUB_OUTPUT"
-          # Whether release.yml signed the provenance of digest $1 on main or on release/vX.Y.Z.
-          attested() {
-            gh attestation verify "oci://${SERVICE_IMAGE}@$1" -R "$GITHUB_REPOSITORY" \
-              --cert-identity-regex "^https://github\.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/heads/(main|release/v${HEAD_VERSION//./\\.})\$" >/dev/null
-          }
-
-          if [[ "$GITHUB_REF" == refs/heads/release/v* ]]; then
-            if [ "$REF_NAME" != "release/v${HEAD_VERSION}" ]; then
-              echo "::notice::${REF_NAME} holds ${HEAD_VERSION}; it publishes its image once the cut sets ${REF_NAME#release/v}."
-              echo "action=none" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            TIP=$(git ls-remote origin "refs/heads/${REF_NAME}" | cut -f1)
-            if [ "$TIP" != "$GITHUB_SHA" ]; then
-              echo "::notice::${GITHUB_SHA} is no longer the tip of ${REF_NAME}; the tip's run publishes."
-              echo "action=none" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
-            MAIN_VERSION=$(git show origin/main:pyproject.toml | python3 -c "import sys, tomllib; print(tomllib.loads(sys.stdin.read())['project']['version'])")
-            if [ "$MAIN_VERSION" = "$HEAD_VERSION" ]; then
-              echo "::notice::main holds ${HEAD_VERSION}, so service:v${HEAD_VERSION} is the image main pins and is not replaced."
-              echo "action=none" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            # The release pull request commits the merge of main and this branch, so the image
-            # built here is the one main pins only when that merge keeps these inputs.
-            if ! MERGED=$(git merge-tree --write-tree --no-messages origin/main HEAD); then
-              echo "::error::main does not merge cleanly into ${REF_NAME}. Merge main into ${REF_NAME} (RELEASE_CYCLE.md, Step 3)."
-              exit 1
-            fi
-            MERGED_INPUTS=$(git ls-tree "$MERGED" -- "${INPUT_PATHS[@]}" | sha256sum | cut -d' ' -f1)
-            if [ "$MERGED_INPUTS" != "$INPUTS" ]; then
-              echo "::error::main has image changes ${REF_NAME} lacks, so the merged tree would differ from the image built here. Merge main into ${REF_NAME} (RELEASE_CYCLE.md, Step 3)."
-              exit 1
-            fi
-            PUBLISHED=$(docker buildx imagetools inspect "${SERVICE_IMAGE}:v${HEAD_VERSION}" --format "$FORMAT" 2>/dev/null || true)
-            if [ "${PUBLISHED#* }" = "$INPUTS" ]; then
-              if attested "${PUBLISHED%% *}"; then
-                echo "::notice::service:v${HEAD_VERSION} (${PUBLISHED%% *}) was built and attested from these inputs already."
-                echo "action=none" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-              echo "::warning::service:v${HEAD_VERSION} (${PUBLISHED%% *}) claims these inputs, but release.yml did not attest it on main or ${REF_NAME}; publishing it again."
-            fi
-            {
-              echo "action=publish"
-              echo "latest=false"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$HEAD_VERSION" != "$RELEASE_VERSION" ]; then
-            echo "::error::This tree holds ${HEAD_VERSION}, not ${RELEASE_VERSION}; service:v${RELEASE_VERSION} is published only from the tree that holds its version."
-            exit 1
-          fi
-          if PUBLISHED=$(docker buildx imagetools inspect "${SERVICE_IMAGE}:v${HEAD_VERSION}" --format "$FORMAT" 2>"$RUNNER_TEMP/inspect.err"); then
-            if ! attested "${PUBLISHED%% *}"; then
-              echo "::error::service:v${HEAD_VERSION} (${PUBLISHED%% *}) has no provenance from release.yml on main or release/v${HEAD_VERSION} that could be verified, so latest is not pointed at it. Re-run this job; if it fails again, find who pushed that image."
-              exit 1
-            fi
-            # A tag main pins is never replaced. The merged tree differs from the image when main
-            # moved after the branch's last push, or a push after the merge (a later fix, or the
-            # one that recovers a failed release run) changed the inputs: those changes ship in
-            # the next release.
-            if [ "${PUBLISHED#* }" != "$INPUTS" ]; then
-              echo "::warning::service:v${HEAD_VERSION} was built from inputs ${PUBLISHED#* }, not this tree's ${INPUTS}, and a tag main pins is never replaced; this tree's image changes ship in the next release (k8s/README.md, 'When a release merges into main')."
-            fi
-            {
-              echo "action=promote"
-              echo "digest=${PUBLISHED%% *}"
-            } >> "$GITHUB_OUTPUT"
-          elif grep -q ': not found$' "$RUNNER_TEMP/inspect.err"; then
-            echo "::warning::No release branch published service:v${HEAD_VERSION}; building it from this tree, and roadmap-service waits for it."
-            {
-              echo "action=publish"
-              echo "latest=true"
-            } >> "$GITHUB_OUTPUT"
-          else
-            echo "::error::Could not read service:v${HEAD_VERSION} from GHCR, so nothing was published; re-run this job."
-            cat "$RUNNER_TEMP/inspect.err" >&2
-            exit 1
-          fi
-
       - name: Set up Docker Buildx
-        if: steps.plan.outputs.action == 'publish'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v3
 
       - name: Extract Metadata for Service Image
-        if: steps.plan.outputs.action == 'publish'
         id: meta
         uses: docker/metadata-action@8e671d84a3bd81afdfc4fdbb96a42b07c2a80934 # v5
         with:
           images: ${{ env.SERVICE_IMAGE }}
           tags: |
-            type=raw,value=v${{ steps.plan.outputs.version }}
-            type=raw,value=latest,enable=${{ steps.plan.outputs.latest == 'true' }}
+            type=raw,value=v${{ needs.release.outputs.version }}
+            type=raw,value=latest
           labels: |
             org.opencontainers.image.licenses=MIT
-            ${{ steps.plan.outputs.label }}=${{ steps.plan.outputs.inputs }}
 
       - name: Build and Load Service Image
-        if: steps.plan.outputs.action == 'publish'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
         with:
           context: .
@@ -332,7 +205,6 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Run Service Image Smoke Test
-        if: steps.plan.outputs.action == 'publish'
         env:
           IMAGE: devops-cli-service:local
         run: |
@@ -348,7 +220,6 @@ jobs:
           if docker run --rm --entrypoint python "$IMAGE" -c 'import pytest'; then exit 1; fi
 
       - name: Scan Service Image for Vulnerabilities
-        if: steps.plan.outputs.action == 'publish'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: devops-cli-service:local
@@ -361,7 +232,6 @@ jobs:
       # Pushed by digest only: the tags move to the digest once its provenance is attested, so
       # a tag never names an unattested image and a failed attestation is retried by a re-run.
       - name: Build and Push Service Image
-        if: steps.plan.outputs.action == 'publish'
         id: push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v6
         with:
@@ -373,49 +243,21 @@ jobs:
           cache-from: type=gha
 
       - name: Attest Build Provenance
-        if: steps.plan.outputs.action == 'publish'
         uses: actions/attest-build-provenance@9d57eef8c06cd9d6b433effeeb7a6a77b3ff94ad # v2
         with:
           subject-name: ghcr.io/${{ github.repository }}/service
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
-      # The plan ran minutes ago. On a release branch the release pull request may have merged
-      # since, or a newer push superseded this commit, so both are checked again right before
-      # the tag moves: once main holds the version, service:vX.Y.Z is never replaced.
       - name: Tag the Attested Service Image
         id: tag
-        if: steps.plan.outputs.action == 'publish'
         shell: bash
         env:
           DIGEST: ${{ steps.push.outputs.digest }}
           TAGS: ${{ steps.meta.outputs.tags }}
-          REF_NAME: ${{ github.ref_name }}
-          VERSION: ${{ steps.plan.outputs.version }}
         run: |
-          if [[ "$GITHUB_REF" == refs/heads/release/v* ]]; then
-            TIP=$(git ls-remote origin "refs/heads/${REF_NAME}" | cut -f1)
-            if [ "$TIP" != "$GITHUB_SHA" ]; then
-              echo "::notice::${GITHUB_SHA} is no longer the tip of ${REF_NAME}, so ${DIGEST} stays untagged; the tip's run tags its own image."
-              exit 0
-            fi
-            git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
-            MAIN_VERSION=$(git show origin/main:pyproject.toml | python3 -c "import sys, tomllib; print(tomllib.loads(sys.stdin.read())['project']['version'])")
-            if [ "$MAIN_VERSION" = "$VERSION" ]; then
-              echo "::error::main merged ${VERSION} while this run built ${DIGEST}, so it stays untagged: service:v${VERSION} is the image main pins and is never replaced. This commit's image changes ship in the next release."
-              exit 1
-            fi
-          fi
           TAG_ARGS=()
           while read -r TAG; do
             if [ -n "$TAG" ]; then TAG_ARGS+=(--tag "$TAG"); fi
           done <<< "$TAGS"
           docker buildx imagetools create "${TAG_ARGS[@]}" "${SERVICE_IMAGE}@${DIGEST}"
-
-      # The plan verified this digest's provenance from release.yml; `latest` is one more name
-      # for the same digest, so that provenance still verifies.
-      - name: Point latest at the Published Service Image
-        if: steps.plan.outputs.action == 'promote'
-        env:
-          DIGEST: ${{ steps.plan.outputs.digest }}
-        run: docker buildx imagetools create --tag "${SERVICE_IMAGE}:latest" "${SERVICE_IMAGE}@${DIGEST}"
