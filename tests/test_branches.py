@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -90,3 +92,47 @@ def test_branches_commands(tmp_path: Path) -> None:
             branches_app, ["jira", "PROJ-123", "--slug", "my-feature", "--repo", str(repo_dir)]
         )
         assert res_jira.exit_code == 0
+
+
+def _repo_with_one_commit(git: Callable[..., None], repo: Path) -> None:
+    git(repo, "init", "--quiet", "-b", "main")
+    git(repo, "commit", "--quiet", "--allow-empty", "-m", "init")
+
+
+def _current_branch(repo: Path) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo), "branch", "--show-current"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def test_jira_creates_and_checks_out_the_feature_branch(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """`branches jira` creates feature/<TICKET>-<slug> from HEAD and switches to it."""
+    _repo_with_one_commit(git, tmp_path)
+
+    result = runner.invoke(
+        branches_app, ["jira", "PROJ-123", "--slug", "my feature", "--repo", str(tmp_path)]
+    )
+
+    assert (result.exit_code, _current_branch(tmp_path)) == (0, "feature/PROJ-123-my-feature")
+
+
+def test_jira_prints_gits_reason_when_git_refuses_the_branch(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """A branch git refuses ends in git's reason and exit 1, not a traceback."""
+    _repo_with_one_commit(git, tmp_path)
+    git(tmp_path, "branch", "feature")
+
+    result = runner.invoke(branches_app, ["jira", "PROJ-123", "--repo", str(tmp_path)])
+
+    assert (
+        result.exit_code,
+        isinstance(result.exception, SystemExit),
+        "Traceback" in result.output,
+        "'refs/heads/feature' exists" in result.output,
+    ) == (1, True, False, True)

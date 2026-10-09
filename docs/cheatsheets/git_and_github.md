@@ -19,9 +19,9 @@ Compare native `git` and `gh` (GitHub CLI) commands with unified `devops-cli` wo
 
 | Action / Goal | Original Command (`git`) | `devops-cli` Command | Key Enhancements in `devops-cli` |
 | :--- | :--- | :--- | :--- |
-| **List Workspace Branches** | `git branch -a` | `devops branches list` | Displays upstream tracking, ahead/behind commits, and active release branch context. |
-| **Create Topic Branch** | `git checkout -b feat/my-feature` | `devops branches create feat/my-feature` | Ensures branch is created off the current active release branch (`release/vX.Y.Z`) per project rules. |
-| **Clean Merged Branches** | `git branch --merged \| grep -v "\*" \| xargs -n 1 git branch -d` | `devops branches cleanup` | Safe automated pruning of merged local topic branches without touching protected branches. |
+| **List Workspace Branches** | `git branch -a` | `devops branches list [--all]` | Lists each workspace repository's local branches (`--all` adds remote branches) and marks the current one. |
+| **Create Jira Feature Branch** | `git checkout -b feature/PROJ-123-my-feature` | `devops branches jira <ticket> [--slug <text>]` | Validates the ticket ID, then creates `feature/<TICKET>[-<slug>]` from the current HEAD of the repository given by `--repo` (default: the current directory) and switches to it. |
+| **Clean Merged Branches** | `git branch --merged \| grep -v "\*" \| xargs -n 1 git branch -d` | `devops branches clean [--dry-run]` | Deletes local branches already merged into main (or master) in every workspace repository, keeping main and master; `--dry-run` only lists them. |
 
 ---
 

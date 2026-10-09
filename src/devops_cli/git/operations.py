@@ -25,6 +25,7 @@ from devops_cli.config.constants import (
     CONST_GITHUB_HTTPS_PREFIX,
     CONST_GITHUB_SSH_PREFIX,
     CONST_GITHUB_SSH_URL_PREFIX,
+    CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_PERM_DIR,
     CONST_SAFE_GIT_REF_PATTERN,
     CONST_URL_SCHEME_HTTP,
@@ -222,13 +223,28 @@ def pull_tracking(repo_dir: Path) -> None:
 
 
 def create_branch(repo_dir: Path, branch_name: str) -> None:
-    """Create and checkout a new branch from the current HEAD."""
+    """Create and checkout a new branch from the current HEAD.
+
+    When git refuses the branch, :class:`GitOperationError` carries git's reason. `-b` takes
+    the next argument as the name, and the hyphen guard stops it being read as an option, so
+    no `--` is used.
+    """
     if branch_name.startswith("-"):
         raise InvalidBranchNameError(branch_name, reason="cannot start with a hyphen")
     repo = gitlib.Repo(str(repo_dir))
     if branch_name in [b.name for b in repo.branches]:
         raise BranchAlreadyExistsError(branch_name)
-    repo.git.checkout("-b", "--", branch_name)
+    status, _, stderr = repo.git.checkout(
+        "-b", branch_name, with_extended_output=True, with_exceptions=False
+    )
+    if status:
+        from devops_cli.security.sanitizer import mask_secrets
+
+        raise GitOperationError(
+            mask_secrets(stderr.strip()),
+            operation="branch_create",
+            details={"branch_name": branch_name[:CONST_MAX_ERROR_DETAIL_LENGTH]},
+        )
 
 
 def list_branches(
