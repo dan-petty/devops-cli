@@ -18,7 +18,7 @@ from pydantic import Field
 from pydantic import ValidationError as PydanticValidationError
 
 from devops_cli.ai.mcp.argument_contract import (
-    RejectedInputLogFilter,
+    ArgumentValueLogFilter,
     argument_refusal,
     pydantic_violations,
     schema_violations,
@@ -29,7 +29,7 @@ from devops_cli.config.constants import (
     CONST_CI_TEST_BUDGET_MARGIN_SECONDS,
     CONST_CI_TEST_BUDGET_SECONDS,
     CONST_FALCO_SEVERITY_LEVELS,
-    CONST_FASTMCP_SERVER_LOGGER,
+    CONST_FASTMCP_OPERATIONS_LOGGER,
     CONST_MAX_SECURITY_STREAM_TAIL_LINES,
     CONST_MCP_EAGER_DOMAINS,
     CONST_MCP_LAZY_DOMAINS,
@@ -3263,4 +3263,4 @@ def hydrate_tool_domain(domain: str, ctx: Context | None = None) -> dict[str, An
 
 mcp.add_middleware(DomainGateMiddleware())
 mcp.add_middleware(ArgumentContractMiddleware())
-logging.getLogger(CONST_FASTMCP_SERVER_LOGGER).addFilter(RejectedInputLogFilter())
+logging.getLogger(CONST_FASTMCP_OPERATIONS_LOGGER).addFilter(ArgumentValueLogFilter())

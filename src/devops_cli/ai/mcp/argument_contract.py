@@ -33,7 +33,7 @@ from devops_cli.config.constants import (
 from devops_cli.security.sanitizer import mask_secrets
 
 __all__ = [
-    "RejectedInputLogFilter",
+    "ArgumentValueLogFilter",
     "argument_refusal",
     "describe_schema",
     "pydantic_violations",
@@ -159,27 +159,18 @@ def argument_refusal(
     ).format_envelope()
 
 
-class RejectedInputLogFilter(logging.Filter):
-    """Redact the rejected values FastMCP logs when pydantic refuses a call's arguments.
+class ArgumentValueLogFilter(logging.Filter):
+    """Keep tool-call and prompt arguments out of FastMCP's DEBUG log.
 
-    FastMCP logs pydantic's error list, and every entry carries the `input` it refused, so an
-    invalid `vault_set` wrote its `key_values` to the log.
+    FastMCP logs every tools/call and prompts/get with its arguments, so FASTMCP_LOG_LEVEL=DEBUG
+    wrote a vault_set call's key_values to stderr (#899). The whole mapping is replaced, as an
+    undeclared parameter's name is the caller's own text too.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """Replace each error entry's `input`, keeping the record and the rest of its detail."""
+        """Replace each mapping argument, keeping the record, the tool name and the message."""
         if isinstance(record.args, tuple):
-            record.args = tuple(_without_inputs(arg) for arg in record.args)
+            record.args = tuple(
+                CONST_REDACTED_LOG_VALUE if isinstance(arg, Mapping) else arg for arg in record.args
+            )
         return True
-
-
-def _without_inputs(arg: object) -> object:
-    """Redact `input` from a list of pydantic error entries, leaving any other argument alone."""
-    if not isinstance(arg, list):
-        return arg
-    return [
-        {**entry, "input": CONST_REDACTED_LOG_VALUE}
-        if isinstance(entry, dict) and "input" in entry
-        else entry
-        for entry in arg
-    ]
