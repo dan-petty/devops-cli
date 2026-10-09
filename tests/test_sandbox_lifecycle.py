@@ -279,51 +279,92 @@ def _engine_dir(tmp_path: Path) -> Path:
     return tmp_path / "d" / "engine"
 
 
-def _symlinked_engine_socket(tmp_path: Path) -> tuple[Path, Path, str]:
+def _symlinked_engine_socket(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     """Link `link/docker.sock` to `real/docker.sock`, as Docker Desktop's WSL integration links
     /var/run/docker.sock into /mnt/wsl, so the socket the client opens lives in `real`."""
     real, link = tmp_path / "real", tmp_path / "link"
     real.mkdir()
     link.mkdir()
     (link / "docker.sock").symlink_to(real / "docker.sock")
-    return real, real, f"unix://{link}/docker.sock"
+    return real, real, {"DOCKER_HOST": f"unix://{link}/docker.sock"}
 
 
-# Each case: the workspace, the directory its refusal names, and the DOCKER_HOST it runs under.
+def _symlinked_ssh_agent_socket(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
+    """Link `link/agent.1` to `real/agent.1`, so the agent socket the client opens lives in `real`."""
+    real, link = tmp_path / "real", tmp_path / "link"
+    real.mkdir()
+    link.mkdir()
+    (link / "agent.1").symlink_to(real / "agent.1")
+    return real, real, {"SSH_AUTH_SOCK": f"{link}/agent.1"}
+
+
+# Each case: the workspace, the directory its refusal names, and the environment it runs under.
 _REFUSED_WORKSPACES: dict[str, Any] = {
-    "run": lambda tmp, rt: (Path("/run"), Path("/run"), None),
-    "run-user": lambda tmp, rt: (Path("/run/user/1000"), Path("/run"), None),
-    "run-user-gnupg": lambda tmp, rt: (Path("/run/user/1000/gnupg"), Path("/run"), None),
-    "var-run": lambda tmp, rt: (Path("/var/run"), Path("/var/run"), None),
-    "runtime-dir": lambda tmp, rt: (rt, rt, None),
-    "under-runtime-dir": lambda tmp, rt: (rt / "sub", rt, None),
-    "holds-runtime-dir": lambda tmp, rt: (rt.parent, rt, None),
+    "run": lambda tmp, rt: (Path("/run"), Path("/run"), {}),
+    "run-user": lambda tmp, rt: (Path("/run/user/1000"), Path("/run"), {}),
+    "run-user-gnupg": lambda tmp, rt: (Path("/run/user/1000/gnupg"), Path("/run"), {}),
+    "var-run": lambda tmp, rt: (Path("/var/run"), Path("/var/run"), {}),
+    "runtime-dir": lambda tmp, rt: (rt, rt, {}),
+    "under-runtime-dir": lambda tmp, rt: (rt / "sub", rt, {}),
+    "holds-runtime-dir": lambda tmp, rt: (rt.parent, rt, {}),
     "engine-socket-dir": lambda tmp, rt: (
         _engine_dir(tmp),
         _engine_dir(tmp),
-        f"unix://{_engine_dir(tmp)}/docker.sock",
+        {"DOCKER_HOST": f"unix://{_engine_dir(tmp)}/docker.sock"},
     ),
     "under-engine-socket-dir": lambda tmp, rt: (
         _engine_dir(tmp) / "sub",
         _engine_dir(tmp),
-        f"unix://{_engine_dir(tmp)}/docker.sock",
+        {"DOCKER_HOST": f"unix://{_engine_dir(tmp)}/docker.sock"},
     ),
     "holds-engine-socket-dir": lambda tmp, rt: (
         _engine_dir(tmp).parent,
         _engine_dir(tmp),
-        f"unix://{_engine_dir(tmp)}/docker.sock",
+        {"DOCKER_HOST": f"unix://{_engine_dir(tmp)}/docker.sock"},
     ),
     # docker-py reads `unix://tmp/...` as `/tmp/...`, so the check must too.
     "engine-socket-dir-two-slash": lambda tmp, rt: (
         _engine_dir(tmp),
         _engine_dir(tmp),
-        f"unix://{str(_engine_dir(tmp)).lstrip('/')}/docker.sock",
+        {"DOCKER_HOST": f"unix://{str(_engine_dir(tmp)).lstrip('/')}/docker.sock"},
     ),
     "symlinked-engine-socket": lambda tmp, rt: _symlinked_engine_socket(tmp),
-    "unsupported-engine-endpoint": lambda tmp, rt: (tmp / "ws", tmp / "ws", "fd://"),
+    "unsupported-engine-endpoint": lambda tmp, rt: (
+        tmp / "ws",
+        tmp / "ws",
+        {"DOCKER_HOST": "fd://"},
+    ),
     # docker-py's parse_host raises a bare ValueError here, not a DockerException.
-    "unparseable-engine-endpoint": lambda tmp, rt: (tmp / "ws", tmp / "ws", "tcp://host:abc"),
-    "system-subpath": lambda tmp, rt: (Path("/etc/ssl"), Path("/etc/ssl"), None),
+    "unparseable-engine-endpoint": lambda tmp, rt: (
+        tmp / "ws",
+        tmp / "ws",
+        {"DOCKER_HOST": "tcp://host:abc"},
+    ),
+    "system-subpath": lambda tmp, rt: (Path("/etc/ssl"), Path("/etc/ssl"), {}),
+    "ssh-agent-dir": lambda tmp, rt: (
+        tmp / "ssh-abc",
+        tmp / "ssh-abc",
+        {"SSH_AUTH_SOCK": f"{tmp}/ssh-abc/agent.1"},
+    ),
+    "holds-ssh-agent-dir": lambda tmp, rt: (
+        tmp,
+        tmp / "ssh-abc",
+        {"SSH_AUTH_SOCK": f"{tmp}/ssh-abc/agent.1"},
+    ),
+    "symlinked-ssh-agent-socket": lambda tmp, rt: _symlinked_ssh_agent_socket(tmp),
+    # VS Code puts its SSH-auth socket directly in /tmp.
+    "vscode-ssh-auth-socket": lambda tmp, rt: (
+        tmp,
+        tmp,
+        {"SSH_AUTH_SOCK": f"{tmp}/vscode-ssh-auth-x.sock"},
+    ),
+    "x11-dir": lambda tmp, rt: (Path("/tmp/.X11-unix"), Path("/tmp/.X11-unix"), {}),
+    # The test's runtime directory lies under /tmp, so it is cleared for the X11 rule to answer.
+    "holds-x11-dir": lambda tmp, rt: (
+        Path("/tmp"),
+        Path("/tmp/.X11-unix"),
+        {"XDG_RUNTIME_DIR": ""},
+    ),
 }
 
 
@@ -338,13 +379,15 @@ def test_a_workspace_overlapping_a_socket_directory_is_refused_before_any_engine
     docker_engine: Any,
 ) -> None:
     """Both runners refuse /run, the runtime directory and the engine socket's directory when the
-    workspace is, holds or sits under one, and name the workspace and that directory (#1115)."""
+    workspace is, holds or sits under one (#1115), and the SSH agent's directory and
+    /tmp/.X11-unix when the workspace is or holds one (#1384). The refusal names the workspace and
+    that directory."""
     run, refusal = _SANDBOX_RUNNERS[runner_name]
     runtime_dir = tmp_path_factory.mktemp("rt")
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
-    workspace, protected, docker_host = _REFUSED_WORKSPACES[case](tmp_path, runtime_dir)
-    if docker_host:
-        monkeypatch.setenv("DOCKER_HOST", docker_host)
+    workspace, protected, env = _REFUSED_WORKSPACES[case](tmp_path, runtime_dir)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
     client = MagicMock()
 
     with docker_engine(client), pytest.raises(refusal) as refused:
@@ -381,9 +424,42 @@ def test_a_workspace_beside_the_socket_directories_is_mounted(
     assert list(client.containers.create.call_args.kwargs["volumes"]) == [str(workspace)]
 
 
+@pytest.mark.parametrize("runner_name", sorted(_SANDBOX_RUNNERS))
+@pytest.mark.parametrize(
+    "agent_socket",
+    ["{tmp}/vscode-ssh-auth-x.sock", None, "", "agent.1"],
+    ids=["vscode-in-parent", "unset", "empty", "relative"],
+)
+def test_a_workspace_beside_the_ssh_agent_directory_is_mounted(
+    runner_name: str,
+    agent_socket: str | None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    docker_engine: Any,
+) -> None:
+    """The SSH agent rule is one-way, so a workspace under the agent's directory is mounted, and an
+    unset, empty or relative SSH_AUTH_SOCK adds no rule (#1384). Resolving `agent.1` would make the
+    working directory, here the workspace, the agent's directory."""
+    run, _refusal = _SANDBOX_RUNNERS[runner_name]
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    monkeypatch.chdir(workspace)
+    if agent_socket is None:
+        monkeypatch.delenv("SSH_AUTH_SOCK", raising=False)
+    else:
+        monkeypatch.setenv("SSH_AUTH_SOCK", agent_socket.format(tmp=tmp_path))
+    client = MagicMock()
+
+    with docker_engine(client):
+        run(workspace, tmp_path)
+
+    assert list(client.containers.create.call_args.kwargs["volumes"]) == [str(workspace)]
+
+
 @pytest.mark.parametrize("tool_name", ["docker_sandbox", "sandbox_deploy"])
 @pytest.mark.parametrize(
-    "case", ["run-user", "unsupported-engine-endpoint", "unparseable-engine-endpoint"]
+    "case",
+    ["run-user", "unsupported-engine-endpoint", "unparseable-engine-endpoint", "ssh-agent-dir"],
 )
 def test_mcp_sandbox_tools_refuse_the_workspace_before_any_command_runs(
     tool_name: str, case: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -391,9 +467,9 @@ def test_mcp_sandbox_tools_refuse_the_workspace_before_any_command_runs(
     """The tool raises the shared check's refusal, so the client gets it and no command runs."""
     from devops_cli.ai.mcp import server
 
-    workspace, _protected, docker_host = _REFUSED_WORKSPACES[case](tmp_path, tmp_path)
-    if docker_host:
-        monkeypatch.setenv("DOCKER_HOST", docker_host)
+    workspace, _protected, env = _REFUSED_WORKSPACES[case](tmp_path, tmp_path)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
     tool = getattr(server, tool_name)
 
     with (
