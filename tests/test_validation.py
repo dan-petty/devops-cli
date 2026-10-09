@@ -75,6 +75,30 @@ def test_is_non_public_ip() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("cidr", "non_public"),
+    [
+        ("0.0.0.0/0", True),
+        ("::/0", True),
+        ("128.0.0.0/1", True),
+        ("8.0.0.0/5", True),
+        ("64:ff9b::/96", True),
+        ("64:ff9b::800:0/101", True),
+        ("::800:0/101", True),
+        ("64::/16", True),
+        ("2606:4700::/48", False),
+        ("140.82.112.0/20", False),
+    ],
+)
+def test_a_range_is_non_public_when_any_of_its_addresses_is(cidr: str, non_public: bool) -> None:
+    """A range holding a non-public block is non-public even when both its ends are public.
+
+    `8.0.0.0/5` holds 10.0.0.0/8; `64:ff9b::800:0/101` and `::800:0/101` are its NAT64 and
+    IPv4-compatible images, holding that block's images; `64::/16` holds `64:ff9b::/96`.
+    """
+    assert is_non_public_ip(ipaddress.ip_network(cidr)) is non_public
+
+
 def test_validate_url_valid() -> None:
     assert validate_url("http://localhost:11434") == "http://localhost:11434"
     assert validate_url("https://api.openai.com/v1") == "https://api.openai.com/v1"

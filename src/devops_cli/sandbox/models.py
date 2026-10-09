@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
-from urllib.parse import urlparse, urlsplit
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -16,6 +17,11 @@ from devops_cli.config.constants import (
     CONST_HOST_SANDBOX_DEFAULT_ENV,
     CONST_HOST_SANDBOX_SYSTEM_DIRS,
     CONST_HOST_SANDBOX_SYSTEM_SYMLINKS,
+    CONST_OTEL_COLLECTOR_NAMESPACE,
+    CONST_OTEL_COLLECTOR_POD_LABELS,
+    CONST_OTEL_OTLP_GRPC_PORT,
+    CONST_OTEL_OTLP_HTTP_PORT,
+    CONST_SANDBOX_COLLECTOR_LANE_MODES,
     CONST_SANDBOX_NETWORK_BRIDGE,
     CONST_SANDBOX_NETWORK_ISOLATED,
     CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
@@ -23,6 +29,7 @@ from devops_cli.config.constants import (
     CONST_SANDBOX_NETWORK_MODES,
     CONST_SANDBOX_NETWORK_NAMESPACE,
     CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST,
+    CONST_SANDBOX_WHITELIST_DEFAULT_PORTS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
@@ -59,27 +66,48 @@ class SandboxNetworkMode(StrEnum):
     BRIDGE = CONST_SANDBOX_NETWORK_BRIDGE
 
 
-def _extract_host_or_ip(endpoint: str) -> str:
-    """Extract hostname, domain, or IP from a URL or bare endpoint string."""
-    clean = endpoint.strip()
-    if not clean:
-        return ""
-    if "://" in clean:
-        return urlparse(clean).hostname or ""
-    if clean.startswith("["):
-        split_host = urlsplit(f"//{clean}").hostname
-        if split_host:
-            return split_host
+def _ip_entry_host(entry: str) -> str | None:
+    """The address or CIDR a whitelist entry is, or None when it is neither."""
     try:
-        net = ipaddress.ip_network(clean, strict=False)
-        return str(net) if "/" in clean else str(net.network_address)
+        net = ipaddress.ip_network(entry, strict=False)
     except ValueError:
-        pass
-    if "/" in clean:
-        clean = clean.split("/")[0].strip()
-    if ":" in clean:
-        clean = clean.split(":")[0].strip()
-    return clean.strip("[]")
+        return None
+    return str(net) if "/" in entry else str(net.network_address)
+
+
+def _parse_whitelist_entry(entry: str) -> tuple[str, int]:
+    """The host a whitelist entry names and the one TCP port it opens there.
+
+    An IP address or CIDR, IPv6 included (which takes no port suffix), opens 443. Otherwise the
+    entry is `scheme://host:port[/path]`, `host:port` or `[v6]:port`; without a port, `https` and
+    no scheme open 443 and `http` 80, and any other scheme is refused. A port must be 1-65535,
+    and an entry without a scheme cannot carry a path, which is how `140.82.112.0/20:8443` would
+    otherwise be read as one address on 443.
+    """
+    clean = entry.strip()
+    ip_host = _ip_entry_host(clean)
+    if ip_host is not None:
+        return ip_host, CONST_SANDBOX_WHITELIST_DEFAULT_PORTS[""]
+    has_scheme = "://" in clean
+    try:
+        parts = urlsplit(clean if has_scheme else f"//{clean}")
+        host, port = parts.hostname, parts.port
+    except ValueError as exc:
+        raise ValueError(f"Whitelist entry '{entry}' is not a host, URL or CIDR: {exc}") from exc
+    if not host:
+        raise ValueError(f"Whitelist entry '{entry}' names no host.")
+    if not has_scheme and (parts.path or parts.query or parts.fragment):
+        raise ValueError(
+            f"Whitelist entry '{entry}' has a path but no scheme; write host:port, or a URL."
+        )
+    if port == 0:
+        raise ValueError(f"Whitelist entry '{entry}' names port 0; a port must be 1-65535.")
+    if port is None and parts.scheme not in CONST_SANDBOX_WHITELIST_DEFAULT_PORTS:
+        raise ValueError(
+            f"Whitelist entry '{entry}' uses scheme '{parts.scheme}', which has no default port; "
+            "name the port."
+        )
+    return host, port or CONST_SANDBOX_WHITELIST_DEFAULT_PORTS[parts.scheme]
 
 
 def _is_forbidden_local_ip(
@@ -108,9 +136,7 @@ def _is_private_or_loopback(
 
 def _validate_public_whitelist_item(item: str) -> None:
     """Ensure public whitelist entry does not resolve to private IP, loopback, or metadata."""
-    host = _extract_host_or_ip(item)
-    if not host:
-        raise ValueError(f"Invalid public whitelist entry: '{item}'")
+    host, _port = _parse_whitelist_entry(item)
     if is_loopback_or_private_host(host, resolve_dns=True):
         raise ValueError(
             f"Public whitelist entry '{item}' (host '{host}') cannot be private, loopback, or metadata."
@@ -119,9 +145,7 @@ def _validate_public_whitelist_item(item: str) -> None:
 
 def _validate_local_whitelist_item(item: str) -> None:
     """Ensure local whitelist entry targets local/private endpoints and not link-local metadata."""
-    host = _extract_host_or_ip(item)
-    if not host:
-        raise ValueError(f"Invalid local whitelist entry: '{item}'")
+    host, _port = _parse_whitelist_entry(item)
     if is_cloud_metadata_host(host, resolve_dns=False):
         raise ValueError(
             f"Cloud metadata '{item}' is forbidden in local whitelist to mitigate SSRF."
@@ -147,6 +171,24 @@ def _build_dns_egress_rule() -> dict[str, Any]:
         "ports": [
             {"protocol": "UDP", "port": 53},
             {"protocol": "TCP", "port": 53},
+        ],
+    }
+
+
+def _build_collector_egress_rule() -> dict[str, Any]:
+    """Build the egress rule to the OTel collector's pods, by namespace and pod labels, on OTLP."""
+    return {
+        "to": [
+            {
+                "namespaceSelector": {
+                    "matchLabels": {"kubernetes.io/metadata.name": CONST_OTEL_COLLECTOR_NAMESPACE}
+                },
+                "podSelector": {"matchLabels": dict(CONST_OTEL_COLLECTOR_POD_LABELS)},
+            }
+        ],
+        "ports": [
+            {"protocol": "TCP", "port": CONST_OTEL_OTLP_GRPC_PORT},
+            {"protocol": "TCP", "port": CONST_OTEL_OTLP_HTTP_PORT},
         ],
     }
 
@@ -229,40 +271,23 @@ def _resolve_local_host(host: str) -> list[str]:
     return [ip_net.with_prefixlen]
 
 
-def _build_public_whitelist_egress(whitelist: list[str]) -> list[dict[str, Any]]:
-    """Build egress rules allowing public internet egress strictly to validated whitelisted destinations."""
-    to_rules: list[dict[str, Any]] = []
-    for item in whitelist:
-        host = _extract_host_or_ip(item)
-        if not host:
-            continue
-        for cidr in _resolve_public_host(host):
-            to_rules.append({"ipBlock": {"cidr": cidr}})
-    if not to_rules:
-        raise ValueError("Public whitelist mode requires at least one valid public destination.")
-    return [
-        _build_dns_egress_rule(),
-        {"to": to_rules},
-    ]
+def _build_whitelist_egress(
+    entries: list[str], resolve_host: Callable[[str], list[str]]
+) -> list[dict[str, Any]]:
+    """Build the kube-dns rule, then one rule per entry: its resolved addresses on its own port.
 
-
-def _build_local_whitelist_egress(whitelist: list[str]) -> list[dict[str, Any]]:
-    """Build egress rules permitting specific local CIDRs, IPs, and endpoints."""
-    to_rules: list[dict[str, Any]] = []
-    for item in whitelist:
-        host = _extract_host_or_ip(item)
-        if not host:
-            continue
-        for cidr in _resolve_local_host(host):
-            to_rules.append({"ipBlock": {"cidr": cidr}})
-    if not to_rules:
-        raise ValueError(
-            "Local whitelist mode requires at least one valid local or private destination."
+    Entries never share a rule, so no address is opened on another entry's port.
+    """
+    rules = [_build_dns_egress_rule()]
+    for entry in entries:
+        host, port = _parse_whitelist_entry(entry)
+        rules.append(
+            {
+                "to": [{"ipBlock": {"cidr": cidr}} for cidr in resolve_host(host)],
+                "ports": [{"protocol": "TCP", "port": port}],
+            }
         )
-    return [
-        _build_dns_egress_rule(),
-        {"to": to_rules},
-    ]
+    return rules
 
 
 class SandboxNetworkConfig(BaseModel):
@@ -318,48 +343,57 @@ class SandboxNetworkConfig(BaseModel):
                 _validate_local_whitelist_item(item)
         return self
 
+    def _k8s_ingress_and_egress(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """The NetworkPolicy ingress and egress rules of the network mode."""
+        if self.mode == SandboxNetworkMode.ISOLATED:
+            return [], []
+        if self.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+            return [{"from": [{"podSelector": {}}]}], [
+                {"to": [{"podSelector": {}}]},
+                _build_dns_egress_rule(),
+            ]
+        if self.mode == SandboxNetworkMode.PUBLIC_WHITELIST:
+            return [], _build_whitelist_egress(self.public_whitelist, _resolve_public_host)
+        if self.mode == SandboxNetworkMode.LOCAL_WHITELIST:
+            return [], _build_whitelist_egress(self.local_whitelist, _resolve_local_host)
+        return [{"from": [{"ipBlock": {"cidr": "0.0.0.0/0"}}]}], [
+            {"to": [{"ipBlock": {"cidr": "0.0.0.0/0"}}]}
+        ]
+
     def to_k8s_network_policy(
-        self, name: str = DEFAULT_SANDBOX_NAME, namespace: str | None = None
+        self,
+        name: str = DEFAULT_SANDBOX_NAME,
+        namespace: str | None = None,
+        *,
+        allow_collector: bool = False,
     ) -> dict[str, Any]:
-        """Synthesize declarative Kubernetes NetworkPolicy manifest matching the network mode."""
-        target_ns = namespace or self.sandbox_namespace
-        policy: dict[str, Any] = {
+        """Synthesize declarative Kubernetes NetworkPolicy manifest matching the network mode.
+
+        `allow_collector` adds the egress rule to the OTel collector, in the modes that have
+        egress rules to add it to.
+        """
+        if allow_collector and self.mode not in CONST_SANDBOX_COLLECTOR_LANE_MODES:
+            raise ValueError(
+                f"The collector lane applies only to network modes "
+                f"{', '.join(CONST_SANDBOX_COLLECTOR_LANE_MODES)}, not '{self.mode.value}'."
+            )
+        ingress, egress = self._k8s_ingress_and_egress()
+        if allow_collector:
+            egress.append(_build_collector_egress_rule())
+        return {
             "apiVersion": "networking.k8s.io/v1",
             "kind": "NetworkPolicy",
             "metadata": {
                 "name": f"{name}-network-policy",
-                "namespace": target_ns,
+                "namespace": namespace or self.sandbox_namespace,
             },
             "spec": {
                 "podSelector": {"matchLabels": {"app.kubernetes.io/name": name}},
                 "policyTypes": ["Ingress", "Egress"],
-                "ingress": [],
-                "egress": [],
+                "ingress": ingress,
+                "egress": egress,
             },
         }
-
-        if self.mode == SandboxNetworkMode.ISOLATED:
-            return policy
-
-        if self.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
-            policy["spec"]["ingress"] = [{"from": [{"podSelector": {}}]}]
-            policy["spec"]["egress"] = [
-                {"to": [{"podSelector": {}}]},
-                _build_dns_egress_rule(),
-            ]
-            return policy
-
-        if self.mode == SandboxNetworkMode.PUBLIC_WHITELIST:
-            policy["spec"]["egress"] = _build_public_whitelist_egress(self.public_whitelist)
-            return policy
-
-        if self.mode == SandboxNetworkMode.LOCAL_WHITELIST:
-            policy["spec"]["egress"] = _build_local_whitelist_egress(self.local_whitelist)
-            return policy
-
-        policy["spec"]["ingress"] = [{"from": [{"ipBlock": {"cidr": "0.0.0.0/0"}}]}]
-        policy["spec"]["egress"] = [{"to": [{"ipBlock": {"cidr": "0.0.0.0/0"}}]}]
-        return policy
 
 
 class SandboxPolicy(BaseModel):

@@ -4,21 +4,33 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.docker import app as docker_app
 from devops_cli.commands.test_cmd import app as cli_test_app
+from devops_cli.config.constants import (
+    CONST_TRACEPARENT_ENV_VAR,
+    CONST_TRACESTATE_ENV_VAR,
+)
 from devops_cli.config.defaults import DEFAULT_SANDBOX_PIDS_LIMIT
 from devops_cli.docker.sandbox import (
     WorkloadSandboxConfig,
     WorkloadSandboxRunner,
 )
 from devops_cli.exceptions.docker import DockerSandboxError
+from devops_cli.sandbox.models import SandboxNetworkConfig
+from devops_cli.telemetry import (
+    extract_env,
+    get_recent_spans,
+    reset_tracer,
+)
 
 runner = CliRunner()
+
+_TRACE_ENV_VARS = (CONST_TRACEPARENT_ENV_VAR, CONST_TRACESTATE_ENV_VAR)
 
 
 def test_sandbox_config_defaults(tmp_path: Path) -> None:
@@ -163,9 +175,10 @@ def test_sandbox_runner_env_and_hardening_propagation(tmp_path: Path, docker_eng
         res = sandbox.run()
 
     create_kwargs = mock_client.containers.create.call_args.kwargs
+    environment = create_kwargs["environment"]
     assert res.exit_code == 0
     assert (
-        create_kwargs["environment"],
+        {key: environment[key] for key in environment if key not in _TRACE_ENV_VARS},
         create_kwargs["cap_drop"],
         create_kwargs["security_opt"],
         create_kwargs["pids_limit"],
@@ -201,3 +214,78 @@ def test_workload_sandbox_runner_exclude_home_dir(tmp_path: Path) -> None:
     # Home root is still forbidden
     with pytest.raises(DockerSandboxError, match="home directory"):
         runner_allow.run()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Trace context in workload containers (#702)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _run_with_mock_engine(cfg: WorkloadSandboxConfig, docker_engine: Any) -> dict[str, str]:
+    """Run a workload through a mocked Engine API client and return the environment it got."""
+    container = MagicMock()
+    container.id = "c-trace-1"
+    container.wait.return_value = {"StatusCode": 0}
+    container.logs.side_effect = [b"", b""]
+    client = MagicMock()
+    client.containers.create.return_value = container
+    with docker_engine(client):
+        WorkloadSandboxRunner(cfg).run()
+    environment: dict[str, str] = client.containers.create.call_args.kwargs["environment"]
+    return environment
+
+
+def test_a_workload_is_parented_to_its_run_span(
+    tmp_path: Path, docker_engine: Any, tracer: Any
+) -> None:
+    """The container's TRACEPARENT names the run span; the config's env is left as it was."""
+    cfg = WorkloadSandboxConfig(workspace_dir=tmp_path, command=["env"], env={"APP_MODE": "test"})
+    environment = _run_with_mock_engine(cfg, docker_engine)
+    child = extract_env(environment)
+    run_spans = [
+        span["spanId"]
+        for span in get_recent_spans()
+        if span.get("name") == "docker.workload_sandbox.run"
+    ]
+    assert (
+        child.span_id if child else None,
+        {key: environment[key] for key in environment if key not in _TRACE_ENV_VARS},
+        cfg.env,
+    ) == (run_spans[0], {"APP_MODE": "test"}, {"APP_MODE": "test"})
+
+
+def test_a_proxied_workload_keeps_its_proxy_variables_beside_the_trace_context(
+    tmp_path: Path, docker_engine: Any, tracer: Any
+) -> None:
+    """In a proxy mode the proxy variables are still set when the trace context is added."""
+    proxy = "http://example.com:3128"
+    cfg = WorkloadSandboxConfig(
+        workspace_dir=tmp_path,
+        command=["env"],
+        env={"APP_MODE": "test"},
+        network_config=SandboxNetworkConfig(
+            mode="public_whitelist", public_whitelist=["93.184.216.34"], egress_proxy=proxy
+        ),
+    )
+    environment = _run_with_mock_engine(cfg, docker_engine)
+    assert (
+        extract_env(environment) is not None,
+        {key: environment[key] for key in environment if key not in _TRACE_ENV_VARS},
+    ) == (
+        True,
+        {"HTTP_PROXY": proxy, "HTTPS_PROXY": proxy, "ALL_PROXY": proxy, "APP_MODE": "test"},
+    )
+
+
+def test_a_workload_run_with_tracing_off_gets_exactly_its_configured_env(
+    tmp_path: Path, docker_engine: Any
+) -> None:
+    """With tracing disabled the container's environment is the config's env and nothing else."""
+    cfg = WorkloadSandboxConfig(workspace_dir=tmp_path, command=["env"], env={"APP_MODE": "test"})
+    with patch(
+        "devops_cli.telemetry.tracer._resolve_telemetry_settings", return_value=(None, False)
+    ):
+        reset_tracer()
+        environment = _run_with_mock_engine(cfg, docker_engine)
+        reset_tracer()
+    assert environment == {"APP_MODE": "test"}

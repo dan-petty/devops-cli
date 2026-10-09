@@ -33,7 +33,7 @@ from devops_cli.sandbox.models import (
     SandboxNetworkMode,
     SandboxPolicy,
 )
-from devops_cli.telemetry import trace_span
+from devops_cli.telemetry import get_tracer, trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -213,13 +213,19 @@ class WorkloadSandboxRunner:
         return {"network_mode": "bridge", "environment": dict(self.config.env)}
 
     def _build_create_kwargs(self, ws_resolved: Path) -> dict[str, Any]:
-        """Assemble the hardened Engine API container creation payload."""
+        """Assemble the hardened Engine API container creation payload.
+
+        The container's environment carries the active trace context, so a workload that
+        traces is parented to the span that runs it.
+        """
         mount_mode = "ro" if self.config.read_only else "rw"
         user_str = (
             f"{os.getuid()}:{os.getgid()}"
             if self.config.rootless and hasattr(os, "getuid")
             else None
         )
+        network = self._network_create_kwargs()
+        get_tracer().inject_trace_env(network["environment"])
         return {
             "image": self.config.image,
             "command": self.config.command,
@@ -230,7 +236,7 @@ class WorkloadSandboxRunner:
             "nano_cpus": int(self.config.cpu_limit * 1e9) if self.config.cpu_limit else None,
             "detach": True,
             **self.config.policy.to_docker_security_kwargs(read_only=self.config.read_only),
-            **self._network_create_kwargs(),
+            **network,
         }
 
     def _collect_output(self, container: Any) -> tuple[int, str, str]:

@@ -1660,8 +1660,14 @@ def sandbox_network_policy(
     namespace: str = "sandbox",
     public_whitelist: list[str] | None = None,
     local_whitelist: list[str] | None = None,
+    allow_collector: bool = False,
 ) -> str:
-    """Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation."""
+    """Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation.
+
+    Each whitelist item opens one TCP port: `host:port`, or 443 for a bare host or IP.
+    `allow_collector` adds one egress rule to the OTel collector's pods on TCP 4317 and 4318,
+    in the sandbox_namespace, public_whitelist and local_whitelist modes.
+    """
     _validate_mcp_arg("network_mode", network_mode)
     _validate_mcp_arg("name", name)
     _validate_mcp_arg("namespace", namespace)
@@ -1684,6 +1690,8 @@ def sandbox_network_policy(
         cmd.extend(["--public-whitelist", ",".join(public_whitelist)])
     if local_whitelist:
         cmd.extend(["--local-whitelist", ",".join(local_whitelist)])
+    if allow_collector:
+        cmd.append("--allow-collector")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 

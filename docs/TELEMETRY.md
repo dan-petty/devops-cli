@@ -46,7 +46,7 @@ points devops-cli at the cluster's collector.
 ## Distributed Tracing & W3C Context Propagation
 
 - **Root Trace Context**: CLI delegate sets up root spans (`cli.<subcommand>`) with execution metadata.
-- **W3C `traceparent` Injection**: Subprocess calls inject standard W3C `traceparent` headers into child process environments.
+- **W3C `traceparent` Injection**: Subprocesses, sandbox containers (`devops sandbox deploy`, `devops docker sandbox`, `devops test sandbox`) and commands run with `devops sandbox exec` receive the active span as `TRACEPARENT` in their environment (and `TRACESTATE` when one is set). A container's parent is its `sandbox.deploy` or `docker.workload_sandbox.run` span, and each exec's is its own `sandbox.exec` span. With telemetry disabled, nothing is added.
 - **OTLP Exporter**: Spans and metrics go to the OpenTelemetry Collector at `telemetry.endpoint` (`DEVOPS_CLI_TELEMETRY_ENDPOINT`). When devops-cli's configuration names none, OpenTelemetry's own `OTEL_EXPORTER_OTLP_ENDPOINT` names it, else `http://localhost:4318`. `telemetry.enabled` (`DEVOPS_CLI_TELEMETRY_ENABLED`) turns export off. When the configuration cannot load, those two variables alone decide, and export stays off unless `DEVOPS_CLI_TELEMETRY_ENABLED` turns it on.
 
 ---

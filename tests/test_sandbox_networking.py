@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
+import socket
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -23,12 +26,81 @@ from devops_cli.sandbox.models import (
     SandboxDeployConfig,
     SandboxNetworkConfig,
     SandboxNetworkMode,
-    _extract_host_or_ip,
+    _build_dns_egress_rule,
+    _parse_whitelist_entry,
     _resolve_local_host,
     _resolve_public_host,
 )
 
 runner = CliRunner()
+
+# Every whitelist configuration these tests build a policy from, so that one test can check
+# that each of their rules names its ports. Names resolve through `public_dns` or a stub.
+_WHITELIST_POLICIES: dict[str, dict[str, Any]] = {
+    "public names and an address": {
+        "mode": SandboxNetworkMode.PUBLIC_WHITELIST,
+        "public_whitelist": ["github.com", "pypi.org", "93.184.216.34"],
+    },
+    "local urls and addresses": {
+        "mode": SandboxNetworkMode.LOCAL_WHITELIST,
+        "local_whitelist": [
+            "http://localhost:11434",
+            "192.168.1.50",
+            "http://10.0.0.5:8000",
+            "host.docker.internal",
+        ],
+    },
+    "public ipv6 and ipv4 addresses": {
+        "mode": SandboxNetworkMode.PUBLIC_WHITELIST,
+        "public_whitelist": ["2606:4700::1", "93.184.216.34"],
+    },
+    "local ipv6 url and ipv4 address": {
+        "mode": SandboxNetworkMode.LOCAL_WHITELIST,
+        "local_whitelist": ["http://[fd00::1]:8080", "192.168.1.50"],
+    },
+    "https url with a port": {
+        "mode": SandboxNetworkMode.PUBLIC_WHITELIST,
+        "public_whitelist": ["https://1.1.1.1:8443"],
+    },
+    "address with a port": {
+        "mode": SandboxNetworkMode.PUBLIC_WHITELIST,
+        "public_whitelist": ["1.1.1.1:8443"],
+    },
+    "http url": {
+        "mode": SandboxNetworkMode.PUBLIC_WHITELIST,
+        "public_whitelist": ["http://example.com"],
+    },
+    "bare name": {
+        "mode": SandboxNetworkMode.PUBLIC_WHITELIST,
+        "public_whitelist": ["example.com"],
+    },
+    "bracketed ipv6 with a port": {
+        "mode": SandboxNetworkMode.PUBLIC_WHITELIST,
+        "public_whitelist": ["[2606:4700::1]:8443"],
+    },
+    "local url with a port": {
+        "mode": SandboxNetworkMode.LOCAL_WHITELIST,
+        "local_whitelist": ["http://localhost:11434"],
+    },
+    "two names, one with a port": {
+        "mode": SandboxNetworkMode.PUBLIC_WHITELIST,
+        "public_whitelist": ["example.com:8443", "example.org"],
+    },
+}
+
+
+def _egress_without_dns(config: dict[str, Any], **policy: Any) -> list[dict[str, Any]]:
+    """The egress rules a configuration's policy holds, the kube-dns rule left out."""
+    egress = SandboxNetworkConfig(**config).to_k8s_network_policy(**policy)["spec"]["egress"]
+    return [rule for rule in egress if rule != _build_dns_egress_rule()]
+
+
+def _tcp_rule(cidrs: list[str], port: int) -> dict[str, Any]:
+    """The egress rule that opens one TCP port to these address blocks."""
+    return {
+        "to": [{"ipBlock": {"cidr": cidr}} for cidr in cidrs],
+        "ports": [{"protocol": "TCP", "port": port}],
+    }
 
 
 def test_sandbox_network_mode_enum_and_constants() -> None:
@@ -127,27 +199,21 @@ def test_sandbox_network_config_sandbox_namespace_mode() -> None:
     assert has_dns, "Sandbox namespace policy must allow CoreDNS egress on port 53"
 
 
-@pytest.mark.usefixtures("public_dns")
-def test_sandbox_network_config_public_whitelist_validation_and_policy() -> None:
+def test_sandbox_network_config_public_whitelist_validation_and_policy(public_dns: str) -> None:
     """Verify public whitelist validates domain names, rejects private/metadata IPs, and generates egress policy."""
-    # Valid public domains and IPs
-    cfg = SandboxNetworkConfig(
-        mode=SandboxNetworkMode.PUBLIC_WHITELIST,
-        public_whitelist=["github.com", "pypi.org", "93.184.216.34"],
-    )
+    cfg = SandboxNetworkConfig(**_WHITELIST_POLICIES["public names and an address"])
 
     policy = cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
-    assert policy["kind"] == "NetworkPolicy"
-    egress_rules = policy["spec"]["egress"]
-    assert len(egress_rules) >= 1
-
-    # Verify that ipBlocks are generated for the specific destinations
-    ip_blocks = [
-        t["ipBlock"] for rule in egress_rules for t in rule.get("to", []) if "ipBlock" in t
-    ]
-    assert ip_blocks, "Public whitelist policy must define ipBlock constraints"
-    assert any("93.184.216.34/32" == block.get("cidr") for block in ip_blocks)
-    assert not any("0.0.0.0/0" == block.get("cidr") for block in ip_blocks)
+    # The kube-dns rule, then one rule per entry: each name resolves to the `public_dns` address.
+    assert (policy["kind"], policy["spec"]["egress"]) == (
+        "NetworkPolicy",
+        [
+            _build_dns_egress_rule(),
+            _tcp_rule([f"{public_dns}/32"], 443),
+            _tcp_rule([f"{public_dns}/32"], 443),
+            _tcp_rule(["93.184.216.34/32"], 443),
+        ],
+    )
 
     # Empty whitelist should raise ValueError
     with pytest.raises(ValueError, match="at least one public domain or IP"):
@@ -173,28 +239,19 @@ def test_sandbox_network_config_public_whitelist_validation_and_policy() -> None
 
 def test_sandbox_network_config_local_whitelist_validation_and_routing() -> None:
     """Verify local whitelist validates endpoints, rejects cloud metadata, and configures routing."""
-    cfg = SandboxNetworkConfig(
-        mode=SandboxNetworkMode.LOCAL_WHITELIST,
-        local_whitelist=[
-            "http://localhost:11434",
-            "192.168.1.50",
-            "http://10.0.0.5:8000",
-            "host.docker.internal",
-        ],
-    )
+    cfg = SandboxNetworkConfig(**_WHITELIST_POLICIES["local urls and addresses"])
 
     policy = cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
-    assert policy["kind"] == "NetworkPolicy"
-    egress_rules = policy["spec"]["egress"]
-    assert len(egress_rules) >= 1
-
-    ip_blocks = [
-        t["ipBlock"] for rule in egress_rules for t in rule.get("to", []) if "ipBlock" in t
-    ]
-    assert ip_blocks, "Local whitelist policy must define ipBlock constraints"
-    assert any("127.0.0.1/32" == block.get("cidr") for block in ip_blocks)
-    assert any("192.168.1.50/32" == block.get("cidr") for block in ip_blocks)
-    assert any("10.0.0.5/32" == block.get("cidr") for block in ip_blocks)
+    assert (policy["kind"], policy["spec"]["egress"]) == (
+        "NetworkPolicy",
+        [
+            _build_dns_egress_rule(),
+            _tcp_rule(["127.0.0.1/32"], 11434),
+            _tcp_rule(["192.168.1.50/32"], 443),
+            _tcp_rule(["10.0.0.5/32"], 8000),
+            _tcp_rule(["127.0.0.1/32"], 443),
+        ],
+    )
 
     # Empty local whitelist should raise ValueError
     with pytest.raises(ValueError, match="at least one local URL or IP"):
@@ -290,7 +347,7 @@ def test_cli_sandbox_network_policy_command() -> None:
             "--network-mode",
             "public-whitelist",
             "--public-whitelist",
-            "github.com,pypi.org",
+            ",".join(_WHITELIST_POLICIES["public names and an address"]["public_whitelist"]),
         ],
     )
     assert res_pub.exit_code == 0
@@ -305,7 +362,7 @@ def test_cli_sandbox_network_policy_command() -> None:
             "--network-mode",
             "local-whitelist",
             "--local-whitelist",
-            "http://localhost:11434,192.168.1.50",
+            ",".join(_WHITELIST_POLICIES["local urls and addresses"]["local_whitelist"]),
         ],
     )
     assert res_local.exit_code == 0
@@ -418,33 +475,65 @@ def test_sandbox_engine_whitelist_fail_closed_without_proxy(tmp_path: Path) -> N
         engine._build_create_kwargs(deploy_cfg, tmp_path, [])
 
 
-def test_extract_host_or_ip_ipv6() -> None:
-    """Verify _extract_host_or_ip correctly parses bare, bracketed, URL, and CIDR IPv6 endpoints."""
+def test_a_whitelist_entry_parses_into_its_host_and_port() -> None:
+    """An entry's stated port is kept; without one, https and a bare entry get 443 and http 80.
+
+    The host is what the resolvers take: an address, a CIDR, an unbracketed IPv6 address or a
+    URL's host. A bare IPv6 address takes no port suffix.
+    """
     assert (
-        _extract_host_or_ip("http://localhost:11434"),
-        _extract_host_or_ip("http://[2001:db8::1]:8080"),
-        _extract_host_or_ip("[2001:db8::1]:8080"),
-        _extract_host_or_ip("[2001:db8::1]"),
-        _extract_host_or_ip("2606:4700::1"),
-        _extract_host_or_ip("fd00:ec2::254"),
-        _extract_host_or_ip("2606:4700::/48"),
-        _extract_host_or_ip("192.168.1.1:8080"),
-        _extract_host_or_ip("example.com:8080"),
-        _extract_host_or_ip("example.com/path"),
-        _extract_host_or_ip(""),
+        _parse_whitelist_entry("http://localhost:11434"),
+        _parse_whitelist_entry("http://[2001:db8::1]:8080"),
+        _parse_whitelist_entry("[2001:db8::1]:8080"),
+        _parse_whitelist_entry("[2001:db8::1]"),
+        _parse_whitelist_entry("2606:4700::1"),
+        _parse_whitelist_entry("fd00:ec2::254"),
+        _parse_whitelist_entry("2606:4700::/48"),
+        _parse_whitelist_entry("192.168.1.1:8080"),
+        _parse_whitelist_entry("example.com:8080"),
+        _parse_whitelist_entry("example.com"),
+        _parse_whitelist_entry("https://example.com/path"),
+        _parse_whitelist_entry("http://example.com"),
+        _parse_whitelist_entry("ftp://example.com:2121"),
     ) == (
-        "localhost",
-        "2001:db8::1",
-        "2001:db8::1",
-        "2001:db8::1",
-        "2606:4700::1",
-        "fd00:ec2::254",
-        "2606:4700::/48",
-        "192.168.1.1",
-        "example.com",
-        "example.com",
-        "",
+        ("localhost", 11434),
+        ("2001:db8::1", 8080),
+        ("2001:db8::1", 8080),
+        ("2001:db8::1", 443),
+        ("2606:4700::1", 443),
+        ("fd00:ec2::254", 443),
+        ("2606:4700::/48", 443),
+        ("192.168.1.1", 8080),
+        ("example.com", 8080),
+        ("example.com", 443),
+        ("example.com", 443),
+        ("example.com", 80),
+        ("example.com", 2121),
     )
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "",
+        "https://",
+        "example.com/path",
+        "140.82.112.0/20:8443",
+        "ftp://example.com",
+        "example.com:0",
+        "example.com:70000",
+        "example.com:https",
+        "[2606:4700::1",
+    ],
+)
+def test_a_whitelist_entry_that_cannot_name_one_port_is_refused(entry: str) -> None:
+    """An entry is refused, by name, rather than read as some other host or port.
+
+    Without a scheme, a path is how a CIDR with a port (`140.82.112.0/20:8443`) would be misread
+    as one address on 443. Another scheme has no default port, and a port must be 1-65535.
+    """
+    with pytest.raises(ValueError, match=re.escape(f"'{entry}'")):
+        _parse_whitelist_entry(entry)
 
 
 def test_resolve_public_host_ipv6_emits_full_prefix() -> None:
@@ -502,10 +591,7 @@ def test_resolve_local_host_ipv6_emits_full_prefix() -> None:
 
 def test_sandbox_network_config_ipv6_whitelists() -> None:
     """Verify NetworkPolicy generates correct IPv6 /128 ipBlock CIDRs for public and local modes."""
-    public_cfg = SandboxNetworkConfig(
-        mode=SandboxNetworkMode.PUBLIC_WHITELIST,
-        public_whitelist=["2606:4700::1", "93.184.216.34"],
-    )
+    public_cfg = SandboxNetworkConfig(**_WHITELIST_POLICIES["public ipv6 and ipv4 addresses"])
     public_policy = public_cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
     public_blocks = [
         t["ipBlock"]["cidr"]
@@ -519,10 +605,7 @@ def test_sandbox_network_config_ipv6_whitelists() -> None:
         "2606:4700::1/32" not in public_blocks,
     ) == (True, True, True)
 
-    local_cfg = SandboxNetworkConfig(
-        mode=SandboxNetworkMode.LOCAL_WHITELIST,
-        local_whitelist=["http://[fd00::1]:8080", "192.168.1.50"],
-    )
+    local_cfg = SandboxNetworkConfig(**_WHITELIST_POLICIES["local ipv6 url and ipv4 address"])
     local_policy = local_cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
     local_blocks = [
         t["ipBlock"]["cidr"]
@@ -535,3 +618,166 @@ def test_sandbox_network_config_ipv6_whitelists() -> None:
         "192.168.1.50/32" in local_blocks,
         "fd00::1/32" not in local_blocks,
     ) == (True, True, True)
+
+
+# =============================================================================
+# Port scoping and the collector lane (#702)
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [
+        ("https url with a port", [(["1.1.1.1/32"], 8443)]),
+        ("address with a port", [(["1.1.1.1/32"], 8443)]),
+        ("http url", [(["93.184.215.14/32"], 80)]),
+        ("bare name", [(["93.184.215.14/32"], 443)]),
+        ("bracketed ipv6 with a port", [(["2606:4700::1/128"], 8443)]),
+        ("local url with a port", [(["127.0.0.1/32"], 11434)]),
+    ],
+)
+def test_a_whitelist_entry_opens_only_its_own_port(
+    case: str, expected: list[tuple[list[str], int]], public_dns: str
+) -> None:
+    """An entry that asks for one port gets that port, on TCP, and no other."""
+    assert (public_dns, _egress_without_dns(_WHITELIST_POLICIES[case])) == (
+        "93.184.215.14",
+        [_tcp_rule(cidrs, port) for cidrs, port in expected],
+    )
+
+
+def test_two_entries_never_share_a_rule(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each entry's addresses open only that entry's port, never the other entry's."""
+    addresses = {"example.com": "93.184.216.34", "example.org": "1.0.0.1"}
+
+    def resolve(host: str, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
+        if host not in addresses:
+            raise socket.gaierror(socket.EAI_NONAME, f"no stub address for {host}")
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (addresses[host], 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    assert _egress_without_dns(_WHITELIST_POLICIES["two names, one with a port"]) == [
+        _tcp_rule(["93.184.216.34/32"], 8443),
+        _tcp_rule(["1.0.0.1/32"], 443),
+    ]
+
+
+@pytest.mark.usefixtures("public_dns")
+@pytest.mark.parametrize(
+    "entry", ["ftp://example.com", "example.com:0", "example.com:70000", "140.82.112.0/20:8443"]
+)
+def test_network_policy_exits_1_naming_an_entry_it_cannot_scope_to_a_port(entry: str) -> None:
+    """The command prints no policy for an entry it would otherwise misread."""
+    res = runner.invoke(
+        sandbox_app,
+        ["network-policy", "--network-mode", "public_whitelist", "--public-whitelist", entry],
+    )
+    assert (res.exit_code, entry in res.output, "NetworkPolicy" in res.stdout) == (1, True, False)
+
+
+@pytest.mark.usefixtures("public_dns")
+@pytest.mark.parametrize("case", sorted(_WHITELIST_POLICIES))
+def test_every_whitelist_rule_but_the_dns_rule_names_its_ports(case: str) -> None:
+    """No whitelist policy these tests build opens every port to an address."""
+    rules = _egress_without_dns(_WHITELIST_POLICIES[case])
+    assert (bool(rules), all(rule.get("ports") for rule in rules)) == (True, True)
+
+
+_COLLECTOR_RULE: dict[str, Any] = {
+    "to": [
+        {
+            "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "otel"}},
+            "podSelector": {
+                "matchLabels": {
+                    "app.kubernetes.io/name": "opentelemetry-collector",
+                    "app.kubernetes.io/instance": "otel-collector",
+                }
+            },
+        }
+    ],
+    "ports": [{"protocol": "TCP", "port": 4317}, {"protocol": "TCP", "port": 4318}],
+}
+_MODE_POLICIES: dict[str, dict[str, Any]] = {
+    "isolated": {"mode": SandboxNetworkMode.ISOLATED},
+    "sandbox_namespace": {"mode": SandboxNetworkMode.SANDBOX_NAMESPACE},
+    "public_whitelist": _WHITELIST_POLICIES["bare name"],
+    "local_whitelist": _WHITELIST_POLICIES["local url with a port"],
+    "bridge": {"mode": SandboxNetworkMode.BRIDGE},
+}
+_COLLECTOR_LANE_MODES = ("sandbox_namespace", "public_whitelist", "local_whitelist")
+
+
+def _selects_otel(rule: dict[str, Any]) -> bool:
+    """Whether an egress rule has a peer in the collector's namespace."""
+    return any(
+        peer.get("namespaceSelector", {}).get("matchLabels", {}).get("kubernetes.io/metadata.name")
+        == "otel"
+        for peer in rule.get("to", [])
+    )
+
+
+@pytest.mark.usefixtures("public_dns")
+@pytest.mark.parametrize("mode", _COLLECTOR_LANE_MODES)
+def test_the_collector_lane_is_one_rule_to_the_collector_pods_on_the_otlp_ports(mode: str) -> None:
+    """The lane selects the collector by namespace and pod labels together, never Jaeger or an IP."""
+    egress = _egress_without_dns(_MODE_POLICIES[mode], allow_collector=True)
+    assert [rule for rule in egress if _selects_otel(rule)] == [_COLLECTOR_RULE]
+
+
+@pytest.mark.parametrize("mode", ["isolated", "bridge"])
+def test_the_collector_lane_is_refused_in_a_mode_it_does_not_apply_to(mode: str) -> None:
+    """Isolated means no egress, and bridge already has all of it; the error names the modes."""
+    res = runner.invoke(
+        sandbox_app, ["network-policy", "--network-mode", mode, "--allow-collector"]
+    )
+    named = tuple(lane_mode in res.output for lane_mode in _COLLECTOR_LANE_MODES)
+    assert (res.exit_code, named) == (1, (True, True, True))
+
+
+@pytest.mark.usefixtures("public_dns")
+@pytest.mark.parametrize("mode", sorted(_MODE_POLICIES))
+def test_without_the_flag_no_rule_selects_the_collector_namespace(mode: str) -> None:
+    """The collector lane is opt-in in every mode."""
+    egress = SandboxNetworkConfig(**_MODE_POLICIES[mode]).to_k8s_network_policy()["spec"]["egress"]
+    assert [rule for rule in egress if _selects_otel(rule)] == []
+
+
+@pytest.mark.usefixtures("public_dns")
+@pytest.mark.parametrize(
+    ("mode", "allow_collector"),
+    [(mode, False) for mode in sorted(_MODE_POLICIES)]
+    + [(mode, True) for mode in _COLLECTOR_LANE_MODES],
+)
+def test_no_policy_opens_the_cache_port(mode: str, allow_collector: bool) -> None:
+    """There is no lane to a Valkey on 6379, with or without the collector lane."""
+    policy = SandboxNetworkConfig(**_MODE_POLICIES[mode]).to_k8s_network_policy(
+        allow_collector=allow_collector
+    )
+    ports = {port["port"] for rule in policy["spec"]["egress"] for port in rule.get("ports", [])}
+    assert 6379 not in ports
+
+
+def test_the_mcp_tool_asks_for_the_collector_lane_only_when_told_to() -> None:
+    """`sandbox_network_policy(allow_collector=True)` adds the flag to the command it runs."""
+    from devops_cli.ai.mcp.server import sandbox_network_policy
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="policy") as run_command:
+        sandbox_network_policy(network_mode="sandbox_namespace", allow_collector=True)
+        sandbox_network_policy(network_mode="sandbox_namespace")
+    base = [
+        "uv",
+        "run",
+        "devops",
+        "sandbox",
+        "network-policy",
+        "--network-mode",
+        "sandbox_namespace",
+        "--name",
+        "app-sandbox",
+        "--namespace",
+        "sandbox",
+    ]
+    assert [call.args[0] for call in run_command.call_args_list] == [
+        [*base, "--allow-collector"],
+        base,
+    ]

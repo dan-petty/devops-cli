@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -347,6 +347,24 @@ def test_lifecycle_operations_use_direct_api_calls(docker_engine: Any) -> None:
     assert (exec_result, exit_code, logs) == ((0, "output\n"), 7, "log line\n")
     mock_client.api.stop.assert_called_once_with("cid-1", timeout=3)
     assert mock_client.api.remove_container.call_count == 2
+
+
+def test_exec_in_container_hands_its_environment_to_the_exec(docker_engine: Any) -> None:
+    """An exec's environment reaches the Engine API, and none is sent when the caller has none."""
+    traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    mock_container = MagicMock()
+    mock_container.exec_run.return_value = (0, b"")
+    mock_client = MagicMock()
+    mock_client.containers.get.return_value = mock_container
+
+    with docker_engine(mock_client) as engine:
+        engine.exec_in_container("cid-1", ["env"], environment={"TRACEPARENT": traceparent})
+        engine.exec_in_container("cid-1", ["env"], workdir="/app")
+
+    assert mock_container.exec_run.call_args_list == [
+        call(["env"], workdir=None, environment={"TRACEPARENT": traceparent}),
+        call(["env"], workdir="/app", environment=None),
+    ]
 
 
 def test_remove_container_tolerates_already_reaped(docker_engine: Any) -> None:
