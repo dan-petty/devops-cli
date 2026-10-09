@@ -5,6 +5,15 @@
 # little VRAM to load (#1061). The exception is ollama-48gib-slow, the background tier: it keeps
 # its embedding model and one background model loaded, since with one loaded each evicted the
 # other on every switch (#1064).
+#
+# Every tier runs ollama as UID and GID 10001, which no host login account uses, with RuntimeDefault
+# seccomp, no privilege escalation, all capabilities dropped and a read-only root filesystem; /tmp is
+# an emptyDir. HOME is /home/ollama, so the key and models/ stay in the hostPath /var/lib/ollama,
+# mounted at /home/ollama/.ollama. fsGroup does not apply to a hostPath volume, so the
+# own-model-directory initContainer gives that directory to 10001 at every start. It runs as root
+# with CAP_CHOWN alone, no privilege escalation and a read-only root filesystem, and exits before
+# ollama starts. It is the one exception to kube-linter's run-as-non-root, recorded here and in
+# k8s/README.md rather than suppressed (#1060).
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -37,6 +46,12 @@ spec:
         llm.devops.io/speed-tier: fast
     spec:
       runtimeClassName: nvidia
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -51,14 +66,48 @@ spec:
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["16Gi", "20Gi"]
+      initContainers:
+        - name: own-model-directory
+          image: ollama/ollama:0.34.4
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+          command:
+            - chown
+            - -R
+            - "10001:10001"
+            - /home/ollama/.ollama
+          resources:
+            requests:
+              cpu: 10m
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
           image: ollama/ollama:0.34.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: OLLAMA_HOST
               value: 0.0.0.0:11434
+            - name: HOME
+              value: /home/ollama
             - name: OLLAMA_MODELS
-              value: /root/.ollama/models
+              value: /home/ollama/.ollama/models
             - name: OLLAMA_CONTEXT_LENGTH
               value: "48000"
             - name: OLLAMA_MAX_LOADED_MODELS
@@ -102,12 +151,16 @@ spec:
             failureThreshold: 6
           volumeMounts:
             - name: ollama-data
-              mountPath: /root/.ollama
+              mountPath: /home/ollama/.ollama
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: ollama-data
           hostPath:
             path: /var/lib/ollama
             type: DirectoryOrCreate
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -140,6 +193,12 @@ spec:
         llm.devops.io/speed-tier: slow
     spec:
       runtimeClassName: nvidia
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -151,14 +210,48 @@ spec:
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["24Gi", "28Gi"]
+      initContainers:
+        - name: own-model-directory
+          image: ollama/ollama:0.34.4
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+          command:
+            - chown
+            - -R
+            - "10001:10001"
+            - /home/ollama/.ollama
+          resources:
+            requests:
+              cpu: 10m
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
           image: ollama/ollama:0.34.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: OLLAMA_HOST
               value: 0.0.0.0:11434
+            - name: HOME
+              value: /home/ollama
             - name: OLLAMA_MODELS
-              value: /root/.ollama/models
+              value: /home/ollama/.ollama/models
             - name: OLLAMA_CONTEXT_LENGTH
               value: "48000"
             - name: OLLAMA_MAX_LOADED_MODELS
@@ -202,12 +295,16 @@ spec:
             failureThreshold: 6
           volumeMounts:
             - name: ollama-data
-              mountPath: /root/.ollama
+              mountPath: /home/ollama/.ollama
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: ollama-data
           hostPath:
             path: /var/lib/ollama
             type: DirectoryOrCreate
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -238,6 +335,12 @@ spec:
         llm.devops.io/total-vram-gib: "32"
     spec:
       runtimeClassName: nvidia
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -252,14 +355,48 @@ spec:
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["32Gi", "36Gi", "40Gi", "44Gi"]
+      initContainers:
+        - name: own-model-directory
+          image: ollama/ollama:0.34.4
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+          command:
+            - chown
+            - -R
+            - "10001:10001"
+            - /home/ollama/.ollama
+          resources:
+            requests:
+              cpu: 10m
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
           image: ollama/ollama:0.34.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: OLLAMA_HOST
               value: 0.0.0.0:11434
+            - name: HOME
+              value: /home/ollama
             - name: OLLAMA_MODELS
-              value: /root/.ollama/models
+              value: /home/ollama/.ollama/models
             - name: OLLAMA_CONTEXT_LENGTH
               value: "48000"
             - name: OLLAMA_MAX_LOADED_MODELS
@@ -305,12 +442,16 @@ spec:
             failureThreshold: 6
           volumeMounts:
             - name: ollama-data
-              mountPath: /root/.ollama
+              mountPath: /home/ollama/.ollama
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: ollama-data
           hostPath:
             path: /var/lib/ollama
             type: DirectoryOrCreate
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -343,6 +484,12 @@ spec:
         llm.devops.io/speed-tier: fast
     spec:
       runtimeClassName: nvidia
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -354,14 +501,48 @@ spec:
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["48Gi", "52Gi", "56Gi", "60Gi"]
+      initContainers:
+        - name: own-model-directory
+          image: ollama/ollama:0.34.4
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+          command:
+            - chown
+            - -R
+            - "10001:10001"
+            - /home/ollama/.ollama
+          resources:
+            requests:
+              cpu: 10m
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
           image: ollama/ollama:0.34.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: OLLAMA_HOST
               value: 0.0.0.0:11434
+            - name: HOME
+              value: /home/ollama
             - name: OLLAMA_MODELS
-              value: /root/.ollama/models
+              value: /home/ollama/.ollama/models
             - name: OLLAMA_CONTEXT_LENGTH
               value: "128000"
             - name: OLLAMA_MAX_LOADED_MODELS
@@ -407,12 +588,16 @@ spec:
             failureThreshold: 6
           volumeMounts:
             - name: ollama-data
-              mountPath: /root/.ollama
+              mountPath: /home/ollama/.ollama
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: ollama-data
           hostPath:
             path: /var/lib/ollama
             type: DirectoryOrCreate
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -445,6 +630,12 @@ spec:
         llm.devops.io/speed-tier: slow
     spec:
       runtimeClassName: nvidia
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -456,14 +647,48 @@ spec:
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["48Gi", "52Gi", "56Gi", "60Gi"]
+      initContainers:
+        - name: own-model-directory
+          image: ollama/ollama:0.34.4
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+          command:
+            - chown
+            - -R
+            - "10001:10001"
+            - /home/ollama/.ollama
+          resources:
+            requests:
+              cpu: 10m
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
           image: ollama/ollama:0.34.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: OLLAMA_HOST
               value: 0.0.0.0:11434
+            - name: HOME
+              value: /home/ollama
             - name: OLLAMA_MODELS
-              value: /root/.ollama/models
+              value: /home/ollama/.ollama/models
             - name: OLLAMA_CONTEXT_LENGTH
               value: "128000"
             - name: OLLAMA_MAX_LOADED_MODELS
@@ -511,12 +736,16 @@ spec:
             failureThreshold: 6
           volumeMounts:
             - name: ollama-data
-              mountPath: /root/.ollama
+              mountPath: /home/ollama/.ollama
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: ollama-data
           hostPath:
             path: /var/lib/ollama
             type: DirectoryOrCreate
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -549,6 +778,12 @@ spec:
         llm.devops.io/speed-tier: standard
     spec:
       runtimeClassName: nvidia
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -563,14 +798,48 @@ spec:
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["64Gi", "68Gi"]
+      initContainers:
+        - name: own-model-directory
+          image: ollama/ollama:0.34.4
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+          command:
+            - chown
+            - -R
+            - "10001:10001"
+            - /home/ollama/.ollama
+          resources:
+            requests:
+              cpu: 10m
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
           image: ollama/ollama:0.34.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: OLLAMA_HOST
               value: 0.0.0.0:11434
+            - name: HOME
+              value: /home/ollama
             - name: OLLAMA_MODELS
-              value: /root/.ollama/models
+              value: /home/ollama/.ollama/models
             - name: OLLAMA_CONTEXT_LENGTH
               value: "160000"
             - name: OLLAMA_MAX_LOADED_MODELS
@@ -616,12 +885,16 @@ spec:
             failureThreshold: 6
           volumeMounts:
             - name: ollama-data
-              mountPath: /root/.ollama
+              mountPath: /home/ollama/.ollama
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: ollama-data
           hostPath:
             path: /var/lib/ollama
             type: DirectoryOrCreate
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -652,6 +925,12 @@ spec:
         llm.devops.io/total-vram-gib: "72"
     spec:
       runtimeClassName: nvidia
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -666,14 +945,48 @@ spec:
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["72Gi", "76Gi", "80Gi", "84Gi", "88Gi", "92Gi"]
+      initContainers:
+        - name: own-model-directory
+          image: ollama/ollama:0.34.4
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+          command:
+            - chown
+            - -R
+            - "10001:10001"
+            - /home/ollama/.ollama
+          resources:
+            requests:
+              cpu: 10m
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
           image: ollama/ollama:0.34.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: OLLAMA_HOST
               value: 0.0.0.0:11434
+            - name: HOME
+              value: /home/ollama
             - name: OLLAMA_MODELS
-              value: /root/.ollama/models
+              value: /home/ollama/.ollama/models
             - name: OLLAMA_CONTEXT_LENGTH
               value: "192000"
             - name: OLLAMA_MAX_LOADED_MODELS
@@ -719,12 +1032,16 @@ spec:
             failureThreshold: 6
           volumeMounts:
             - name: ollama-data
-              mountPath: /root/.ollama
+              mountPath: /home/ollama/.ollama
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: ollama-data
           hostPath:
             path: /var/lib/ollama
             type: DirectoryOrCreate
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -755,6 +1072,12 @@ spec:
         llm.devops.io/total-vram-gib: "96"
     spec:
       runtimeClassName: nvidia
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -779,14 +1102,48 @@ spec:
                         "120Gi",
                         "124Gi",
                       ]
+      initContainers:
+        - name: own-model-directory
+          image: ollama/ollama:0.34.4
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+          command:
+            - chown
+            - -R
+            - "10001:10001"
+            - /home/ollama/.ollama
+          resources:
+            requests:
+              cpu: 10m
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
           image: ollama/ollama:0.34.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: OLLAMA_HOST
               value: 0.0.0.0:11434
+            - name: HOME
+              value: /home/ollama
             - name: OLLAMA_MODELS
-              value: /root/.ollama/models
+              value: /home/ollama/.ollama/models
             - name: OLLAMA_CONTEXT_LENGTH
               value: "224000"
             - name: OLLAMA_MAX_LOADED_MODELS
@@ -832,12 +1189,16 @@ spec:
             failureThreshold: 6
           volumeMounts:
             - name: ollama-data
-              mountPath: /root/.ollama
+              mountPath: /home/ollama/.ollama
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: ollama-data
           hostPath:
             path: /var/lib/ollama
             type: DirectoryOrCreate
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -868,6 +1229,12 @@ spec:
         llm.devops.io/total-vram-gib: "128"
     spec:
       runtimeClassName: nvidia
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -882,14 +1249,48 @@ spec:
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["128Gi"]
+      initContainers:
+        - name: own-model-directory
+          image: ollama/ollama:0.34.4
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+          command:
+            - chown
+            - -R
+            - "10001:10001"
+            - /home/ollama/.ollama
+          resources:
+            requests:
+              cpu: 10m
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /home/ollama/.ollama
       containers:
         - name: ollama
           image: ollama/ollama:0.34.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: OLLAMA_HOST
               value: 0.0.0.0:11434
+            - name: HOME
+              value: /home/ollama
             - name: OLLAMA_MODELS
-              value: /root/.ollama/models
+              value: /home/ollama/.ollama/models
             - name: OLLAMA_CONTEXT_LENGTH
               value: "256000"
             - name: OLLAMA_MAX_LOADED_MODELS
@@ -935,9 +1336,13 @@ spec:
             failureThreshold: 6
           volumeMounts:
             - name: ollama-data
-              mountPath: /root/.ollama
+              mountPath: /home/ollama/.ollama
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: ollama-data
           hostPath:
             path: /var/lib/ollama
             type: DirectoryOrCreate
+        - name: tmp
+          emptyDir: {}
