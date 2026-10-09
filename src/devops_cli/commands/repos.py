@@ -25,7 +25,7 @@ from devops_cli.core.cli import exit_on_error, new_typer, repo_label
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import is_dry_run
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubOperationError, GitOperationError
 from devops_cli.git.operations import clone_repo, fetch_all, iter_workspace_repos, pull_tracking
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -277,7 +277,8 @@ def clone(
     dest_dir.mkdir(parents=True, exist_ok=True)
     masked_url = mask_secrets(url)
     print_info(MESSAGES.repos.cloning_repo.format(url=masked_url, dest=dest), prefix=False)
-    clone_repo(url, dest)
+    with exit_on_error(GitOperationError):
+        clone_repo(url, dest)
     _sync_and_reload_workspace(root, settings.workspace.file)
     print_success(MESSAGES.repos.done, prefix=False)
 
