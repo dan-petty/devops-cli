@@ -601,9 +601,12 @@ def render_proposal_section(
     branch: str,
     allowed_urls: set[str],
 ) -> str:
-    """Builds the sanitized plain text markdown section between markers."""
+    """Builds the sanitized plain text markdown section between markers.
+
+    The markers go around the text after it is sanitized, so `sanitize_text` neutralises an
+    end marker in the model's text but never the section's own (#1470).
+    """
     lines: list[str] = [
-        CONST_ROADMAP_REFINE_START_MARKER,
         f"<!-- checked-at: sha={sha} branch={branch} -->",
         "## Proposed design",
         "",
@@ -651,9 +654,8 @@ def render_proposal_section(
     else:
         lines.append("None.")
 
-    lines.append(CONST_ROADMAP_REFINE_END_MARKER)
-    raw = "\n".join(lines)
-    return sanitize_text(raw, allowed_urls)
+    section = sanitize_text("\n".join(lines), allowed_urls)
+    return f"{CONST_ROADMAP_REFINE_START_MARKER}\n{section}\n{CONST_ROADMAP_REFINE_END_MARKER}"
 
 
 # ── Selection ─────────────────────────────────────────────────────────────────

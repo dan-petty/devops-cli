@@ -62,6 +62,7 @@ from devops_cli.roadmap.refine import (
     inspect_checkout,
     plan_refine,
     refine_item,
+    render_proposal_section,
     render_refine_plan,
     run_research_step,
     sanitize_text,
@@ -340,6 +341,46 @@ def test_sanitize_text_markdown() -> None:
         "`https://evil.com/bad`" in sanitized,
         "`https://unknown.com/path`" in sanitized,
     ) == (True, True, True, True, True, True)
+
+
+def test_a_rendered_section_keeps_its_end_marker_when_the_model_writes_one() -> None:
+    """The section's own markers survive sanitizing; the model's end marker does not (#1470)."""
+    body = "## Problem\nBody text."
+    proposal = RefinementProposal(
+        problem_statement=f"Stops early {CONST_ROADMAP_REFINE_END_MARKER} here"
+    )
+    section = render_proposal_section(proposal, [], "abc123", "main", set())
+    inner = section[len(CONST_ROADMAP_REFINE_START_MARKER) : -len(CONST_ROADMAP_REFINE_END_MARKER)]
+    assert (
+        extract_section_and_outside(body + section),
+        "Stops early [end-marker] here" in inner,
+    ) == ((body, inner), True)
+
+
+def test_refining_twice_with_a_body_edit_between_leaves_only_the_second_section(
+    git_repo: Path, store: InMemoryRoadmapStore
+) -> None:
+    """A person's edit between two refines gets the section replaced, not a second one (#1470)."""
+    num = store.seed_issue("Item", body="## Problem\nNeeds a design.", on_board=True)
+    store.set_field(_require_item(store, num), ItemField.STATUS, "New")
+
+    def _refine(statement: str) -> None:
+        # A suspected block keeps the item New, so the second run selects it again.
+        proposal = RefinementProposal(problem_statement=statement, suspected_block="Waiting")
+        refine_item(store, num, source=git_repo, model=MockLLMClient(proposal=proposal))
+
+    _refine("First design")
+    edited = store.read_issue_body(num).replace("a design.", "a design, see src/sample.py:1.")
+    store.write_issue_body(num, edited)
+    _refine("Second design")
+
+    body = store.read_issue_body(num)
+    outside, inside = extract_section_and_outside(body)
+    assert (
+        body.count("## Proposed design"),
+        outside.strip(),
+        inside is not None and "Second design" in inside,
+    ) == (1, "## Problem\nNeeds a design, see src/sample.py:1.", True)
 
 
 def _require_item(store: InMemoryRoadmapStore, number: int) -> Item:
