@@ -16,10 +16,16 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  # uv runs only its own CPython builds, never the runner image's Python: setup-uv exports
+  # UV_PYTHON=3.14, which a runner's own 3.14 would otherwise satisfy (#1494). Never also set
+  # UV_PYTHON_PREFERENCE; uv refuses to run with both.
+  UV_MANAGED_PYTHON: "1"
+
 jobs:
   release:
     name: Build & Publish Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 30
     outputs:
       version: ${{ steps.ver.outputs.version }}
@@ -158,7 +164,7 @@ jobs:
     # scans, pushes by digest and attests service:vX.Y.Z, then tags it vX.Y.Z and latest; Image
     # Updater rolls the cluster onto the new digest (#1486).
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # moves to ubuntu-26.04 in #1501
     timeout-minutes: 30
     permissions:
       contents: read

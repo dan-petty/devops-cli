@@ -611,6 +611,56 @@ def test_github_workflows_caching_configuration() -> None:
                 _validate_devcontainer_step(step, context_tag)
 
 
+def _installs_uv(uses: str) -> bool:
+    """A step installs uv through setup-uv, directly or through a local composite action."""
+    import yaml
+
+    if "astral-sh/setup-uv" in uses:
+        return True
+    if not uses.startswith("./"):
+        return False
+    action = yaml.safe_load((Path(uses) / "action.yml").read_text(encoding="utf-8")) or {}
+    return any(
+        "astral-sh/setup-uv" in str(step.get("uses", "")) for step in action["runs"]["steps"]
+    )
+
+
+def test_github_workflows_name_their_runner_and_use_managed_python() -> None:
+    """Every job names its runner image, and uv in CI runs only its own CPython builds.
+
+    A `-latest` label moves to a new image without review, as ubuntu-latest moves to Ubuntu
+    26.04 from 2026-10-19. setup-uv exports `UV_PYTHON=3.14`, so on an image whose own Python
+    is a 3.14 uv would take that interpreter over the managed build `.python-version` pins
+    unless `UV_MANAGED_PYTHON` restricts it (#1494).
+    """
+    import yaml
+
+    latest_runners: list[str] = []
+    uv_workflows: dict[str, bool] = {}
+    for wf_file in sorted(Path(".github/workflows").glob("*.yml")):
+        workflow = yaml.safe_load(wf_file.read_text(encoding="utf-8")) or {}
+        jobs = {name: job for name, job in workflow["jobs"].items() if isinstance(job, dict)}
+        latest_runners += [
+            f"{wf_file.name}:{name}"
+            for name, job in jobs.items()
+            if "-latest" in str(job.get("runs-on", ""))
+        ]
+        if any(
+            _installs_uv(str(step.get("uses", "")))
+            for job in jobs.values()
+            for step in job.get("steps", [])
+            if isinstance(step, dict)
+        ):
+            uv_workflows[wf_file.name] = workflow.get("env", {}).get("UV_MANAGED_PYTHON") == "1"
+
+    assert latest_runners == [], f"jobs on a -latest runner: {latest_runners}"
+    # ci.yml reaches setup-uv only through the setup-toolchain composite action.
+    assert {"ci.yml", "release.yml"} <= uv_workflows.keys()
+    assert [name for name, managed in uv_workflows.items() if not managed] == [], (
+        "workflows that run uv must set UV_MANAGED_PYTHON: '1' in their workflow-level env"
+    )
+
+
 def test_ci_workflow_has_tooling_cache_step() -> None:
     """Validate the shared toolchain action caches incremental tool state with a stable key.
 
