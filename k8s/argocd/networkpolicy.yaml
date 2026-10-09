@@ -64,7 +64,7 @@ spec:
           port: 6443
         - protocol: TCP
           port: 8443
-    # 4. Allow Git (HTTPS 443, SSH 22, Git daemon 9418) and Helm pulls while strictly blocking cloud metadata SSRF
+    # 4. Allow Git (HTTPS 443, SSH 22) and Helm pulls while strictly blocking cloud metadata SSRF
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -77,5 +77,3 @@ spec:
           port: 80
         - protocol: TCP
           port: 22
-        - protocol: TCP
-          port: 9418
