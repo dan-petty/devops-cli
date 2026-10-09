@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 import threading
 import time
 from collections.abc import Generator
@@ -115,7 +114,22 @@ def load_and_increment_rr_index(n: int) -> int:
     if n <= 1:
         return 0
     uid = os.getuid() if hasattr(os, "getuid") else 0
-    state_file = Path(tempfile.gettempdir()) / f"devops_cli_ollama_rr_{uid}"
+    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
+    if env_data_dir:
+        data_dir = Path(env_data_dir)
+    else:
+        try:
+            from devops_cli.config.settings import load_settings
+            from devops_cli.core.repo import resolve_data_path
+
+            data_dir = resolve_data_path(load_settings().data.dir)
+        except Exception:
+            data_dir = Path(".data")
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    state_file = data_dir / f"devops_cli_ollama_rr_{uid}"
     with global_ollama_url_lock:
         idx = global_ollama_url_index
         try:

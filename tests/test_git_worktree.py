@@ -105,7 +105,12 @@ def test_review_worktrees_context_lifecycle(tmp_path: Path) -> None:
             True,
             False,
         )
-        assert (rw.commit_worktree.is_dir(), rw.base_worktree.is_dir()) == (True, True)
+        assert (
+            rw.commit_worktree.is_dir(),
+            rw.base_worktree.is_dir(),
+            rw.commit_worktree.is_relative_to(tmp_path),
+            rw.base_worktree.is_relative_to(tmp_path),
+        ) == (True, True, True, True)
         wt_commit_path = rw.commit_worktree
         wt_base_path = rw.base_worktree
 

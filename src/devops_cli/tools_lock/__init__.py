@@ -19,7 +19,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from devops_cli.config.constants import CONST_USER_DATA_ROOT
+from devops_cli.core.repo import user_data_root
 
 LOCK_DIR = Path(__file__).resolve().parent
 LOCK_FILENAME = "tools.lock"
@@ -112,7 +112,7 @@ def tools_lock_digest(lock_dir: Path = LOCK_DIR) -> str:
 def tool_install_dir(name: str, version: str) -> Path:
     """Where version `version` of tool `name` installs: a binary tool's file, or a Python tool's
     virtual environment."""
-    return CONST_USER_DATA_ROOT / "tools" / name / version
+    return user_data_root() / "tools" / name / version
 
 
 def installed_commands(name: str, tool: BinaryTool | PythonTool) -> dict[str, Path]:

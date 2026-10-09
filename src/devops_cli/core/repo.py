@@ -291,6 +291,12 @@ def is_own_source_repository(start_path: Path | str | None = None) -> bool:
     return source == _repository_at(os.path.abspath(start_path or os.getcwd()))
 
 
+def user_data_root() -> Path:
+    """The user-level data root directory, honoring DEVOPS_CLI_USER_DATA_ROOT if set (#1311)."""
+    env_root = os.environ.get("DEVOPS_CLI_USER_DATA_ROOT")
+    return Path(env_root).resolve() if env_root else CONST_USER_DATA_ROOT
+
+
 def resolve_data_path(path: Path, start_path: Path | str | None = None) -> Path:
     """A configured data path: as given when absolute, else under the main worktree.
 
@@ -306,7 +312,7 @@ def resolve_data_path(path: Path, start_path: Path | str | None = None) -> Path:
     """
     if path.is_absolute():
         return path
-    base = CONST_USER_DATA_ROOT if reads_untrusted_trees() else main_worktree_root(start_path)
+    base = user_data_root() if reads_untrusted_trees() else main_worktree_root(start_path)
     return (base / path).resolve()
 
 
@@ -315,7 +321,7 @@ def review_data_root() -> Path:
     working directory is in devops-cli's own repository (`is_own_source_repository`), as every
     data path there does, else the user-level data root, where a review started anywhere else
     keeps it."""
-    return main_worktree_root() if is_own_source_repository() else CONST_USER_DATA_ROOT
+    return main_worktree_root() if is_own_source_repository() else user_data_root()
 
 
 def resolve_review_data_path(path: Path) -> Path:
